@@ -58,6 +58,17 @@ pub fn install_decider(w: &World, reply: &str) {
     std::fs::write(w.root.join("sdc-reply"), "#!/bin/sh\n").unwrap();
     std::fs::create_dir_all(w.root.join("driver/examples/sdc")).unwrap();
     std::fs::write(w.root.join("driver/examples/sdc/rule-ends.json"), "{}\n").unwrap();
+    install_routing_table(w);
+}
+
+/// The repository's own files of who decides at which level (`decision-classes.json` and
+/// `tools/autonomy-levels.json`), beside the bindings of the world, so the copy carries them.
+pub fn install_routing_table(w: &World) {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    std::fs::create_dir_all(w.root.join("driver/examples/sdc")).unwrap();
+    std::fs::create_dir_all(w.root.join("tools")).unwrap();
+    std::fs::copy(repo.join("driver/examples/sdc/decision-classes.json"), w.root.join("driver/examples/sdc/decision-classes.json")).unwrap();
+    std::fs::copy(repo.join("tools/autonomy-levels.json"), w.root.join("tools/autonomy-levels.json")).unwrap();
 }
 
 /// The file `sdc-experiment run` writes for a loom run, as committed in

@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 pub(super) const PRINCIPAL: &str = "decider:requester";
 /// The person a request that the requester cannot answer is addressed to (`SDC_REQUESTER_PERSON`).
 const REQUESTER_PERSON: &str = "person:requester";
-const CLASSES_FILE: &str = "driver/examples/sdc/decision-classes.json";
 const DRY_WHY: &str = "dry run: no LLM was called; the approve rule decided";
 
 /// The decision class of a decision (`decision-classes.json`, `sdc.decision-classes/1`) and the side
@@ -40,22 +39,8 @@ pub(super) struct Route {
 /// first class that lists the action (`<protocol>/<action>`), else `approval`. A class that is not
 /// in the file is on the delivering side.
 pub(super) fn route(root: &Path, kind: &str, action: &str) -> Result<Route, String> {
-    let file = root.join(CLASSES_FILE);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("the requester decider needs {CLASSES_FILE} above the bindings copy: {}", e.kind()))?;
-    let doc: Value = serde_json::from_str(&text).map_err(|_| format!("{CLASSES_FILE} is not JSON"))?;
-    let classes = doc["classes"].as_object().ok_or_else(|| format!("{CLASSES_FILE} has no classes"))?;
-    let class = match kind {
-        "question" => "scope_changing_answer".to_owned(),
-        "finding" => "finding".to_owned(),
-        "close" => "close".to_owned(),
-        _ => {
-            let tail = format!("/{action}");
-            classes
-                .iter()
-                .find(|(_, v)| v["actions"].as_array().is_some_and(|a| a.iter().filter_map(Value::as_str).any(|x| x.ends_with(&tail))))
-                .map_or_else(|| "approval".to_owned(), |(k, _)| k.clone())
-        }
-    };
+    let classes = super::routing::read_classes(root)?;
+    let class = super::routing::class_of(&classes, kind, action);
     let side = classes.get(&class).and_then(|c| c["side"].as_str()).unwrap_or("delivering").to_owned();
     Ok(Route { class, side })
 }

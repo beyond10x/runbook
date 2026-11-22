@@ -44,9 +44,25 @@ struct RoleSet {
 
 struct Plan {
     principal: Option<String>,
+    /// Below A5: the level, the decider's principal and the holder table; a person step is the
+    /// decider's only where the table gives its class to the decider. `None`: no such run, or a table
+    /// that cannot be read (every step keeps its person).
+    routed: Option<(String, String, decider::Routing)>,
     roles: BTreeMap<String, RoleSet>,
     adapter: Option<String>,
     login: Option<PathBuf>,
+}
+
+impl Plan {
+    /// The principal the person step `action` is given: the decider's at A5, below A5 only where the
+    /// holder table gives the class of the action to the decider.
+    fn principal_of(&self, action: &str) -> Option<&str> {
+        if let Some(principal) = &self.principal {
+            return Some(principal);
+        }
+        let (level, principal, routing) = self.routed.as_ref()?;
+        routing.decider_takes(level, "approval", action).then_some(principal.as_str())
+    }
 }
 
 fn object<'a>(value: &'a Value, what: &str) -> Result<&'a serde_json::Map<String, Value>, String> {
@@ -122,7 +138,7 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
         }
         Some(_) => return Err("login_file: a path".to_owned()),
     };
-    Ok(Plan { principal, roles, adapter, login })
+    Ok(Plan { principal, routed: None, roles, adapter, login })
 }
 
 /// Copies the bindings directory `src` into `dst` (which does not exist yet) and applies
@@ -138,7 +154,10 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
 /// nodes holds, and the settings must come with one. An unknown key in `settings` is refused by
 /// name before anything is written. The login file's path is in no error and no return value.
 pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value, login_link: Option<&Path>) -> Result<PathBuf, String> {
-    let plan = read_plan(settings)?;
+    let mut plan = read_plan(settings)?;
+    if let Some((level, principal)) = decider::step_principal(settings)?.filter(|(level, _)| level != decider::AUTONOMY_DECIDES) {
+        plan.routed = src.parent().and_then(|root| decider::Routing::load(root).ok()).map(|routing| (level, principal, routing));
+    }
     if dst.exists() {
         return Err(format!("{}: exists", dst.display()));
     }
@@ -251,7 +270,7 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
         if kind.as_deref() == Some("person") {
             // A step whose outcome is a person's own text (an answer) keeps its person unless the
             // answers file declares it: only the file says what the decider answers there.
-            if let Some(principal) = plan.principal.as_deref().filter(|_| answers.decider_takes(&name, action)) {
+            if let Some(principal) = plan.principal_of(&name).filter(|_| answers.decider_takes(&name, action)) {
                 let old = action.get("executor").and_then(Yaml::as_mapping).and_then(|m| text(m, "principal"));
                 if let Some(executor) = action.get_mut("executor").and_then(Yaml::as_mapping_mut) {
                     executor.insert(key("principal"), key(principal));

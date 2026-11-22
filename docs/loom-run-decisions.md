@@ -16,13 +16,13 @@ for it: the run ends or the step never exists.
 
 | Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `runbook run` does |
 |---|---|---|---|---|
-| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a result the action does not declare ends the run `error` |
+| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a rejection of an action that declares no `rejected` result stops the run `stopped: rejected` (exit 10, cause `rejected_without_rework_path`, the reason `<step> in <case>: …`), and an approval of a result the action does not declare ends it `error`. The driver's `approved_on_checks` (three invalid replies and every check true: approved) is not in the runner: Loom's `decisions[]` holds no claim values to check, and an approval nobody validly gave stays `CannotDecide`, so the run stops for a person |
 | approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |
 | escalate (decider reply) | the reply's `best` | `best` approve or reject | not a Loom entry: a reply | `escalate: final` takes `best` (reject when absent), as the driver's `escalation_suppressed`; `escalate: stop` ends in `CannotDecide {reason: "reserved for a person: …"}` |
 | question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none: the action lists no results, so the printed command has no `--result` and no `--reasons-file` | with `tools/answers.yaml` declaring the action (the committed bindings do): one request per open question, one decider call each at A5, the answer written into the workspace by the file's `apply` program, then the file's `then` program takes the step and the printed `tree approve` runs with the decider's principal. The answer text is in the work file, in `decisions.jsonl` and in the decider's record, not in Loom's approval. Without the declaration: `CannotDecide` ("scope.answer is a step whose outcome is a person's text …") and the copy keeps `person:owner` |
 | question: `questions.answer` | | | No: a model node (class `other`) in the bindings, not a decision | runs as a node |
 | finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Reachable as the `Handoff` of `amend.upstream`: a finding that needs a person is a request of the answers file's `requests` program | one request per such finding, one decider call each; the `apply` program writes the answer as the finding's `decision` and `decided_by`, then the printed `tree run` runs. A finding the driver would re-raise (`reraised`) ends the run `error`, as it stops the driver. What Loom cannot do (refuse a finding) stays in `bindings/PENDING.md` |
-| close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | asked as `type close` with the printed outcome; approve runs the printed `tree close`, decline runs nothing; the other outcomes of that case are not asked after one ran |
+| close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | at A5 a close through an outcome the close class lists (`operating`) is taken by `rule:autopilot`: no decider call, no model call, the printed `tree close` runs. Any other close is asked as `type close` with the printed outcome where the table gives the close to the decider (A4; A5 for an outcome the class does not list); approve runs the printed `tree close`, decline runs nothing and the same close that comes back ends the run `denied`; the other outcomes of that case are not asked after one ran |
 | handoff | a writer's handoff text | none | Yes: kind `Handoff`, the printed command is `tree run --store … --confinement …` | a scripted approval runs the printed `tree run` through the ledger; `decider.sh` has no reply for it, so a program decider ends `CannotDecide` ("kind Handoff …"); a handoff that comes back after its command ran is an `error` |
 | an unknown kind | | | whatever Loom adds | `CannotDecide` ("kind X not known") |
 | withhold, run.unstick, keep-going | the driver's own routes after a decision | | Not reachable through `tree` today: Loom has no such steps | a run has none of them; the first stop is the stop |
@@ -43,17 +43,36 @@ Notes.
   without it the answer is `CannotDecide` naming this. Every record of the run says so.
 - The principal is `decider:model` (kind `model`), `decider:approve` or `decider:reject` (kind
   `rule`, the driver's `SDC_DECIDER=approve|reject`).
-- Autonomy. The decider answers only at `autonomy: A5` (the driver hands every decision to the decider
-  there and to a person at A0). A0 to A4 and no level named end in `CannotDecide {reason: "reserved
-  for a person: autonomy A<n> …"}`: A1 to A4 have no per-class routing in the driver ("not built",
-  `docs/autonomy-levels.md`), and in the copy the person steps then keep `person:owner`.
+- Autonomy. At `autonomy: A5` the decider answers every decision, except the close through
+  `operating`, which `rule:autopilot` takes. A0 and no level named end in `CannotDecide {reason:
+  "reserved for a person: …"}`. A1 to A4 route by class: `tools/autonomy-levels.json` (the table of
+  `docs/autonomy-levels.md` § 2.2, one cell per level and class; one loader,
+  `runbook/src/loom_run/decider/routing.rs`, which the requester decider reads its classes
+  through) names the holder of each class. Only a class the table gives to `decider` is answered
+  (`context`, `spec_acceptance`, `story_activation` and `code_review` from A2; also the scope
+  answers, `vision`, `roadmap` from A3; the close at A4). A class held by anyone else (`person`,
+  `advised`, `rule`, `rule_and_decider`: no rule is built, so the decider alone never takes the merge
+  at A4), a class the table does not know, and a table that is missing, unreadable or inconsistent
+  (a format, a level, a class or a holder that is not what it should be) end in `CannotDecide
+  {reason: "reserved for a person: autonomy A<n> …"}` and call no model. Below A5 `escalate:
+  final` does not apply: an escalate stops for a person. In the copy the person steps the table
+  gives to the decider get `decider:<kind>` and the others keep `person:owner`; without a table every
+  step keeps its person. A rule or a model never records an approval or a close under a person's name:
+  the principal is `rule:autopilot`, `decider:model`, `decider:approve` or `decider:reject`.
+  `driver/examples/sdc/decision-classes.json` and `tools/autonomy-levels.json` are copied beside
+  the run's bindings. A test reads the table of the document and compares it to the JSON.
+  The driver's A3 routing (the decider rejects a release, the decider is asked for the close) is
+  not ported: the table gives the release and the close at A3 to a person, and a level never widens
+  what its table gives.
 - Call limit. `decider.max_calls` (the driver's `SDC_MAX_DECIDER_CALLS`; `max_decider_calls` is
   accepted as the experiment record's name for it, one of the two) counts the decider's model calls:
   a record directory under `<run>/decider/` per call, retries included. At the limit the next decision
   is `CannotDecide` ("decider budget spent: n decider calls"). A rule decider makes no call and has
   no limit. Default 20.
-- `escalate: final` applies to the decisions Loom can ask (the two approval kinds), so it is
+- `escalate: final` applies at A5 to the decisions Loom can ask (the two approval kinds), so it is
   implemented, not only described. Default `stop`.
+- The reason of a stop at a decision the decider cannot take names the step, the case and what could
+  not be decided, and no person (`amend.upstream in IDEA-1: kind Handoff: …`).
 - An invalid reply (`valid: false`) is asked again with its reason, `decider.retries` times (default 2,
   the driver's `SDC_DECIDER_RETRIES`), then `CannotDecide`.
 - Anything missing, unparsable or with an exit code other than 0 is `CannotDecide`: no JSON object, no

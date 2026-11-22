@@ -192,13 +192,53 @@ fn the_principal_of_person_steps_is_rewritten_in_executor_and_evidence_and_scope
         let expect = if name.ends_with(":scope.answer") { "person:owner" } else { "decider:model" };
         assert_eq!(action["executor"]["principal"].as_str(), Some(expect), "{name}");
     }
-    for autonomy in ["A0", "A3", "A4"] {
+    for autonomy in ["A0", "A1"] {
         let mut s = model_settings();
         s["autonomy"] = json!(autonomy);
         let (_d, d, r) = make("r2-copy-reserved", &s);
         r.unwrap();
         assert_only_the_tools_dir_differs(&d);
     }
+}
+
+#[test]
+fn below_a5_only_the_person_steps_the_table_gives_the_decider_get_its_principal_and_no_table_leaves_every_step_a_person() {
+    let table = decider::Routing::load(committed().parent().unwrap()).unwrap();
+    for level in ["A2", "A3", "A4"] {
+        let mut s = model_settings();
+        s["autonomy"] = json!(level);
+        let (_d, dst, r) = make("r2-copy-routed", &s);
+        r.unwrap();
+        let (mut taken, mut kept) = (0, 0);
+        for (name, action) in actions(&dst) {
+            if action["executor"]["kind"].as_str() != Some("person") {
+                continue;
+            }
+            let short = name.split_once(':').unwrap().1;
+            let got = action["executor"]["principal"].as_str().unwrap();
+            if got == "decider:model" {
+                assert!(table.decider_takes(level, "approval", short), "{level} {name}: the table does not give it to the decider");
+                taken += 1;
+            } else {
+                assert!(!got.starts_with("decider:") && !got.starts_with("rule:"), "{level} {name}: {got}");
+                kept += 1;
+            }
+            if short == "release.publish" || short == "change.merge" {
+                assert_ne!(got, "decider:model", "{level} {name}: a person's below A5");
+            }
+        }
+        assert!(taken > 0 && kept > 0, "{level}: {taken} taken, {kept} kept");
+    }
+    // The table is read beside the committed bindings; a source whose root has none is a person's.
+    let dir = Dir::new("r2-copy-no-table");
+    let src = dir.path().join("src/bindings");
+    copy_dir(&committed(), &src).unwrap();
+    let dst = dir.path().join("run/bindings");
+    std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    let mut s = model_settings();
+    s["autonomy"] = json!("A4");
+    materialise(&src, &dst, "sdc", &s, None).unwrap();
+    assert_only_the_tools_dir_differs(&dst);
 }
 
 #[test]

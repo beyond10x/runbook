@@ -29,8 +29,8 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 `--detach`. The settings file has one format, `runbook.loom-run-settings/1`
 (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every `tree run` (`local` is
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
-1 error, 2 refused before anything was written, 3 stuck, 4 to 9 stopped (spend cap, wall time, model
-calls, signal, decider, denied), 64 usage. The subcommand was called `loom-run` before; this is the
+1 error, 2 refused before anything was written, 3 stuck, 4 to 10 stopped (spend cap, wall time, model
+calls, signal, decider, denied, rejected), 64 usage. The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
 A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
@@ -264,7 +264,7 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 | model calls | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
-Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 64 usage.
+Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 64 usage.
 
 ### The spend ledger
 
