@@ -3,8 +3,7 @@
 One JSON object, named by `--settings`. One format serves the loop (`docs/loom-run.md`), the decider
 and the bindings copy (`docs/loom-run-decisions.md`) and the run directory writer
 (`docs/loom-run-directory.md`). `sdc-experiment run` writes this file for a launched run
-(`docs/workflow-metrics.md` section 7.1); the last section lists what it writes today and what must
-change. The reading is `runbook/src/loom_run/settings.rs` (`normalise`, `fill_decider`),
+(`docs/workflow-metrics.md` section 7.1); the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`normalise`, `fill_decider`),
 `decider.rs` (`from_settings`) and `bindings_copy.rs` (`materialise`).
 
 An unknown key is refused by name, at any level, before the run does anything that costs money. A
@@ -50,40 +49,45 @@ binary.
 | `escalate` | `final`, `stop` | `stop` | model | what an `escalate` reply does |
 | `retries` | whole number | 2 | model | asks again after an invalid reply |
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |
-| `principal` | text | none | model, rule | accepted when it is what the kind gives (`decider:model`, `decider:approve`, `decider:reject`) and then taken out; another value is refused |
+| `principal` | text | none | all | model, rule: accepted when it is what the kind gives (`decider:model`, `decider:approve`, `decider:reject`) and then taken out; another value is refused. scripted: the principal of every answer that names none (an answer's own `principal` wins); none given: the principal Loom printed is kept |
 | `answers`, `max_call_micro_usd` | list, whole number | none | scripted | the double's answers and its reservation |
 
-## What `sdc-experiment run` writes today, and what a run does with it
+## What `sdc-experiment run` writes, and what a run does with it
 
-Unit R4 writes the file (`loom_settings_json`, commit `970db1f7`): `format`, `run`, `decider.principal`
-(always `decider:model`), `decider.model`, `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd`,
-`loom.login_file` (only when the record names one), `models.<role>.model` for the four roles,
-`max_llm_calls`, `max_wall_seconds`. It refuses these keys in a record of a loom variant:
-`decider.kind`, `decider.escalate`, `decider.max_decider_calls`, `adapter`, `decider.adapter`,
-`autonomy`, `implement_mode`, `efforts.*`, `flags.*`.
+Both sides use this format. The writer is `loom_settings_json` in `driver/src/bin/sdc-experiment.rs`
+(`runner: loom` records). It writes `format`, `run`, `autonomy`, `decider.kind`, `decider.model` (or
+`decider.verdict` for `rule`), `models.<role>.model` for the four roles, `max_llm_calls`,
+`max_wall_seconds`, `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd` and `loom.login_file`
+(only when the record names one), and, when the record sets them:
 
-What `runbook loom-run` does with that file as it is (tests in `runbook/tests/loom_run/settings.rs`):
+| Record key | File key |
+|---|---|
+| `decider.kind` is not `rule` | `decider.without_claims: true` (a model decider acknowledges that Loom's output holds no claims) |
+| `decider.escalate` | `decider.escalate` |
+| `decider.max_decider_calls` | `decider.max_decider_calls` (the decider call limit) |
+| `decider.adapter` | `decider.adapter` |
+| `adapter` | `adapter` |
+| `review.adapter` | `review.adapter` |
 
-- It is read in full, and refused (exit 2, nothing written) naming `decider.kind`.
-- With `decider.kind` added and nothing else, it starts, the model decider is built, and the first
-  decision ends the run as `stopped: decider` ("no autonomy level named"): the decider answers only
-  at `A5`.
-- With `decider.kind`, `autonomy: "A5"`, `decider.without_claims: true` and a reachable `sdc-reply` it
-  runs to the end (test `two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_run_directory`).
+It does not write `decider.principal`: the runner gives a model or rule decider the principal of its
+kind (`decider:model`, `decider:<verdict>`). A `scripted` decider (the stub-cycle comparison) names
+its principal in the file, and `decider.principal` is the default of its answers (an answer's own
+`principal` wins). Nothing about the principal is fixed in the runner for one cycle.
 
-R4 must change:
+`sdc-reply`, `jq`, `yq` and `rsync` are reached through `PATH`, not through `decider.reply_bin`. The
+launcher puts the build's `driver/target/debug` first on the unit's `PATH` (`sdc-reply`,
+`sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq`, `yq` or `rsync` is on no
+directory of that `PATH`. The reason: `b10x-loom` gives every bound program the `PATH` the runner was
+started with, and the model nodes of the bindings (`llm-node.sh`) call `sdc-reply` too, so a directory
+on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
+`decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
 
-1. Write `decider.kind` (`model` for the strong variant) and stop refusing it in a loom variant.
-2. Write `autonomy` (`A5` for the strong variant) and stop refusing it.
-3. Write `decider.without_claims: true` for a model decider (a setting the record must carry: the
-   run makes no claim about claims it does not have).
-4. Make `sdc-reply` reachable: write `decider.reply_bin`, or give the unit a `PATH` that holds it. The
-   unit's `PATH` is the login's; `jq`, `yq` and `rsync` have to be on it too, for `decider.sh`.
-5. Write, and stop refusing, the optional members the strong variant sets: `decider.escalate`
-   (`final`), `decider.max_calls` or `decider.max_decider_calls` (40), `decider.adapter`
-   (`claude-cli`), `adapter` (`metaharness`), `review.adapter` (`claude-cli`). This crate reads all of
-   them.
-6. `decider.principal` may stay (it is checked) or go (it is derived from the kind).
-7. Efforts per role (`efforts.<role>.effort`) and `flags.*` have no setting here: `llm-node.sh` has no
-   option for an effort under Loom, and the runner has no dry or recorded mode. R4's refusal of both is
-   right.
+Efforts (`efforts.<role>.effort`) and flags (`flags.*`), and `implement_mode`, stay refused in a
+record of a `loom` variant, with the key named: `llm-node.sh` has no option for an effort under
+Loom, and the runner has no dry or recorded mode.
+
+The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
+file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`
+(one equality check; the fixture holds the print form with the login path redacted). The runner's
+`runbook/tests/loom_run/settings.rs` reads that same fixture, fills in the login path and the
+sha256 of the fake binary, and runs it to the end; neither test builds the other crate.

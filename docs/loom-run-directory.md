@@ -103,7 +103,7 @@ A member with no source in a Loom run is absent (the file or the member), never 
 | `rounds.jsonl` `case_dir` | `tree run --max-steps 1` names no case dir | none (`waiting_on_person_s` is 0: one leg, and the decider answers inside the run) |
 | `oracle.json` | the conformance observation is the driver's | `conformance` reads `not observed` |
 | `decision.json`, `replay.json`, `run.log`, `decider/`, `llm/` at the top | the driver's own files | none read by the report; Loom's tool records are in `work/.sdc/llm/` |
-| `run-settings.jsonl` `adapter`, `autonomy`, `decider.adapter`, `decider.escalate`, `decider.max_decider_calls`, `review.adapter`, `rework_limit`, `rule_approvals`, `unstick`, `tree` | driver settings with no Loom counterpart | `check --runs-dir` compares only the keys the record sets for a `loom` variant (unit R4); a record that sets one of these reads `not recorded` |
+| `run-settings.jsonl` `rework_limit`, `rule_approvals`, `unstick`, `tree` | driver settings with no Loom counterpart | none: `check --runs-dir` compares only the keys the record sets for a `loom` variant. `adapter`, `autonomy`, `decider.*` and `review.adapter` are the settings file as the runner read it (one format, `docs/loom-run-settings.md`), so they are in the line, and `check --runs-dir` passes on a run the launcher started |
 | `run-settings.jsonl` `loom.bin`, `loom.login_file` | never recorded: a path of the binary, a login | not compared |
 | `evidence/<id>.json`, `ir.json`, `bindings.json` | `tree-status.json` is written at the end; the protocol files are in the run directory only when R1 copies them | until then: rework causes read `<kind>:?`, every node reads as kind `other`; see "What R1 must hand over" |
 
@@ -123,17 +123,21 @@ and until they are the cells in the table above are absent:
 
 ## `runbook parity summarize` reads the directory
 
-`parity summarize` takes `--loom-status <file>` and, for the product tree, `--product-tree <dir>`
-(the status's `workspace` when none is given). The directory holds both:
+`parity summarize --loom-run <run dir>` reads the directory whole:
 
 ```
-runbook parity summarize --loom-status <run>/loom/status.json --product-tree <run>/work --output <summary.json>
+runbook parity summarize --loom-run <run> --output <summary.json>
 ```
 
-`loom/status.json` names the workspace as `work`, relative to the run directory, so `--product-tree`
-is always given. The test `the_run_directory_names_the_files_of_parity_summarize_and_the_counts_line_is_the_fixtures`
-makes the directory with the writer from the committed fixture status and gets the fixture's counts
-line, `summary: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files`.
+It takes `tree-status.json` and `work/` (the product tree) and, for what the status does not hold,
+`run-settings.jsonl` (the first line: decider kind, adapter, stand-in flag and principal),
+`decisions.jsonl` and `protocols/*.protocol.yaml` (the digest of the file per id and revision); the
+copies' action, subject and revision come from the target case's evidence in the status. A summary
+read with `--loom-status` and `--product-tree` alone still works and lists those members as not
+recorded (`docs/parity.md`, "Where the seven values come from now"). The test
+`the_run_directory_names_the_files_of_parity_summarize_and_the_counts_line_is_the_fixtures` makes the
+directory with the writer from the committed fixture status and gets the fixture's counts line,
+`summary: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files`.
 
 ## Quality measures of the comparison
 

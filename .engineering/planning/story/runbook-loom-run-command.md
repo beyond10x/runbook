@@ -24,7 +24,7 @@ scope:
   path: runbook/tests/cli.rs
 - confidence: cited
   path: runbook/tests/loom_run
-revision: 5
+revision: 6
 ---
 # Story: runbook-loom-run-command
 
@@ -175,3 +175,41 @@ Page: `docs/loom-run-settings.md`; tests: `runbook/tests/loom_run/decider.rs` an
   `a_decider_that_escalates_stops_the_run_for_a_person_and_books_nothing_for_it`.
 - A rejection runs the printed command with `--deny`: test
   `a_rejection_by_the_model_decider_runs_the_printed_command_with_deny`.
+
+## Integration (wave rb3, branch `wave/rb3`)
+
+The four units are one branch; the gaps between them are closed as follows. Goal story moved:
+`story:parity-run-on-loom` (a model run of a case tree through `runbook loom-run`, started by
+`sdc-experiment run`).
+
+- One settings format, both sides (`docs/loom-run-settings.md`). `sdc-experiment` writes
+  `decider.kind`, `autonomy`, `decider.without_claims: true` for a model decider, `decider.escalate`,
+  the decider call limit, `decider.adapter`, `adapter` and `review.adapter`; efforts and flags stay
+  refused and the refusal names the key. `sdc-reply`, `jq`, `yq` and `rsync` are reached through the
+  unit's `PATH` (the build's `driver/target/debug` first), not through `decider.reply_bin`, because
+  the model nodes need `sdc-reply` too. The two R4 tests of the runner are replaced by tests on the
+  file the writer produces and one equality check on the committed fixture
+  `runbook/tests/fixtures/loom-run-settings.json`; no test builds the other crate. Check:
+  `cargo test --locked --test main experiment_loom` in `driver/` and `cargo test --locked --test cli
+  loom_run::settings` in `runbook/`.
+- The login file leaves no path in the run directory: the link lives in `$XDG_RUNTIME_DIR/runbook/<run>/`
+  (0700), is refused without a user-owned `XDG_RUNTIME_DIR`, and is removed on a normal end, an
+  error and SIGTERM or SIGINT; `docs/loom-run.md` says what a SIGKILL leaves. Check:
+  `runbook/tests/loom_run/login.rs`.
+- Spend, stated in `docs/loom-run.md` ("What the spend cap does not promise"): a call can end above
+  its budget by the turn that crossed it and is booked whole; a reservation left by a SIGKILL only
+  lowers what the next run on the ledger finds. Check: `runbook/tests/loom_run/spend.rs`.
+- The principal of a scripted or rule answer comes from the settings (`decider.principal` is the
+  default of a scripted decider's answers; model and rule deciders give `decider:model` and
+  `decider:<verdict>`); nothing is fixed in the runner for one cycle.
+- Parity: `runbook parity summarize --loom-run <run dir>` reads what the status does not hold; the
+  stub cycle through `runbook loom-run` on the real binary compares `parity: identical` with the
+  driver's, exit 0 (`docs/parity.md`). Slow lane: `task test:loom-real`.
+- Chain by hand against a fake `b10x-loom` and the rule decider: `sdc-experiment run --print` for a
+  `runner: loom` record prints the `runbook loom-run` line, the printed line ran as printed and ended
+  `ended: operating`, `sdc-experiment check`, `status` and `report` read the directory it left. The
+  chain found one defect: `status` said `not started` for a run directory it could not read; it says
+  `unreadable: <reason>` now (test `status_names_a_run_directory_it_cannot_read_instead_of_saying_not_started`).
+- Not touched, left open by the report of the loop unit: `tree status` once per step doubles the calls of `b10x-loom`
+  per `tree run`, and the time of a cold build of the
+  product crate in the slow lane.

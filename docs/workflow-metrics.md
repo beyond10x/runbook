@@ -267,16 +267,22 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given |
 | `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `settings.json`; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
 | `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `settings.json` `models.<class>.model` |
-| `decider.model` | the model of the decider that answers person steps | `settings.json` `decider.model`; the principal of those answers is `decider:model` |
+| `decider.kind` | `model` (one model call per decision) or `rule` (`decider.verdict` answers every decision); a scripted decider is a test double of the runner and no setting of a record | `settings.json` `decider.kind`; the principal of the answers is `decider:model` or `decider:<verdict>`, derived by the runner and never written |
+| `decider.model` | the model of a `model` decider | `settings.json` `decider.model`; with a model decider the file also holds `decider.without_claims: true` (Loom's output holds no claims) |
+| `decider.verdict` | `approve` or `reject`, of a `rule` decider | `settings.json` `decider.verdict` |
+| `decider.escalate`, `decider.max_decider_calls`, `decider.adapter` | optional, of a `model` decider: what an `escalate` reply does (`final` or `stop`), the most decider calls, its adapter | the same keys of `settings.json` |
+| `autonomy` | `A0` to `A5`; the decider answers only at `A5` | `settings.json` `autonomy` |
+| `adapter`, `review.adapter` | optional: `metaharness` or `claude-cli` for the model nodes, `claude-cli` for the review | the same keys of `settings.json` |
 | `max_llm_calls` | cap on model calls of one run (as for `sdc`) | `--max-llm-calls` |
 | `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here) | `--max-wall-seconds` |
 | `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `settings.json` `loom.login_file` only; see below |
 
-Refused for a `loom` variant, each with its reason in the message: `decider.kind` (the decider is
-the model of `decider.model`), `decider.escalate` (a person step is answered by the decider, never
-escalated), `decider.max_decider_calls` (`max_llm_calls` counts every call, the decider's too),
-`adapter`, `decider.adapter`, `review.adapter` (a node's adapter is the one its binding names),
-`autonomy` (no levels: the decider answers every person step), `implement_mode`, `review_mode`,
+The file is `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
+programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the unit gets (the build's
+`driver/target/debug` first), not from `decider.reply_bin`; `jq`, `yq` and `rsync` must be on the
+login's `PATH` and `run` refuses to start without them.
+
+Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
 `implement_coverage`, `conformance`, `rule_approvals` (switches of `run-trial.sh`),
 `flags.dry`, `flags.recorded` (flags of `run-trial.sh`), `efforts.<class>.effort` (no argument of
 `llm-node.sh` in Loom mode carries an effort, so the class defaults of `tools/node-classes.json`

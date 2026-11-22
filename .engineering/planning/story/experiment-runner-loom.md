@@ -24,7 +24,7 @@ scope:
   path: driver/tests/experiment_loom.rs
 - confidence: cited
   path: driver/tests/main.rs
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T06:21:40Z", actor: "human:operator", revision: 8, executor: "agent:experiment-runner-loom", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T06:21:40Z", actor: "human:operator", revision: 9, executor: "agent:experiment-runner-loom", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -78,3 +78,22 @@ of a model run is named by path only; the launcher never reads, copies or prints
   gets a report with `run.delivered` and `run.cost_usd`.
 - An example `loom` record is in the docs and in a test fixture, and no record is added to
   `experiments/`.
+
+## Integration (wave rb3, branch `wave/rb3`)
+
+- The record's settings are the runner's settings file, whole: `decider.kind`, `autonomy`,
+  `decider.without_claims: true` for a model decider, `decider.escalate`, `decider.max_decider_calls`,
+  `decider.adapter`, `adapter` and `review.adapter` are written (commit `ba500345`); efforts and flags
+  stay refused and the refusal names the key. The launcher no longer writes `decider.principal`; the
+  runner derives it from the kind. `runbook loom-run` runs the file as written (fixture
+  `runbook/tests/fixtures/loom-run-settings.json`, one equality check in `driver/tests/experiment_loom.rs`).
+- `sdc-reply`, `jq`, `yq` and `rsync`: the unit's `PATH` carries the build's `driver/target/debug`
+  first and `run` refuses to start when `jq`, `yq` or `rsync` is on no directory of it; the plan prints
+  `missing on PATH` before anything starts.
+- Chain by hand (fake `b10x-loom`, rule decider): `run --print` printed the `runbook loom-run` line,
+  the line ran as printed (`ended: operating`, one approval answered `decider:approve`),
+  `check --runs-dir` passed, `status` printed `closed: operating` and `report` `listed 1, ended 1,
+  clean passes 1`. Defect found and fixed: `status` printed `not started` for a run directory that held
+  `outcome.json` and no readable root event log; it prints `unreadable: <reason>` (test
+  `status_names_a_run_directory_it_cannot_read_instead_of_saying_not_started`).
+- `docs/workflow-metrics.md` section 7.1 lists the settings as written now.

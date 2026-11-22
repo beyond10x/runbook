@@ -84,8 +84,30 @@ read with the catalog of its run.
 
 Bound programs get only `PATH` from Loom itself. No login file, no path of one and no credential
 variable is in the run directory or in the child's environment; the login file's path is a setting
-the bindings copy uses (a link inside the copy) and is replaced by `named` in every file the runner
-writes.
+that is replaced by `named` in every file the runner writes. The programs reach the login through
+the link of the private directory (next section).
+
+## The login file
+
+When the settings name a login file (`login_file` or `loom.login_file`), the run directory holds no
+path of it and no link to it. The bindings copy and the model decider read a link in a private
+directory, `$XDG_RUNTIME_DIR/runbook/<run name>/` (mode 0700, the link is `login`). A link and not a
+copy: no second copy of the credential is written to disk, and a token the model CLI refreshes lands
+in the real file. The run directory records only that a file was named (`settings.json` holds
+`login_file: named`).
+
+- The run is refused (exit 2, nothing written) when a login file is named and `XDG_RUNTIME_DIR` is
+  unset, not absolute, or not a directory owned by the user running the command, when the login file
+  is not an absolute path of a file that exists, and when the private directory of that run name
+  exists already. No message holds the login file's path.
+- The directory is removed when the run ends: after a normal end, after an error, and after SIGTERM or
+  SIGINT (the runner ends the running call and returns, and the guard removes the link and the
+  directory). The test proves each (`runbook/tests/loom_run/login.rs`), and that no file of the run
+  directory holds the path or a link to the file.
+- After a SIGKILL (or a crash of the host) the private directory stays: one link in a directory of
+  mode 0700 that holds the path of the login file. The next run of the same name is refused until the
+  directory is removed by hand (`rm -r $XDG_RUNTIME_DIR/runbook/<run name>`); `$XDG_RUNTIME_DIR` itself
+  is removed by the system at the user's last logout. The run directory holds nothing of it either way.
 
 ## The caps
 
@@ -120,9 +142,30 @@ unreadable line fails the run closed and books the whole reservation.
 
 The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
-a model step has no cost record, `tree status` is refused, or an event sink fails. Known limits: a SIGKILL of the runner
-leaves a reservation in the ledger (it counts against the cap until the ledger is reset), and one
-call can overshoot its budget by what the model tool itself allows.
+a model step has no cost record, `tree status` is refused, or an event sink fails.
+
+### What the spend cap does not promise
+
+- A call can end above its budget, and so the ledger above the cap. The budget of a call is the
+  `--max-budget-usd` value, lowered to what the cap has left. Both adapters
+  (`llm-adapter-claude-cli.sh`, `llm-adapter-metaharness.sh`) pass it on as `--max-budget-usd` to the
+  model CLI and do nothing else with it: they do not stop the call, do not cut the cost and write the
+  CLI's `total_cost_usd` and `subtype` into the call record. The CLI ends the session at a turn
+  boundary, so a call is over its budget by at most the cost of the turn that crossed it. No setting
+  of this crate bounds that turn (inferred from the adapters, not measured against a real model).
+  The runner books the whole `cost_usd` of the record, never less, and releases the rest of the
+  reservation, so the next call finds the real figure, and the run ends as `stopped: spend cap` before
+  the next call. Test: `a_call_that_crosses_its_budget_is_booked_in_full_and_the_ledger_ends_above_the_cap`
+  (a call given 0.40 USD that costs 0.90 ends the ledger at 1.50 USD against a cap of 1.00).
+- A SIGKILL of the runner leaves its reservation in the ledger: `reserved` holds an entry no process
+  will release. That entry reduces what the next run finds left (`cap - spent - reserved`), and no
+  entry can raise it: the ledger only adds to `spent` and removes the reservation of the process
+  that made it. Cost: the money of a killed call is not spent and stays held, so a ledger of a
+  campaign loses that much capacity until someone edits `reserved` by hand. Tests:
+  `a_reservation_left_by_a_killed_run_reduces_what_is_left_and_never_raises_it` (a stale 0.70 USD
+  leaves 0.30 of 1.00; a stale 1.00 leaves none and the run stops before its first call) and
+  `after_a_sigkill_the_next_run_on_the_same_ledger_finds_less_left_not_more` (a real SIGKILL on a
+  running call, then a second run on the same ledger).
 
 ## The run directory
 
@@ -149,5 +192,17 @@ The files that `sdc-experiment report` and `runbook parity summarize` read are w
 
 `runbook/tests/loom_run/` runs the command against a fake `b10x-loom` that the tests generate (a
 `/bin/sh` script that records its argv and environment and answers from scripted files); no test
-starts the real binary or makes a model call. The wall-time cap is also tested with an injected
-clock in `run_loop.rs`.
+of the gate lane starts the real binary or makes a model call. The wall-time cap is also tested with
+an injected clock in `run_loop.rs`.
+
+The slow lane is `task test:loom-real` (needs `RUNBOOK_LOOM_BIN`, the real binary, and
+`RUNBOOK_LOOM_WORK`, a directory outside the repository: below the repository `cargo` finds its
+workspace above the product crate and refuses it): the stub cycle through
+`runbook loom-run` on the real binary with `--confinement local`, scripted approvals and no model,
+summarized with `runbook parity summarize --loom-run` and compared with the committed driver summary
+`runbook/tests/fixtures/parity/stub-cycle-driver-summary.json` (`docs/parity.md`). The test is
+`#[ignore]`d and runs with `--ignored`; it takes minutes, so run the task in the background.
+
+The runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
+(`sdc-tool.sh`, `llm-node.sh`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
+no `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh`.
