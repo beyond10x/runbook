@@ -375,8 +375,12 @@ at each call. Under `--confinement local` a bound program can write them, and `l
   run as `stopped: recording diverged`, exit 11, cause `recording_diverged` in `run-stopped.json`
   and `outcome.json`, with the first divergence as the reason (`diverged.json` keeps the first).
   Exit 9 is `denied`, so the old driver's 9 for a divergence is 11 here. `nearest` reuses the
-  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`. The
-  request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
+  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`. The cap
+  `--live-cap` counts a live call from its start: the adapter appends a line with `"phase":
+  "started"` to `replay/calls.jsonl`, under a lock of that file, before it starts the live program,
+  and the call's own line (`"phase": "finished"`) when the program has ended, so a live call that is
+  ended before it finishes still counts and two adapter processes at a cap of 1 start one live
+  program between them; a line without a phase (an older log) is a finished call. The request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
   setting that differs from the recorded effort diverges at the first call, as a changed model
   does (intended). The inputs are compared by digest after what differs between two runs is masked
   (run directories, home paths, instants, revisions, seconds), and so is the version label of the
@@ -391,8 +395,8 @@ at each call. Under `--confinement local` a bound program can write them, and `l
   changed and, as its own sentence, that a recording packed before the label was masked diverges
   there for that reason alone; the recording holds digests only, so it cannot tell that case from a
   changed test at the committed label, and the message gives no advice.
-- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live, diverged,
-  paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
+- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live (started),
+  live_unfinished, diverged, paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
   `rounds.jsonl` and each call's mode into `llm-calls.jsonl`.
 - `sdc-replay` reads a Loom run directory: the run log `store/runlog-case-<hex>.jsonl` and the
   per-case `events.jsonl` that the run directory projects. Arrival and try of a call: arrival 1 at

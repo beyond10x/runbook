@@ -148,6 +148,39 @@ fn jsonl(p: &Path) -> Vec<Value> {
         .collect()
 }
 
+/// A live call is in `replay/calls.jsonl` twice: a line with `"phase": "started"` that the adapter
+/// appends before it starts the live program, and the call's own line, with `"phase": "finished"`,
+/// when the program has ended. A line without a phase (an older log, every recorded, reused and
+/// diverged call) is a call that finished. The cap and the ordinals count a call from its start, so
+/// the finished line of a live call is not counted a second time.
+fn is_finished_line(l: &Value) -> bool {
+    l["phase"] == "finished"
+}
+
+/// The live calls of a log: those that started (a started line, or an older line without a phase).
+fn live_calls(log: &[Value]) -> u64 {
+    log.iter().filter(|l| l["mode"] == "live" && !is_finished_line(l)).count() as u64
+}
+
+/// The live calls that started and have no finished line of their own (same `record`): ended before
+/// they finished (the action's time limit, a signal, a retry), or still running.
+fn live_unfinished(log: &[Value]) -> u64 {
+    log.iter()
+        .filter(|l| l["mode"] == "live" && l["phase"] == "started")
+        .filter(|s| !log.iter().any(|f| is_finished_line(f) && f["record"] == s["record"]))
+        .count() as u64
+}
+
+/// The exclusive lock of the call log, held from the count of the live calls to the append of the
+/// started line, so that two adapter processes at a cap of 1 start one live program between them.
+/// The lock goes with the file handle.
+fn lock_calls(out: &Path) -> R<fs::File> {
+    let p = out.join("replay/calls.jsonl");
+    let f = fs::OpenOptions::new().create(true).append(true).read(true).open(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    f.lock().map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(f)
+}
+
 fn append(p: &Path, v: &Value) -> R<()> {
     let mut f = fs::OpenOptions::new()
         .create(true)
@@ -1239,8 +1272,8 @@ fn adapter(req_path: &Path) -> R<i32> {
     };
     let (case, name) = (key["case"].as_str().unwrap().to_string(), key["name"].as_str().unwrap().to_string());
     let log = jsonl(&c.out.join("replay/calls.jsonl"));
-    let n_case = 1 + log.iter().filter(|l| l["case"] == case.as_str() && l["name"] == name.as_str()).count() as u64;
-    let n_run = 1 + log.iter().filter(|l| l["name"] == name.as_str()).count() as u64;
+    let n_case = 1 + log.iter().filter(|l| !is_finished_line(l) && l["case"] == case.as_str() && l["name"] == name.as_str()).count() as u64;
+    let n_run = 1 + log.iter().filter(|l| !is_finished_line(l) && l["name"] == name.as_str()).count() as u64;
     let inputs = hash_inputs(&cwd.join("in"), &roots);
     let request = normalise_request(&req, &roots);
     let prompt = req["prompt_file"].as_str().and_then(|p| fs::read_to_string(p).ok()).map(|p| sha(normalise(&p, &roots).as_bytes()));
@@ -1263,10 +1296,11 @@ fn adapter(req_path: &Path) -> R<i32> {
         None => difference.push(format!("the source made no call at {}", key_str(&key))),
     }
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
-    let live_n = log.iter().filter(|l| l["mode"] == "live").count() as u64;
     // Fails closed: a cap that cannot be read is no cap to spend, so no live call starts.
     let live_cap = c.plan["live"]["cap"].as_u64();
     let mut diverged: Option<String> = None;
+    // Held from the count of the live calls to the append of the started line of this one.
+    let mut live_lock: Option<fs::File> = None;
     if chosen.is_none() {
         match policy {
             "nearest" => match nearest(&c.calls, &key) {
@@ -1276,13 +1310,18 @@ fn adapter(req_path: &Path) -> R<i32> {
                 }
                 None => diverged = Some("nothing to reuse: the source has no call of this node or decision in this case".into()),
             },
-            "live" if live_cap.is_some_and(|cap| live_n < cap) => mode = "live",
-            "live" => {
-                diverged = Some(match live_cap {
-                    Some(cap) => format!("the live call cap is spent ({cap} live calls, --live-cap)"),
-                    None => "the live call cap is not readable in the plan (live.cap): no live call starts".to_owned(),
-                })
-            }
+            "live" => match live_cap {
+                Some(cap) => {
+                    let lock = lock_calls(&c.out)?;
+                    if live_calls(&jsonl(&c.out.join("replay/calls.jsonl"))) < cap {
+                        mode = "live";
+                        live_lock = Some(lock);
+                    } else {
+                        diverged = Some(format!("the live call cap is spent ({cap} live calls, --live-cap)"));
+                    }
+                }
+                None => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
+            },
             _ => diverged = Some(String::new()),
         }
     }
@@ -1295,6 +1334,20 @@ fn adapter(req_path: &Path) -> R<i32> {
         "prompt_changed": chosen.is_some_and(|x| x["prompt"].is_string() && prompt.is_some() && x["prompt"].as_str() != prompt.as_deref()),
         "fault": fault.as_ref().map(|f| f["spec"].clone()), "virtual_ms": 0, "clock": "virtual",
     });
+    if let Some(lock) = live_lock.take() {
+        // The call counts from here: before the live program starts, so a program that is ended
+        // before it finishes is counted, and under the lock, so that a second process sees it.
+        let mut started = line.clone();
+        started["phase"] = json!("started");
+        started["clock"] = json!("real");
+        started["at_ms"] = json!(now_ms() as u64);
+        // What the call's own line will say (a fault, a changed prompt) is counted once, there.
+        started["fault"] = Value::Null;
+        started["prompt_changed"] = json!(false);
+        append(&c.out.join("replay/calls.jsonl"), &started)?;
+        drop(lock);
+        line["phase"] = json!("finished");
+    }
     let finish = |line: &mut Value, response: &mut Value, code: i32| -> R<i32> {
         line["at_ms"] = json!(now_ms() as u64);
         let mut l = line.clone();
@@ -1545,7 +1598,7 @@ fn summary(out: &Path) -> R<Value> {
     let calls = jsonl(&out.join("replay/calls.jsonl"));
     let programs = jsonl(&out.join("replay/programs.jsonl"));
     let count = |m: &str| calls.iter().filter(|l| l["mode"] == m).count();
-    let (recorded, reused, live, diverged) = (count("recorded"), count("reused"), count("live"), count("diverged"));
+    let (recorded, reused, live, diverged) = (count("recorded"), count("reused"), live_calls(&calls) as usize, count("diverged"));
     let virtual_ms: u64 = calls.iter().filter(|l| l["clock"] == "virtual").filter_map(|l| l["virtual_ms"].as_u64()).sum();
     let label = if live > 0 {
         "re-driven: with live model calls"
@@ -1559,7 +1612,7 @@ fn summary(out: &Path) -> R<Value> {
         "source": plan["source"]["name"], "source_tree": plan["source"]["tree"], "tree": plan["tree"], "same_tree": plan["same_tree"],
         "policy": plan["policy"], "injections": plan["injections"].as_array().map(|a| a.iter().map(|f| f["spec"].clone()).collect::<Vec<_>>()),
         "conditions": plan["conditions"], "take_recorded": plan["take_recorded"],
-        "calls": {"recorded": recorded, "reused": reused, "live": live, "diverged": diverged,
+        "calls": {"recorded": recorded, "reused": reused, "live": live, "live_unfinished": live_unfinished(&calls), "diverged": diverged,
             "paid": calls.iter().filter(|l| l["paid"] == true).count(),
             "faults": calls.iter().filter(|l| l["fault"].is_string()).count(),
             "prompt_changed": calls.iter().filter(|l| l["prompt_changed"] == true).count()},
@@ -1899,6 +1952,29 @@ mod tests {
         fs::write(&tests, "no header here\n").unwrap();
         assert_eq!(said("0000")[0], "in/tests.txt changed", "no label, no cause named");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_live_call_counts_from_its_start_and_an_unmarked_line_is_a_finished_call() {
+        let line = |mode: &str, phase: Option<&str>, record: &str| {
+            let mut l = json!({"mode": mode, "record": record});
+            if let Some(p) = phase {
+                l["phase"] = json!(p);
+            }
+            l
+        };
+        let log = vec![
+            line("recorded", None, "a"),
+            line("live", None, "old"),
+            line("live", Some("started"), "b"),
+            line("live", Some("finished"), "b"),
+            line("live", Some("started"), "c"),
+            line("diverged", None, "d"),
+        ];
+        assert_eq!(live_calls(&log), 3, "an old line, b and c: b's finished line is not a second call");
+        assert_eq!(live_unfinished(&log), 1, "only c has no finished line");
+        assert!(is_finished_line(&log[3]) && !is_finished_line(&log[2]) && !is_finished_line(&log[1]));
+        assert_eq!((live_calls(&[]), live_unfinished(&[])), (0, 0));
     }
 
     #[test]

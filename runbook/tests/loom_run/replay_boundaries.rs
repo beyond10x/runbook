@@ -543,10 +543,9 @@ fn under_local_the_adapter_obeys_a_plan_and_a_call_log_rewritten_after_the_run_b
 }
 
 
-/// Invariant 5: a replay that falls back to a live call counts that call against the cap before it
-/// starts. The adapter appends the call to `replay/calls.jsonl` when the call has finished. A live
-/// call that is ended before (the action's time limit, a signal) is never counted, so the next call
-/// starts another live call under a cap of 1.
+/// A live call counts against the cap from its start: the adapter appends its started line to
+/// `replay/calls.jsonl` before it starts the live program, so a live call that is ended before it
+/// finishes (the action's time limit, a signal) is counted and the next call diverges under a cap of 1.
 #[test]
 fn a_live_call_that_is_ended_before_it_finishes_counts_against_the_cap() {
     let r = Replay::new("cap-late");
