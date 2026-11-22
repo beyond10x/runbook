@@ -1579,6 +1579,7 @@ name = "runbook"
 version = "0.4.1"
 dependencies = [
  "axum",
+ "b10x-canon",
  "b10x-loom-protocols",
  "b10x-loom-runlog",
  "b10x-loom-tree",
