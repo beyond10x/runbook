@@ -27,7 +27,7 @@ scope:
   path: runbook/src/stub.rs
 - confidence: cited
   path: runbook/tests
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T05:12:16Z", actor: "human:operator", revision: 7}
@@ -155,3 +155,54 @@ Gaps in `ess/domains/daemon.yaml`, listed and not changed:
   the event `runbook.orphaned`.
 - Line 492: `intake.count` counts characters, the handler counts bytes (line 139 says 1 MiB).
 - Lines 520-531: `already-submitted` says the answer is the first run, but its event `SubmitReplayed` carries only the idempotency key; the id of the first run is given in the `Location` header only.
+
+## Part C2
+
+Branch `impl/daemon-sse`, from the head of part C1: the three event views asked with
+`Accept: text/event-stream` are streams (`runbook/src/api/sse.rs`; `docs/daemon-api.md`, "Event
+streams"). It replaces the `406` of part C1. All tests are in `runbook/tests/daemon/sse.rs`.
+
+How it works: the state keeps a version that grows with every commit (`State::subscribe`, a
+`tokio::sync::watch`); a stream holds a position, reads the events after it from the state
+(`State::events_page`), sends them and waits on the version when there is none. It reads events from the
+state and never from the notification, so a notification that is missed or doubled loses and repeats
+nothing. No new crate and no axum feature: `axum::response::sse` is always built; tokio gains the
+features `sync` and `time` and `futures-util` (already in the tree, behind axum) is named in
+`Cargo.toml` for `stream::unfold`.
+
+Decisions: an `after_position` is optional on a stream (none means 0, the whole record); the header
+wins and then the parameter is not read; an unknown run or session id answers as the page form does
+(`200`, no row), so the stream is `200` and ends at once; the bound of a slow client is 1,024 events
+(`Streams::max_lag`), counted from events recorded after the connection (the replay at connect is
+exempt), and the stream is closed with a comment line that names the position to resume from; the
+keep-alive is 15 s (`Streams::keep_alive`) and is no `serve` option, because no existing option fits.
+
+Met by part C2, with the test that shows it (each one is under 0.3 s unless a time is given):
+
+- What a stream sends: `a_stream_sends_every_recorded_event_in_position_order_then_each_new_event`
+  (all three views; `id` is the position, `event` the kind, `data` equals the row of the page).
+- Resume and the rule that the header wins:
+  `a_stream_resumes_after_the_position_of_the_header_or_of_the_parameter_and_the_header_wins`; no event
+  twice or skipped while a stream connects: `no_event_is_lost_or_sent_twice_while_a_stream_connects`
+  (12 rounds of 50 events recorded from another thread, started at a barrier at the moment of the
+  connect; 2.3 s).
+- A `Last-Event-ID` that is no position is `400`, a position beyond the last waits:
+  `a_last_event_id_that_is_not_a_position_is_refused_400_and_a_position_beyond_the_last_waits`.
+- The end of a run, session and daemon stream:
+  `a_run_stream_ends_after_its_last_event_when_the_run_is_terminal`,
+  `a_session_stream_ends_when_the_session_is_closed_and_all_its_runs_are_terminal`,
+  `the_daemon_stream_ends_only_at_shutdown`; SIGTERM and exit 0 within 2 s (measured 12 to 240 ms):
+  `sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s`.
+- Keep-alive at an injected interval: `a_comment_line_is_sent_as_keep_alive_at_the_injected_interval`.
+- A slow client: `recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconnected_and_resumes_by_position`
+  (5.7 s, the only test over 5 s; most of it is 40 events of 256 KiB that fill the connection's buffers,
+  recorded at debug speed). The bound is injected as 100 in this test; the default 1,024 is asserted.
+- The token: `a_token_is_checked_on_a_stream_as_on_every_route`.
+- Unknown ids: `an_unknown_run_or_session_answers_as_the_page_form_does_before_any_stream_starts`.
+
+Outside the files C2 was given: `runbook/src/commands.rs` has two additions, `Daemon::read` (the
+state under its lock, for `api::sse`) and `event_rows` made `pub(crate)`, because the state is private
+to that module; `runbook/tests/daemon/http.rs` lost the test of the `406`.
+
+Known limit: a client that holds a connection and never reads keeps its connection task until the
+process ends; `serve` returns one second after the shutdown began whether or not it finished.

@@ -170,6 +170,15 @@ pub struct State {
     decision_index: HashMap<String, usize>,
     events: Vec<RunEvent>,
     events_of_run: HashMap<String, Vec<usize>>,
+    /// A version that grows with every commit: what an event stream waits on.
+    changes: tokio::sync::watch::Sender<u64>,
+}
+
+/// A read of the events after a position: the events, and how far the read looked.
+pub struct EventPage<'a> {
+    pub events: Vec<&'a RunEvent>,
+    /// Every event with a position up to this one has been looked at; at least the position asked after.
+    pub scanned: u64,
 }
 
 /// The RFC 3339 time now, in UTC, with milliseconds.
@@ -222,6 +231,7 @@ impl State {
             decision_index: HashMap::new(),
             events: vec![],
             events_of_run: HashMap::new(),
+            changes: tokio::sync::watch::channel(0).0,
         };
         state.replay(&path)?;
         Ok(state)
@@ -261,7 +271,16 @@ impl State {
         let mut line = serde_json::to_vec(&fact).map_err(io::Error::other)?;
         line.push(b'\n');
         self.journal.write_all(&line)?;
-        self.apply(&fact).map_err(invalid)
+        self.apply(&fact).map_err(invalid)?;
+        // After the change and inside the caller's hold of the lock: whoever sees the new version and
+        // then reads the state finds the change.
+        self.changes.send_modify(|version| *version += 1);
+        Ok(())
+    }
+
+    /// A receiver whose value changes whenever the state does. Never blocks a writer.
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe()
     }
 
     fn apply(&mut self, fact: &Fact) -> Result<(), String> {
@@ -407,5 +426,23 @@ impl State {
             .iter()
             .filter(|e| run_id.is_none_or(|r| e.run_id == r) && session_id.is_none_or(|s| e.session_id.as_deref() == Some(s)))
             .collect()
+    }
+
+    /// Like `events_after`, at most `limit` events of the filter; `scanned` is the position of the last
+    /// event looked at (of the filter or not), so that a reader that continues from it does not look at
+    /// the same events again.
+    pub fn events_page(&self, run_id: Option<&str>, session_id: Option<&str>, after: u64, limit: usize) -> EventPage<'_> {
+        let from = self.events.partition_point(|e| e.position <= after);
+        let (mut events, mut scanned) = (Vec::new(), after);
+        for e in &self.events[from..] {
+            scanned = e.position;
+            if run_id.is_none_or(|r| e.run_id == r) && session_id.is_none_or(|s| e.session_id.as_deref() == Some(s)) {
+                events.push(e);
+                if events.len() >= limit {
+                    break;
+                }
+            }
+        }
+        EventPage { events, scanned }
     }
 }

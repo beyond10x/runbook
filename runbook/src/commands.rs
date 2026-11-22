@@ -328,6 +328,11 @@ impl Daemon {
         &self.inner.cfg
     }
 
+    /// Read the state under its lock (the event streams, `api::sse`); `f` must not wait.
+    pub fn read<R>(&self, f: impl FnOnce(&State) -> R) -> R {
+        f(&self.st())
+    }
+
     pub fn is_stopping(&self) -> bool {
         self.inner.stopping.load(Ordering::SeqCst)
     }
@@ -1005,7 +1010,7 @@ fn run_rows<'a>(runs: impl Iterator<Item = &'a Run>) -> Vec<Value> {
     runs.map(run_row).collect()
 }
 
-fn event_rows(events: Vec<&RunEvent>) -> Vec<Value> {
+pub(crate) fn event_rows(events: Vec<&RunEvent>) -> Vec<Value> {
     events
         .into_iter()
         .map(|e| {
