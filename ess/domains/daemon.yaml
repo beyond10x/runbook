@@ -20,6 +20,14 @@ types:
     naming:
       summary: "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity."
 
+  - name: sdc.daemon.AnswererLabel
+    kind: newtype
+    of: String
+    invariants:
+      - value.count <= 200
+    naming:
+      summary: "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal."
+
   - name: sdc.daemon.DaemonId
     kind: newtype
     of: String
@@ -94,6 +102,14 @@ types:
     of: "Map<String, String>"
     naming:
       summary: "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now."
+
+conversions:
+  - from: sdc.daemon.AnswererLabel
+    to: sdc.decision.Principal
+    because: The label is recorded as the principal that answered; the daemon takes the name as given and only bounds its length.
+  - from: sdc.daemon.AnswererLabel
+    to: Optional<sdc.decision.Principal>
+    because: The request row holds the answerer as an optional principal, set when it is answered.
 
 entities:
   - name: sdc.daemon.Session
@@ -790,7 +806,7 @@ commands:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
       - {name: answer, type: String}
-      - {name: answered_by, type: sdc.decision.Principal}
+      - {name: answered_by, type: sdc.daemon.AnswererLabel}
       - {name: at, type: Timestamp}
     outcomes:
       - name: no-request

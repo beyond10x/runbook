@@ -17,7 +17,7 @@
       "type": "string"
     },
     "answered_by": {
-      "$ref": "#/$defs/sdc.decision.Principal"
+      "$ref": "#/$defs/sdc.daemon.AnswererLabel"
     },
     "at": {
       "type": "string",
@@ -35,10 +35,21 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:1fe9183c39e5a940e28b0f421ecc8f1b4f0780ae4bace55e0260d6c68bc507be",
+    "contract_digest": "slice-sha256/2:12fb9122f2bf8a8121a6d62bff259fc65a893ac9cb0456f997ede2eeb76128f4",
     "regenerate": "ess generate"
   },
   "$defs": {
+    "sdc.daemon.AnswererLabel": {
+      "title": "AnswererLabel",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal.",
+      "x-ess-name": "sdc.daemon.AnswererLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    },
     "sdc.daemon.DecisionRequestId": {
       "title": "DecisionRequestId",
       "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
@@ -50,13 +61,6 @@
       "title": "RunId",
       "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
       "x-ess-name": "sdc.daemon.RunId",
-      "x-ess-kind": "newtype",
-      "type": "string"
-    },
-    "sdc.decision.Principal": {
-      "title": "Principal",
-      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
-      "x-ess-name": "sdc.decision.Principal",
       "x-ess-kind": "newtype",
       "type": "string"
     }

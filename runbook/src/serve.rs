@@ -62,6 +62,9 @@ pub struct Prepared {
     pub daemon: Daemon,
 }
 
+/// The runbook name of the stub's run that waits on two decisions (`StubRuntime::decision_script`).
+pub const STUB_DECISION: &str = "stub-decision";
+
 /// The state directory: `--state-dir`, else `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook`.
 pub fn state_dir(args: &ServeArgs, env: &Env) -> Result<PathBuf, String> {
     if let Some(d) = &args.state_dir {
@@ -91,6 +94,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     for name in presets {
         stub.script(name, StubRuntime::demo_script());
     }
+    stub.script(STUB_DECISION, StubRuntime::decision_script());
     let cfg = Config {
         state_dir: state_dir(args, env)?,
         confinement_floor: floor,

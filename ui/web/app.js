@@ -10,7 +10,8 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
-import {api, openEvents, daemonView} from './source.js';
+import {api, openEvents, daemonView, daemon} from './source.js';
+import {renderDaemonDrawer} from './decide.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 
 const q0 = new URLSearchParams(location.search);
@@ -173,7 +174,7 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
-  await loadTree(); await loadRun(); await loadLive(); pickFollow(); render();
+  await loadTree(); await loadRun(); await loadLive(); if (daemon) await loadInbox(); pickFollow(); render();
 }
 document.addEventListener('click', (ev) => {
   const t = ev.target;
@@ -336,7 +337,7 @@ function renderEvents(c, at) {
 
 function renderDecisions() {
   const n = S.inbox.items.length;
-  const tag = S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads';
+  const tag = S.inbox.tag || (S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads');
   // the header may cut it (a stub run's label takes its room): the title keeps it readable
   if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
@@ -346,7 +347,7 @@ function renderDecisions() {
   patch($('#deccount'), String(n));
   document.body.classList.toggle('drawer-open', S.drawer);
   if (S.drawer) {
-    patch($('#drawer'), renderDrawer(S));
+    if (daemon) renderDaemonDrawer(S, $('#drawer')); else patch($('#drawer'), renderDrawer(S));
     // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
     if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
     const pl = $('#proclog');

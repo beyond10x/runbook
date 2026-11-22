@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:f35eeb69c5247660cda90ccb72bc732224694ba153ed606924c06ceb69afa2d8
+# contract digest slice-sha256/2:5b6b423913cf0ad6cb1fb6bb6f20c6f12312f64965ab4c3ca79c20791b69c51d
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:f35eeb69c5247660cda90ccb72bc732224694ba153ed606924c06ceb69afa2d8
+    contract_digest: slice-sha256/2:5b6b423913cf0ad6cb1fb6bb6f20c6f12312f64965ab4c3ca79c20791b69c51d
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -692,7 +692,7 @@ components:
         answer:
           type: string
         answered_by:
-          $ref: '#/components/schemas/sdc.decision.Principal'
+          $ref: '#/components/schemas/sdc.daemon.AnswererLabel'
         at:
           type: string
           format: date-time
@@ -870,6 +870,15 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.AnswererLabel:
+      title: AnswererLabel
+      description: 'The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal.'
+      x-ess-name: sdc.daemon.AnswererLabel
+      x-ess-kind: newtype
+      type: string
+      maxLength: 200
+      x-ess-invariants:
+      - value.count <= 200
     sdc.daemon.BelowConfinementFloor.Error:
       title: BelowConfinementFloor payload
       description: The requested confinement is below the daemon's floor; the run was not submitted.

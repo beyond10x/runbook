@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.AnswererLabel.schema.json",
+  "$ref": "#/$defs/sdc.daemon.AnswererLabel",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e6a2ba077fc2131f1a46254983c422c20c35ba6a5624ae5b8b879759508ed8ab",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.AnswererLabel": {
+      "title": "AnswererLabel",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal.",
+      "x-ess-name": "sdc.daemon.AnswererLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    }
+  }
+}
