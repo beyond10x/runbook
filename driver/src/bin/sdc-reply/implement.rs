@@ -38,6 +38,11 @@ pub const MAX_CONTINUATIONS: usize = 2;
 /// The crate's root files: inlined after the story's own files.
 pub const ROOT_FILES: [&str; 5] = ["Cargo.toml", "src/lib.rs", "src/main.rs", "README.md", "Taskfile.yml"];
 
+/// Why a file is listed without text. A label of the manifest; the prompt says it with the
+/// instruction file `tree.why.<...>.md` that `assemble` picks for it.
+const NOT_UTF8: &str = "not UTF-8 text";
+const OVER_CAP: &str = "over the cap";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeFile {
     pub path: String,
@@ -76,7 +81,7 @@ pub fn select_tree(tree: &Path, mainline: &Path, story_text: &str, cap: usize) -
         let bytes = fs::read(tree.join(&p)).unwrap_or_default();
         let n = bytes.len();
         if String::from_utf8(bytes.clone()).is_err() {
-            listed.push(TreeFile { path: p, bytes: n, why: "not UTF-8 text" });
+            listed.push(TreeFile { path: p, bytes: n, why: NOT_UTF8 });
             continue;
         }
         let (rank, why) = if story_text.contains(p.as_str()) {
@@ -99,7 +104,7 @@ pub fn select_tree(tree: &Path, mainline: &Path, story_text: &str, cap: usize) -
             s.inlined_bytes += f.bytes;
             s.inlined.push(f);
         } else {
-            listed.push(TreeFile { why: "over the cap", ..f });
+            listed.push(TreeFile { why: OVER_CAP, ..f });
         }
     }
     listed.sort_by(|a, b| a.path.cmp(&b.path));
@@ -416,26 +421,6 @@ fn spec_facts(ir: &Value, traces: &Value, cov: &[String], mine: &[Value]) -> (Va
     (Value::Object(out), missing)
 }
 
-/// The request-mode instruction files by part, each named whole so that a search of the sources
-/// for a file name (`runbook check`) finds them.
-const REQUEST_FILES: [(&str, &str); 8] = [
-    ("head", "instructions/change.implement.request.head.md"),
-    ("build", "instructions/change.implement.request.build.md"),
-    ("rework", "instructions/change.implement.request.rework.md"),
-    ("task", "instructions/change.implement.request.task.md"),
-    ("continuation", "instructions/change.implement.request.continuation.md"),
-    ("request-failed", "instructions/change.implement.request.request-failed.md"),
-    ("no-reply", "instructions/change.implement.request.no-reply.md"),
-    ("retry", "instructions/change.implement.request.retry.md"),
-];
-
-/// One part of the request-mode instructions: `instructions/change.implement.request.<part>.md`
-/// (docs/driver.md, "Instructions"), filled with `values`.
-fn text(part: &str, values: &[(&str, &str)]) -> Result<String, String> {
-    let file = REQUEST_FILES.iter().find(|(p, _)| *p == part).map(|(_, f)| *f).ok_or_else(|| format!("no request instruction part {part}"))?;
-    instructions::render(file, values)
-}
-
 /// The node's whole input as one prompt, and a manifest of what went in (sections and bytes,
 /// the files inlined and listed with the rank that put them there).
 pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
@@ -462,24 +447,29 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
     let (spec, missing) = spec_facts(&ir, &traces, &cov, &mine);
     let sel = select_tree(i.tree, &work.join("mainline"), &story_text, i.cap);
 
-    let mut sections: Vec<(&str, String)> = vec![("head", text("head", &[])? + "\n")];
+    let mut sections: Vec<(&str, String)> = vec![("head", instructions::render("instructions/change.implement.request.head.md", &[])? + "\n")];
     let f = fence(&story_text);
-    sections.push(("story", format!("## The story `{}` (impl/ serves it)\n\n{f}markdown\n{}\n{f}\n", i.story, story_text.trim_end())));
-    let mut r = String::from("## The requirements this story delivers\n\n");
+    sections.push(("story", instructions::render("instructions/change.implement.request.story.md",
+        &[("story", i.story), ("fence", &f), ("text", story_text.trim_end())])? + "\n"));
+    let mut r = instructions::render("instructions/change.implement.request.requirements.heading.md", &[])? + "\n\n";
     if mine.is_empty() {
-        r.push_str("None traced to this story's commands: build what the story and its commands say.\n");
+        r.push_str(&instructions::render("instructions/change.implement.request.requirements.none.md", &[])?);
+        r.push('\n');
     }
     for q in &mine {
         r.push_str(&format!("- {}: {}\n", q["id"].as_str().unwrap_or("?"), q["text"].as_str().unwrap_or("")));
     }
-    r.push_str("\nAcceptance lines:\n\n");
+    r.push('\n');
+    r.push_str(&instructions::render("instructions/change.implement.request.requirements.acceptance.md", &[])?);
+    r.push_str("\n\n");
     for (c, t) in &acceptance {
         r.push_str(&format!("- {t} ({c})\n"));
     }
     sections.push(("requirements", r));
-    let mut s = String::from("## The specification it serves (compiled; only this story's commands, the views it serves, and what they name)\n\n");
+    let mut s = instructions::render("instructions/change.implement.request.spec.heading.md", &[])? + "\n\n";
     if !missing.is_empty() {
-        s.push_str(&format!("Not in the compiled specification: {}.\n\n", missing.join(", ")));
+        s.push_str(&instructions::render("instructions/change.implement.request.spec.missing.md", &[("names", &missing.join(", "))])?);
+        s.push_str("\n\n");
     }
     // One compact JSON line per declaration (a type reference is written as its type's name).
     for (kind, decls) in spec.as_object().into_iter().flatten() {
@@ -501,50 +491,67 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
             }
             t
         }
-        None => text("build", &[])?,
+        None => instructions::render("instructions/change.implement.request.build.md", &[])?,
     };
-    sections.push(("constraints", format!("## Build constraints{}\n\n{constraints}\n",
-        if bc.is_some() { " (the run's build-constraints.yaml)" } else { "" })));
-    let mut t = String::from("## The product tree impl/ (current text)\n\n");
+    let heading = if bc.is_some() { "instructions/change.implement.request.constraints.heading.run.md" } else { "instructions/change.implement.request.constraints.heading.md" };
+    sections.push(("constraints", format!("{}\n\n{constraints}\n", instructions::render(heading, &[])?)));
+    let mut t = instructions::render("instructions/change.implement.request.tree.heading.md", &[])? + "\n\n";
     if sel.inlined.is_empty() && sel.listed.is_empty() {
-        t.push_str("impl/ is empty: this is the first story; create the crate.\n");
+        t.push_str(&instructions::render("instructions/change.implement.request.tree.empty.md", &[])?);
+        t.push('\n');
     } else {
-        t.push_str(&format!("{} file(s), {} bytes shown{}. A file you do not write stays exactly as it is.\n\n",
-            sel.inlined.len(), sel.inlined_bytes, if sel.listed.is_empty() { String::new() } else { format!("; {} listed without text", sel.listed.len()) }));
+        let listed = if sel.listed.is_empty() { String::new() } else {
+            instructions::render("instructions/change.implement.request.tree.count.listed.md", &[("count", &sel.listed.len().to_string())])?
+        };
+        t.push_str(&instructions::render("instructions/change.implement.request.tree.count.md",
+            &[("files", &sel.inlined.len().to_string()), ("bytes", &sel.inlined_bytes.to_string()), ("listed", &listed)])?);
+        t.push_str("\n\n");
         for f in &sel.inlined {
             let text = fs::read_to_string(i.tree.join(&f.path)).unwrap_or_default();
-            let fc = fence(&text);
-            t.push_str(&format!("### impl/{} ({} bytes)\n\n{fc}\n{}{}{fc}\n\n", f.path, f.bytes, text, if text.ends_with('\n') || text.is_empty() { "" } else { "\n" }));
+            let body = format!("{text}{}", if text.ends_with('\n') || text.is_empty() { "" } else { "\n" });
+            t.push_str(&instructions::render("instructions/change.implement.request.tree.file.md",
+                &[("path", &f.path), ("bytes", &f.bytes.to_string()), ("fence", &fence(&text)), ("body", &body)])?);
+            t.push_str("\n\n");
         }
         if !sel.listed.is_empty() {
-            t.push_str("### Listed without text (they exist; keep them working; replace one only with its complete new text)\n\n");
+            t.push_str(&instructions::render("instructions/change.implement.request.tree.listed.md", &[])?);
+            t.push_str("\n\n");
             for f in &sel.listed {
-                t.push_str(&format!("- impl/{} ({} bytes, {})\n", f.path, f.bytes, f.why));
+                let why = match f.why {
+                    NOT_UTF8 => instructions::render("instructions/change.implement.request.tree.why.not-utf8.md", &[])?,
+                    OVER_CAP => instructions::render("instructions/change.implement.request.tree.why.over-cap.md", &[])?,
+                    other => return Err(format!("no instruction text for the reason {other:?} to list a file without text")),
+                };
+                t.push_str(&instructions::render("instructions/change.implement.request.tree.listed.item.md",
+                    &[("path", &f.path), ("bytes", &f.bytes.to_string()), ("why", &why)])?);
+                t.push('\n');
             }
             t.push('\n');
         }
     }
     sections.push(("tree", t));
     if let Ok(ft) = fs::read_to_string(work.join("findings.yaml")) {
-        let fc = fence(&ft);
-        sections.push(("findings", format!("## Findings of this run so far\n\n{fc}yaml\n{}\n{fc}\n", ft.trim_end())));
+        sections.push(("findings", instructions::render("instructions/change.implement.request.findings.md",
+            &[("fence", &fence(&ft)), ("text", ft.trim_end())])? + "\n"));
     }
     if let Some(fb) = &i.feedback {
-        sections.push(("feedback", format!("## Why the previous attempt was sent back: fix exactly that\n\n{}\n", fb.trim_end())));
+        sections.push(("feedback", instructions::render("instructions/change.implement.request.feedback.md", &[("feedback", fb.trim_end())])? + "\n"));
     }
     if let Some(rj) = &i.rejection {
         let (count, limit) = (rj["count"].to_string(), i.rework_limit.map_or("?".to_string(), |n| n.to_string()));
-        let mut x = text("rework", &[("approval", rj["approval"].as_str().unwrap_or("?")), ("revision", rj["revision"].as_str().unwrap_or("?")),
-            ("count", &count), ("limit", &limit), ("principal", rj["principal"].as_str().unwrap_or("its approver"))])? + "\n\n";
+        let mut x = instructions::render("instructions/change.implement.request.rework.md", &[("approval", rj["approval"].as_str().unwrap_or("?")),
+            ("revision", rj["revision"].as_str().unwrap_or("?")), ("count", &count), ("limit", &limit),
+            ("principal", rj["principal"].as_str().unwrap_or("its approver"))])? + "\n\n";
         for (n, reason) in rj["reasons"].as_array().into_iter().flatten().enumerate() {
             x.push_str(&format!("{}. {}\n", n + 1, reason.as_str().unwrap_or("")));
         }
         sections.push(("rejection", x));
     }
     let max_continuations = MAX_CONTINUATIONS.to_string();
-    sections.push(("task", text("task", &[("story", i.story), ("max_continuations", &max_continuations)])? + "\n"));
+    sections.push(("task", instructions::render("instructions/change.implement.request.task.md", &[("story", i.story), ("max_continuations", &max_continuations)])? + "\n"));
     if let Some((written, asked)) = &i.continuation {
-        sections.push(("continuation", text("continuation", &[("written", &written.join(", ")), ("asked", &asked.join(", "))])? + "\n"));
+        sections.push(("continuation", instructions::render("instructions/change.implement.request.continuation.md",
+            &[("written", &written.join(", ")), ("asked", &asked.join(", "))])? + "\n"));
     }
     let prompt = sections.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join("\n");
     let tf = |v: &Vec<TreeFile>| v.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "why": f.why})).collect::<Vec<_>>();
@@ -696,16 +703,16 @@ pub fn run(a: &RunArgs) -> (u8, String) {
         if exit == 126 || exit == 127 {
             break (exit as u8, format!("request {k}: the adapter could not run (exit {exit})"), None);
         }
-        let said = |part: &str, values: &[(&str, &str)]| text(part, values).map_err(|e| (2, format!("implement_inputs_missing: {e}"), Some("implement_inputs_missing")));
+        let said = |file: &str, values: &[(&str, &str)]| instructions::render(file, values).map_err(|e| (2, format!("implement_inputs_missing: {e}"), Some("implement_inputs_missing")));
         let checked = if exit != 0 {
             let (code, subtype) = (exit.to_string(), resp["subtype"].as_str().map_or(String::new(), |s| format!(", {s}")));
-            match said("request-failed", &[("exit", &code), ("subtype", &subtype)]) {
+            match said("instructions/change.implement.request.request-failed.md",&[("exit", &code), ("subtype", &subtype)]) {
                 Ok(why) => Err(vec![why]),
                 Err(stop) => break stop,
             }
         } else {
             match fs::read(dir.join("structured-output.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
-                None => match said("no-reply", &[]) {
+                None => match said("instructions/change.implement.request.no-reply.md",&[]) {
                     Ok(why) => Err(vec![why]),
                     Err(stop) => break stop,
                 },
@@ -721,7 +728,7 @@ pub fn run(a: &RunArgs) -> (u8, String) {
                 }
                 retries += 1;
                 kind = "retry";
-                match said("retry", &[("why", &why)]) {
+                match said("instructions/change.implement.request.retry.md",&[("why", &why)]) {
                     Ok(t) => prompt = format!("{slot}\n{t}\n"),
                     Err(stop) => break stop,
                 }
