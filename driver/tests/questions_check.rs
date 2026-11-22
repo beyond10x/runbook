@@ -675,7 +675,9 @@ mod loom_mode {
 me=$(readlink -f "$0"); b=$(dirname "$me")/..; d=$b/log
 if [ ! -f "$CLAUDE_CONFIG_DIR/.credentials.json" ]; then echo login-absent > "$d/claude.$$"; exit 9; fi
 { echo login-present; echo "login=$(cat "$CLAUDE_CONFIG_DIR/.credentials.json")"
-  echo "mode=$(stat -c %a "$CLAUDE_CONFIG_DIR/.credentials.json")"; echo "home=${HOME:-}"; } > "$d/claude.$$"
+  echo "mode=$(stat -c %a "$CLAUDE_CONFIG_DIR/.credentials.json")"; echo "home=${HOME:-}"
+  echo "config=$CLAUDE_CONFIG_DIR"; echo "tmpdir=${TMPDIR:-}"; echo "ppid=$PPID"; } > "$d/claude.$$"
+[ -f "$d/hang" ] && { echo $$ > "$d/claude-pid"; echo $PPID > "$d/claude-ppid"; exec sleep 60; }
 [ -f "$b/write-out" ] && { mkdir -p out && cp "$b/write-out" out/dissection.yaml; }
 [ -f "$b/write-decision" ] && { mkdir -p out && cp "$b/write-decision" out/decision.json; }
 printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"session_id":"s","usage":{"input_tokens":0,"output_tokens":0},"result":"ok","terminal_reason":"completed","structured_output":{"decision":"approve","reasons":["ok"],"cites":[]}}'
@@ -693,6 +695,7 @@ cwd=; creds=operator-login
 while [ $# -gt 0 ]; do case $1 in --cwd) cwd=$2; shift 2 ;; --credentials) creds=$2; shift 2 ;; *) shift ;; esac; done
 f=${HOME:-/nonexistent}/.claude/.credentials.json
 echo "home=${HOME:-}" > "$d/seen.$$"
+echo "tmpdir=${TMPDIR:-}" >> "$d/seen.$$"
 echo "credentials=$creds" >> "$d/seen.$$"
 if [ "$creds" = operator-login ]; then
   if [ -z "${HOME:-}" ] || [ ! -f "$f" ]; then
@@ -703,6 +706,7 @@ if [ "$creds" = operator-login ]; then
     echo "dir-mode=$(stat -c %a "$HOME/.claude")"; } >> "$d/seen.$$"
 fi
 [ -f "$d/fail" ] && { echo "metaharness: the stand-in ends the session with an error" >&2; exit 1; }
+[ -f "$d/hang" ] && { echo $$ > "$d/mh-pid"; exec sleep 60; }
 [ -n "$cwd" ] && [ -f "$b/write-out" ] && { mkdir -p "$cwd/out" && cp "$b/write-out" "$cwd/out/dissection.yaml"; }
 [ -n "$cwd" ] && [ -f "$b/write-decision" ] && { mkdir -p "$cwd/out" && cp "$b/write-decision" "$cwd/out/decision.json"; }
 printf '%s\n' '{"format":"metaharness.event/1","seq":1,"run":"standin","event":"session.ended","is_error":false,"subtype":"success","terminal_reason":"completed","num_turns":1,"duration_ms":1,"total_cost_usd":0.0,"usage":{}}'
@@ -782,6 +786,54 @@ esac
         p
     }
 
+    /// The login as the runner hands it over: the dummy file, and a link to it called `login` in a
+    /// directory of the user's with mode 700 (`runbook/src/loom_run/private.rs`). Returns the
+    /// link. Both lie beside the roots of a test, never inside them.
+    fn private_login(r: &(PathBuf, PathBuf)) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let file = dummy_login(r);
+        let dir = r.1.parent().unwrap().join("private");
+        fs::create_dir_all(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let link = dir.join("login");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        link
+    }
+
+    /// What lies in the private directory of `private_login`, by name.
+    fn private_listing(link: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(link.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    /// Starts `c` as `run` does but does not wait: for a call that is to be killed.
+    fn start(root: &Path, mut c: Command, stdin: &str) -> std::process::Child {
+        c.current_dir(root.join("work")).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = c.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        child
+    }
+
+    /// The pid a stand-in wrote to `name` in its log directory, once it is there.
+    fn wait_for_pid(st: &Standin, name: &str) -> u32 {
+        let t = std::time::Instant::now();
+        loop {
+            if let Ok(text) = fs::read_to_string(st.log.join(name)) {
+                if let Ok(pid) = text.trim().parse() {
+                    return pid;
+                }
+            }
+            assert!(t.elapsed().as_secs() < 20, "{name} did not appear");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// Ends a process by its pid.
+    fn kill(signal: &str, pid: u32) {
+        assert!(Command::new("kill").args([signal, &pid.to_string()]).status().unwrap().success());
+    }
+
     /// Every file below `dir` whose path or text holds one of `needles`.
     fn hits(dir: &Path, needles: &[String]) -> Vec<PathBuf> {
         let mut out = Vec::new();
@@ -845,7 +897,7 @@ esac
         let r = roots("mh-login");
         let st = Standin::new("mh-login", &[("metaharness", METAHARNESS_STANDIN)]);
         fs::copy(fx().join("dissection.yaml"), st.base.join("write-out")).unwrap();
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let l = dissect_under_loom(&r, &st, "metaharness", Some(&login));
         assert_eq!(l.code, Some(0), "{l:#?}");
         assert!(l.files.contains_key("dissection.yaml"), "{l:#?}");
@@ -855,8 +907,13 @@ esac
         assert_eq!(seen.len(), 1, "{seen:?}");
         assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "{seen:?}");
         assert_eq!((logged_value(&seen[0], "file-mode"), logged_value(&seen[0], "home-mode"), logged_value(&seen[0], "dir-mode")), ("600".into(), "700".into(), "700".into()), "{seen:?}");
-        // The private home is gone, and the login's path and text are in no file of the tree.
-        assert!(!Path::new(&logged_value(&seen[0], "home")).exists(), "the private home is left: {seen:?}");
+        // The private home lay in the runner's private directory, not in the run directory, it is
+        // gone, and the login's path and text are in no file of the tree.
+        let home = logged_value(&seen[0], "home");
+        assert!(Path::new(&home).starts_with(login.parent().unwrap()), "the private home is not in the private directory: {seen:?}");
+        assert_eq!(logged_value(&seen[0], "tmpdir"), home, "the scratch root of metaharness is the private home");
+        assert!(!Path::new(&home).exists(), "the private home is left: {seen:?}");
+        assert_eq!(private_listing(&login), ["login"]);
         assert_no_private_copy(&rec_of(&r, "idea.dissect"));
         let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
         assert!(found.is_empty(), "the login is in {found:?}");
@@ -867,13 +924,14 @@ esac
         let r = roots("mh-login-fail");
         let st = Standin::new("mh-login-fail", &[("metaharness", METAHARNESS_STANDIN)]);
         fs::write(st.log.join("fail"), "").unwrap();
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let l = dissect_under_loom(&r, &st, "metaharness", Some(&login));
         assert_eq!(l.code, Some(1), "{l:#?}");
         let seen = st.logged("seen.");
         assert_eq!(seen.len(), 1, "{seen:?}");
         assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "the stand-in did not get the login: {seen:?}");
         assert!(!Path::new(&logged_value(&seen[0], "home")).exists(), "the private home is left after a failure: {seen:?}");
+        assert_eq!(private_listing(&login), ["login"]);
         assert_no_private_copy(&rec_of(&r, "idea.dissect"));
         let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
         assert!(found.is_empty(), "the login is in {found:?}");
@@ -901,7 +959,7 @@ esac
     fn with_a_model_endpoint_the_metaharness_adapter_keeps_credentials_none_and_copies_no_login() {
         let r = roots("mh-login-endpoint");
         let st = Standin::new("mh-login-endpoint", &[("metaharness", METAHARNESS_STANDIN)]);
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let request = adapter_request(&r);
         let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
         c.arg(&request).env_clear().env("PATH", st.path()).env("SDC_LLM_ENDPOINT", "http://127.0.0.1:9").env("SDC_CLAUDE_CREDENTIALS", &login);
@@ -931,7 +989,7 @@ esac
         }
         let r = roots("mh-login-real");
         let st = Standin::new("mh-login-real", &[("claude", CLAUDE_STANDIN)]);
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let request = adapter_request(&r);
         let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
         c.arg(&request).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake").env("SDC_CLAUDE_CREDENTIALS", &login);
@@ -946,6 +1004,187 @@ esac
         assert!(found.is_empty(), "the login is in {found:?}");
         assert_no_private_copy(&r.1.join("work/rec"));
         assert!(!Path::new(&logged_value(&claude[0], "home")).exists(), "the private home is left: {claude:?}");
+        // Where metaharness put the config home it gave `claude` and the scratch root of its own
+        // (its `TMPDIR` is the scratch root's `tmp`): below the private home, so below the runner's
+        // private directory, and nowhere in the system's temporary directory.
+        let (config, tmpdir) = (logged_value(&claude[0], "config"), logged_value(&claude[0], "tmpdir"));
+        let private = login.parent().unwrap();
+        assert!(Path::new(&config).starts_with(private) && Path::new(&tmpdir).starts_with(private), "config {config} or tmp {tmpdir} lies outside {}", private.display());
+        assert_eq!(private_listing(&login), ["login"], "something of the call is left in the private directory");
+    }
+
+    /// Kills the adapter with SIGKILL while the program it started runs, ends that program by its
+    /// pid, and says where the copy of the login was: not in the run directory.
+    fn killed_while_running(r: &(PathBuf, PathBuf), st: &Standin, adapter: &str, login: &Path, pid_file: &str) -> Vec<String> {
+        let request = adapter_request(r);
+        fs::write(st.log.join("hang"), "").unwrap();
+        let mut c = Command::new(tools().join(adapter));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake").env("SDC_CLAUDE_CREDENTIALS", login);
+        let mut child = start(&r.1, c, "");
+        let running = wait_for_pid(st, pid_file);
+        kill("-KILL", child.id());
+        child.wait().unwrap();
+        let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
+        let rec = r.1.join("work/rec");
+        let left_in_rec: Vec<String> = fs::read_dir(&rec).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.contains("home")).collect();
+        let in_private = private_listing(login);
+        kill("-KILL", running);
+        assert!(found.is_empty(), "after a SIGKILL the login is in {found:?}");
+        assert!(left_in_rec.is_empty(), "after a SIGKILL {left_in_rec:?} is left in the record directory");
+        in_private
+    }
+
+    #[test]
+    fn a_sigkill_of_the_metaharness_adapter_leaves_no_copy_of_the_login_in_the_run_directory() {
+        let r = roots("mh-kill");
+        let st = Standin::new("mh-kill", &[("metaharness", METAHARNESS_STANDIN)]);
+        let login = private_login(&r);
+        let in_private = killed_while_running(&r, &st, "llm-adapter-metaharness.sh", &login, "mh-pid");
+        // The copy exists, so the test looked at the right moment, and lies beside the link.
+        assert_eq!(in_private.len(), 2, "{in_private:?}");
+        assert!(in_private.iter().any(|n| n.starts_with("h.")), "{in_private:?}");
+    }
+
+    #[test]
+    fn a_sigkill_of_the_claude_cli_adapter_leaves_no_copy_of_the_login_in_the_run_directory() {
+        let r = roots("cli-kill");
+        let st = Standin::new("cli-kill", &[("claude", CLAUDE_STANDIN)]);
+        let login = private_login(&r);
+        let in_private = killed_while_running(&r, &st, "llm-adapter-claude-cli.sh", &login, "claude-pid");
+        assert_eq!(in_private.len(), 2, "{in_private:?}");
+        assert!(in_private.iter().any(|n| n.starts_with("config-home.")), "{in_private:?}");
+    }
+
+    /// The claude-cli adapter when the login is not in a private directory (the driver's runs):
+    /// the config home is made in the record directory, as it always was.
+    #[test]
+    fn the_claude_cli_adapter_keeps_its_config_home_in_the_record_directory_when_the_login_is_not_in_a_private_directory() {
+        let r = roots("cli-plain");
+        let st = Standin::new("cli-plain", &[("claude", CLAUDE_STANDIN)]);
+        let login = dummy_login(&r);
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-claude-cli.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("SDC_CLAUDE_CREDENTIALS", &login);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let claude = st.logged("claude.");
+        assert_eq!(logged_value(&claude[0], "login"), DUMMY_LOGIN);
+        assert!(Path::new(&logged_value(&claude[0], "config")).starts_with(r.1.join("work/rec")), "{claude:?}");
+        assert_no_private_copy(&r.1.join("work/rec"));
+    }
+
+    /// The claude-cli adapter with the login in the runner's private directory: the whole config
+    /// home lies there (it is the directory `claude` is given as its config), the record directory
+    /// holds none.
+    #[test]
+    fn the_claude_cli_adapter_makes_its_config_home_in_the_private_directory_of_the_login() {
+        let r = roots("cli-private");
+        let st = Standin::new("cli-private", &[("claude", CLAUDE_STANDIN)]);
+        let login = private_login(&r);
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-claude-cli.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("SDC_CLAUDE_CREDENTIALS", &login);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let claude = st.logged("claude.");
+        assert_eq!(logged_value(&claude[0], "login"), DUMMY_LOGIN);
+        assert!(Path::new(&logged_value(&claude[0], "config")).starts_with(login.parent().unwrap()), "{claude:?}");
+        assert_eq!(private_listing(&login), ["login"]);
+        assert_no_private_copy(&r.1.join("work/rec"));
+    }
+
+    /// What the metaharness adapter does with `SDC_CLAUDE_CREDENTIALS` set and a `HOME` of the
+    /// caller: `home_login` says whether `$HOME/.claude/.credentials.json` exists. Returns the log
+    /// of the stand-in and the login link.
+    fn mh_with_home(name: &str, home_login: bool, private: bool) -> (Vec<String>, PathBuf, PathBuf) {
+        let r = roots(name);
+        let st = Standin::new(name, &[("metaharness", METAHARNESS_STANDIN)]);
+        let login = if private { private_login(&r) } else { dummy_login(&r) };
+        let home = r.1.parent().unwrap().join("callers-home");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        if home_login {
+            fs::write(home.join(".claude/.credentials.json"), "callers-login").unwrap();
+        }
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("HOME", &home).env("SDC_CLAUDE_CREDENTIALS", &login);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(if home_login || private { 0 } else { 2 }), "{l:#?}");
+        (st.logged("seen."), login, home)
+    }
+
+    #[test]
+    fn the_metaharness_adapter_keeps_a_home_that_has_a_login_also_when_a_login_file_is_named() {
+        let (seen, login, home) = mh_with_home("mh-home-has-login", true, true);
+        assert_eq!(logged_value(&seen[0], "home"), home.display().to_string(), "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "login"), "callers-login", "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "tmpdir"), "", "TMPDIR is not touched: {seen:?}");
+        assert_eq!(private_listing(&login), ["login"], "a private home was made");
+    }
+
+    #[test]
+    fn the_metaharness_adapter_makes_a_private_home_when_the_home_it_has_holds_no_login() {
+        let (seen, login, home) = mh_with_home("mh-home-no-login", false, true);
+        let used = logged_value(&seen[0], "home");
+        assert_ne!(used, home.display().to_string(), "{seen:?}");
+        assert!(Path::new(&used).starts_with(login.parent().unwrap()), "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "{seen:?}");
+        assert_eq!(private_listing(&login), ["login"]);
+    }
+
+    #[test]
+    fn the_metaharness_adapter_does_nothing_new_when_the_login_file_is_not_in_a_private_directory() {
+        let (seen, _login, home) = mh_with_home("mh-home-plain", false, false);
+        assert_eq!(logged_value(&seen[0], "home"), home.display().to_string(), "{seen:?}");
+        assert!(seen[0].contains("refused"), "metaharness found a login it was not given: {seen:?}");
+    }
+
+    /// Every `.credentials.json` below `dir`, by path.
+    fn credential_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let meta = fs::symlink_metadata(&p).unwrap();
+            if meta.is_dir() {
+                credential_files(&p, out);
+            } else if p.file_name().is_some_and(|n| n == ".credentials.json") {
+                out.push(p);
+            }
+        }
+    }
+
+    /// The real `metaharness` and the adapter are both killed with SIGKILL while the stand-in `claude`
+    /// runs: the copy of the login that metaharness made in its own scratch root is left, and it
+    /// lies in the private directory (the adapter set `TMPDIR` to its private home), not in the run
+    /// directory and not in the system's temporary directory.
+    #[test]
+    fn a_sigkill_of_the_real_metaharness_leaves_its_scratch_copy_of_the_login_in_the_private_directory_only_skipped_without_metaharness_on_path() {
+        if !on_path("metaharness") {
+            eprintln!("skipped: no metaharness on PATH (the forge has none)");
+            return;
+        }
+        let r = roots("mh-real-kill");
+        let st = Standin::new("mh-real-kill", &[("claude", CLAUDE_STANDIN)]);
+        let login = private_login(&r);
+        fs::write(st.log.join("hang"), "").unwrap();
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake").env("SDC_CLAUDE_CREDENTIALS", &login);
+        let mut child = start(&r.1, c, "");
+        let claude = wait_for_pid(&st, "claude-pid");
+        let metaharness = wait_for_pid(&st, "claude-ppid");
+        assert_eq!(fs::read_to_string(format!("/proc/{metaharness}/comm")).unwrap().trim(), "metaharness", "the parent of claude is not metaharness");
+        kill("-KILL", metaharness);
+        kill("-KILL", child.id());
+        child.wait().unwrap();
+        let mut copies = Vec::new();
+        credential_files(login.parent().unwrap(), &mut copies);
+        let (found, in_private) = (hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]), private_listing(&login));
+        kill("-KILL", claude);
+        assert!(found.is_empty(), "after a SIGKILL the login is in {found:?}");
+        assert_eq!(copies.len(), 2, "the adapter's copy and metaharness's scratch copy lie in the private directory: {copies:?}");
+        assert!(in_private.iter().any(|n| n.starts_with("h.")), "{in_private:?}");
+        let tmpdir = logged_value(&st.logged("claude.")[0], "tmpdir");
+        assert!(Path::new(&tmpdir).starts_with(login.parent().unwrap()), "the scratch root lies outside the private directory: {tmpdir}");
     }
 
     /// The environment `runbook loom-run`'s model decider gives `decider.sh` (`runbook/src/loom_run/decider.rs`,
@@ -953,7 +1192,7 @@ esac
     fn decider_under_loom_run(name: &str, adapter: Option<&str>, st: &Standin) -> (Run, PathBuf) {
         use std::os::unix::fs::PermissionsExt;
         let r = roots(name);
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let reply = st.base.join("sdc-reply");
         fs::write(&reply, reply_standin()).unwrap();
         fs::set_permissions(&reply, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1008,7 +1247,7 @@ esac
         let r = roots("review-login");
         let st = Standin::new("review-login", &[("claude", CLAUDE_STANDIN), ("metaharness", METAHARNESS_STANDIN), ("sdc-reply", &reply_standin())]);
         fs::set_permissions(st.bin.join("sdc-reply"), fs::Permissions::from_mode(0o755)).unwrap();
-        let login = dummy_login(&r);
+        let login = private_login(&r);
         let instructions = r#"{"task":"instructions/change.review.md","inputs":"instructions/change.review.inputs.md","coverage_inputs":"instructions/change.review.coverage.inputs.md","coverage_note":"instructions/change.review.coverage-note.md","facts":"instructions/change.review.facts.md","facts_inputs":"instructions/change.review.facts.inputs.md"}"#;
         let mut c = Command::new(tools().join("llm-node.sh"));
         c.args(["change.review", "--model", "claude-haiku-5-5", "--max-turns", "30", "--max-budget-usd", "1", "--operations", "dir.list,file.read,search",
