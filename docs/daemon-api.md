@@ -287,7 +287,9 @@ Without `--ui`, `GET /` is `404`.
   no token (loopback only) takes the command without a bearer, and the page asks for none; it finds out
   with one read of `GET /daemon/views/configuration` without credentials (`401` means a token is
   needed). The daemon authenticates no principal, so the form asks for a name and sends it as
-  `answered_by`: a label, as with `--by`.
+  `answered_by`: a label, as with `--by`. The daemon bounds it like `client` and `idempotency_key`: at
+  most 200 characters, and a longer one is refused `400` with the message `answered_by is longer than
+  200 characters`, before the request is looked up (it stays open). The form allows 100.
 - What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
   `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
   the events of every run; the feed of the selected run is the events of that run. The Decisions drawer

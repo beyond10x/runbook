@@ -550,6 +550,9 @@ impl Daemon {
     }
 
     pub fn answer_decision(&self, input: AnswerDecision) -> Reply {
+        if !long_enough(&input.answered_by) {
+            return Err(Fault::Invalid(format!("answered_by is longer than {MAX_LABEL_CHARS} characters")));
+        }
         let mut st = self.st();
         let (run_id, request_id) = (input.run_id.clone(), input.request_id.clone());
         let Some(request) = st.decision(&request_id) else {
