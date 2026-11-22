@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report release-0.3.1` from `experiments/release-0.3.1.yaml` and the run summaries in `experiments/release-0.3.1/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-22.
+- Kind: prospective; status: complete; created 2026-11-22.
 - Purpose: Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -47,6 +47,15 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| release-0.3.1.strong.1 | strong | closed: operating | yes | 3.468 | 710 | 1.182 |  |
+| release-0.3.1.strong.2 | strong | closed: operating | yes | 5.475 | 1164 | 1.333 |  |
+| release-0.3.1.strong.3 | strong | closed: operating | yes | 6.597 | 1432 | 1.417 |  |
+| release-0.3.1.mixed.1 | mixed | closed: operating | yes | 2.943 | 1579 | 1.5 |  |
+| release-0.3.1.mixed.2 | mixed | closed: operating | yes | 2.545 | 1790 | 1.333 |  |
+| release-0.3.1.mixed.3 | mixed | closed: operating | yes | 2.291 | 1574 | 1.667 |  |
+| release-0.3.1.haiku.1 | haiku | closed: operating | no | 1.54 | 3824 | 2.455 |  |
+| release-0.3.1.haiku.2 | haiku | closed: operating | yes | 1.223 | 2692 | 1.455 |  |
+| release-0.3.1.haiku.3 | haiku | stopped: writer_spent in IDEA-1.list.spec | no | 0.396 | 1680 | 2.25 |  |
 
 ## Per variant
 
@@ -54,34 +63,49 @@ Median [min, max] (n) over the ended runs.
 
 | | strong | mixed | haiku |
 |---|---|---|---|
-| runs listed | 0 | 0 | 0 |
-| ended | 0 | 0 | 0 |
-| clean passes | 0 | 0 | 0 |
-| `run.cost_usd` | - | - | - |
-| `run.llm_calls` | - | - | - |
-| `run.decider_calls` | - | - | - |
-| `run.wall_s` | - | - | - |
-| `run.driver_s` | - | - | - |
-| `run.real_takes` | - | - | - |
-| `run.rework_takes` | - | - | - |
-| `run.looping_factor` | - | - | - |
-| `run.first_pass_yield` | - | - | - |
-| `run.rework_cost_usd` | - | - | - |
-| `run.furthest_stage_index` | - | - | - |
-| `run.findings_raised` | - | - | - |
-| `run.waiting_on_person_s` | - | - | - |
-| `run.clean` | - | - | - |
+| runs listed | 3 | 3 | 3 |
+| ended | 3 | 3 | 3 |
+| clean passes | 3 | 3 | 1 |
+| `run.cost_usd` | 5.4754 [3.4682, 6.597] (3) | 2.5446 [2.2907, 2.9431] (3) | 1.2227 [0.3962, 1.54] (3) |
+| `run.llm_calls` | 20 [15, 22] (3) | 22 [19, 24] (3) | 19 [18, 29] (3) |
+| `run.decider_calls` | 13 [11, 13] (3) | 16 [13, 17] (3) | 13 [12, 19] (3) |
+| `run.wall_s` | 1164 [710, 1432] (3) | 1579 [1574, 1790] (3) | 2692 [1680, 3824] (3) |
+| `run.driver_s` | 878 [468, 1110] (3) | 851 [841, 865] (3) | 1904 [1268, 2721] (3) |
+| `run.real_takes` | 123 [105, 129] (3) | 115 [110, 124] (3) | 124 [122, 211] (3) |
+| `run.rework_takes` | 51 [41, 57] (3) | 45 [40, 53] (3) | 89 [57, 146] (3) |
+| `run.looping_factor` | 1.333 [1.182, 1.417] (3) | 1.5 [1.333, 1.667] (3) | 2.25 [1.455, 2.455] (3) |
+| `run.first_pass_yield` | 0.667 [0.583, 0.818] (3) | 0.667 [0.583, 0.833] (3) | 0.727 [0.727, 0.75] (3) |
+| `run.rework_cost_usd` | 0.6818 [0.1215, 1.0133] (3) | 0.3703 [0.0217, 0.488] (3) | 0.8064 [0.2123, 0.8462] (3) |
+| `run.furthest_stage_index` | 7 [7, 7] (3) | 7 [7, 7] (3) | 7 [4, 7] (3) |
+| `run.findings_raised` | 9 [4, 11] (3) | 8 [7, 12] (3) | 22 [12, 28] (3) |
+| `run.waiting_on_person_s` | 0 [0, 0] (3) | 0 [0, 0] (3) | 0 [0, 0] (3) |
+| `run.clean` | 1 [1, 1] (3) | 1 [1, 1] (3) | 0 [0, 1] (3) |
 
 ## Loops
 
 Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
 
-- strong (n 0):
-  - no node taken again, no edge
-- mixed (n 0):
-  - no node taken again, no edge
-- haiku (n 0):
-  - no node taken again, no edge
+- strong (n 3):
+  - `spec/spec.author` (llm-writer): looping factor median 2 (max 2, n 3), rework takes 3, rework cost 0.385 USD
+  - `direction/vision.write` (llm-writer): looping factor median 2 (max 2, n 3), rework takes 2, rework cost 0.098 USD
+  - `intake/idea.dissect` (llm-writer): looping factor median 2 (max 2, n 3), rework takes 3, rework cost 0.074 USD
+  - `direction: finding@vision -> intake` (finding): count 2 in 2 runs, loop cost 1.282 USD, loop driver 55 s
+  - `story: change.review:rejected -> change.implement` (check): count 3 in 2 runs, loop cost 1.259 USD, loop driver 226 s
+  - `spec: finding@spec -> intake` (finding): count 6 in 3 runs, loop cost 0.543 USD, loop driver 68 s
+- mixed (n 3):
+  - `direction/roadmap.write` (llm-writer): looping factor median 3 (max 3, n 3), rework takes 5, rework cost 0.026 USD
+  - `direction/vision.write` (llm-writer): looping factor median 3 (max 3, n 3), rework takes 6, rework cost 0.025 USD
+  - `direction/vision.approve` (approval): looping factor median 3 (max 3, n 3), rework takes 5, rework cost 0 USD
+  - `story: change.review:rejected -> change.implement` (check): count 2 in 2 runs, loop cost 0.686 USD, loop driver 129 s
+  - `direction: finding@roadmap -> intake` (finding): count 9 in 3 runs, loop cost 0.179 USD, loop driver 217 s
+  - `spec: spec.validate:invalid -> spec.author` (check): count 3 in 2 runs, loop cost 0.128 USD, loop driver 57 s
+- haiku (n 3):
+  - `spec/spec.author` (llm-writer): looping factor median 10 (max 15, n 3), rework takes 23, rework cost 0.744 USD
+  - `story/change.implement` (llm-writer): looping factor median 2.25 (max 3, n 2), rework takes 5, rework cost 1.099 USD
+  - `direction/vision.write` (llm-writer): looping factor median 2 (max 2, n 3), rework takes 2, rework cost 0.008 USD
+  - `story: finding@story -> intake` (finding): count 27 in 2 runs, loop cost 1.076 USD, loop driver 1205 s
+  - `spec: spec.synthesize:refused -> spec.author` (check): count 10 in 2 runs, loop cost 0.504 USD, loop driver 1091 s
+  - `spec: finding@spec -> intake` (finding): count 23 in 3 runs, loop cost 0.139 USD, loop driver 451 s
 
 ## Verdict
 

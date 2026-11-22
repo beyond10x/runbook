@@ -400,7 +400,8 @@ entries:
   date: 2026-11-22
   tree: ebea58dee2d1b4c9326a07d4e70128fa922bd01b
   tree_note: 'tag 0.3.1 at main ebea58d: 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation'
-  experiments: []
+  experiments:
+  - release-0.3.1
   changes:
   - commit: 5a4ba7f
     line: a story step that got no build slot is not a failed test run; 3 tries, then pool_wait_spent; a job the pool ends at its limit is run_over_time
@@ -439,7 +440,7 @@ entries:
     line: the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned
     effect: none
   limits:
-  - 'No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.'
+  - 'The baseline on this tree is release-0.3.1 (three runs per setting, 26.48 USD in all): all nine runs ended on 2026-11-22; clean passes strong 3 of 3, mixed 3 of 3, haiku 1 of 3; haiku.1 closed without a clean pass and haiku.3 stopped with writer_spent in IDEA-1.list.spec. The record is descriptive and decides nothing; its report makes no comparison with release-0.1.2 (strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean).'
   - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
 - id: 0.4.0
   kind: release

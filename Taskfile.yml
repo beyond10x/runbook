@@ -149,45 +149,49 @@ tasks:
       - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
-    desc: Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output is current.
+    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.3`); from the repository root the ess dispatcher does not switch to it."
+    dir: ess
     cmds:
-      - ess specify validate --path ess
-      - ess generate --path ess --kind schema --schema-id-base https://sdc.invalid/ --out ess/generated/schema --check
-      - ess generate --path ess --kind openapi --out ess/generated/openapi --check
+      - ess specify validate --path .
+      - ess generate --path . --kind schema --schema-id-base https://sdc.invalid/ --out generated/schema --check
+      - ess generate --path . --kind openapi --out generated/openapi --check
       - task: check:ess-suite
+      - task: check:ess-suite:synthesized
 
   ess-suite:digest:
     silent: true
-    desc: "Print the digest of the sources of the committed conformance suite: the ess version and the sha256 of every file of ess/system.yaml, ess/components.yaml, ess/ess-inputs.yaml, ess/domains/ and ess/scenarios/."
+    desc: "Print the digest of the sources of the committed conformance suite: the ess release that runs in ess/ (the pin) and the sha256 of every file of ess/system.yaml, ess/components.yaml, ess/ess-inputs.yaml, ess/domains/ and ess/scenarios/."
     cmds:
       - |
         set -eu
-        { echo "ess $(ess --version)"; find ess/system.yaml ess/components.yaml ess/ess-inputs.yaml ess/domains ess/scenarios -type f | LC_ALL=C sort | while read -r f; do echo "$f $(sha256sum < "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1
+        { echo "ess $(cd ess && ess --version 2>/dev/null)"; find ess/system.yaml ess/components.yaml ess/ess-inputs.yaml ess/domains ess/scenarios -type f | LC_ALL=C sort | while read -r f; do echo "$f $(sha256sum < "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1
 
   check:ess-suite:
     silent: true
-    desc: "Fast check (about 1 s): the committed suite of the authored scenarios, ess/generated/conformance/authored.json, is byte for byte what `ess verify conform author` writes from ess/. The crate test runs it against the daemon. The synthesized suite is the open step, see check:ess-suite:synthesized."
+    dir: ess
+    desc: "Fast check (about 1 s): the committed suite of the authored scenarios, ess/generated/conformance/authored.json, is byte for byte what `ess verify conform author` writes from ess/. The crate test runs it against the daemon."
     cmds:
       - |
         set -eu
         out=$(mktemp)
         trap 'rm -f "$out"' EXIT
-        ess verify conform author --path ess --scenarios ess --out "$out" > /dev/null 2>&1
-        if ! cmp -s "$out" ess/generated/conformance/authored.json; then
+        ess verify conform author --path . --scenarios . --out "$out" > /dev/null 2>&1
+        if ! cmp -s "$out" generated/conformance/authored.json; then
           echo "ess/generated/conformance/authored.json is stale: run task ess-suite:authored and commit it"
           exit 1
         fi
         echo "ess authored conformance suite current"
 
   ess-suite:authored:
+    dir: ess
     desc: "Write ess/generated/conformance/authored.json from the authored scenarios (about 1 s)."
     cmds:
-      - mkdir -p ess/generated/conformance
-      - ess verify conform author --path ess --scenarios ess --out ess/generated/conformance/authored.json
+      - mkdir -p generated/conformance
+      - ess verify conform author --path . --scenarios . --out generated/conformance/authored.json
 
   check:ess-suite:synthesized:
     silent: true
-    desc: "Fast check of the synthesized suite (not part of check:ess-generated until ess 0.97.2 can make it): the digest of the sources equals the one recorded in ess/generated/conformance/DIGEST and suite.json is the file recorded."
+    desc: "Fast check (about 1 s, part of check:ess-generated): the digest of the sources equals the one recorded in ess/generated/conformance/DIGEST and suite.json is the file recorded. It never synthesizes; task ess-suite:record does."
     cmds:
       - |
         set -eu
@@ -206,20 +210,22 @@ tasks:
         echo "ess conformance suite current (sources $want)"
 
   check:ess-suite:slow:
-    desc: "Slow lane: synthesize the suite from the sources for real (ess 0.97.1 took 1048 s on the sources of 627cdaf and was killed at 1800 s on those of 86c9acf8, a known defect fixed in ess 0.97.2; the pool kills a job over 10 minutes, so the command names 30m with `slot --timeout`) and compare it byte for byte with ess/generated/conformance/suite.json. Run it in the background when the specification, the scenarios or ess changed."
+    dir: ess
+    desc: "Slow lane (ess 0.97.3 synthesizes it in about 27 s of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`."
     cmds:
-      - slot --timeout 30m ess verify conform synthesize --path ess --scenarios ess --target ir --out ess/generated/conformance/suite.json --check
+      - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json --check
 
   ess-suite:record:
-    desc: "Synthesize the conformance suite from the sources (slow, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both."
+    dir: ess
+    desc: "Synthesize the conformance suite from the sources (about 27 s with ess 0.97.3, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both."
     cmds:
-      - mkdir -p ess/generated/conformance
-      - slot --timeout 30m ess verify conform synthesize --path ess --scenarios ess --target ir --out ess/generated/conformance/suite.json
+      - mkdir -p generated/conformance
+      - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json
       - |
         set -eu
-        dir=ess/generated/conformance
-        printf 'sources %s\nsuite %s\n' "$(task --silent ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
-        echo "written $dir/suite.json and $dir/DIGEST"
+        dir=generated/conformance
+        printf 'sources %s\nsuite %s\n' "$(task --silent --taskfile ../Taskfile.yml ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
+        echo "written ess/$dir/suite.json and ess/$dir/DIGEST"
 
   cycles:only:
     desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."
