@@ -254,12 +254,12 @@ nothing. The stub runtime always answers `gone`.
 
 ## The web UI
 
-`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` are compiled into the
-binary at build time (`runbook/build.rs` lists the directory, so a file added there is embedded by the
+`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` and `ui/daemon/` (the code that answers a decision, which the inspector `ui/server.mjs` does not serve) are compiled into the
+binary at build time (`runbook/build.rs` lists the two directories, so a file added there is embedded by the
 next build); the daemon reads nothing from disk to serve them, and it needs no `ui/` directory beside it.
 Without `--ui`, `GET /` is `404`.
 
-- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` (`/app.js`,
+- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` or `ui/daemon/` (`/app.js`,
   `/fonts/inter-variable-latin.woff2`). A path is looked up exactly as sent: a directory, `..` and
   any encoded form of either answer `404`, and so does a path that is not in the list. A write method on a
   file answers `405`.
