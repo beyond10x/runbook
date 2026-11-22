@@ -3,7 +3,7 @@
 // Own server per project, on a port the kernel gives (test/serve.mjs).
 // Screenshots: screenshots/<project>-changes-*.png.
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -21,7 +21,7 @@ test.beforeAll(async ({}, info) => {
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'changes.spec.mjs', test);
   const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
   fs.mkdirSync(dir, {recursive: true});
-  const run = (args) => { const p = spawn('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
+  const run = (args) => { const p = spawnChild('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   await new Promise((r) => run(['test/fixture-run.mjs', 'changes', path.join(dir, 'changes')]).on('exit', r));
   const s = await startServer([path.join(dir, 'changes', 'store'), path.resolve(ui, '../runs/trial-todo-1/store')]);
   base = s.url;

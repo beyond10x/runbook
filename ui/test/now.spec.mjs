@@ -4,7 +4,8 @@
 // shared clock (test/shared-clock.mjs) with a second server of its own.
 // Screenshots: screenshots/<project>-now-*.png.
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
+import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -23,7 +24,7 @@ test.beforeAll(async ({}, info) => {
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs', test);
   dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
   fs.mkdirSync(dir, {recursive: true});
-  const run = (args) => { const p = spawn('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
+  const run = (args) => { const p = spawnChild('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   const person = run(['test/fixture-run.mjs', 'person', path.join(dir, 'person')]);
   await new Promise((r) => person.on('exit', r));
   const stores = ['agent', 'two', 'decider', 'person'].map((s) => path.join(dir, s, 'store'));
@@ -36,7 +37,7 @@ test.beforeAll(async ({}, info) => {
 });
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 
-const play = (scenario, speed = '1.5', env = process.env) => { const p = spawn('node', ['test/fixture-run.mjs', scenario, path.join(dir, scenario), speed], {cwd: ui, stdio: 'ignore', env}); procs.push(p); return p; };
+const play = (scenario, speed = '1.5', env = process.env) => { const p = spawnChild('node', ['test/fixture-run.mjs', scenario, path.join(dir, scenario), speed], {cwd: ui, stdio: 'ignore', env}); procs.push(p); return p; };
 const shot = (page, info, name) => page.screenshot({path: path.join(shots, `${info.project.name}-now-${name}.png`)});
 const errorsOf = (page) => { const e = []; page.on('pageerror', (x) => e.push(String(x))); return e; };
 
