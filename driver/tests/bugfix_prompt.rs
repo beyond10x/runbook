@@ -696,6 +696,39 @@ fn implement_run(case: &Path, rec: &Path, cwd: &Path, extra: &[&str]) {
     assert!(!String::from_utf8_lossy(&o.stdout).contains("implement_inputs_missing"), "{}", String::from_utf8_lossy(&o.stdout));
 }
 
+/// A story that covers a command the specification lacks, over an empty product tree: no
+/// requirement traces to it, the specification names it missing, impl/ is empty.
+fn implement_sparse(name: &str) -> (PathBuf, PathBuf, PathBuf, Vec<&'static str>) {
+    let (case, rec, cwd) = implement_call(name);
+    fs::write(case.join("work/aep/story/invoices.md"), "---\nid: story:invoices\nsummary: Elsewhere. covers other.thing.Nothing\n---\n# Elsewhere\n\n## Acceptance\n\n- nothing is created\n").unwrap();
+    fs::remove_dir_all(cwd.join("out/impl")).unwrap();
+    fs::create_dir_all(cwd.join("out/impl")).unwrap();
+    (case, rec, cwd, vec!["--assemble-only"])
+}
+
+/// A tiny product tree past a cap of 20 bytes: `a.txt` is inlined, `b.txt` is over the cap and
+/// `blob.bin` is not text. `full` adds the build constraints, the findings, the feedback and a
+/// rejection, so that every section of the prompt is there.
+fn implement_listed(name: &str, full: bool) -> (PathBuf, PathBuf, PathBuf, Vec<&'static str>) {
+    let (case, rec, cwd) = implement_call(name);
+    fs::remove_dir_all(cwd.join("out/impl")).unwrap();
+    fs::create_dir_all(cwd.join("out/impl")).unwrap();
+    fs::write(cwd.join("out/impl/a.txt"), "aa\n").unwrap();
+    fs::write(cwd.join("out/impl/b.txt"), "bb bb bb bb bb bb bb bb bb bb\n").unwrap();
+    fs::write(cwd.join("out/impl/blob.bin"), [0xffu8, 0xfe, 0, 1]).unwrap();
+    if full {
+        for (p, t) in [("build-constraints.yaml", "format: sdc.build-constraints/1\nlanguage: rust\ntext: Rust 2021, std only, no Postgres.\n"),
+            ("findings.yaml", "findings:\n- id: f1\n  status: resolved\n")] {
+            fs::write(case.join("work").join(p), t).unwrap();
+        }
+        fs::create_dir_all(cwd.join("in")).unwrap();
+        fs::write(cwd.join("in/feedback.md"), "## conformance_run = failed\nassertion failed: fixture-failure\n").unwrap();
+        fs::write(cwd.join("in/rejection.json"), r#"{"format":"sdc.rejection/1","approval":"change.review","revision":"t1","principal":"person:reviewer","count":1,"reasons":["the refusal of an empty customer is missing"]}"#).unwrap();
+        return (case, rec, cwd, vec!["--assemble-only", "--max-bytes", "20", "--rework-limit", "2"]);
+    }
+    (case, rec, cwd, vec!["--assemble-only", "--max-bytes", "20"])
+}
+
 #[test]
 fn the_prompts_of_implement_request_mode_are_their_goldens_byte_for_byte() {
     let take = |rec: &Path, req: usize| fs::read_to_string(rec.join(format!("req-{req}/prompt.md"))).unwrap();
@@ -728,8 +761,17 @@ fn the_prompts_of_implement_request_mode_are_their_goldens_byte_for_byte() {
         implement_run(&case, &rec, &cwd, &["--adapter", adapter.to_str().unwrap()]);
         compare("implement", name, &take(&rec, 2));
     }
+    // A story whose command the specification lacks, over an empty product tree.
+    let (case, rec, cwd, extra) = implement_sparse("implement-sparse");
+    implement_run(&case, &rec, &cwd, &extra);
+    compare("implement", "request.sparse", &fs::read_to_string(rec.join("prompt.md")).unwrap());
+    // A tree past the cap: files listed without text, one of them not UTF-8.
+    let (case, rec, cwd, extra) = implement_listed("implement-listed", false);
+    implement_run(&case, &rec, &cwd, &extra);
+    compare("implement", "request.listed", &fs::read_to_string(rec.join("prompt.md")).unwrap());
     if std::env::var("SDC_BLESS_PROMPTS").is_err() {
-        let want = ["request", "request.rework", "request.continuation", "request.retry", "request.retry-no-reply", "request.retry-failed"];
+        let want = ["request", "request.rework", "request.continuation", "request.retry", "request.retry-no-reply", "request.retry-failed",
+            "request.sparse", "request.listed"];
         assert_eq!(golden_names("implement"), names(&want));
     }
 }
@@ -792,4 +834,59 @@ fn the_three_rust_binaries_hold_no_instruction_text() {
         }
         assert!(text.contains("instructions::render") || text.contains("text(\""), "{src} reads no instruction file");
     }
+    // The lines above only find a copy of a line of a file. A heading or a note of a few words is
+    // found in what the binary renders: the request-mode prompt of three calls (the specification
+    // lacks the story's command and impl/ is empty; the tree is past the cap; every section).
+    for (name, case) in [("sparse", implement_sparse("words-sparse")), ("listed", implement_listed("words-listed", false)), ("full", implement_listed("words-full", true))] {
+        let (case, rec, cwd, extra) = case;
+        implement_run(&case, &rec, &cwd, &extra);
+        let prompt = fs::read_to_string(rec.join("prompt.md")).unwrap();
+        let stray = words_outside_files_and_inputs(&prompt, &case, &cwd);
+        assert!(stray.is_empty(), "the request-mode prompt of the {name} call holds words that are in no instruction file and no input: {stray:?}");
+    }
+}
+
+/// The words of a request-mode prompt that are neither in an instruction file nor in an input:
+/// the text of every `change.implement.request.*.md` (the parts between its `{{name}}`
+/// placeholders) is cut out of the prompt, and every word of the call's inputs (the files of the
+/// case's work/, of the call's in/ and of the product tree, and their paths) is allowed.
+fn words_outside_files_and_inputs(prompt: &str, case: &Path, cwd: &Path) -> Vec<String> {
+    let placeholder = regex::Regex::new(r"\{\{[a-z_]+\}\}").unwrap();
+    let word = regex::Regex::new(r"[A-Za-z]+").unwrap();
+    let mut parts = Vec::new();
+    for e in fs::read_dir(repo().join("instructions")).unwrap() {
+        let p = e.unwrap().path();
+        if p.file_name().unwrap().to_string_lossy().starts_with("change.implement.request.") {
+            let text = fs::read_to_string(&p).unwrap();
+            parts.extend(placeholder.split(text.trim_end_matches('\n')).map(String::from));
+        }
+    }
+    parts.retain(|s| word.is_match(s));
+    parts.sort_by_key(|s| std::cmp::Reverse(s.len()));
+    let mut left = prompt.to_string();
+    for part in &parts {
+        left = left.replace(part.as_str(), "\u{1}");
+    }
+    let mut allowed = std::collections::BTreeSet::new();
+    for root in [case.join("work"), cwd.join("in"), cwd.join("out/impl")] {
+        let mut stack = vec![root.clone()];
+        while let Some(d) = stack.pop() {
+            for e in fs::read_dir(&d).into_iter().flatten() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                let text = fs::read_to_string(&p).unwrap_or_default();
+                let rel = p.strip_prefix(&root).unwrap().display().to_string();
+                for w in word.find_iter(&text).chain(word.find_iter(&rel)) {
+                    allowed.insert(w.as_str().to_string());
+                }
+            }
+        }
+    }
+    let mut stray: Vec<String> = word.find_iter(&left).map(|m| m.as_str().to_string()).filter(|w| !allowed.contains(w)).collect();
+    stray.sort();
+    stray.dedup();
+    stray
 }
