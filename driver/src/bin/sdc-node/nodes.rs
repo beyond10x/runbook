@@ -1,4 +1,4 @@
-//! The inputs and the task of each node (lines 418-599 of `llm-node.sh`).
+//! The inputs and the task of each node.
 
 use crate::util::{cp_contents, cp_r, die, run_to_file, R};
 use crate::{yaml, Ctx};

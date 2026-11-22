@@ -659,7 +659,7 @@ fn settings_are_checked_and_unknown_keys_are_refused_by_name() {
     assert!(reason(ask_with(refusing.as_ref(), &w, &approve_action(&w), 0, &env_with_path())).contains("no decider configured"));
     let err = |decider: Value| from_settings(&settings(&w, decider)).err().expect("refused");
     assert!(err(json!({"colour": "blue"})).contains("decider.colour"));
-    assert!(err(json!({"program": "decider.sh"})).contains("decider.program"), "the decider is not a program of the bindings copy");
+    assert!(err(json!({"program": "some-program"})).contains("decider.program"), "the decider is not a program of the bindings copy");
     assert!(err(json!({"model": ""})).contains("decider.model"));
     assert!(err(json!({"escalate": "sometimes"})).contains("decider.escalate"));
     assert!(err(json!({"effort": "extreme"})).contains("decider.effort"));

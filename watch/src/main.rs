@@ -52,7 +52,7 @@ enum Cmd {
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum Kind {
-    /// A run of `sdc-drive` (`store/<case>/work`).
+    /// A run of the removed driver (`store/<case>/work`).
     Driver,
     /// A run of `runbook run` (`work/`, `rounds.jsonl`).
     Loom,

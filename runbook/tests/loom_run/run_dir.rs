@@ -242,7 +242,7 @@ fn status_doc(dir: &Path) -> Value {
         "store": format!("{}/store", dir.display()), "workspace": format!("{}/work", dir.display()), "root": ROOT,
         "cases": [
             {"case": ROOT, "protocol": "sdc@8", "protocol_id": "sdc", "protocol_revision": "8", "revision": 2, "outcome": "operating",
-             "open_obligations": [], "stop_next": [], "evidence": [ev("ev-open", "intake_opened", "", "sdc-drive", "intake.open")],
+             "open_obligations": [], "stop_next": [], "evidence": [ev("ev-open", "intake_opened", "", "sdc-node", "intake.open")],
              "runs": [{"action": "intake.open", "attempt": 1, "exit": 0, "retried": false, "retry_of": []}], "approvals": [], "copies": [],
              "case_file": format!("{}/store/case-x.json", dir.display()), "run_log": format!("{}/store/runlog-x.jsonl", dir.display())},
             {"case": CHILD, "name": "intake", "parent": ROOT, "protocol": "sdc-intake@9", "protocol_id": "sdc-intake", "protocol_revision": "9",

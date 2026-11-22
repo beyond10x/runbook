@@ -1,6 +1,6 @@
 //! sdc-replay: re-drive a recorded run (docs/driver.md, "Recorded replay").
 //!
-//!   sdc-replay <request.json>      the adapter: called by tools/llm-node.sh and tools/decider.sh
+//!   sdc-replay <request.json>      the adapter: called by `sdc-node`
 //!                                  like any adapter program (SDC_LLM_ADAPTER, SDC_DECIDER_ADAPTER)
 //!   sdc-replay prepare --source <run or recording> --out <new run> --tree <sdc checkout>
 //!                      [--source-tree <commit>] [--on-divergence stop|nearest|live]
@@ -672,7 +672,7 @@ fn load_source(p: &Path) -> R<Source> {
     })
 }
 
-/// The principal llm-node.sh gave aep (AEP_ACTOR): SDC_PRINCIPAL when it was a `<kind>:<name>`
+/// The principal `sdc-node` gives aep (AEP_ACTOR): SDC_PRINCIPAL when it was a `<kind>:<name>`
 /// principal, else `agent:<node>` (then None: the variable was not set).
 fn aep_actor(store: &Path) -> Option<String> {
     static ACTOR: OnceLock<Regex> = OnceLock::new();
@@ -1387,7 +1387,7 @@ fn timeout(cwd: &Path, resp: &mut Value, line: &mut Value, timeout_s: u64, recor
             let _ = fs::write(f, &why);
         }
         // No driver reads a file under `runbook run`: the program's output says it, as the driver did.
-        Err(_) => eprintln!("sdc-drive: killed after {timeout_s} s (virtual clock: {why})"),
+        Err(_) => eprintln!("sdc-replay: killed after {timeout_s} s (virtual clock: {why})"),
     }
     let ms = if timeout_s > 0 { timeout_s * 1000 } else { recorded_ms };
     line["virtual_ms"] = json!(ms);

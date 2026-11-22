@@ -10,7 +10,7 @@
 # `--disable-slash-commands`, auto-memory and the git status block (user name, branch) off. The login is the one file `.credentials.json`
 # copied into that config home for the call (mode 600, removed on exit; SDC_CLAUDE_CREDENTIALS,
 # else $CLAUDE_CONFIG_DIR or ~/.claude), or ANTHROPIC_API_KEY from the environment. A call
-# is the same on any host: its effort is the request's (set by sdc-node / decider.sh), and
+# is the same on any host: its effort is the request's (set by sdc-node or the decider of `runbook run`), and
 # CLAUDE_CODE_EFFORT_LEVEL, which would override it, is unset for the child.
 set -uo pipefail
 for p in jq claude; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-claude-cli.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result

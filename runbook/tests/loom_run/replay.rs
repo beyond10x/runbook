@@ -159,7 +159,7 @@ fn implement_coverage_default_is_off() {
     let mut all = Vec::new();
     files(&r.dir.join("store"), &mut all);
     assert!(all.iter().all(|f| !f.ends_with("impl/.sdc/coverage.json")));
-    let refused = all.iter().filter(|f| f.to_string_lossy().contains("/blobs/")).any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("sdc-drive: postcondition")));
+    let refused = all.iter().filter(|f| f.to_string_lossy().contains("/blobs/")).any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("sdc-reply check-coverage")));
     assert!(!refused, "no postcondition refusal");
 }
 

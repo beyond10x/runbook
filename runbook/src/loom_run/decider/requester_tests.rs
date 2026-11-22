@@ -395,3 +395,24 @@ fn a_question_that_sdc_decision_request_refuses_is_an_invalid_reply_and_takes_th
     assert_eq!(asked.result.unwrap().answer, "a one-time code");
     assert!(!tools(&w).join("adapter-request.json").exists(), "no model call without a request");
 }
+
+// --- the prompt, byte for byte --------------------------------------------------------------------
+
+/// The requester's prompt on a roadmap approval, first attempt and third (after two refused grounding
+/// checks), is its golden under `instructions/golden/decider/` (`SDC_BLESS_PROMPTS=1` rewrites it).
+#[test]
+fn the_prompt_of_the_requester_is_its_golden_byte_for_byte() {
+    let w = world("requester-golden");
+    let roadmap = w.work.join("aep/initiative/roadmap.md");
+    std::fs::create_dir_all(roadmap.parent().unwrap()).unwrap();
+    std::fs::write(&roadmap, "# roadmap\n").unwrap();
+    std::fs::write(w.run.join("verdict.json"), REFUSED).unwrap();
+    let mut decision = approval(&w, "roadmap.approve", "roadmap");
+    decision["path"] = json!(roadmap.display().to_string());
+    let _ = decide_with(&w, &settings(&w, json!({})), &decision);
+    let dirs = records(&w);
+    assert_eq!(dirs.len(), 3);
+    let prompt = |n: usize| std::fs::read_to_string(dirs[n].join("prompt.md")).unwrap();
+    super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[0], &prompt(0));
+    super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[1], &prompt(2));
+}

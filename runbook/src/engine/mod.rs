@@ -1,6 +1,6 @@
 //! The engine: a second implementation of `Runtime` that runs a case tree through Loom's library
-//! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom`, `canon` or
-//! `sdc-drive` process; the bound programs of the bindings are started by Loom's runner, as always.
+//! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom` or
+//! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
 pub mod calls;
 mod decision;

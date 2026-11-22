@@ -1,4 +1,4 @@
-//! The one integration-test binary of `sdc-drive`: one module per file of this directory. A new
+//! The one integration-test binary of `sdc-tools`: one module per file of this directory. A new
 //! test file is added here as a `mod` line; `autotests = false` in `Cargo.toml` keeps cargo from
 //! building each file as a binary of its own.
 

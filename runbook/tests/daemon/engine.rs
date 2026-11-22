@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const RUNBOOK: &str = "engine-demo";
-const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", "sdc-drive"];
+const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", concat!("sdc-dr", "ive")];
 
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The SDC example's tools, one subcommand per binding. Run with cwd = the case tree's shared work/
-# directory, by sdc-drive (driver mode) or by Loom (Loom mode: LOOM_CASE is set). Each check is
+# directory, by Loom (Loom mode: LOOM_CASE is set) or, in driver mode, by the variables of the removed driver. Each check is
 # deterministic and reports only through its exit code; each `stub-*` is a stand-in for an LLM
 # executor: it writes a fixed draft and decides nothing.
 #
@@ -87,8 +87,7 @@ export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.97.4} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAI
 # Exit 0 when every line of stdin is "true".
 all_true() { ! grep -qv '^true$'; }
 
-# A program the tool needs and cannot find is a program error, exit 127 (sdc-drive records no
-# evidence and stops), never a check result: a check that could not run is not `invalid`.
+# A program the tool needs and cannot find is a program error, exit 127 (no evidence is recorded and the run stops), never a check result: a check that could not run is not `invalid`.
 need() {
   local p
   for p; do
@@ -585,9 +584,9 @@ story-tests)
   findings gate story || exit 5
   recorded conformance_run "${2:?implementation tree}" "$here/sdc-tool.sh" story-tests-run "$2" ;;
 amend) findings amend "${2:?stage}" ;;
-# amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
+# amend.upstream's handoff_when: exit 0 while a finding waits for a person's decision:
 # none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
-# keep-going's `rule:keep-going`, run.unstick's `agent:unstick`).
+# keep-going's `rule:keep-going`).
 findings-wait)
   [[ -f findings.yaml ]] &&
   yq -e '[.findings[]? | select(.status == "needs_person" and ((.decision // "") == ""
