@@ -144,12 +144,12 @@ runs it with `--doc docs/reject-routes.md`, and fails unless its findings equal 
 "Check output" line by line. A fix therefore removes its line from the block, and a new dead end
 adds one, in the same commit.
 
-`rule-ends.json` holds the autopilot rules that lived only in code. `run-trial.sh` reads two of
-them: the rework limit (`rework_limit`, which was the literal 2; the default of the one effective rework cap, D184: `SDC_MAX_REJECTIONS` overrides it, run-settings.jsonl records `rework_limit: {value, source}`, and the driver and the writer's rework prompt in `llm-node.sh` read that value) and the ends for a refusal (`approvals.*.reject`, which was
-the `refusal_end` array). The check reads all of them. The `driver` entries state facts of the
-driver and of `llm-node.sh`: which effects are capped, whether the cap holds per kind (R7),
-whether a rejection is an arrival (R6), and whether the writer's own failure and a rejection log that is not a document
-are fed back (R9). A route built in code is declared there as well. The other routes stay `null`
+`rule-ends.json` holds the autopilot rules that lived only in code. The deleted `run-trial.sh` read two of
+them: the rework limit (`rework_limit`, which was the literal 2 and the default of the one effective rework cap, D184, overridden by `SDC_MAX_REJECTIONS`; `runbook run` has no rework cap) and the ends for a refusal (`approvals.*.reject`, which was
+the `refusal_end` array). The check reads all of them. The `runtime` block states what a run needs of its runtime: which effects are capped,
+whether the cap holds per kind (R7), whether a rejection is an arrival (R6), whether the writer's own failure and a rejection log that is not a document
+are fed back (R9), and the backstop. `provided_by` names for each member who holds it in a run of `runbook run`: a Loom member, or `pending:` with the page that says so; the check prints one `capability` line for each.
+A route built in code is declared there as well. The other routes stay `null`
 until they are built: R2 (`approvals."sdc.intake/scope.answer"`), R3 (`findings.refused_by_check`),
 R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operating"`, which
 `fix/attempt5-close` sets).
