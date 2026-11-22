@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report parity-loom-strong-4` from `experiments/parity-loom-strong-4.yaml` and the run summaries in `experiments/parity-loom-strong-4/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-22.
+- Kind: prospective; status: complete; created 2026-11-22.
 - Purpose: Registered hypothesis, written before the runs: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-3, which stays as the evidence of its three stops and is not edited.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -47,6 +47,9 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| parity-loom-strong-4.strong.1 | strong | stopped: stuck in IDEA-1.todo.spec | no | 1.557 | 422 | 1.625 |  |
+| parity-loom-strong-4.strong.2 | strong | stopped: stuck in IDEA-1.intake | no | 0.424 | 125 | 1 |  |
+| parity-loom-strong-4.strong.3 | strong | stopped: stuck in IDEA-1.list.sync | no | 1.972 | 590 | 1.4 |  |
 
 ## Per variant
 
@@ -54,30 +57,35 @@ Median [min, max] (n) over the ended runs.
 
 | | strong |
 |---|---|
-| runs listed | 0 |
-| ended | 0 |
+| runs listed | 3 |
+| ended | 3 |
 | clean passes | 0 |
-| `run.cost_usd` | - |
-| `run.llm_calls` | - |
-| `run.decider_calls` | - |
-| `run.wall_s` | - |
-| `run.driver_s` | - |
-| `run.real_takes` | - |
-| `run.rework_takes` | - |
-| `run.looping_factor` | - |
-| `run.first_pass_yield` | - |
-| `run.rework_cost_usd` | - |
-| `run.furthest_stage_index` | - |
-| `run.findings_raised` | - |
-| `run.waiting_on_person_s` | - |
-| `run.clean` | - |
+| `run.cost_usd` | 1.5568 [0.424, 1.9724] (3) |
+| `run.llm_calls` | 8 [4, 12] (3) |
+| `run.decider_calls` | 7 [3, 8] (3) |
+| `run.wall_s` | 422 [125, 590] (3) |
+| `run.driver_s` | 252 [77, 442] (3) |
+| `run.real_takes` | 53 [20, 73] (3) |
+| `run.rework_takes` | 20 [9, 24] (3) |
+| `run.looping_factor` | 1.4 [1, 1.625] (3) |
+| `run.first_pass_yield` | 0.875 [0.8, 1] (3) |
+| `run.rework_cost_usd` | 0 [0, 0.0365] (3) |
+| `run.furthest_stage_index` | 4 [1, 6] (3) |
+| `run.findings_raised` | 3 [1, 4] (3) |
+| `run.waiting_on_person_s` | 0 [0, 0] (3) |
+| `run.clean` | 0 [0, 0] (3) |
 
 ## Loops
 
 Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
 
-- strong (n 0):
-  - no node taken again, no edge
+- strong (n 3):
+  - `story/change.implement` (llm-writer): looping factor median 4 (max 4, n 1), rework takes 3, rework cost 0 USD
+  - `spec/spec.author` (llm-writer): looping factor median 3.5 (max 6, n 2), rework takes 5, rework cost 0 USD
+  - `intake/idea.dissect` (llm-writer): looping factor median 1 (max 2, n 3), rework takes 1, rework cost 0.036 USD
+  - `intake: 136f7730-ca4e-8fa2-8111-08d887c36d26:? -> idea.dissect` (check): count 1 in 1 runs, loop cost 0.397 USD, loop driver 117 s
+  - `spec: unexplained -> spec.author` (arrival): count 1 in 1 runs, loop cost 0.159 USD, loop driver 4 s
+  - `story: finding@story -> intake` (finding): count 4 in 1 runs, loop cost 0 USD, loop driver 14 s
 
 ## Verdict
 
@@ -90,6 +98,13 @@ descriptive: no hypothesis: the record describes its runs and decides nothing.
 - Spend: the approved cap is 20.00 USD in total. parity-loom-strong-2 spent 0.37 USD (ledger 366257 micro-USD in 9 entries) and parity-loom-strong-3 4.09 USD of model calls (4.093 USD: decider 1.757016, steps 2.335859), so 15.54 USD are left. The ledger is per record id (runs/parity-loom-strong-4.loom-spend.json, the file sdc-experiment run passes as --spend-ledger) and starts empty, so the cap of this record is what is left: 15.54 USD, and loom.cap_micro_usd is the stop line, 14.54 USD (14540000 micro-USD). The ledger of record 3 booked 8.092875 USD because it booked two reservations of 2.00 USD for calls without a cost record; such a reservation counts against the stop line.
 - First stop of record 3, decider_cannot_decide in IDEA-1.intake: requirements.normalise raised a finding with status open, requirements.check exited 5, and Loom offered the handoff of amend.upstream to a person without running the amend program; sdc-answers requests findings lists only needs_person findings, so the declared answer had no request. On line 2 amend.upstream carries handoff_when (bindings/sdc-intake.yaml line 106, the same in sdc-direction.yaml line 100, sdc-plan.yaml line 88, sdc-spec.yaml line 107, sdc-story.yaml line 92): Loom runs `tools/sdc-tool.sh findings-wait --action amend.upstream` (a path under the bindings directory) before the writer (bindings/tools/sdc-tool.sh lines 588 to 594, docs/loom-bindings.md line 56), which exits 0 only while a needs_person finding has no decision with a principal; an open finding lets the amend program run, and `sdc-findings amend` classifies it, applies it or sets it needs_person (driver/src/bin/sdc-findings.rs lines 1373 to 1415), after which the handoff is offered and sdc-answers requests findings lists it (driver/src/bin/sdc-answers.rs line 67). Read in the code at 9be5098 (commit 0c58cf4); not run.
 - Second stop of record 3, error at change.review (exit 2, ResultNotInTable): the review read the conformance run log from the old driver case directory, which a program under Loom does not get. On line 2 bindings/tools/sdc-tool.sh keeps the log of the conformance run and of the ess gate in the workspace when LOOM_CASE is set (function recorded, lines 218 to 230; called at line 393 for ess_gate and line 586 for conformance_run), and the review reads it from there: driver/src/reply/records.rs lines 109 to 115 (record_log, workspace mode, <records>/<kind>/<revision>.log) and driver/src/reply/review.rs lines 149 to 153 (run_logs, the message "no conformance run recorded on change revision" is now the case of a log that was never kept). change.review is started as sdc-node change.review (bindings/sdc-story.yaml line 56). Read in the code at 9be5098; not run.
+- Ends: 0 of 3 delivered, 0 clean passes. All three runs stopped with cause stuck, by rule:loom-run (run-stopped.json; outcome stuck, exit_code 3), in IDEA-1.todo.spec (run 1), IDEA-1.intake (run 2) and IDEA-1.list.sync (run 3). Read in the run logs. The spend ledger (runs/parity-loom-strong-4.loom-spend.json) holds spent_micro_usd 3953217 in 42 entries (1556773 + 423996 + 1972448) and nothing reserved, 3.953 USD of the 14.54 USD stop line. The calls of an outcome are step calls plus decider calls (run 1: 8 + 8 = 16, run 2: 4 + 3 = 7, run 3: 12 + 7 = 19); run.llm_calls of the report counts step calls only (8, 4, 12). Read in the run directories and the ledger.
+- Run 1, IDEA-1.todo.spec: 1556773 micro-USD, 16 calls, 422 s, 50 steps. spec.author reached RunsSpent (budget.max_runs 4, bindings/sdc-spec.yaml line 22): it ran 4 times. Only the first of the 4 runs made a model call (one spec.author line in llm-calls.jsonl); the other 3 printed that the node was not called because a finding waits for a person and exited 0, and each such exit was counted against max_runs and recorded as evidence. spec.synthesize ended exit 1 twice with ESS-SYNTH-004 in its output, and one finding stayed needs_person with no decision. Read in the run log (store/runlog of the case, the evidence, the call log and work/findings.yaml).
+- Run 2, IDEA-1.intake: 423996 micro-USD, 7 calls, 125 s, 19 steps. After requirements.check exited 5 the handoff check of amend.upstream exited 1 and the run stopped Stuck. Read in the run log. Read in the code of Loom 70b0e6e0 against the run log, and confirmed by the Loom session by reading the code: tree run writes ActionFinished.revisions empty, so an action counts as performed at the revision of the next evaluated line (crates/loom-tree/src/history.rs lines 25 to 55); Loom fixes it in a story of its own. In the run log amend.upstream ran at revision 9 and the next evaluated line is at revision 11. Inferred: that this rule is what stopped run 2, because selection (crates/loom-executor/src/selection.rs lines 285 to 305) then rejects the action as not useful.
+- Run 3, IDEA-1.list.sync: 1972448 micro-USD, 19 calls, 590 s, 70 steps. change.implement reached RunsSpent (budget.max_runs 3, bindings/sdc-story.yaml line 27) right after change.review exited 1, which the binding maps to rejected. Only the first of its 3 runs made a model call; the second and third printed that the node was not called (the second because a finding waits for a person, the third because the decisions since impl/ was written are the defaults it raised and follows) and exited 0. Read in the run log.
+- The two stops of record 3 did not recur as such: no run stopped with decider_cannot_decide and none with error or ResultNotInTable at change.review (change.review ran in run 3 and exited 1). Run 2 stopped in IDEA-1.intake after requirements.check exited 5, the place of the first stop of record 3, with another cause (stuck, not decider_cannot_decide). Read in the run logs.
+- Host load is ruled out as the cause: the longest model call took 132638 ms (duration_ms, llm-calls.jsonl) and the longest action 136 s by the timestamps of the run log (change.implement of run 3), against timeout_seconds 1500 for spec.author and change.implement and 900 for change.review (bindings/sdc-spec.yaml, bindings/sdc-story.yaml); no step or action ended with exit 124. Read in the run logs and the bindings.
+- The not-called rule is bindings/tools/llm-node.sh line 166 and driver/src/bin/sdc-node/findings.rs line 32 (wait_for_person): a stage agent is not called while a needs_person finding has no decision, and the node exits 0, which the run counts as a run of the action. The draft story:bindings-state-their-exits holds the fix: a bindings member exits of Loom, exits: {not_called: [...]}, that names such an exit so it is not counted against max_runs. Read in the code at 9be5098.
 
 ## Links
 
