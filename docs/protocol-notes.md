@@ -30,7 +30,8 @@ it, so its revision changes no state count of `canon check` and sets no record a
 Commands (from `../canon`; `cargo` is the slot shim):
 
 ```console
-scripts/check-protocols.sh   # validate, compile and check all eight, the ESS gate probes, then simulate
+scripts/check-protocols.sh   # validate and compile all nine, the rest from the ledger when its digests are current (fast lane)
+scripts/check-protocols.sh --slow   # the real checks, the ESS gate probes and simulate of every protocol
 scripts/evaluate-cases.sh    # canon evaluate every case run, compare with expected.json
 ```
 
@@ -266,9 +267,13 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
 
 ## Simulate
 
-`scripts/check-protocols.sh` ends with a simulate step: `canon simulate --path` on each
+`scripts/check-protocols.sh` has a simulate step: `canon simulate --path` on each
 `protocol/*.protocol.yaml`, its stdout compared byte for byte with the pinned report
-`protocol/simulate/<name>.txt`. Any difference fails with a unified diff and
+`protocol/simulate/<name>.txt`. In the fast lane (the default) the step is in the ledger
+`protocol/check-ledger.json`: a protocol whose digest is current (it covers the Canon commit of the
+pin, the script, the protocol file and its pinned report) is not simulated again, and only the
+slow lane (`--slow`, `task check:protocols:slow`) or a changed protocol runs the command. Any
+difference fails with a unified diff and
 `simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
 terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
 `2c7a1ea6`, the commit of Canon's release tag `0.10.0`, the first release with `simulate` (until
