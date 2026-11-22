@@ -81,6 +81,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
+    let given = super::replay::preset(args, &run_dir, given)?;
     let mut settings_value = given.clone();
     settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
@@ -104,6 +105,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
     let redacted = crate::loom_run::dry::mark(args.ports.dry, redacted);
+    super::replay::prepare(args, &run_dir)?;
+    let redacted = super::replay::mark(args, &run_dir, redacted);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
     let start = clock.now_secs();
     let env = child::child_env(&run_dir);
@@ -155,7 +158,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         Err(reason) => return Ok(runner.finish(Outcome::Error { reason })),
     };
     let outcome = runner.drive(root_name, &protocols, &redacted);
-    let outcome = runner.finish(outcome);
+    let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
+    super::replay::seal(args, &run_dir);
     crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
     Ok(outcome)
 }
@@ -313,6 +317,9 @@ impl Runner<'_> {
             self.steps += u64::try_from(steps).unwrap_or(0);
             self.refresh_status()?;
             self.emit(Event::StepMade { index, exit: code, stop, steps })?;
+            if let Some(diverged) = super::replay::stopped(&self.run_dir) {
+                return Ok(diverged);
+            }
             match code {
                 0 => {
                     let tree_outcome = tree.get("detail").and_then(Value::as_str).map(str::to_owned);

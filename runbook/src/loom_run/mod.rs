@@ -149,6 +149,8 @@ pub const EXIT_DENIED: u8 = 9;
 /// Exit code: the decider rejected a decision and nothing records a rejection (the old driver's exit 6,
 /// cause `rejected_without_rework_path`; 6 is the model-call cap here).
 pub const EXIT_REJECTED: u8 = 10;
+/// Exit code: a re-drive of a recording (`--recorded`) reached a call the recording has no reply for.
+pub const EXIT_DIVERGED: u8 = 11;
 
 /// How a run ended; the `outcome` of `outcome.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +179,8 @@ pub enum Outcome {
     LoomFailed { reason: String, exit: Option<i32>, stderr_tail: String },
     /// The decider denied a decision and the tree stopped on the same decision again.
     Denied { action: String },
+    /// A re-drive of a recording reached a call the recording has no reply for (policy `stop`, a spent live cap).
+    Diverged { reason: String },
 }
 
 impl Outcome {
@@ -194,13 +198,14 @@ impl Outcome {
             Outcome::Error { .. } => "error",
             Outcome::LoomFailed { .. } => "error",
             Outcome::Denied { .. } => "denied",
+            Outcome::Diverged { .. } => "stopped: recording diverged",
         }
     }
 
     /// The reason text of the outcome, when it has one.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } => Some(reason),
+            Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } => Some(reason),
             Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
             _ => None,
@@ -220,6 +225,7 @@ impl Outcome {
             Outcome::StoppedRejected { .. } => EXIT_REJECTED,
             Outcome::Error { .. } | Outcome::LoomFailed { .. } => EXIT_ERROR,
             Outcome::Denied { .. } => EXIT_DENIED,
+            Outcome::Diverged { .. } => EXIT_DIVERGED,
         }
     }
 }

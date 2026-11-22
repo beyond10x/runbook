@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 /// The top-level keys of the settings that `materialise` knows. `login_file` is R1's; `autonomy`
 /// and `decider` are read by the decider as well; `max_llm_calls` and `max_wall_seconds` belong to
 /// the runner's caps and are accepted and ignored here.
-pub const SETTINGS_KEYS: [&str; 8] = ["login_file", "autonomy", "decider", "adapter", "models", "review", "max_llm_calls", "max_wall_seconds"];
+pub const SETTINGS_KEYS: [&str; 9] = ["login_file", "autonomy", "decider", "adapter", "models", "review", "max_llm_calls", "max_wall_seconds", "replay"];
 /// The roles whose model, turns and budget a run sets (`bindings/tools/node-classes.json`).
 pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
@@ -51,6 +51,7 @@ struct Plan {
     roles: BTreeMap<String, RoleSet>,
     adapter: Option<String>,
     login: Option<PathBuf>,
+    replay: Option<crate::loom_run::replay::BindingPlan>,
 }
 
 impl Plan {
@@ -138,7 +139,8 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
         }
         Some(_) => return Err("login_file: a path".to_owned()),
     };
-    Ok(Plan { principal, routed: None, roles, adapter, login })
+    let replay = crate::loom_run::replay::binding_plan(settings)?;
+    Ok(Plan { principal, routed: None, roles, adapter, login, replay })
 }
 
 /// Copies the bindings directory `src` into `dst` (which does not exist yet) and applies
@@ -240,7 +242,11 @@ fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), Str
     for file in files {
         let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let mut doc: Yaml = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        if rewrite_document(&mut doc, plan, &classes, login, &tools, &answers) {
+        let mut changed = rewrite_document(&mut doc, plan, &classes, login, &tools, &answers);
+        if let Some(replay) = &plan.replay {
+            changed |= replay.apply(&mut doc, dst);
+        }
+        if changed {
             let out = serde_yaml::to_string(&doc).map_err(|e| format!("{}: {e}", file.display()))?;
             std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
         }
@@ -319,7 +325,7 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
 /// Sets option `name` of the model tool's argv (`tool action [--name value]... [--stub ...]`):
 /// replaces its value, or inserts the pair right after the action name (the options precede
 /// `--stub`, which takes the rest of the argv). True when the argv changed.
-fn set_option(argv: &mut Vec<Yaml>, name: &str, value: &str) -> bool {
+pub(super) fn set_option(argv: &mut Vec<Yaml>, name: &str, value: &str) -> bool {
     let stub = argv.iter().position(|a| a.as_str() == Some("--stub")).unwrap_or(argv.len());
     let mut i = 2;
     while i + 1 < stub {

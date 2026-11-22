@@ -73,7 +73,8 @@ not selected neither runs nor is counted.
   `rework-cap` needs `decider-rework-spent`; `rework-pending-rejection` needs `rework-not-called`;
   `writer-not-called` needs `replay-sibling`. `rule-approvals-default`, `review-mode-default` and
   `implement-coverage-default` read one shared re-drive (`switches-default`), which runs once for any
-  of them. The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
+  of them (in the Rust tests of `runbook/tests/loom_run/replay.rs` they read the run of
+  `replay-unchanged`, made once by the setup step `replay-runs`). The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
   `review-facts-once`, ...) run with it.
 - The verdict line says how many were selected, so that it is never taken for a full run:
   `cycles: selected 2 of 126, 2 as expected, 0 failed: none`, or with a pulled-in cycle
@@ -240,19 +241,23 @@ is held by the tests named):
 
 These run `sdc-drive` with `--recorded <recording>` over the recorded model calls, with `--inject`
 and `--on-divergence`. A `loom.tree-suite/1` cycle opens a tree and runs it; it has no recording to
-replay model calls from and no injected rejection, timeout or failed check.
+replay model calls from and no injected rejection, timeout or failed check. The ten replay entries
+(these nine and `replay-recording-clean`) are Rust tests of `runbook run --recorded`
+(`runbook/tests/loom_run/replay.rs`), not cycles of the file: six runs of the committed recording
+`driver/examples/sdc/fixtures/recorded/stub`, made once per test run by a setup step, read by the
+ten tests.
 
 | entry | state | reason |
 |---|---|---|
-| replay-unchanged | not converted | class: replay of recorded model calls (`--recorded`) and `sdc-replay compare` as a second tool over the run |
-| rule-approvals-default | not converted | class: replay of recorded model calls with a divergence policy (`--on-divergence nearest`) |
-| review-mode-default | not converted | same class |
-| implement-coverage-default | not converted | same class |
-| replay-reject-stop | not converted | class: an injected decision (`--inject reject@...`) into a replay |
-| replay-reject-nearest | not converted | same class, with the call modes of the replay as the check |
-| replay-timeout | not converted | class: an injected timeout of one call (`--inject timeout@...`) into a replay |
-| replay-live-dry | not converted | class: a replay that goes live on divergence (`--live-adapter`, `--live-cap`) |
-| replay-check-fail | not converted | class: an injected failed check (`--inject check-fail@...`) into a replay |
+| replay-unchanged | held by a Rust test | `runbook/tests/loom_run/replay.rs` `replay_unchanged_closes_operating_on_recorded_replies_only` (`runbook run --recorded` on the committed recording `driver/examples/sdc/fixtures/recorded/stub`, strict policy) |
+| rule-approvals-default | held by a Rust test | `replay.rs` `rule_approvals_default_is_off_and_every_decision_is_the_deciders` (the run of `replay-unchanged`; no `rule-approvals` directory, every decision is a decider's) |
+| review-mode-default | held by a Rust test | `replay.rs` `review_mode_default_reads_the_tree_with_list_read_and_search`. The runner records no `review_mode` setting, so the test checks what the mode is: the operations (`dir.list`, `file.read`, `search`) and the turns (30) of every `change.review` call |
+| implement-coverage-default | held by a Rust test | `replay.rs` `implement_coverage_default_is_off` |
+| replay-reject-stop | held by a Rust test | `replay.rs` `replay_reject_stop_ends_recording_diverged_when_the_rework_asks_a_call_the_source_never_made`. The old exit 9 is exit 11 (9 is `denied`) |
+| replay-reject-nearest | held by a Rust test | `replay.rs` `replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuck`. The old driver ended `writer_spent` (exit 4); the tree is `stuck` (exit 3) when the writer's runs are spent |
+| replay-timeout | held by a Rust test, in part | `replay.rs` `replay_timeout_kills_the_call_on_the_virtual_clock_and_the_tree_stops_on_the_unknown_result`: the call is killed on the virtual clock (1500 s). Not given by the engine: the old driver retried the writer and closed; the binding of `change.implement` has no result for exit 124, Loom refuses it (`ResultNotInTable`) and the tree stops `stuck` (exit 3) |
+| replay-live-dry | held by a Rust test | `replay.rs` `replay_live_dry_makes_one_unpaid_live_call_and_stops_at_the_cap` (one live call on the adapter `dry`, paid 0, then exit 11 at the cap) |
+| replay-check-fail | held by a Rust test | `replay.rs` `replay_check_fail_fails_tests_run_once_and_the_writer_is_spent_at_the_condition` (`max_runs.implement=2`; the old exit 4 is `stuck`, exit 3) |
 
 ### Other entries (9)
 
@@ -266,7 +271,7 @@ replay model calls from and no injected rejection, timeout or failed check.
 | decider-input | held by Rust tests | `runbook/src/loom_run/decider/tests.rs` `a_close_reads_the_published_readme_and_no_aep_file`, `a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git`, `the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool`, `under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person` |
 | principals | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_stand_in_names_its_principal_the_run_directory_labels_it_and_no_principal_is_invented` and `a_scripted_decider_takes_the_principal_of_its_answers_from_the_settings`; the refusal of a decision with no principal is the findings tool's (`sdc-findings amend`), not the runner's: the runner runs the printed command and invents no principal |
 | efforts | not converted | held in part as the Rust test `loom_run::dry::efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (`runbook/tests/loom_run/dry.rs`): the decider's effort and its refused level. Open: the effort per node class (`efforts.<class>.effort`, `SDC_LLM_EFFORT_<CLASS>`) needs an `--effort` argument on the model node (`bindings/tools/llm-node.sh`, `sdc-node`) written by the bindings copy (`bindings_copy.rs`); and the stand-in claude adapter run (the environment of a bound program) stays a class of its own |
-| replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
+| replay-recording-clean | held by a Rust test | `runbook/tests/loom_run/replay.rs` `replay_recording_clean_holds_no_home_path_prompt_or_transcript` (the committed recording holds no home path, no prompt text, no transcript) |
 
 ### Trial entries (83)
 

@@ -178,7 +178,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert!(out.contains(&format!("{k} is a setting of a model decider, not of kind rule")), "{k}: {out}");
     }
     // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
-    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.recorded", "true"),
+    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"),
         ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
@@ -186,10 +186,6 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
-        // The settings that wait for a port of `runbook run` say so.
-        if k == "flags.recorded" {
-            assert!(out.contains("`runbook run` "), "{k}: {out}");
-        }
     }
     // A setting nobody knows, and bad values.
     for (k, v, want) in [("bogus.key", "1", "bogus.key is no loom launch setting"),
@@ -415,6 +411,49 @@ fn flags_dry_is_accepted_and_runbook_run_gets_dry() {
         (vec![("flags.dry", "true"), ("decider.adapter", "claude-cli")], "decider.adapter is not set with flags.dry"),
     ] {
         write_record(&d, &record_with(&without_adapters(&extra), COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{want}: {out}");
+        assert!(out.contains(want), "{want}: {out}");
+    }
+}
+
+#[test]
+fn flags_recorded_and_its_options_are_passed_to_runbook_run() {
+    let d = scratch("recorded");
+    let builds = fake_build(&d, 11, true);
+    let args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"];
+    let with = |extra: &[(&str, &str)]| -> Vec<(String, String)> {
+        let mut f = fixed();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        f
+    };
+    // Without the setting no run line has --recorded.
+    write_record(&d, &record_with(&fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("--recorded"), "{out}");
+    // A run named under the runs directory, and the options that go with it, are passed on.
+    let all = [("flags.recorded", "release-0.1.2.strong.1"), ("flags.on_divergence", "live"), ("flags.live_adapter", "claude-cli"), ("flags.live_cap", "5"), ("flags.source_tree", "72a3eef")];
+    write_record(&d, &record_with(&with(&all), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    let lines: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines.iter().all(|l| l.ends_with("runs/release-0.1.2.strong.1 --on-divergence live --live-adapter claude-cli --live-cap 5 --source-tree 72a3eef")), "{out}");
+    // An absolute path is passed as it is.
+    write_record(&d, &record_with(&with(&[("flags.recorded", "/rec/stub")]), COMMIT, "planned", ("", "")));
+    let (_, out) = experiment(&args, &d);
+    assert!(out.lines().filter(|l| l.contains(" run sdc --run ")).all(|l| l.ends_with("--recorded /rec/stub")), "{out}");
+    // An option without --recorded, a bad policy and a bad cap are refused by name.
+    for (extra, want) in [
+        (vec![("flags.on_divergence", "nearest")], "flags.on_divergence goes with flags.recorded"),
+        (vec![("flags.recorded", "r"), ("flags.on_divergence", "maybe")], "flags.on_divergence must be stop, nearest or live"),
+        (vec![("flags.recorded", "r"), ("flags.live_cap", "0")], "flags.live_cap must be a whole number of at least 1"),
+        (vec![("flags.recorded", "''")], "flags.recorded must name a run directory or a recording"),
+    ] {
+        write_record(&d, &record_with(&with(&extra), COMMIT, "planned", ("", "")));
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{want}: {out}");
         assert!(out.contains(want), "{want}: {out}");
