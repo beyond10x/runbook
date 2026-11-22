@@ -387,12 +387,17 @@ mod tests {
     #[test]
     fn the_helper_table_matches_the_driver_binaries() {
         let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../driver/Cargo.toml")).unwrap();
-        let mut want: Vec<String> = manifest
-            .lines()
-            .filter_map(|l| l.strip_prefix("name = \"").and_then(|r| r.strip_suffix('"')))
-            .filter(|n| *n != "conformance-stub-product")
-            .map(String::from)
-            .collect();
+        let mut in_bin = false;
+        let mut want: Vec<String> = Vec::new();
+        for l in manifest.lines() {
+            if l.starts_with('[') {
+                in_bin = l == "[[bin]]";
+            } else if in_bin {
+                if let Some(n) = l.strip_prefix("name = \"").and_then(|r| r.strip_suffix('"')) {
+                    want.push(n.into());
+                }
+            }
+        }
         want.push("sdc-watch".into());
         want.sort();
         want.dedup();
