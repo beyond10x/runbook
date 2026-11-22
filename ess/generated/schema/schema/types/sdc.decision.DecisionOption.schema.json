@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.DecisionOption.schema.json",
+  "$ref": "#/$defs/sdc.decision.DecisionOption",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:7515d58f81f1f4cb09b5b0c5e37fe3e9fd674376dd4bf94270c56fbee3954901",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Consequence": {
+      "title": "Consequence",
+      "description": "What choosing the option does to the protocol.",
+      "x-ess-name": "sdc.decision.Consequence",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "admits": {
+          "description": "Actions that become admissible.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "blocks": {
+          "description": "Actions that become blocked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "grant": {
+          "$ref": "#/$defs/sdc.decision.Grant",
+          "description": "The authority entry the option writes, for an approval."
+        },
+        "answer": {
+          "description": "The answer written to questions.yaml, for a question.",
+          "type": "string"
+        },
+        "produces": {
+          "$ref": "#/$defs/sdc.decision.ProducedDocument",
+          "description": "The kind of Canon record the option produces when decided; absent when it produces none, such as 'leave it untaken' on an outcome request. Only a decided option that produces a record goes through RecordProduced before the run resumes."
+        }
+      },
+      "required": [
+        "admits",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.DecisionOption": {
+      "title": "DecisionOption",
+      "description": "One option of a decision request.",
+      "x-ess-name": "sdc.decision.DecisionOption",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/sdc.decision.OptionLetter"
+        },
+        "does": {
+          "description": "What the option does, one sentence.",
+          "type": "string"
+        },
+        "cost": {
+          "description": "What it costs: work, time, scope or risk.",
+          "type": "string"
+        },
+        "consequence": {
+          "$ref": "#/$defs/sdc.decision.Consequence"
+        }
+      },
+      "required": [
+        "letter",
+        "does",
+        "cost",
+        "consequence"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.Grant": {
+      "title": "Grant",
+      "description": "A canon-authority/1 decision (documents.md:123-132).",
+      "x-ess-name": "sdc.decision.Grant",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied"
+      ]
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    }
+  }
+}

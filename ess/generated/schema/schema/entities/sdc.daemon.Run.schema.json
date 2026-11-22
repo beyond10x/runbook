@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.Run.schema.json",
+  "title": "Run",
+  "description": "One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended.",
+  "x-ess-name": "sdc.daemon.Run",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "runbook_id": {
+      "$ref": "#/$defs/sdc.daemon.RunbookId"
+    },
+    "runbook_version": {
+      "$ref": "#/$defs/sdc.daemon.RunbookVersion"
+    },
+    "intake_ref": {
+      "$ref": "#/$defs/sdc.daemon.DocumentRef"
+    },
+    "context_ref": {
+      "$ref": "#/$defs/sdc.daemon.DocumentRef",
+      "description": "The context directory the run reads (runbook run --context); absent when none was given."
+    },
+    "settings": {
+      "$ref": "#/$defs/sdc.daemon.RunSettings"
+    },
+    "confinement": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel"
+    },
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId",
+      "description": "The session the run was submitted into; absent for a run of no session.",
+      "x-ess-relation": {
+        "name": "session",
+        "kind": "references",
+        "source": "sdc.daemon.Run",
+        "target": "sdc.daemon.Session",
+        "cardinality": "one",
+        "via": "session_id"
+      }
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "description": "When the run left its last live state: ended, cancelled or failed to start.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "outcome": {
+      "$ref": "#/$defs/sdc.daemon.RunOutcome",
+      "description": "Set when the run Ended; absent in every other state."
+    },
+    "failure": {
+      "description": "Why the run failed to start; absent in every other state.",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.Run.State"
+    }
+  },
+  "required": [
+    "run_id",
+    "runbook_id",
+    "runbook_version",
+    "intake_ref",
+    "settings",
+    "confinement",
+    "submitted_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:51e6ed54349c11f0b51307c3409658be005c9f0c8c467eae5c4bdae886592ef2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "unconfined",
+        "workspace",
+        "strict"
+      ]
+    },
+    "sdc.daemon.DocumentRef": {
+      "title": "DocumentRef",
+      "description": "A reference to a document the run reads: a path inside the run's state directory, or a digest. UNMAPPED: the reference form (path, digest, URL) is not decided; the daemon keeps what the client sends.",
+      "x-ess-name": "sdc.daemon.DocumentRef",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.Run.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Run.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Cancelled",
+        "Ended",
+        "FailedToStart",
+        "Running",
+        "Submitted",
+        "WaitingOnDecision"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "How an ended run ended, as the runbook's protocol names it. UNMAPPED: whether the set is closed (the Canon case outcomes) is not known here.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunSettings": {
+      "title": "RunSettings",
+      "description": "The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.",
+      "x-ess-name": "sdc.daemon.RunSettings",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "sdc.daemon.RunbookId": {
+      "title": "RunbookId",
+      "description": "The id of a runbook: an embedded preset such as sdc or sdc-bugfix, or a runbook run from a directory.",
+      "x-ess-name": "sdc.daemon.RunbookId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunbookVersion": {
+      "title": "RunbookVersion",
+      "description": "The version of a runbook, as runbook list shows it.",
+      "x-ess-name": "sdc.daemon.RunbookVersion",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

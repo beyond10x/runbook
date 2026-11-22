@@ -1,0 +1,104 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-closed-session-takes-no-run
+summary: "A closed session takes no new run and keeps the run it has; a run into a session that does not exist is refused; a session name is taken once."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: workspace
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:00:30Z
+    command: sdc.daemon.OpenSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "nightly"
+      client: "ci"
+      at: 2026-11-22T10:00:30Z
+    outcome: opened
+
+  - at: 2026-11-22T10:00:40Z
+    command: sdc.daemon.OpenSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "nightly"
+      client: "someone-else"
+      at: 2026-11-22T10:00:40Z
+    outcome: session-exists
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      session_id: "nightly"
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.CloseSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "nightly"
+      at: 2026-11-22T10:02:00Z
+    outcome: closed
+    events:
+      - event: sdc.daemon.SessionClosed
+        payload:
+          session_id: "nightly"
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-2"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      session_id: "nightly"
+      at: 2026-11-22T10:03:00Z
+    outcome: session-closed
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-3"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      session_id: "weekly"
+      at: 2026-11-22T10:04:00Z
+    outcome: no-session
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.CloseSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "nightly"
+      at: 2026-11-22T10:05:00Z
+    outcome: wrong-state
+
+assert:
+  - view: sdc.daemon.Sessions
+    contains: {session_id: "nightly", client: "ci", state: Closed, closed_at: 2026-11-22T10:02:00Z}
+  - view: sdc.daemon.RunsOfSession
+    params: {session_id: "nightly"}
+    contains: {run_id: "run-1", state: Submitted}

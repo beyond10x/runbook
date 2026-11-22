@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.decision.ProducedRecordRecorded.schema.json",
+  "title": "ProducedRecordRecorded payload",
+  "x-ess-name": "sdc.decision.ProducedRecordRecorded",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "produced": {
+      "$ref": "#/$defs/sdc.decision.ProducedRecord"
+    }
+  },
+  "required": [
+    "request_id",
+    "produced"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:803509e1d23de721ce3c36798b9b475fc8236fae7a9ef23877b087f7f31a742f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    },
+    "sdc.decision.ProducedRecord": {
+      "title": "ProducedRecord",
+      "x-ess-name": "sdc.decision.ProducedRecord",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/sdc.decision.ProducedDocument"
+        },
+        "record": {
+          "description": "The record id: the evidence id (canon_evidence), <capability>@<case_revision> (canon_authority), <outcome>/<decision>@<case_revision> (canon_decisions), or artifact@revision (artifact_revision).",
+          "type": "string"
+        },
+        "case_revision": {
+          "$ref": "#/$defs/sdc.decision.Revision"
+        },
+        "aep_record": {
+          "description": "The AEP approval-record id, where one was written.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "record",
+        "case_revision"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

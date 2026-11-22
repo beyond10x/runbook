@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.PrincipalKind.schema.json",
+  "$ref": "#/$defs/sdc.decision.PrincipalKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:8cc18e7d383bc6203e0725082194af25de4f457c32426bdb978164e2f5015f69",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.PrincipalKind": {
+      "title": "PrincipalKind",
+      "description": "person: a named person. decider: decider:<kind>. rule: rule:<name>, a program deciding from evidence (docs/autonomy-levels.md:202-203). silence: the recommended default taken because nobody answered before expires_at (not in autonomy-levels.md; a person-facing addition, A0 to A4 only in practice).",
+      "x-ess-name": "sdc.decision.PrincipalKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "person",
+        "decider",
+        "rule",
+        "silence"
+      ]
+    }
+  }
+}

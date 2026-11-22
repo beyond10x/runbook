@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.RunEvent.schema.json",
+  "title": "RunEvent",
+  "description": "One record of a run, in the order the runtime wrote it. The runtime's own record is carried unchanged, as an opaque document; the daemon adds the run, the sequence number and the time. The sequence number only grows per run: it is the stream's event id, and a client resumes after the last one it saw.",
+  "x-ess-name": "sdc.daemon.RunEvent",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "$ref": "#/$defs/sdc.daemon.EventId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "events",
+        "kind": "owns",
+        "source": "sdc.daemon.Run",
+        "target": "sdc.daemon.RunEvent",
+        "cardinality": "many",
+        "via": "run_id"
+      }
+    },
+    "sequence": {
+      "description": "1 for a run's first event; each later event has a larger number. The runs of one session or of the whole daemon have no common order: a sequence number is per run.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "$ref": "#/$defs/sdc.daemon.EventKind"
+    },
+    "record": {
+      "description": "The runtime's record, byte for byte as a document; no secret appears in it (design sheet, decision 10)."
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.RunEvent.State"
+    }
+  },
+  "required": [
+    "event_id",
+    "run_id",
+    "sequence",
+    "kind",
+    "record",
+    "at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-invariants": [
+    "sequence >= 1"
+  ],
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:51e6ed54349c11f0b51307c3409658be005c9f0c8c467eae5c4bdae886592ef2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.EventId": {
+      "title": "EventId",
+      "description": "The id the daemon gives a recorded event; the stream's own id is the run's sequence number.",
+      "x-ess-name": "sdc.daemon.EventId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.EventKind": {
+      "title": "EventKind",
+      "description": "The kind of the runtime's record, copied from it. UNMAPPED: the runtime's record kinds are Loom's and are not known here; the daemon does not interpret them.",
+      "x-ess-name": "sdc.daemon.EventKind",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunEvent.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunEvent.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Recorded"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-submit-below-the-floor-is-refused
+summary: "A daemon started with the strict floor refuses a run at unconfined or workspace, names the refusal, and takes a run at strict."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: strict
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-low"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: unconfined
+      at: 2026-11-22T10:01:00Z
+    outcome: below-floor-strict
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-mid"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      at: 2026-11-22T10:02:00Z
+    outcome: below-floor-strict
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-at-floor"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: strict
+      at: 2026-11-22T10:03:00Z
+    outcome: submitted
+    events:
+      - event: sdc.daemon.RunSubmitted
+        payload:
+          run_id: "run-at-floor"
+          runbook_id: "sdc"
+          confinement: strict
+
+assert:
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-at-floor", state: Submitted, confinement: strict}
+  - view: sdc.daemon.DaemonConfiguration
+    contains: {daemon_id: "runbookd", confinement_floor: strict}

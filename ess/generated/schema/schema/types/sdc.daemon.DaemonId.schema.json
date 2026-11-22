@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DaemonId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DaemonId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:b6d7167d8a3399aa00216d2423e9c8cfabcf05a1fff2ad6340d631b716e94683",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

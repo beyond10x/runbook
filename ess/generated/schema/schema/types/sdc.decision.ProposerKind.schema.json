@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.ProposerKind.schema.json",
+  "$ref": "#/$defs/sdc.decision.ProposerKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:cf6bdba3c5b0d02df3627aaa15565f6b0932135cc798e1db53ad610d93ae2f76",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ProposerKind": {
+      "title": "ProposerKind",
+      "description": "Who proposed the recommendation: a deterministic rule, an LLM (accepted only when its citations pass the grounding check), a person, or the reuse of a prior decision.",
+      "x-ess-name": "sdc.decision.ProposerKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "rule",
+        "llm",
+        "person",
+        "prior_decision"
+      ]
+    }
+  }
+}

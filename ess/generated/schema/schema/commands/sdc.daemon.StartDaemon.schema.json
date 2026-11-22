@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.StartDaemon.schema.json",
+  "title": "Start the daemon input",
+  "description": "Record what the daemon was started with: its confinement floor. Runs once, before the daemon takes a request; the daemon holds the row until it stops.",
+  "x-ess-name": "sdc.daemon.StartDaemon",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    },
+    "confinement_floor": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "daemon_id",
+    "confinement_floor",
+    "at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:47933f4982918ec8a58761e8f3efdd06a87e68d016ce3a6485933863bd8e8e94",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "unconfined",
+        "workspace",
+        "strict"
+      ]
+    },
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

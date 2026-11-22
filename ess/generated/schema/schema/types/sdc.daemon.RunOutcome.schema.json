@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunOutcome.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunOutcome",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:23748a06368770070f9002e87bb08119ec9f076383f60581d61b52e2e0540542",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "How an ended run ended, as the runbook's protocol names it. UNMAPPED: whether the set is closed (the Canon case outcomes) is not known here.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

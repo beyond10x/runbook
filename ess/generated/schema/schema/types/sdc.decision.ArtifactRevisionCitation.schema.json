@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.ArtifactRevisionCitation.schema.json",
+  "$ref": "#/$defs/sdc.decision.ArtifactRevisionCitation",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:25af86872c3de7a2cd4ca5c7fd440dbb14e71cc626372d69147ba7635dbc71c4",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ArtifactId": {
+      "title": "ArtifactId",
+      "description": "A case artifact id (canon-case/1 artifacts key), such as roadmap.",
+      "x-ess-name": "sdc.decision.ArtifactId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ArtifactRevisionCitation": {
+      "title": "ArtifactRevisionCitation",
+      "x-ess-name": "sdc.decision.ArtifactRevisionCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/sdc.decision.ArtifactId"
+        },
+        "revision": {
+          "$ref": "#/$defs/sdc.decision.Revision"
+        },
+        "case": {
+          "$ref": "#/$defs/sdc.decision.CaseId",
+          "description": "The case whose snapshot holds the artifact; absent means the request's case."
+        },
+        "entry": {
+          "description": "One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the current goals layers, apply at the check's instant (inside its validity window, not overridden by a lower layer) and still have the digest. A revision that moved since is noted (revision_moved), not refused (docs/requester.md decision 3).",
+          "type": "string"
+        },
+        "digest": {
+          "description": "sha256:<hex> of the cited entry as sdc-goals digest prints it; written by the grounding check when absent, so a later check sees a change.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.CaseId": {
+      "title": "CaseId",
+      "description": "A Canon case id (canon-case/1 id), such as IDEA-1.direction.",
+      "x-ess-name": "sdc.decision.CaseId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

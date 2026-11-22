@@ -1,0 +1,110 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-submit-and-run-to-an-outcome
+summary: "A run is submitted at the daemon's floor, started by the runtime, records two events in order and ends with an outcome; the list, the one-run read and the events page show it."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: workspace
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+    events:
+      - event: sdc.daemon.DaemonStarted
+        payload:
+          daemon_id: "runbookd"
+          confinement_floor: workspace
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {ticket: "T-1"}
+      confinement: workspace
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+    events:
+      - event: sdc.daemon.RunSubmitted
+        payload:
+          run_id: "run-1"
+          runbook_id: "sdc"
+          confinement: workspace
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+    events:
+      - event: sdc.daemon.RunStarted
+        payload:
+          run_id: "run-1"
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.RecordRunEvent
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      sequence: 1
+      kind: "case.opened"
+      record: {case: "IDEA-1", revision: "c1"}
+      at: 2026-11-22T10:03:00Z
+    outcome: recorded
+    events:
+      - event: sdc.daemon.RunEventRecorded
+        payload:
+          run_id: "run-1"
+          sequence: 1
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.RecordRunEvent
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      sequence: 2
+      kind: "case.closed"
+      record: {case: "IDEA-1", revision: "c2", verdict: "pass"}
+      at: 2026-11-22T10:04:00Z
+    outcome: recorded
+    events:
+      - event: sdc.daemon.RunEventRecorded
+        payload:
+          run_id: "run-1"
+          sequence: 2
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.EndRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      outcome: "delivered"
+      at: 2026-11-22T10:05:00Z
+    outcome: ended
+    events:
+      - event: sdc.daemon.RunEnded
+        payload:
+          run_id: "run-1"
+          outcome: "delivered"
+
+assert:
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-1", runbook_id: "sdc", runbook_version: "0.3.0", state: Ended, confinement: workspace, outcome: "delivered"}
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-1"}
+    contains: {run_id: "run-1", intake_ref: "intake.md", settings: {ticket: "T-1"}, state: Ended, confinement: workspace, outcome: "delivered"}
+  - view: sdc.daemon.EventsAfter
+    params: {run_id: "run-1", after: 0}
+    contains: {run_id: "run-1", sequence: 1, kind: "case.opened", record: {case: "IDEA-1", revision: "c1"}}
+  - view: sdc.daemon.EventsAfter
+    params: {run_id: "run-1", after: 0}
+    contains: {run_id: "run-1", sequence: 2, kind: "case.closed", record: {case: "IDEA-1", revision: "c2", verdict: "pass"}}

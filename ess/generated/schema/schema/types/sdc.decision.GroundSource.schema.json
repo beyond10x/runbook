@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.GroundSource.schema.json",
+  "$ref": "#/$defs/sdc.decision.GroundSource",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4678cc1e885d9edc857b16bbc026f031451ee2581dd0599923e177981f49a9c9",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.GroundSource": {
+      "title": "GroundSource",
+      "description": "The kind of source a ground cites. idea: the person's own input and its dissection items (work/idea.yaml, work/dissection.yaml), which the decider cites (d1 to d4 in runs/trial-todo-1/decisions.jsonl). goals: one entry of the requester's goals document (sdc.goals/1, docs/requester.md § 2), cited as artifact_revision of artifact goals with its entry id and the entry's digest, displayed goals@<revision>#<entry id>.",
+      "x-ess-name": "sdc.decision.GroundSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "idea",
+        "vision",
+        "requirement",
+        "prior_decision",
+        "prd",
+        "story",
+        "spec",
+        "policy",
+        "evidence_record",
+        "autonomy_rule",
+        "goals"
+      ]
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.SessionOpened.schema.json",
+  "title": "SessionOpened payload",
+  "x-ess-name": "sdc.daemon.SessionOpened",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    },
+    "client": {
+      "$ref": "#/$defs/sdc.daemon.ClientId"
+    }
+  },
+  "required": [
+    "session_id",
+    "client"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:949d97ceb3ed04d622a84539a87d5863efa64cf14b92218eb6bd9a7f42b3c135",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ClientId": {
+      "title": "ClientId",
+      "description": "The client a session belongs to. UNMAPPED: what identifies a client (the subject of the bearer token, a name the client gives) is not stated in the design sheet; the daemon's security floor says only that a non-loopback listener needs a token.",
+      "x-ess-name": "sdc.daemon.ClientId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

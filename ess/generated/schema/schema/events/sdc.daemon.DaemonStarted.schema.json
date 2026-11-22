@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.DaemonStarted.schema.json",
+  "title": "DaemonStarted payload",
+  "x-ess-name": "sdc.daemon.DaemonStarted",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    },
+    "confinement_floor": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel"
+    }
+  },
+  "required": [
+    "daemon_id",
+    "confinement_floor"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:18ab69890578163b0c30610954930369dcb80289d38c56646fda46388fbd7cef",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "unconfined",
+        "workspace",
+        "strict"
+      ]
+    },
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.NoSuchDaemon.schema.json",
+  "title": "NoSuchDaemon payload",
+  "description": "No daemon was started under this id.",
+  "x-ess-name": "sdc.daemon.NoSuchDaemon",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    }
+  },
+  "required": [
+    "daemon_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d55309dfd6d663111ffd183a1ae20a124d76b27428c7a6b3b6a44b9d17e39f05",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

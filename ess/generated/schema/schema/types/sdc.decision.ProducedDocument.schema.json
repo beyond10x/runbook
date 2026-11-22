@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.ProducedDocument.schema.json",
+  "$ref": "#/$defs/sdc.decision.ProducedDocument",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:067eb31c0d47ce4df50d6ec66c0968ea6d843972e075de0cc509ecca41768029",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    }
+  }
+}

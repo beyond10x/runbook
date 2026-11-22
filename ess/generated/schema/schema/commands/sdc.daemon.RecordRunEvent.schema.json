@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.RecordRunEvent.schema.json",
+  "title": "Record a run event input",
+  "description": "The runtime wrote a record: keep it, unchanged, under the next sequence number of its run. The sequence number is the runtime sink's and only grows per run; an event for a run that has ended, was cancelled or failed to start is refused.",
+  "x-ess-name": "sdc.daemon.RecordRunEvent",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "sequence": {
+      "type": "integer"
+    },
+    "kind": {
+      "$ref": "#/$defs/sdc.daemon.EventKind"
+    },
+    "record": {},
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "run_id",
+    "sequence",
+    "kind",
+    "record",
+    "at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:33dccc94afe66b5310cf8373368ad51def0c0d9fad04bd0753a17f14c114c41d",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.EventKind": {
+      "title": "EventKind",
+      "description": "The kind of the runtime's record, copied from it. UNMAPPED: the runtime's record kinds are Loom's and are not known here; the daemon does not interpret them.",
+      "x-ess-name": "sdc.daemon.EventKind",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

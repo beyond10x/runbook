@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.Request.schema.json",
+  "title": "Request a decision input",
+  "description": "Open a decision request where a case stops on a decision: an approval-required action, a handed-off question, or an outcome that needs an explicit decision.",
+  "x-ess-name": "sdc.decision.Request",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "case_id": {
+      "$ref": "#/$defs/sdc.decision.CaseId"
+    },
+    "question_key": {
+      "type": "string"
+    },
+    "unblocks": {
+      "$ref": "#/$defs/sdc.decision.Unblocks"
+    },
+    "subject_artifact": {
+      "$ref": "#/$defs/sdc.decision.ArtifactId"
+    },
+    "subject_revision": {
+      "$ref": "#/$defs/sdc.decision.Revision"
+    },
+    "subject_path": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.decision.DecisionOption"
+      }
+    },
+    "autonomy_level": {
+      "$ref": "#/$defs/sdc.decision.AutonomyLevel"
+    },
+    "decision_class": {
+      "$ref": "#/$defs/sdc.decision.DecisionClass"
+    },
+    "holder": {
+      "$ref": "#/$defs/sdc.decision.Holder"
+    },
+    "eligible": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.decision.Principal"
+      }
+    },
+    "addressed_to": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supersedes": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    }
+  },
+  "required": [
+    "request_id",
+    "case_id",
+    "question_key",
+    "unblocks",
+    "subject_artifact",
+    "subject_revision",
+    "question",
+    "options",
+    "autonomy_level",
+    "decision_class",
+    "holder",
+    "eligible",
+    "addressed_to",
+    "opened_at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d7542068fd7a8b50d8ec95203f27358de511815de0aa2d6cfec0203236f99dc2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ArtifactId": {
+      "title": "ArtifactId",
+      "description": "A case artifact id (canon-case/1 artifacts key), such as roadmap.",
+      "x-ess-name": "sdc.decision.ArtifactId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.AutonomyLevel": {
+      "title": "AutonomyLevel",
+      "description": "The run's autonomy level, docs/autonomy-levels.md:36-42 and :205-213: A0 Manual, A1 Advised, A2 Internal, A3 To merge, A4 To release, A5 Unattended (eval runs, :41-42). The level does not decide eligibility by itself: with the request's decision class it gives the holder (:241-256, overrides :297-320), and the guards read the holder.",
+      "x-ess-name": "sdc.decision.AutonomyLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ]
+    },
+    "sdc.decision.CapabilityId": {
+      "title": "CapabilityId",
+      "description": "A Canon capability an action requires, such as owner.approve.",
+      "x-ess-name": "sdc.decision.CapabilityId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.CaseId": {
+      "title": "CaseId",
+      "description": "A Canon case id (canon-case/1 id), such as IDEA-1.direction.",
+      "x-ess-name": "sdc.decision.CaseId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Consequence": {
+      "title": "Consequence",
+      "description": "What choosing the option does to the protocol.",
+      "x-ess-name": "sdc.decision.Consequence",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "admits": {
+          "description": "Actions that become admissible.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "blocks": {
+          "description": "Actions that become blocked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "grant": {
+          "$ref": "#/$defs/sdc.decision.Grant",
+          "description": "The authority entry the option writes, for an approval."
+        },
+        "answer": {
+          "description": "The answer written to questions.yaml, for a question.",
+          "type": "string"
+        },
+        "produces": {
+          "$ref": "#/$defs/sdc.decision.ProducedDocument",
+          "description": "The kind of Canon record the option produces when decided; absent when it produces none, such as 'leave it untaken' on an outcome request. Only a decided option that produces a record goes through RecordProduced before the run resumes."
+        }
+      },
+      "required": [
+        "admits",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.DecisionClass": {
+      "title": "DecisionClass",
+      "description": "The decision classes of docs/autonomy-levels.md:244-257, one row each, named as the keys of sdc.decision-classes/1 (:398-413). In Loom a class is an identifier validated against the host's classes document; budget_overrun and limit_hit are Loom built-ins. escalation names the row that gives a request's holder after Escalate; Request refuses it as a class of a new request.",
+      "x-ess-name": "sdc.decision.DecisionClass",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "scope_changing_answer",
+        "context",
+        "vision",
+        "roadmap",
+        "spec_acceptance",
+        "story_activation",
+        "code_review",
+        "merge",
+        "release",
+        "rollback",
+        "close",
+        "budget_overrun",
+        "limit_hit",
+        "escalation"
+      ]
+    },
+    "sdc.decision.DecisionOption": {
+      "title": "DecisionOption",
+      "description": "One option of a decision request.",
+      "x-ess-name": "sdc.decision.DecisionOption",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/sdc.decision.OptionLetter"
+        },
+        "does": {
+          "description": "What the option does, one sentence.",
+          "type": "string"
+        },
+        "cost": {
+          "description": "What it costs: work, time, scope or risk.",
+          "type": "string"
+        },
+        "consequence": {
+          "$ref": "#/$defs/sdc.decision.Consequence"
+        }
+      },
+      "required": [
+        "letter",
+        "does",
+        "cost",
+        "consequence"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Grant": {
+      "title": "Grant",
+      "description": "A canon-authority/1 decision (documents.md:123-132).",
+      "x-ess-name": "sdc.decision.Grant",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied"
+      ]
+    },
+    "sdc.decision.Holder": {
+      "title": "Holder",
+      "description": "Who decides this request, the cell of docs/autonomy-levels.md:242-257 for its class at the run's level (holders :233-239). person: P, a person decides. advised: P+, a person decides with the decider's proposal shown as the recommendation (propose only). decider: D→P, the decider takes any option and an escalate goes to a person. decider_final: D*, an escalate is suppressed and the decider's best is final. rule: R and the cells 'R, then P', a rule decides and an escalate goes to a person. rule_final: the cells 'R: end', a rule decides, an escalate is refused and the run ends. rule_and_decider: R∧D→P, the rule's verdict is recorded as a strong recommendation; the decider takes it (TakeRecommendation) or vetoes, and a veto is an Escalate; it never grants against the rule. rule_and_decider_final: R∧D*, the same, except that a veto is a Decide on the denying option, after which the run ends as refused with no explicitly_abandoned record. Under decider_final and rule_and_decider_final a decider result that is missing, failed or withheld by the grounding check decides the denying option, or ends the run where no option denies, and escalation_suppressed records the cause; a rule verdict withheld under rule_and_decider counts as no recommendation and goes to a person, under rule_and_decider_final the run ends. Override order (docs/autonomy-levels.md § 2.3): person < advised < rule_and_decider < rule, decider (not comparable); each non-final holder < its final variant; rule_and_decider_final < rule_final, decider_final. A move down is a lowering; every other move is a raise and needs the class's admitted ceiling.",
+      "x-ess-name": "sdc.decision.Holder",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "person",
+        "advised",
+        "decider",
+        "decider_final",
+        "rule",
+        "rule_final",
+        "rule_and_decider",
+        "rule_and_decider_final"
+      ]
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.OutcomeId": {
+      "title": "OutcomeId",
+      "description": "A Canon outcome id.",
+      "x-ess-name": "sdc.decision.OutcomeId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    },
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.UnblockKind": {
+      "title": "UnblockKind",
+      "description": "What the decision unblocks. approval: an action that is approval-required, decided by an authority grant. question: an interview question a writer hands off (questions.answer handoff, docs/driver.md:112-114). outcome: a case outcome that requires an explicit decision (canon-decisions/1); its request has two options, the decision (produces canon_decisions) and 'leave it untaken' (produces none).",
+      "x-ess-name": "sdc.decision.UnblockKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "approval",
+        "question",
+        "outcome"
+      ]
+    },
+    "sdc.decision.Unblocks": {
+      "title": "Unblocks",
+      "description": "The case and the protocol action, question or outcome the decision unblocks.",
+      "x-ess-name": "sdc.decision.Unblocks",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/sdc.decision.UnblockKind"
+        },
+        "action": {
+          "$ref": "#/$defs/sdc.decision.ActionId"
+        },
+        "capability": {
+          "$ref": "#/$defs/sdc.decision.CapabilityId",
+          "description": "The capability whose grant decides an approval."
+        },
+        "question_id": {
+          "description": "The question id in questions.yaml, for kind question.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/sdc.decision.OutcomeId",
+          "description": "The outcome, for kind outcome."
+        }
+      },
+      "required": [
+        "kind",
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

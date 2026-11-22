@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.DecisionRequest.State.schema.json",
+  "$ref": "#/$defs/sdc.decision.DecisionRequest.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:fbd645582b5477c91bc2de97bcf58c4b819e97a4f6ac3e2668cb08476a9bfd9f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequest.State": {
+      "title": "State",
+      "x-ess-name": "sdc.decision.DecisionRequest.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Decided",
+        "Escalated",
+        "Expired",
+        "Open",
+        "Superseded"
+      ]
+    }
+  }
+}

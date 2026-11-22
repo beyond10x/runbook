@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.DaemonAlreadyStarted.schema.json",
+  "title": "DaemonAlreadyStarted payload",
+  "description": "The daemon already has its configuration row; the first start stands.",
+  "x-ess-name": "sdc.daemon.DaemonAlreadyStarted",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    }
+  },
+  "required": [
+    "daemon_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ee1360d1a70c65816faa91b4c53ff5250ecc2968b62749b1f09dc216221f2e4a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

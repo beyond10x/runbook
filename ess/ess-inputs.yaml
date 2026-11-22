@@ -2,8 +2,19 @@ format: ess-inputs/2
 requires: ess 0.96
 specification:
   - system.yaml
+  - components.yaml
   - domains/decision.yaml
+  - domains/daemon.yaml
 scenarios:
   - scenarios/merge-a4-rule-and-decider.yaml
   - scenarios/merge-a5-veto.yaml
   - scenarios/question-free-answer.yaml
+  - scenarios/daemon-submit-and-run-to-an-outcome.yaml
+  - scenarios/daemon-submit-below-the-floor-is-refused.yaml
+  - scenarios/daemon-decision-is-answered-and-the-run-resumes.yaml
+  - scenarios/daemon-answer-to-an-answered-request-is-refused.yaml
+  - scenarios/daemon-cancel-a-run.yaml
+  - scenarios/daemon-two-runs-in-a-session-keep-their-events-apart.yaml
+  - scenarios/daemon-events-after-a-sequence-number.yaml
+  - scenarios/daemon-closed-session-takes-no-run.yaml
+  - scenarios/daemon-floor-workspace-refuses-unconfined.yaml

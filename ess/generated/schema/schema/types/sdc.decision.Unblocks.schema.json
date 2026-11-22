@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Unblocks.schema.json",
+  "$ref": "#/$defs/sdc.decision.Unblocks",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:c58b7a74fbc98b1d41cfdb730d8d3d7c84da40209e305f6c6194c00ea74e77fa",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.CapabilityId": {
+      "title": "CapabilityId",
+      "description": "A Canon capability an action requires, such as owner.approve.",
+      "x-ess-name": "sdc.decision.CapabilityId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.OutcomeId": {
+      "title": "OutcomeId",
+      "description": "A Canon outcome id.",
+      "x-ess-name": "sdc.decision.OutcomeId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.UnblockKind": {
+      "title": "UnblockKind",
+      "description": "What the decision unblocks. approval: an action that is approval-required, decided by an authority grant. question: an interview question a writer hands off (questions.answer handoff, docs/driver.md:112-114). outcome: a case outcome that requires an explicit decision (canon-decisions/1); its request has two options, the decision (produces canon_decisions) and 'leave it untaken' (produces none).",
+      "x-ess-name": "sdc.decision.UnblockKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "approval",
+        "question",
+        "outcome"
+      ]
+    },
+    "sdc.decision.Unblocks": {
+      "title": "Unblocks",
+      "description": "The case and the protocol action, question or outcome the decision unblocks.",
+      "x-ess-name": "sdc.decision.Unblocks",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/sdc.decision.UnblockKind"
+        },
+        "action": {
+          "$ref": "#/$defs/sdc.decision.ActionId"
+        },
+        "capability": {
+          "$ref": "#/$defs/sdc.decision.CapabilityId",
+          "description": "The capability whose grant decides an approval."
+        },
+        "question_id": {
+          "description": "The question id in questions.yaml, for kind question.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/sdc.decision.OutcomeId",
+          "description": "The outcome, for kind outcome."
+        }
+      },
+      "required": [
+        "kind",
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

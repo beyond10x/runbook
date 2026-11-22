@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.EventId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.EventId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:c2f3559068b8421793fe5e1bed89cd35048e9fb323b137658b5adea313bf2fc9",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.EventId": {
+      "title": "EventId",
+      "description": "The id the daemon gives a recorded event; the stream's own id is the run's sequence number.",
+      "x-ess-name": "sdc.daemon.EventId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

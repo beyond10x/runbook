@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.EventKind.schema.json",
+  "$ref": "#/$defs/sdc.daemon.EventKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:01826d53f908d43b7ace426e7ada111a63106af163fe813be03a712ef0e2a659",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.EventKind": {
+      "title": "EventKind",
+      "description": "The kind of the runtime's record, copied from it. UNMAPPED: the runtime's record kinds are Loom's and are not known here; the daemon does not interpret them.",
+      "x-ess-name": "sdc.daemon.EventKind",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

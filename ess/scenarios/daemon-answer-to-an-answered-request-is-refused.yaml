@@ -1,0 +1,129 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-answer-to-an-answered-request-is-refused
+summary: "A second answer to a request that is already answered is refused and the first answer stands; an answer naming another run is refused."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: workspace
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:01:30Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-2"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake_ref: "intake.md"
+      settings: {}
+      confinement: workspace
+      at: 2026-11-22T10:01:30Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:02:30Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-2"
+      at: 2026-11-22T10:02:30Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.WaitOnDecision
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: waiting
+
+  - at: 2026-11-22T10:03:30Z
+    command: sdc.daemon.WaitOnDecision
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-2"
+    outcome: waiting
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.RequestDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+      run_id: "run-1"
+      question: "Which list shape?"
+      options:
+        - letter: "A"
+          does: "One shared list."
+          cost: "No per-user data."
+          consequence: {admits: ["questions.check"], blocks: [], answer: "One shared list", produces: artifact_revision}
+        - letter: "B"
+          does: "Separate lists."
+          cost: "Sharing per list."
+          consequence: {admits: ["questions.check"], blocks: [], answer: "Separate lists", produces: artifact_revision}
+      at: 2026-11-22T10:04:00Z
+    outcome: requested
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-2"
+      request_id: "dr-1"
+      answer: "B"
+      answered_by: "operator"
+      at: 2026-11-22T10:05:00Z
+    outcome: not-of-run
+
+  - at: 2026-11-22T10:06:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "A"
+      answered_by: "operator"
+      at: 2026-11-22T10:06:00Z
+    outcome: answered
+
+  - at: 2026-11-22T10:07:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "B"
+      answered_by: "another-operator"
+      at: 2026-11-22T10:07:00Z
+    outcome: already-answered
+
+assert:
+  - view: sdc.daemon.DecisionsOfRun
+    params: {run_id: "run-1"}
+    contains: {request_id: "dr-1", state: Answered, answer: "A", answered_by: "operator", answered_at: 2026-11-22T10:06:00Z}

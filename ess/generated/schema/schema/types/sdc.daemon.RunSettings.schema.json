@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunSettings.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunSettings",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:f8f29f16d690a0611fb483857e3ba1667b911cadc091bd73f08f9df941e4139d",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunSettings": {
+      "title": "RunSettings",
+      "description": "The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.",
+      "x-ess-name": "sdc.daemon.RunSettings",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
