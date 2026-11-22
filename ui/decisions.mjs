@@ -188,7 +188,7 @@ export function inbox(ctx) {
         items.push({...base, id: `approve:${c.rel}:${n.action}`, kind: 'approve', capability: cap, manual: !!b.manual, subject, revision, artifact: subject ? readArtifact(c, subject) : null,
           upstream: (b.upstream || []).map((u) => ({name: u, revision: c.case?.artifacts?.[u]?.revision})),
           unlocks: b.produces ? unlocks(c, b.produces) : null, produces: b.produces || null, scope,
-          grant: (readJson(path.join(c.dir, 'authority.json')) || []).find((g) => g.capability === cap) || null});
+          grant: [readJson(path.join(c.dir, 'authority.json'))].flat().find((g) => g && g.capability === cap) || null});
       } else {
         // not a decision: the stall action with no record for a person (the Now band says why nothing runs)
         if (n.action === stallAction() && amendStall(c, ctx.runDir)?.needsPerson === 0) continue;

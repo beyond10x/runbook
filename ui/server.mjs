@@ -86,7 +86,10 @@ function readEvents(dir) {
   const out = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch { /* a line mid-write */ }
+    let r;
+    try { r = JSON.parse(line); } catch { continue; /* a line mid-write */ }
+    // an event is an object with a numeric seq; any other line is skipped (the inspector shows no skipped lines)
+    if (r && typeof r === 'object' && !Array.isArray(r) && typeof r.seq === 'number') out.push(r);
   }
   return out;
 }
@@ -162,7 +165,21 @@ bindViewScope(() => viewScope.getStore());
 const useViewOf = (src) => { setView(src ? viewOf(src).view : null); };
 const inView = (src, fn) => viewScope.run(newViewState(), () => { useViewOf(src); return fn(); });
 const viewInfo = (src) => { const {view, sig, ...info} = viewOf(src); return info; };
-const sourceRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
+// A run that cannot be read does not stop the server: the throw is caught per run, logged once with the
+// name of its directory, and the other runs go on.
+const unreadable = new Set();
+function guardRun(s, fn, fallback) {
+  try { return fn(); } catch (e) {
+    if (!unreadable.has(s.path)) {
+      unreadable.add(s.path);
+      console.error(`run ${s.name}: cannot be read (${e?.name || 'Error'}: ${String(e?.message || e).split(s.path).join(s.name)})`);
+    }
+    return fallback;
+  }
+}
+const UNREADABLE_RUN = {state: 'idle', started: null, ended: null, last: null, outcome: null, delivered: null, closedBy: null, stopBy: null, cause: null, cost: null, calls: null, work: null, decider: null, setting: null, autonomy: null, forced: 0, unstuck: 0, reopens: 0, unreadable: true};
+const sourceRow = (s) => guardRun(s, () => fullRow(s), {index: s.index, name: s.name, path: s.path, found: s.found, exists: false, version: s.version, cases: 0, run: UNREADABLE_RUN});
+const fullRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: guardRun(s, () => runSummary(s), UNREADABLE_RUN), experiments: experimentsOf(runDirOf(s))});
 
 // ---- experiments: which experiment, variant and ordinal a run belongs to -----------------------------
 // A run directory's experiment.json (sdc.experiment-run/1, written by sdc-experiment run) says it; a run
@@ -262,43 +279,46 @@ function runSummary(s) {
   const caseDirs = Array.from(s.cases.values());
   const sig = files.map(statSig).join('|') + '#' + caseDirs.map((e) => `${e.dir}:${e.sig}`).join('|');
   let c = summaries.get(s.path);
+  if (c?.failed && c.sig === sig) throw c.failed;
   if (!c || c.sig !== sig) {
-    const st = readJson(files[0]);
-    const status = st && st.format === 'sdc.run-status/1' ? st : null;
-    const stop = readJson(files[1]);
-    const sets = lines(files[2]).filter((r) => r.format === 'sdc.run-settings/1');
-    const calls = lines(files[3]).filter((r) => r.model || r.usage || r.adapter);
-    const decs = lines(files[4]).filter((r) => r.model || r.cost_usd != null || r.cost != null);
-    // the cases' event times: the first and the last, and the root's close
-    let first = null, last = null, term = null;
-    const times = c?.times || new Map();
-    for (const e of caseDirs) {
-      let t = times.get(e.dir);
-      if (!t || t.sig !== e.sig) {
-        const evs = readEvents(e.dir);
-        const ats = evs.map((x) => msOf(x.at)).filter((x) => x != null);
-        const tm = evs.findLast?.((x) => x.event === 'terminated') ?? [...evs].reverse().find((x) => x.event === 'terminated');
-        t = {sig: e.sig, first: ats.length ? Math.min(...ats) : null, last: ats.length ? Math.max(...ats) : null, term: tm ? {at: msOf(tm.at), outcome: tm.outcome ?? null} : null};
-        times.set(e.dir, t);
+    try {
+      const st = readJson(files[0]);
+      const status = st && st.format === 'sdc.run-status/1' ? st : null;
+      const stop = readJson(files[1]);
+      const sets = lines(files[2]).filter((r) => r.format === 'sdc.run-settings/1');
+      const calls = lines(files[3]).filter((r) => r.model || r.usage || r.adapter);
+      const decs = lines(files[4]).filter((r) => r.model || r.cost_usd != null || r.cost != null);
+      // the cases' event times: the first and the last, and the root's close
+      let first = null, last = null, term = null;
+      const times = c?.times || new Map();
+      for (const e of caseDirs) {
+        let t = times.get(e.dir);
+        if (!t || t.sig !== e.sig) {
+          const evs = readEvents(e.dir);
+          const ats = evs.map((x) => msOf(x.at)).filter((x) => x != null);
+          const tm = evs.findLast?.((x) => x.event === 'terminated') ?? [...evs].reverse().find((x) => x.event === 'terminated');
+          t = {sig: e.sig, first: ats.length ? Math.min(...ats) : null, last: ats.length ? Math.max(...ats) : null, term: tm ? {at: msOf(tm.at), outcome: tm.outcome ?? null} : null};
+          times.set(e.dir, t);
+        }
+        if (t.first != null && (first == null || t.first < first)) first = t.first;
+        if (t.last != null && (last == null || t.last > last)) last = t.last;
+        if (e.depth === 0 && t.term) term = t.term;
       }
-      if (t.first != null && (first == null || t.first < first)) first = t.first;
-      if (t.last != null && (last == null || t.last > last)) last = t.last;
-      if (e.depth === 0 && t.term) term = t.term;
-    }
-    const started = msOf(sets[0]?.at) ?? msOf(calls[0]?.started) ?? first;
-    const recorded = exists(files[3]) || exists(files[4]);
-    const cost = recorded ? calls.reduce((a, r) => a + (Number(r.cost_usd) || 0), 0) + decs.reduce((a, r) => a + (Number(r.cost_usd ?? r.cost) || 0), 0) : null;
-    const v = {
-      started, last,
-      status: status ? {state: status.state ?? null, at: msOf(status.at), outcome: status.outcome ?? null, delivered: typeof status.delivered === 'boolean' ? status.delivered : null, closedBy: status.closed_by ?? null} : null,
-      stop: stop && stop.format === 'sdc.run-stopped/1' && msOf(stop.at) != null ? {at: msOf(stop.at), by: stop.by ?? null, cause: stop.cause || stop.verdict_at_stop || null} : null,
-      term,
-      cost, calls: recorded ? calls.length + decs.length : null, work: recorded ? calls.length : null, decider: recorded ? decs.length : null,
-      setting: settingText(sets.at(-1), calls), autonomy: sets.at(-1)?.autonomy ?? null,
-      forced: count(status?.forced), unstuck: count(status?.unstuck), reopens: count(status?.reopens),
-    };
-    c = {sig, times, v};
-    summaries.set(s.path, c);
+      const started = msOf(sets[0]?.at) ?? msOf(calls[0]?.started) ?? first;
+      const recorded = exists(files[3]) || exists(files[4]);
+      const cost = recorded ? calls.reduce((a, r) => a + (Number(r.cost_usd) || 0), 0) + decs.reduce((a, r) => a + (Number(r.cost_usd ?? r.cost) || 0), 0) : null;
+      const v = {
+        started, last,
+        status: status ? {state: status.state ?? null, at: msOf(status.at), outcome: status.outcome ?? null, delivered: typeof status.delivered === 'boolean' ? status.delivered : null, closedBy: status.closed_by ?? null} : null,
+        stop: stop && stop.format === 'sdc.run-stopped/1' && msOf(stop.at) != null ? {at: msOf(stop.at), by: stop.by ?? null, cause: stop.cause || stop.verdict_at_stop || null} : null,
+        term,
+        cost, calls: recorded ? calls.length + decs.length : null, work: recorded ? calls.length : null, decider: recorded ? decs.length : null,
+        setting: settingText(sets.at(-1), calls), autonomy: sets.at(-1)?.autonomy ?? null,
+        forced: count(status?.forced), unstuck: count(status?.unstuck), reopens: count(status?.reopens),
+      };
+      c = {sig, times, v};
+      summaries.set(s.path, c);
+    } catch (e) { summaries.set(s.path, {sig, failed: e}); throw e; }
   }
   const v = c.v;
   // Whether it is live (livenessOf): the runner writes no pid and no lock, so a run that has not ended is
@@ -768,17 +788,17 @@ function push(name, data) {
 let sourcesSig = '';
 function tick() {
   discover();
-  for (const src of sources) inView(src, () => {
+  for (const src of sources) guardRun(src, () => inView(src, () => {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
     const {changed, runChanged, liveChanged} = scan(src);
     if (changed.length || runChanged || liveChanged || existed !== src.exists) {
       push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
     }
-  });
+  }));
   // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
   // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`)).join('|');
+  const sig = sources.map((s) => guardRun(s, () => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`), `${s.path}:unreadable`)).join('|');
   if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
 }
 

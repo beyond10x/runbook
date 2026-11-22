@@ -45,7 +45,7 @@ export function readText(p, root) {
 export const readJson = (p, fallback = null) => {
   const text = readText(p);
   if (text == null) return fallback;
-  try { return JSON.parse(text); } catch { return fallback; }
+  try { return JSON.parse(text) ?? fallback; } catch { return fallback; }
 };
 export function statOf(p, root) {
   const real = runPath(p, root);
