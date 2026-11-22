@@ -637,3 +637,63 @@ fn the_prompts_of_implement_request_mode_are_their_goldens_byte_for_byte() {
         assert_eq!(golden_names("implement"), names(&want));
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The shared renderer of the Rust binaries (driver/src/instructions.rs), the same rules as
+// `render` of llm-node.sh.
+
+#[path = "../src/instructions.rs"]
+#[allow(dead_code)]
+mod instructions;
+
+#[test]
+fn the_rust_renderer_refuses_a_path_outside_instructions_and_fills_in_one_pass() {
+    let root = scratch("render");
+    fs::create_dir_all(root.join("instructions/sub")).unwrap();
+    fs::write(root.join("README.md"), "outside {{x}}\n").unwrap();
+    fs::write(root.join("instructions/a.md"), "a {{x}} b {{y}}\n\n\n").unwrap();
+    fs::write(root.join("instructions/sub/b.md"), "no placeholder\n").unwrap();
+    fs::write(root.join("instructions/c.md"), "needs {{missing_value}} and {{x}}").unwrap();
+    // A path that is not instructions/<...>.md, is absolute or has a `..` segment is refused, and the file is not read.
+    for bad in ["../README.md", "instructions/../README.md", "instructions/sub/../../README.md", "/etc/hostname.md", "README.md",
+        "instructions/a.txt", "instructions", "other/instructions/a.md", "instructions/.."] {
+        let e = instructions::render_in(&root, bad, &[("x", "1")]).unwrap_err();
+        assert!(e.contains(bad) && e.contains("instructions/<...>.md"), "{bad}: {e}");
+        assert_eq!(instructions::check_path(bad), Err(e), "{bad}");
+    }
+    // Every placeholder in one pass: a value is not searched again; trailing newlines of the file are dropped.
+    assert_eq!(instructions::render_in(&root, "instructions/a.md", &[("x", "{{y}}"), ("y", "2")]).unwrap(), "a {{y}} b 2");
+    assert_eq!(instructions::render_in(&root, "instructions/sub/b.md", &[]).unwrap(), "no placeholder");
+    // A placeholder with no value is an error that names it; so is a missing file.
+    let e = instructions::render_in(&root, "instructions/c.md", &[("x", "1")]).unwrap_err();
+    assert!(e.contains("instructions/c.md") && e.contains("{{missing_value}}"), "{e}");
+    let e = instructions::render_in(&root, "instructions/none.md", &[]).unwrap_err();
+    assert!(e.contains("instructions/none.md") && e.contains("missing"), "{e}");
+    // The repository's own files are found from the binary's place.
+    assert!(instructions::render("instructions/run.unstick.closing.md", &[]).unwrap().starts_with("When the file is written"));
+}
+
+#[test]
+fn the_three_rust_binaries_hold_no_instruction_text() {
+    let mut lines = Vec::new();
+    let mut stack = vec![repo().join("instructions")];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                if p.file_name().unwrap() != "golden" {
+                    stack.push(p);
+                }
+            } else {
+                lines.extend(fs::read_to_string(&p).unwrap().lines().map(str::trim).filter(|l| l.len() >= 30).map(String::from).collect::<Vec<_>>());
+            }
+        }
+    }
+    for src in ["src/bin/sdc-conform.rs", "src/bin/sdc-unstick.rs", "src/bin/sdc-reply/implement.rs"] {
+        let text = fs::read_to_string(manifest().join(src)).unwrap().replace("\\\"", "\"");
+        for l in &lines {
+            assert!(!text.contains(l.as_str()), "{src} still holds instruction text: {l}");
+        }
+        assert!(text.contains("instructions::render") || text.contains("text(\""), "{src} reads no instruction file");
+    }
+}

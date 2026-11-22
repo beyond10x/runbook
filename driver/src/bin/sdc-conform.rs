@@ -46,6 +46,10 @@ use serde_json::{json, Value as J};
 #[allow(dead_code)]
 mod conformance;
 
+#[path = "../instructions.rs"]
+#[allow(dead_code)]
+mod instructions;
+
 #[path = "../run_metrics.rs"]
 #[allow(dead_code)]
 mod run_metrics;
@@ -205,89 +209,26 @@ enum Feedback {
     Run(Vec<String>),
 }
 
-fn prompt(attempt: u32, feedback: &Feedback) -> String {
-    let mut p = String::from(
-        "You describe how to drive one delivered software product through its HTTP JSON interface, so that a\n\
-program can hold it to the conformance suite of its specification. You change nothing; you only read.\n\
-\n\
-In the current directory: `product/` is the delivered source tree (read its README, its routes and its\n\
-start command), `spec/` the specification it was built to, `ir.json` that specification compiled\n\
-(`commands` with `input` and `outcomes`, `events`, `errors`, `views`).\n\
-\n\
-Reply with one route table (format sdc.conformance-table/1), exactly the reply schema:\n\
-- `build`: the argv that builds the product inside its tree, or null. Rust: [\"cargo\", \"build\", \"--release\", \"--locked\", \"--offline\"].\n\
-- `start.argv`: the argv that starts the built product, run in the tree. argv[0] is a path relative to the\n\
-  tree (e.g. target/release/<bin>) or one of cargo, go, node, npm, deno, java, dotnet. Use the placeholders\n\
-  {port} (required), {host} (127.0.0.1), {data_dir} (an empty directory), {data_file} (a file in it).\n\
-  `start.from`: [{file, line}], the README or manifest (Cargo.toml, package.json, go.mod, pyproject.toml,\n\
-  Procfile, Taskfile.yml, Makefile, deno.json, justfile) of the tree and the 1-based lines that state this\n\
-  start command for normal use; together the cited lines must contain the program's file name and every\n\
-  argument that holds no placeholder, except a value at the place of an operator value of a cited usage\n\
-  line (`<partner-id>`: any value; `<a|b>`: one of them). Start the binary the build made, never `cargo run` or `go run`:\n\
-  where the README says `cargo run --release -- <port> <file>`, start [\"target/release/<bin>\", \"{port}\",\n\
-  \"{data_file}\"] and cite that README line and the Cargo.toml line naming the package or binary.\n\
-  Never use an argument or a header the README describes as a test, demo or mock mode.\n\
-  `start.args` (optional): where the README leaves a start value to the operator (e.g. <partner-account-id>)\n\
-  and the specification has an input field for it, [{\"name\", \"kind\": \"from_scenario\", \"field\": <input field>,\n\
-  \"nth\": 0, \"when_absent\": <the README's example value>}] and \"{arg.<name>}\" in start.argv: the adapter\n\
-  starts the product per scenario with the nth distinct value the scenario sends in that field, else\n\
-  when_absent (which must be on the cited lines). Never a script and never a write into the data file.\n\
-  `start.ready`: a request the product answers once it is up, e.g. {\"method\": \"GET\", \"path\": \"/\"}.\n\
-- `captures` (optional): values the product prints when it starts, e.g. a link, a token or a board code\n\
-  minted at start: {name, stream (stdout or stderr), regex (exactly one group), timeout_s (1-120)}.\n\
-  \"{capture.<name>}\" reads one in paths, `headers`, bodies and templates. `bindings` (optional):\n\
-  {input, capture} makes every input field of that name take the captured value instead of the\n\
-  scenario's (e.g. the spec's link), and maps the captured value back in what the product answers.\n\
-  Declare a capture only if the table uses it. If the product needs a sign-in, a token or a key,\n\
-  send it in every request that needs it (a header or a body member, from a capture).\n\
-- `commands`: one entry per command of ir.json: `request` {method, path, body, headers}; in `path`,\n\
-  `body` and `headers`, \"{input.<field>}\" is the command's input value. An optional input field\n\
-  (type Optional<...>) is often left out by a scenario: do not name it in a path or query. `outcomes`:\n\
-  one entry per outcome of the command,\n\
-  `status` the HTTP status the product answers for it, `events` the events the outcome emits with a\n\
-  `payload` naming every field of the event, `error` {error, fields} for an outcome that declares one.\n\
-  In payloads and error fields \"{response.<path>}\" reads the response body, \"{input.<field>}\" the input,\n\
-  \"{lookup.<path>}\" the body of a `lookup` request (a GET made after the response, e.g. for a state the\n\
-  response lacks). An outcome that is external (`condition.kind` external) needs a `forced` entry: the\n\
-  request on the command's own method and route that makes the product take it (e.g. a body member\n\
-  or a query parameter that simulates a lost connection).\n\
-  `status` may be a list when several statuses mean one outcome. Never list 404 on a wrong-state outcome:\n\
-  the adapter itself reads a refusal (404, or the wrong-state status) of an id the scenario never created\n\
-  as wrong-state, and 404 for an id the scenario created never. Two outcomes may share a status only with a `when_body` {path, equals} on each. The `error` name is the declared error,\n\
-  written as is; payload fields and error `fields` are never literals: fill each from the response, a lookup, a capture or the input. A field filled from the\n\
-  input is recorded unverified, because the check then compares the input with itself; prefer the\n\
-  response where the product echoes the value.\n\
-- `views`: one entry per view: `request`, `rows` (the dotted path to the list of rows in the response\n\
-  body, \"\" for the whole body), `fields` mapping each view field to its path in a row. Two views\n\
-  cannot read the same request.\n\
-- Describe the product as it is: map each outcome to the statuses the product gives for the case the\n\
-  outcome describes. Where a command, outcome or view has no route, give an entry with\n\
-  only its name and `none` {kind, why} instead of inventing a route. kind\n\
-  `not_reachable_over_the_interface`: the product does it, but no HTTP client can drive or read it\n\
-  (it lives only in the browser, or only an operator at the console can trigger it); its scenarios\n\
-  are counted not measurable. kind `not_implemented`: the product does not do it; its scenarios fail.\n\
-  Say in `why` where you looked.\n\
-- `notes`: a few sentences on what you read and anything uncertain.\n",
-    );
+/// The table node's instruction text: `instructions/conformance.table.md`, and from the second
+/// attempt on the refusal of the previous table or the faults its run showed.
+fn prompt(attempt: u32, feedback: &Feedback) -> Result<String, String> {
+    let mut p = instructions::render("instructions/conformance.table.md", &[])? + "\n";
+    let attempt = attempt.to_string();
+    let listed = |items: &[String]| items.iter().take(30).map(|why| format!("  - {why}\n")).collect::<String>();
     match feedback {
         Feedback::None => {}
         Feedback::Check(invalid) => {
-            p.push_str(&format!("\nThis is attempt {attempt}. Your previous table was refused by the program check:\n"));
-            for why in invalid.iter().take(30) {
-                p.push_str(&format!("  - {why}\n"));
-            }
-            p.push_str("Reply with the corrected table.\n");
+            p.push('\n');
+            p.push_str(&instructions::render("instructions/conformance.table.refused.md", &[("attempt", &attempt), ("reasons", &listed(invalid))])?);
+            p.push('\n');
         }
         Feedback::Run(evidence) => {
-            p.push_str(&format!("\nThis is attempt {attempt}. Your previous table passed the program check but was refused after its run \
-against the product: the run shows faults of the table itself, not of the product:\n"));
-            for why in evidence.iter().take(30) {
-                p.push_str(&format!("  - {why}\n"));
-            }
-            p.push_str("Read the product again where these point and reply with the corrected table.\n");
+            p.push('\n');
+            p.push_str(&instructions::render("instructions/conformance.table.run-fault.md", &[("attempt", &attempt), ("faults", &listed(evidence))])?);
+            p.push('\n');
         }
     }
-    p
+    Ok(p)
 }
 
 /// The node `conformance.table` as configured for this observation.
@@ -344,7 +285,7 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
         let attempt = *attempts;
         let rec = dir.join("node").join(format!("{attempt:03}"));
         fs::create_dir_all(&rec).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
-        fs::write(rec.join("prompt.md"), prompt(attempt, &feedback)).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
+        fs::write(rec.join("prompt.md"), prompt(attempt, &feedback).map_err(|e| ("table_missing", e, vec![]))?).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let req = json!({"model": node.model, "effort": node.effort, "prompt_file": rec.join("prompt.md"), "cwd": node.cwd, "record_dir": rec,
             "node": "conformance.table", "slot": slot, "attempt": attempt, "json_schema": node.schema,
             "operations": ["dir.list", "file.read", "search"],
@@ -1226,8 +1167,16 @@ fn main() -> ExitCode {
                 }
             };
             let attempt = arg(&args, "--attempt").and_then(|a| a.parse().ok()).unwrap_or(1);
-            print!("{}", prompt(attempt, &feedback));
-            ExitCode::SUCCESS
+            match prompt(attempt, &feedback) {
+                Ok(p) => {
+                    print!("{p}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("sdc-conform: {e}");
+                    ExitCode::from(2)
+                }
+            }
         }
         Some("ess-path") => match resolve_ess(&pin) {
             Ok(e) => {

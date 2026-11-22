@@ -1,0 +1,1 @@
+Rust, edition 2021. Standard library only: no dependencies in Cargo.toml (there is no network). impl/Cargo.toml and code under impl/src/. A service is a daemon binary that serves its web UI and a JSON API with std::net::TcpListener, takes its port and data file as arguments, and can run as several instances side by side; a CLI parses std::env::args.
