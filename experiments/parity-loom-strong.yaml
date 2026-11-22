@@ -12,7 +12,7 @@ inputs:
   sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
 tree_commit: 0c28adc5238445213b13d231c89ec556682ed95b
 fixed:
-  loom.bin: ~/.cargo/bin/b10x-loom
+  loom.bin: ~/.local/state/runbook/loom/5af3f9c2/b10x-loom
   loom.sha256: 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2
   loom.confinement: local
   loom.cap_micro_usd: 19000000

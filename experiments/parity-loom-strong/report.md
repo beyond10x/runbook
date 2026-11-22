@@ -21,7 +21,7 @@ Written by `sdc-experiment report parity-loom-strong` from `experiments/parity-l
 | `decider.kind` | model |
 | `decider.max_decider_calls` | 40 |
 | `decider.model` | claude-opus-5-5 |
-| `loom.bin` | ~/.cargo/bin/b10x-loom |
+| `loom.bin` | ~/.local/state/runbook/loom/5af3f9c2/b10x-loom |
 | `loom.cap_micro_usd` | 19000000 |
 | `loom.confinement` | local |
 | `loom.sha256` | 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2 |

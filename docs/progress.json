@@ -5139,7 +5139,7 @@
     },
     {
       "path": "experiments/parity-loom-strong.yaml",
-      "sha256": "41b511ce6b45c1861c5195600fa9ae197d58087b0d425d1aac3955909566e0ed"
+      "sha256": "5a46aad64c1adeb84b8f131fdde4ed2a0f66fe86b76f59f7924e4a29291e8640"
     },
     {
       "path": "experiments/release-0.1.2.yaml",

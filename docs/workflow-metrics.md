@@ -347,7 +347,7 @@ inputs:
 - {name: invoices, kind: idea, text: Bill customers with invoices., sha256: <sha256 of the text>}
 tree_commit: null
 fixed:
-  loom.bin: ~/.cargo/bin/b10x-loom
+  loom.bin: ~/.local/state/runbook/loom/5af3f9c2/b10x-loom
   loom.sha256: <64 hex digits>
   loom.confinement: local
   loom.cap_micro_usd: 5000000
