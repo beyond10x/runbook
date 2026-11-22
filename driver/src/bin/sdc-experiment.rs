@@ -432,8 +432,9 @@ const OPTIONAL_LOOM: [&str; 9] = ["loom.login_file", "loom.in_process", "decider
     "decider.adapter", "adapter", "review.adapter"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
-/// What `bindings/tools/decider.sh` needs on `PATH` (it exits 127 without them).
-const LOOM_TOOLS: [&str; 3] = ["jq", "yq", "rsync"];
+/// What the shell programs the bindings run (`llm-node.sh`, `sdc-tool.sh`, the adapters) need on
+/// `PATH`; the decider of `runbook run` starts none of them.
+const LOOM_TOOLS: [&str; 2] = ["jq", "yq"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
 const REQUIRED_LAUNCH: [&str; 11] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
     "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "max_llm_calls", "autonomy"];
@@ -1921,7 +1922,7 @@ fn launch_env(settings: &BTreeMap<String, String>, runs_dir: &Path, principal: &
 /// started with: `sdc-reply` (the model decider and the model nodes), `sdc-findings` and
 /// `sdc-bugfix` (the model nodes) are found there and nowhere else, because the copy of the
 /// bindings in the run directory holds no `driver/target/debug`. A `decider.reply_bin` setting
-/// would reach the decider alone; the directory on `PATH` reaches both. `jq`, `yq` and `rsync`
+/// would reach the decider alone; the directory on `PATH` reaches both. `jq` and `yq`
 /// come from the login's `PATH` (`missing_loom_tools`).
 fn loom_env(base: &dyn Fn(&str) -> Option<String>, build: &Path) -> Vec<(String, String)> {
     BASE_ENV.iter().map(|k| (*k, base(k)))
@@ -2458,7 +2459,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                     for (k, v) in &rp.env {
                         println!("  env {k}={v}");
                     }
-                    println!("  needs on PATH: {} (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from {}",
+                    println!("  needs on PATH: {} (the shell programs of the bindings); sdc-reply, sdc-findings and sdc-bugfix from {}",
                         LOOM_TOOLS.join(", "), build.join("driver/target/debug").display());
                     let missing = missing_loom_tools(rp.env.iter().find(|(k, _)| k == "PATH").map_or("", |(_, v)| v));
                     if !missing.is_empty() {
@@ -2485,7 +2486,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         let path = base("PATH").unwrap_or_default();
         let missing = missing_loom_tools(&path);
         if !missing.is_empty() {
-            return Err((1, format!("refused: {} not on PATH: `bindings/tools/decider.sh` of a loom run needs {} and exits 127 without them", missing.join(", "), LOOM_TOOLS.join(", "))));
+            return Err((1, format!("refused: {} not on PATH: the shell programs of the bindings of a loom run need {} and exit 127 without them", missing.join(", "), LOOM_TOOLS.join(", "))));
         }
         let unit_path = format!("{}:{path}", build.join("driver/target/debug").display());
         let missing = missing_answer_programs(&build, &unit_path);

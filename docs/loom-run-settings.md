@@ -74,15 +74,17 @@ kind (`decider:model`, `decider:<verdict>`). A `scripted` decider (the stub-cycl
 its principal in the file, and `decider.principal` is the default of its answers (an answer's own
 `principal` wins). Nothing about the principal is fixed in the runner for one cycle.
 
-`sdc-reply`, `jq`, `yq` and `rsync` are reached through `PATH`, not through `decider.reply_bin`. The
+`sdc-reply`, `jq` and `yq` are reached through `PATH`, not through `decider.reply_bin`. The
 launcher puts the build's `driver/target/debug` first on the unit's `PATH` (`sdc-reply`,
-`sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq`, `yq` or `rsync` is on no
-directory of that `PATH`. The reason: `b10x-loom` gives every bound program the `PATH` the runner was
+`sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq` or `yq` is on no
+directory of that `PATH` (the shell programs of the bindings need them; `rsync` is no longer
+needed by a run). The reason: `b10x-loom` gives every bound program the `PATH` the runner was
 started with, and the model nodes of the bindings (`llm-node.sh`) call `sdc-reply` too, so a directory
 on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
 `decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
-The decider runs inside the runner and starts no `decider.sh`: of these programs it needs only `jq`,
-for the bash adapters it starts; the nodes of the bindings still need all four.
+The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rsync`: `jq` is needed
+only by the bash adapters it starts; the shell programs of the bindings (`llm-node.sh`,
+`sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
 Efforts (`efforts.<role>.effort`) and flags (`flags.*`), and `implement_mode`, stay refused in a
 record of a `loom` variant, with the key named: `llm-node.sh` has no option for an effort under

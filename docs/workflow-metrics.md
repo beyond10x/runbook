@@ -280,8 +280,8 @@ none is ignored silently, and a name that is no setting at all is refused too.
 
 The file is `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
 programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the unit gets (the build's
-`driver/target/debug` first), not from `decider.reply_bin`; `jq`, `yq` and `rsync` must be on the
-login's `PATH` and `run` refuses to start without them.
+`driver/target/debug` first), not from `decider.reply_bin`; `jq` and `yq` (the shell programs of the
+bindings) must be on the login's `PATH` and `run` refuses to start without them.
 
 Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
 `implement_coverage`, `conformance`, `rule_approvals` (switches of `run-trial.sh`),

@@ -337,7 +337,7 @@ fn a_tree_without_a_runbook_crate_is_refused_at_run_and_a_loom_run_gets_the_base
 #[test]
 fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path() {
     // sdc-reply, sdc-findings and sdc-bugfix are found through PATH by the model nodes and the
-    // decider: the build's driver/target/debug comes first. jq, yq and rsync come from the login.
+    // decider: the build's driver/target/debug comes first. jq and yq come from the login; rsync is not asked for.
     let d = scratch("path");
     let builds = fake_build(&d, 8, true);
     write_record(&d, &example(COMMIT));
@@ -345,12 +345,12 @@ fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path()
     let (code, out) = experiment_env(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains(&format!("  env PATH={}:/nonexistent\n", bin.display())), "{out}");
-    assert!(out.contains("  missing on PATH: jq, yq, rsync\n"), "{out}");
-    assert!(out.contains("  needs on PATH: jq, yq, rsync (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from "), "{out}");
+    assert!(out.contains("  missing on PATH: jq, yq\n"), "{out}");
+    assert!(out.contains("  needs on PATH: jq, yq (the shell programs of the bindings); sdc-reply, sdc-findings and sdc-bugfix from "), "{out}");
     // The tools are found when a directory of PATH holds them as executable files.
     let tools = d.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for t in ["jq", "yq", "rsync"] {
+    for t in ["jq", "yq"] {
         fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
         fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
@@ -361,7 +361,7 @@ fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path()
     // A launch without them is refused before anything is built or started.
     let (code, out) = experiment_env(&["run", "lx", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
     assert_eq!(code, 1, "{out}");
-    assert!(out.contains("refused: jq, yq, rsync not on PATH"), "{out}");
+    assert!(out.contains("refused: jq, yq not on PATH"), "{out}");
 }
 
 #[test]
@@ -647,7 +647,7 @@ fn a_launch_is_refused_when_a_program_of_the_answers_file_is_not_on_the_path() {
     .unwrap();
     let tools = d.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for t in ["jq", "yq", "rsync"] {
+    for t in ["jq", "yq"] {
         fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
         fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
@@ -714,7 +714,7 @@ fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
     );
     let tools = d.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for t in ["jq", "yq", "rsync"] {
+    for t in ["jq", "yq"] {
         executable(&tools.join(t), "#!/bin/sh\n");
     }
     executable(&tools.join("systemctl"), "#!/bin/sh\necho inactive\n");
