@@ -1574,6 +1574,20 @@ fn parity_a_loom_run_directory_that_misses_a_file_or_holds_a_decision_with_no_ru
 }
 
 #[test]
+fn parity_a_loom_run_directory_with_the_deciders_answers_to_a_question_and_a_finding_is_read() {
+    let _t = Timed::start("parity_a_loom_run_directory_with_the_deciders_answers_to_a_question_and_a_finding_is_read");
+    let s = Synth::new("loom-run-dir-answers");
+    let dir = loom_run_dir(&s, "run");
+    std::fs::write(
+        dir.join("decisions.jsonl"),
+        "{\"case\":\"root\",\"type\":\"question\",\"class\":\"scope_changing_answer\",\"principal\":\"decider:model\"}\n{\"case\":\"root\",\"type\":\"finding\",\"class\":\"finding\",\"principal\":\"decider:model\"}\n",
+    )
+    .unwrap();
+    let o = parity(&["summarize", "--loom-run", path_str(&dir)]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+}
+
+#[test]
 fn parity_compare_ends_with_a_line_that_says_how_the_two_summaries_stand() {
     let _t = Timed::start("parity_compare_ends_with_a_line_that_says_how_the_two_summaries_stand");
     let s = Synth::new("closing-line");

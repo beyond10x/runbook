@@ -1,6 +1,7 @@
 //! The loop of `runbook loom-run`. It exists once: it reaches Loom through a [`LoomHost`], the
 //! child process or the library (`host.rs`).
 
+use crate::loom_run::answers::Answers;
 use crate::loom_run::bindings_copy;
 use crate::loom_run::budget;
 use crate::loom_run::child;
@@ -132,6 +133,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         start,
         wall_cap_noted: false,
         decided: std::collections::HashMap::new(),
+        answers: Answers::default(),
+        answered: std::collections::HashMap::new(),
         reasons_written: 0,
         login_link: private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf),
     };
@@ -197,6 +200,9 @@ struct Runner<'a> {
     start: u64,
     wall_cap_noted: bool,
     decided: std::collections::HashMap<String, bool>,
+    /// What the bindings copy's answers file declares, and how many answers each request got.
+    answers: Answers,
+    answered: std::collections::HashMap<String, u64>,
     reasons_written: u64,
     login_link: Option<PathBuf>,
 }
@@ -265,6 +271,7 @@ impl Runner<'_> {
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
+        self.answers = Answers::load(&self.bindings_dir)?;
         std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
@@ -405,6 +412,9 @@ impl Runner<'_> {
                 None => {}
             }
             self.host.admit(&decision)?;
+            if self.answer_declared(&decision, &kind, &case)? {
+                continue;
+            }
             let want = self.decider.max_call_micro_usd();
             if want > 0 && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
@@ -536,7 +546,7 @@ impl Runner<'_> {
             return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
         }
         answer.result = Some(result);
-        if approve {
+        if approve && !reasons.is_some_and(|r| !r.trim().is_empty()) {
             return Ok(None);
         }
         Ok(Some(self.write_reasons(action, reasons)?))
@@ -653,6 +663,8 @@ fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
     }
     Ok((code, v))
 }
+
+mod declared;
 
 #[cfg(test)]
 #[allow(dead_code)] // fake.rs is shared with the integration binary; this unit test uses part of it

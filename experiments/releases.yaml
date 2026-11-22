@@ -398,8 +398,8 @@ entries:
   label: 0.3.1
   short: pool wait, parity, daemon
   date: 2026-11-22
-  tree: null
-  tree_note: not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation
+  tree: ebea58dee2d1b4c9326a07d4e70128fa922bd01b
+  tree_note: 'tag 0.3.1 at main ebea58d: 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation'
   experiments: []
   changes:
   - commit: 5a4ba7f
@@ -439,5 +439,5 @@ entries:
     line: the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned
     effect: none
   limits:
-  - The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.
+  - 'No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.'
   - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.

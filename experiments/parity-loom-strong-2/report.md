@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report parity-loom-strong-2` from `experiments/parity-loom-strong-2.yaml` and the run summaries in `experiments/parity-loom-strong-2/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-22.
+- Kind: prospective; status: complete; created 2026-11-22.
 - Purpose: Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -45,9 +45,9 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
-| parity-loom-strong-2.strong.1 | strong | no summary: not ended | - | - | - | - |  |
-| parity-loom-strong-2.strong.2 | strong | no summary: not ended | - | - | - | - |  |
-| parity-loom-strong-2.strong.3 | strong | no summary: not ended | - | - | - | - |  |
+| parity-loom-strong-2.strong.1 | strong | stopped: decider_cannot_decide in IDEA-1.intake | no | 0.136 | 59 | 1 |  |
+| parity-loom-strong-2.strong.2 | strong | stopped: decider_cannot_decide in IDEA-1.intake | no | 0.116 | 48 | 1 |  |
+| parity-loom-strong-2.strong.3 | strong | stopped: decider_cannot_decide in IDEA-1.intake | no | 0.114 | 46 | 1 |  |
 
 ## Per variant
 
@@ -56,28 +56,28 @@ Median [min, max] (n) over the ended runs.
 | | strong |
 |---|---|
 | runs listed | 3 |
-| ended | 0 |
+| ended | 3 |
 | clean passes | 0 |
-| `run.cost_usd` | - |
-| `run.llm_calls` | - |
-| `run.decider_calls` | - |
-| `run.wall_s` | - |
-| `run.driver_s` | - |
-| `run.real_takes` | - |
-| `run.rework_takes` | - |
-| `run.looping_factor` | - |
-| `run.first_pass_yield` | - |
-| `run.rework_cost_usd` | - |
-| `run.furthest_stage_index` | - |
-| `run.findings_raised` | - |
-| `run.waiting_on_person_s` | - |
-| `run.clean` | - |
+| `run.cost_usd` | 0.116 [0.1141, 0.1361] (3) |
+| `run.llm_calls` | 3 [3, 3] (3) |
+| `run.decider_calls` | 0 [0, 0] (3) |
+| `run.wall_s` | 48 [46, 59] (3) |
+| `run.driver_s` | 48 [47, 60] (3) |
+| `run.real_takes` | 14 [12, 14] (3) |
+| `run.rework_takes` | 6 [4, 6] (3) |
+| `run.looping_factor` | 1 [1, 1] (3) |
+| `run.first_pass_yield` | 1 [1, 1] (3) |
+| `run.rework_cost_usd` | 0 [0, 0] (3) |
+| `run.furthest_stage_index` | 1 [1, 1] (3) |
+| `run.findings_raised` | 0 [0, 0] (3) |
+| `run.waiting_on_person_s` | 0 [0, 0] (3) |
+| `run.clean` | 0 [0, 0] (3) |
 
 ## Loops
 
 Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
 
-- strong (n 0):
+- strong (n 3):
   - no node taken again, no edge
 
 ## Verdict

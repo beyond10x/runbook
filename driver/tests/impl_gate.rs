@@ -287,6 +287,24 @@ fn a_queued_line_that_comes_late_does_not_make_the_job_started() {
 }
 
 #[test]
+fn the_bound_holds_under_a_locale_with_a_decimal_comma() {
+    // A systemd unit on a host set to de_DE gives bash's EPOCHREALTIME a comma ("1763810464,227523"):
+    // the elapsed time was computed from a text that is no number with a point, came out as noise,
+    // never reached the 1 s bound, and the queued job ran to its end (finding cycle `pool-wait`,
+    // 10 minutes, then "jq: parse error"). The stand-in's job would stay queued 20 s.
+    let probe = Command::new("bash").arg("-c").arg("echo $EPOCHREALTIME").env("LC_ALL", "de_DE.UTF-8").output().unwrap();
+    if !String::from_utf8_lossy(&probe.stdout).contains(',') {
+        eprintln!("skipped: no de_DE.UTF-8 locale on this host (bash's EPOCHREALTIME keeps its point)");
+        return;
+    }
+    let p = pool("comma-locale", "impl-gate", "never", &["--pool-wait", "1"],
+        &[("LC_ALL", "de_DE.UTF-8"), ("POOL_FAKE_SLEEP", "20")]);
+    assert_eq!(p.out.status.code(), Some(69), "{}", text(&p.out));
+    assert_eq!(p.cancelled(), "1");
+    assert!(p.secs < 12.0, "took {} s", p.secs);
+}
+
+#[test]
 fn a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end() {
     // 3.5 s of run time with a bound of 1 s: no queued line, so the job was admitted at once and the
     // bound has nothing to cancel.
@@ -375,4 +393,53 @@ fn the_pending_list_gives_exit_69_for_both_bindings() {
 fn a_bound_that_is_not_a_number_is_refused() {
     let p = pool("bad-bound", "impl-gate", "green", &["--pool-wait", "soon"], &[]);
     assert_eq!(p.out.status.code(), Some(64), "{}", text(&p.out));
+}
+
+/// The stand-in pool of the finding cycles keeps a queued job at most 30 s by default, so a cycle
+/// in which nothing cancels the job ends inside the 60 s bound of a test and not after 10 minutes.
+#[test]
+fn the_cycle_stand_in_keeps_a_queued_job_at_most_30_s_by_default() {
+    let fixture = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/fixtures/pool-wait/slot")).unwrap();
+    let line = fixture.lines().find(|l| l.starts_with("exec sleep")).expect("the stand-in ends in an `exec sleep` line");
+    let secs: u64 = line.split(":-").nth(1).and_then(|r| r.split('}').next()).and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no default in {line}"));
+    assert!(secs <= 30, "default {secs} s in {line}");
+}
+
+/// A round whose `sdc-drive run` printed text (a step that stopped the run before its verdict) is
+/// reported with the program and its first line, not as jq's bare "parse error ... column 10".
+#[test]
+fn a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("no-json-run");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let pin = fs::read_to_string(root.join("driver/canon-pin.json")).unwrap();
+    let version = pin.lines().find_map(|l| l.trim().strip_prefix("\"version\": \"")).and_then(|r| r.split('"').next()).unwrap().to_string();
+    let script = |name: &str, body: String| {
+        let p = dir.join(name);
+        fs::write(&p, body).unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    };
+    let canon = script("canon", format!("#!/bin/sh\necho 'canon {version}'\n"));
+    let drive = script(
+        "drive",
+        "#!/bin/bash\nwhile (($#)); do [[ $1 == --case-dir ]] && d=$2; shift; done\n[[ -d $d/work ]] || { mkdir -p \"$d/work\"; exit 0; }\n\
+         echo 'sdc-drive: `tests.run` could not run (exit 126, a program error): boom'; echo 'second line'; exit 2\n"
+            .into(),
+    );
+    let out = Command::new("bash")
+        .arg(root.join("scripts/run-full-cycle.sh"))
+        .args(["no-json", dir.join("store").to_str().unwrap()])
+        .env("CANON", canon)
+        .env("DRIVE", drive)
+        .env("RUNS", dir.join("runs"))
+        .output()
+        .unwrap();
+    let t = text(&out);
+    assert_eq!(out.status.code(), Some(5), "{t}");
+    assert!(t.contains("`sdc-drive run` printed no JSON (exit 2); its first line: sdc-drive: `tests.run` could not run"), "{t}");
+    assert!(!t.contains("jq: parse error"), "{t}");
+    assert!(!t.contains("second line"), "{t}");
 }

@@ -6,6 +6,7 @@
 //! The YAML is edited structurally (`serde_yaml::Value`), never by text replacement. A file that no
 //! setting touches is copied byte for byte.
 
+use crate::loom_run::answers::Answers;
 use crate::loom_run::decider;
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
@@ -25,8 +26,6 @@ const ADAPTERS: [&str; 2] = ["metaharness", "claude-cli"];
 const COMPANIONS: [&str; 2] = ["instructions", "driver/examples"];
 /// The program of a model node.
 const MODEL_TOOL: &str = "llm-node.sh";
-/// The person action whose answer the decider cannot give (a question; see the decisions page).
-const KEEPS_PERSON: [&str; 1] = ["scope.answer"];
 
 #[cfg(test)]
 mod tests;
@@ -208,6 +207,7 @@ fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), Str
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null);
+    let answers = Answers::load(dst)?;
     let mut files: Vec<PathBuf> = std::fs::read_dir(dst)
         .map_err(|e| format!("{}: {e}", dst.display()))?
         .filter_map(Result::ok)
@@ -218,7 +218,7 @@ fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), Str
     for file in files {
         let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let mut doc: Yaml = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        if rewrite_document(&mut doc, plan, &classes, login) {
+        if rewrite_document(&mut doc, plan, &classes, login, &answers) {
             let out = serde_yaml::to_string(&doc).map_err(|e| format!("{}: {e}", file.display()))?;
             std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
         }
@@ -235,7 +235,7 @@ fn text(map: &Mapping, name: &str) -> Option<String> {
 }
 
 /// Applies the plan to one bindings document; true when it changed anything.
-fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<&str>) -> bool {
+fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<&str>, answers: &Answers) -> bool {
     let mut changed = false;
     let Some(actions) = doc.get_mut("actions").and_then(Yaml::as_sequence_mut) else {
         return false;
@@ -246,7 +246,9 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
         };
         let kind = action.get("executor").and_then(|e| e.get("kind")).and_then(Yaml::as_str).map(str::to_owned);
         if kind.as_deref() == Some("person") {
-            if let Some(principal) = plan.principal.as_deref().filter(|_| !KEEPS_PERSON.contains(&name.as_str())) {
+            // A step whose outcome is a person's own text (an answer) keeps its person unless the
+            // answers file declares it: only the file says what the decider answers there.
+            if let Some(principal) = plan.principal.as_deref().filter(|_| answers.decider_takes(&name, action)) {
                 let old = action.get("executor").and_then(Yaml::as_mapping).and_then(|m| text(m, "principal"));
                 if let Some(executor) = action.get_mut("executor").and_then(Yaml::as_mapping_mut) {
                     executor.insert(key("principal"), key(principal));
