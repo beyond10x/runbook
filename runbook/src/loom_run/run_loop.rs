@@ -85,6 +85,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         Some(d) => d?,
         None => decider::from_settings(&settings_value)?,
     };
+    super::goals::check_settings(&args.ports, &settings_value)?;
     let protocols = protocol_files(&args.protocols)?;
     if args.intake.is_empty() {
         return Err("--intake is empty: a run needs the idea's text".to_owned());
@@ -273,6 +274,9 @@ impl Runner<'_> {
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         self.answers = Answers::load(&self.bindings_dir)?;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
+        if let Some(goals) = &self.args.ports.goals {
+            super::goals::copy(goals, &self.workspace)?;
+        }
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {

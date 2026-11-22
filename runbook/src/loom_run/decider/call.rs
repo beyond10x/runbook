@@ -39,7 +39,7 @@ pub(super) struct Replied {
 const DEFAULT_MODEL_TURNS: u64 = 8;
 
 /// The present time as `YYYY-MM-DDTHH:MM:SS.mmmZ`.
-fn now() -> String {
+pub(super) fn now() -> String {
     let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     let (days, rest) = ((d.as_secs() / 86_400) as i64, d.as_secs() % 86_400);
     let z = days + 719_468;
@@ -55,7 +55,7 @@ fn now() -> String {
 }
 
 /// `status.json` of the call, written whole: running now, finished or failed.
-fn call_status(rec: &Path, state: &str, started: &str, exit: Option<i64>) {
+pub(super) fn call_status(rec: &Path, state: &str, started: &str, exit: Option<i64>) {
     let mut doc = json!({"format": "sdc.call-status/1", "state": state, "pid": std::process::id(), "started_at": started});
     if let (Some(exit), Some(map)) = (exit, doc.as_object_mut()) {
         map.insert("finished_at".to_owned(), json!(now()));
@@ -68,7 +68,7 @@ fn call_status(rec: &Path, state: &str, started: &str, exit: Option<i64>) {
 }
 
 /// The adapter program of the name the settings give: one of the three of the bindings copy, or a path.
-fn adapter_path(tools: &Path, adapter: &str) -> PathBuf {
+pub(super) fn adapter_path(tools: &Path, adapter: &str) -> PathBuf {
     match adapter {
         "metaharness" | "claude-cli" | "dry" => tools.join(format!("llm-adapter-{adapter}.sh")),
         path => PathBuf::from(path),
@@ -76,14 +76,14 @@ fn adapter_path(tools: &Path, adapter: &str) -> PathBuf {
 }
 
 /// The effort when the settings name none: the default of the decider class in the copy's `node-classes.json`.
-fn default_effort(tools: &Path) -> Option<String> {
+pub(super) fn default_effort(tools: &Path) -> Option<String> {
     let classes = sdc_tools::reply::read_json(&tools.join("node-classes.json"));
     classes["default_efforts"]["decider"].as_str().filter(|e| !e.is_empty()).map(str::to_owned)
 }
 
 /// Starts the adapter with the request file; a program that is missing or cannot be run ends with
 /// the exit a shell gives (127, 126) and says why on its standard error.
-fn start(adapter: &Path, request_file: &Path, c: &ModelCall<'_>) -> Result<Ran, String> {
+pub(super) fn start(adapter: &Path, request_file: &Path, c: &ModelCall<'_>) -> Result<Ran, String> {
     use std::os::unix::fs::PermissionsExt;
     let shown = adapter.display();
     match std::fs::metadata(adapter) {
