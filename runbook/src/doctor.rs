@@ -3,7 +3,7 @@
 //! The table below is the list of prerequisites, each with the place in the code that makes the
 //! program necessary. A login or an API key is only checked for existence; its value is never read.
 
-use crate::assets::{is_executable, Assets, Lookup, Part, LAYOUT};
+use crate::assets::{Assets, Lookup, Part, LAYOUT};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ enum Kind {
     Assets,
     /// A program on `PATH`; `bin` is the file to look for, `args` print its version.
     Program(&'static str, &'static [&'static str]),
-    /// `CANON` when set, else the cached pinned install, else `canon` on `PATH`; its version must equal the pin.
+    /// The Canon this binary is linked with (`runbook canon`): nothing is looked up, it is there on every host.
     Canon,
     /// The Go yq, major version 4: its `--version` prints `v4.x` (the Python yq prints `3.x`).
     Yq,
@@ -74,7 +74,7 @@ const fn program(bin: &'static str) -> Kind {
 #[rustfmt::skip]
 const SPECS: &[Spec] = &[
     Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: the directories of the text layout, each checked on its own line below", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
-    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs)", hint: "set CANON=<a canon binary of the pinned version, driver/canon-pin.json>, or run scripts/check-protocols.sh once to install the pinned Canon into the cache" },
+    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: `runbook canon` compiles and evaluates the protocols with the Canon this binary is linked with", hint: "" },
     Spec { name: "bash", kind: program("bash"), needs: RUN, by: "every runbook: the bindings' tools are bash scripts (bindings/tools)", hint: SHELL_TOOLS },
     Spec { name: "jq", kind: program("jq"), needs: RUN_UI, by: "every runbook and the ui (bindings/tools/sdc-tool.sh, decider.sh)", hint: SHELL_TOOLS },
     Spec { name: "yq", kind: Kind::Yq, needs: RUN_UI, by: "every runbook and the ui, the Go yq v4 (bindings/tools/sdc-tool.sh, decider.sh, and ui/decisions.mjs)", hint: "install the Go yq v4 (its --version prints v4.x), not the Python yq" },
@@ -197,10 +197,7 @@ fn probe(spec: &Spec, l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets
             None => missing(""),
         },
         Kind::Login => login(var),
-        Kind::Canon => match canon(l, var) {
-            Some(p) => canon_against_pin(p, &CANON_PIN),
-            None => missing(&format!("pinned Canon {}", CANON_PIN.version)),
-        },
+        Kind::Canon => (true, format!("{} (linked, revision {})", CANON_PIN.version, CANON_PIN.commit.get(..8).unwrap_or("")), None),
         Kind::Yq => match l.which("yq") {
             None => missing(""),
             Some(p) => {
@@ -225,32 +222,6 @@ fn probe(spec: &Spec, l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets
 type CanonPin = crate::canon_cmd::Pin;
 
 static CANON_PIN: std::sync::LazyLock<CanonPin> = std::sync::LazyLock::new(crate::canon_cmd::pin);
-
-/// The canon binary, as the scripts find it (`canon_resolve` in `scripts/evaluate-cases.sh`):
-/// `CANON` (a path, or a name on `PATH`), else the cached install of the pinned commit under
-/// `SDC_SIMULATE_ROOT` or `$XDG_CACHE_HOME/sdc/canon-simulate/<commit[..8]>`, else `canon` on
-/// `PATH` (what `sdc-drive --canon` defaults to). No Canon checkout is looked at.
-fn canon(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let set = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if let Some(c) = set("CANON") {
-        return if c.components().count() > 1 { is_executable(&c).then_some(c) } else { l.which(&c.to_string_lossy()) };
-    }
-    let root = set("SDC_SIMULATE_ROOT").or_else(|| {
-        let cache = set("XDG_CACHE_HOME").or_else(|| set("HOME").map(|h| h.join(".cache")))?;
-        Some(cache.join("sdc/canon-simulate").join(CANON_PIN.commit.get(..8)?))
-    });
-    root.map(|r| r.join("bin/canon")).filter(|p| is_executable(p)).or_else(|| l.which("canon"))
-}
-
-/// The found binary's `--version` against the pin: it passes only when the versions are equal.
-fn canon_against_pin(p: PathBuf, pin: &CanonPin) -> (bool, String, Option<PathBuf>) {
-    let got = version_output(&p, &["--version"]).map(|o| extract_version(&o)).filter(|v| !v.is_empty());
-    match got {
-        Some(v) if v == pin.version => (true, format!("{v} (the pin)"), Some(p)),
-        Some(v) => (false, format!("{v}, pin is {}", pin.version), Some(p)),
-        None => (false, format!("--version did not answer, pin is {}", pin.version), Some(p)),
-    }
-}
 
 fn with_version(p: PathBuf, args: &[&str]) -> (bool, String, Option<PathBuf>) {
     let v = version_output(&p, args).map(|o| extract_version(&o)).filter(|v| !v.is_empty()).unwrap_or_else(|| "found".into());

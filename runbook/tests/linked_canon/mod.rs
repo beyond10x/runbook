@@ -3,7 +3,33 @@
 
 use super::{failed, line_of, stdout, World, HELPERS, PROGRAMS};
 use super::{repo, BIN};
+use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output};
+
+/// The row is the Canon the binary links, whatever `canon` binaries the host has: one of another
+/// version on `PATH` and a `CANON` that names another change nothing.
+#[test]
+fn doctor_reports_the_linked_canon_whatever_the_host_has() {
+    let w = World::new("doctor-linked-canon");
+    w.fakes(&PROGRAMS);
+    w.fakes(&HELPERS);
+    w.login("{}");
+    std::fs::write(w.root.join("bin/canon"), "#!/bin/sh\necho 'canon 0.0.1'\n").unwrap();
+    std::fs::set_permissions(w.root.join("bin/canon"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let pin = super::canon_pin();
+    let want = format!("{} (linked, revision {})", pin["version"].as_str().unwrap(), &pin["commit"].as_str().unwrap()[..8]);
+    for env in [vec![], vec![("CANON", "/nonexistent/canon")]] {
+        let o = w.run(&["doctor"], &env);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let line = line_of(&o, "canon");
+        assert!(line.starts_with("pass") && line.contains(&want) && line.contains("required") && !line.contains("0.0.1"), "{line}");
+    }
+    let o = w.run(&["doctor", "--json"], &[]);
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    let row = v["checks"].as_array().unwrap().iter().find(|c| c["name"] == "canon").unwrap();
+    assert_eq!((row["found"].as_bool(), row["version"].as_str(), row["required"].as_bool()), (Some(true), Some(want.as_str()), Some(true)), "{row}");
+    assert!(row["path"].is_null() && row["install"].is_null(), "{row}");
+}
 
 fn canon(args: &[&str]) -> Output {
     Command::new(BIN).arg("canon").args(args).current_dir(repo()).env("PATH", "/usr/bin:/bin").output().unwrap()
@@ -14,7 +40,7 @@ fn canon(args: &[&str]) -> Output {
 #[test]
 fn doctor_needs_no_canon_binary() {
     let w = World::new("doctor-no-canon");
-    w.fakes(&PROGRAMS[1..]);
+    w.fakes(&PROGRAMS);
     w.fakes(&HELPERS);
     w.login("{}");
     let o = w.run(&["doctor"], &[]);
@@ -27,7 +53,7 @@ fn doctor_needs_no_canon_binary() {
 #[test]
 fn doctor_names_no_deleted_canon_file() {
     let w = World::new("doctor-canon-hint");
-    w.fakes(&PROGRAMS[1..]);
+    w.fakes(&PROGRAMS);
     w.fakes(&HELPERS);
     w.login("{}");
     let o = w.run(&["doctor"], &[]);
