@@ -1,0 +1,6 @@
+{"at":"2026-11-22T09:00:21Z","event":"opened","protocol":{"id":"sdc.spec","revision":1},"seq":0,"source":"loom"}
+{"action":"spec.author","at":"2026-11-22T09:00:50Z","event":"action_started","llm":true,"retry_of":[],"seq":1,"source":"loom"}
+{"action":"spec.author","at":"2026-11-22T09:00:50Z","event":"action_finished","evidence":[],"exit":"0","seq":2,"source":"loom"}
+{"action":"spec.approve","at":"2026-11-22T09:00:53Z","event":"action_started","llm":false,"retry_of":[],"seq":3,"source":"loom"}
+{"action":"spec.approve","at":"2026-11-22T09:00:53Z","event":"action_finished","evidence":[],"exit":"0","principal":"person:reviewer-1","seq":4,"source":"loom"}
+{"at":"2026-11-22T09:00:53Z","event":"terminated","outcome":"passed","seq":5,"source":"loom"}

@@ -1,0 +1,1 @@
+{"adapter":"metaharness","autonomy":"A5","case":"IDEA-1","decider":{"kind":"model","model":"claude-opus-5-5"},"loom":{"cap_micro_usd":5000000,"confinement":"local"},"max_llm_calls":100,"max_wall_seconds":3600,"root_protocol":"sdc@1"}

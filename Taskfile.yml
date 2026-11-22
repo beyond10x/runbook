@@ -199,11 +199,26 @@ tasks:
 
   ess-suite:digest:
     silent: true
-    desc: "Print the digest of the sources of the committed conformance suite: the ess release that runs in ess/ (the pin) and the sha256 of every file of ess/system.yaml, ess/components.yaml, ess/ess-inputs.yaml, ess/domains/ and ess/scenarios/."
+    desc: "Print the digest of the sources of the committed conformance suite: the sha256 of every file of ess/system.yaml, ess/components.yaml, ess/ess-inputs.yaml (its `requires: ess <version>` line is the pin), ess/domains/ and ess/scenarios/. It runs no ess: the host's binary does not enter the digest; ess-suite:pin refuses a binary that is not the pin."
     cmds:
       - |
         set -eu
-        { echo "ess $(cd ess && ess --version 2>/dev/null)"; find ess/system.yaml ess/components.yaml ess/ess-inputs.yaml ess/domains ess/scenarios -type f | LC_ALL=C sort | while read -r f; do echo "$f $(sha256sum < "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1
+        { find ess/system.yaml ess/components.yaml ess/ess-inputs.yaml ess/domains ess/scenarios -type f | LC_ALL=C sort | while read -r f; do echo "$f $(sha256sum < "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1
+
+  ess-suite:pin:
+    silent: true
+    desc: "Print the ess release pinned by the `requires: ess <version>` line of ess/ess-inputs.yaml; exit 1 with one line naming both versions when the ess that runs in ess/ (last line of `ess --version`, so a dispatcher that delegates counts as the release it delegates to) is not that release. The slow lane and ess-suite:record run it first."
+    cmds:
+      - |
+        set -eu
+        pin=$(sed -n 's/^requires: ess //p' ess/ess-inputs.yaml)
+        if [ -z "$pin" ]; then echo "ess/ess-inputs.yaml has no requires: ess line"; exit 1; fi
+        have=$(cd ess && ess --version 2>/dev/null | tail -n 1)
+        if [ "$have" != "ess $pin" ]; then
+          echo "the ess that runs in ess/ prints \"${have:-nothing}\" but ess/ess-inputs.yaml pins ess $pin: install that release; a suite of another release is neither recorded nor compared under the pin's digest"
+          exit 1
+        fi
+        echo "$pin"
 
   check:ess-suite:
     silent: true
@@ -250,14 +265,16 @@ tasks:
 
   check:ess-suite:slow:
     dir: ess
-    desc: "Slow lane (ess 0.97.3 synthesizes it in about 27 s of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`."
+    desc: "Slow lane (ess 0.97.3 synthesizes it in about 27 s of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
+      - task: ess-suite:pin
       - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json --check
 
   ess-suite:record:
     dir: ess
-    desc: "Synthesize the conformance suite from the sources (about 27 s with ess 0.97.3, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both."
+    desc: "Synthesize the conformance suite from the sources (about 27 s with ess 0.97.3, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
+      - task: ess-suite:pin
       - mkdir -p generated/conformance
       - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json
       - |

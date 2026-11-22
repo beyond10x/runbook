@@ -246,6 +246,10 @@ field names as written: `event`, `action`, `principal`, `artifacts`), `store/IDE
 (`findings.yaml`, `questions.yaml`, `context.yaml`) and `rounds.jsonl` (written by
 `scripts/run-trial.sh`, one line per round).
 
+The tool also reads the run directory of `runbook loom-run`, detected from its files, with the same
+output shape; the figures that directory has no source for are `null` with a `why`
+(`docs/loom-run-directory.md`, "The two evaluation tools").
+
 A *person* is a `person:<id>` principal (2026-11-21: written only where a person acted). Runs
 recorded before principals were typed name a person by a bare id (`operator`, a login) or `human`,
 and those still count; `decider:*`, `rule:*`, `agent:*`, `non-interactive`, `derived`, `dry-run`

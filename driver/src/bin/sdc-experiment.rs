@@ -55,6 +55,9 @@ mod run_metrics;
 #[path = "../run_timeline.rs"]
 #[allow(dead_code)]
 mod run_timeline;
+#[path = "../run_kind.rs"]
+#[allow(dead_code)]
+mod run_kind;
 
 use run_metrics::{choose, flat_metrics, metric_of, summary};
 

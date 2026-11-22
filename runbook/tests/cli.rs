@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod ess_digest;
 mod loom_run;
 mod reply_lib;
 mod test_suite;
