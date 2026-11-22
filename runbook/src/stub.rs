@@ -1,7 +1,7 @@
 //! The stub runtime: a scripted run described by data. The table of scripts is filled by the caller
 //! (the tests, or `runbook serve` for the presets) and chosen by the runbook name of the submit.
 
-use crate::runtime::{AnswerFailure, DecisionRequest, EventSink, Finish, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, DecisionRequest, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -129,6 +129,11 @@ impl StubRuntime {
 }
 
 impl Runtime for StubRuntime {
+    /// A scripted run lives on one thread of the process: after a restart none is left.
+    fn recover(&self, _run_id: &str) -> Recovery {
+        Recovery::Gone
+    }
+
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
         match self.table.lock().unwrap().get(runbook) {
             None => false,

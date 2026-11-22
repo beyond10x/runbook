@@ -1,12 +1,13 @@
 use super::state::scratch;
 use super::stub::ask;
 use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Fault, OpenSession, Outcome, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
-use runbook::runtime::Confinement;
+use runbook::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
 use runbook::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunState, State};
 use runbook::stub::{Script, Step, StubRuntime};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -48,6 +49,12 @@ impl Fx {
     pub fn restart(&mut self) {
         self.d.take().unwrap().stop();
         self.d = Some(Daemon::start(config(&self.dir), self.stub.clone()).unwrap());
+    }
+
+    /// Stop the daemon and start it again on the same directory over another runtime.
+    pub fn restart_with(&mut self, runtime: Arc<dyn Runtime>) {
+        self.d.take().unwrap().stop();
+        self.d = Some(Daemon::start(config(&self.dir), runtime).unwrap());
     }
 
     pub fn submit(&self, book: &str) -> String {
@@ -160,7 +167,8 @@ fn a_second_submit_with_the_same_key_returns_the_first_run_and_makes_none() {
     assert_eq!((first.name, again.name, again.status), ("submitted", "already-submitted", 202));
     assert_eq!(again.run_id, first.run_id);
     assert_eq!(again.published[0].0, "sdc.daemon.SubmitReplayed");
-    assert_eq!(again.published[0].1, json!({"idempotency_key": "k1"}));
+    assert_eq!(again.published[0].1, json!({"idempotency_key": "k1", "run_id": first.run_id}), "the answer names the first run as data");
+    assert_eq!(again.body()["published"][0]["payload"]["run_id"], json!(first.run_id));
     assert_eq!(fx.d().runs().len(), 1);
     let other = fx.d().submit_run(one("k2")).unwrap();
     assert_eq!(other.name, "submitted");
@@ -400,7 +408,7 @@ fn a_decision_is_answered_once_and_the_run_goes_on() {
 }
 
 #[test]
-fn a_second_answer_is_refused_and_names_the_reason_the_specification_orders_first() {
+fn a_second_answer_is_refused_by_the_state_of_its_request_before_the_state_of_its_run() {
     // While another request keeps the run waiting, the refusal is DecisionAlreadyAnswered.
     let fx = Fx::new("answer-twice");
     let run = fx.submit("ask2");
@@ -409,15 +417,26 @@ fn a_second_answer_is_refused_and_names_the_reason_the_specification_orders_firs
     let again = fx.answer(&run, "q1");
     assert_eq!((again.name, again.status, again.error), ("already-answered", 409, Some("DecisionAlreadyAnswered")));
     assert_eq!(fx.d().decisions_of_run(&run)[0]["answered_by"], "operator", "the first answer stands");
-    // With a single request the run resumes and ends on the first answer; the specification checks the
-    // run's state (RunNotWaiting) before the request's (DecisionAlreadyAnswered), so the second answer to
-    // it gets RunNotWaiting. Same status, other name.
+    // With a single request the run resumes and ends on the first answer; the request's state is still
+    // checked first (decision 16), so the second answer names the request, not the run.
     let one = fx.submit("ask-b");
     fx.wait_open_decisions(&one, 1);
     assert_eq!(fx.answer(&one, "q3").name, "answered");
     fx.wait_state(&one, "Ended");
     let again = fx.answer(&one, "q3");
-    assert_eq!((again.name, again.status, again.error), ("run-not-waiting", 409, Some("RunNotWaiting")));
+    assert_eq!((again.name, again.status, again.error), ("already-answered", 409, Some("DecisionAlreadyAnswered")));
+    assert_eq!(again.payload, Some(json!({"request_id": "q3"})));
+    assert_eq!(fx.d().decisions_of_run(&one)[0]["answered_by"], "operator", "the first answer stands");
+}
+
+#[test]
+fn an_answer_to_a_request_whose_run_was_cancelled_is_withdrawn_and_not_run_not_waiting() {
+    let fx = Fx::new("answer-withdrawn");
+    let run = fx.submit("ask");
+    fx.wait_open_decisions(&run, 1);
+    assert_eq!(fx.cancel(&run).name, "cancelled");
+    let o = fx.answer(&run, "q1");
+    assert_eq!((o.name, o.status, o.error), ("withdrawn", 409, Some("DecisionWithdrawn")));
 }
 
 #[test]
@@ -425,7 +444,8 @@ fn an_answer_the_runtime_cannot_take_is_recorded_in_the_run() {
     let mut fx = Fx::new("answer-gone");
     let run = fx.submit("ask");
     fx.wait_open_decisions(&run, 1);
-    fx.restart();
+    // A runtime that resumed the run but holds no such request (the stub keeps nothing across a start).
+    fx.restart_with(Arc::new(Resuming(fx.stub.clone())));
     assert_eq!(fx.state_of(&run), "WaitingOnDecision", "kept in its last state");
     assert_eq!(fx.answer(&run, "q1").name, "answered", "the answer stands");
     let events = fx.d().events_after(&run, 0);
@@ -534,7 +554,7 @@ fn the_floor_refuses_below_it_and_the_view_shows_it() {
 }
 
 #[test]
-fn after_a_restart_the_views_list_the_same_runs_with_the_same_states() {
+fn after_a_restart_the_runs_the_runtime_holds_no_more_end_as_orphaned_and_the_others_keep_their_state() {
     let mut fx = Fx::new("restart");
     let ended = fx.submit("quick");
     fx.wait_state(&ended, "Ended");
@@ -546,42 +566,125 @@ fn after_a_restart_the_views_list_the_same_runs_with_the_same_states() {
     let running = fx.submit("hold");
     fx.wait_state(&running, "Running");
     fx.d().open_session(OpenSession { session_id: "s1".into(), client: "c".into() }).unwrap();
-    let before = fx.d().runs();
-    let before_detail: Vec<Value> = [&ended, &cancelled, &waiting, &running].iter().map(|r| fx.d().run_detail(r)[0].clone()).collect();
+    let before_detail: Vec<Value> = [&ended, &cancelled].iter().map(|r| fx.d().run_detail(r)[0].clone()).collect();
     let last_position = fx.d().events_of_daemon_after(0).last().unwrap()["position"].as_u64().unwrap();
     fx.restart();
-    assert_eq!(fx.d().runs(), before, "the same runs with the same states");
-    let after_detail: Vec<Value> = [&ended, &cancelled, &waiting, &running].iter().map(|r| fx.d().run_detail(r)[0].clone()).collect();
-    assert_eq!(after_detail, before_detail);
+    // The stub runtime answers `gone` for each run it is asked about: both live runs end as orphaned.
     let states: Vec<_> = fx.d().runs().iter().map(|r| r["state"].as_str().unwrap().to_string()).collect();
-    assert_eq!(states, ["Running", "WaitingOnDecision", "Cancelled", "Ended"]);
+    assert_eq!(states, ["Ended", "Ended", "Cancelled", "Ended"], "newest first: running, waiting, cancelled, ended");
+    let after_detail: Vec<Value> = [&ended, &cancelled].iter().map(|r| fx.d().run_detail(r)[0].clone()).collect();
+    assert_eq!(after_detail, before_detail, "a run in no live state is untouched");
     assert_eq!(fx.d().sessions().len(), 1);
-    assert_eq!(fx.d().open_decisions_of_run(&waiting).len(), 1, "the open request is still open");
-    // The runs whose runtime is gone stay in their last state and say so.
     for r in [&waiting, &running] {
+        let row = &fx.d().run_detail(r)[0];
+        assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")), "{row}");
+        assert!(row["ended_at"].is_string());
         let events = fx.d().events_after(r, 0);
-        assert_eq!(kinds(&events).last().unwrap(), "runbook.orphaned", "{events:?}");
+        let orphaned = kinds(&events).iter().filter(|k| *k == "runbook.run-orphaned").count();
+        assert_eq!((orphaned, kinds(&events).last().unwrap().as_str()), (1, "runbook.run-orphaned"), "{events:?}");
+        assert!(!kinds(&events).contains(&"runbook.orphaned".to_string()), "the name of C1 is replaced");
     }
     for r in [&ended, &cancelled] {
-        assert!(!kinds(&fx.d().events_after(r, 0)).contains(&"runbook.orphaned".to_string()));
+        assert!(!kinds(&fx.d().events_after(r, 0)).contains(&"runbook.run-orphaned".to_string()));
     }
+    // Its Open request is withdrawn the way a cancel does it, and shows no more as open.
+    assert_eq!(fx.d().decisions_of_run(&waiting)[0]["state"], "Withdrawn");
+    assert!(fx.d().open_decisions_of_run(&waiting).is_empty());
+    assert_eq!(fx.answer(&waiting, "q1").name, "withdrawn");
     // Positions go on from where they were.
     let orphans = fx.d().events_of_daemon_after(last_position);
     assert_eq!(orphans.len(), 2);
     assert_eq!(orphans[0]["position"], last_position + 1);
-    // Another restart does not repeat the event.
+    // Another restart changes nothing more for them: no event, no state.
+    let runs = fx.d().runs();
     fx.restart();
     assert_eq!(fx.d().events_of_daemon_after(last_position).len(), 2);
-    // A client can still cancel an orphaned run: it is Cancelled and its request is withdrawn.
-    assert_eq!(fx.cancel(&waiting).name, "cancelled");
-    assert_eq!(fx.cancel(&running).name, "cancelled");
-    assert_eq!(fx.state_of(&waiting), "Cancelled");
-    assert_eq!(fx.d().decisions_of_run(&waiting)[0]["state"], "Withdrawn");
+    assert_eq!(fx.d().runs(), runs);
+    // An orphaned run has ended: a client cancel is refused.
+    assert_eq!(fx.cancel(&waiting).name, "already-ended");
+    assert_eq!(fx.cancel(&running).name, "already-ended");
     // A new run after the restart takes the next position and its own number 1.
     let fresh = fx.submit("quick");
     let events = fx.d().events_after(&fresh, 0);
     assert_eq!(events[0]["sequence"], 1);
     assert!(events[0]["position"].as_u64().unwrap() > last_position + 2);
+}
+
+/// A runtime whose store lets a run go on: it answers `Resumed` for every run it is asked about.
+struct Resuming(Arc<StubRuntime>);
+
+impl Runtime for Resuming {
+    fn recover(&self, _run_id: &str) -> Recovery {
+        Recovery::Resumed
+    }
+    fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
+        self.0.knows_runbook(runbook, version)
+    }
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        self.0.start(request, sink, cancel)
+    }
+    fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {
+        self.0.answer(run_id, request_id, answer, principal)
+    }
+    fn cancel(&self, run_id: &str) {
+        self.0.cancel(run_id)
+    }
+}
+
+#[test]
+fn a_run_the_runtime_resumes_is_left_as_it_is_and_asked_about_again_at_the_next_start() {
+    let mut fx = Fx::new("restart-resumed");
+    let running = fx.submit("hold");
+    fx.wait_state(&running, "Running");
+    let waiting = fx.submit("ask");
+    fx.wait_open_decisions(&waiting, 1);
+    let before = fx.d().events_of_daemon_after(0).len();
+    fx.restart_with(Arc::new(Resuming(fx.stub.clone())));
+    assert_eq!((fx.state_of(&running), fx.state_of(&waiting)), ("Running".to_string(), "WaitingOnDecision".to_string()));
+    assert_eq!(fx.d().open_decisions_of_run(&waiting).len(), 1, "its request is still open");
+    assert_eq!(fx.d().events_of_daemon_after(0).len(), before, "the daemon wrote nothing for a run that resumed");
+    // The next start asks again; this runtime holds neither run.
+    fx.restart();
+    assert_eq!((fx.state_of(&running), fx.state_of(&waiting)), ("Ended".to_string(), "Ended".to_string()));
+    assert_eq!(fx.d().events_of_daemon_after(0).len(), before + 2);
+}
+
+#[test]
+fn end_orphaned_run_ends_a_live_run_with_the_cause_and_withdraws_its_requests() {
+    let fx = Fx::new("end-orphaned");
+    let d = fx.d();
+    let running = fx.submit("hold");
+    fx.wait_state(&running, "Running");
+    let waiting = fx.submit("ask2");
+    fx.wait_open_decisions(&waiting, 2);
+    let o = d.end_orphaned_run(&waiting).unwrap();
+    assert_eq!((o.command, o.name, o.status, o.error), ("end-orphaned-run", "orphaned", 202, None));
+    assert_eq!(o.published.len(), 1);
+    assert_eq!((o.published[0].0, o.published[0].1.clone()), ("sdc.daemon.RunOrphaned", json!({"run_id": waiting})));
+    let row = &d.run_detail(&waiting)[0];
+    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")));
+    assert!(row["ended_at"].is_string());
+    let decisions = d.decisions_of_run(&waiting);
+    assert_eq!(decisions.iter().map(|x| x["state"].as_str().unwrap()).collect::<Vec<_>>(), ["Withdrawn", "Withdrawn"]);
+    assert!(d.open_decisions_of_run(&waiting).is_empty());
+    assert_eq!(kinds(&d.events_after(&waiting, 0)).iter().filter(|k| *k == "runbook.run-orphaned").count(), 1);
+    // A run that is Running ends the same way, with no request to withdraw.
+    assert_eq!(d.end_orphaned_run(&running).unwrap().name, "orphaned");
+    assert_eq!(fx.state_of(&running), "Ended");
+    // Refusals, by the specification's names: nothing is live any more, and an unknown run.
+    for run in [&running, &waiting] {
+        let o = d.end_orphaned_run(run).unwrap();
+        assert_eq!((o.name, o.status, o.error, o.payload), ("wrong-state", 409, Some("RunStateConflict"), Some(json!({"run_id": run}))));
+        assert!(o.published.is_empty());
+    }
+    let ended = fx.submit("quick");
+    fx.wait_state(&ended, "Ended");
+    assert_eq!(d.end_orphaned_run(&ended).unwrap().name, "wrong-state");
+    assert_eq!(d.run_detail(&ended)[0]["outcome"], "done", "an ended run keeps its own outcome");
+    let o = d.end_orphaned_run("none").unwrap();
+    assert_eq!((o.name, o.status, o.error), ("no-run", 404, Some("NoSuchRun")));
+    // An orphan has ended: a client's cancel of it is refused.
+    assert_eq!(fx.cancel(&waiting).name, "already-ended");
 }
 
 #[test]
@@ -711,15 +814,10 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
             fx.cancel(&run);
             fx.answer(&run, "q1")
         }
-        ("answer-decision", "run-not-waiting") => {
+        ("answer-decision", "already-answered") => {
             let run = ask_run("ask");
             fx.answer(&run, "q1");
             fx.wait_state(&run, "Ended");
-            fx.answer(&run, "q1")
-        }
-        ("answer-decision", "already-answered") => {
-            let run = ask_run("ask2");
-            fx.answer(&run, "q1");
             fx.answer(&run, "q1")
         }
         _ => return None,
@@ -728,14 +826,14 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
 
 /// Refusals a request cannot reach through the command layer: the test named beside each makes the
 /// state by hand (a journal written before the daemon starts).
-const TESTED_BY_HAND: [(&str, &str); 1] = [("answer-decision", "no-run")];
+const TESTED_BY_HAND: [(&str, &str); 2] = [("answer-decision", "no-run"), ("answer-decision", "run-not-waiting")];
 
 #[test]
 fn every_refusal_of_every_client_command_has_a_trigger_and_the_specification_s_name() {
     let mut untested = vec![];
     for (command, outcome, error) in declared().into_iter().filter(|(c, _, e)| CLIENT_COMMANDS.contains(&c.as_str()) && !e.is_empty()) {
         if TESTED_BY_HAND.contains(&(command.as_str(), outcome.as_str())) {
-            continue; // an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run
+            continue; // the two tests below: a journal written before the daemon starts
         }
         let fx = Fx::new(&format!("refusal-{command}-{outcome}"));
         match trigger(&fx, &command, &outcome) {
@@ -779,6 +877,63 @@ fn an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run() {
     let d = Daemon::start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
     let o = d.answer_decision(AnswerDecision { run_id: "ghost".into(), request_id: "ghost-q".into(), answer: "A".into(), answered_by: "me".into() }).unwrap();
     assert_eq!((o.name, o.status, o.error), ("no-run", 409, Some("NoSuchRun")));
+    d.stop();
+}
+
+fn journal_run(id: &str) -> Run {
+    Run {
+        run_id: id.into(),
+        runbook_id: "quick".into(),
+        runbook_version: None,
+        intake: "x".into(),
+        context_path: None,
+        settings: BTreeMap::new(),
+        confinement: Confinement::Linux,
+        session_id: None,
+        idempotency_key: None,
+        submitted_at: "t".into(),
+        started_at: None,
+        ended_at: None,
+        outcome: None,
+        failure: None,
+        state: RunState::Submitted,
+    }
+}
+
+fn journal_request(id: &str, run: &str) -> DecisionRequest {
+    DecisionRequest {
+        request_id: id.into(),
+        run_id: run.into(),
+        case_id: "c".into(),
+        action: "a".into(),
+        capability: "cap".into(),
+        question: "?".into(),
+        options: vec![],
+        opened_at: "t".into(),
+        state: DecisionState::Open,
+        answer: None,
+        answered_by: None,
+        answered_at: None,
+    }
+}
+
+#[test]
+fn an_open_request_whose_run_does_not_wait_is_refused_run_not_waiting() {
+    // The daemon withdraws a cancelled run's requests in the same step, so only a journal can hold an
+    // Open request of a Cancelled run: the one case left for RunNotWaiting.
+    let dir = scratch("not-waiting");
+    std::fs::create_dir_all(dir.join("ctx")).unwrap();
+    {
+        let mut st = State::open(&dir.join("state")).unwrap();
+        st.commit(Fact::RunSubmitted(journal_run("r1"))).unwrap();
+        st.commit(Fact::DecisionRequested(journal_request("q1", "r1"))).unwrap();
+        st.commit(Fact::RunCancelled { run_id: "r1".into(), at: "t".into() }).unwrap();
+    }
+    let d = Daemon::start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
+    let o = d.answer_decision(AnswerDecision { run_id: "r1".into(), request_id: "q1".into(), answer: "A".into(), answered_by: "me".into() }).unwrap();
+    assert_eq!((o.name, o.status, o.error), ("run-not-waiting", 409, Some("RunNotWaiting")));
+    assert_eq!(o.payload, Some(json!({"run_id": "r1"})));
+    assert_eq!(d.decisions_of_run("r1")[0]["state"], "Open", "nothing changed");
     d.stop();
 }
 

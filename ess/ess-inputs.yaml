@@ -19,3 +19,5 @@ scenarios:
   - scenarios/daemon-closed-session-takes-no-run.yaml
   - scenarios/daemon-idempotent-submit-returns-the-first-run.yaml
   - scenarios/daemon-context-outside-the-roots-is-refused.yaml
+  - scenarios/daemon-an-answer-is-judged-by-its-request-before-its-run.yaml
+  - scenarios/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned.yaml

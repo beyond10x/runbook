@@ -102,7 +102,22 @@ pub enum AnswerFailure {
     Refused(String),
 }
 
+/// What the runtime answers when the daemon starts and asks about a run its record holds as
+/// `Running` or `WaitingOnDecision`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recovery {
+    /// The runtime has the run and goes on with it; the daemon leaves the run as it is.
+    Resumed,
+    /// The runtime holds no live run of this id: the daemon ends it as orphaned.
+    Gone,
+}
+
 pub trait Runtime: Send + Sync + 'static {
+    /// Asked once at the daemon's start for each run the record holds as live (`Running` or
+    /// `WaitingOnDecision`). A runtime whose store lets a run go on answers `Resumed`; the stub
+    /// answers `Gone`. How a resumed run reports to the daemon again is the engine's story.
+    fn recover(&self, run_id: &str) -> Recovery;
+
     /// Whether the runtime has a runbook of this name (and version).
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool;
 
