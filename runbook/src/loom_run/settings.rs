@@ -108,10 +108,11 @@ pub fn normalise(raw: &Value, args: &crate::loom_run::Args) -> Result<Value, Str
     Ok(v)
 }
 
-/// Fills `decider.program` (the decider of the run's own copy of the bindings) and, for a model
-/// decider with none, `decider.reply_bin` (`sdc-reply` found in `path`), before the decider is built.
-/// A `decider.program` in the file is refused: the copy's is the only one the run may start.
-pub fn fill_decider(settings: &mut Value, run_dir: &Path, path: Option<&std::ffi::OsStr>) -> Result<(), String> {
+/// Fills, for a model decider with none, `decider.reply_bin` (`sdc-reply` found in `path`) before
+/// the decider is built: the decider does not read it, the scripted adapter of a test may, so the
+/// adapter keeps getting it as `SDC_REPLY`. A `decider.program` in the file is refused: the decider
+/// runs inside the runner and starts no program of the bindings copy but the adapter.
+pub fn fill_decider(settings: &mut Value, path: Option<&std::ffi::OsStr>) -> Result<(), String> {
     let Some(decider) = settings.get_mut("decider").and_then(Value::as_object_mut) else {
         return Ok(());
     };
@@ -120,9 +121,8 @@ pub fn fill_decider(settings: &mut Value, run_dir: &Path, path: Option<&std::ffi
         return Ok(());
     }
     if decider.contains_key("program") {
-        return Err("decider.program: set by the runner to bindings/tools/decider.sh of the run's copy; take it out of the settings".to_owned());
+        return Err("decider.program: not a setting; the decider runs inside the runner and starts only the adapter program (decider.adapter)".to_owned());
     }
-    decider.insert("program".to_owned(), Value::String(run_dir.join("bindings").join("tools").join("decider.sh").display().to_string()));
     if kind == "model" && !decider.contains_key("reply_bin") {
         let found = path.into_iter().flat_map(std::env::split_paths).map(|d| d.join("sdc-reply")).find(|p| p.is_file());
         if let Some(found) = found {

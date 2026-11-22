@@ -31,7 +31,7 @@ fn actions(dir: &Path) -> Vec<(String, Yaml)> {
 }
 
 fn model_settings() -> Value {
-    json!({"autonomy": "A5", "decider": {"kind": "model", "model": "claude-opus-5-5", "program": "x", "reply_bin": "y"}})
+    json!({"autonomy": "A5", "decider": {"kind": "model", "model": "claude-opus-5-5", "reply_bin": "y"}})
 }
 
 fn argv_of(action: &Yaml) -> Vec<String> {
@@ -82,7 +82,7 @@ fn no_settings_copy_every_file_byte_for_byte_and_keep_the_66_bindings() {
 fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
     let settings = json!({
         "autonomy": "A5",
-        "decider": {"kind": "model", "model": "claude-opus-5-5", "program": "x", "reply_bin": "y"},
+        "decider": {"kind": "model", "model": "claude-opus-5-5", "reply_bin": "y"},
         "adapter": "metaharness",
         "models": {
             "writer": {"model": "claude-sonnet-5-5", "max_turns": 7, "max_budget_usd": 1.5},
@@ -403,7 +403,7 @@ fn the_rewritten_copy_loads_in_loom_tree_open() {
     }
     let settings = json!({
         "autonomy": "A5",
-        "decider": {"kind": "model", "model": "claude-opus-5-5", "program": "x", "reply_bin": "y"},
+        "decider": {"kind": "model", "model": "claude-opus-5-5", "reply_bin": "y"},
         "adapter": "claude-cli",
         "models": {"writer": {"model": "claude-sonnet-5-5", "max_turns": 7, "max_budget_usd": 1.5}},
     });

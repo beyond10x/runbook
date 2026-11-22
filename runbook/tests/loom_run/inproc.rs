@@ -397,7 +397,7 @@ answers:
   then: [tools/ask-then.sh, '{principal}', '{case}']
 ";
 
-/// The rule decider of the fixture (`decider.sh approve <request>`) answers `B` to every request.
+/// The approve rule decides inside the runner and answers a question with its default, `A`.
 #[test]
 fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     let rig = Rig::new("declared");
@@ -411,7 +411,6 @@ fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     exe("ask-requests.sh", "printf '%s\\n' '{\"type\":\"question\",\"id\":\"q1\",\"question\":{\"id\":\"q1\",\"default\":\"A\"}}'\n");
     exe("ask-apply.sh", "printf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" >> asked.txt\n");
     exe("ask-then.sh", "printf '%s %s\\n' \"$1\" \"$2\" >> then.txt\n");
-    exe("decider.sh", "printf '%s\\n' '{\"valid\":true,\"decision\":\"approve\",\"answer\":\"B\",\"reasons\":[\"it follows from the idea\"],\"cites\":[],\"cost_usd\":0,\"adapter\":\"rule\"}'\n");
     rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
     let started = Instant::now();
     let o = rig.run(&rig.args("r1", 1_000_000));
@@ -419,7 +418,7 @@ fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     assert!(started.elapsed() < Duration::from_secs(20), "slow: {:?}", started.elapsed());
     assert_eq!(rig.outcome("r1")["reason"], "delivered");
     let work = rig.work("r1");
-    assert_eq!(std::fs::read_to_string(work.join("asked.txt")).unwrap(), "q1 B decider:approve\n", "the answer was not applied by the program of the file");
+    assert_eq!(std::fs::read_to_string(work.join("asked.txt")).unwrap(), "q1 A decider:approve\n", "the answer was not applied by the program of the file");
     assert_eq!(std::fs::read_to_string(work.join("then.txt")).unwrap(), format!("decider:approve {}\n", then_case(&rig)),"the `then` program did not run once");
     let events = rig.events("r1");
     let taken: Vec<&Value> = events.iter().filter(|e| e["event"] == "declared_taken").collect();
@@ -427,7 +426,7 @@ fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     assert_eq!(taken[0]["principal"], "decider:approve");
     assert!(events.iter().all(|e| e["event"] != "decision_answered"), "the decision went to the decider as an ordinary approval");
     let decisions = std::fs::read_to_string(rig.run_dir("r1").join("decisions.jsonl")).unwrap();
-    assert!(decisions.contains("\"question\":\"q1\"") && decisions.contains("\"answer\":\"B\""), "{decisions}");
+    assert!(decisions.contains("\"question\":\"q1\"") && decisions.contains("\"answer\":\"A\""), "{decisions}");
 }
 
 /// The case of the review decision, read from the run's own events.
