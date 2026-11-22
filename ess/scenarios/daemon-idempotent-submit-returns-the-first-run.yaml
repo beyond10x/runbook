@@ -48,6 +48,7 @@ timeline:
       - event: sdc.daemon.SubmitReplayed
         payload:
           idempotency_key: "retry-1"
+          run_id: "run-1"
 
   - at: 2026-11-22T10:03:00Z
     command: sdc.daemon.SubmitRun

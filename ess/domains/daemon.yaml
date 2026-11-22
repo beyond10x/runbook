@@ -80,7 +80,7 @@ types:
     kind: newtype
     of: String
     naming:
-      summary: "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not."
+      summary: "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not."
 
   - name: sdc.daemon.ConfinementLevel
     kind: enum
@@ -145,7 +145,7 @@ entities:
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state: ended, cancelled or failed to start."}
-      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."}
       - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state."}
     relations:
       - name: session
@@ -174,6 +174,7 @@ entities:
         - {name: end, from: [Running], to: Ended, summary: "The run reached an outcome."}
         - {name: resume, from: [WaitingOnDecision], to: Running, summary: "Every decision the run waited on is answered and the runtime took the answers up."}
         - {name: cancel, from: [Submitted, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
+        - {name: orphan, from: [Running, WaitingOnDecision], to: Ended, summary: "The daemon started again and the runtime holds no live run of this id: the run ends with the outcome orphaned."}
 
   - name: sdc.daemon.DecisionRequest
     naming:
@@ -243,6 +244,14 @@ actors:
       - sdc.daemon.RecordRunEvent
       - sdc.daemon.EndRun
 
+  - name: sdc.daemon.DaemonProcess
+    naming:
+      display: Daemon process
+      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone and withdraws that run's Open decision requests. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
+    may:
+      - sdc.daemon.EndOrphanedRun
+      - sdc.daemon.WithdrawDecision
+
   - name: sdc.daemon.Operator
     naming:
       display: Operator
@@ -293,7 +302,7 @@ errors:
       - {name: run_id, type: sdc.daemon.RunId}
 
   - name: sdc.daemon.IntakeTooLarge
-    summary: "The inline intake is larger than 1 MiB: the run was not submitted."
+    summary: "The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound."
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
 
@@ -528,7 +537,8 @@ commands:
         payload:
           sdc.daemon.SubmitReplayed:
             idempotency_key: input.idempotency_key
-        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run."
+            run_id: {related: {entity: sdc.daemon.Run, where: idempotency_key == input.idempotency_key, field: run_id}}
+        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run: the event it publishes carries its id (run_id), in the body of the answer."
       - name: submitted
         creates: sdc.daemon.Run
         instance: run_id
@@ -746,7 +756,7 @@ commands:
     naming:
       wire: withdraw-decision
       display: Withdraw a decision request
-      summary: "The daemon cancelled the run: each Open decision request of it is withdrawn, one command per request. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer."
+      summary: "The daemon cancelled the run, or ended it as orphaned: each Open decision request of it is withdrawn, one command per request. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer."
     input:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
     outcomes:
@@ -794,6 +804,10 @@ commands:
           predicate: state == Withdrawn
         error: sdc.daemon.DecisionWithdrawn
         summary: "The request was withdrawn when its run was cancelled: it takes no answer. Checked before the run's own state, so the answer names the request and not the run."
+      - name: already-answered
+        wrong_state: true
+        error: sdc.daemon.DecisionAlreadyAnswered
+        summary: "The request is already Answered. Checked before the run's own state: a second answer to the only open request of a run that has resumed or ended is this refusal and not RunNotWaiting."
       - name: no-run
         when_related: {via: input.run_id, exists: false}
         error: sdc.daemon.NoSuchRun
@@ -801,7 +815,7 @@ commands:
       - name: run-not-waiting
         when_related: {via: input.run_id, predicate: state != WaitingOnDecision}
         error: sdc.daemon.RunNotWaiting
-        summary: "The run is not WaitingOnDecision, so nothing is waiting for an answer."
+        summary: "The request is Open and its run is not WaitingOnDecision, so nothing is waiting for an answer (a run that was cancelled while its request is not yet withdrawn)."
       - name: answered
         moves: sdc.daemon.DecisionRequest.answer
         instance: request_id
@@ -817,10 +831,6 @@ commands:
             run_id: input.run_id
             answered_by: input.answered_by
         summary: "The request is Answered; the runtime takes the answer up and reports ResumeRun."
-      - name: already-answered
-        wrong_state: true
-        error: sdc.daemon.DecisionAlreadyAnswered
-        summary: "The request is already Answered."
 
   - name: sdc.daemon.RecordRunEvent
     naming:
@@ -913,10 +923,44 @@ commands:
         error: sdc.daemon.RunStateConflict
         summary: "The run is not Running."
 
+  - name: sdc.daemon.EndOrphanedRun
+    naming:
+      wire: end-orphaned-run
+      display: End a run whose runtime is gone
+      summary: "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. The daemon then issues WithdrawDecision for each Open decision request of the run, as a cancel does. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: orphaned
+        moves: sdc.daemon.Run.orphan
+        instance: run_id
+        sets:
+          outcome: orphaned
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunOrphaned
+        payload:
+          sdc.daemon.RunOrphaned:
+            run_id: input.run_id
+        summary: "The run is Ended with the outcome orphaned."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Running or WaitingOnDecision."
+
 events:
+  - name: sdc.daemon.RunOrphaned
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
   - name: sdc.daemon.SubmitReplayed
     fields:
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: run_id, type: sdc.daemon.RunId, summary: "The first run: the one that carries this idempotency key. The answer names it."}
   - name: sdc.daemon.DecisionRequestWithdrawn
     fields:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}

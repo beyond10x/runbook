@@ -61,7 +61,7 @@
     },
     "outcome": {
       "$ref": "#/$defs/sdc.daemon.RunOutcome",
-      "description": "Set when the run Ended; absent in every other state."
+      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."
     },
     "failure": {
       "description": "Why the run failed to start; absent in every other state.",
@@ -84,7 +84,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:bfe822adbfe1ed5c090be52005d33beff11e441809da8ba8d01acc38f10a5999",
+    "contract_digest": "slice-sha256/2:ea2c6fdac7a7500ef7644f9c0fadfaeaf5e840fe4179c67b39a191bf803cf45f",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -140,7 +140,7 @@
     },
     "sdc.daemon.RunOutcome": {
       "title": "RunOutcome",
-      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not.",
       "x-ess-name": "sdc.daemon.RunOutcome",
       "x-ess-kind": "newtype",
       "type": "string"

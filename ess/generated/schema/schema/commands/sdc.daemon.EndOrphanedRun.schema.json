@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.EndOrphanedRun.schema.json",
+  "title": "End a run whose runtime is gone input",
+  "description": "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. The daemon then issues WithdrawDecision for each Open decision request of the run, as a cancel does. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "x-ess-name": "sdc.daemon.EndOrphanedRun",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "run_id",
+    "at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a5aca19360bdf5c8ed5c0e775a1877825b7ac50646922bd81623ad7fe781dcd2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
