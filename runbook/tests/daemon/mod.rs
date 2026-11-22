@@ -1,3 +1,6 @@
+/// The principal every daemon of these tests acts as: `runbook serve --principal` and `Config::principal`.
+pub const PRINCIPAL: &str = "agent:test-daemon";
+
 mod stub;
 mod state;
 mod commands;
@@ -13,3 +16,4 @@ mod cli_client;
 mod ui_guard;
 mod ui_decide;
 mod ui_decide_review;
+mod principal;

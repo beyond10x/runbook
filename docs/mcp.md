@@ -45,7 +45,7 @@ progress, resources, prompts. The server sends no request and no notification of
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id` |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
-| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` |
+| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it) |
 | `cancel_run` | command `cancel-run` | `run_id` |
 
 Input schemas are derived from the generated OpenAPI document of the daemon

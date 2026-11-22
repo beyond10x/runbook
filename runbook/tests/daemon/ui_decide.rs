@@ -163,7 +163,7 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("empty")).unwrap();
         let mut cmd = Command::new(BIN);
-        cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0"]).arg("--state-dir").arg(dir.join("state"));
+        cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0", "--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env_remove("RUNBOOK_TOKEN").env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
         let mut child = cmd.spawn().unwrap();
         let mut line = String::new();

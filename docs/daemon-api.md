@@ -7,7 +7,10 @@ generated from it, never written by hand: [`ess/generated/openapi/openapi/runboo
 equal. Where this page and the specification differ, the specification wins.
 
 Who may call is decided by the bearer token alone (a non-loopback listener needs one). A session's
-`client` is a label the caller gives for display; it grants nothing.
+`client` is a label the caller gives for display; it grants nothing. The principal of an answer is not
+what a caller says: it is the daemon's own, given at its start (`--principal`) and fixed for the
+process. `answered_by` stays a label of at most 200 characters, stored and shown, never passed to the
+runtime.
 
 ## Entities and their states
 
@@ -17,7 +20,7 @@ Who may call is decided by the bearer token alone (a non-loopback listener needs
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
-| Daemon | Up | What the daemon was started with: its confinement floor. |
+| Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 
 Confinement levels, weakest first: `local` (not confined), `linux`. The default of a submit is
 `linux`, the daemon's default floor is `linux`; `local` must be asked for by name and is refused
@@ -55,6 +58,13 @@ Notes for a caller:
   has ended; an answer to a request withdrawn by a cancel is `DecisionWithdrawn`; `RunNotWaiting`
   is left for an Open request whose run does not wait (a state the daemon's own commands never
   leave, so a client does not meet it).
+- An answer carries two names. `answered_by` is the label the client typed. `principal` is the daemon's
+  own (`--principal`), the only one the runtime is given. Both are in the `DecisionAnswered` event the
+  answer publishes (`published[0].payload`), in the row of the view `decisions` (and so in the answer
+  of the MCP tool) and both stay in the journal; the view `configuration` names the principal. A
+  `principal` member sent in the body of `answer-decision` is not read, and the MCP tool refuses it as
+  an unknown argument. A journal written before the daemon had a principal still loads: the `principal`
+  of such an answer is absent in the view.
 - `cancel-run` and the daemon's own end of an orphaned run withdraw every Open decision request of
   the run in the same step: the requests are `Withdrawn` when the answer comes (view `decisions`,
   state `Withdrawn`; the view `open-decisions` no longer lists them), and an answer to one is
@@ -86,7 +96,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones) |
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
-| `configuration` | none | the daemon's configuration |
+| `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
@@ -156,8 +166,9 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ## Running the daemon
 
 ```
-runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbook-dir DIR]
-              [--min-confinement local|linux] [--token-file FILE] [--ui]
+runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
+              [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
+              [--token-file FILE] [--ui] [--mcp]
 ```
 
 In this version the runtime behind the daemon is a stub: a run is scripted, it records one note
@@ -170,6 +181,7 @@ open event streams are closed then (see "Event streams").
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--principal` | none, required | Who the daemon acts as: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`. A missing or malformed one is refused at start, exit 1, before anything is bound or written. There is no environment variable. Fixed for the life of the process: no command, header, MCP argument or HTTP member changes it. The runtime is given this principal for every answer. |
 | `--listen` | `127.0.0.1:7430` | Address to bind. Port 0 picks a free port; the line above names it. |
 | `--state-dir` | `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook` | Where the daemon keeps its record. |
 | `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
@@ -286,8 +298,8 @@ Without `--ui`, `GET /` is `404`.
   answered `401`, the page shows the daemon's message and sends nothing again by itself. A daemon with
   no token (loopback only) takes the command without a bearer, and the page asks for none; it finds out
   with one read of `GET /daemon/views/configuration` without credentials (`401` means a token is
-  needed). The daemon authenticates no principal, so the form asks for a name and sends it as
-  `answered_by`: a label, as with `--by`. The daemon bounds it like `client` and `idempotency_key`: at
+  needed). The form asks for a name and sends it as `answered_by`: a label, as with `--by`, never the
+  principal (the daemon's own, see "Running the daemon"). The daemon bounds it like `client` and `idempotency_key`: at
   most 200 characters, and a longer one is refused `400` with the message `answered_by is longer than
   200 characters`, before the request is looked up (it stays open). The form allows 100.
 - What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and

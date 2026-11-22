@@ -50,7 +50,7 @@ fn the_unauthenticated_configuration_read_of_a_daemon_with_a_token_reveals_only_
     assert_eq!(r.status, 200);
     let mut keys: Vec<String> = r.json()["rows"][0].as_object().unwrap().keys().cloned().collect();
     keys.sort();
-    assert_eq!(keys, ["confinement_floor", "daemon_id", "started_at"]);
+    assert_eq!(keys, ["confinement_floor", "daemon_id", "principal", "started_at"]);
 }
 
 /// A daemon without a token (loopback only) answers the same read with the configuration row: the whole
@@ -62,7 +62,7 @@ fn the_unauthenticated_configuration_read_of_a_daemon_without_a_token_is_the_row
     assert_eq!(r.status, 200, "{}", r.text());
     let mut keys: Vec<String> = r.json()["rows"][0].as_object().unwrap().keys().cloned().collect();
     keys.sort();
-    assert_eq!(keys, ["confinement_floor", "daemon_id", "started_at"]);
+    assert_eq!(keys, ["confinement_floor", "daemon_id", "principal", "started_at"]);
 }
 
 struct Bin {
@@ -76,7 +76,7 @@ impl Bin {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("empty")).unwrap();
         let mut cmd = Command::new(BIN);
-        cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0"]).arg("--state-dir").arg(dir.join("state"));
+        cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0", "--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
         match token {
             Some(t) => cmd.env("RUNBOOK_TOKEN", t),

@@ -19,6 +19,10 @@
     "answered_by": {
       "$ref": "#/$defs/sdc.daemon.AnswererLabel"
     },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal",
+      "description": "The daemon's own principal (runbook serve --principal). The handler fills it from the daemon's configuration; a client never sends it, no HTTP body member or MCP argument sets it, and the HTTP/MCP schema of the client's input has no such member."
+    },
     "at": {
       "type": "string",
       "format": "date-time"
@@ -29,19 +33,20 @@
     "request_id",
     "answer",
     "answered_by",
+    "principal",
     "at"
   ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:12fb9122f2bf8a8121a6d62bff259fc65a893ac9cb0456f997ede2eeb76128f4",
+    "contract_digest": "slice-sha256/2:78d525905729c370d124779198a619b873f6e001ef89bf1c9c3921f249bdb92d",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.AnswererLabel": {
       "title": "AnswererLabel",
-      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal.",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.",
       "x-ess-name": "sdc.daemon.AnswererLabel",
       "x-ess-kind": "newtype",
       "type": "string",
@@ -61,6 +66,13 @@
       "title": "RunId",
       "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
       "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
       "x-ess-kind": "newtype",
       "type": "string"
     }

@@ -321,6 +321,27 @@ fn stdio_answers_a_decision_as_the_http_route_does() {
 }
 
 #[test]
+fn an_answer_through_mcp_reaches_the_runtime_with_the_daemons_principal_and_no_argument_sets_it() {
+    let d = Daemon::start("mcp-principal", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    let run = run_of(&c.tool("submit_run", json!({"runbook_id": "ask", "intake": "x"}))["structuredContent"]);
+    d.fx.wait_open_decisions(&run, 1);
+    let refused = c.ask("tools/call", json!({"name": "answer_decision", "arguments": {"run_id": run, "request_id": "q1", "answer": "A", "answered_by": "operator", "principal": "person:another-one"}}));
+    assert_eq!(refused["error"]["code"], -32602, "a tool takes no principal: {refused}");
+    assert!(d.fx.stub.answers_given().is_empty(), "nothing reached the runtime");
+    let a = c.tool("answer_decision", json!({"run_id": run, "request_id": "q1", "answer": "A", "answered_by": "person:someone-else"}));
+    assert_eq!((a["isError"].clone(), a["structuredContent"]["outcome"].clone()), (json!(false), json!("answered")));
+    let payload = &a["structuredContent"]["published"][0]["payload"];
+    assert_eq!((payload["answered_by"].clone(), payload["principal"].clone()), (json!("person:someone-else"), json!(super::PRINCIPAL)), "{a}");
+    let given = d.fx.stub.answers_given();
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].principal, super::PRINCIPAL, "the runtime was given the daemon's principal and not the label");
+    let rows = d.get(&format!("/daemon/views/decisions?run_id={run}")).json();
+    assert_eq!((rows["rows"][0]["answered_by"].clone(), rows["rows"][0]["principal"].clone()), (json!("person:someone-else"), json!(super::PRINCIPAL)));
+    d.wait_state(&run, "Ended");
+}
+
+#[test]
 fn a_tool_takes_no_path_the_http_command_does_not_take() {
     let d = Daemon::start("mcp-path", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
@@ -411,7 +432,7 @@ fn http_endpoint_without_the_bearer_token_gets_401_on_a_non_loopback_listener() 
 fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
     for (flag, want) in [(true, 200), (false, 404)] {
         let dir = super::state::scratch(if flag { "mcp-serve-on" } else { "mcp-serve-off" });
-        let mut args = vec!["serve", "--listen", "127.0.0.1:0", "--state-dir", dir.to_str().unwrap()];
+        let mut args = vec!["serve", "--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0", "--state-dir", dir.to_str().unwrap()];
         if flag {
             args.push("--mcp");
         }
@@ -651,10 +672,11 @@ fn input_schemas_are_derived_from_the_openapi_document() {
     // The other two commands: the document's members less `at`.
     for (tool, command) in [("cancel_run", "CancelRun"), ("answer_decision", "AnswerDecision")] {
         let mut want = keys(&input(command)["properties"]);
-        want.retain(|k| k != "at");
+        let filled: &[&str] = if tool == "answer_decision" { &mcp::tools::ANSWER_FILLED } else { &["at"] };
+        want.retain(|k| !filled.contains(&k.as_str()));
         assert_eq!(keys(&by(tool)["inputSchema"]["properties"]), want, "{tool}");
         let mut req: Vec<Value> = input(command)["required"].as_array().unwrap().clone();
-        req.retain(|k| k != "at");
+        req.retain(|k| !filled.contains(&k.as_str().unwrap_or_default()));
         assert_eq!(by(tool)["inputSchema"]["required"], Value::Array(req), "{tool}");
     }
     // The views: their query parameters.

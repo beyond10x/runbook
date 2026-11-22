@@ -85,12 +85,17 @@ const TOOLS: [Tool; 6] = [
 /// The members of a command's input the HTTP handler fills; a client never sends them.
 pub const SUBMIT_FILLED: [&str; 5] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at"];
 
+/// The members of the input of `answer-decision` the handler fills: the instant and the daemon's own
+/// principal, which no tool argument sets.
+pub const ANSWER_FILLED: [&str; 2] = ["at", "principal"];
+
 /// The members of a command's input the daemon defaults when the client leaves them out.
 pub const SUBMIT_DEFAULTED: [&str; 2] = ["settings", "confinement"];
 
 fn input_schema(tool: &Tool) -> Value {
     match &tool.kind {
         Kind::Command("submit-run") => schema::command_input("submit-run", &SUBMIT_FILLED, &SUBMIT_DEFAULTED),
+        Kind::Command("answer-decision") => schema::command_input("answer-decision", &ANSWER_FILLED, &[]),
         Kind::Command(command) => schema::command_input(command, &["at"], &[]),
         Kind::ListRuns => schema::object(
             vec![("session_id", schema::view_param("runs-of-session-in-state", "session_id")), ("state", schema::view_param("runs-of-session-in-state", "state"))],

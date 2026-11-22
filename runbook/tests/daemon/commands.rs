@@ -23,6 +23,7 @@ pub fn config(dir: &Path) -> Config {
         confinement_floor: Confinement::Linux,
         context_roots: vec![dir.join("ctx")],
         runbook_dir: Some(dir.join("runbooks")),
+        principal: super::PRINCIPAL.into(),
     }
 }
 
@@ -48,6 +49,13 @@ impl Fx {
     /// Stop the daemon and start it again on the same directory.
     pub fn restart(&mut self) {
         self.d.take().unwrap().stop();
+        self.d = Some(Daemon::start(config(&self.dir), self.stub.clone()).unwrap());
+    }
+
+    /// Stop the daemon, let `edit` change the journal file, and start it again on the same directory.
+    pub fn restart_editing(&mut self, edit: impl FnOnce(&Path)) {
+        self.d.take().unwrap().stop();
+        edit(&self.dir.join("state/journal.jsonl"));
         self.d = Some(Daemon::start(config(&self.dir), self.stub.clone()).unwrap());
     }
 
@@ -398,7 +406,7 @@ fn a_decision_is_answered_once_and_the_run_goes_on() {
     let o = fx.answer(&run, "q1");
     assert_eq!((o.name, o.status), ("answered", 202));
     assert_eq!(o.published[0].0, "sdc.daemon.DecisionAnswered");
-    assert_eq!(o.published[0].1, json!({"request_id": "q1", "run_id": run, "answered_by": "operator"}));
+    assert_eq!(o.published[0].1, json!({"request_id": "q1", "run_id": run, "answered_by": "operator", "principal": super::PRINCIPAL}));
     fx.wait_state(&run, "Ended");
     assert_eq!(fx.d().run_detail(&run)[0]["outcome"], "approved");
     assert!(fx.d().open_decisions_of_run(&run).is_empty());
@@ -857,7 +865,7 @@ fn an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run() {
     std::fs::create_dir_all(dir.join("ctx")).unwrap();
     {
         let mut st = State::open(&dir.join("state")).unwrap();
-        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: "old".into(), confinement_floor: Confinement::Linux, started_at: "t".into() })).unwrap();
+        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: "old".into(), confinement_floor: Confinement::Linux, principal: "agent:old".into(), started_at: "t".into() })).unwrap();
         st.commit(Fact::DecisionRequested(DecisionRequest {
             request_id: "ghost-q".into(),
             run_id: "ghost".into(),
@@ -870,6 +878,7 @@ fn an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run() {
             state: DecisionState::Open,
             answer: None,
             answered_by: None,
+            principal: None,
             answered_at: None,
         }))
         .unwrap();
@@ -913,6 +922,7 @@ fn journal_request(id: &str, run: &str) -> DecisionRequest {
         state: DecisionState::Open,
         answer: None,
         answered_by: None,
+        principal: None,
         answered_at: None,
     }
 }
