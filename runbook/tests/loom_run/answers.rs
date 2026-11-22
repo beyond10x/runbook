@@ -267,6 +267,11 @@ fn the_decider_call_cap_ends_the_run_when_the_answers_would_exceed_it() {
     assert_eq!(code(&o), 8, "{}", stderr(&o));
     let reason = w.outcome("r1")["reason"].as_str().unwrap().to_owned();
     assert!(reason.contains("decider budget spent: 1 decider calls"), "{reason}");
+    // `cycles/suite.yaml` decider-budget-reason: the stop reason names the step, the case and the cap.
+    assert!(reason.contains("scope.answer in IDEA-1.intake: ") && reason.contains("(max_calls)"), "{reason}");
+    let stop: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stop["cause"], "decider_cannot_decide");
+    assert!(stop["reason"].as_str().unwrap().contains("scope.answer in IDEA-1.intake: decider budget spent"), "{stop}");
     let q = read(&w, "questions.yaml");
     assert_eq!(q.matches("answered_by: decider:model").count(), 1, "the first answer stays, the second was never asked: {q}");
     assert!(w.fake.calls_of(&["tree", "approve"]).is_empty());

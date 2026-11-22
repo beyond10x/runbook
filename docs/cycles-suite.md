@@ -183,6 +183,25 @@ pending`; the ten slowest cycles took 51.6 s (`implement-request-path-escape`), 
 so the scripted-reply cycles come within 8 s of Loom's 60 s bound. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
 cycles would have to share an opened tree (the format has no member for it).
 
+### Entries a Rust test of the runner holds (class d) and the ones that wait for the engine
+
+The entries that test the old driver's own code (the decider's prompt, retries, citations and limits,
+the stops and refusals of a run, the principals, `sdc-run-metrics`) are Rust tests of the runner
+(`runbook/src/loom_run/`) or of `sdc-run-metrics`, so the entry goes with the driver's scripts. The rows
+below say which test holds each one, `held by a Rust test`. Where the runner differs from what the
+cycle expects, the test is written for what the cycle expects and is `#[ignore]`d with one line that
+says what differs; each is named in the row. The runner names its own exit codes and causes
+(exit 8 and `decider_cannot_decide` for a stop at the decider, exit 2 for a refused settings file); a
+row says so where the cycle's numbers differ and the point is the same.
+
+Waiting for the engine, not a Rust test of the runner yet (an engine feature is missing, the runner's half
+is held by the tests named):
+
+| entry | why |
+|---|---|
+| scope-answer, scope-changed, intake-decision, autopilot, scope-unattributed-reject, trace-reraised, decider-finding-refused | `scope.answer` and the findings tools as a program on a person's action: `bindings/PENDING.md` D11, D15, D38 ("a person's action runs a program", "syntax not fixed"); the runner's half (the answers file, one decider call per request, the principal) is held by `runbook/tests/loom_run/answers.rs`. No refusal text was seen: the installed `b10x-loom` is 0.4.0 without a `tree` command and the pinned engine is linked as a library |
+| decider-rework, decider-rework-spent, rework-fresh-allowance, decider-rework-context, decider-rework-model, review-no-rework-prompt | the engine sending a writer back from a recorded `rejected` result with its reasons (`story:tree-stop-record-and-labels`, `approve.result`); the runner's half (the result and the reasons file of a rejection) is held by `runbook/tests/loom_run/decisions.rs` `a_rejection_is_a_named_result_with_the_reasons_in_a_file_of_the_run_directory` and by `runbook/tests/loom_run/decider.rs` `a_rejection_by_the_model_decider_is_a_named_result_with_the_deciders_reasons`; the figures of such a run are held by `driver/tests/run_metrics.rs` |
+
 ### Full-cycle entries (29)
 
 | entry | state | reason |
@@ -240,12 +259,12 @@ replay model calls from and no injected rejection, timeout or failed check.
 | entry | state | reason |
 |---|---|---|
 | run-stop-decider | not converted | class: a second tool reads a finished run (`run-trial.sh --stop`, then `sdc-finding-kpis`) |
-| run-metrics | not converted | class: a second tool reads a finished run (`sdc-run-metrics`) |
+| run-metrics | held by a Rust test | `driver/tests/run_metrics.rs` `a_run_directory_of_the_loom_runner_with_a_rejected_approval_gives_the_same_figures` (the hand-written `tests/fixtures/loom-run` with a story case in which `merge.approve` sent `change.implement` back once) |
 | rework-pending-rejection | not converted | class: the store is edited between two runs (a case cut at the rejection) |
-| decider-later-obligation | not converted | class: the contents of the decider's call directories (`prompt.md`, the open obligations it was shown) |
+| decider-later-obligation | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_obligation_only_a_later_step_meets_is_listed_apart_not_open_and_the_prompt_says_so` (on `prepare` and `prompt` with the compiled `sdc-release` and `sdc-direction` IR: a full `decide` of the runner sends an empty position and the case has no `ir.json`) |
 | writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
-| decider-input | not converted | class: the contents of the decider's call directories (the files of its input) |
-| principals | not converted | class: the store is edited between two runs (a decision written by hand), then a refusal of a second tool |
+| decider-input | held by Rust tests | `runbook/src/loom_run/decider/tests.rs` `a_close_reads_the_published_readme_and_no_aep_file`, `a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git`, `the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool`, `under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person` |
+| principals | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_stand_in_names_its_principal_the_run_directory_labels_it_and_no_principal_is_invented` and `a_scripted_decider_takes_the_principal_of_its_answers_from_the_settings`; the refusal of a decision with no principal is the findings tool's (`sdc-findings amend`), not the runner's: the runner runs the printed command and invents no principal |
 | efforts | not converted | class: dry runs (`--dry`, a listing, no tree) and a stand-in model adapter written by the cycle: the environment of a bound program (`CLAUDE`, `SDC_CLAUDE_CREDENTIALS`, `CLAUDE_CODE_EFFORT_LEVEL`); a script the cycle generates is no seed |
 | replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
 
@@ -269,24 +288,24 @@ of the four bugfix cycles that were in the first count and are in the file now:
 
 | entry | state | reason |
 |---|---|---|
-| decider-scope-answer | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-model-name | not converted | class: Runbook's decider answers the stops (`LLM_MODEL_DECIDER`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-scope-final | not converted | class: Runbook's decider answers the stops (`DECIDER_ESCALATE`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-finding | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-finding-final | not converted | class: Runbook's decider answers the stops (`DECIDER_ESCALATE`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-scope-answer | held by a Rust test | `runbook/tests/loom_run/answers.rs` `two_scope_questions_are_answered_one_by_one_and_the_step_is_taken_by_the_decider` |
+| decider-model-name | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `the_model_of_the_settings_reaches_the_call_and_the_answers_and_the_principal_is_decider_model` |
+| decider-scope-final | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_question_that_escalates_under_final_takes_its_default_and_the_log_says_suppressed` |
+| decider-finding | held by a Rust test | `runbook/tests/loom_run/answers.rs` `a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on` |
+| decider-finding-final | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_finding_that_escalates_under_final_takes_the_best_answer_else_its_default` |
 | decider-finding-refused | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | run-stop | pending | the `stop`, `resume` and `reopen` steps: waits for story:tree-stop-record-and-labels |
 | autopilot | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | trace-reraised | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-budget-reason | not converted | class: Runbook's decider answers the stops (`MAX_DECIDER_CALLS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| autopilot-person | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| autopilot-stop | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-cite-address | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-cite-retry | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-invalid-approval | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-invalid-scope | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-escalate-nobest | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-reject | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-budget-reason | held by a Rust test | `runbook/tests/loom_run/answers.rs` `the_decider_call_cap_ends_the_run_when_the_answers_would_exceed_it`: the stop reason names the step, the case and the cap (cause `decider_cannot_decide`, the runner's name for it) |
+| autopilot-person | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_decider_kind_person_is_refused_by_name_before_any_run_directory_or_call` (exit 2 in the runner, 64 in the driver; no run directory, no call) |
+| autopilot-stop | held by a Rust test, one point ignored | `runbook/tests/loom_run/decisions.rs` `a_decision_the_decider_has_no_reply_for_stops_the_run_naming_step_and_case_with_no_path_in_the_reason` (exit 8, `by: rule:loom-run`, cause `decider_cannot_decide`: the runner's names for exit 7, `rule:autopilot`, `decision_not_takeable`); `the_reason_of_a_stop_at_a_decision_the_decider_cannot_take_names_no_person` is `#[ignore]`: the reason of a Handoff says `names work for a person` |
+| decider-cite-address | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_entry_a_line_range_and_an_id_of_the_context_resolve_and_the_first_reply_is_taken` (the address of an artifact resolves through the `bindings.json` that `make_case_dir` writes since this change) |
+| decider-cite-retry | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_cite_that_does_not_resolve_is_asked_again_with_the_reason_and_the_second_reply_is_taken` |
+| decider-invalid-approval | held by a Rust test, one point ignored | `runbook/src/loom_run/decider/tests.rs` `three_invalid_replies_to_an_approval_end_cannot_decide_naming_the_last_reason_after_three_calls`; `three_invalid_replies_to_an_approval_whose_checks_are_true_are_approved_on_the_checks` is `#[ignore]`: the runner has no `approved_on_checks` (it has no claim values to check) |
+| decider-invalid-scope | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `three_invalid_replies_to_a_question_take_its_default_as_invalid_reply_default` |
+| decider-escalate-nobest | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_escalate_without_best_is_refused_under_final_and_asked_again` |
+| decider-reject | held by a Rust test, two points ignored | `runbook/tests/loom_run/decisions.rs` `a_rejection_where_the_action_has_no_rejected_result_ends_the_run_naming_step_and_case_and_sends_nothing` (exit 1, outcome `error`, nothing sent to Loom); `a_rejection_without_a_result_to_record_it_names_the_case_and_no_person` is `#[ignore]`: exit 1 and no case in that reason, the driver ended exit 6, cause `rejected_without_rework_path` |
 | decider-rework-context | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework-model | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework | pending | the scripted rejection and approval of `merge.approve` need `approve` with `result` and `reasons`: waits for story:tree-stop-record-and-labels |
@@ -296,8 +315,8 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | review-no-rework-prompt | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | cite-dark-spot | pending | the intake finding is decided by the decider in the old cycle; here it stops for a person's decision written into `findings.yaml` (gap, no Loom story yet) |
 | cite-fault-sent-back | pending | same: the intake finding stops for a person's decision (gap, no Loom story yet) |
-| autopilot-close | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| autopilot-close-a3 | not converted | class: Runbook's decider answers the stops (`AUTONOMY`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| autopilot-close | ignored Rust test | `runbook/tests/loom_run/decisions.rs` `at_a5_with_a_model_decider_the_close_is_taken_by_rule_and_the_decider_is_not_asked` is `#[ignore]`: the runner asks the decider for the close (`at_a5_the_close_of_a_case_is_asked_of_the_model_decider_and_run_as_printed` holds what it does) |
+| autopilot-close-a3 | ignored Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_is_asked_for_the_close_rejects_and_the_run_stops_unclosed` is `#[ignore]`: at A3 the runner stops for a person without asking the decider |
 | conformance-default-off | not converted | class: Runbook's decider answers the stops (`CONFORMANCE`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rule-approvals | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
 | rule-approvals-check-failed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
@@ -313,15 +332,15 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | unstick-limit | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | unstick-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | reopen-refused-decision | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| decider-release-a3 | not converted | class: Runbook's decider answers the stops (`AUTONOMY`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-release-a3 | held by a Rust test, one point ignored | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_does_not_answer_and_the_run_stops_for_a_person_without_calling_the_model`; `a_release_the_decider_rejects_at_a3_ends_without_a_rework_path_and_records_nothing` is `#[ignore]`: the runner's decider answers only at A5 (A1 to A4 have no per-class routing), the driver's decider rejected `release.publish` at A3. The second run of `sdc-drive decide` in the entry is the engine's |
 | decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | requester-decider | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
 | requester-no-ground | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
 | models | not converted | class: a `--dry` listing of the models per class, not a run of a tree |
-| decider-question-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-question-reject | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered` |
 | rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
 | scope-unattributed-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| finding-refused-reask | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| finding-refused-reask | held in part by a Rust test | `runbook/tests/loom_run/answers.rs` `a_request_that_comes_back_a_fourth_time_ends_the_run_naming_it` holds the stop; the refusal text is not put to the decider again (the refusal is the findings tool's) |
 | rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-invalid-named | converted | |

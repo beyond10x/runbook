@@ -688,3 +688,290 @@ fn the_rule_decider_answers_a_request_with_its_default_and_no_call_and_refuses_o
     let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request, 0);
     assert_eq!(asked.result.unwrap_err(), "the rule decider's reply has no answer");
 }
+
+// --- the cycles of the old driver that tested this code (`cycles/suite.yaml`, class d) --------------
+//
+// Each test is named in `docs/cycles-suite.md` for the entry it holds. The adapter is a script the
+// test writes and the texts are invented.
+
+/// An adapter whose n-th start writes the n-th of `replies` as the model's `out/decision.json` (the
+/// last one for every later start) and prints a response that costs `cost`.
+fn by_call(replies: &[&str], cost: &str) -> String {
+    let mut arms = String::new();
+    for (i, reply) in replies.iter().enumerate() {
+        let pattern = if i + 1 == replies.len() { "*".to_owned() } else { (i + 1).to_string() };
+        arms.push_str(&format!("  {pattern}) printf '%s\\n' '{reply}' > \"$d/cwd/out/decision.json\" ;;\n"));
+    }
+    format!("#!/bin/sh\nd=$(dirname \"$1\")\nn=$(cat \"$d/../count\" 2>/dev/null || echo 0)\nn=$((n + 1))\necho $n > \"$d/../count\"\ncase $n in\n{arms}esac\nprintf '%s\\n' '{}'\n", response(cost))
+}
+
+fn put(w: &World, file: &str, text: &str) {
+    let path = w.work.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+fn context_yaml(w: &World) {
+    put(w, "context.yaml", "platform:\n  value: a hosted web server\n  status: set\nkind:\n  value: web\nvalid:\n  value: true\n");
+}
+
+const FITS: &str = r#"{"decision":"approve","answer":null,"best":null,"reasons":["The context fits the idea."],"cites":["context@taee57460908c89e2#platform.value","context.yaml:1-2","context.valid"]}"#;
+const NOPE: &str = r#"{"decision":"approve","answer":null,"best":null,"reasons":["Cites what is not there."],"cites":["context.nope"]}"#;
+
+fn approved(cost_micro_usd: u64, model_calls: u64) -> Verdict {
+    Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(cost_micro_usd), model_calls, reasons: None }
+}
+
+fn prompts(w: &World) -> Vec<String> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(w.run.join("decider")).unwrap().filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    dirs.sort();
+    dirs.iter().map(|d| std::fs::read_to_string(d.join("prompt.md")).unwrap()).collect()
+}
+
+#[test]
+fn the_model_of_the_settings_reaches_the_call_and_the_answers_and_the_principal_is_decider_model() {
+    let reply = r#"{"adapter":"claude-cli","cost_usd":0.25,"model":"claude-opus-5-5"}"#;
+    let w = world("p9-model-name", &script(Some(APPROVE), reply, ""));
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(verdict, approved(250_000, 1));
+    let rec = first_record(&w);
+    assert_eq!(json_file(&rec.join("adapter-request.json"))["model"], "claude-opus-5-5");
+    let kept = json_file(&rec.join("reply.json"));
+    assert_eq!((kept["kind"].as_str(), kept["model"].as_str()), (Some("model"), Some("claude-opus-5-5")));
+    // another name in the settings is another name in the request
+    let w = world("p9-model-name-other", &script(Some(APPROVE), reply, ""));
+    ask(&w, &settings(&w, json!({"model": "claude-haiku-5-5"})), &approve_action(&w), 250_000);
+    assert_eq!(json_file(&first_record(&w).join("adapter-request.json"))["model"], "claude-haiku-5-5");
+    // a question's answer is a line of decisions.jsonl with the same model and the same principal
+    let answer = r#"{"decision":"approve","answer":"the billing clerk","best":null,"reasons":["Fine."],"cites":[]}"#;
+    let w = world("p9-model-name-question", &script(Some(answer), reply, ""));
+    let decider = from_settings(&settings(&w, json!({}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!((asked.lines[0]["principal"].as_str(), asked.lines[0]["model"].as_str()), (Some("decider:model"), Some("claude-opus-5-5")));
+    assert_eq!(asked.result.unwrap().principal.as_deref(), Some("decider:model"));
+}
+
+#[test]
+fn a_question_that_escalates_under_final_takes_its_default_and_the_log_says_suppressed() {
+    let escalate = r#"{"decision":"escalate","answer":null,"best":null,"reasons":["The claim questions.settled is false."],"cites":[]}"#;
+    let w = world("p9-scope-final", &model(escalate, "0.1"));
+    let decider = from_settings(&settings(&w, json!({"escalate": "final"}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["escalation_suppressed", "approve"]);
+    assert_eq!((asked.lines[1]["suppressed"].as_bool(), asked.lines[1]["question"].as_str(), asked.lines[1]["class"].as_str()), (Some(true), Some("q1"), Some("scope_changing_answer")));
+    assert_eq!(asked.lines[1]["principal"], "decider:model");
+    let given = asked.result.unwrap();
+    assert_eq!((given.answer.as_str(), given.principal.as_deref()), ("keep", Some("decider:model")));
+    assert_eq!(record_dirs(&w.run.join("decider")), 1);
+}
+
+#[test]
+fn an_entry_a_line_range_and_an_id_of_the_context_resolve_and_the_first_reply_is_taken() {
+    let w = world("p9-cite-address", &model(FITS, "0.1"));
+    context_yaml(&w);
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(verdict, approved(100_000, 1));
+    assert_eq!(record_dirs(&w.run.join("decider")), 1);
+    let kept = json_file(&first_record(&w).join("reply.json"));
+    assert_eq!(kept["valid"], true);
+    let forms: Vec<&str> = kept["citations"].as_array().unwrap().iter().map(|c| c["form"].as_str().unwrap()).collect();
+    assert_eq!(forms, ["artifact_revision", "path_line", "id"]);
+    assert_eq!(kept["citations"][0]["value"], json!({"artifact": "context", "revision": "taee57460908c89e2", "entry": "platform.value"}));
+    assert_eq!(kept["citations"][1]["value"], json!({"path": "work/context.yaml", "line": 1, "line_end": 2}));
+}
+
+#[test]
+fn a_cite_that_does_not_resolve_is_asked_again_with_the_reason_and_the_second_reply_is_taken() {
+    let w = world("p9-cite-retry", &by_call(&[NOPE, FITS], "0.1"));
+    context_yaml(&w);
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 900_000);
+    assert_eq!(verdict, approved(200_000, 2));
+    assert_eq!(record_dirs(&w.run.join("decider")), 2);
+    let dir = |name: &str| w.run.join("decider").join(name);
+    assert!(json_file(&dir("001-context.approve/decide-request.json")).get("retry").is_none());
+    let again = json_file(&dir("002-context.approve/decide-request.json"));
+    assert_eq!(again["retry"]["attempt"], 2);
+    assert!(again["retry"]["invalid_reason"].as_str().unwrap().starts_with("cites what does not resolve: context.nope"), "{again}");
+    let first = json_file(&dir("001-context.approve/reply.json"));
+    assert_eq!((first["decision"].as_str(), first["valid"].as_bool()), (Some("escalate"), Some(false)));
+    assert!(std::fs::read_to_string(dir("002-context.approve/prompt.md")).unwrap().contains("context.nope"), "the second prompt names the refused cite");
+}
+
+#[test]
+fn three_invalid_replies_to_an_approval_end_cannot_decide_naming_the_last_reason_after_three_calls() {
+    let w = world("p9-invalid-approval", &model(NOPE, "0.05"));
+    context_yaml(&w);
+    let why = reason(ask(&w, &settings(&w, json!({})), &approve_action(&w), 900_000));
+    assert!(why.contains("invalid decider reply after 3 attempts: cites what does not resolve: context.nope"), "{why}");
+    assert_eq!(record_dirs(&w.run.join("decider")), 3, "the default is two retries");
+}
+
+#[test]
+#[ignore = "the runner ends CannotDecide after the retries; the driver took approved_on_checks (an approval whose checks are all true), and the runner has no claim values to check"]
+fn three_invalid_replies_to_an_approval_whose_checks_are_true_are_approved_on_the_checks() {
+    let w = world("p9-invalid-approval-checks", &model(NOPE, "0.05"));
+    context_yaml(&w);
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 900_000);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+}
+
+#[test]
+fn three_invalid_replies_to_a_question_take_its_default_as_invalid_reply_default() {
+    let bad = r#"{"decision":"approve","answer":"fixture","best":null,"reasons":["Cites what is not there."],"cites":["context.idea_excerpt"]}"#;
+    let w = world("p9-invalid-scope", &model(bad, "0.05"));
+    let decider = from_settings(&settings(&w, json!({}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["invalid_reply", "invalid_reply", "invalid_reply", "approve"]);
+    assert_eq!((asked.lines[3]["fallback"].as_str(), asked.lines[3]["attempts"].as_u64()), (Some("invalid_reply_default"), Some(3)));
+    assert_eq!(asked.lines[3]["principal"], "decider:model");
+    let given = asked.result.unwrap();
+    assert_eq!((given.answer.as_str(), given.principal.as_deref()), ("keep", Some("decider:model")));
+    assert_eq!(record_dirs(&w.run.join("decider")), 3);
+}
+
+#[test]
+fn an_escalate_without_best_is_refused_under_final_and_asked_again() {
+    let escalate = r#"{"decision":"escalate","answer":null,"best":null,"reasons":["A person should say."],"cites":["context.kind"]}"#;
+    let w = world("p9-escalate-nobest", &by_call(&[escalate, FITS], "0.1"));
+    context_yaml(&w);
+    let verdict = ask(&w, &settings(&w, json!({"escalate": "final"})), &approve_action(&w), 900_000);
+    assert_eq!(verdict, approved(200_000, 2));
+    let again = json_file(&w.run.join("decider/002-context.approve/decide-request.json"));
+    assert_eq!(again["retry"]["invalid_reason"], "an escalate needs best: approve or reject (SDC_DECIDER_ESCALATE=final)");
+    let first = prompts(&w).remove(0);
+    assert!(first.contains("give `best`, the decision that is then taken"), "the first prompt asks for best: {first}");
+}
+
+#[test]
+fn a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered() {
+    let reject = r#"{"decision":"reject","answer":null,"best":null,"reasons":["Neither option fits."],"cites":["d4"]}"#;
+    let approve = r#"{"decision":"approve","answer":"the billing clerk, before it is paid","best":null,"reasons":["The idea names only the clerk."],"cites":["d4"]}"#;
+    let w = world("p9-question-reject", &by_call(&[reject, approve], "0.1"));
+    put(&w, "dissection.yaml", "items:\n- id: d4\n  span: the clerk\n");
+    let decider = from_settings(&settings(&w, json!({}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["invalid_reply", "approve"]);
+    assert!(asked.lines[0]["invalid_reason"].as_str().unwrap().contains("a question is decided with approve"), "{}", asked.lines[0]);
+    assert_eq!(asked.lines[1]["attempts"], 2);
+    let given = asked.result.unwrap();
+    assert_eq!((given.answer.as_str(), given.principal.as_deref()), ("the billing clerk, before it is paid", Some("decider:model")));
+}
+
+fn close_decision() -> Value {
+    json!({"case": "IDEA-1", "kind": "Close", "action": null, "outcome": "operating", "decides": "close case IDEA-1 through operating",
+        "command": ["b10x-loom", "tree", "close", "--store", "/nonexistent/store", "--case", "IDEA-1", "--outcome", "operating"]})
+}
+
+#[test]
+fn a_close_reads_the_published_readme_and_no_aep_file() {
+    let w = world("p9-input-close", &valid("0.1"));
+    put(&w, "published/README.md", "# The product\n");
+    put(&w, "aep/initiative/roadmap.md", "---\nstatus: draft\n---\nThe roadmap.\n");
+    put(&w, "idea.yaml", "text: an idea\n");
+    let verdict = ask(&w, &settings(&w, json!({})), &close_decision(), 250_000);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    let given = first_record(&w).join("cwd/in");
+    assert!(given.join("published/README.md").is_file() && given.join("idea.yaml").is_file());
+    assert!(!given.join("aep").exists(), "a close is not shown the planning files");
+    assert!(prompts(&w)[0].contains("- in/published/README.md"));
+}
+
+#[test]
+fn a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git() {
+    let w = world("p9-input-lock", &valid("0.1"));
+    for file in ["impl/Cargo.lock", "impl/Cargo.toml", "impl/src/lib.rs", "impl/yarn.lock", "impl/target/debug/out", "impl/.git/HEAD"] {
+        put(&w, file, "x\n");
+    }
+    let mut decision = approve_action(&w);
+    decision["path"] = json!(w.work.join("impl").display().to_string());
+    decision["action"] = json!("merge.approve");
+    decision["subject"] = json!("change");
+    ask(&w, &settings(&w, json!({})), &decision, 250_000);
+    let given = first_record(&w).join("cwd/in/impl");
+    for kept in ["Cargo.lock", "Cargo.toml", "src/lib.rs"] {
+        assert!(given.join(kept).is_file(), "{kept} is not in in/impl");
+    }
+    for left_out in ["yarn.lock", "target", ".git"] {
+        assert!(!given.join(left_out).exists(), "{left_out} is in in/impl");
+    }
+}
+
+#[test]
+fn the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool() {
+    let w = world("p9-input-aep", &valid("0.1"));
+    put(&w, "aep/initiative/roadmap.md", "---\nstatus: approved\nrevision: 3\n---\nThe roadmap.\n");
+    let mut decision = approve_action(&w);
+    decision["action"] = json!("roadmap.approve");
+    decision["subject"] = json!("roadmap");
+    decision["path"] = json!(w.work.join("aep/initiative/roadmap.md").display().to_string());
+    ask(&w, &settings(&w, json!({})), &decision, 250_000);
+    assert!(prompts(&w)[0].contains("belong to the planning tool"));
+    let w = world("p9-input-no-aep", &valid("0.1"));
+    put(&w, "context.yaml", "kind:\n  value: web\n");
+    ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!prompts(&w)[0].contains("planning tool"), "no aep input, no note about it");
+}
+
+#[test]
+fn under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person() {
+    let w = world("p9-input-final", &valid("0.1"));
+    context_yaml(&w);
+    let decider = from_settings(&settings(&w, json!({"escalate": "final"}))).unwrap();
+    for decision in [approve_action(&w), close_decision()] {
+        let verdict = ask_with(decider.as_ref(), &w, &decision, 250_000, &env_with_path());
+        assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    }
+    let wq = world("p9-input-final-question", &answer_reply("approve", ""));
+    let decider = from_settings(&settings(&wq, json!({"escalate": "final"}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &wq, &scope_decision(), &request_line("question", "keep"), 250_000);
+    assert!(asked.result.is_ok(), "{:?}", asked.result);
+    let mut all = prompts(&w);
+    assert_eq!(all.len(), 2, "an approval and a close");
+    all.extend(prompts(&wq));
+    for text in &all {
+        assert!(text.contains("is the product owner's own decision"), "{text}");
+        assert!(!text.contains("Escalate to a person"), "{text}");
+    }
+    // under stop the prompt offers it and does not say that
+    let w = world("p9-input-stop", &valid("0.1"));
+    context_yaml(&w);
+    ask(&w, &settings(&w, json!({"escalate": "stop"})), &approve_action(&w), 250_000);
+    let text = prompts(&w).remove(0);
+    assert!(text.contains("Escalate to a person") && !text.contains("is the product owner's own decision"), "{text}");
+}
+
+fn compiled_ir(name: &str) -> String {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("protocol/compiled").join(format!("{name}.ir.json"))).unwrap()
+}
+
+/// What `prepare` leaves for an approval of `action` in a case of the compiled protocol `ir` with the
+/// obligations `open` open: the checks the model reads and the prompt's text.
+fn checks_and_prompt(tag: &str, ir: &str, action: &str, open: &[&str]) -> (Value, String) {
+    let dir = Dir::new(tag);
+    let case = dir.dir("case");
+    std::fs::write(case.join("ir.json"), compiled_ir(ir)).unwrap();
+    let cwd = dir.dir("cwd");
+    dir.dir("cwd/in");
+    let req = json!({"type": "approval", "case_dir": case.display().to_string(), "action": action, "subject": "x", "revision": "t1", "path": null,
+        "position": {"claims": {}, "open_obligations": open, "legitimate_outcomes": []}});
+    let renderer = prompt::Renderer { root: Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf() };
+    let prepared = inputs::prepare(&req, &case, &cwd, &renderer, true).unwrap();
+    let parts = prompt::Parts { req: &req, final_escalate: true, inputs: &prepared.inputs, citable: &prepared.citable, prior_rejections: prepared.prior, has_aep: false, met_after: prepared.met_after };
+    (json_file(&cwd.join("in/checks.json")), prompt::prompt(&renderer, &parts).unwrap())
+}
+
+#[test]
+fn an_obligation_only_a_later_step_meets_is_listed_apart_not_open_and_the_prompt_says_so() {
+    let (checks, text) = checks_and_prompt("p9-later-release", "sdc-release", "release.publish", &["health.required", "docs.required"]);
+    assert_eq!(checks["open_obligations"], json!(["docs.required"]));
+    assert_eq!(checks["met_after_this_action"]["action"], "release.publish");
+    assert_eq!(checks["met_after_this_action"]["obligations"], json!(["health.required"]));
+    assert!(text.contains("lists what can only be met by a step after release.publish"), "{text}");
+    let (checks, text) = checks_and_prompt("p9-later-vision", "sdc-direction", "vision.approve", &["roadmap.required"]);
+    assert_eq!(checks["open_obligations"], json!([]));
+    assert_eq!(checks["met_after_this_action"]["obligations"], json!(["roadmap.required"]));
+    assert!(text.contains("lists what can only be met by a step after vision.approve"), "{text}");
+    let (checks, text) = checks_and_prompt("p9-later-none", "sdc-release", "release.publish", &["docs.required"]);
+    assert!(checks.get("met_after_this_action").is_none(), "{checks}");
+    assert!(!text.contains("a step after release.publish"), "{text}");
+}
