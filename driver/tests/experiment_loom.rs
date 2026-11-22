@@ -471,6 +471,24 @@ fn report_of_a_loom_record_reads_a_run_directory_that_holds_only_the_contract_me
 }
 
 #[test]
+fn status_names_a_run_directory_it_cannot_read_instead_of_saying_not_started() {
+    // Found by the chain `run --print`, `runbook loom-run`, `status`: a run directory that holds
+    // `outcome.json` (the runner ended) but no root event log was shown as "not started".
+    let d = scratch("status-unreadable");
+    let f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls").collect();
+    write_record(&d, &record_with(&f, COMMIT, "running", ("lx.low.1", "")));
+    fs::create_dir_all(d.join("runs/lx.low.1")).unwrap();
+    let (_, out) = experiment(&["status", "lx", "--runs-dir", "runs"], &d);
+    let row = out.lines().find(|l| l.starts_with("lx.low.1")).unwrap().to_string();
+    assert!(row.ends_with("not started"), "a directory the runner has just made is not started: {row}");
+    fs::write(d.join("runs/lx.low.1/outcome.json"), "{\"outcome\":\"ended\"}\n").unwrap();
+    let (code, out) = experiment(&["status", "lx", "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let row = out.lines().find(|l| l.starts_with("lx.low.1")).unwrap().to_string();
+    assert!(row.contains("unreadable:") && row.contains("events.jsonl") && !row.contains("not started"), "{row}");
+}
+
+#[test]
 fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the_unit_is_stopped() {
     let d = scratch("stop");
     fs::create_dir_all(d.join("runs/lx.low.1")).unwrap();

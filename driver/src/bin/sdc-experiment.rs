@@ -2515,8 +2515,19 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
     println!("{:<34} {:<10} {:<12} {:>9} {:>7}  end", "run", "variant", "unit", "cost USD", "wall s");
     for (run, variant, unit) in rows {
         let dir = runs_dir.join(&run);
+        // A directory the runner has just made holds nothing to read yet (not started). One that
+        // holds `outcome.json` (a `runbook loom-run` that ended) and cannot be read is said so.
+        let mut unreadable = None;
         let doc = if dir.is_dir() {
-            run_metrics::load(&dir).ok()
+            match run_metrics::load(&dir) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    if dir.join("outcome.json").is_file() {
+                        unreadable = Some(format!("unreadable: {}", e.0));
+                    }
+                    None
+                }
+            }
         } else {
             load_summary(&summaries_dir(&exp, &id).join(format!("{run}.json"))).ok().flatten().map(|x| x.doc)
         };
@@ -2524,7 +2535,7 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
         let (cost, wall, end) = match &doc {
             Some(d) => (d["metrics"]["cost_usd"].as_f64().map_or("-".into(), |x| format!("{x:.3}")),
                 d["metrics"]["wall_s"].as_i64().map_or("-".into(), |x| x.to_string()), d["metrics"]["end"].as_str().unwrap_or("").to_string()),
-            None => ("-".into(), "-".into(), "not started".into()),
+            None => ("-".into(), "-".into(), unreadable.unwrap_or_else(|| "not started".into())),
         };
         println!("{run:<34} {variant:<10} {state:<12} {cost:>9} {wall:>7}  {end}");
     }
