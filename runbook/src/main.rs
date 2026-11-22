@@ -47,8 +47,8 @@ enum Cmd {
     Serve(runbook::serve::ServeArgs),
     /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
     Mcp(runbook::mcp::stdio::McpArgs),
-    /// Submit a run to a daemon (`--detach`); in process it waits for story:engine-on-loom-library-entry.
-    Run(runbook::client::RunArgs),
+    /// Run a runbook once in this process, through Loom as a library or a `b10x-loom` child, under a spend ledger and caps; writes a run directory. With `--detach`: submit the run to a daemon and print its id.
+    Run(Box<RunCmd>),
     /// Inspect and steer the runs of a daemon: list, show, events, cancel, decisions.
     Runs {
         #[command(subcommand)]
@@ -56,8 +56,6 @@ enum Cmd {
     },
     /// Answer a decision request of a run on a daemon.
     Decide(runbook::client::DecideArgs),
-    /// Make one run of a case tree through `b10x-loom` (a child process) under a spend ledger and caps; writes a run directory.
-    LoomRun(loom_run::Args),
     /// Run the cycles of a `loom.tree-suite/1` file through Loom's suite runner in this process; exit 1 when a cycle is not as expected, 2 when the suite is refused.
     Test(runbook::test_suite::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
@@ -65,6 +63,15 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ParityCmd,
     },
+}
+
+/// `runbook run`: the options of the daemon client (`--detach`) and those of a run in this process.
+#[derive(clap::Args)]
+struct RunCmd {
+    #[command(flatten)]
+    common: runbook::client::RunArgs,
+    #[command(flatten)]
+    here: loom_run::here::HereOptions,
 }
 
 #[derive(Subcommand)]
@@ -84,7 +91,7 @@ enum ParityCmd {
         /// The product tree of a Loom run; the status's `workspace` when not given.
         #[arg(long, value_name = "DIR", requires = "loom_status")]
         product_tree: Option<PathBuf>,
-        /// The run directory `runbook loom-run` wrote: its `tree-status.json`, `work/` and the files
+        /// The run directory `runbook run` wrote: its `tree-status.json`, `work/` and the files
         /// that hold what the status does not (`run-settings.jsonl`, `decisions.jsonl`, `protocols/`).
         #[arg(long, value_name = "DIR")]
         loom_run: Option<PathBuf>,
@@ -126,7 +133,8 @@ fn main() -> ExitCode {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
-        Cmd::Run(args) => runbook::client::run(args),
+        Cmd::Run(run) if run.common.detach => runbook::client::run(run.common),
+        Cmd::Run(run) => loom_run::here::command(run.common, run.here),
         Cmd::Runs { cmd } => runbook::client::runs(cmd),
         Cmd::Decide(args) => runbook::client::decide(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
@@ -141,7 +149,6 @@ fn main() -> ExitCode {
             }
             runbook::serve::run(args, &list::ROOT_RUNBOOKS)
         }
-        Cmd::LoomRun(args) => loom_run::command(args),
         Cmd::Test(args) => {
             let protocols = assets::Lookup::from_process().locate().map(|a| a.protocol_dir());
             runbook::test_suite::command(args, protocols)

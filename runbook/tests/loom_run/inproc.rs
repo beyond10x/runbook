@@ -1,4 +1,4 @@
-//! `runbook loom-run --in-process`: the run loop over Loom as a library, on the small `sh` fixture
+//! `runbook run` in process: the run loop over Loom as a library, on the small `sh` fixture
 //! runbook of the engine tests (`tests/fixtures/engine-runbook`: a root case that opens a drafting
 //! case; the drafting case has a writer program and one person step, the review). No `b10x-loom`
 //! binary, no model call: every approval is scripted and the bound programs are POSIX sh.
@@ -73,10 +73,9 @@ impl Rig {
     /// The full option list for run `name`, the library way.
     fn args(&self, name: &str, cap: u64) -> Vec<String> {
         let r = |p: &str| self.root.join(p).display().to_string();
-        let mut a: Vec<String> = ["loom-run", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
+        let mut a: Vec<String> = ["run", "sdc", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         a.extend([
             r("runs"),
-            "--in-process".into(),
             "--bindings".into(),
             r("fx/bindings"),
             "--protocols".into(),
@@ -85,7 +84,7 @@ impl Rig {
             "engine-demo@1".into(),
             "--case".into(),
             "ROOT-1".into(),
-            "--idea".into(),
+            "--intake".into(),
             r("idea.yaml"),
             "--confinement".into(),
             "local".into(),
@@ -191,31 +190,51 @@ fn locked_commit() -> String {
     panic!("Cargo.lock holds no b10x-loom-tree");
 }
 
-// ---- the way to Loom: exactly one of two ----
+// ---- the way to Loom: the library, or the binary with its digest ----
 
 #[test]
-fn the_options_name_exactly_one_way_to_loom_and_a_usage_error_writes_nothing() {
+fn a_binary_without_its_digest_or_a_digest_without_its_binary_is_refused_and_writes_nothing() {
     let rig = Rig::new("usage");
     let library = rig.args("r1", 1_000_000);
     let hex = "0".repeat(64);
-    let neither = without(&library, "--in-process", false);
-    let mut both = library.clone();
-    both.extend(["--loom".into(), "/bin/true".into(), "--loom-sha256".into(), hex.clone()]);
-    let mut loom_alone = neither.clone();
+    let mut loom_alone = library.clone();
     loom_alone.extend(["--loom".into(), "/bin/true".into()]);
-    let mut sha_alone = neither.clone();
-    sha_alone.extend(["--loom-sha256".into(), hex.clone()]);
-    let mut library_with_sha = library.clone();
-    library_with_sha.extend(["--loom-sha256".into(), hex]);
-    let mut library_with_loom = library.clone();
-    library_with_loom.extend(["--loom".into(), "/bin/true".into()]);
-    for (what, args) in [("neither way", neither), ("both ways", both), ("--loom without its digest", loom_alone), ("a digest without --loom", sha_alone), ("--in-process with a digest", library_with_sha), ("--in-process with --loom", library_with_loom)] {
+    let mut sha_alone = library;
+    sha_alone.extend(["--loom-sha256".into(), hex]);
+    for (what, args) in [("--loom without its digest", loom_alone), ("a digest without --loom", sha_alone)] {
         let o = rig.run(&args);
         assert_eq!(code(&o), 2, "{what}: {}", stderr(&o));
         assert!(stderr(&o).contains("usage"), "{what}: {}", stderr(&o));
         assert!(!rig.run_dir("r1").exists(), "{what}: a run directory was made");
         assert!(!rig.ledger().exists(), "{what}: a ledger was made");
     }
+}
+
+#[test]
+fn the_options_of_a_run_in_process_that_are_required_are_named_when_missing_and_detach_only_options_are_refused() {
+    let rig = Rig::new("required");
+    for flag in ["--run", "--runs-dir", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
+        let o = rig.run(&without(&rig.args("r1", 1_000_000), flag, true));
+        assert_eq!(code(&o), 64, "{flag}: {}", stderr(&o));
+        assert!(stderr(&o).contains(flag), "{flag} is not named: {}", stderr(&o));
+        assert!(!rig.run_dir("r1").exists() && !rig.ledger().exists(), "{flag}: something was written");
+    }
+    let o = rig.run(&without(&rig.args("r1", 1_000_000), "--intake", true));
+    assert_eq!(code(&o), 64, "{}", stderr(&o));
+    assert!(stderr(&o).contains("--intake"), "{}", stderr(&o));
+    for (flag, value) in [("--context", Some(".")), ("--set", Some("a=b")), ("--daemon", Some("http://127.0.0.1:1")), ("--json", None)] {
+        let mut args = rig.args("r1", 1_000_000);
+        args.push(flag.into());
+        args.extend(value.map(String::from));
+        let o = rig.run(&args);
+        assert_eq!(code(&o), 64, "{flag}: {}", stderr(&o));
+        assert!(stderr(&o).contains(flag), "{flag} is not named: {}", stderr(&o));
+        assert!(!rig.run_dir("r1").exists() && !rig.ledger().exists(), "{flag}: something was written");
+    }
+    let mut detached = rig.args("r1", 1_000_000);
+    detached.push("--detach".into());
+    let o = rig.run(&detached);
+    assert_eq!(code(&o), 64, "an option of a run in process with --detach: {}", stderr(&o));
 }
 
 #[test]
@@ -259,9 +278,13 @@ fn the_settings_file_must_agree_with_the_way_the_options_name() {
         assert!(stderr(&o).contains(want), "{what}: {}", stderr(&o));
         assert!(!rig.run_dir("r1").exists(), "{what}: a run directory was made");
     }
-    // `loom.in_process` without the option is refused too
+    // `loom.in_process` under a child (a binary and its digest; the runbook binary stands in, the
+    // settings are refused before any call) is refused too
     rig.settings(&json!({"loom": {"in_process": true}, "decider": decider}));
-    let args = without(&rig.args("r1", 1_000_000), "--in-process", false);
+    let digest = Command::new("sha256sum").arg(BIN).output().expect("sha256sum").stdout;
+    let digest = String::from_utf8(digest).unwrap().split_whitespace().next().unwrap().to_owned();
+    let mut args = rig.args("r1", 1_000_000);
+    args.extend(["--loom".into(), BIN.into(), "--loom-sha256".into(), digest]);
     let o = rig.run(&args);
     assert_eq!(code(&o), 2, "{}", stderr(&o));
     assert!(!rig.run_dir("r1").exists());

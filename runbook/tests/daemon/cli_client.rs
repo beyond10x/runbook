@@ -17,8 +17,6 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
-const ENGINE_LINE: &str = "runbook run: running in process waits for story:engine-on-loom-library-entry; submit to a daemon with --detach and --daemon <url>\n";
-
 /// `runbook <args>` with a clean environment (plus `env`), in `dir`.
 fn cli_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> Output {
     let mut c = Command::new(BIN);
@@ -145,12 +143,16 @@ fn detach_without_a_daemon_exits_64_and_says_a_daemon_is_needed() {
 }
 
 #[test]
-fn run_without_detach_names_the_story_it_waits_for() {
+fn run_without_detach_runs_in_process_and_names_the_options_it_lacks() {
     let dir = super::state::scratch("cc-inproc");
     std::fs::write(dir.join("i"), "x").unwrap();
     let o = cli_in(&dir, &["run", "sdc", "--intake", "i"], &[], None);
     assert_eq!(code(&o), 64);
-    assert_eq!(err(&o), ENGINE_LINE);
+    let text = err(&o);
+    for flag in ["--run", "--runs-dir", "--confinement", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds"] {
+        assert!(text.contains(flag), "{flag} is not named: {text}");
+    }
+    assert!(!text.contains("waits for"), "{text}");
     assert_eq!(out(&o), "");
 }
 

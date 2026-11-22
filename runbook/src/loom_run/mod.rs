@@ -1,6 +1,6 @@
-//! `runbook loom-run`: one run of a case tree through Loom, as the `b10x-loom` binary in a child
-//! process (`--loom`, `child_host.rs`) or as a library in this process (`--in-process`,
-//! `library.rs`); the loop reaches either through the trait of `host.rs`.
+//! `runbook run` (in this process, `here.rs`): one run of a case tree through Loom, as the
+//! `b10x-loom` binary in a child process (`--loom`, `child_host.rs`) or as a library in this
+//! process (no `--loom`, `library.rs`); the loop reaches either through the trait of `host.rs`.
 //!
 //! The runner loops one step at a time (`tree run --max-steps 1`), asks a [`decide::Decider`] for
 //! every person or authority decision Loom gives, keeps the spend of the model calls in a ledger
@@ -22,6 +22,7 @@ pub mod cost;
 pub mod decide;
 pub mod decider;
 pub mod events;
+pub mod here;
 pub mod host;
 pub mod ledger;
 pub mod library;
@@ -31,9 +32,8 @@ pub mod run_files;
 pub mod run_loop;
 pub mod settings;
 
-use clap::{Args as ClapArgs, ValueEnum};
+use clap::ValueEnum;
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 /// The confinement every bound program of the tree starts under; passed to every `tree run` as
 /// given. There is no default.
@@ -55,79 +55,64 @@ impl Confinement {
     }
 }
 
-/// The options of `runbook loom-run` (all required; none has a default).
-#[derive(ClapArgs, Clone, Debug)]
+/// What a run needs, resolved from the options of `runbook run` (`here.rs`).
+#[derive(Clone, Debug)]
 pub struct Args {
     /// Name of the run; the run directory is `<runs-dir>/<name>` and must not exist.
-    #[arg(long, value_name = "NAME")]
     pub run: String,
     /// Directory that holds the run directories.
-    #[arg(long, value_name = "DIR")]
     pub runs_dir: PathBuf,
-    /// The `b10x-loom` binary, run as a child process (with `--loom-sha256`). Give this or `--in-process`.
-    #[arg(long, value_name = "FILE")]
+    /// The `b10x-loom` binary, run as a child process (with `loom_sha256`); neither: Loom is a
+    /// library of this process.
     pub loom: Option<PathBuf>,
-    /// The sha256 (hex) the `--loom` file must have; a different one is refused before anything is written.
-    #[arg(long, value_name = "HEX")]
+    /// The sha256 (hex) the `loom` file must have; a different one is refused before anything is written.
     pub loom_sha256: Option<String>,
-    /// Run the tree in this process through Loom as a library (the commit this binary links), with
-    /// no `b10x-loom` process. Give this or `--loom` with `--loom-sha256`.
-    #[arg(long)]
-    pub in_process: bool,
-    /// The `bindings/` directory of a checkout (its yaml files are copied, never edited).
-    #[arg(long, value_name = "DIR")]
+    /// The `bindings/` directory (its yaml files are copied, never edited).
     pub bindings: PathBuf,
     /// The directory of the protocol files (`*.protocol.yaml`) to register.
-    #[arg(long, value_name = "DIR")]
     pub protocols: PathBuf,
     /// The root protocol, `name@revision` (for example `sdc@8`).
-    #[arg(long, value_name = "NAME@REVISION")]
     pub root_protocol: String,
     /// The id of the root case.
-    #[arg(long, value_name = "ID")]
     pub case: String,
-    /// The idea file placed in the workspace.
-    #[arg(long, value_name = "FILE")]
-    pub idea: PathBuf,
-    /// The confinement of every bound program: `local` or `substrate`. No default.
-    #[arg(long, value_enum, value_name = "LEVEL")]
+    /// The text of the idea; the runner writes the idea file the tree reads from it.
+    pub intake: String,
+    /// The confinement of every bound program.
     pub confinement: Confinement,
     /// The run settings (JSON): principals, models, budgets, the decider, the login file's path.
-    #[arg(long, value_name = "FILE")]
     pub settings: PathBuf,
     /// The spend ledger shared by every run that counts against the same cap.
-    #[arg(long, value_name = "FILE")]
     pub spend_ledger: PathBuf,
     /// The spend cap in micro USD over all runs that share the ledger.
-    #[arg(long, value_name = "N")]
     pub cap_micro_usd: u64,
     /// The most model calls of this run (steps and decisions together).
-    #[arg(long, value_name = "N")]
     pub max_llm_calls: u64,
     /// The most wall seconds of this run.
-    #[arg(long, value_name = "N")]
     pub max_wall_seconds: u64,
 }
 
-/// How the run reaches Loom, from the options: exactly one of the two ways.
+/// How the run reaches Loom, from the options: one of the two ways.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Way<'a> {
     /// `--loom <bin> --loom-sha256 <hex>`.
     Child { loom: &'a std::path::Path, sha256: &'a str },
-    /// `--in-process`.
+    /// Neither option: Loom as a library of this process.
     Library,
 }
 
 impl Args {
+    /// Whether Loom is a library of this process (no `--loom`, no `--loom-sha256`).
+    pub fn in_process(&self) -> bool {
+        self.loom.is_none() && self.loom_sha256.is_none()
+    }
+
     /// The way the options name, or the usage error (a refusal, exit 2, before anything is written).
     pub fn way(&self) -> Result<Way<'_>, String> {
-        const USAGE: &str = "usage: give exactly one of --in-process and --loom <bin> with --loom-sha256 <hex>";
-        match (self.in_process, self.loom.as_deref(), self.loom_sha256.as_deref()) {
-            (true, None, None) => Ok(Way::Library),
-            (false, Some(loom), Some(sha256)) => Ok(Way::Child { loom, sha256 }),
-            (true, _, _) => Err(format!("{USAGE}: --in-process takes neither --loom nor --loom-sha256")),
-            (false, None, None) => Err(format!("{USAGE}: neither is given")),
-            (false, _, _) => Err(format!("{USAGE}: --loom and --loom-sha256 go together")),
+        const USAGE: &str = "usage: give --loom <bin> with --loom-sha256 <hex> to run the binary as a child, or neither for Loom as a library";
+        match (self.loom.as_deref(), self.loom_sha256.as_deref()) {
+            (None, None) => Ok(Way::Library),
+            (Some(loom), Some(sha256)) => Ok(Way::Child { loom, sha256 }),
+            _ => Err(format!("{USAGE}: --loom and --loom-sha256 go together")),
         }
     }
 }
@@ -218,24 +203,6 @@ impl Outcome {
             Outcome::StoppedDecider { .. } => EXIT_DECIDER,
             Outcome::Error { .. } | Outcome::LoomFailed { .. } => EXIT_ERROR,
             Outcome::Denied { .. } => EXIT_DENIED,
-        }
-    }
-}
-
-/// `runbook loom-run`.
-pub fn command(args: Args) -> ExitCode {
-    match run_loop::run(&args) {
-        Ok(outcome) => {
-            if let Some(reason) = outcome.reason() {
-                eprintln!("runbook loom-run: {}: {reason}", outcome.label());
-            } else {
-                eprintln!("runbook loom-run: {}", outcome.label());
-            }
-            ExitCode::from(outcome.exit_code())
-        }
-        Err(refusal) => {
-            eprintln!("runbook loom-run: refused: {refusal}");
-            ExitCode::from(EXIT_REFUSED)
         }
     }
 }

@@ -1,4 +1,4 @@
-# The settings file of `runbook loom-run`: `runbook.loom-run-settings/1`
+# The settings file of `runbook run`: `runbook.loom-run-settings/1`
 
 One JSON object, named by `--settings`. One format serves the loop (`docs/loom-run.md`), the decider
 and the bindings copy (`docs/loom-run-decisions.md`) and the run directory writer
@@ -16,7 +16,7 @@ key that repeats an option must agree with it; the option decides and a differen
 |---|---|---|---|---|
 | `format` | text | none | `normalise` | when present, `runbook.loom-run-settings/1` |
 | `run` | text | none | `normalise` | when present, equal to `--run` |
-| `loom` | object | none | `normalise` | `sha256` (equal to `--loom-sha256`; refused under `--in-process`), `in_process` (`true`, only with `--in-process`), `confinement`, `cap_micro_usd` (each equal to its option `--confinement`, `--cap-micro-usd`), `login_file` (see below). `loom.bin` and any other member are refused: the binary is the option `--loom` |
+| `loom` | object | none | `normalise` | `sha256` (equal to `--loom-sha256`; refused when Loom is a library (no `--loom`)), `in_process` (`true`, only when Loom is a library), `confinement`, `cap_micro_usd` (each equal to its option `--confinement`, `--cap-micro-usd`), `login_file` (see below). `loom.bin` and any other member are refused: the binary is the option `--loom` |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists. `loom.login_file` is the same setting; give one of them. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; null or text is refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |

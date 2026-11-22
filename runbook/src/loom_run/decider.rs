@@ -1,4 +1,4 @@
-//! The real deciders of `runbook loom-run`: the choice from the run settings and the decider that
+//! The real deciders of `runbook run`: the choice from the run settings and the decider that
 //! starts `bindings/tools/decider.sh` of the bindings copy for one decision.
 //!
 //! The table of what the driver decided, what Loom can ask today and what this module does with

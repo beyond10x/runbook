@@ -115,7 +115,7 @@ if [[ -n $regs ]]; then
 else
   echo "pass registrations"
 fi
-# The answers file of `runbook loom-run` (docs/loom-run-decisions.md, "The answers file"): what the
+# The answers file of `runbook run` (docs/loom-run-decisions.md, "The answers file"): what the
 # runner does for a decision of a person step or a handoff before it runs Loom's printed command.
 # Its format id is the one the runner reads, every action it names is bound in some
 # bindings/*.yaml (an `ApproveAction` one is a person's, a `Handoff` one has `handoff:` text), and

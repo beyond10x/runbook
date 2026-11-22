@@ -73,7 +73,7 @@ impl World {
     /// The full option list for run `name`; `cap` micro USD.
     pub fn args(&self, name: &str, cap: u64) -> Vec<String> {
         let r = |p: &str| self.root.join(p).display().to_string();
-        let mut a: Vec<String> = ["loom-run", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
+        let mut a: Vec<String> = ["run", "sdc", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         a.extend([
             r("runs"),
             "--loom".into(),
@@ -88,7 +88,7 @@ impl World {
             "sdc@8".into(),
             "--case".into(),
             "IDEA-1".into(),
-            "--idea".into(),
+            "--intake".into(),
             r("idea.yaml"),
             "--confinement".into(),
             "local".into(),

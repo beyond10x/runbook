@@ -38,7 +38,7 @@ pub enum Source {
     /// A file holding the JSON `tree status` printed; the product tree is `product_tree`, or the
     /// status's `workspace` when none is given.
     Loom { status: PathBuf, product_tree: Option<PathBuf> },
-    /// The run directory `runbook loom-run` wrote: its `tree-status.json` and `work/`, and what only
+    /// The run directory `runbook run` wrote: its `tree-status.json` and `work/`, and what only
     /// that directory holds (`run-settings.jsonl`, `decisions.jsonl`, `protocols/`).
     LoomRun { dir: PathBuf },
 }
@@ -97,7 +97,7 @@ fn word(member: &str, loom_word: &str) -> Option<&'static str> {
 const NOT_RECORDED: &str = "(not recorded)";
 /// What the Loom column says of a member under a member that is itself not recorded.
 const UNDER: &str = "(under a member not recorded)";
-/// What the Loom column says of a member that only the run directory of `runbook loom-run` holds
+/// What the Loom column says of a member that only the run directory of `runbook run` holds
 /// (`summarize --loom-run`); a summary read from the status alone lists it under `not_recorded`.
 const FROM_SETTINGS: &str = "run directory: run-settings.jsonl";
 const FROM_DECISIONS: &str = "run directory: decisions.jsonl";
@@ -144,7 +144,7 @@ const RULES: &[Rule] = &[
         rule("cases[].person_steps[].answer", How::Value, "the answer or approval that ended the step", "cases[].approvals[].answer", "Allow with an action: the result of the n-th record of that action in the case; Allow without: granted; Deny: denied"),
         &[("Allow", "granted"), ("Deny", "denied")],
     ),
-    rule("cases[].person_steps[].actor", How::Value, "who took the step", "cases[].approvals[].actor", "as is; equal only when the Loom run answered with the principal the driver run used: under `runbook loom-run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none"),
+    rule("cases[].person_steps[].actor", How::Value, "who took the step", "cases[].approvals[].actor", "as is; equal only when the Loom run answered with the principal the driver run used: under `runbook run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none"),
     rule("copies[].action", How::Value, "the copy action", "cases[].evidence[].action", "the n-th record of copies[].kind in the target case whose action the source case's records of that kind do not name; the entry itself names source_case, target_case and record_kind only"),
     rule("copies[].kind", How::Value, "evidence kind copied", "cases[].copies[].record_kind", "as is"),
     rule("copies[].from_protocol", How::Stem, "protocol of the source case, compared as its registration stem", "cases[].copies[].source_case", "protocol_id of that case; compared by registration stem"),
@@ -868,7 +868,7 @@ fn read_loom(status: &Path, product_tree: Option<&Path>, run: Option<&RunInfo>) 
     loom_summary(&doc, product_tree, run).map_err(|e| format!("{}: {e}", status.display()))
 }
 
-/// What the run directory of `runbook loom-run` holds that `tree status` does not.
+/// What the run directory of `runbook run` holds that `tree status` does not.
 struct RunInfo {
     /// `source.run_settings`.
     settings: Value,

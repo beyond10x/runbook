@@ -9,7 +9,7 @@ The pin and the rows it was read at: `docs/library-entries.md`, "States at `5af3
 
 The code that calls Loom (the opening of a tree, one `run_tree`, the answer to a decision, status
 and verify, the runner of a level) is one module, `runbook/src/engine/calls.rs`, used by the engine
-and by `runbook loom-run --in-process` (`docs/loom-run.md`, "The two ways to Loom"); there is no
+and by `runbook run` with no `--loom` (`docs/loom-run.md`, "The two ways to Loom"); there is no
 second copy.
 
 `runbook serve --principal <person:id | agent:id> --runtime loom|stub` selects it (`--principal` is
@@ -82,7 +82,7 @@ All at `5af3f9c2`, paths under `crates/` of Loom unless given.
 - The principal Loom prints for a decision is not a member of `NextDecision`; it is only inside
   `command` (`loom-tree/src/run.rs:886-899`), and the default for an action that binds none,
   `DEFAULT_PRINCIPAL` (`loom-tree/src/run.rs:70`), is not re-exported (`loom-tree/src/lib.rs:70`).
-  `runbook loom-run --in-process` reads the bound principal from the bindings copy and repeats the
+  `runbook run` with no `--loom` reads the bound principal from the bindings copy and repeats the
   default (`operator`) rather than parse the command.
 - `b10x-loom-tree` re-exports neither `SubstrateRunner` nor the line encoder, and not
   `ProtocolCatalog` (`loom-tree/src/lib.rs:48-75`): the engine names `b10x-loom-runlog` and

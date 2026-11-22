@@ -1,4 +1,4 @@
-//! The loop of `runbook loom-run`. It exists once: it reaches Loom through a [`LoomHost`], the
+//! The loop of `runbook run`. It exists once: it reaches Loom through a [`LoomHost`], the
 //! child process or the library (`host.rs`).
 
 use crate::loom_run::answers::Answers;
@@ -86,8 +86,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         None => decider::from_settings(&settings_value)?,
     };
     let protocols = protocol_files(&args.protocols)?;
-    if !args.idea.is_file() {
-        return Err(format!("--idea {} is not a file", args.idea.display()));
+    if args.intake.is_empty() {
+        return Err("--intake is empty: a run needs the idea's text".to_owned());
     }
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()));
@@ -272,7 +272,7 @@ impl Runner<'_> {
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         self.answers = Answers::load(&self.bindings_dir)?;
-        std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
+        std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {
@@ -648,7 +648,7 @@ impl Runner<'_> {
             llm_calls: self.llm_calls,
         };
         if let Err(e) = self.emit(ended) {
-            eprintln!("runbook loom-run: the end of the run could not be written: {e}");
+            eprintln!("runbook run: the end of the run could not be written: {e}");
             outcome = Outcome::Error { reason: e };
         }
         outcome
@@ -705,7 +705,6 @@ mod tests {
         }
         std::fs::write(root.join("protocols/sdc.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc\n  revision: 8\n").unwrap();
         std::fs::write(root.join("bindings/sdc.yaml"), "format: loom.bindings/1\n").unwrap();
-        std::fs::write(root.join("idea.yaml"), "text: x\n").unwrap();
         std::fs::write(root.join("settings.json"), "{}").unwrap();
         let f = fake::Fake::new(&root.join("fake"));
         f.open_ok();
@@ -718,12 +717,11 @@ mod tests {
             runs_dir: root.join("runs"),
             loom: Some(f.bin()),
             loom_sha256: Some(f.sha256()),
-            in_process: false,
             bindings: root.join("bindings"),
             protocols: root.join("protocols"),
             root_protocol: "sdc@8".into(),
             case: "IDEA-1".into(),
-            idea: root.join("idea.yaml"),
+            intake: "text: x\n".into(),
             confinement: Confinement::Local,
             settings: root.join("settings.json"),
             spend_ledger: root.join("ledger.json"),

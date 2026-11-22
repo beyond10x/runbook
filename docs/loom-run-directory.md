@@ -1,6 +1,6 @@
 # The run directory of a Loom run
 
-`runbook loom-run` writes one directory per run, `<runs-dir>/<name>/`. This page says which files in
+`runbook run` writes one directory per run, `<runs-dir>/<name>/`. This page says which files in
 it `sdc-experiment report` and `runbook parity summarize` read, where each value comes from in a Loom
 run, what a Loom run does not record, and which quality measures of
 `experiments/release-0.1.2/report.md` the directory can give. The writer is
@@ -95,7 +95,7 @@ A member with no source in a Loom run is absent (the file or the member), never 
 
 | member | why | measure of the report it affects |
 |---|---|---|
-| `defects.jsonl`, `status.json` `forced`, `unstuck`, `reopens`, `run-stopped.<at>.json` | `runbook loom-run` has no keep-going mode, no unstick and no reopen | `run.clean` is `closed` alone; the driver runs' `unstick` confound is absent; the clean-pass count is not the same test |
+| `defects.jsonl`, `status.json` `forced`, `unstuck`, `reopens`, `run-stopped.<at>.json` | `runbook run` has no keep-going mode, no unstick and no reopen | `run.clean` is `closed` alone; the driver runs' `unstick` confound is absent; the clean-pass count is not the same test |
 | `events.jsonl` `revised`, `authority_recorded` | Loom's run log has no such line | rework cause labels `decision:<action>` and `arrival:outside` read `unexplained` (Loops table, edge names); causes through `retry_of` are unaffected |
 | `action_finished` `not_called`, `refused.kind` | Loom has no not-called action and no run-own postcondition | `not_called` is 0; the cause `<kind>:refused` cannot occur |
 | start of an action | the run log has one line, at the finish | node `driver_s`, `loop_driver_s` and `loop_wall_s` come from the step's span: every action of one step has the same span (not the totals `driver_s` and `wall_s`) |
