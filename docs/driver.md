@@ -13,7 +13,8 @@ observed.
 - An LLM executor for the agent nodes (`tools/llm-node.sh`, see "LLM executor") behind a
   pluggable adapter: metaharness (default for a trial), `claude -p`, dry, or any program with the
   same contract. Model `claude-haiku-5-5`, a binding value. The stub stays the default, so
-  `scripts/run-full-cycle.sh` runs unchanged with no LLM.
+  `runbook test cycles/tree-suite.yaml` runs unchanged with no LLM (the script
+  `scripts/run-full-cycle.sh` that did so is deleted).
 - Closed: stops on `context.default` and `vision.write` (sdc.direction r3); a per-action tool
   timeout (`timeout_s`); a store lock; evidence and `action_finished` before the revision bump;
   atomic document writes and an appended log; caps on LLM calls (`run --max-llm-calls`, over the
@@ -21,7 +22,7 @@ observed.
   check sends the writer back, with the check's log as feedback), `handoff` (a writer that did
   what it may hands over to a person), `args_from` (epics and stories come from the planning store,
   not a fixed list), and `run` names the exact command when it waits on a person.
-- Verified 2026-11-21: `scripts/run-full-cycle.sh` exit 0, root `operating`, replay 8 of 8
+- Verified 2026-11-21: `scripts/run-full-cycle.sh` (since deleted) exit 0, root `operating`, replay 8 of 8
   match; `scripts/run-trial.sh --dry trial-dry` exit 0, 10 LLM commands printed and none run,
   replay 8 of 8 match; `check-protocols.sh`, `check-bindings.sh`, `evaluate-cases.sh` exit 0.
 - The trial itself: `docs/trial-1.md` (`runs/trial-todo-1/`: 3 real Haiku calls through
@@ -1262,6 +1263,10 @@ an approved vision (`va`), and an approved revision must not be rewritten; the o
 recorded the missing stop.
 
 ## Full-cycle run
+
+`scripts/run-full-cycle.sh` is deleted. A full cycle is run by `runbook test cycles/tree-suite.yaml
+--only stub-cycle --confinement local` (or `runbook run`); what follows is the record of the script's
+run.
 
 ```console
 $ scripts/run-full-cycle.sh full-cycle-1 ~/.cache/scratch/<session>/store-full-cycle-1

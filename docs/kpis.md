@@ -241,7 +241,7 @@ New section; nothing above is changed. Goal (the operator, 2026-11-21): fewer hu
 longer autonomous runs per task, measured on the late-finding loop of `docs/trial-2.md`.
 `driver/target/debug/sdc-finding-kpis <run dir> [--json]` (source `driver/src/bin/sdc-finding-kpis.rs`)
 prints L1 to L7 for one run. Every value is per task (one idea, one case tree). Sources are the run directory that
-`run-trial.sh` or `run-full-cycle.sh` writes: `store/IDEA-1/**/events.jsonl` (the driver's log,
+`run-trial.sh` writes (and `run-full-cycle.sh`, deleted, wrote): `store/IDEA-1/**/events.jsonl` (the driver's log,
 field names as written: `event`, `action`, `principal`, `artifacts`), `store/IDEA-1/work/`
 (`findings.yaml`, `questions.yaml`, `context.yaml`) and `rounds.jsonl` (written by
 `scripts/run-trial.sh`, one line per round).
