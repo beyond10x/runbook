@@ -6,8 +6,12 @@ fail-fast = false
 
 [scripts.setup.replay-runs]
 command = "sh tests/replay-runs.sh"
-slow-timeout = { period = "60s", terminate-after = 2 }
+slow-timeout = { period = "60s", terminate-after = 5 }
 
-[[profile.default.scripts]]
+[profile.replay]
+slow-timeout = { period = "30s", terminate-after = 2 }
+fail-fast = false
+
+[[profile.replay.scripts]]
 filter = "test(loom_run::replay::replay_) | test(loom_run::replay::rule_approvals) | test(loom_run::replay::review_mode) | test(loom_run::replay::implement_coverage)"
 setup = "replay-runs"

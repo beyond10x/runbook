@@ -1,5 +1,5 @@
 #!/bin/sh
-# Setup step of the replay tests (runbook/.config/nextest.toml, script `replay-runs`): makes the
+# Setup step of the slow lane `task test:replay` (runbook/.config/nextest.toml, profile `replay`, script `replay-runs`): makes the
 # runs of `runbook run --recorded` that tests/loom_run/replay.rs reads, once per test run and all at
 # once, so that no test makes a run of its own. A run is the stub cycle of about 70 Loom steps.
 # Run from runbook/ (cargo-nextest does). Needs driver/target/debug built.
@@ -17,7 +17,7 @@ for f in "$bin" "$drv/sdc-replay" "$drv/sdc-node"; do
     [ -x "$f" ] || { echo "replay-runs: $f is not built (cargo build --locked --bins in driver/)" >&2; exit 1; }
 done
 
-base=${RUNBOOK_REPLAY_WORK:-${XDG_CACHE_HOME:-$HOME/.cache}/runbook-replay-tests}
+base=${RUNBOOK_REPLAY_WORK:-${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests}
 mkdir -p "$base"
 find "$base" -maxdepth 1 -name 'run-*' -mmin +120 -exec rm -rf {} + 2>/dev/null
 work=$(mktemp -d "$base/run-XXXXXX") || exit 1

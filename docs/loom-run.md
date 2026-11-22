@@ -382,14 +382,20 @@ is no directory.
   launcher diverges identically on `in/tests.txt`, so this was a defect already present.
 
 The tests are in `runbook/tests/loom_run/replay.rs`. A re-drive takes about 70 Loom steps, so no
-test makes one: the cargo-nextest setup step `replay-runs` (`runbook/.config/nextest.toml`,
-`runbook/tests/replay-runs.sh`) makes the six runs once per test run, all at once, and the tests
-read them (`RUNBOOK_REPLAY_RUNS`); a test takes 0.04 s to 1.0 s. They need `driver/target/debug`
-built (`task test:runbook` builds it). A run is about 64 Loom rounds and 25 CPU seconds
-(measured 2026-11-22: the six together 150 CPU seconds, 88 s wall at host load 70 to 90, and
-over 180 s at load 100 to 127, where the 120 s of the setup step was not enough); the budget
-holds on a host with the cores free, and a run that stays over 120 s is a defect of the cost of a
-round, not of the tests.
+test makes one, and the nine tests that read a run are the slow lane `task test:replay`, not the
+default test step (they are `#[ignore]`d; the default `cargo nextest run` starts no setup step). The
+lane runs them with `--run-ignored only` on the nextest profile `replay`, whose setup step
+`replay-runs` (`runbook/.config/nextest.toml`, `runbook/tests/replay-runs.sh`) makes the six runs
+once, all at once, in `${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests` (cargo refuses
+a crate below the `[workspace]` of `runbook/`, so not under `target/`; runs older than 120 minutes
+are removed), and the tests read them (`RUNBOOK_REPLAY_RUNS`); a test takes 0.01 s to 0.05 s. The
+setup step may take 300 s, a test 60 s. The lane needs `driver/target/debug` built (the task builds
+it). A run is about 64 Loom rounds and 25 CPU seconds (measured 2026-11-22: the six together 150
+CPU seconds; setup 88 s wall at host load 70 to 90, 116 s at load 40 to 50 on a later run, and
+over 180 s at load 100 to 127). The tests that need no run stay in the default step: the option
+refusals (`runbook/tests/loom_run/flags.rs`), the settings and the reading of `diverged.json`
+(unit tests in `runbook/src/loom_run/replay.rs`), the clean recording, the indexer on the
+committed recording and the plan-only settings (`replay.rs` of the tests), each under 0.1 s.
 
 ### Fail closed
 

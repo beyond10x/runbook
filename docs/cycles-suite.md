@@ -74,7 +74,7 @@ not selected neither runs nor is counted.
   `writer-not-called` needs `replay-sibling`. `rule-approvals-default`, `review-mode-default` and
   `implement-coverage-default` read one shared re-drive (`switches-default`), which runs once for any
   of them (in the Rust tests of `runbook/tests/loom_run/replay.rs` they read the run of
-  `replay-unchanged`, made once by the setup step `replay-runs`). The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
+  `replay-unchanged`, made once by the setup step `replay-runs` of the slow lane `task test:replay`). The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
   `review-facts-once`, ...) run with it.
 - The verdict line says how many were selected, so that it is never taken for a full run:
   `cycles: selected 2 of 126, 2 as expected, 0 failed: none`, or with a pulled-in cycle
@@ -244,8 +244,8 @@ and `--on-divergence`. A `loom.tree-suite/1` cycle opens a tree and runs it; it 
 replay model calls from and no injected rejection, timeout or failed check. The ten replay entries
 (these nine and `replay-recording-clean`) are Rust tests of `runbook run --recorded`
 (`runbook/tests/loom_run/replay.rs`), not cycles of the file: six runs of the committed recording
-`driver/examples/sdc/fixtures/recorded/stub`, made once per test run by a setup step, read by the
-ten tests.
+`driver/examples/sdc/fixtures/recorded/stub`, made once per run of the slow lane `task test:replay` by its setup step, read by the nine
+tests that need a run (`#[ignore]`d in the default step; `replay-recording-clean` needs none and runs there).
 
 | entry | state | reason |
 |---|---|---|

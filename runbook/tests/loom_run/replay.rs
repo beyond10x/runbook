@@ -3,12 +3,15 @@
 //! it. Holds the ten replay entries of `cycles/suite.yaml` (`docs/cycles-suite.md` names the test of
 //! each). No model call, no network: the adapter is `sdc-replay`, which answers from the recording.
 //!
-//! A re-drive takes about 70 steps of Loom, so no test makes one: the setup step `replay-runs` of
-//! cargo-nextest (`runbook/.config/nextest.toml`, `runbook/tests/replay-runs.sh`) makes the six runs
-//! of the suite once per test run, all at once, in a directory outside the repository (cargo refuses
-//! the crate of a run below the product crate's `[workspace]`) and names it in `RUNBOOK_REPLAY_RUNS`;
-//! every test reads the run of its scenario. The options of a scenario are in the script. Needs
-//! `driver/target/debug` built (`sdc-node` and the other bound programs are there).
+//! A re-drive takes about 70 steps of Loom, so no test makes one: the nine tests that read a run are
+//! `#[ignore]`d and belong to the slow lane `task test:replay`, whose nextest profile `replay` has
+//! the setup step `replay-runs` (`runbook/.config/nextest.toml`, `runbook/tests/replay-runs.sh`). It
+//! makes the six runs of the suite once per test run, all at once, in
+//! `${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests` (cargo refuses the crate of a run
+//! below the product crate's `[workspace]`) and names it in `RUNBOOK_REPLAY_RUNS`; every test reads
+//! the run of its scenario. The options of a scenario are in the script. The tests that need no run
+//! (the recording is clean, its index, the plan-only settings) stay in the default step and need
+//! `driver/target/debug` built.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -69,7 +72,7 @@ fn read_json(path: &Path) -> Value {
 
 /// The run of scenario `name`, made by the setup step.
 fn run(name: &str) -> Run {
-    let runs = std::env::var_os("RUNBOOK_REPLAY_RUNS").map(PathBuf::from).expect("RUNBOOK_REPLAY_RUNS is not set: run this test with cargo-nextest, whose setup step `replay-runs` makes the runs");
+    let runs = std::env::var_os("RUNBOOK_REPLAY_RUNS").map(PathBuf::from).expect("RUNBOOK_REPLAY_RUNS is not set: run it in the slow lane `task test:replay`, whose setup step `replay-runs` makes the runs");
     let work = runs.join(name);
     let done = work.join("done.json");
     assert!(done.is_file(), "{} is missing: the setup step `replay-runs` did not finish scenario {name}", done.display());
@@ -90,6 +93,7 @@ fn defaults() -> Run {
 
 /// Suite entry `replay-unchanged`.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_unchanged_closes_operating_on_recorded_replies_only() {
     let r = run("unchanged");
     assert_eq!(r.code, 0, "{}", r.explain());
@@ -107,6 +111,7 @@ fn replay_unchanged_closes_operating_on_recorded_replies_only() {
 
 /// Suite entry `rule-approvals-default`.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn rule_approvals_default_is_off_and_every_decision_is_the_deciders() {
     let r = defaults();
     let status = r.json("status.json");
@@ -122,6 +127,7 @@ fn rule_approvals_default_is_off_and_every_decision_is_the_deciders() {
 /// Suite entry `review-mode-default`. The engine records no `review_mode` setting: the review
 /// calls' operations and turns are what the mode is.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn review_mode_default_reads_the_tree_with_list_read_and_search() {
     let r = defaults();
     let calls = r.calls();
@@ -136,6 +142,7 @@ fn review_mode_default_reads_the_tree_with_list_read_and_search() {
 
 /// Suite entry `implement-coverage-default`.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn implement_coverage_default_is_off() {
     let r = defaults();
     let calls = r.calls();
@@ -159,6 +166,7 @@ fn implement_coverage_default_is_off() {
 /// Suite entry `replay-reject-stop`. The old driver exited 9; 9 is `Denied` here, so a diverged
 /// recording is exit 10.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_reject_stop_ends_recording_diverged_when_the_rework_asks_a_call_the_source_never_made() {
     let r = run("reject-stop");
     assert_eq!(r.code, 11, "{}", r.explain());
@@ -176,6 +184,7 @@ fn replay_reject_stop_ends_recording_diverged_when_the_rework_asks_a_call_the_so
 /// Suite entry `replay-reject-nearest`. The old driver ended `writer_spent` (exit 4): under Loom
 /// the tree is stuck (exit 3) when the writer's runs are spent.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuck() {
     let r = run("reject-nearest");
     assert_eq!(r.code, 3, "{}", r.explain());
@@ -194,6 +203,7 @@ fn replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuc
 /// binding of `change.implement` has no result for exit 124, Loom refuses it (`ResultNotInTable`)
 /// and the tree stops stuck. `docs/loom-run.md` names it.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_timeout_kills_the_call_on_the_virtual_clock_and_the_tree_stops_on_the_unknown_result() {
     let r = run("timeout");
     assert_eq!(r.code, 3, "{}", r.explain());
@@ -209,6 +219,7 @@ fn replay_timeout_kills_the_call_on_the_virtual_clock_and_the_tree_stops_on_the_
 
 /// Suite entry `replay-live-dry`.
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_live_dry_makes_one_unpaid_live_call_and_stops_at_the_cap() {
     let r = run("live-dry");
     assert_eq!(r.code, 11, "{}", r.explain());
@@ -224,6 +235,7 @@ fn replay_live_dry_makes_one_unpaid_live_call_and_stops_at_the_cap() {
 
 /// Suite entry `replay-check-fail`. The old driver ended `writer_spent` (exit 4): stuck (exit 3).
 #[test]
+#[ignore = "slow lane: task test:replay"]
 fn replay_check_fail_fails_tests_run_once_and_the_writer_is_spent_at_the_condition() {
     let r = run("check-fail");
     assert_eq!(r.code, 3, "{}", r.explain());
@@ -250,4 +262,49 @@ fn replay_recording_clean_holds_no_home_path_prompt_or_transcript() {
         assert!(!String::from_utf8_lossy(&text).contains("/home/"), "{} names a home directory", f.display());
     }
     assert_eq!(read_json(&recording().join("recording.json"))["format"], "sdc.recording/1");
+}
+
+/// Runs a subcommand of `sdc-replay` (built in `driver/target/debug`) and returns its JSON output.
+fn replay_helper(args: &[&str]) -> Value {
+    let bin = repo().join("driver/target/debug/sdc-replay");
+    assert!(bin.is_file(), "{} is not built (cargo build --locked --bins in driver/)", bin.display());
+    let out = std::process::Command::new(&bin).args(args).stdin(std::process::Stdio::null()).output().unwrap();
+    assert!(out.status.success(), "sdc-replay {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+/// The indexer on the committed recording: one entry per recorded call, each with a key that no
+/// other has. No run.
+#[test]
+fn replay_index_lists_every_recorded_call_under_its_own_key() {
+    let source = recording();
+    let index = replay_helper(&["index", source.to_str().unwrap()]);
+    let calls = read_json(&source.join("recording.json"))["calls"].as_array().unwrap().len();
+    let index = index.as_array().unwrap();
+    assert_eq!(index.len(), calls);
+    let mut keys = std::collections::BTreeSet::new();
+    for c in index {
+        let key: Vec<String> = ["kind", "case", "name", "arrival", "try", "attempt"].iter().map(|k| c[*k].to_string()).collect();
+        assert!(c["arrival"].as_u64() >= Some(1) && c["try"].as_u64() >= Some(1), "{c}");
+        assert!(keys.insert(key.clone()), "two calls have the key {key:?}");
+    }
+    assert!(index.iter().any(|c| c["kind"] == "work") && index.iter().any(|c| c["kind"] == "decider"));
+}
+
+/// The settings of a re-drive come from the plan alone: the plan of the committed recording names
+/// its autonomy, its decider on the adapter of the re-drive and the model nodes it called, and
+/// `--plan-only` writes nothing. No run.
+#[test]
+fn replay_plan_only_makes_the_settings_of_the_re_drive_and_writes_nothing() {
+    let source = recording();
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("replay-plan-only-unwritten");
+    let plan = replay_helper(&["prepare", "--source", source.to_str().unwrap(), "--out", out.to_str().unwrap(), "--tree", repo().to_str().unwrap(), "--plan-only"]);
+    assert!(!out.exists(), "--plan-only wrote {}", out.display());
+    let settings = &plan["settings"];
+    assert_eq!(settings["autonomy"], "A5");
+    assert_eq!(settings["decider"]["kind"], "model");
+    assert_eq!(settings["decider"]["without_claims"], true);
+    assert_eq!(settings["decider"]["adapter"], settings["replay"]["adapter"]);
+    let nodes: Vec<&str> = settings["replay"]["nodes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+    assert!(nodes.contains(&"change.implement") && nodes.contains(&"idea.dissect"), "{nodes:?}");
 }
