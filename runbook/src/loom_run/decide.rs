@@ -6,6 +6,7 @@ use std::path::Path;
 
 /// What the decider is given for one entry of `decisions[]`.
 #[derive(Debug)]
+#[allow(dead_code)] // the fields are read by the deciders of `decider.rs`, built by unit R2
 pub struct DecisionRequest<'a> {
     /// The entry of `decisions[]`, unchanged (case, capability, action, kind, path, revision,
     /// subject, command, decides).
@@ -53,6 +54,16 @@ impl Decider for RefusingDecider {
     }
 }
 
+/// The scripted decider when the settings ask for it (`decider.kind == "scripted"`), else `None`.
+/// The loop asks this first, then `decider::from_settings`.
+pub fn scripted_from_settings(settings: &Value) -> Option<Result<Box<dyn Decider>, String>> {
+    let d = settings.get("decider")?;
+    if d.get("kind").and_then(Value::as_str) != Some("scripted") {
+        return None;
+    }
+    Some(ScriptedDecider::from_value(d).map(|s| Box::new(s) as Box<dyn Decider>))
+}
+
 /// A test double: answers from a list in order, then cannot decide. Selected by the settings
 /// (`"decider": {"kind": "scripted", "answers": [...]}`, see `docs/loom-run.md`).
 pub struct ScriptedDecider {
@@ -68,8 +79,24 @@ impl ScriptedDecider {
 
     /// Reads `{"kind": "scripted", "max_call_micro_usd": n, "answers": [{"approve": true,
     /// "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0} | {"cannot_decide": "reason"}]}`.
-    pub fn from_value(_decider: &Value) -> Result<Self, String> {
-        Err(crate::loom_run::not_built("scripted decider"))
+    pub fn from_value(decider: &Value) -> Result<Self, String> {
+        let max_call = decider.get("max_call_micro_usd").and_then(Value::as_u64).unwrap_or(0);
+        let list = decider.get("answers").and_then(Value::as_array).ok_or("decider.answers is not a list")?;
+        let mut answers = Vec::new();
+        for a in list {
+            if let Some(reason) = a.get("cannot_decide").and_then(Value::as_str) {
+                answers.push(Verdict::CannotDecide { reason: reason.to_owned() });
+                continue;
+            }
+            let approve = a.get("approve").and_then(Value::as_bool).ok_or("a scripted answer has no approve")?;
+            answers.push(Verdict::Answer {
+                approve,
+                principal: a.get("principal").and_then(Value::as_str).map(str::to_owned),
+                cost_micro_usd: a.get("cost_micro_usd").and_then(Value::as_u64),
+                model_calls: a.get("model_calls").and_then(Value::as_u64).unwrap_or(0),
+            });
+        }
+        Ok(ScriptedDecider::new(answers, max_call))
     }
 }
 

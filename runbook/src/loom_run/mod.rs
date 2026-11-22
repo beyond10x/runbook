@@ -114,6 +114,8 @@ pub const EXIT_LLM_CALLS: u8 = 6;
 pub const EXIT_SIGNAL: u8 = 7;
 /// Exit code: the decider could not decide.
 pub const EXIT_DECIDER: u8 = 8;
+/// Exit code: the decider denied a decision and the tree stopped on it again.
+pub const EXIT_DENIED: u8 = 9;
 
 /// How a run ended; the `outcome` of `outcome.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,6 +136,11 @@ pub enum Outcome {
     StoppedDecider { reason: String },
     /// Anything that failed closed.
     Error { reason: String },
+    /// A `b10x-loom` call failed (an exit code the runner does not know, or a printed command that
+    /// failed): outcome `error`, with the exit code and the tail of standard error.
+    LoomFailed { reason: String, exit: Option<i32>, stderr_tail: String },
+    /// The decider denied a decision and the tree stopped on the same decision again.
+    Denied { action: String },
 }
 
 impl Outcome {
@@ -148,13 +155,16 @@ impl Outcome {
             Outcome::StoppedSignal => "stopped: signal",
             Outcome::StoppedDecider { .. } => "stopped: decider",
             Outcome::Error { .. } => "error",
+            Outcome::LoomFailed { .. } => "error",
+            Outcome::Denied { .. } => "denied",
         }
     }
 
     /// The reason text of the outcome, when it has one.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            Outcome::StoppedDecider { reason } | Outcome::Error { reason } => Some(reason),
+            Outcome::StoppedDecider { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } => Some(reason),
+            Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
             _ => None,
         }
@@ -170,7 +180,8 @@ impl Outcome {
             Outcome::StoppedLlmCalls => EXIT_LLM_CALLS,
             Outcome::StoppedSignal => EXIT_SIGNAL,
             Outcome::StoppedDecider { .. } => EXIT_DECIDER,
-            Outcome::Error { .. } => EXIT_ERROR,
+            Outcome::Error { .. } | Outcome::LoomFailed { .. } => EXIT_ERROR,
+            Outcome::Denied { .. } => EXIT_DENIED,
         }
     }
 }
