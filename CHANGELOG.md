@@ -11,6 +11,8 @@ bare-version tags (`docs/releasing.md`).
 
 - `runbook check` reads the text of a checkout and prints one finding per line, with the file and the fix: the text layout, the two forms of bindings (they parse, name the same existing instruction files per action and run executable tools), the placeholders of the instruction files, the view files, and `cycles/suite.yaml` against the arrays of `scripts/run-finding-cycles.sh`; it exits 1 on any finding and has `--json`. `task check:cycles-suite` runs it instead of its shell, and `CYCLES_SUITE` is replaced by `RUNBOOK_HOME` (`story:runbook-check-of-the-text-layout`).
 
+- `runbook parity summarize|compare|approvals` reads a finished run of the old driver into a runtime-neutral summary (`runbook.parity-summary/1`), compares two summaries by a table of rules (`compare --rules`) and lists the person steps a second runtime must repeat; it is the driver's half of the comparison with a run under Loom (`story:parity-run-on-loom`, `docs/parity.md`).
+
 ### Changed
 
 - `runbook doctor` checks the text layout by name (`bindings/`, `bindings/*.yaml`, `bindings/tools/`, `instructions/`, `views/`, `cycles/` beside the earlier directories) and the four tools at `bindings/tools/`, and cites no line numbers; `runbook --version` prints the repository version (0.3.0, not 0.1.4) and `task release:check` reads `runbook/Cargo.toml` (`story:runbook-command-knows-the-text-layout`).

@@ -744,3 +744,473 @@ fn check_does_not_compare_an_unlisted_cycle_with_the_script() {
     assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
     assert!(stdout(&o).contains("note: 1 cycles of cycles/suite.yaml are unlisted"), "{}", stdout(&o));
 }
+
+// ---- runbook parity: synthetic stores of the old driver, written by the test itself
+
+use serde_json::{json, Value};
+
+#[derive(Clone)]
+struct Knobs {
+    prefix: &'static str,
+    rev: &'static str,
+    second_rev: &'static str,
+    check_result: &'static str,
+    swap: bool,
+    drop_b_check: bool,
+    extra_file: bool,
+    file_a: String,
+    answer: &'static str,
+}
+
+fn base() -> Knobs {
+    Knobs {
+        prefix: "R1",
+        rev: "tD1",
+        second_rev: "tD1",
+        check_result: "passed",
+        swap: false,
+        drop_b_check: false,
+        extra_file: false,
+        file_a: "hello".into(),
+        answer: "approved",
+    }
+}
+
+struct Synth {
+    root: PathBuf,
+}
+
+impl Synth {
+    fn new(tag: &str) -> Synth {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("parity-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        Synth { root }
+    }
+
+    fn put(&self, rel: &str, text: &str) {
+        let p = self.root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    }
+
+    fn put_json(&self, rel: &str, v: &Value) {
+        self.put(rel, &serde_json::to_string(v).unwrap());
+    }
+
+    fn put_events(&self, rel: &str, events: &[Value]) {
+        let lines: Vec<String> = events
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let mut e = e.clone();
+                e["seq"] = json!(i);
+                e["at"] = e.get("at").cloned().unwrap_or(json!("2026-11-20T12:00:00Z"));
+                serde_json::to_string(&e).unwrap()
+            })
+            .collect();
+        self.put(rel, &(lines.join("\n") + "\n"));
+    }
+
+    /// A finished run of the old driver in two cases: the root `<p>` and its child `<p>.direction`.
+    fn driver_run(&self, k: &Knobs) -> (PathBuf, PathBuf) {
+        let _ = std::fs::remove_dir_all(self.root.join("store"));
+        let (p, c) = (k.prefix, format!("{}.direction", k.prefix));
+        let r = format!("store/{p}");
+        let d = format!("{r}/children/{c}");
+        self.put(
+            "run/run-settings.jsonl",
+            r#"{"format":"sdc.run-settings/1","at":"2026-11-20T12:00:00Z","decider":{"kind":"person"},"adapter":"stub","stand_in":true,"stand_in_principal":"person:stand-in"}"#,
+        );
+        // the child: direction
+        self.put_json(
+            &format!("{d}/case.json"),
+            &json!({"id": c, "protocol": "sdc.direction", "revision": "c4", "termination": "passed", "artifacts": {"doc": {"revision": k.rev}}}),
+        );
+        self.put_json(&format!("{d}/ir.json"), &json!({"actions": {"roadmap.approve": {"requires": [{"capability": "owner.approve"}]}}}));
+        self.put_json(&format!("{d}/evaluations/0001.json"), &json!({"obligations": [{"id": "x.required", "status": "discharged"}]}));
+        let a = json!({"format": "canon-evidence/1", "id": "e0002-check.run.a_check", "kind": "a_check", "subject": "doc",
+            "subject_revision": k.rev, "result": k.check_result, "producer": "p"});
+        let b = json!({"format": "canon-evidence/1", "id": "e0002-check.run.b_check", "kind": "b_check", "subject": "doc",
+            "subject_revision": k.second_rev, "result": "passed", "upstream_revisions": {"doc": k.rev}});
+        let ap = json!({"format": "canon-evidence/1", "id": "e0009-roadmap.approve", "kind": "roadmap_approval", "subject": "roadmap",
+            "subject_revision": "tR1", "result": k.answer, "producer": "person:stand-in"});
+        self.put_json(&format!("{d}/evidence/e0002-check.run.a_check.json"), &a);
+        let mut ids = vec!["e0002-check.run.a_check"];
+        if !k.drop_b_check {
+            self.put_json(&format!("{d}/evidence/e0002-check.run.b_check.json"), &b);
+            ids.push("e0002-check.run.b_check");
+        }
+        self.put_json(&format!("{d}/evidence/e0009-roadmap.approve.json"), &ap);
+        if k.swap {
+            ids.reverse();
+        }
+        self.put_events(
+            &format!("{d}/events.jsonl"),
+            &[
+                json!({"event": "opened", "protocol": {"id": "sdc.direction", "revision": 2}, "ir": "irdigest-direction"}),
+                json!({"event": "action_started", "action": "check.run", "argv": ["sh"], "retry_of": []}),
+                json!({"event": "action_finished", "action": "check.run", "exit": "1", "evidence": [], "principal": null}),
+                json!({"event": "action_started", "action": "check.run", "argv": ["sh"], "retry_of": ["a_check"]}),
+                json!({"event": "action_finished", "action": "check.run", "exit": "0", "evidence": ids, "principal": null}),
+                json!({"event": "action_started", "action": "roadmap.approve", "argv": ["true"], "retry_of": []}),
+                json!({"event": "action_finished", "action": "roadmap.approve", "exit": "0", "evidence": ["e0009-roadmap.approve"],
+                    "principal": "person:stand-in", "at": "2026-11-20T12:03:00Z"}),
+            ],
+        );
+        // the root
+        self.put_json(
+            &format!("{r}/case.json"),
+            &json!({"id": p, "protocol": "sdc", "revision": "c2", "termination": "operating", "artifacts": {"idea": {"revision": "tI1"}}}),
+        );
+        self.put_json(&format!("{r}/ir.json"), &json!({"actions": {"final.approve": {"requires": [{"capability": "release.approve"}]}}}));
+        self.put_json(&format!("{r}/evaluations/0001.json"), &json!({"obligations": [{"id": "direction.required", "status": "open"}]}));
+        self.put_json(
+            &format!("{r}/evidence/e0003-direction.open.direction.json"),
+            &json!({"format": "canon-evidence/1", "id": "e0003-direction.open.direction", "kind": "case_outcome", "subject": "idea",
+                "subject_revision": "tI1", "child_case": c, "result": "passed"}),
+        );
+        self.put_json(
+            &format!("{r}/evidence/e0003-direction.open.json"),
+            &json!({"format": "canon-evidence/1", "id": "e0003-direction.open", "kind": "direction_opened", "subject": "idea", "subject_revision": "tI1"}),
+        );
+        self.put_json(&format!("{r}/evidence/e0009-roadmap.approve.json"), &ap);
+        self.put_json(
+            &format!("{r}/evidence/e0012-final.approve.json"),
+            &json!({"format": "canon-evidence/1", "id": "e0012-final.approve", "kind": "final_approval", "subject": "idea",
+                "subject_revision": "tI1", "result": "approved"}),
+        );
+        self.put_events(
+            &format!("{r}/events.jsonl"),
+            &[
+                json!({"event": "opened", "protocol": {"id": "sdc", "revision": 4}, "ir": "irdigest-root"}),
+                json!({"event": "action_started", "action": "direction.open", "argv": [], "retry_of": []}),
+                json!({"event": "child_opened", "child_case": c, "evidence": "e0003-direction.open.direction"}),
+                json!({"event": "action_finished", "action": "direction.open", "exit": "0", "evidence": ["e0003-direction.open"], "principal": null}),
+                json!({"event": "action_started", "action": "roadmap.read", "copy": {"kind": "roadmap_approval", "from": "sdc.direction"}}),
+                json!({"event": "action_finished", "action": "roadmap.read", "exit": "0", "evidence": ["e0009-roadmap.approve"], "principal": null}),
+                json!({"event": "action_started", "action": "final.approve", "argv": ["true"], "retry_of": []}),
+                json!({"event": "action_finished", "action": "final.approve", "exit": "0", "evidence": ["e0012-final.approve"],
+                    "principal": "person:stand-in", "at": "2026-11-20T12:05:00Z"}),
+                json!({"event": "authority_recorded", "capability": "publish.approve", "decision": "granted", "principal": "person:stand-in",
+                    "at": "2026-11-20T12:06:00Z"}),
+                json!({"event": "evaluated"}),
+                json!({"event": "action_started", "action": "release.publish", "argv": [], "retry_of": []}),
+                json!({"event": "action_finished", "action": "release.publish", "exit": "0", "evidence": [], "principal": null}),
+            ],
+        );
+        // the product
+        self.put(&format!("{r}/work/a.txt"), &k.file_a);
+        self.put(&format!("{r}/work/sub/b.txt"), "b");
+        for excluded in ["target/x.o", "node_modules/y.js", ".git/z", "sub/target/q", ".aep-planning-writer-0f.lock"] {
+            self.put(&format!("{r}/work/{excluded}"), "left out");
+        }
+        if k.extra_file {
+            self.put(&format!("{r}/work/extra.txt"), "extra");
+        }
+        (self.root.join("run"), self.root.join("store"))
+    }
+
+    fn summary(&self, name: &str, k: &Knobs) -> PathBuf {
+        let (run, store) = self.driver_run(k);
+        let out = self.root.join(name);
+        let o = Command::new(BIN)
+            .args(["parity", "summarize", "--driver"])
+            .arg(&run)
+            .arg("--store")
+            .arg(&store)
+            .arg("--output")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+        out
+    }
+}
+
+impl Drop for Synth {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn parity(args: &[&str]) -> Output {
+    Command::new(BIN).arg("parity").args(args).output().unwrap()
+}
+
+fn path_str(p: &Path) -> &str {
+    p.to_str().unwrap()
+}
+
+fn read_summary(p: &Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()
+}
+
+/// `compare` of the base against a variant: (exit code, output lines).
+fn compare_with(tag: &str, k: Knobs, extra: &[&str]) -> (i32, Vec<String>) {
+    let s = Synth::new(tag);
+    let a = s.summary("a.json", &base());
+    let b = s.summary("b.json", &k);
+    let mut args = vec!["compare"];
+    args.extend(extra);
+    args.extend([path_str(&a), path_str(&b)]);
+    let o = parity(&args);
+    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+}
+
+#[test]
+fn parity_summarize_reads_a_two_case_store() {
+    let s = Synth::new("summarize");
+    let f = s.summary("a.json", &base());
+    let text = std::fs::read_to_string(&f).unwrap();
+    assert!(!text.contains(env!("CARGO_TARGET_TMPDIR")), "an absolute path in the summary");
+    assert!(!text.contains("2026-11-20"), "a time in the summary");
+    let v = read_summary(&f);
+    assert_eq!(v["format"], "runbook.parity-summary/1");
+    assert_eq!(v["source"]["run_settings"]["stand_in_principal"], "person:stand-in");
+    let cases = v["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 2);
+    let (root, child) = (&cases[0], &cases[1]);
+    assert_eq!((root["id"].as_str(), root["link"].as_str(), root["parent"].as_str()), (Some("R1"), None, None));
+    assert_eq!(
+        (child["id"].as_str(), child["link"].as_str(), child["parent"].as_str()),
+        (Some("R1.direction"), Some("direction"), Some("R1"))
+    );
+    assert_eq!(
+        (root["protocol"].as_str(), root["protocol_revision"].as_i64(), root["outcome"].as_str()),
+        (Some("sdc"), Some(4), Some("operating"))
+    );
+    assert_eq!(root["open_obligations"], json!(["direction.required"]));
+    assert_eq!(child["open_obligations"], json!([]));
+    assert_eq!(child["stop"], Value::Null);
+    let ev = |c: &Value| -> Vec<String> {
+        c["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| format!("{} {} {}", e["index"], e["kind"].as_str().unwrap(), e["action"].as_str().unwrap_or("-")))
+            .collect()
+    };
+    assert_eq!(
+        ev(root),
+        ["0 case_outcome direction.open", "1 direction_opened direction.open", "2 roadmap_approval roadmap.read", "3 final_approval final.approve"]
+    );
+    assert_eq!(ev(child), ["0 a_check check.run", "1 b_check check.run", "2 roadmap_approval roadmap.approve"]);
+    assert_eq!(child["evidence"][1]["upstream_revisions"], json!({"doc": "tD1"}));
+    assert_eq!(child["evidence"][0]["result"], "passed");
+    assert_eq!(root["evidence"][1]["result"], Value::Null);
+    assert_eq!(
+        child["program_runs"],
+        json!([{"action": "check.run", "attempt": 1, "exit": 1, "retry_followed": true},
+               {"action": "check.run", "attempt": 2, "exit": 0, "retry_followed": false}])
+    );
+    assert_eq!(root["program_runs"], json!([]));
+    assert_eq!(
+        child["person_steps"],
+        json!([{"order": 0, "action": "roadmap.approve", "answer": "approved", "actor": "person:stand-in", "capability": "owner.approve"}])
+    );
+    assert_eq!(
+        root["person_steps"],
+        json!([{"order": 1, "action": "final.approve", "answer": "approved", "actor": "person:stand-in", "capability": "release.approve"},
+               {"order": 2, "action": null, "answer": "granted", "actor": "person:stand-in", "capability": "publish.approve"}])
+    );
+    assert_eq!(
+        v["copies"],
+        json!([{"action": "roadmap.read", "kind": "roadmap_approval", "from_protocol": "sdc.direction", "from": "R1.direction", "to": "R1",
+                "subject": "roadmap", "subject_revision": "tR1"}])
+    );
+    assert_eq!(v["decision_requests"], json!([]));
+    assert_eq!(v["not_recorded"], json!(["decision_requests[].question", "decision_requests[].options"]));
+    assert_eq!(
+        v["protocols"],
+        json!([{"id": "sdc", "revision": 4, "digest": "irdigest-root"}, {"id": "sdc.direction", "revision": 2, "digest": "irdigest-direction"}])
+    );
+    let files: Vec<&str> = v["product_tree"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect();
+    assert_eq!(files, ["a.txt", "sub/b.txt"]);
+}
+
+#[test]
+fn parity_summarize_prints_to_stdout_without_output_and_refuses_a_missing_store() {
+    let s = Synth::new("stdout");
+    let (run, store) = s.driver_run(&base());
+    let o = parity(&["summarize", "--driver", path_str(&run), "--store", path_str(&store)]);
+    assert_eq!(o.status.code(), Some(0));
+    let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(v["format"], "runbook.parity-summary/1");
+    let o = parity(&["summarize", "--driver", path_str(&run), "--store", path_str(&s.root.join("nothing"))]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("nothing"));
+}
+
+#[test]
+fn parity_summary_digests_are_sha256() {
+    let s = Synth::new("sha");
+    let mut k = base();
+    k.file_a = "abc".into();
+    let v = read_summary(&s.summary("a.json", &k));
+    assert_eq!(v["product_tree"][0]["sha256"], "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    k.file_a = "a".repeat(1_000_000);
+    let v = read_summary(&s.summary("b.json", &k));
+    assert_eq!(v["product_tree"][0]["sha256"], "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
+#[test]
+fn parity_compare_of_equal_summaries_prints_one_line_and_exits_0() {
+    let (code, lines) = compare_with("equal", base(), &["--product-digests"]);
+    assert_eq!(code, 0, "{lines:?}");
+    assert_eq!(lines, ["equal: 2 cases, 7 evidence records, 2 program runs, 3 person steps, 2 product files"]);
+}
+
+#[test]
+fn parity_compare_names_generated_values_by_pattern_not_by_value() {
+    let mut k = base();
+    k.prefix = "Q9";
+    k.rev = "tZZ";
+    k.second_rev = "tZZ";
+    let (code, lines) = compare_with("renamed", k, &["--product-digests"]);
+    assert_eq!((code, lines.len()), (0, 1), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_detects_another_result() {
+    let mut k = base();
+    k.check_result = "failed";
+    let (code, lines) = compare_with("result", k, &[]);
+    assert_eq!(code, 1);
+    assert_eq!(lines, [r#"cases[1].evidence[0].result: a="passed" b="failed""#]);
+}
+
+#[test]
+fn parity_compare_detects_another_order() {
+    let mut k = base();
+    k.swap = true;
+    let (code, lines) = compare_with("order", k, &[]);
+    assert_eq!(code, 1);
+    assert!(lines.contains(&r#"cases[1].evidence[0].kind: a="a_check" b="b_check""#.to_string()), "{lines:?}");
+    assert!(lines.contains(&r#"cases[1].evidence[1].kind: a="b_check" b="a_check""#.to_string()), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_detects_a_missing_record() {
+    let mut k = base();
+    k.drop_b_check = true;
+    let (code, lines) = compare_with("missing", k, &[]);
+    assert_eq!(code, 1);
+    assert!(lines.iter().any(|l| l.starts_with("cases[1].evidence[2]: a={") && l.ends_with("b=(absent)")), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_detects_another_revision_pattern() {
+    let mut k = base();
+    k.second_rev = "tD2";
+    let (code, lines) = compare_with("pattern", k, &[]);
+    assert_eq!(code, 1);
+    assert!(lines.contains(&r#"cases[1].evidence[1].subject_revision: a="r3" b="r4""#.to_string()), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_detects_another_product_file() {
+    let mut k = base();
+    k.extra_file = true;
+    let (code, lines) = compare_with("file", k, &[]);
+    assert_eq!(code, 1);
+    assert_eq!(lines, ["product_tree[extra.txt]: a=(absent) b=present"]);
+}
+
+#[test]
+fn parity_compare_reads_file_digests_only_with_the_flag() {
+    let mut k = base();
+    k.file_a = "another".into();
+    let (code, lines) = compare_with("digest-off", k.clone(), &[]);
+    assert_eq!((code, lines.len()), (0, 1), "{lines:?}");
+    let (code, lines) = compare_with("digest-on", k, &["--product-digests"]);
+    assert_eq!(code, 1);
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].starts_with("product_tree[a.txt].sha256: a="), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_reads_a_wall_clock_stamp_in_a_product_file_as_no_difference() {
+    let s = Synth::new("stamp");
+    let mut k = base();
+    k.file_a = "moved at: 2026-11-22T01:55:36Z by x".into();
+    let a = s.summary("a.json", &k);
+    k.file_a = "moved at: 2026-11-22T02:02:10Z by x".into();
+    let b = s.summary("b.json", &k);
+    let o = parity(&["compare", "--product-digests", path_str(&a), path_str(&b)]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    k.file_a = "moved at: 2026-11-22T02:02:10Z by y".into();
+    let c = s.summary("c.json", &k);
+    let o = parity(&["compare", "--product-digests", path_str(&a), path_str(&c)]);
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+}
+
+#[test]
+fn parity_compare_detects_another_person_answer() {
+    let mut k = base();
+    k.answer = "rejected";
+    let (code, lines) = compare_with("answer", k, &[]);
+    assert_eq!(code, 1);
+    assert!(lines.contains(&r#"cases[1].person_steps[0].answer: a="approved" b="rejected""#.to_string()), "{lines:?}");
+}
+
+#[test]
+fn parity_compare_refuses_what_is_no_summary() {
+    let s = Synth::new("refuse");
+    s.put("x.json", r#"{"format": "other/1"}"#);
+    let x = s.root.join("x.json");
+    let o = parity(&["compare", path_str(&x), path_str(&x)]);
+    assert_eq!(o.status.code(), Some(2));
+}
+
+#[test]
+fn parity_rules_table_covers_every_member_of_a_summary() {
+    fn paths(tpl: &str, v: &Value, out: &mut std::collections::BTreeSet<String>) {
+        match v {
+            Value::Object(m) => m.iter().for_each(|(k, x)| {
+                let t = if tpl.is_empty() {
+                    k.clone()
+                } else if tpl.ends_with("upstream_revisions") {
+                    format!("{tpl}.*")
+                } else {
+                    format!("{tpl}.{k}")
+                };
+                paths(&t, x, out)
+            }),
+            Value::Array(l) => l.iter().for_each(|x| paths(&format!("{tpl}[]"), x, out)),
+            _ => {
+                out.insert(tpl.to_string());
+            }
+        }
+    }
+    let o = parity(&["compare", "--rules"]);
+    assert_eq!(o.status.code(), Some(0));
+    let table = stdout(&o);
+    let rows: Vec<&str> = table.lines().skip(1).filter_map(|l| l.split(" | ").next()).collect();
+    assert!(table.contains("source | never compared") && table.contains("product_tree[].sha256 | equal by value only with --product-digests"));
+    let s = Synth::new("rules");
+    let mut have = std::collections::BTreeSet::new();
+    paths("", &read_summary(&s.summary("a.json", &base())), &mut have);
+    assert!(have.contains("cases[].evidence[].upstream_revisions.*"));
+    for m in &have {
+        let covered = rows.contains(&m.as_str()) || ["source.", "not_recorded[]"].iter().any(|p| m.starts_with(p));
+        assert!(covered, "member {m} has no row in the rules table");
+    }
+}
+
+#[test]
+fn parity_approvals_lists_the_person_steps_in_order() {
+    let s = Synth::new("approvals");
+    let a = s.summary("a.json", &base());
+    let o = parity(&["approvals", path_str(&a)]);
+    assert_eq!(o.status.code(), Some(0));
+    let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(
+        v,
+        json!([
+            {"path": "direction", "case": "direction", "action": "roadmap.approve", "capability": "owner.approve", "answer": "approved", "actor": "person:stand-in"},
+            {"path": ".", "case": null, "action": "final.approve", "capability": "release.approve", "answer": "approved", "actor": "person:stand-in"},
+            {"path": ".", "case": null, "action": null, "capability": "publish.approve", "answer": "granted", "actor": "person:stand-in"}
+        ])
+    );
+}
