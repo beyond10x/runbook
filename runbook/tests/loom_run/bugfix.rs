@@ -410,7 +410,7 @@ fn check_real_run(scratch: &Path, name: &str, console: &str) {
 }
 
 #[test]
-#[ignore = "slow lane: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the real cycle, no model call"]
+#[ignore = "slow lane `task test:bugfix-slow`: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the real cycle, no model call"]
 fn bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused() {
     let scratch = real_scratch("stub");
     let started = std::time::Instant::now();
@@ -444,7 +444,7 @@ fn fix_prompt(run: &Path) -> Option<String> {
 }
 
 #[test]
-#[ignore = "slow lane: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the real cycle on the adapter dry, no model call"]
+#[ignore = "slow lane `task test:bugfix-slow`: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the real cycle on the adapter dry, no model call"]
 fn bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints() {
     let scratch = real_scratch("dry");
     // the effort of a class is on the dry command of its nodes (`efforts` of `cycles/suite.yaml`): the

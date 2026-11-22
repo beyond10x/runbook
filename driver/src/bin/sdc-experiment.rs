@@ -452,7 +452,7 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
     Some(match key {
         "implement_mode" | "review_mode" | "implement_coverage" | "rule_approvals" =>
             "it is a switch of the old driver and Loom's bindings carry no such switch",
-        k if k.starts_with("efforts.") => "no argument of bindings/tools/llm-node.sh carries an effort in Loom mode, so the class defaults of tools/node-classes.json apply",
+        k if k.starts_with("efforts.") => "the record format does not carry an effort to the runner yet (the runner takes `efforts` in its settings), so the class defaults of tools/node-classes.json apply",
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
         _ => return None,
     })
