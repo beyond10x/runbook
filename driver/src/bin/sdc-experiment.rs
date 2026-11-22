@@ -433,7 +433,7 @@ const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
 /// `loom` settings that are optional: the path of the login file the model adapter reads, the way
 /// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
 /// deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 9] = ["loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+const OPTIONAL_LOOM: [&str; 10] = ["conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
     "decider.adapter", "adapter", "review.adapter"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
@@ -449,7 +449,7 @@ const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry
 /// Why a setting of the old driver is refused for a `loom` variant, or `None` when it is no
 /// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
 fn loom_refusal(key: &str) -> Option<&'static str> {
-    if let Some(why) = port_dry(key).or_else(|| port_recorded(key)).or_else(|| port_conformance(key)) {
+    if let Some(why) = port_dry(key).or_else(|| port_recorded(key)) {
         return Some(why);
     }
     Some(match key {
@@ -472,13 +472,6 @@ fn port_dry(key: &str) -> Option<&'static str> {
 // port: recorded
 fn port_recorded(key: &str) -> Option<&'static str> {
     (key == "flags.recorded").then_some("`runbook run` has no --recorded or other replay flag yet")
-}
-
-/// The refusal of `conformance` until `runbook run` has the observation; the port removes this
-/// function.
-// port: conformance
-fn port_conformance(key: &str) -> Option<&'static str> {
-    (key == "conformance").then_some("`runbook run` does not observe the product against the spec's suite yet")
 }
 
 /// The refusal of an input that is not an idea text: a `seed` input is a bug-fix case
@@ -561,6 +554,9 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
         if !whole(k) {
             p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
         }
+    }
+    if v.settings.get("conformance").is_some_and(|c| c != "off" && c != "observe") {
+        p.push(format!("variant {:?}: conformance must be off or observe", v.id));
     }
     if v.settings.get("loom.confinement").is_some_and(|c| c != "local" && c != "substrate") {
         p.push(format!("variant {:?}: loom.confinement must be local or substrate (there is no default)", v.id));
@@ -2133,6 +2129,9 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     add("--cap-micro-usd", g("loom.cap_micro_usd"));
     add("--max-llm-calls", g("max_llm_calls"));
     add("--max-wall-seconds", g("max_wall_seconds"));
+    if let Some(c) = settings.get("conformance") {
+        add("--conformance", c.clone());
+    }
     Ok(v)
 }
 
