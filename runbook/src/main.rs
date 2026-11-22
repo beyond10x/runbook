@@ -58,17 +58,21 @@ enum ParityCmd {
     /// driver (`--driver` and `--store`) or of Loom (`--loom-status`).
     Summarize {
         /// The run directory the scripts wrote (`runs/<name>`).
-        #[arg(long, value_name = "DIR", requires = "store", conflicts_with = "loom_status", required_unless_present = "loom_status")]
+        #[arg(long, value_name = "DIR", requires = "store", conflicts_with_all = ["loom_status", "loom_run"], required_unless_present_any = ["loom_status", "loom_run"])]
         driver: Option<PathBuf>,
         /// The case store of the run (the directory that holds the root case).
         #[arg(long, value_name = "DIR", requires = "driver")]
         store: Option<PathBuf>,
         /// A file holding the JSON `b10x-loom tree status` printed (format `loom.tree-status/1`).
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", conflicts_with = "loom_run")]
         loom_status: Option<PathBuf>,
         /// The product tree of a Loom run; the status's `workspace` when not given.
         #[arg(long, value_name = "DIR", requires = "loom_status")]
         product_tree: Option<PathBuf>,
+        /// The run directory `runbook loom-run` wrote: its `tree-status.json`, `work/` and the files
+        /// that hold what the status does not (`run-settings.jsonl`, `decisions.jsonl`, `protocols/`).
+        #[arg(long, value_name = "DIR")]
+        loom_run: Option<PathBuf>,
         /// Write the summary here instead of to standard output.
         #[arg(long, value_name = "FILE")]
         output: Option<PathBuf>,
@@ -119,10 +123,11 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
         ExitCode::from(2)
     };
     match cmd {
-        ParityCmd::Summarize { driver, store, loom_status, product_tree, output } => {
-            let source = match (driver, store, loom_status) {
-                (Some(run), Some(store), None) => parity::Source::Driver { run, store },
-                (None, None, Some(status)) => parity::Source::Loom { status, product_tree },
+        ParityCmd::Summarize { driver, store, loom_status, product_tree, loom_run, output } => {
+            let source = match (driver, store, loom_status, loom_run) {
+                (Some(run), Some(store), None, None) => parity::Source::Driver { run, store },
+                (None, None, Some(status), None) => parity::Source::Loom { status, product_tree },
+                (None, None, None, Some(dir)) if product_tree.is_none() => parity::Source::LoomRun { dir },
                 _ => return ExitCode::from(USAGE_ERROR),
             };
             let v = match parity::read(&source) {
@@ -156,9 +161,11 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
                 let what = if notes.is_empty() { "equal" } else { "equal on what both sides record" };
                 println!("{what}: {}", parity::counts(&a));
                 notes.iter().for_each(|n| println!("{n}"));
+                println!("parity: {}", if notes.is_empty() { "identical" } else { "equal on what both sides record" });
                 ExitCode::SUCCESS
             } else {
                 diffs.iter().chain(&notes).for_each(|d| println!("{d}"));
+                println!("parity: different");
                 ExitCode::from(1)
             }
         }
