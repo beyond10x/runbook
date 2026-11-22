@@ -46,6 +46,10 @@ name = "sdc-check-routes"
 path = "src/bin/sdc-check-routes.rs"
 
 [[bin]]
+name = "sdc-check-unreferenced"
+path = "src/bin/sdc-check-unreferenced.rs"
+
+[[bin]]
 name = "sdc-unstick"
 path = "src/bin/sdc-unstick.rs"
 
