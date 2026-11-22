@@ -39,7 +39,7 @@ actions:
         subject: context
         producer: person:owner
         from: effect
-        results: {performed: approved}
+        results: {performed: approved, rejected: rejected}
   - action: vision.write
     executor:
       kind: program
@@ -57,7 +57,7 @@ actions:
         subject: vision
         producer: person:owner
         from: effect
-        results: {performed: approved}
+        results: {performed: approved, rejected: rejected}
   - action: roadmap.write
     executor:
       kind: program
@@ -86,7 +86,7 @@ actions:
         subject: roadmap
         producer: person:owner
         from: effect
-        results: {performed: approved}
+        results: {performed: approved, rejected: rejected}
         upstream: [vision]
   - action: amend.upstream
     executor:

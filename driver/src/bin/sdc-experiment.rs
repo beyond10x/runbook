@@ -10,7 +10,7 @@
 //! sdc-experiment index [--experiments <dir>]
 //! sdc-experiment progress [--experiments <dir>]
 //! sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>]
-//!                    [--stagger <seconds>] [--print]
+//!                    [--stagger <seconds>] [--login-file <path>] [--print]
 //! sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
 //! sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]
 //! ```
@@ -31,6 +31,8 @@
 //! n runs as transient systemd user units with the environment taken from the record only, names
 //! them `<id>.<variant>.<n>` and writes `experiment.json` into each run directory. `status` lists
 //! the runs of a record; `stop` stops them with run-trial.sh's stop command and a reason.
+//! A variant with `runner: loom` starts `runbook loom-run` of the build instead of `run-trial.sh`
+//! (docs/workflow-metrics.md § 7.1): the base environment, no `SDC_` variable, the settings in a file.
 //! `progress` writes the progress ledger from `experiments/releases.yaml` and the records
 //! (`sdc-experiment/progress.rs`); `report` rewrites it too, and `check --all` fails when it is
 //! stale. An id is read as `experiments/<id>.yaml`; `--runs-dir` defaults to `runs`. Exit 0, 1 a record
@@ -66,7 +68,7 @@ const USAGE: &str = "usage: sdc-experiment compare (--group <label>=<run dir>[,.
        sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
        sdc-experiment index [--experiments <dir>]
        sdc-experiment progress [--experiments <dir>]
-       sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--print]
+       sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--login-file <path>] [--print]
        sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
        sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]";
 
@@ -412,11 +414,104 @@ const LAUNCH: [(&str, &str); 33] = [
 ];
 /// What a launched variant with `runner: free-agent` sets (sdc-free-agent run).
 const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
-const RUNNERS: [&str; 2] = ["sdc", "free-agent"];
+/// What a launched variant with `runner: loom` sets (`runbook loom-run`): the Loom binary and its
+/// digest, the confinement (no default), the spend cap over every run of the record, the models
+/// of the four node classes, the kind of the decider, the autonomy level and the two ceilings. A
+/// `model` decider also sets `decider.model`, a `rule` decider `decider.verdict`.
+const REQUIRED_LOOM: [&str; 12] = ["loom.bin", "loom.sha256", "loom.confinement", "loom.cap_micro_usd", "models.writer.model",
+    "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_llm_calls", "max_wall_seconds"];
+/// `loom` settings that are optional: the path of the login file the model adapter reads, and the
+/// members of `runbook.loom-run-settings/1` that only some deciders and adapters take.
+const OPTIONAL_LOOM: [&str; 8] = ["loom.login_file", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+    "decider.adapter", "adapter", "review.adapter"];
+/// The members of a `model` decider that a `rule` decider does not have.
+const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
+/// What `bindings/tools/decider.sh` needs on `PATH` (it exits 127 without them).
+const LOOM_TOOLS: [&str; 3] = ["jq", "yq", "rsync"];
+const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
 const REQUIRED_LAUNCH: [&str; 11] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
     "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "max_llm_calls", "autonomy"];
 /// Launch settings that `run-settings.jsonl` does not record, so no run can be checked against them.
-const NOT_RECORDED: [&str; 4] = ["decider.adapter", "review.adapter", "flags.dry", "flags.recorded"];
+const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry", "flags.recorded", "loom.bin", "loom.login_file"];
+
+/// Why a setting of the old driver is refused for a `loom` variant, or `None` when it is no
+/// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
+fn loom_refusal(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "implement_mode" | "review_mode" | "implement_coverage" | "conformance" | "rule_approvals" =>
+            "it is a switch of scripts/run-trial.sh and Loom's bindings carry no such switch",
+        "flags.dry" | "flags.recorded" => "it is a flag of scripts/run-trial.sh",
+        k if k.starts_with("efforts.") => "no argument of bindings/tools/llm-node.sh carries an effort in Loom mode, so the class defaults of tools/node-classes.json apply",
+        k if k.starts_with("free.") => "it is a setting of runner free-agent",
+        _ => return None,
+    })
+}
+
+/// The problems of a `loom` variant's settings.
+fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
+    for k in REQUIRED_LOOM {
+        if !v.settings.contains_key(k) {
+            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the Loom binary and its digest, the confinement, the spend cap, every class's model, the decider's kind, the autonomy level and both ceilings)", v.id));
+        }
+    }
+    let one_of = |k: &str, allowed: &[&str], p: &mut Vec<String>, what: &str| {
+        if v.settings.get(k).is_some_and(|x| !allowed.contains(&x.as_str())) {
+            p.push(format!("variant {:?}: {k} must be {what}", v.id));
+        }
+    };
+    one_of("decider.kind", &["model", "rule"], p, "model or rule (haiku is the old driver's name of model; a scripted decider is a test double of the runner and no setting of a record)");
+    one_of("autonomy", &["A0", "A1", "A2", "A3", "A4", "A5"], p, "one of A0 to A5 (a decider answers only at A5)");
+    one_of("decider.verdict", &["approve", "reject"], p, "approve or reject");
+    one_of("decider.escalate", &["final", "stop"], p, "final or stop");
+    one_of("adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
+    one_of("decider.adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
+    one_of("review.adapter", &["claude-cli"], p, "claude-cli (the only review adapter expressible under Loom)");
+    match v.settings.get("decider.kind").map(String::as_str) {
+        Some("model") => {
+            if !v.settings.contains_key("decider.model") {
+                p.push(format!("variant {:?}: the settings do not set decider.model (a model decider needs its model)", v.id));
+            }
+            if v.settings.contains_key("decider.verdict") {
+                p.push(format!("variant {:?}: decider.verdict is a setting of a rule decider, not of kind model", v.id));
+            }
+        }
+        Some("rule") => {
+            if !v.settings.contains_key("decider.verdict") {
+                p.push(format!("variant {:?}: the settings do not set decider.verdict (a rule decider approves or rejects every decision)", v.id));
+            }
+            for k in MODEL_ONLY_LOOM.iter().filter(|k| v.settings.contains_key(**k)) {
+                p.push(format!("variant {:?}: {k} is a setting of a model decider, not of kind rule", v.id));
+            }
+        }
+        _ => {}
+    }
+    for k in v.settings.keys() {
+        if REQUIRED_LOOM.contains(&k.as_str()) || OPTIONAL_LOOM.contains(&k.as_str()) {
+            continue;
+        }
+        match loom_refusal(k) {
+            Some(why) => p.push(format!("variant {:?}: {k} is refused for a loom variant: {why}", v.id)),
+            None => p.push(format!("variant {:?}: {k} is no loom launch setting", v.id)),
+        }
+    }
+    let whole = |k: &str| v.settings.get(k).is_none_or(|x| x.parse::<u64>().is_ok_and(|n| n >= 1));
+    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds", "decider.max_decider_calls"] {
+        if !whole(k) {
+            p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
+        }
+    }
+    if v.settings.get("loom.confinement").is_some_and(|c| c != "local" && c != "substrate") {
+        p.push(format!("variant {:?}: loom.confinement must be local or substrate (there is no default)", v.id));
+    }
+    if v.settings.get("loom.sha256").is_some_and(|s| !is_hex(s, 64, 64)) {
+        p.push(format!("variant {:?}: loom.sha256 must be the 64 hex digits of the binary's sha256", v.id));
+    }
+    for k in ["loom.bin", "loom.login_file"] {
+        if v.settings.get(k).is_some_and(|b| !(b.starts_with('/') || b.starts_with("~/"))) {
+            p.push(format!("variant {:?}: {k} must be an absolute path or start with ~/", v.id));
+        }
+    }
+}
 /// Environment variables a launched run gets besides the record's: the login's, never an SDC_ one.
 const BASE_ENV: [&str; 11] = ["HOME", "PATH", "USER", "LOGNAME", "LANG", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
     "XDG_CACHE_HOME", "XDG_DATA_HOME", "DBUS_SESSION_BUS_ADDRESS"];
@@ -622,7 +717,7 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
             }
         }
         if !RUNNERS.contains(&v.runner.as_str()) {
-            p.push(format!("variant {:?}: `runner` must be sdc or free-agent", v.id));
+            p.push(format!("variant {:?}: `runner` must be sdc, free-agent or loom", v.id));
         }
         if v.from.as_deref().is_some_and(|f| f.trim().is_empty()) {
             p.push(format!("variant {:?}: `from` must name the record whose runs it lists", v.id));
@@ -638,6 +733,13 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
             }
             for k in v.settings.keys().filter(|k| !k.starts_with("free.")) {
                 p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));
+            }
+        } else if v.runner == "loom" {
+            if prospective && v.from.is_none() {
+                check_loom_settings(v, &mut p);
+                if inputs.iter().any(|i| ystr(i, "kind") != Some("idea")) {
+                    p.push(format!("variant {:?}: a loom variant starts from an idea input", v.id));
+                }
             }
         } else if prospective {
             for k in REQUIRED_LAUNCH {
@@ -953,7 +1055,9 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
                 }
             };
             for (k, x) in &v.settings {
-                if NOT_RECORDED.contains(&k.as_str()) {
+                // A loom run records the adapters too; it never records the binary's path or the login's.
+                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) } else { NOT_RECORDED.contains(&k.as_str()) };
+                if skipped {
                     continue;
                 }
                 let got = doc["settings"][k.as_str()].as_str().unwrap_or("not recorded").to_string();
@@ -1786,6 +1890,219 @@ fn launch_env(settings: &BTreeMap<String, String>, runs_dir: &Path, principal: &
     env
 }
 
+/// The environment of a `loom` run's unit: the login's base variables and nothing else. No
+/// `SDC_` variable, not even the runs directory or the principal: `runbook loom-run` reads its
+/// settings from the settings file and its paths from its arguments, and builds the environment
+/// of Loom's programs itself.
+///
+/// `PATH` is the login's with the build's `driver/target/debug` put first. `runbook loom-run`
+/// gives `b10x-loom` (and so every bound program) its own `PATH`, and it is the one it was
+/// started with: `sdc-reply` (the model decider and the model nodes), `sdc-findings` and
+/// `sdc-bugfix` (the model nodes) are found there and nowhere else, because the copy of the
+/// bindings in the run directory holds no `driver/target/debug`. A `decider.reply_bin` setting
+/// would reach the decider alone; the directory on `PATH` reaches both. `jq`, `yq` and `rsync`
+/// come from the login's `PATH` (`missing_loom_tools`).
+fn loom_env(base: &dyn Fn(&str) -> Option<String>, build: &Path) -> Vec<(String, String)> {
+    BASE_ENV.iter().map(|k| (*k, base(k)))
+        .filter_map(|(k, v)| match (k, v) {
+            ("PATH", v) => {
+                let login = v.filter(|p| !p.is_empty()).unwrap_or_else(|| "/usr/bin:/bin".to_string());
+                Some((k.to_string(), format!("{}:{login}", build.join("driver/target/debug").display())))
+            }
+            (_, v) => v.map(|v| (k.to_string(), v)),
+        })
+        .collect()
+}
+
+/// Whether a directory of `path` holds `tool` as an executable file.
+fn on_path(path: &str, tool: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':').filter(|d| !d.is_empty())
+        .any(|d| fs::metadata(Path::new(d).join(tool)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+}
+
+/// The programs of `LOOM_TOOLS` that no directory of the unit's `PATH` holds as an executable file.
+fn missing_loom_tools(path: &str) -> Vec<&'static str> {
+    LOOM_TOOLS.iter().copied().filter(|t| !on_path(path, t)).collect()
+}
+
+/// The programs the answers file of the build's bindings (`bindings/tools/answers.yaml`) names by a
+/// bare word (`requests`, `apply`, `then`) that the unit would not find: not in a directory of
+/// `path` and not a binary the build will make (`driver/src/bin/<name>.rs`). A word with a `/` is
+/// a file of the bindings copy and is not looked up. No file, or one that does not read, names none
+/// (the runner refuses an unreadable file itself).
+fn missing_answer_programs(build: &Path, path: &str) -> Vec<String> {
+    let Some(doc) = fs::read_to_string(build.join("bindings/tools/answers.yaml")).ok().and_then(|t| serde_yaml::from_str::<Y>(&t).ok()) else {
+        return Vec::new();
+    };
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    for entry in doc.get("answers").and_then(Y::as_sequence).into_iter().flatten() {
+        for key in ["requests", "apply", "then"] {
+            if let Some(word) = entry.get(key).and_then(Y::as_sequence).and_then(|w| w.first()).and_then(Y::as_str) {
+                if !word.contains('/') {
+                    names.insert(word.to_string());
+                }
+            }
+        }
+    }
+    names.into_iter().filter(|n| !on_path(path, n) && !build.join("driver/src/bin").join(format!("{n}.rs")).is_file()).collect()
+}
+
+/// `~/x` as the launcher's `HOME` and `/x`; any other path as it is.
+fn expand_home(path: &str, base: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
+    match path.strip_prefix("~/") {
+        Some(rest) => base("HOME").filter(|h| !h.is_empty()).map(|h| format!("{}/{rest}", h.trim_end_matches('/')))
+            .ok_or_else(|| format!("refused: {path} needs HOME, which is not set")),
+        None => Ok(path.to_string()),
+    }
+}
+
+/// The settings file of a `loom` run (`runbook.loom-run-settings/1`): the record's settings that
+/// `runbook loom-run` reads, nested by their dotted keys so the run can record them as
+/// `run-settings.jsonl` under the record's own names. `loom.bin` is not in it (an argument). The
+/// login file is a path, only when the record names one; `redact` puts the setting's name in its
+/// place for printing.
+fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: bool, base: &dyn Fn(&str) -> Option<String>) -> Result<J, String> {
+    let mut doc = json!({"format": "runbook.loom-run-settings/1", "run": name, "decider": {}, "loom": {}});
+    let put = |doc: &mut J, path: &[&str], v: J| {
+        let mut at = doc;
+        for k in &path[..path.len() - 1] {
+            at = &mut at[*k];
+        }
+        at[path[path.len() - 1]] = v;
+    };
+    let get = |k: &str| settings.get(k).cloned().unwrap_or_default();
+    let num = |k: &str| get(k).parse::<u64>().map(J::from).unwrap_or(J::Null);
+    for c in ["writer", "implement", "review", "other"] {
+        put(&mut doc, &["models", c, "model"], json!(get(&format!("models.{c}.model"))));
+    }
+    // The decider: `kind` as the record says it. A model decider also says that Loom's output holds
+    // no claims (`without_claims`: the run makes no claim about claims it does not have). The
+    // principal of its answers is not written: the runner derives it from the kind.
+    let kind = get("decider.kind");
+    put(&mut doc, &["decider", "kind"], json!(kind));
+    if kind == "rule" {
+        put(&mut doc, &["decider", "verdict"], json!(get("decider.verdict")));
+    } else {
+        put(&mut doc, &["decider", "model"], json!(get("decider.model")));
+        put(&mut doc, &["decider", "without_claims"], json!(true));
+        for k in ["decider.escalate", "decider.adapter"] {
+            if let Some(x) = settings.get(k) {
+                put(&mut doc, &["decider", &k["decider.".len()..]], json!(x));
+            }
+        }
+        if settings.contains_key("decider.max_decider_calls") {
+            put(&mut doc, &["decider", "max_decider_calls"], num("decider.max_decider_calls"));
+        }
+    }
+    put(&mut doc, &["autonomy"], json!(get("autonomy")));
+    if let Some(x) = settings.get("adapter") {
+        put(&mut doc, &["adapter"], json!(x));
+    }
+    if let Some(x) = settings.get("review.adapter") {
+        put(&mut doc, &["review", "adapter"], json!(x));
+    }
+    put(&mut doc, &["max_llm_calls"], num("max_llm_calls"));
+    put(&mut doc, &["max_wall_seconds"], num("max_wall_seconds"));
+    put(&mut doc, &["loom", "sha256"], json!(get("loom.sha256")));
+    put(&mut doc, &["loom", "confinement"], json!(get("loom.confinement")));
+    put(&mut doc, &["loom", "cap_micro_usd"], num("loom.cap_micro_usd"));
+    if let Some(l) = settings.get("loom.login_file") {
+        let v = if redact { "<loom.login_file>".to_string() } else { expand_home(l, base)? };
+        put(&mut doc, &["loom", "login_file"], json!(v));
+    }
+    Ok(doc)
+}
+
+/// The idea file of a `loom` run: `text: <the input's text>`, as `run-trial.sh` writes `work/idea.yaml`.
+fn loom_idea_yaml(input: &Y) -> String {
+    let mut m = Mapping::new();
+    m.insert(Y::String("text".into()), Y::String(ystr(input, "text").unwrap_or("").trim().to_string()));
+    serde_yaml::to_string(&Y::Mapping(m)).unwrap_or_default()
+}
+
+/// The files the launcher writes for one `loom` run, outside the run's directory (which
+/// `runbook loom-run` creates and refuses to find).
+fn loom_launch_dir(builds: &Path, id: &str, name: &str) -> PathBuf {
+    builds.parent().unwrap_or(builds).join("launch").join(id).join(name)
+}
+
+fn loom_runbook_bin(build: &Path) -> PathBuf {
+    build.join("runbook").join("target").join("debug").join("runbook")
+}
+
+/// The command line of a `loom` run: `runbook loom-run` of the build, its paths under the build's
+/// tree and the spend ledger shared by every run of the record.
+#[allow(clippy::too_many_arguments)]
+fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, String>, runs_dir: &Path, root: &str, files: &Path,
+             base: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
+    let g = |k: &str| settings.get(k).cloned().unwrap_or_default();
+    let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "loom-run".into()];
+    let mut add = |flag: &str, value: String| {
+        v.push(flag.into());
+        v.push(value);
+    };
+    add("--run", name.into());
+    add("--runs-dir", runs_dir.display().to_string());
+    add("--loom", expand_home(&g("loom.bin"), base)?);
+    add("--loom-sha256", g("loom.sha256"));
+    add("--bindings", build.join("bindings").display().to_string());
+    add("--protocols", build.join("protocol").display().to_string());
+    add("--root-protocol", root.into());
+    add("--case", "IDEA-1".into());
+    add("--idea", files.join("idea.yaml").display().to_string());
+    add("--confinement", g("loom.confinement"));
+    add("--settings", files.join("settings.json").display().to_string());
+    add("--spend-ledger", runs_dir.join(format!("{id}.loom-spend.json")).display().to_string());
+    add("--cap-micro-usd", g("loom.cap_micro_usd"));
+    add("--max-llm-calls", g("max_llm_calls"));
+    add("--max-wall-seconds", g("max_wall_seconds"));
+    Ok(v)
+}
+
+/// The unit's description: the record and the run, never a setting.
+fn unit_description(id: &str, run: &str) -> String {
+    format!("sdc experiment {id}: run {run}")
+}
+
+/// A file of the tree at `commit`, read from its build directory when there is one, else from the
+/// repository of the working directory. `None`: the tree has no such file.
+fn tree_file(build: &Path, commit: &str, rel: &str) -> Result<Option<String>, String> {
+    if build.is_dir() {
+        return match fs::read_to_string(build.join(rel)) {
+            Ok(t) => Ok(Some(t)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("cannot read {}: {e}", build.join(rel).display())),
+        };
+    }
+    let o = Command::new("git").args(["-C", ".", "show", &format!("{commit}:{rel}")]).env("LC_ALL", "C").output().map_err(|e| format!("git: {e}"))?;
+    if o.status.success() {
+        return Ok(Some(String::from_utf8_lossy(&o.stdout).into_owned()));
+    }
+    let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+    if err.contains("does not exist in") || err.contains("exists on disk, but not in") {
+        return Ok(None);
+    }
+    Err(format!("refused: cannot read {rel} of tree_commit {commit}: {err}"))
+}
+
+/// What a `loom` launch reads from the record's tree: that it has the `runbook/` crate and the
+/// root protocol, `<id>@<revision>` of `protocol/sdc.protocol.yaml`, as `runbook loom-run` is told
+/// to register it (a `.` in an id is a `-`, as Loom names a registration).
+fn loom_root_protocol(build: &Path, commit: &str) -> Result<String, String> {
+    if tree_file(build, commit, "runbook/Cargo.toml")?.is_none() {
+        return Err(format!("refused: tree_commit {commit} has no runbook/ crate (runbook/Cargo.toml): a loom run needs `runbook loom-run` of that commit"));
+    }
+    let text = tree_file(build, commit, "protocol/sdc.protocol.yaml")?
+        .ok_or_else(|| format!("refused: tree_commit {commit} has no protocol/sdc.protocol.yaml, the root protocol of a run"))?;
+    let y: Y = serde_yaml::from_str(&text).map_err(|e| format!("refused: protocol/sdc.protocol.yaml of {commit}: {e}"))?;
+    let p = y.get("protocol").cloned().unwrap_or(Y::Null);
+    match (ystr(&p, "id"), p.get("revision").and_then(Y::as_u64)) {
+        (Some(id), Some(rev)) => Ok(format!("{}@{rev}", id.replace('.', "-"))),
+        _ => Err(format!("refused: protocol/sdc.protocol.yaml of {commit} has no protocol.id and protocol.revision")),
+    }
+}
+
 /// The command line of a free-running agent's run (`runner: free-agent`): sdc-free-agent of the
 /// build, the idea text, the prompt and example spec of the build's tree, the record's settings.
 fn free_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, String>, runs_dir: &Path) -> Vec<String> {
@@ -1878,6 +2195,18 @@ fn absolute(p: &Path) -> PathBuf {
     if p.is_absolute() { p.to_path_buf() } else { std::env::current_dir().map(|c| c.join(p)).unwrap_or_else(|_| p.to_path_buf()) }
 }
 
+/// The crates a build builds, each a cargo job of its own (the pool kills a job over 10 minutes),
+/// with its cargo arguments; a `loom` record also needs the `runbook` crate, whose binary is
+/// `runbook loom-run`.
+fn build_steps(loom: bool) -> Vec<(&'static str, &'static [&'static str])> {
+    let mut v: Vec<(&'static str, &'static [&'static str])> =
+        vec![("driver", &["build", "--bins"][..]), ("goals", &["build"][..]), ("watch", &["build", "--release"][..])];
+    if loom {
+        v.push(("runbook", &["build", "--locked"][..]));
+    }
+    v
+}
+
 /// Whether a run directory under `runs_dir` was launched on `commit`.
 fn runs_on_build(runs_dir: &Path, commit: &str) -> bool {
     fs::read_dir(runs_dir).into_iter().flatten().flatten().any(|e| {
@@ -1890,7 +2219,7 @@ fn runs_on_build(runs_dir: &Path, commit: &str) -> bool {
 /// The build directory of `commit`: a shared clone checked out at the commit, built once. A
 /// directory at another commit or with changes is refused; a built one is never rebuilt, and an
 /// unbuilt one that runs already used is refused rather than built in place.
-fn prepare_build(repo: &Path, builds: &Path, commit: &str, runs_dir: &Path) -> Result<PathBuf, String> {
+fn prepare_build(repo: &Path, builds: &Path, commit: &str, runs_dir: &Path, loom: bool) -> Result<PathBuf, String> {
     let dir = builds.join(commit);
     let marker = builds.join(format!("{commit}.built.json"));
     if !dir.exists() {
@@ -1911,16 +2240,21 @@ fn prepare_build(repo: &Path, builds: &Path, commit: &str, runs_dir: &Path) -> R
     if !dirty.is_empty() {
         return Err(format!("refused: the build directory {} has changes:\n{dirty}", dir.display()));
     }
+    // A build record from before the first `loom` record lacks the `runbook` crate: that crate is
+    // built beside the others (its own target directory, the others' binaries untouched).
+    let record: Option<J> = fs::read_to_string(&marker).ok().and_then(|t| serde_json::from_str(&t).ok());
+    let mut built: Vec<String> = record.as_ref().and_then(|r| r["crates"].as_array())
+        .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
     if marker.is_file() {
-        return Ok(dir);
-    }
-    if runs_on_build(runs_dir, commit) {
+        if !loom || built.iter().any(|c| c == "runbook") {
+            return Ok(dir);
+        }
+    } else if runs_on_build(runs_dir, commit) {
         return Err(format!("refused: runs exist on {commit} but its build directory has no build record; it is not rebuilt in place"));
     }
-    let mut built = vec![];
-    for (krate, args) in [("driver", &["build", "--bins"][..]), ("goals", &["build"][..]), ("watch", &["build", "--release"][..])] {
+    for (krate, args) in build_steps(loom) {
         let manifest = dir.join(krate).join("Cargo.toml");
-        if !manifest.is_file() {
+        if !manifest.is_file() || built.iter().any(|c| c == krate) {
             continue;
         }
         println!("building {krate} at {commit} ...");
@@ -1928,9 +2262,10 @@ fn prepare_build(repo: &Path, builds: &Path, commit: &str, runs_dir: &Path) -> R
         if !st.success() {
             return Err(format!("cargo {} for {krate} at {commit} failed ({st})", args.join(" ")));
         }
-        built.push(krate);
+        built.push(krate.to_string());
     }
-    let doc = json!({"format": "sdc.experiment-build/1", "commit": commit, "built_at": now_rfc3339(), "crates": built});
+    let built_at = record.as_ref().and_then(|r| r["built_at"].as_str().map(String::from)).unwrap_or_else(now_rfc3339);
+    let doc = json!({"format": "sdc.experiment-build/1", "commit": commit, "built_at": built_at, "crates": built});
     fs::write(&marker, serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n").map_err(|e| format!("cannot write {}: {e}", marker.display()))?;
     Ok(dir)
 }
@@ -1965,10 +2300,13 @@ struct LaunchArgs {
     max_parallel: Option<usize>,
     stagger: Option<u64>,
     print: bool,
+    /// The login the model adapter reads, named when the runs are started and in no record:
+    /// `loom.login_file` of every `loom` variant for this launch only.
+    login_file: Option<String>,
 }
 
 fn run_cmd(args: &[String]) -> Result<ExitCode, Usage> {
-    let mut a = LaunchArgs { rec: String::new(), runs_dir: PathBuf::from("runs"), builds: default_builds_dir(), max_parallel: None, stagger: None, print: false };
+    let mut a = LaunchArgs { rec: String::new(), runs_dir: PathBuf::from("runs"), builds: default_builds_dir(), max_parallel: None, stagger: None, print: false, login_file: None };
     let mut it = args.iter();
     while let Some(x) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| Usage(format!("{x} needs a value")));
@@ -1978,6 +2316,13 @@ fn run_cmd(args: &[String]) -> Result<ExitCode, Usage> {
             "--max-parallel" => a.max_parallel = Some(value()?.parse().ok().filter(|n| *n > 0).ok_or_else(|| Usage("--max-parallel needs a number of at least 1".into()))?),
             "--stagger" => a.stagger = Some(value()?.parse().map_err(|_| Usage("--stagger needs seconds".into()))?),
             "--print" => a.print = true,
+            "--login-file" => {
+                let l = value()?;
+                if !(l.starts_with('/') || l.starts_with("~/")) {
+                    return Err(Usage("--login-file needs an absolute path or one that starts with ~/".into()));
+                }
+                a.login_file = Some(l);
+            }
             y if y.starts_with("--") => return Err(Usage(format!("unknown argument {y}"))),
             y => a.rec = y.to_string(),
         }
@@ -1992,6 +2337,20 @@ fn run_cmd(args: &[String]) -> Result<ExitCode, Usage> {
             ExitCode::from(code)
         }
     })
+}
+
+/// What one run is started with: the unit's whole environment, the command and, for a `loom`
+/// run, the files written before it starts.
+struct RunPlan {
+    env: Vec<(String, String)>,
+    argv: Vec<String>,
+    loom: Option<LoomFiles>,
+}
+
+struct LoomFiles {
+    dir: PathBuf,
+    idea: String,
+    settings: J,
 }
 
 fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
@@ -2020,21 +2379,80 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
     let principal = principal_of(&r);
     let plan = planned_runs(&r);
     let base = |k: &str| std::env::var(k).ok();
+    let any_loom = plan.iter().any(|p| p.variant.runner == "loom");
+    // A `loom` record's tree must hold the runbook crate; its root protocol is read from the tree.
+    let loom_root = if any_loom { Some(loom_root_protocol(&build, &commit).map_err(|m| (1, m))?) } else { None };
+    let run_plan = |p: &Planned, redact: bool| -> Result<RunPlan, String> {
+        let s = &p.variant.settings;
+        Ok(match p.variant.runner.as_str() {
+            "loom" => {
+                let mut s = s.clone();
+                if let Some(login) = &a.login_file {
+                    s.insert("loom.login_file".to_string(), login.clone());
+                }
+                let s = &s;
+                let files = loom_launch_dir(&builds, &id, &p.name);
+                let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &base)?;
+                let settings = loom_settings_json(&p.name, s, redact, &base)?;
+                RunPlan { env: loom_env(&base, &build), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
+            }
+            "free-agent" => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: free_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
+            _ => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: launch_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
+        })
+    };
     if a.print {
         println!("experiment {id}: {} runs, tree {commit}, build {}, at most {max_parallel} at once, {stagger} s apart", plan.len(), build.display());
+        println!("build: {}", build_steps(any_loom).iter().map(|(k, args)| format!("{k} (cargo {})", args.join(" "))).collect::<Vec<_>>().join(", "));
         for p in &plan {
-            let env = launch_env(&p.variant.settings, &runs_dir, &principal, &base);
+            let rp = run_plan(p, true).map_err(|m| (1, m))?;
             println!("{} ({}):", p.name, p.unit);
-            for (k, v) in env.iter().filter(|(k, _)| k.starts_with("SDC_")) {
-                println!("  {k}={v}");
+            match &rp.loom {
+                Some(l) => {
+                    println!("  runner: loom");
+                    println!("  description: {}", unit_description(&id, &p.name));
+                    for (k, v) in &rp.env {
+                        println!("  env {k}={v}");
+                    }
+                    println!("  needs on PATH: {} (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from {}",
+                        LOOM_TOOLS.join(", "), build.join("driver/target/debug").display());
+                    let missing = missing_loom_tools(rp.env.iter().find(|(k, _)| k == "PATH").map_or("", |(_, v)| v));
+                    if !missing.is_empty() {
+                        println!("  missing on PATH: {}", missing.join(", "));
+                    }
+                    if p.variant.settings.contains_key("loom.login_file") || a.login_file.is_some() {
+                        println!("  login: loom.login_file is set (named in the settings file; the launcher never reads it)");
+                    }
+                    println!("  idea file: {}", l.dir.join("idea.yaml").display());
+                    println!("  settings file: {}", l.dir.join("settings.json").display());
+                    println!("  settings {}", l.settings);
+                }
+                None => {
+                    for (k, v) in rp.env.iter().filter(|(k, _)| k.starts_with("SDC_")) {
+                        println!("  {k}={v}");
+                    }
+                }
             }
-            let argv = if p.variant.runner == "free-agent" { free_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) } else { launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) };
-            println!("  {}", argv.join(" "));
+            println!("  {}", rp.argv.join(" "));
         }
         return Ok(());
     }
+    if any_loom {
+        let path = base("PATH").unwrap_or_default();
+        let missing = missing_loom_tools(&path);
+        if !missing.is_empty() {
+            return Err((1, format!("refused: {} not on PATH: `bindings/tools/decider.sh` of a loom run needs {} and exits 127 without them", missing.join(", "), LOOM_TOOLS.join(", "))));
+        }
+        let unit_path = format!("{}:{path}", build.join("driver/target/debug").display());
+        let missing = missing_answer_programs(&build, &unit_path);
+        if !missing.is_empty() {
+            return Err((1, format!("refused: {} not on PATH: `bindings/tools/answers.yaml` of a loom run needs {} and the run stops at the first question or finding without them", missing.join(", "), missing.join(", "))));
+        }
+    }
     let repo = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_err(|m| (1, m))?);
-    let build = prepare_build(&repo, &builds, &commit, &runs_dir).map_err(|m| (1, m))?;
+    let build = prepare_build(&repo, &builds, &commit, &runs_dir, any_loom).map_err(|m| (1, m))?;
+    if any_loom && !loom_runbook_bin(&build).is_file() {
+        return Err((1, format!("refused: {} was not built: a loom run starts `runbook loom-run`", loom_runbook_bin(&build).display())));
+    }
     fs::create_dir_all(&runs_dir).map_err(|e| (1, format!("cannot create {}: {e}", runs_dir.display())))?;
     let mut started = 0;
     for p in &plan {
@@ -2053,11 +2471,18 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             sleep_s(stagger);
         }
         let _ = Command::new("systemctl").args(["--user", "reset-failed", &p.unit]).output();
-        let env = launch_env(&p.variant.settings, &runs_dir, &principal, &base);
+        let RunPlan { env, argv, loom } = run_plan(p, false).map_err(|m| (1, m))?;
         let free = p.variant.runner == "free-agent";
-        let argv = if free { free_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) } else { launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) };
-        // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes free-agent.json.
-        let marker = if free { dir.join("free-agent.json") } else { dir.join("events") };
+        // The files of a `loom` run go outside its directory, which `runbook loom-run` creates.
+        if let Some(l) = &loom {
+            let write = |name: &str, text: String| fs::create_dir_all(&l.dir).and_then(|()| fs::write(l.dir.join(name), text))
+                .map_err(|e| (1, format!("cannot write {}: {e}", l.dir.join(name).display())));
+            write("idea.yaml", l.idea.clone())?;
+            write("settings.json", serde_json::to_string_pretty(&l.settings).unwrap_or_default() + "\n")?;
+        }
+        // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes
+        // free-agent.json; `runbook loom-run` makes the run directory itself.
+        let marker = if free { dir.join("free-agent.json") } else if loom.is_some() { dir.clone() } else { dir.join("events") };
         // A free run's home holds a copy of the login: the unit removes it on every stop, also when
         // the launcher is killed or crashes and runs no destructor.
         let stop_post: Vec<String> =
@@ -2066,7 +2491,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             .args(["--user", "--quiet", "--unit", &p.unit])
             .args(&stop_post)
             .arg("--description")
-            .arg(format!("sdc experiment {id}: run {}", p.name))
+            .arg(unit_description(&id, &p.name))
             .arg(format!("--working-directory={}", build.display()))
             .args(["/usr/bin/env", "-i"])
             .args(env.iter().map(|(k, v)| format!("{k}={v}")))
@@ -2135,8 +2560,19 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
     println!("{:<34} {:<10} {:<12} {:>9} {:>7}  end", "run", "variant", "unit", "cost USD", "wall s");
     for (run, variant, unit) in rows {
         let dir = runs_dir.join(&run);
+        // A directory the runner has just made holds nothing to read yet (not started). One that
+        // holds `outcome.json` (a `runbook loom-run` that ended) and cannot be read is said so.
+        let mut unreadable = None;
         let doc = if dir.is_dir() {
-            run_metrics::load(&dir).ok()
+            match run_metrics::load(&dir) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    if dir.join("outcome.json").is_file() {
+                        unreadable = Some(format!("unreadable: {}", e.0));
+                    }
+                    None
+                }
+            }
         } else {
             load_summary(&summaries_dir(&exp, &id).join(format!("{run}.json"))).ok().flatten().map(|x| x.doc)
         };
@@ -2144,7 +2580,7 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
         let (cost, wall, end) = match &doc {
             Some(d) => (d["metrics"]["cost_usd"].as_f64().map_or("-".into(), |x| format!("{x:.3}")),
                 d["metrics"]["wall_s"].as_i64().map_or("-".into(), |x| x.to_string()), d["metrics"]["end"].as_str().unwrap_or("").to_string()),
-            None => ("-".into(), "-".into(), "not started".into()),
+            None => ("-".into(), "-".into(), unreadable.unwrap_or_else(|| "not started".into())),
         };
         println!("{run:<34} {variant:<10} {state:<12} {cost:>9} {wall:>7}  {end}");
     }
@@ -2185,7 +2621,25 @@ fn stop_cmd(args: &[String]) -> Result<ExitCode, Usage> {
         for rr in v.runs.iter().filter(|x| only.as_ref().is_none_or(|o| o == &x.run)) {
             let dir = runs_dir.join(&rr.run);
             let open = dir.is_dir() && run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] != true);
-            if open {
+            if v.runner == "loom" {
+                // The stop record first, so that a run the signal cannot reach still reads as
+                // stopped; then the unit below: systemd sends SIGTERM to `runbook loom-run`.
+                let record = dir.join("run-stopped.json");
+                if record.is_file() {
+                    println!("{}: already stopped ({} untouched)", rr.run, record.display());
+                } else if dir.is_dir() && !run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] == true) {
+                    let doc = json!({"format": "sdc.run-stopped/1", "at": now_rfc3339(), "by": principal, "reason": reason, "verdict_at_stop": null, "case": null});
+                    match fs::write(&record, serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n") {
+                        Ok(()) => println!("{}: stopped ({reason})", rr.run),
+                        Err(e) => {
+                            eprintln!("sdc-experiment: cannot write {}: {e}", record.display());
+                            code = ExitCode::from(1);
+                        }
+                    }
+                } else {
+                    println!("{}: not open, nothing to stop", rr.run);
+                }
+            } else if open {
                 let st = Command::new(&script).arg(&rr.run).arg("--stop").arg(&reason)
                     .env("SDC_RUNS_DIR", &runs_dir).env("SDC_PRINCIPAL", &principal).status();
                 match st {
@@ -2417,6 +2871,28 @@ targets:
         let t = summary_text(&s);
         assert_eq!(serde_json::from_str::<J>(&t).unwrap(), s);
         assert!(t.contains("\n    {\"node\":\"a\"},\n    {\"node\":\"b\"}\n  ]"), "{t}");
+    }
+
+    #[test]
+    fn the_loom_settings_file_holds_the_login_path_only_when_the_record_names_one() {
+        let mut s: BTreeMap<String, String> = [("models.writer.model", "w"), ("models.implement.model", "i"), ("models.review.model", "r"),
+            ("models.other.model", "o"), ("decider.model", "d"), ("max_llm_calls", "9"), ("max_wall_seconds", "60"), ("loom.sha256", "ab"),
+            ("loom.confinement", "local"), ("loom.cap_micro_usd", "7"), ("loom.bin", "/opt/b")]
+            .iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        s.insert("decider.kind".into(), "model".into());
+        s.insert("autonomy".into(), "A5".into());
+        let base = |k: &str| (k == "HOME").then(|| "/h".to_string());
+        let doc = loom_settings_json("r1", &s, false, &base).unwrap();
+        assert_eq!(doc["models"]["implement"]["model"], "i");
+        assert_eq!(doc["loom"]["cap_micro_usd"], 7);
+        assert_eq!(doc["max_llm_calls"], 9);
+        assert!(doc["loom"].get("login_file").is_none() && doc["loom"].get("bin").is_none(), "{doc}");
+        s.insert("loom.login_file".into(), "~/.marker/login.json".into());
+        assert_eq!(loom_settings_json("r1", &s, false, &base).unwrap()["loom"]["login_file"], "/h/.marker/login.json");
+        assert_eq!(loom_settings_json("r1", &s, true, &base).unwrap()["loom"]["login_file"], "<loom.login_file>");
+        assert!(loom_settings_json("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
+        let env = loom_env(&|k: &str| (k == "PATH" || k == "SDC_RUNS_DIR").then(|| "x".to_string()), Path::new("/b"));
+        assert_eq!(env, [("PATH".to_string(), "/b/driver/target/debug:x".to_string())]);
     }
 
     #[test]

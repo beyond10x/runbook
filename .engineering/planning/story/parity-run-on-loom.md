@@ -23,7 +23,7 @@ scope:
   path: runbook/src/parity.rs
 - confidence: cited
   path: runbook/tests/cli.rs
-revision: 15
+revision: 21
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 2, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 3, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -170,3 +170,157 @@ and `compare` prints `equal on what both sides record:` and not `parity: identic
 6. `runbook run` of `stub-cycle` on Loom and the driver's run give summaries whose comparison is
    empty, printed as `parity: identical` with exit 0: not met, as above. The comparison is not
    empty either: six members are named as not recorded by Loom.
+
+## State after the integration (wave rb3, 2026-11-22)
+
+Goal moved: the last line of "Acceptance of the evaluation run". Met, with evidence:
+
+- Met: a `stub-cycle` run through `runbook loom-run` (the real `b10x-loom` `2c0a6f48`, `--confinement
+  local`, five scripted approvals with the principal `person:owner`, the stub adapter, no model, a
+  ledger that stayed at 0) and the driver's run give summaries whose comparison is empty, printed
+  `parity: identical`, exit 0. Evidence: `docs/parity.md`, "Identical comparison through `runbook
+  loom-run`" (`equal: 8 cases, 69 evidence records, 54 program runs, 5 person steps, 62 product
+  files`, then `parity: identical`); slow lane `task test:loom-real`, test
+  `loom_run::slow::the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run`, passed in
+  191 s. The command is `runbook loom-run`, not `runbook run`, which does not exist yet; the story's
+  words name `runbook run`, so this is met for the command that exists.
+- Met: the six members `tree status` holds nothing for and the principal now come from the run
+  directory and the settings (`docs/parity.md`, "Where the seven values come from now"); `compare`
+  names no member as not recorded for a run read with `--loom-run`.
+- Met in part: "The Loom runs start no `sdc-drive` process (sampled from the process tree)". For the
+  `stub-cycle` run, sampled twice a second over 136 samples, the tree held `runbook`, `b10x-loom`
+  and the bound programs and what they start, never `sdc-drive`, `run-trial.sh` or
+  `run-finding-cycles.sh` (table in `docs/parity.md`). Not met for the evaluation runs, which have
+  not run.
+- Met in part: "A summary of a deliberately altered run makes the comparison print `parity: fail`".
+  The closing lines are `parity: identical`, `parity: equal on what both sides record` and `parity:
+  different` (exit 1); tests in `runbook/tests/cli.rs` assert all three on recorded summaries, each
+  under 5 s. The words `parity: pass` and `parity: fail` of this story are not in the code: the line
+  of a different run is `parity: different`. The quality measures and the tolerance are not built.
+- Not met: the per-pair `same`/`differs` report of the evaluation with its tolerance and quality
+  measures; the written tolerance and the variation among the three driver runs; the report under
+  `experiments/` and its line in `experiments/INDEX.md`. The three evaluation runs have not started
+  and no spend was made.
+
+## Tolerance, written before the Loom runs
+
+Written on 2026-11-22 before any of the three runs of `experiments/parity-loom-strong.yaml` starts. No
+range below is widened, narrowed or reread after a run; a run outside it is reported as outside.
+
+The rule is the one of "Acceptance of the evaluation run": each quality measure of a Loom run lies
+within the range of the three driver runs. The driver runs are the three runs of the strong setting
+of `experiments/release-0.1.2.yaml` (`release-0.1.2.strong.1` to `.3`, tree `72a3eef`), all ended
+`closed: operating`, clean (`experiments/release-0.1.2/report.md`, the run summaries in
+`experiments/release-0.1.2/runs/`). The ranges are over those three runs, the lowest and the highest
+value; a Loom run is inside when `min <= value <= max`, and a measure of the experiment passes when all
+three Loom runs are inside.
+
+Quality measures, the numbers of the three driver runs (run 1, run 2, run 3) and the range:
+
+| measure | driver run 1 | run 2 | run 3 | range |
+|---|---|---|---|---|
+| `run.cost_usd` | 4.6952 | 4.8158 | 4.4604 | [4.4604, 4.8158] |
+| `run.llm_cost_usd` | 2.8415 | 3.1904 | 2.3716 | [2.3716, 3.1904] |
+| `run.decider_cost_usd` | 1.8537 | 1.6254 | 2.0889 | [1.6254, 2.0889] |
+| `run.wall_s` | 972 | 1108 | 886 | [886, 1108] |
+| `run.llm_calls` | 19 | 17 | 18 | [17, 19] |
+| `run.decider_calls` | 13 | 10 | 13 | [10, 13] |
+| `run.real_takes` | 93 | 96 | 114 | [93, 114] |
+| `run.rework_takes` | 24 | 25 | 44 | [24, 44] |
+| `run.looping_factor` | 1.167 | 1.083 | 1.167 | [1.083, 1.167] |
+| `run.first_pass_yield` | 0.833 | 0.917 | 0.833 | [0.833, 0.917] |
+| `run.rework_cost_usd` | 0.5720 | 0.5126 | 0.4971 | [0.4971, 0.5720] |
+| `run.furthest_stage_index` | 7 | 7 | 7 | [7, 7] |
+| `run.findings_raised` | 2 | 5 | 4 | [2, 5] |
+| `run.waiting_on_person_s` | 0 | 0 | 0 | [0, 0] |
+| `run.clean` | 1 | 1 | 1 | [1, 1] |
+
+How the driver runs vary among themselves: cost by 0.36 USD (8 % of the median), wall time by 222 s
+(23 % of the median), the number of model calls by 2, decider calls by 3, first takes by 21, rework
+takes by 20 (one run, the third, took 44 against 24 and 25), findings by 3. The furthest stage, the
+clean end and the waiting time do not vary at all.
+
+Not compared (the driver runs of the record do not hold them, or hold them in another sense):
+
+- `run.driver_s` (592, 711, 887 s in the driver runs): the driver's own time, which a Loom run has no
+  counterpart for; `rounds.jsonl` of a Loom run is the runner's time. Not compared.
+- `run.tokens.*`, `run.model_s`, `run.takings` and `run.writer_rework_takes`: held by the summaries,
+  not in the report's per-variant table, which is where the story's ranges come from. Not compared;
+  the Loom values are reported beside them.
+- The loop table of `report.md` (edges such as `change.review:rejected -> change.implement`, the
+  looping factor of single nodes): three runs hold one to four counts of an edge; not compared.
+- Per-node cost and the cost of single actions: not compared.
+
+Members of the run summaries, by name. A Loom run's `runbook.parity-summary/1` is read with `runbook
+parity summarize --loom-run <run dir>`. The committed driver runs hold the metrics summary
+(`sdc.run-metrics/1` without `cases`), not a parity summary, so a member-by-member `parity compare`
+of a Loom run with a driver run is possible only where the driver run directory still exists; where it
+does not, the members under "must be equal" are checked against the metrics members that name the
+same fact (`run.end`, `run.closed`, `run.delivered`, `run.outcome`, `run.stop_cause`,
+`run.furthest_stage_index`) and the case structure is read from the Loom summary alone.
+
+Must be equal, by member:
+
+- `cases[].id` as a pattern, `link`, `parent`, `protocol`, `protocol_revision`: the same case tree
+  (the root, the direction case, the epics, and below them spec, plan, stories and release, as in
+  `stub-cycle`).
+- `cases[].outcome` of every case: `passed`, and of the root `operating` (run summary `run.outcome`).
+  `cases[].stop` null, `cases[].open_obligations` empty. The run is `closed`, `delivered`, with
+  `reopens`, `forced` and `unstuck` 0 (`run.clean` 1).
+- The kinds of evidence each case holds and the last `result` of each kind (`cases[].evidence[].kind`
+  and `.result`): every kind of the driver's case is present and ends `passed`, `approved`, `valid`,
+  `clean` and so on, as the driver's does. The order, the number of records and the number of
+  rejected or invalid ones before the last may differ.
+- `person_steps[].action`, `.capability` and `.answer` of the last step of each action, and
+  `decision_requests[].answer`: every approval ends approved, every question is answered. How many
+  steps an action took (a rejection first) may differ.
+- `protocols[].id` as a stem and `.revision`.
+- `product_tree` file list: the same top-level directories (`.sdc`, `aep`, `impl`, `mainline`,
+  `published`, `release`, `spec`) and the files whose names the bindings and the tools fix: the
+  `Cargo.toml`, `Cargo.lock`, `Taskfile.yml`, `README.md` and `.derived-from` of each tree,
+  `release/PROVENANCE`, `published/PROVENANCE`, `spec/system.yaml`, `spec/topology.yaml`,
+  `spec/components.yaml`, `spec/traces.json` and the `.sdc/` reports. A missing one of these is a
+  difference.
+
+May differ (model text, costs, times and what a model chooses):
+
+- `cases[].evidence[].index`, `.subject_revision` and `.upstream_revisions` (values a run generates;
+  `compare` reads them by order of first appearance), the number of evidence records.
+- `cases[].program_runs[]`: `attempt`, `exit` and `retry_followed` of retried actions, and the number of
+  program runs; rework differs with the model's text.
+- `product_tree` digests (`--product-digests` is not used for these runs: a model run is not
+  deterministic) and the names of the files a model names: `spec/domains/*.yaml`,
+  `aep/epic/*.md`, `aep/story/*.md`, `aep/vision/*.md`, `impl/src/**`, `impl/tests/**` and the same
+  paths under `mainline`, `published` and `release`.
+- `.sdc/reasons/*` (the reasons file of a rejection, which only a Loom run has) and
+  `.sdc/loom-feedback/**`.
+- The text of every decider answer, the costs, times and token counts above, `source` and
+  `not_recorded` (never compared).
+
+The spend condition is not a tolerance: the three runs stop at the 19.00 USD stop line of the
+launcher, 20.00 USD being the approved cap (`approval-record:operator-decision-parity-runs-spend-2026-11-22`,
+`approval-record:operator-decision-parity-runs-unconfined-2026-11-22`).
+
+## State after the move to Loom 5af3f9c2 (wave rb3, 2026-11-22)
+
+Goal moved: the three evaluation runs of "Acceptance of the evaluation run". Their two start
+conditions (`approval-record:operator-decision-parity-runs-unconfined-2026-11-22`) are met on Loom
+`5af3f9c2` and the runs are registered, not started.
+
+- `runbook loom-run` is pinned to Loom `5af3f9c2` and runs every printed decision command as
+  printed; a rejection is `tree approve --action <a> --result rejected --reasons-file <file>`.
+  The substitutes of `2c0a6f48` are gone (`docs/loom-run-decisions.md`).
+- `stub-cycle` through `runbook loom-run` on `5af3f9c2` compares `parity: identical` with the driver
+  summary (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"). A second run with one person
+  step rejected ends `closed: operating`, delivered, after the writer ran again with the reasons.
+  The slow lane `task test:loom-real` passes on the new binary.
+- The record is `experiments/parity-loom-strong.yaml` (planned, three runs, the strong setting of
+  `release-0.1.2`, spend stop line 19.00 USD under the approved cap of 20.00 USD). The tolerance is
+  written above, before any run. The login is named at start time only:
+  `sdc-experiment run parity-loom-strong --login-file <login file> --runs-dir <a directory outside the
+  repository>`.
+- Not met: the per-pair `same`/`differs` report with `parity: pass` and `parity: fail`; the code
+  prints `parity: identical`, `parity: equal on what both sides record` and `parity: different`
+  (as in "State after the integration"). The three runs have not started and no spend was made.
+
+The first three runs of `experiments/parity-loom-strong.yaml` were started on 2026-11-22 and ended within 17 s each in their first model step (`idea.dissect`), before any model call and without spend (the ledger booked 2.00 USD of reservation per run for a step of unknown cost, 6.00 USD, none of it spent). A program bound under Loom has `PATH` and `LOOM_*` and no `HOME`; the bindings handed the login path to the claude-cli adapter only, and metaharness reads the login under `$HOME`, so it refused to plan the launch. The record is abandoned and stays as the evidence of the attempt; `experiments/parity-loom-strong-2.yaml` replaces it, with the same settings, hypothesis, models and cap (20.00 USD, stop line 19.00 USD) on the tree that fixes the adapter and the failed-call rule of `runbook loom-run` (`docs/loom-run.md`, "How each adapter gets the login under Loom" and "A failed model call"). The tolerance section above stands as written: no range was read again, as no run reached a model.

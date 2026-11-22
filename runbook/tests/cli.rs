@@ -2,6 +2,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod loom_run;
+
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
 fn repo() -> PathBuf {
@@ -984,7 +986,7 @@ fn compare_with(tag: &str, k: Knobs, extra: &[&str]) -> (i32, Vec<String>) {
     args.extend(extra);
     args.extend([path_str(&a), path_str(&b)]);
     let o = parity(&args);
-    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+    (o.status.code().unwrap(), stdout(&o).lines().filter(|l| !l.starts_with("parity: ")).map(String::from).collect())
 }
 
 #[test]
@@ -1443,20 +1445,139 @@ fn parity_loom_summary_is_the_golden_file() {
 fn parity_loom_summary_lists_what_the_status_does_not_record() {
     let _t = Timed::start("parity_loom_summary_lists_what_the_status_does_not_record");
     let v = pfx_json("loom-summary.golden.json");
-    assert_eq!(
-        v["not_recorded"],
-        json!(["source.run_settings", "copies[].action", "copies[].subject", "copies[].subject_revision", "decision_requests", "protocols[].digest"])
-    );
+    // The status alone holds no run settings, no decision and no protocol digest; a copied record's
+    // action, subject and revision are the record of that kind in the target case.
+    assert_eq!(v["not_recorded"], json!(["source.run_settings", "decision_requests", "protocols[].digest"]));
     assert_eq!(v["source"], json!({"runtime": "loom", "status_version": "0.0.0", "run_settings": null}));
     assert_eq!(v["decision_requests"], json!([]));
     let copy = &v["copies"][0];
-    assert_eq!((&copy["action"], &copy["subject"], &copy["subject_revision"]), (&Value::Null, &Value::Null, &Value::Null));
+    assert_eq!((&copy["action"], &copy["subject"], &copy["subject_revision"]), (&json!("approval.copy"), &json!("route"), &json!("rev-r2")));
     assert_eq!(v["protocols"][0]["digest"], Value::Null);
     let table = stdout(&parity(&["compare", "--rules"]));
     for m in v["not_recorded"].as_array().unwrap() {
         let row = table.lines().find(|l| l.starts_with(&format!("{} | ", m.as_str().unwrap()))).unwrap();
-        assert!(row.contains(" | (not recorded) | "), "{row}");
+        assert!(row.contains(" | (not recorded) | ") || row.contains(" | run directory: "), "{row}");
     }
+}
+
+#[test]
+fn parity_a_copy_whose_record_is_not_in_the_target_case_is_an_error_that_names_the_case() {
+    let _t = Timed::start("parity_a_copy_whose_record_is_not_in_the_target_case_is_an_error_that_names_the_case");
+    let s = Synth::new("loom-copy-missing");
+    let status = loom_status_file(&s, "m", |v| {
+        case_mut(v, "root")["evidence"].as_array_mut().unwrap().retain(|e| e["kind"] != "route_approval");
+    });
+    let o = loom_summarize(&status, &[]);
+    assert_eq!(o.status.code(), Some(2), "{}", stdout(&o));
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(err.contains("case root") && err.contains("route_approval") && err.contains("copies[0]"), "{err}");
+}
+
+/// A Loom run directory as `runbook loom-run` leaves it, built from the fixtures: the status, the
+/// product tree (`work`), the settings line, the decisions it answered and the protocol files it copied.
+fn loom_run_dir(s: &Synth, tag: &str) -> PathBuf {
+    let dir = s.root.join(tag);
+    std::fs::create_dir_all(dir.join("protocols")).unwrap();
+    std::fs::copy(pfx().join("loom-status.json"), dir.join("tree-status.json")).unwrap();
+    copy_dir(&pfx().join("product"), &dir.join("work"), &[]);
+    std::fs::write(
+        dir.join("run-settings.jsonl"),
+        "{\"format\":\"sdc.run-settings/1\",\"leg\":\"loom\",\"decider\":{\"kind\":\"scripted\",\"principal\":\"person:owner\"},\"max_llm_calls\":100}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("decisions.jsonl"),
+        "{\"case\":\"root.first\",\"type\":\"approval\",\"kind\":\"ApproveAction\",\"principal\":\"person:owner\"}\n{\"case\":\"root.second\",\"type\":\"approval\",\"kind\":\"Approve\",\"principal\":\"person:owner\"}\n",
+    )
+    .unwrap();
+    for (id, rev) in [("tour", 3), ("tour.leg", 2)] {
+        std::fs::write(dir.join("protocols").join(format!("{}.protocol.yaml", id.replace('.', "-"))), format!("format: protocol/1\nprotocol:\n  id: {id}\n  revision: {rev}\n")).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn parity_a_loom_run_directory_records_what_the_status_does_not_and_compares_identical() {
+    let _t = Timed::start("parity_a_loom_run_directory_records_what_the_status_does_not_and_compares_identical");
+    let s = Synth::new("loom-run-dir");
+    let dir = loom_run_dir(&s, "run");
+    let out = s.root.join("b.json");
+    let o = parity(&["summarize", "--loom-run", path_str(&dir), "--output", path_str(&out)]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+    let v = read_summary(&out);
+    assert_eq!(v["not_recorded"], json!([]));
+    assert_eq!(v["source"]["run_settings"], json!({"decider": "scripted", "adapter": null, "stand_in": true, "stand_in_principal": "person:owner"}));
+    assert_eq!(v["decision_requests"], json!([]));
+    let digest = |name: &str| -> String { use sha2::{Digest, Sha256}; Sha256::digest(std::fs::read(dir.join("protocols").join(name)).unwrap()).iter().map(|b| format!("{b:02x}")).collect() };
+    assert_eq!(v["protocols"][0]["digest"], json!(digest("tour.protocol.yaml")));
+    assert_eq!(v["protocols"][1]["digest"], json!(digest("tour-leg.protocol.yaml")));
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(!text.contains(env!("CARGO_TARGET_TMPDIR")), "an absolute path in the summary");
+    // The driver's fixture summary and this one: nothing differs and nothing is unrecorded.
+    for (x, y) in [(pfx().join("driver-summary.json"), out.clone()), (out.clone(), pfx().join("driver-summary.json"))] {
+        let o = parity(&["compare", "--product-digests", path_str(&x), path_str(&y)]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let lines: Vec<String> = stdout(&o).lines().map(String::from).collect();
+        assert_eq!(lines, ["equal: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files", "parity: identical"]);
+    }
+}
+
+#[test]
+fn parity_a_loom_run_directory_that_misses_a_file_or_holds_a_decision_with_no_rule_is_refused_by_name() {
+    let _t = Timed::start("parity_a_loom_run_directory_that_misses_a_file_or_holds_a_decision_with_no_rule_is_refused_by_name");
+    let s = Synth::new("loom-run-dir-bad");
+    let refused = |tag: &str, edit: &dyn Fn(&Path), needle: &str| {
+        let dir = loom_run_dir(&s, tag);
+        edit(&dir);
+        let o = parity(&["summarize", "--loom-run", path_str(&dir)]);
+        assert_eq!(o.status.code(), Some(2), "{tag}: {}", stdout(&o));
+        let err = String::from_utf8_lossy(&o.stderr).to_string();
+        assert!(err.contains(needle), "{tag}: {needle} not named: {err}");
+    };
+    refused("no-settings", &|d| std::fs::remove_file(d.join("run-settings.jsonl")).unwrap(), "run-settings.jsonl");
+    refused("no-status", &|d| std::fs::remove_file(d.join("tree-status.json")).unwrap(), "tree-status.json");
+    refused("no-protocol", &|d| std::fs::remove_file(d.join("protocols/tour-leg.protocol.yaml")).unwrap(), "tour-leg");
+    refused(
+        "question",
+        &|d| std::fs::write(d.join("decisions.jsonl"), "{\"case\":\"root\",\"type\":\"approval\",\"kind\":\"Answer\"}\n").unwrap(),
+        "decisions.jsonl:1",
+    );
+    // `--loom-run` is a source of its own.
+    let dir = loom_run_dir(&s, "usage");
+    for other in [["--loom-status", "x"], ["--product-tree", "x"], ["--driver", "x"]] {
+        let mut args = vec!["summarize", "--loom-run", path_str(&dir)];
+        args.extend(other);
+        assert_eq!(parity(&args).status.code(), Some(64), "{other:?}");
+    }
+}
+
+#[test]
+fn parity_a_loom_run_directory_with_the_deciders_answers_to_a_question_and_a_finding_is_read() {
+    let _t = Timed::start("parity_a_loom_run_directory_with_the_deciders_answers_to_a_question_and_a_finding_is_read");
+    let s = Synth::new("loom-run-dir-answers");
+    let dir = loom_run_dir(&s, "run");
+    std::fs::write(
+        dir.join("decisions.jsonl"),
+        "{\"case\":\"root\",\"type\":\"question\",\"class\":\"scope_changing_answer\",\"principal\":\"decider:model\"}\n{\"case\":\"root\",\"type\":\"finding\",\"class\":\"finding\",\"principal\":\"decider:model\"}\n",
+    )
+    .unwrap();
+    let o = parity(&["summarize", "--loom-run", path_str(&dir)]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+}
+
+#[test]
+fn parity_compare_ends_with_a_line_that_says_how_the_two_summaries_stand() {
+    let _t = Timed::start("parity_compare_ends_with_a_line_that_says_how_the_two_summaries_stand");
+    let s = Synth::new("closing-line");
+    let b = loom_summary_file(&s, "b", |_| {});
+    let a = pfx().join("driver-summary.json");
+    let o = parity(&["compare", path_str(&a), path_str(&b)]);
+    assert_eq!((o.status.code(), stdout(&o).lines().last()), (Some(0), Some("parity: equal on what both sides record")));
+    let o = parity(&["compare", path_str(&a), path_str(&a)]);
+    assert_eq!((o.status.code(), stdout(&o).lines().last()), (Some(0), Some("parity: identical")));
+    let b = loom_summary_file(&s, "c", |v| case_mut(v, "root.second")["outcome"] = json!("failed"));
+    let o = parity(&["compare", path_str(&a), path_str(&b)]);
+    assert_eq!((o.status.code(), stdout(&o).lines().last()), (Some(1), Some("parity: different")));
 }
 
 #[test]
@@ -1499,10 +1620,11 @@ fn parity_loom_and_driver_summaries_of_one_tree_compare_equal() {
         let lines: Vec<String> = stdout(&o).lines().map(String::from).collect();
         assert_eq!(lines[0], "equal on what both sides record: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files");
         // the driver lists the question and the options of a decision request, Loom the whole list
-        let expect: Vec<String> = ["source.run_settings", "copies[].action", "copies[].subject", "copies[].subject_revision", "decision_requests", "protocols[].digest"]
+        let mut expect: Vec<String> = ["source.run_settings", "decision_requests", "protocols[].digest"]
             .iter()
             .map(|m| format!("not recorded on one side: {m} (not recorded by {by})"))
             .collect();
+        expect.push("parity: equal on what both sides record".to_owned());
         assert_eq!(lines[1..], expect[..]);
     }
 }
@@ -1513,15 +1635,20 @@ fn parity_a_member_one_side_does_not_record_is_no_difference_of_values() {
     let s = Synth::new("loom-notrec");
     let b = loom_summary_file(&s, "b", |_| {});
     let mut d = pfx_json("driver-summary.json");
-    d["copies"][0]["subject"] = json!("another");
-    d["copies"][0]["action"] = json!("another.copy");
+    d["source"]["run_settings"] = json!({"decider": "another"});
     d["decision_requests"] = json!([{"id": "q1", "case": "T-1", "question": null, "options": [], "answer": "yes", "who": "person:stand-in"}]);
     d["protocols"][0]["digest"] = json!("another");
     s.put_json("d.json", &d);
     let o = parity(&["compare", path_str(&s.root.join("d.json")), path_str(&b)]);
     assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
-    assert!(stdout(&o).contains("not recorded on one side: copies[].subject (not recorded by b)"), "{}", stdout(&o));
-    // what both record is still compared
+    assert!(stdout(&o).contains("not recorded on one side: protocols[].digest (not recorded by b)"), "{}", stdout(&o));
+    // what both record is still compared: a copy's subject is recorded on both sides now
+    d["copies"][0]["subject"] = json!("another");
+    s.put_json("d.json", &d);
+    let o = parity(&["compare", path_str(&s.root.join("d.json")), path_str(&b)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stdout(&o).lines().any(|l| l == r#"copies[0].subject: a="another" b="route""#), "{}", stdout(&o));
+    d["copies"][0]["subject"] = json!("route");
     d["copies"][0]["kind"] = json!("another_kind");
     s.put_json("d.json", &d);
     let o = parity(&["compare", path_str(&s.root.join("d.json")), path_str(&b)]);
@@ -1535,7 +1662,7 @@ fn compare_loom_variant(tag: &str, edit: impl Fn(&mut Value)) -> (i32, Vec<Strin
     let s = Synth::new(tag);
     let b = loom_summary_file(&s, "b", edit);
     let o = parity(&["compare", "--product-digests", path_str(&pfx().join("driver-summary.json")), path_str(&b)]);
-    let lines = stdout(&o).lines().filter(|l| !l.starts_with("not recorded on one side")).map(String::from).collect();
+    let lines = stdout(&o).lines().filter(|l| !l.starts_with("not recorded on one side") && !l.starts_with("parity: ")).map(String::from).collect();
     (o.status.code().unwrap(), lines)
 }
 
@@ -1727,7 +1854,7 @@ fn compare_mini(tag: &str, a: &str, b: &str) -> (i32, Vec<String>) {
     s.put_json("a.json", &mini_summary(a));
     s.put_json("b.json", &mini_summary(b));
     let o = parity(&["compare", path_str(&s.root.join("a.json")), path_str(&s.root.join("b.json"))]);
-    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+    (o.status.code().unwrap(), stdout(&o).lines().filter(|l| !l.starts_with("parity: ")).map(String::from).collect())
 }
 
 #[test]
@@ -1815,7 +1942,7 @@ fn compare_summaries(tag: &str, a: &Value, b: &Value) -> (i32, Vec<String>) {
     s.put_json("a.json", a);
     s.put_json("b.json", b);
     let o = parity(&["compare", path_str(&s.root.join("a.json")), path_str(&s.root.join("b.json"))]);
-    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+    (o.status.code().unwrap(), stdout(&o).lines().filter(|l| !l.starts_with("parity: ")).map(String::from).collect())
 }
 
 #[test]

@@ -4660,6 +4660,88 @@
     },
     {
       "hypothesis": null,
+      "id": "parity-loom-strong",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through Loom with `runbook loom-run`, the driver runs through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick, a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider is the one of bindings/tools/decider.sh through the claude-cli adapter in both runtimes; its answers reach Loom as printed decision commands with a named result and the reasons of a rejection as a file."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary on the login's PATH at run time, which no record pins; release-0.1.2 had the same confound."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom (\"Tolerance, written before the Loom runs\"). It is the evaluation run of that story.",
+      "tree": "0c28adc",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
+      "id": "parity-loom-strong-2",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through Loom with `runbook loom-run`, the driver runs through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick, a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider is the one of bindings/tools/decider.sh through the claude-cli adapter in both runtimes; its answers reach Loom as printed decision commands with a named result and the reasons of a rejection as a file."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary on the login's PATH at run time, which no record pins; release-0.1.2 had the same confound."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom (\"Tolerance, written before the Loom runs\"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.",
+      "tree": "ee6b50b",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 3,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "release-0.3.0",
       "kind": "prospective",
       "known_confounds": [
@@ -5271,6 +5353,26 @@
     {
       "path": "experiments/implement-one-request.yaml",
       "sha256": "cfdfaeb973b38cac4a18b6ffa941889a5004877dacf0eff20bc42e21bed98e89"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2.yaml",
+      "sha256": "58a347c2a3417d7ff27f6c2ab639d089f8ef7d6e9aa65e1932ee12bec2281a5a"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.1.json",
+      "sha256": "5f11e3f029edb601020295959eb239103cffb3bcd54bc4fe48544aff133757d7"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.2.json",
+      "sha256": "8f65717e68728e382354658ae8e38baf62d9a91d629bc87e72b7ba9f17e40941"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.3.json",
+      "sha256": "7f4cf4116e0eee0901b8bae1d9c7bfada93e04bc0faf29321aa53dfb4d958879"
+    },
+    {
+      "path": "experiments/parity-loom-strong.yaml",
+      "sha256": "e44d6e8da8d02d898bb83a28cc9b7176c748d85d1ccf27c62b8e33e313ce9a6d"
     },
     {
       "path": "experiments/release-0.1.2.yaml",

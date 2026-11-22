@@ -2,10 +2,12 @@
 //! test file is added here as a `mod` line; `autotests = false` in `Cargo.toml` keeps cargo from
 //! building each file as a binary of its own.
 
+mod answers;
 mod bugfix_languages;
 mod bugfix_prompt;
 mod conformance;
 mod decision_request;
+mod experiment_loom;
 mod impl_gate;
 mod plugin;
 mod progress;

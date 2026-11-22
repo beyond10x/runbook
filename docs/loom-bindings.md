@@ -12,8 +12,9 @@ The format is the one Loom's loader reads at Loom commit `8a8fad3b` (`../loom`,
 `ess/domains/bindings.yaml`). The differences between the two formats are numbered `D1` to `D39`
 in the Loom session's comparison of the two formats (2026-11-21); this page cites those numbers.
 What the format cannot express yet is listed in `bindings/PENDING.md`, never written in invented
-syntax. The bindings ran under Loom commit `2c0a6f48` in the first equal comparison with the driver
-(`stub-cycle`, 2026-11-22; `docs/parity.md`, "First equal comparison").
+syntax. The bindings ran under Loom commit `5af3f9c2` in the identical comparison with the driver
+(`stub-cycle`, 2026-11-22; `docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"), after the
+first equal one at `2c0a6f48` ("First equal comparison").
 
 ## Files
 
@@ -204,7 +205,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `not_called()` | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 0, as in the driver | pending: G1 (`exits.not_called`) |
 | `SDC_PRINCIPAL` | `SDC_PRINCIPAL` | `--principal` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` or G2 |
 | `SDC_LLM_ADAPTER` | `SDC_LLM_ADAPTER` | `--adapter` is taken; the YAML names none, so the stub runs | pending: N3, N9 |
-| `SDC_CLAUDE_CREDENTIALS` | `SDC_CLAUDE_CREDENTIALS` (the login file of `llm-adapter-claude-cli.sh`; else `CLAUDE_CONFIG_DIR`, else `HOME`) | `--claude-credentials <file>`; with none of the four (`ANTHROPIC_API_KEY` too) the adapter exits 127 and names them | done; no binding states it yet, as none names `--adapter` |
+| `SDC_CLAUDE_CREDENTIALS` | `SDC_CLAUDE_CREDENTIALS` (the login file of `llm-adapter-claude-cli.sh` and of `llm-adapter-metaharness.sh`; else `CLAUDE_CONFIG_DIR`, else `HOME`) | `--claude-credentials <file>`; with none of the four (`ANTHROPIC_API_KEY` too) the claude-cli adapter exits 127 and names them | done; the runner writes it into every model node (`docs/loom-run.md`, "How each adapter gets the login under Loom") |
 | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | the defaults | pending: N9 |
 | `SDC_LLM_NODES` | `SDC_LLM_NODES` | the default: every node on the adapter | pending: N9 |
 | `SDC_STUB_FINDINGS` | `SDC_STUB_FINDINGS` | the default: none | pending: N3 |
@@ -233,7 +234,7 @@ Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-tex
 | Where | Reads | What was done |
 |---|---|---|
 | `llm-adapter-claude-cli.sh` | `HOME` (the login under `~/.claude`) | read as `${HOME:-}`; the login is `SDC_CLAUDE_CREDENTIALS`, else `CLAUDE_CONFIG_DIR`, else `HOME`, and with none of them (and no `ANTHROPIC_API_KEY`) the adapter exits 127 naming all four; llm-node's `--claude-credentials <file>` gives the first one |
-| `llm-adapter-metaharness.sh`, `llm-adapter-dry.sh`, `llm-adapter-fixture.sh` | `METAHARNESS`, `SDC_LLM_ENDPOINT`, `SDC_LLM_DRY_LOG`, `SDC_COVERAGE_REPLIES`, `SDC_REPLY` | all read with a default (`${X:-}`): nothing to change |
+| `llm-adapter-metaharness.sh`, `llm-adapter-dry.sh`, `llm-adapter-fixture.sh` | `METAHARNESS`, `SDC_LLM_ENDPOINT`, `SDC_LLM_DRY_LOG`, `SDC_COVERAGE_REPLIES`, `SDC_REPLY`, and for the metaharness adapter `SDC_CLAUDE_CREDENTIALS` | all read with a default (`${X:-}`); the metaharness adapter, when `HOME` has no login and the login's directory is the runner's private one (mode 700), sets `HOME` and `TMPDIR` to a home in that directory with a copy of the login for the metaharness process alone, removed on exit (the runner removes what a SIGKILL left) |
 | `sdc-tool.sh` `conform-run` | `SDC_ACTION` (the report file name) | read as `${SDC_ACTION:-conform-run}`; the binding states `--action` anyway |
 | `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN`, `ESS_TOOLCHAIN_QUIET` | exported with defaults at the top of the tool: nothing to change |
 | `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN_DIR`, else `XDG_CACHE_HOME`, else `HOME` (the 0.97.1 dispatcher finds and installs the 0.96.0 toolchain below it) | with none of the three set, `spec-validate` exited 1 (`neither XDG_CACHE_HOME nor HOME is set; set ESS_TOOLCHAIN_DIR`); in Loom mode the tool now exports `ESS_TOOLCHAIN_DIR=<home>/.cache/ess/toolchains`, `<home>` from `getent passwd "$(id -u)"`, when none of the three is set; `scripts/check-bindings.sh` runs `spec-validate` under `env -i PATH LOOM_CASE` |
