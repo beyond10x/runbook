@@ -127,20 +127,34 @@ in the real file. The run directory records only that a file was named (`setting
 
 A bound program has `PATH` and `LOOM_*` and no `HOME`. The bindings copy writes the link as
 `--claude-credentials <link>` into the argv of every model node, `llm-node.sh` turns it into
-`SDC_CLAUDE_CREDENTIALS`, and each adapter makes its own private copy for its one call:
+`SDC_CLAUDE_CREDENTIALS`, and each adapter makes its own private copy for its one call. The copy lies
+in the private directory of the run, the directory of the link (the adapter takes it when the
+directory of `SDC_CLAUDE_CREDENTIALS` belongs to the user and has mode 700), and never in the call's
+record directory, which is inside the run directory:
 
-| Path | How it finds the login | Gone after the call |
-|---|---|---|
-| `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home `<record dir>/config-home.XXXXXX` (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude` | removed on exit |
-| `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes `<record dir>/login-home.XXXXXX` (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` to it for the metaharness process alone | removed on exit, also after a failed call or SIGTERM |
-| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `llm-node.sh`, so the adapter of the first or second row | as its adapter |
+| Path | How it finds the login | Where the copy lies | Who removes it |
+|---|---|---|---|
+| `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude`; the whole config home moves, as it is the directory `claude` is given | `<private dir>/config-home.XXXXXX` | the adapter on exit; after a SIGKILL the runner |
+| `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes a home (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` and `TMPDIR` to it for the metaharness process alone, so metaharness's scratch root (its own copy of the login in its config home) lies there too | `<private dir>/h.XXXXXX`, the scratch root `<private dir>/h.XXXXXX/.tmpXXXXXX` | metaharness removes its scratch root when it ends, the adapter the home on exit, also after a failed call or SIGTERM; after a SIGKILL the runner |
+| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `llm-node.sh`, so the adapter of the first or second row | as its adapter | as its adapter |
 
-Without `SDC_CLAUDE_CREDENTIALS` nothing changes: the claude-cli adapter reads `CLAUDE_CONFIG_DIR`,
-then `HOME`; the metaharness adapter keeps the `HOME` it has (the driver's runs). With
+`PrivateDir` removes its directory with everything in it when the run ends (a normal end, an error,
+SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
+removes the link itself and never follows it: the login file stays. A SIGKILL of the runner leaves
+the directory, as the section above says.
+
+The metaharness adapter makes its home only when metaharness would find no login otherwise:
+`SDC_CLAUDE_CREDENTIALS` names a file in such a directory and `$HOME/.claude/.credentials.json` is
+not a file. With a usable `HOME` nothing changes, also when `SDC_CLAUDE_CREDENTIALS` is set. Where
+`SDC_CLAUDE_CREDENTIALS` is not in such a directory (the driver's runs) the metaharness adapter does
+nothing new and the claude-cli adapter makes its config home in the record directory, as it always
+did. With `ANTHROPIC_API_KEY` the claude-cli adapter copies no login. Without
+`SDC_CLAUDE_CREDENTIALS` the claude-cli adapter reads `CLAUDE_CONFIG_DIR`, then `HOME`. With
 `SDC_LLM_ENDPOINT` the metaharness adapter keeps `--credentials none` and copies no login. The path
-and the content of the login are in no file of a call's record directory (a test proves it for both
-adapters, `driver/tests/questions_check.rs`, `loom_mode`; with the real `metaharness` and a stand-in
-`claude`, skipped where `metaharness` is not on `PATH`).
+and the content of the login are in no file of the run directory, also after a SIGKILL of an adapter
+(tests in `driver/tests/questions_check.rs`, `loom_mode`, and `runbook/tests/loom_run/login.rs`; the
+checks with the real `metaharness` and a stand-in `claude` are skipped where `metaharness` is not on
+`PATH`).
 
 ## The caps
 
