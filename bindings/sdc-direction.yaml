@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc-direction@1
+protocol: sdc-direction@7
+program_root: bindings
 artifacts:
   requirements: requirements.yaml
   goals: goals.yaml

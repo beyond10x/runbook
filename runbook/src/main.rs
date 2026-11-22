@@ -44,6 +44,17 @@ enum Cmd {
     },
     /// Run the daemon in the foreground: HTTP and JSON on a runtime that is a stub in this version.
     Serve(runbook::serve::ServeArgs),
+    /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
+    Mcp(runbook::mcp::stdio::McpArgs),
+    /// Submit a run to a daemon (`--detach`); in process it waits for story:engine-on-loom-library-entry.
+    Run(runbook::client::RunArgs),
+    /// Inspect and steer the runs of a daemon: list, show, events, cancel, decisions.
+    Runs {
+        #[command(subcommand)]
+        cmd: runbook::client::RunsCmd,
+    },
+    /// Answer a decision request of a run on a daemon.
+    Decide(runbook::client::DecideArgs),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
     Parity {
         #[command(subcommand)]
@@ -106,7 +117,11 @@ fn main() -> ExitCode {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
+        Cmd::Run(args) => runbook::client::run(args),
+        Cmd::Runs { cmd } => runbook::client::runs(cmd),
+        Cmd::Decide(args) => runbook::client::decide(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
+        Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
             if args.runbook_dir.is_none() {
                 args.runbook_dir = assets::Lookup::from_process().locate().ok().map(|a| a.protocol_dir());

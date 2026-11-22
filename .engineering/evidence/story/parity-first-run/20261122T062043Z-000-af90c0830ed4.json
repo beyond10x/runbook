@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-22T06:20:43Z",
+  "actor": "human:operator",
+  "artifact": "story:parity-first-run",
+  "kind": "story",
+  "revision": 12,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test --test cli parity_ in runbook/ at wave-rb2/parity-equal: 39 passed, 0 failed"
+  }
+}

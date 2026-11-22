@@ -176,8 +176,18 @@ impl Take {
     fn could_not_run(&self) -> bool {
         matches!(self.exit.as_str(), "75" | "126" | "127")
     }
+    /// Exit 70: the step's job started and the pool ended it at its run limit. Counted apart from
+    /// `could_not_run`, from failures and from pool waits; never a real take.
+    fn over_time(&self) -> bool {
+        self.exit == "70"
+    }
+    /// Exit 69: the step's tool got no build slot within its wait bound and ran nothing. Counted
+    /// apart from `could_not_run`, never a failure, never a real take.
+    fn pool_wait(&self) -> bool {
+        self.exit == "69"
+    }
     fn real(&self) -> bool {
-        !self.not_called && !self.could_not_run() && self.end_idx.is_some()
+        !self.not_called && !self.could_not_run() && !self.pool_wait() && !self.over_time() && self.end_idx.is_some()
     }
     fn driver_s(&self) -> f64 {
         match (self.t_start, self.t_end) {
@@ -438,6 +448,8 @@ struct Node {
     real_takes: usize,
     not_called: usize,
     could_not_run: usize,
+    pool_waits: usize,
+    ran_over_time: usize,
     llm_calls: usize,
     unmatched_llm_calls: usize,
     no_call_takes: usize,
@@ -467,6 +479,8 @@ impl Node {
         self.real_takes += o.real_takes;
         self.not_called += o.not_called;
         self.could_not_run += o.could_not_run;
+        self.pool_waits += o.pool_waits;
+        self.ran_over_time += o.ran_over_time;
         self.llm_calls += o.llm_calls;
         self.unmatched_llm_calls += o.unmatched_llm_calls;
         self.no_call_takes += o.no_call_takes;
@@ -502,7 +516,7 @@ impl Node {
     fn json(&self, action: &str, stage: &str) -> J {
         json!({"stage": stage, "action": action, "node": format!("{stage}/{action}"), "kind": self.kind,
             "instances": self.instances, "takings": self.takings, "real_takes": self.real_takes,
-            "not_called": self.not_called, "could_not_run": self.could_not_run,
+            "not_called": self.not_called, "could_not_run": self.could_not_run, "pool_waits": self.pool_waits, "ran_over_time": self.ran_over_time,
             "llm_calls": self.llm_calls, "unmatched_llm_calls": self.unmatched_llm_calls, "no_call_takes": self.no_call_takes,
             "rework_takes": self.rework_takes, "retries_by_cause": self.retries_by_cause,
             "looping_factor": self.looping_factor(), "first_pass_yield": self.first_pass_yield(),
@@ -886,6 +900,12 @@ pub fn load(dir: &Path) -> Res<J> {
             if t.could_not_run() {
                 n.could_not_run += 1;
             }
+            if t.pool_wait() {
+                n.pool_waits += 1;
+            }
+            if t.over_time() {
+                n.ran_over_time += 1;
+            }
             n.driver_s += t.driver_s();
             if t.real() {
                 n.real_takes += 1;
@@ -1105,7 +1125,7 @@ pub fn load(dir: &Path) -> Res<J> {
         "furthest_stage_passed": furthest_passed.map(|i| STAGES[i]),
         "cases": cases.len(),
         "takings": total.takings, "real_takes": total.real_takes, "not_called": total.not_called,
-        "could_not_run": total.could_not_run, "rework_takes": total.rework_takes,
+        "could_not_run": total.could_not_run, "pool_waits": total.pool_waits, "ran_over_time": total.ran_over_time, "rework_takes": total.rework_takes,
         "writer_rework_takes": writers.rework_takes,
         "looping_factor": writers.looping_factor(), "first_pass_yield": writers.first_pass_yield(),
         "llm_calls": calls.as_ref().map(Vec::len), "llm_cost_usd": calls.as_ref().map(|_| round6(llm_cost)),
@@ -1280,8 +1300,8 @@ pub fn text(doc: &J) -> String {
     let _ = writeln!(s, "  cost {} USD (llm {} in {} calls, decider {} in {} calls, {} s; {} decisions by rule); rework cost {}",
         opt(&m["cost_usd"]), opt(&m["llm_cost_usd"]), opt(&m["llm_calls"]), opt(&m["decider_cost_usd"]), opt(&m["decider_calls"]),
         opt(&m["decider_s"]), opt(&m["decisions_by_rule"]), opt(&m["rework_cost_usd"]));
-    let _ = writeln!(s, "  driver {} s, wall {} s, waiting on a person {} s; takes {} real {} rework {} not called {}",
-        opt(&m["driver_s"]), opt(&m["wall_s"]), opt(&m["waiting_on_person_s"]), m["takings"], m["real_takes"], m["rework_takes"], m["not_called"]);
+    let _ = writeln!(s, "  driver {} s, wall {} s, waiting on a person {} s; takes {} real {} rework {} not called {} pool waits {} ran over time {}",
+        opt(&m["driver_s"]), opt(&m["wall_s"]), opt(&m["waiting_on_person_s"]), m["takings"], m["real_takes"], m["rework_takes"], m["not_called"], m["pool_waits"], m["ran_over_time"]);
     let _ = writeln!(s, "  writers: looping factor {}, first-pass yield {}", opt(&m["looping_factor"]), opt(&m["first_pass_yield"]));
     let _ = writeln!(s, "  conformance: {}", conformance_text(m));
     let mut nodes: Vec<&J> = doc["nodes"].as_array().into_iter().flatten()

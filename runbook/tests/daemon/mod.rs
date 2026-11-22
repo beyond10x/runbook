@@ -8,3 +8,5 @@ mod clock;
 mod conformance;
 mod ui_embed;
 mod ui_embed_review;
+mod mcp;
+mod cli_client;

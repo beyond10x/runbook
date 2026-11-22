@@ -23,7 +23,7 @@ scope:
   path: runbook/src/parity.rs
 - confidence: cited
   path: runbook/tests/cli.rs
-revision: 14
+revision: 15
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 2, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 3, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -130,3 +130,43 @@ USD". The three Loom runs of the evaluation start without asking again once the 
 summaries are equal on both runtimes, and they stop at 20 USD of spend. The story's report gives the
 three results and the spend. The runs still start only through `sdc-experiment run` with a registered
 record.
+
+## State after the first equal comparison
+
+2026-11-22. `stub-cycle` run by the old driver and under Loom `2c0a6f48`, both from one export of
+Runbook `ee90434`, compare equal on what both sides record: `equal on what both sides record: 8
+cases, 69 evidence records, 54 program runs, 5 person steps, 62 product files`, with and without
+`--product-digests`, exit 0, and six members listed as not recorded by Loom (`docs/parity.md`, "First
+equal comparison"). The Loom run was made with `b10x-loom tree` commands by hand: six `tree run`,
+five `tree approve`, `tree verify` exit 0.
+
+The stub-cycle condition of the spend approval
+(`approval-record:operator-decision-parity-runs-spend-2026-11-22`: the three evaluation runs start
+once the `stub-cycle` summaries are equal on both runtimes) is met on these facts. The three
+evaluation runs have not started and no spend was made.
+
+Not met: the last line of "Acceptance of the evaluation run". The run was not made by `runbook run`,
+and `compare` prints `equal on what both sides record:` and not `parity: identical`; the words
+`parity: identical`, `parity: pass` and `parity: fail` are in no code of `runbook/src/`.
+
+"Acceptance of the evaluation run", line by line:
+
+1. Per run pair, each member `same` or `differs`, closing `parity: pass` or `parity: fail`, exit 1
+   on fail: not met. `compare` prints one line per difference or one `equal` line, and no closing
+   `parity:` line; the three Loom runs of the evaluation and the three driver runs of
+   `release-0.1.2` were not made, and no quality measure was compared.
+2. The tolerance written in the story's report before the Loom runs start, and how the driver runs
+   vary among themselves: not met. No report exists; the evaluation has not started.
+3. A deliberately altered run makes the comparison print `parity: fail`, a test on recorded
+   summaries within 60 s: not met. The red-case tests (another result, another order, a missing
+   record, another outcome, `Deny`) assert named differences and exit 1, and none asserts the
+   closing line.
+4. The Loom runs start no `sdc-drive` process (sampled) and write their records under the run's
+   state directory: not met for the evaluation, which has not run. For `stub-cycle`, sampled every
+   20 ms over the six `tree run` calls, no `sdc-drive` and no `canon` process was seen; a program
+   that lives shorter than the interval can be missed.
+5. The comparison report committed under `experiments/` and listed in `experiments/INDEX.md`: not
+   met. Nothing was added there.
+6. `runbook run` of `stub-cycle` on Loom and the driver's run give summaries whose comparison is
+   empty, printed as `parity: identical` with exit 0: not met, as above. The comparison is not
+   empty either: six members are named as not recorded by Loom.

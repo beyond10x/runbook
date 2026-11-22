@@ -40,6 +40,7 @@ approved yet.
 |---|---|---|
 | `takings` | takes | `events.jsonl` `action_started` |
 | `real_takes`, `not_called`, `could_not_run` | as § 1 | `action_finished` `not_called`, `exit` |
+| `pool_waits`, `ran_over_time` | takes whose tool exited 69 (`ran_over_time`: 70, the build pool ended a started job at its run limit; the step is not run again): no build slot within the tool's wait bound, nothing ran. Apart from `could_not_run` and from failures; not a real take, never rework (`docs/driver.md`, "The build pool wait"). The run sum is `pool_waits` of the run; a run stopped by it has `stop_cause` `pool_wait_spent` | `action_finished` `exit` |
 | `instances` | case instances with at least one real take of the node | case tree |
 | `looping_factor` (LF) | `real_takes / instances`. The denominator is the number of takes of a run without rework: such a run takes each action once per case instance (one arrival of the tree at that protocol), so LF 1.0 means no rework (`run_metrics.rs:487`) | as above |
 | `rework_takes` | `real_takes − instances`: every real take of an action after its first in that case | as above |
@@ -103,7 +104,7 @@ From `decisions.jsonl` (`scripts/run-trial.sh:379-483`). The class is the line's
 ## 5. Stage and run
 
 - **Stage**: the node sums over its cases, and `cases`.
-- **Run sums**: `takings`, `real_takes`, `rework_takes`, `not_called`, `cost_usd` (LLM + decider),
+- **Run sums**: `takings`, `real_takes`, `rework_takes`, `not_called`, `pool_waits`, `ran_over_time`, `cost_usd` (LLM + decider),
   `rework_cost_usd`, `tokens`.
 - **`looping_factor`, `first_pass_yield`**: over the `llm-writer` nodes (`run_metrics.rs:966`).
 - **`furthest_stage`**: the latest of idea, intake, direction, epic, spec, plan, story, release

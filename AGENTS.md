@@ -30,7 +30,9 @@
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`).
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
+  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
+  comparison"); it does not cover a run with a model.
 - The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
   runtime, the UI server or the release.
 
@@ -65,7 +67,8 @@
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
 - The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
-- The `runbook` crate tests run as `slot task test:runbook` (cargo-nextest, `runbook/.config/nextest.toml`; the forge runs the same task in `.github/workflows/pages.yml` for a code change): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `runbook/tests/cli.rs` is the one integration-test binary (the daemon's tests are modules under `runbook/tests/daemon/`). The daemon reads one clock (`runbook/src/clock.rs`): a test that needs an exact instant builds the daemon in process with `Daemon::start_with_clock` and a `SetClock`; no option, environment variable or request sets a clock.
+- The `runbook` crate tests run as `slot task test:runbook` (cargo-nextest, `runbook/.config/nextest.toml`; the forge runs the same task in `.github/workflows/pages.yml` for a code change): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `runbook/tests/cli.rs` is the one integration-test binary (the daemon's tests are modules under `runbook/tests/daemon/`). The daemon reads one clock (`runbook/src/clock.rs`): a test that needs an exact instant builds the daemon in process with `Daemon::start_with_clock` and a `SetClock`; no option, environment variable or request sets a clock. Both test tasks pass `--color never` to every nextest call whose log they parse (the forge sets `CARGO_TERM_COLOR=always` through `dtolnay/rust-toolchain`); `task check:ci-paths` fails when a nextest call of `Taskfile.yml` lacks it.
+- MCP (`runbook mcp`, `runbook serve --mcp`; `runbook/src/mcp/`, `docs/mcp.md`) is a face of the command layer: a tool calls `api::routes::command_answer` or `view_answer` and returns the route's body, and its input schema is derived from the OpenAPI document, never typed by hand; a new tool is a row in `mcp/tools.rs`.
 - The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
   slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
   ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
@@ -80,6 +83,9 @@
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
+  A new `revision` of a protocol file moves the registration (`<id with . and _ as ->@<revision>`)
+  in `bindings/<name>.yaml` and in every `copy` `from:` in the same commit;
+  `scripts/check-bindings.sh` refuses a mismatch.
   `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
   a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`

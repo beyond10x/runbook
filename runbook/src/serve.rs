@@ -36,6 +36,9 @@ pub struct ServeArgs {
     /// Serve the web UI, compiled into this binary, beside the API (`GET /`).
     #[arg(long)]
     pub ui: bool,
+    /// Also serve MCP over streamable HTTP at /mcp, behind the same token check.
+    #[arg(long)]
+    pub mcp: bool,
 }
 
 /// What `serve` reads from the process environment.
@@ -128,7 +131,8 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         let bound = listener.local_addr().map_err(|e| e.to_string())?;
         eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
         println!("runbook: listening on http://{bound}");
-        api::serve_ui(listener, daemon.clone(), token.as_deref(), args.ui, shutdown_signal()).await.map_err(|e| e.to_string())
+        let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
+        api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, shutdown_signal()).await.map_err(|e| e.to_string())
     });
     daemon.stop();
     match served {

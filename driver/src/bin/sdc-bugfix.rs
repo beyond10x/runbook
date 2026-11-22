@@ -29,9 +29,17 @@
 //! (nothing is written into an artifact), through `slot` when it is on PATH. A program that is
 //! missing exits 127 (sdc-drive records nothing), never a check result; so does an unusable
 //! checks.yaml (126).
+//!
+//! The build pool (docs/driver.md, "The build pool wait"): `repro-run`, `tests-run` and `gate-run`
+//! bound their wait for a slot (`--pool-wait <seconds>`, or SDC_POOL_WAIT, which wins; one bound per
+//! step). A job still queued at the bound is cancelled and the step exits 69, nothing ran; a job the
+//! pool ended at its run limit (`slot` exit 124) is exit 70. Neither is a verdict about the code.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -47,7 +55,25 @@ const FIELDS: [(&str, &str); 4] = [
 type R<T> = Result<T, String>;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--pool-wait <seconds>`: the step's bound for waiting in the build pool's queue, as for
+    // sdc-tool.sh (SDC_POOL_WAIT in the environment wins over it).
+    if let Some(i) = args.iter().position(|a| a == "--pool-wait") {
+        match args.get(i + 1).filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit())).and_then(|v| v.parse().ok()) {
+            Some(secs) => {
+                let _ = POOL_WAIT_ARG.set(secs);
+                args.drain(i..i + 2);
+            }
+            None => {
+                eprintln!("sdc-bugfix: {BAD_BOUND}");
+                return ExitCode::from(64);
+            }
+        }
+    }
+    if let Err(e) = pool_bound() {
+        eprintln!("sdc-bugfix: {e}");
+        return ExitCode::from(64);
+    }
     let r = match args.first().map(String::as_str) {
         Some("schema") => schema(args.get(1).map(String::as_str).unwrap_or("")),
         Some("checks") => show_checks(),
@@ -67,7 +93,19 @@ fn main() -> ExitCode {
             // A missing program (127) or commands that cannot run (126) are program errors: sdc-drive
             // records nothing. The seed's refusals are 2.
             let seed = args.first().is_some_and(|a| a == "seed");
-            ExitCode::from(if e.contains("not on PATH") { 127 } else if e.starts_with(CHECKS) && !seed { 126 } else { 2 })
+            // The build pool's: no slot within the wait bound (nothing ran), or a job the pool ended
+            // at its run limit (docs/driver.md, "The build pool wait").
+            ExitCode::from(if e.starts_with(POOL_WAIT) {
+                POOL_WAIT_EXIT
+            } else if e.starts_with(POOL_OVER) {
+                OVER_TIME_EXIT
+            } else if e.contains("not on PATH") {
+                127
+            } else if e.starts_with(CHECKS) && !seed {
+                126
+            } else {
+                2
+            })
         }
     }
 }
@@ -1385,6 +1423,11 @@ fn on_path(p: &str) -> bool {
 /// `argv` in `dir`, as an argv (never through a shell), through `slot` when it is on PATH, with
 /// checks.yaml's `env` and cargo's target directory beside the copy; stdout and stderr into one log
 /// file. A program with a `/` is a path in `dir` (or absolute); one without is looked up on PATH.
+///
+/// The build pool (docs/driver.md, "The build pool wait"): the wait for a slot is bounded
+/// (`pool_bound`), a job still queued at the bound is cancelled and the call is an `Err` that
+/// starts with POOL_WAIT (exit 69, nothing ran), and a job the pool ended at its run limit (exit
+/// 124) is an `Err` that starts with POOL_OVER (exit 70). Neither is a result about the code.
 fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
     let prog = argv.first().ok_or("an empty argv")?;
     let path = if prog.contains('/') {
@@ -1399,7 +1442,8 @@ fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
         }
         prog.clone()
     };
-    let mut c = if on_path("slot") {
+    let pooled = on_path("slot");
+    let mut c = if pooled {
         let mut c = Command::new("slot");
         c.arg(&path);
         c
@@ -1409,18 +1453,145 @@ fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
     let log = dir.parent().unwrap().join("run.log");
     let f = fs::File::create(&log).map_err(|e| e.to_string())?;
     let target = dir.parent().unwrap().join("target");
-    let st = c
-        .args(&argv[1..])
+    c.args(&argv[1..])
         .current_dir(dir)
         .envs(ck.env.iter().map(|(k, v)| (k, v)))
         .env("CARGO_TARGET_DIR", &target)
         .stdin(Stdio::null())
-        .stdout(f.try_clone().map_err(|e| e.to_string())?)
-        .stderr(f)
-        .status()
-        .map_err(|e| format!("{prog} could not start: {e}"))?;
+        .stdout(f.try_clone().map_err(|e| e.to_string())?);
+    let bound = if pooled { pool_bound()? } else { None };
+    let code = match bound {
+        None => {
+            let st = c.stderr(f).status().map_err(|e| format!("{prog} could not start: {e}"))?;
+            let code = st.code().unwrap_or(1);
+            if pooled && code == POOL_KILL {
+                return Err(format!("{POOL_OVER}the job ran over its time: the pool ended it at its run limit; the command did not finish"));
+            }
+            code
+        }
+        Some(secs) => {
+            let errf = dir.parent().unwrap().join("run.err");
+            let job = pool_job(&mut c, &errf, secs)?;
+            let mut note = String::new();
+            let code = job.code;
+            if code == 130 && job.cancelled {
+                if job.started {
+                    note = format!("sdc-bugfix: pool: job {} was cancelled by the pool while it ran (over its run limit, 10 minutes unless the command names a longer one, or by `slot cancel`); the command did not finish\n", job.id.as_deref().unwrap_or("?"));
+                } else {
+                    return Err(format!("{POOL_WAIT}job {} was cancelled while it was still queued; nothing ran", job.id.as_deref().unwrap_or("?")));
+                }
+            }
+            if code == POOL_KILL {
+                return Err(format!("{POOL_OVER}job {} ran over its time: the pool ended it at its run limit; the command did not finish", job.id.as_deref().unwrap_or("?")));
+            }
+            // slot's own lines come after the command's output, as the shell tool prints them.
+            let mut l = fs::OpenOptions::new().append(true).open(&log).map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut l, job.err.as_bytes()).map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut l, note.as_bytes()).map_err(|e| e.to_string())?;
+            code
+        }
+    };
     let out = fs::read_to_string(&log).unwrap_or_default();
-    Ok((st.code().unwrap_or(1), out))
+    Ok((code, out))
+}
+
+/// `slot` exits so when the pool ended a started job at its run limit (slot 0.22).
+const POOL_KILL: i32 = 124;
+/// The exits of a step whose pool job did not start within the wait bound (nothing ran) and of one
+/// the pool ended at its run limit, as `sdc-tool.sh` (`pool_run`) and the driver (`program_error`)
+/// know them; the messages that carry them out of `run`.
+const POOL_WAIT_EXIT: u8 = 69;
+const OVER_TIME_EXIT: u8 = 70;
+const POOL_WAIT: &str = "pool-wait: ";
+const POOL_OVER: &str = "pool: ";
+
+/// The step's wait bound in seconds: `SDC_POOL_WAIT`, else `--pool-wait <s>` (main), else none.
+fn pool_bound() -> R<Option<u64>> {
+    match std::env::var("SDC_POOL_WAIT") {
+        Ok(v) if !v.is_empty() => v.parse().map(Some).map_err(|_| format!("{BAD_BOUND}: SDC_POOL_WAIT={v}")),
+        _ => Ok(POOL_WAIT_ARG.get().copied()),
+    }
+}
+
+const BAD_BOUND: &str = "--pool-wait takes whole seconds";
+static POOL_WAIT_ARG: OnceLock<u64> = OnceLock::new();
+/// Milliseconds the pool commands of this step waited so far: one bound per step, and this
+/// process is the step.
+static POOL_SPENT_MS: AtomicU64 = AtomicU64::new(0);
+
+struct Job {
+    code: i32,
+    id: Option<String>,
+    started: bool,
+    cancelled: bool,
+    err: String,
+}
+
+/// One pool job (`c` is `slot <command>`) with the wait for its slot bounded, as `pool_run` of
+/// bindings/tools/sdc-tool.sh: `slot` runs with its stderr in `errf`; the job's id is on slot's own
+/// `slot: job <id> queued ...` line, printed only for a job that has to wait, and `slot status`
+/// shows the job as `queued` until it starts. A job still queued when the step's bound (`secs`, less
+/// what its earlier jobs waited) is spent is cancelled and the result is an `Err` that starts with
+/// POOL_WAIT. A job with no `queued` line within 3 s was admitted at once. The pool is looked at
+/// after 0.2 s, then at doubling pauses up to SDC_POOL_POLL seconds (default 2).
+fn pool_job(c: &mut Command, errf: &Path, secs: u64) -> R<Job> {
+    let poll: f64 = std::env::var("SDC_POOL_POLL").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0);
+    let spent = POOL_SPENT_MS.load(Ordering::Relaxed);
+    let left = (secs * 1000).saturating_sub(spent);
+    let queued = Regex::new(r"(?m)^slot: job ([0-9]+) queued").unwrap();
+    let cancelled = Regex::new(r"(?m)^slot: job [0-9]+ cancelled").unwrap();
+    let ef = fs::File::create(errf).map_err(|e| e.to_string())?;
+    let t0 = Instant::now();
+    let mut child = c.stderr(ef).spawn().map_err(|e| format!("slot could not start: {e}"))?;
+    let (mut id, mut started, mut pause) = (None::<String>, false, 0.2f64);
+    loop {
+        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+            break;
+        }
+        let elapsed = t0.elapsed().as_millis() as u64;
+        if id.is_none() {
+            let err = fs::read_to_string(errf).unwrap_or_default();
+            id = queued.captures(&err).map(|m| m[1].to_string());
+            if id.is_none() && elapsed >= 3000 {
+                started = true;
+            }
+        }
+        if let Some(i) = &id {
+            if pool_state(i).as_deref() != Some("queued") {
+                started = true;
+            } else if elapsed >= left {
+                let _ = Command::new("slot").args(["cancel", i]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+                let _ = child.kill();
+                let _ = child.wait();
+                POOL_SPENT_MS.store(spent + elapsed, Ordering::Relaxed);
+                return Err(format!("{POOL_WAIT}job {i} was still queued and this step has waited {} s of its wait bound of {secs} s; cancelled, nothing ran",
+                    (spent + elapsed) / 1000));
+            }
+        }
+        if started {
+            POOL_SPENT_MS.store(spent + elapsed, Ordering::Relaxed);
+            break;
+        }
+        std::thread::sleep(Duration::from_secs_f64(pause));
+        pause = (pause * 2.0).min(poll);
+    }
+    let st = child.wait().map_err(|e| e.to_string())?;
+    // A job that started and ended between two looks ran less than one pause: what it took was wait.
+    if !started {
+        POOL_SPENT_MS.store(spent + t0.elapsed().as_millis() as u64, Ordering::Relaxed);
+    }
+    let err = fs::read_to_string(errf).unwrap_or_default();
+    Ok(Job { code: st.code().unwrap_or(1), id, started, cancelled: cancelled.is_match(&err), err })
+}
+
+/// The state column of job `id` in `slot status` (`queued`, `running`, ...), none when it is not listed.
+fn pool_state(id: &str) -> Option<String> {
+    let o = Command::new("slot").arg("status").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let want = format!("#{id}");
+    String::from_utf8_lossy(&o.stdout).lines().find_map(|l| {
+        let mut w = l.split_whitespace();
+        (w.next() == Some(want.as_str())).then(|| w.next().unwrap_or("").to_string())
+    })
 }
 
 fn tail(s: &str, n: usize) -> Vec<&str> {

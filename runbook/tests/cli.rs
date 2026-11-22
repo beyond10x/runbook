@@ -467,7 +467,7 @@ fn version_unknown_subcommand_and_help() {
     assert_eq!(o.status.code(), Some(0));
     let h = stdout(&o);
     assert!(h.contains("doctor") && h.contains("list") && h.contains("check"), "{h}");
-    for later in ["run", "resume", "stop", "ui", "handback", "simulate"] {
+    for later in ["resume", "stop", "ui", "handback", "simulate"] {
         assert!(!h.lines().any(|l| l.trim_start().starts_with(&format!("{later} "))), "{later} listed\n{h}");
         assert_eq!(Command::new(BIN).arg(later).output().unwrap().status.code(), Some(64), "{later}");
     }
@@ -784,6 +784,7 @@ struct Knobs {
     swap: bool,
     drop_b_check: bool,
     extra_file: bool,
+    extra_path: Option<&'static str>,
     file_a: String,
     answer: &'static str,
 }
@@ -797,6 +798,7 @@ fn base() -> Knobs {
         swap: false,
         drop_b_check: false,
         extra_file: false,
+        extra_path: None,
         file_a: "hello".into(),
         answer: "approved",
     }
@@ -933,6 +935,9 @@ impl Synth {
         }
         if k.extra_file {
             self.put(&format!("{r}/work/extra.txt"), "extra");
+        }
+        if let Some(p) = k.extra_path {
+            self.put(&format!("{r}/work/{p}"), "x");
         }
         (self.root.join("run"), self.root.join("store"))
     }
@@ -1275,13 +1280,33 @@ fn parity_summarize_refuses_a_malformed_evaluation() {
     assert!(err.contains("0001.json"), "{err}");
 }
 
-/// A scratch copy of what `scripts/check-protocols.sh` reads, and a stub canon that validates and
-/// compiles anything: the fast lane takes every result from the ledger and runs no real check.
+/// The protocols the fast-lane fixture holds: one without a gate probe and one with. The script
+/// starts about 20 processes per protocol, and a test is slow when the pool is loaded because of
+/// its process count, so the fixture is two protocols, not the nine of the repository.
+const LANE_PROTOCOLS: [&str; 2] = ["sdc", "sdc-epic"];
+
+/// A scratch copy of what `scripts/check-protocols.sh` reads for `LANE_PROTOCOLS` (their sources,
+/// their pinned simulate reports and their entries of the committed ledger, byte for byte), and a
+/// stub canon that validates and compiles anything: the fast lane takes every result from the
+/// ledger and runs no real check.
 fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    copy_dir(&repo().join("scripts"), &root.join("scripts"), &[]);
-    copy_dir(&repo().join("protocol"), &root.join("protocol"), &["compiled", "probes"]);
+    let (src, dst) = (repo(), root.clone());
+    std::fs::create_dir_all(dst.join("scripts")).unwrap();
+    for f in ["check-protocols.sh", "evaluate-cases.sh"] {
+        std::fs::copy(src.join("scripts").join(f), dst.join("scripts").join(f)).unwrap();
+    }
+    std::fs::create_dir_all(dst.join("protocol/simulate")).unwrap();
+    std::fs::copy(src.join("protocol/simulate/CANON_REV"), dst.join("protocol/simulate/CANON_REV")).unwrap();
+    for n in LANE_PROTOCOLS {
+        std::fs::copy(src.join(format!("protocol/{n}.protocol.yaml")), dst.join(format!("protocol/{n}.protocol.yaml"))).unwrap();
+        std::fs::copy(src.join(format!("protocol/simulate/{n}.txt")), dst.join(format!("protocol/simulate/{n}.txt"))).unwrap();
+    }
+    let mut ledger: Value = serde_json::from_str(&std::fs::read_to_string(src.join("protocol/check-ledger.json")).unwrap()).unwrap();
+    ledger["protocols"].as_object_mut().unwrap().retain(|k, _| LANE_PROTOCOLS.contains(&k.as_str()));
+    assert_eq!(ledger["protocols"].as_object().unwrap().len(), LANE_PROTOCOLS.len());
+    std::fs::write(root.join("protocol/check-ledger.json"), serde_json::to_string_pretty(&ledger).unwrap() + "\n").unwrap();
     std::fs::create_dir_all(root.join("driver")).unwrap();
     std::fs::copy(repo().join("driver/canon-pin.json"), root.join("driver/canon-pin.json")).unwrap();
     let stub = root.join("canon-stub");
@@ -1700,4 +1725,144 @@ fn parity_rules_table_and_the_docs_table_say_the_same() {
         let covered = rows.contains(&m.as_str()) || ["source.", "not_recorded[]"].iter().any(|p| m.starts_with(p));
         assert!(covered, "member {m} has no row in the rules table");
     }
+}
+
+// ---- runbook parity: the registration stem of a protocol id, and the feedback copies of Loom
+
+/// A one-case summary whose protocol id is spelled `id` in the case, the copy and the protocol list.
+fn mini_summary(id: &str) -> Value {
+    json!({
+        "format": "runbook.parity-summary/1",
+        "source": {"runtime": "driver", "run_settings": null},
+        "not_recorded": [],
+        "cases": [{"id": "c", "link": null, "parent": null, "protocol": id, "protocol_revision": 1, "outcome": null,
+            "stop": null, "open_obligations": [], "evidence": [], "program_runs": [], "person_steps": []}],
+        "copies": [{"action": "a", "kind": "k", "from_protocol": id, "from": "c", "to": "c", "subject": "s", "subject_revision": "r"}],
+        "decision_requests": [],
+        "protocols": [{"id": id, "revision": 1, "digest": "d"}],
+        "product_tree": [],
+    })
+}
+
+fn compare_mini(tag: &str, a: &str, b: &str) -> (i32, Vec<String>) {
+    let s = Synth::new(tag);
+    s.put_json("a.json", &mini_summary(a));
+    s.put_json("b.json", &mini_summary(b));
+    let o = parity(&["compare", path_str(&s.root.join("a.json")), path_str(&s.root.join("b.json"))]);
+    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+}
+
+#[test]
+fn parity_compare_reads_a_protocol_id_by_its_registration_stem() {
+    let _t = Timed::start("parity_compare_reads_a_protocol_id_by_its_registration_stem");
+    for (a, b) in [("sdc.intake", "sdc-intake"), ("sdc-intake", "sdc_intake"), ("sdc.intake", "sdc.intake")] {
+        let (code, lines) = compare_mini("stem-equal", a, b);
+        assert_eq!((code, lines.len()), (0, 1), "{a} {b}: {lines:?}");
+    }
+    let table = stdout(&parity(&["compare", "--rules"]));
+    for m in ["cases[].protocol", "copies[].from_protocol", "protocols[].id"] {
+        let row = table.lines().find(|l| l.starts_with(&format!("{m} | "))).unwrap();
+        assert!(row.contains("registration stem"), "{row}");
+    }
+}
+
+#[test]
+fn parity_compare_still_tells_two_protocol_ids_apart() {
+    let _t = Timed::start("parity_compare_still_tells_two_protocol_ids_apart");
+    let (code, lines) = compare_mini("stem-differ", "sdc.intake", "sdc.plan");
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(
+        lines,
+        [
+            r#"cases[0].protocol: a="sdc.intake" b="sdc.plan""#,
+            r#"copies[0].from_protocol: a="sdc.intake" b="sdc.plan""#,
+            r#"protocols[0].id: a="sdc.intake" b="sdc.plan""#,
+        ]
+    );
+}
+
+#[test]
+fn parity_summary_leaves_out_the_feedback_copies_of_loom() {
+    let _t = Timed::start("parity_summary_leaves_out_the_feedback_copies_of_loom");
+    let mut k = base();
+    k.extra_path = Some(".sdc/loom-feedback/0123456789abcdef/feedback.json");
+    let (code, lines) = compare_with("feedback-equal", k, &["--product-digests"]);
+    assert_eq!(code, 0, "{lines:?}");
+    assert_eq!(lines, ["equal: 2 cases, 7 evidence records, 2 program runs, 3 person steps, 2 product files"]);
+    let mut k = base();
+    k.extra_path = Some(".sdc/other/feedback.json");
+    let (code, lines) = compare_with("feedback-other", k, &[]);
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(lines, ["product_tree[.sdc/other/feedback.json]: a=(absent) b=present"]);
+}
+
+#[test]
+fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
+    let _t = Timed::start("parity_loom_product_tree_leaves_out_the_feedback_copies_too");
+    let s = Synth::new("loom-feedback");
+    s.put("tree/a.txt", "a");
+    s.put("tree/.sdc/loom-feedback/0123456789abcdef/log.txt", "tail");
+    s.put("tree/.sdc/keep/x", "x");
+    let out = s.root.join("o.json");
+    let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("tree")), "--output", path_str(&out)]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let paths: Vec<Value> = read_summary(&out)["product_tree"].as_array().unwrap().iter().map(|e| e["path"].clone()).collect();
+    assert_eq!(paths, [json!(".sdc/keep/x"), json!("a.txt")]);
+    let table = stdout(&parity(&["compare", "--rules"]));
+    assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/loom-feedback/**] | never compared | ")), "{table}");
+}
+
+// ---- runbook parity: the revision a child's `case_outcome` record carries in its parent
+
+/// A one-case summary of three records of the subject `doc`: a check, the `case_outcome` record of
+/// a child opened by `child.open`, and a second check. `outcome_rev` is the revision the outcome
+/// record carries, `outcome_up` its upstream revision, `check_rev` the revision of the first check.
+fn outcome_summary(check_rev: &str, outcome_rev: &str, outcome_up: &str) -> Value {
+    let mut v = mini_summary("p");
+    v["copies"] = json!([]);
+    let rec = |i: usize, kind: &str, action: &str, rev: &str, up: Value| {
+        json!({"index": i, "kind": kind, "result": null, "subject": "doc", "subject_revision": rev,
+            "upstream_revisions": up, "action": action})
+    };
+    v["cases"][0]["evidence"] = json!([
+        rec(0, "a_check", "check.run", check_rev, json!({})),
+        rec(1, "case_outcome", "child.open", outcome_rev, json!({"doc": outcome_up})),
+        rec(2, "b_check", "check.run", "tNEW", json!({})),
+    ]);
+    v
+}
+
+fn compare_summaries(tag: &str, a: &Value, b: &Value) -> (i32, Vec<String>) {
+    let s = Synth::new(tag);
+    s.put_json("a.json", a);
+    s.put_json("b.json", b);
+    let o = parity(&["compare", path_str(&s.root.join("a.json")), path_str(&s.root.join("b.json"))]);
+    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+}
+
+#[test]
+fn parity_compare_leaves_the_revision_of_a_case_outcome_record_out() {
+    let _t = Timed::start("parity_compare_leaves_the_revision_of_a_case_outcome_record_out");
+    // the driver keeps the revision of the opening, Loom the one the child ended with, which a
+    // later record of the parent also holds: counted, the labels of both records would differ
+    let a = outcome_summary("tOLD", "tOLD2", "u1");
+    let b = outcome_summary("tOLD", "tNEW", "u2");
+    let (code, lines) = compare_summaries("outcome-equal", &a, &b);
+    assert_eq!((code, lines.len()), (0, 1), "{lines:?}");
+    let table = stdout(&parity(&["compare", "--rules"]));
+    for m in ["cases[].evidence[case_outcome].subject_revision", "cases[].evidence[case_outcome].upstream_revisions.*"] {
+        let row = table.lines().find(|l| l.starts_with(&format!("{m} | never compared | "))).unwrap_or_else(|| panic!("no row {m}"));
+        assert!(row.contains("opening") && row.contains("termination"), "{row}");
+    }
+}
+
+#[test]
+fn parity_compare_still_tells_the_revision_of_another_record_apart() {
+    let _t = Timed::start("parity_compare_still_tells_the_revision_of_another_record_apart");
+    // the first check holds the revision of the second on one side only: the pattern differs
+    let a = outcome_summary("tOLD", "tOLD2", "u1");
+    let b = outcome_summary("tNEW", "tOLD2", "u1");
+    let (code, lines) = compare_summaries("outcome-other", &a, &b);
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(lines, [r#"cases[0].evidence[2].subject_revision: a="r2" b="r1""#]);
 }

@@ -12,20 +12,21 @@ The format is the one Loom's loader reads at Loom commit `8a8fad3b` (`../loom`,
 `ess/domains/bindings.yaml`). The differences between the two formats are numbered `D1` to `D39`
 in the Loom session's comparison of the two formats (2026-11-21); this page cites those numbers.
 What the format cannot express yet is listed in `bindings/PENDING.md`, never written in invented
-syntax.
+syntax. The bindings ran under Loom commit `2c0a6f48` in the first equal comparison with the driver
+(`stub-cycle`, 2026-11-22; `docs/parity.md`, "First equal comparison").
 
 ## Files
 
 | Protocol | YAML | Registration | Bindings | Unbound (as in the JSON) |
 |---|---|---|---|---|
-| `sdc` | `bindings/sdc.yaml` | `sdc@1` | 4 | none |
-| `sdc.intake` | `bindings/sdc-intake.yaml` | `sdc-intake@1` | 10 | none |
-| `sdc.direction` | `bindings/sdc-direction.yaml` | `sdc-direction@1` | 9 | `context.change` |
-| `sdc.epic` | `bindings/sdc-epic.yaml` | `sdc-epic@1` | 6 | none |
-| `sdc.spec` | `bindings/sdc-spec.yaml` | `sdc-spec@1` | 9 | `spec.reuse`, `spec.reconstruct` |
-| `sdc.plan` | `bindings/sdc-plan.yaml` | `sdc-plan@1` | 8 | none |
-| `sdc.story` | `bindings/sdc-story.yaml` | `sdc-story@1` | 7 | none |
-| `sdc.release` | `bindings/sdc-release.yaml` | `sdc-release@1` | 5 | `release.rollback` |
+| `sdc` | `bindings/sdc.yaml` | `sdc@8` | 4 | none |
+| `sdc.intake` | `bindings/sdc-intake.yaml` | `sdc-intake@9` | 10 | none |
+| `sdc.direction` | `bindings/sdc-direction.yaml` | `sdc-direction@7` | 9 | `context.change` |
+| `sdc.epic` | `bindings/sdc-epic.yaml` | `sdc-epic@5` | 6 | none |
+| `sdc.spec` | `bindings/sdc-spec.yaml` | `sdc-spec@5` | 9 | `spec.reuse`, `spec.reconstruct` |
+| `sdc.plan` | `bindings/sdc-plan.yaml` | `sdc-plan@7` | 8 | none |
+| `sdc.story` | `bindings/sdc-story.yaml` | `sdc-story@7` | 7 | none |
+| `sdc.release` | `bindings/sdc-release.yaml` | `sdc-release@4` | 5 | `release.rollback` |
 | `sdc.bugfix` | `bindings/sdc-bugfix.yaml` | `sdc-bugfix@1` | 8 | none |
 
 Every action bound in a JSON file is bound in its YAML file: 66 bindings.
@@ -36,7 +37,8 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 |---|---|---|
 | one object keyed by action id | `actions:`, a list; each binding names its `action` | 1 |
 | (none) | `format: loom.bindings/1` | 2 |
-| (the protocol file given to `init --protocol`) | `protocol: <name>@1`, the protocol id with `.` as `-` | 3 |
+| (the protocol file given to `init --protocol`) | `protocol: <name>@<revision>`: the protocol id with `.` and `_` as `-`, then the revision of `protocol/<name>.protocol.yaml` (`sdc@8`), as Loom's catalog registers it | 3 |
+| (none) | `program_root: bindings` on every file that binds a program: a program path with a `/` is relative to the directory of the bindings file | 13 |
 | `$artifacts` | `artifacts` | 4 |
 | `$independence` | `independence` | 5 |
 | `argv` | `executor: {kind: program, argv}` | 6 |
@@ -47,7 +49,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `manual: true` | `executor: {kind: person, principal: person:owner}` | 10 |
 | `manual: true` with `argv: ["true"]` | dropped: `true` does nothing; a `person` executor runs no program | 11 |
 | `"6": "rejected"` on a manual binding | pending (`bindings/PENDING.md`) | 12 |
-| `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. Loom's head reads a relative program path from the workspace root; the base is pending (G1) | 13 |
+| `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. The file names `program_root: bindings`, so Loom (at `af8de2c9`) reads the path beside the bindings file; `scripts/check-bindings.sh` refuses a file that binds a program without it | 13 |
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
 | `handoff_when` | pending | 17 |
@@ -55,7 +57,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
-| `copy: {kind, from: sdc.direction}` | `executor: {kind: copy, evidence: <kind>, from: sdc-direction@1}` | 26 |
+| `copy: {kind, from: sdc.direction}` | `executor: {kind: copy, evidence: <kind>, from: sdc-direction@7}`, the registration of `protocol/sdc-direction.protocol.yaml` | 26 |
 | `child: {name \| each, bindings}` | `executor: {kind: open, name \| each, bindings: <file>.yaml}` | 27, 29 |
 | `child.protocol` (a file path) | dropped: the child's protocol is the name the action's `case_open.protocol` declares (`protocol/sdc.protocol.yaml:96-98`), resolved in the catalog `tree open --protocols <dir>` builds from the `*.yaml` files of that directory (Loom wave 2); the loader at `8a8fad3b` asks for nothing in its place | 28 |
 | `child.revisions` | pending | 30 |
@@ -79,10 +81,10 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | Value | Bindings | Why |
 |---|---|---|
 | 1800 | `spec.gate` (epic, plan, story, release) | `ess-gate`: compile, synthesis, interpreted suite (`bindings/tools/sdc-tool.sh:239-244`) |
-| 1800 | story `tests.run` | `story-tests`: conformance run and `slot task check` (`sdc-tool.sh:255-294`, `:428-430`) |
-| 1800 | release `acceptance.run` | `conform-run release` (`sdc-tool.sh:255-281`) |
+| 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
+| 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 1800 | bugfix `repro.run`, `tests.run`, `gate.run` | `cargo` builds and tests (`driver/src/bin/sdc-bugfix.rs:609-613`) |
+| 3000, 3000, 4200 | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |
@@ -118,6 +120,9 @@ The exit lists: every program binding states program-error exits `[75, 126, 127]
 `program_error`, `driver/src/main.rs:579-581`), and each of the 14 agent nodes a not-called exit,
 which `llm-node.sh` takes in step 2 in place of the `SDC_NOT_CALLED` file. Loom ships no default
 list (Loom story G1a); until the loader has the member, the lists stay in `bindings/PENDING.md`.
+The bindings that wait for the build pool (story `tests.run`, release `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) add exit 69 (no
+slot within `--pool-wait`, nothing ran) to their list: `[69, 70, 75, 126, 127]` (70: the pool ended a started job at its run limit, "ran over its time"). Until then Loom maps 69 and 70
+by the binding's `*` result to `failed`; the tool exits 69 and 70 in both modes.
 
 ## Checks
 
@@ -127,7 +132,11 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
   (`protocol/compiled/<name>.ir.json`) does not declare. Since step 2 also: no `executor.argv`
   or `arguments_from` entry holds a `..` segment, and every program named with a `/` is
   `tools/<file>`, an executable file under `bindings/tools/`; a program without a `/` comes from
-  `PATH`. Plain text with `jq` and `yq`.
+  `PATH`. Also: each file's `protocol:` is the registration of `protocol/<name>.protocol.yaml`
+  (the id with `.` and `_` as `-`, then `@<revision>`), the `from:` of every `copy` executor is the
+  registration of a protocol file in `protocol/`, and a file that binds a program has
+  `program_root: bindings`; a failure names the file and the value. A new revision of a protocol
+  file moves its registration here and in every `copy` `from:`. Plain text with `jq` and `yq`.
 - The tools' Loom mode: `driver/tests/questions_check.rs`, module `loom_mode`, runs a check
   (`check-questions`, `check-requirements`), `list-stories`, an agent node on the stub and on dry
   (`idea.dissect`, `spec.author`) and a retried writer (`questions.write` with
@@ -141,7 +150,7 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
   below used `0.9.0`). Per file it parses
   `protocol/<name>.protocol.yaml` with `b10x_canon::model::parse`, then calls
   `b10x_loom_bindings::decode` on `bindings/<name>.yaml` and
-  `b10x_loom_bindings::check(&document, "<name>@1", &protocol)`, and prints `ok` or the refusal.
+  `b10x_loom_bindings::check(&document, "<name>@<revision>", &protocol)`, and prints `ok` or the refusal.
   Build it through `slot` (`cargo build --release`; a cold build took 184 s, 44 s of it queued).
   On 2026-11-21 all nine files printed `ok`, at `8a8fad3b` and, after step 2, at Loom's
   integration head `882c1866` (which has no `resolve_programs`, so only the load is checked). Loom's `b10x-loom bindings check <file> --protocol
@@ -178,6 +187,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `stub-file)` | `SDC_STUB_FIXTURES` (`stub-file`) | `--stub-fixtures <dir>` is taken | pending: N3 (the stub overlay's binding states it) |
 | `SDC_STUB_COUNTER:-` | `SDC_STUB_COUNTER` | `--stub-counter <dir>` is taken (default `.sdc`) | pending: N3 |
 | `stub-tree)` | `SDC_STUB_FIXTURES` (`stub-tree`) | as for `stub-file` | pending: N3 |
+| `SDC_POOL_WAIT` | `SDC_POOL_WAIT` (the step's wait bound for the build pool) | `--pool-wait <seconds>`, in the argv of story `tests.run`, release `acceptance.run` and bugfix `repro.run`, `tests.run`, `gate.run` of `bindings/*.yaml`; the environment variable wins | done |
 | `report-$SDC_ACTION` | `SDC_ACTION` (report file name) | `--action` | done |
 | `impl-gate)`, `story=$(cut` | `SDC_CASE` (`impl-gate`: the story id) | `LOOM_CASE`; the story is `LOOM_CASE_NAME` when Loom sets it (`LOOM_PARENT_CASE_NAME` set: its own name; only `LOOM_CASE_NAME`: an epic case, no story) | done |
 | `list-stories)`, `epic=$(cut` | `SDC_CASE` (`list-stories`: the epic) | `LOOM_PARENT_CASE_NAME`, else `LOOM_CASE_NAME` (an epic case), else the cut of `LOOM_CASE`; given to `arguments_from` too | done |
@@ -226,8 +236,9 @@ Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-tex
 | `llm-adapter-metaharness.sh`, `llm-adapter-dry.sh`, `llm-adapter-fixture.sh` | `METAHARNESS`, `SDC_LLM_ENDPOINT`, `SDC_LLM_DRY_LOG`, `SDC_COVERAGE_REPLIES`, `SDC_REPLY` | all read with a default (`${X:-}`): nothing to change |
 | `sdc-tool.sh` `conform-run` | `SDC_ACTION` (the report file name) | read as `${SDC_ACTION:-conform-run}`; the binding states `--action` anyway |
 | `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN`, `ESS_TOOLCHAIN_QUIET` | exported with defaults at the top of the tool: nothing to change |
+| `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN_DIR`, else `XDG_CACHE_HOME`, else `HOME` (the 0.97.1 dispatcher finds and installs the 0.96.0 toolchain below it) | with none of the three set, `spec-validate` exited 1 (`neither XDG_CACHE_HOME nor HOME is set; set ESS_TOOLCHAIN_DIR`); in Loom mode the tool now exports `ESS_TOOLCHAIN_DIR=<home>/.cache/ess/toolchains`, `<home>` from `getent passwd "$(id -u)"`, when none of the three is set; `scripts/check-bindings.sh` runs `spec-validate` under `env -i PATH LOOM_CASE` |
 | `sdc-tool.sh` `slot task` (`conform-run`), `slot cargo test` (`impl-gate`) | none: `PWD` only | nothing to change |
-| `ess`, `slot`, `cargo`, `aep`, `claude`, `jq`, `yq` | `HOME` | started with `env -i PATH=...` they answer `--version` (`slot status` too): they take the home directory from the passwd entry; a build through `cargo` without `HOME` was not run (*inferred*) |
+| `ess`, `slot`, `cargo`, `aep`, `claude`, `jq`, `yq` | `HOME` | started with `env -i PATH=...` they answer `--version` (`slot status` too): they take the home directory from the passwd entry; a build through `cargo` without `HOME` was not run (*inferred*). `ess` is the exception once it hands off to a toolchain (row above). `aep` was run under `env -i PATH=...` for `plan artifact new`, `list`, `move`, `validate --strict`: it opens no file under the home directory and needs nothing |
 
 A host whose user has no passwd entry still needs `story:bound-program-declares-its-environment`
 (wave 9) or `--confinement local`.
@@ -239,9 +250,12 @@ Read at Loom's integration head `882c1866` (`wave/2026-11-21-w7`) and the branch
 - `LOOM_CASE` (`story:bound-program-case-id`) and `LOOM_RETRY_FEEDBACK`
   (`story:bound-program-retry-records`) are on Loom's branches `impl/bound-program-case-id` and
   `impl/bound-program-retry-records`, not in the head. At the head a program gets `PATH` alone.
-- The head has no `program_root` and no `resolve_programs`: a relative program path is a workspace
-  path, so `tools/sdc-tool.sh` is looked for in the workspace. G1 (`story:bound-program-contract`,
-  draft) resolves it beside the bindings file. No Loom ref has a reserved-action-id check.
+- The head had no `program_root` and no `resolve_programs` (*inferred* for the decoder: it refuses a
+  member it does not declare): a relative program path was a workspace path, so
+  `tools/sdc-tool.sh` was looked for in the workspace. Loom at `af8de2c9` decodes
+  `program_root` (`workspace` or `bindings`, `crates/loom-bindings/src/decode.rs:122-134`), and
+  every bindings file here that binds a program names `program_root: bindings`. No Loom ref has a
+  reserved-action-id check.
 - A retry record names its evidence id, kind, subject, subject revision, result, producer, time
   and blob; not the action that produced it nor its exit. A log is the last 60 lines, at most
   64 KiB (`llm-node.sh` quotes the last 80 lines of a driver log). Only records about the subject's

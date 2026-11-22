@@ -43,7 +43,7 @@ copying `impl/` to `mainline/`.
 The commands are the case's `work/checks.yaml` (below), not code of `sdc-bugfix`. Every command
 runs as an argv, never through a shell, in a copy under `.sdc/bugfix/`, so nothing is written into
 an artifact: `tree/` (a copy of `impl/`) or `base/` (a copy of the base, `bug.yaml` `base`, default
-`mainline/`). It goes through `slot` when slot is on PATH, with `checks.yaml` `env` and
+`mainline/`). It goes through `slot` when slot is on PATH (the wait for a slot is bounded, `--pool-wait`; no slot in time is exit 69 and a job the pool ends at its run limit exit 70, both program errors: `docs/driver.md`, "The build pool wait"), with `checks.yaml` `env` and
 `CARGO_TARGET_DIR=.sdc/bugfix/target`. A program that is not on PATH (or, for a program with a
 `/`, not a file of the tree) exits 127 and an unusable `checks.yaml` 126: program errors, which
 `sdc-drive` never records as a check result. Two kinds of run:

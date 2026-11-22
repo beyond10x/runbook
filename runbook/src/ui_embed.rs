@@ -6,14 +6,15 @@
 //! run time. The token rule is the daemon's own: the same middleware and the same `Auth::admits`
 //! guard these routes and the API. A browser cannot send an `Authorization` header with a page
 //! load, so it hands the token over once in the body of a form (`POST /ui/login`, never in a URL,
-//! so no log holds it) and keeps it in an `HttpOnly`, `SameSite=Strict` cookie, which the middleware
-//! turns back into the same bearer check for reads (`GET`, `HEAD`) only.
+//! so no log holds it) and keeps a value derived from it in an `HttpOnly`, `SameSite=Strict`
+//! cookie (`auth::cookie_value`: not the token), which the middleware accepts for reads (`GET`,
+//! `HEAD`) only. The login route sits behind the same middleware as every other route.
 
 use crate::api::auth::Auth;
 use crate::api::refusal;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use sha2::{Digest, Sha256};
@@ -160,30 +161,6 @@ pub async fn fallback(request: Request) -> Response {
 
 // ---- the token, for a browser ----
 
-fn hex(s: &str) -> String {
-    s.bytes().map(|b| format!("{b:02x}")).collect()
-}
-
-fn unhex(s: &str) -> Option<String> {
-    if !s.len().is_multiple_of(2) || !s.is_ascii() {
-        return None;
-    }
-    let bytes: Option<Vec<u8>> = (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()).collect();
-    String::from_utf8(bytes?).ok()
-}
-
-/// The token a browser handed over, read from the request's cookies.
-pub fn cookie_token(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .filter_map(|c| c.trim().split_once('='))
-        .find(|(k, _)| *k == COOKIE)
-        .and_then(|(_, v)| unhex(v))
-}
-
 const LOGIN_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Runbook: token</title></head>\n<body><h1>Runbook</h1>\n<p>This daemon needs its token.</p>\n<form method=\"post\" action=\"/ui/login\"><label>Token <input type=\"password\" name=\"token\" autocomplete=\"off\" autofocus></label> <button type=\"submit\">Open</button></form>\n</body></html>\n";
 
 fn login_page(status: StatusCode, note: &str) -> Response {
@@ -235,14 +212,6 @@ const MAX_LOGIN_BYTES: usize = 4096;
 /// `POST /ui/login`: the token in the body of a form, checked by `Auth::admits` like a bearer token
 /// on any other route. The answer is a redirect to `/` with the cookie, or 401 with the form again.
 pub async fn login(State(auth): State<Arc<Auth>>, request: Request) -> Response {
-    let host = request.headers().get(header::HOST).and_then(|v| v.to_str().ok()).map(str::to_string);
-    let origin = request.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()).map(str::to_string);
-    // a form of another site does not log this browser in
-    if let (Some(origin), Some(host)) = (&origin, &host) {
-        if origin.split_once("://").map(|(_, h)| h) != Some(host.as_str()) {
-            return refusal(StatusCode::FORBIDDEN, "forbidden", "the form is not from this page");
-        }
-    }
     let Ok(body) = axum::body::to_bytes(request.into_body(), MAX_LOGIN_BYTES).await else {
         return refusal(StatusCode::PAYLOAD_TOO_LARGE, "request body too large", "the form is small");
     };
@@ -256,8 +225,8 @@ pub async fn login(State(auth): State<Arc<Auth>>, request: Request) -> Response 
     let h = response.headers_mut();
     h.insert(header::LOCATION, HeaderValue::from_static("/"));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    if auth.required() {
-        if let Ok(v) = HeaderValue::from_str(&format!("{COOKIE}={}; HttpOnly; SameSite=Strict; Path=/", hex(&token))) {
+    if let Some(value) = auth.cookie() {
+        if let Ok(v) = HeaderValue::from_str(&format!("{COOKIE}={value}; HttpOnly; SameSite=Strict; Path=/")) {
             h.insert(header::SET_COOKIE, v);
         }
     }

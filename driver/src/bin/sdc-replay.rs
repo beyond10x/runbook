@@ -279,7 +279,7 @@ fn sanitise_response(r: &Value) -> Value {
 // --- the recording -------------------------------------------------------------------------------
 
 fn program_error(exit: &Value) -> bool {
-    exit == "126" || exit == "127" || exit == "75"
+    exit == "126" || exit == "127" || exit == "75" || exit == "69" || exit == "70"
 }
 
 /// The arrival and the try of the run whose `action_started` is event `i` (see the module doc).

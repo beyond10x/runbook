@@ -841,7 +841,7 @@
     },
     {
       "path": "docs/releases/0.3.0.md",
-      "sha256": "3e2b25835db9947a34716fe07c733e6b665984ec9fb1fd038d07d3f2a8a71c6b"
+      "sha256": "ca622b88f066e1f914b889ab32d5396276cf35e4ea6efe6308e2a46c1491f128"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
@@ -849,7 +849,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "9ab6d63063bfb87ccff54ed13da9526b56b03672b21db6d3c042f449fc847e37"
+      "sha256": "4d9022f7af2ea59cc57142aebda244fd4e6f7addd77f5d05cf11d278e1167cca"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
@@ -869,7 +869,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-release.bindings.json",
-      "sha256": "f0ca911c391554bf0c679a141f613f1fbad0f62f781042183a5d74d522b73a07"
+      "sha256": "fa7c5bea314caeb6c66eb3a2c356306989f4ed3836a55c395f33cbc17dc81014"
     },
     {
       "path": "driver/examples/sdc/sdc-spec.bindings.json",
@@ -877,7 +877,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "dfac4685aea5dc75791e3f29ea85f62c7183983faad2a1f19e7426c49bb3bf96"
+      "sha256": "e6ce22edca524db3a8f13dff85241739b80fae67ce37d2c58189f09d0629a9b2"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",
