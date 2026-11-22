@@ -1239,6 +1239,58 @@ fn parity_approvals_lists_the_person_steps_in_order() {
     );
 }
 
+/// `summarize` over the base run after `damage` changed a file of it: (exit code, stderr).
+fn summarize_damaged(tag: &str, damage: impl Fn(&Synth)) -> (Option<i32>, String) {
+    let s = Synth::new(tag);
+    let (run, store) = s.driver_run(&base());
+    damage(&s);
+    let o = parity(&["summarize", "--driver", path_str(&run), "--store", path_str(&store)]);
+    (o.status.code(), String::from_utf8_lossy(&o.stderr).into_owned())
+}
+
+const CHILD: &str = "store/R1/children/R1.direction";
+
+#[test]
+fn parity_summarize_refuses_a_truncated_event_file() {
+    let (code, err) = summarize_damaged("trunc", |s| {
+        let p = s.root.join(format!("{CHILD}/events.jsonl"));
+        let t = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, &t[..t.len() - 40]).unwrap();
+    });
+    assert_eq!(code, Some(2), "{err}");
+    assert!(err.contains("R1.direction/events.jsonl"), "{err}");
+}
+
+#[test]
+fn parity_summarize_refuses_a_malformed_evidence_record() {
+    let (code, err) = summarize_damaged("evidence", |s| s.put(&format!("{CHILD}/evidence/e0002-check.run.b_check.json"), "{\"kind\":"));
+    assert_eq!(code, Some(2), "{err}");
+    assert!(err.contains("e0002-check.run.b_check.json"), "{err}");
+}
+
+#[test]
+fn parity_summarize_refuses_a_store_with_a_member_missing() {
+    for member in [format!("{CHILD}/events.jsonl"), "store/R1/ir.json".to_string(), format!("{CHILD}/evaluations/0001.json"), format!("{CHILD}/evidence/e0009-roadmap.approve.json")] {
+        let (code, err) = summarize_damaged("missing", |s| std::fs::remove_file(s.root.join(&member)).unwrap());
+        assert_eq!(code, Some(2), "{member}: {err}");
+        let name = member.rsplit('/').next().unwrap();
+        let hint = if name == "0001.json" { "evaluations" } else { name };
+        assert!(err.contains(hint), "{member}: {err}");
+    }
+    let (code, err) = summarize_damaged("nobindings", |s| {
+        s.put_json(&format!("{CHILD}/case.json"), &json!({"id": "R1.direction", "protocol": "sdc.direction", "revision": "c4"}));
+    });
+    assert_eq!(code, Some(2), "{err}");
+    assert!(err.contains("bindings.json"), "{err}");
+}
+
+#[test]
+fn parity_summarize_refuses_a_malformed_evaluation() {
+    let (code, err) = summarize_damaged("badeval", |s| s.put(&format!("{CHILD}/evaluations/0001.json"), "[1,"));
+    assert_eq!(code, Some(2), "{err}");
+    assert!(err.contains("0001.json"), "{err}");
+}
+
 /// A scratch copy of what `scripts/check-protocols.sh` reads, and a stub canon that validates and
 /// compiles anything: the fast lane takes every result from the ledger and runs no real check.
 fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {

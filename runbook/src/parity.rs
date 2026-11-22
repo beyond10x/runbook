@@ -117,64 +117,43 @@ pub fn rules_text() -> String {
 // ---------------------------------------------------------------- sha-256
 
 pub fn sha256_hex(data: &[u8]) -> String {
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
-        0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
-        0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
-        0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    let mut h: [u32; 8] =
-        [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-    let mut msg = data.to_vec();
-    msg.push(0x80);
-    while msg.len() % 64 != 56 {
-        msg.push(0);
-    }
-    msg.extend_from_slice(&((data.len() as u64) * 8).to_be_bytes());
-    for block in msg.chunks(64) {
-        let mut w = [0u32; 64];
-        for (i, c) in block.chunks(4).enumerate() {
-            w[i] = u32::from_be_bytes([c[0], c[1], c[2], c[3]]);
-        }
-        for i in 16..64 {
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
-        }
-        let mut v = h;
-        for i in 0..64 {
-            let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
-            let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
-            let t1 = v[7].wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
-            let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
-            let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
-            let t2 = s0.wrapping_add(maj);
-            v = [t1.wrapping_add(t2), v[0], v[1], v[2], v[3].wrapping_add(t1), v[4], v[5], v[6]];
-        }
-        for i in 0..8 {
-            h[i] = h[i].wrapping_add(v[i]);
-        }
-    }
-    h.iter().map(|x| format!("{x:08x}")).collect()
+    use sha2::{Digest, Sha256};
+    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 // ---------------------------------------------------------------- the driver's reader
+//
+// Every input the reader needs is read or it is an error that names the file: nothing unreadable,
+// malformed or missing is dropped or replaced by a default, so a damaged store never compares equal
+// to an empty one.
 
 fn read_json(p: &Path) -> Result<Value, String> {
     let t = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
     serde_json::from_str(&t).map_err(|e| format!("{}: {e}", p.display()))
 }
 
-fn read_events(dir: &Path) -> Vec<Value> {
-    std::fs::read_to_string(dir.join("events.jsonl"))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
+/// The newest evaluation file of a case: the one whose name sorts last.
+fn latest_evaluation(dir: &Path) -> Result<Value, String> {
+    let evals = dir.join("evaluations");
+    let rd = std::fs::read_dir(&evals).map_err(|e| format!("{}: {e}", evals.display()))?;
+    let mut files = Vec::new();
+    for e in rd {
+        files.push(e.map_err(|e| format!("{}: {e}", evals.display()))?.path());
+    }
+    match files.into_iter().max() {
+        Some(p) => read_json(&p),
+        None => Err(format!("{}: no evaluation file", evals.display())),
+    }
+}
+
+fn read_events(dir: &Path) -> Result<Vec<Value>, String> {
+    let p = dir.join("events.jsonl");
+    let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mut out = Vec::new();
+    for (i, l) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        out.push(serde_json::from_str(l).map_err(|e| format!("{}:{}: {e}", p.display(), i + 1))?);
+    }
+    Ok(out)
 }
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -198,7 +177,7 @@ struct Case {
 fn collect_cases(dir: &Path, parent: Option<&str>, out: &mut Vec<Case>) -> Result<(), String> {
     let case = read_json(&dir.join("case.json"))?;
     let id = s(&case, "id").ok_or_else(|| format!("{}: case.json has no id", dir.display()))?;
-    let events = read_events(dir);
+    let events = read_events(dir)?;
     let mut kids: Vec<String> =
         events.iter().filter(|e| e["event"] == "child_opened").filter_map(|e| s(e, "child_case")).collect();
     if let Ok(rd) = std::fs::read_dir(dir.join("children")) {
@@ -248,7 +227,7 @@ fn exit_value(v: &Value) -> Value {
 
 /// The records of a case in the order received: by the case log (a child opened, then an action
 /// finished), then records the log never names, by file name.
-fn evidence_of(c: &Case) -> Vec<Value> {
+fn evidence_of(c: &Case) -> Result<Vec<Value>, String> {
     let mut ids: Vec<(String, Option<String>)> = Vec::new();
     let mut current: Option<String> = None;
     for e in &c.events {
@@ -269,19 +248,27 @@ fn evidence_of(c: &Case) -> Vec<Value> {
     }
     let mut seen = BTreeSet::new();
     ids.retain(|(id, _)| seen.insert(id.clone()));
-    if let Ok(rd) = std::fs::read_dir(c.dir.join("evidence")) {
-        let mut files: Vec<String> = rd
-            .filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().to_str().map(String::from))
-            .filter_map(|n| n.strip_suffix(".json").map(String::from))
-            .filter(|id| !seen.contains(id))
-            .collect();
-        files.sort();
-        ids.extend(files.into_iter().map(|f| (f, None)));
+    let evidence_dir = c.dir.join("evidence");
+    match std::fs::read_dir(&evidence_dir) {
+        Ok(rd) => {
+            let mut files: Vec<String> = Vec::new();
+            for e in rd {
+                let e = e.map_err(|e| format!("{}: {e}", evidence_dir.display()))?;
+                if let Some(id) = e.file_name().to_str().and_then(|n| n.strip_suffix(".json")) {
+                    if !seen.contains(id) {
+                        files.push(id.to_string());
+                    }
+                }
+            }
+            files.sort();
+            ids.extend(files.into_iter().map(|f| (f, None)));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", evidence_dir.display())),
     }
     let mut out = Vec::new();
     for (id, action) in ids {
-        let Ok(r) = read_json(&c.dir.join("evidence").join(format!("{id}.json"))) else { continue };
+        let r = read_json(&evidence_dir.join(format!("{id}.json")))?;
         let up: BTreeMap<String, Value> = r["upstream_revisions"]
             .as_object()
             .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
@@ -296,12 +283,12 @@ fn evidence_of(c: &Case) -> Vec<Value> {
             "action": jstr(action),
         }));
     }
-    out
+    Ok(out)
 }
 
-/// The result a record of the case holds, by id.
-fn result_of(c: &Case, id: &str) -> Option<String> {
-    read_json(&c.dir.join("evidence").join(format!("{id}.json"))).ok().and_then(|r| s(&r, "result"))
+/// The result a record of the case holds, by id; the record must be readable.
+fn result_of(c: &Case, id: &str) -> Result<Option<String>, String> {
+    Ok(s(&read_json(&c.dir.join("evidence").join(format!("{id}.json")))?, "result"))
 }
 
 struct Run {
@@ -312,7 +299,7 @@ struct Run {
 
 /// Program runs and person steps of one case, from its log. Person step: an action finished with a
 /// principal. Program run: an action started with an argv, not a person step.
-fn steps_of(c: &Case) -> (Vec<Run>, Vec<(String, Value)>) {
+fn steps_of(c: &Case) -> Result<(Vec<Run>, Vec<(String, Value)>), String> {
     let mut runs = Vec::new();
     let mut persons = Vec::new();
     let mut started: Option<(bool, bool)> = None;
@@ -347,15 +334,13 @@ fn steps_of(c: &Case) -> (Vec<Run>, Vec<(String, Value)>) {
                     grant = None;
                 }
                 if let Some(who) = s(e, "principal") {
-                    let answer = s(e, "result")
-                        .or_else(|| {
-                            e["evidence"]
-                                .as_array()
-                                .and_then(|a| a.first())
-                                .and_then(|i| i.as_str())
-                                .and_then(|i| result_of(c, i))
-                        })
-                        .unwrap_or_else(|| format!("exit:{}", e["exit"].as_str().unwrap_or("?")));
+                    let mut answer = s(e, "result");
+                    if answer.is_none() {
+                        if let Some(i) = e["evidence"].as_array().and_then(|a| a.first()).and_then(|i| i.as_str()) {
+                            answer = result_of(c, i)?;
+                        }
+                    }
+                    let answer = answer.unwrap_or_else(|| format!("exit:{}", e["exit"].as_str().unwrap_or("?")));
                     let at = s(e, "at").unwrap_or_default();
                     persons.push((at, json!({"action": action, "answer": answer, "actor": who})));
                 } else if argv {
@@ -366,27 +351,24 @@ fn steps_of(c: &Case) -> (Vec<Run>, Vec<(String, Value)>) {
         }
     }
     standalone(&mut grant, &mut persons);
-    (runs, persons)
+    Ok((runs, persons))
 }
 
-fn capability_of(c: &Case, action: &str) -> Value {
-    read_json(&c.dir.join("ir.json"))
-        .ok()
-        .and_then(|ir| ir["actions"][action]["requires"][0]["capability"].as_str().map(String::from))
-        .map_or(Value::Null, Value::String)
+/// The capability an action of the case's IR requires: null when the IR names the action and it
+/// requires none; the IR file itself must be readable.
+fn capability_of(c: &Case, action: &str) -> Result<Value, String> {
+    let ir = read_json(&c.dir.join("ir.json"))?;
+    Ok(ir["actions"][action]["requires"][0]["capability"].as_str().map_or(Value::Null, |s| Value::String(s.to_string())))
 }
 
-fn stop_of(c: &Case) -> Value {
+fn stop_of(c: &Case) -> Result<Value, String> {
     if c.case["termination"].is_string() {
-        return Value::Null;
+        return Ok(Value::Null);
     }
-    let last = std::fs::read_dir(c.dir.join("evaluations"))
-        .ok()
-        .and_then(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).max())
-        .and_then(|p| read_json(&p).ok());
-    let bindings = read_json(&c.dir.join("bindings.json")).unwrap_or(Value::Null);
+    let last = latest_evaluation(&c.dir)?;
+    let bindings = read_json(&c.dir.join("bindings.json"))?;
     let status = |want: &str, manual: Option<bool>| {
-        last.as_ref().and_then(|d| d["actions"].as_object()).is_some_and(|m| {
+        last["actions"].as_object().is_some_and(|m| {
             m.iter().any(|(a, v)| {
                 v["status"] == want && manual.is_none_or(|mm| (bindings[a]["manual"] == true) == mm)
             })
@@ -408,20 +390,19 @@ fn stop_of(c: &Case) -> Value {
             .unwrap_or("stopped")
             .to_string()
     };
-    json!({"cause": cause})
+    Ok(json!({"cause": cause}))
 }
 
-fn open_obligations(c: &Case) -> Vec<Value> {
-    std::fs::read_dir(c.dir.join("evaluations"))
-        .ok()
-        .and_then(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).max())
-        .and_then(|p| read_json(&p).ok())
-        .and_then(|d| d["obligations"].as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|o| o["status"] == "open")
-        .map(|o| o["id"].clone())
-        .collect()
+/// The ids of the obligations still open in the newest evaluation. An evaluation without an
+/// `obligations` member has none; one whose member is not a list is an error.
+fn open_obligations(c: &Case) -> Result<Vec<Value>, String> {
+    let d = latest_evaluation(&c.dir)?;
+    let list = match &d["obligations"] {
+        Value::Null => Vec::new(),
+        Value::Array(a) => a.clone(),
+        _ => return Err(format!("{}: obligations is not a list", c.dir.join("evaluations").display())),
+    };
+    Ok(list.into_iter().filter(|o| o["status"] == "open").map(|o| o["id"].clone()).collect())
 }
 
 /// A text file with every wall-clock stamp `YYYY-MM-DDTHH:MM:SSZ` replaced by `<time>`: `aep` writes
@@ -489,7 +470,7 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
     let mut per_case_persons: Vec<Vec<Value>> = Vec::new();
     let mut per_case_runs: Vec<Vec<Value>> = Vec::new();
     for (ci, c) in cases.iter().enumerate() {
-        let (runs, persons) = steps_of(c);
+        let (runs, persons) = steps_of(c)?;
         let mut attempts: HashMap<String, i64> = HashMap::new();
         let mut rs = Vec::new();
         for (i, r) in runs.iter().enumerate() {
@@ -505,7 +486,7 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
         let mut ps = Vec::new();
         for (pi, (at, mut v)) in persons.into_iter().enumerate() {
             if let Some(a) = v["action"].as_str().map(String::from) {
-                v["capability"] = capability_of(c, &a);
+                v["capability"] = capability_of(c, &a)?;
             }
             persons_all.push((at, ci, pi, 0));
             ps.push(v);
@@ -540,7 +521,7 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
             }
             persons.push(Value::Object(m));
         }
-        let evidence = evidence_of(c);
+        let evidence = evidence_of(c)?;
         case_values.push(json!({
             "id": c.id,
             "link": id_link(c),
@@ -548,8 +529,8 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
             "protocol": c.case["protocol"],
             "protocol_revision": revision,
             "outcome": c.case.get("termination").cloned().unwrap_or(Value::Null),
-            "stop": stop_of(c),
-            "open_obligations": open_obligations(c),
+            "stop": stop_of(c)?,
+            "open_obligations": open_obligations(c)?,
             "evidence": evidence,
             "program_runs": per_case_runs[ci],
             "person_steps": persons,
@@ -562,7 +543,7 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
                 Some("action_finished") => {
                     if let Some(st) = copy.take() {
                         for id in e["evidence"].as_array().into_iter().flatten().filter_map(|x| x.as_str()) {
-                            let rec = read_json(&c.dir.join("evidence").join(format!("{id}.json"))).unwrap_or(Value::Null);
+                            let rec = read_json(&c.dir.join("evidence").join(format!("{id}.json")))?;
                             let from = cases.iter().find(|o| {
                                 o.id != c.id
                                     && o.case["protocol"] == st["copy"]["from"]
@@ -590,10 +571,16 @@ fn read_driver(run: &Path, store: &Path) -> Result<Value, String> {
     if work.is_dir() {
         walk_product(&work, &work, &mut product)?;
     }
-    let settings = std::fs::read_to_string(run.join("run-settings.jsonl"))
-        .ok()
-        .and_then(|t| t.lines().next().and_then(|l| serde_json::from_str::<Value>(l).ok()))
-        .unwrap_or(Value::Null);
+    // A run without a settings file records none (null members); a file that is there must parse.
+    let settings_file = run.join("run-settings.jsonl");
+    let settings = match std::fs::read_to_string(&settings_file) {
+        Ok(t) => match t.lines().next() {
+            Some(l) => serde_json::from_str::<Value>(l).map_err(|e| format!("{}:1: {e}", settings_file.display()))?,
+            None => Value::Null,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Null,
+        Err(e) => return Err(format!("{}: {e}", settings_file.display())),
+    };
     Ok(json!({
         "format": FORMAT,
         "source": {"runtime": "driver", "run_settings": {
