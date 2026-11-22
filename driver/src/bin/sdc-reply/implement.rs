@@ -416,10 +416,24 @@ fn spec_facts(ir: &Value, traces: &Value, cov: &[String], mine: &[Value]) -> (Va
     (Value::Object(out), missing)
 }
 
+/// The request-mode instruction files by part, each named whole so that a search of the sources
+/// for a file name (`runbook check`) finds them.
+const REQUEST_FILES: [(&str, &str); 8] = [
+    ("head", "instructions/change.implement.request.head.md"),
+    ("build", "instructions/change.implement.request.build.md"),
+    ("rework", "instructions/change.implement.request.rework.md"),
+    ("task", "instructions/change.implement.request.task.md"),
+    ("continuation", "instructions/change.implement.request.continuation.md"),
+    ("request-failed", "instructions/change.implement.request.request-failed.md"),
+    ("no-reply", "instructions/change.implement.request.no-reply.md"),
+    ("retry", "instructions/change.implement.request.retry.md"),
+];
+
 /// One part of the request-mode instructions: `instructions/change.implement.request.<part>.md`
 /// (docs/driver.md, "Instructions"), filled with `values`.
 fn text(part: &str, values: &[(&str, &str)]) -> Result<String, String> {
-    instructions::render(&format!("instructions/change.implement.request.{part}.md"), values)
+    let file = REQUEST_FILES.iter().find(|(p, _)| *p == part).map(|(_, f)| *f).ok_or_else(|| format!("no request instruction part {part}"))?;
+    instructions::render(file, values)
 }
 
 /// The node's whole input as one prompt, and a manifest of what went in (sections and bytes,
