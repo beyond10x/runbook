@@ -9,7 +9,7 @@ tags:
 - one-binary
 relations:
 - blocks: story:engine-on-loom-library-entry
-revision: 3
+revision: 4
 ---
 Capability requested from the Loom session: library entry points that Runbook can call in process,
 so that `runbook` links Loom as a cargo dependency and starts no `loom` or `b10x-loom` process
@@ -41,12 +41,14 @@ Loom stories filed on 2026-11-22 (proposed, Loom plan commit `df62eaec`) that ch
   re-exported by `loom-tree`.
 - `per-run-program-path` (L23): a `program_path` member of the settings `run_tree` takes.
 - Order set by Loom: the stub-cycle path, then `per-run-program-path` and `concurrent-confined-runs`,
-  then `cancel-a-running-bound-program`, then `tree-waits-open-decision-requests`.
-
-Asked, no story id yet (L19): a follow-up story for a launch that needs another directory or egress
-set while a launch runs under the same root (a launch waits for the driver, bounded by its timeout,
-or Substrate serves several drivers under one root), before agent nodes with egress run in the
-daemon.
+  then `cancel-a-running-bound-program`, then `tree-waits-open-decision-requests`
+  (`mixed-egress-launches` goes after the cancel story and before `named-egress-per-action`).
+- `mixed-egress-launches` (L19, proposed, filed after Runbook's request): a launch that needs a
+  driver for another directory or egress set waits for it, first come first served per root,
+  bounded by its own timeout; on that timeout the refusal is `DriverBusy` and names the holder's
+  egress set; a cancel handle ends a wait; no Substrate change. Ordered after
+  `cancel-a-running-bound-program` and before `named-egress-per-action`. Needed before agent nodes
+  with egress run in the daemon.
 
 Rows this blocker waits on (`requested`): L2 protocols from a directory, L6 `run_tree`, L7 records as
 written, L9 the status reading, L13 tree waits as decision requests, L14 cancel at step boundaries,
