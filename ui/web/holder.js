@@ -1,7 +1,7 @@
 // Who holds an open decision, what taking it does, and the fields one decision covers. Pure, shared by
 // the Now band (now.js) and the Decisions drawer (inbox.js); tested in test/holder-model.spec.mjs.
 //
-// The run's decider setting (SDC_DECIDER of scripts/run-trial.sh) is recorded in run-settings.jsonl
+// The run's decider setting is recorded in run-settings.jsonl
 // (sdc.run-settings/1, one line per start or resume; the last holds). Older runs have no such file:
 // then the holder is read from a decider call in progress (decider/NNN-<action>/ with no response
 // yet) and the decider decisions (decisions.jsonl, principal decider:<kind>), and the absence of the
@@ -49,7 +49,7 @@ export function holderOf(w, decisions, settings) {
     const by = RULES.has(k) ? `the rule decider (${k})` : `the decider (${mine.model || k})`;
     return {who: 'person', label: you, note: `${by} ${verb}${mine.reasons?.[0] ? `: ${mine.reasons[0]}` : ''}`, tone: 'person', decider: mine};
   }
-  // the run's own setting (scripts/run-trial.sh writes it at every start and resume)
+  // the run's own setting (written at every start and resume of the run)
   if (set?.kind === 'person') return {who: 'person', label: you, note: 'this run gives its decisions to a person (run-settings.jsonl)', tone: 'person', setting: set};
   if (set?.kind && RULES.has(set.kind)) return {who: 'rule', label: `Rule (${set.kind})`, note: `this run gives its decisions to the rule decider:${set.kind} (run-settings.jsonl); it takes this one when the run continues`, tone: 'decider', setting: set};
   if (set?.kind) return {who: 'decider', label: `Decider ${set.model || set.kind}`, note: `this run gives its decisions to decider:${set.kind} (run-settings.jsonl, escalate ${set.escalate || 'not recorded'}); it takes this one when the run continues`, tone: 'decider', setting: set};
@@ -60,9 +60,9 @@ export function holderOf(w, decisions, settings) {
 
 // What taking the decision does, in one sentence.
 export function takenText(w) {
-  if (w.capability && w.subject) return `Approving records ${w.capability} for ${w.subject}${w.revision ? ` @ ${String(w.revision).slice(0, 9)}` : ''}; Continue run then takes the next step.`;
-  if (w.capability) return `Approving records ${w.capability}; Continue run then takes the next step.`;
-  if (w.handoff) return 'Doing what it asks and continuing the run lets the driver take the next step.';
+  if (w.capability && w.subject) return `Approving records ${w.capability} for ${w.subject}${w.revision ? ` @ ${String(w.revision).slice(0, 9)}` : ''}; the run takes the next step when it continues.`;
+  if (w.capability) return `Approving records ${w.capability}; the run takes the next step when it continues.`;
+  if (w.handoff) return 'Doing what it asks lets the run take its next step when it continues.';
   return 'Deciding lets the run take its next step when it continues.';
 }
 

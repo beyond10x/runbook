@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Read-only live inspector for sdc-drive case stores",
+  "description": "Read-only inspector for Runbook run directories",
   "scripts": {
     "start": "node server.mjs",
     "screenshots": "playwright test --workers=2",

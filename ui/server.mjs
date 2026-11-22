@@ -1,28 +1,24 @@
 #!/usr/bin/env node
-// sdc-ui: a live inspector for sdc-drive case stores, with a decisions inbox.
+// sdc-ui: a read-only inspector for the case stores of run directories, with a decisions list.
 //
-//   node server.mjs [--port 7490] [--write] [--principal operator] <store-or-case-dir>...
+//   node server.mjs [--port 7490] <store-or-case-dir>...
 //
 // Each argument is a case directory (holds case.json) or a store directory whose subdirectories
 // are root cases. A path that does not exist yet is waited for. The server reads files, polls their
 // stat signatures, and pushes `change` events over SSE. It listens on 127.0.0.1 only.
 //
-// Writes happen only with --write, only through POST /api/act, and only as one of four
-// whitelisted acts (decisions.mjs): approve (the driver's own `approve` command, built as an argv),
-// answer a question and change a context field (yq with the values in the environment), continue
-// the run (scripts/run-trial.sh <run>). Each is refused when the revision the page showed is not the
-// current one, and logged to <run>/ui-actions.jsonl.
+// It writes nothing and starts no program of the runtime: there is no act route, no `--write` and no
+// principal. A decision is answered through the daemon (`runbook serve`, its page or `runbook decide`).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
+import {inbox, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
-import {canonPath, drivePath} from './binaries.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -34,7 +30,6 @@ const sdc = path.resolve(here, '..');
 const args = process.argv.slice(2);
 let port = 7490;
 const host = '127.0.0.1';
-const config = {write: false, writeOnly: new Set(), principal: 'operator'};
 const paths = [];
 // --runs DIR (repeatable): every DIR/<run>/store is a source, and a run that appears later joins live
 const runsDirs = [];
@@ -50,13 +45,9 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
   else if (args[i] === '--experiments') expDirs.push(path.resolve(args[++i]));
-  else if (args[i] === '--write') config.write = true;
-  else if (args[i] === '--write-only') { config.write = true; config.writeOnly.add(path.resolve(args[++i])); }
-  else if (args[i] === '--principal') config.principal = args[++i];
+  else if (args[i].startsWith('--')) { console.error(`${args[i]}: unknown option. The inspector reads only: a decision is answered through the daemon (runbook serve, runbook decide)`); process.exit(2); }
   else paths.push(path.resolve(args[i]));
 }
-if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: letters, digits, . _ - only'); process.exit(2); }
-if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
 if (noView && viewFiles.length) { console.error('--view and --no-view exclude each other'); process.exit(2); }
@@ -78,9 +69,6 @@ if (!paths.length && !runsDirs.length) {
   if (!fs.existsSync(d)) { console.error('no store given and the default one is missing: missing run directory runs/full-cycle-1/store (runs/ is git-ignored); pass a store directory: node server.mjs <run>/store'); process.exit(2); }
   paths.push(d);
 }
-for (const w of config.writeOnly) if (!paths.includes(w)) paths.push(w);
-// --write: every store may be acted on; --write-only PATH (repeatable): only those stores
-const writable = (src) => config.write && (!config.writeOnly.size || config.writeOnly.has(src.path));
 
 const readJson = (p, fallback = null) => {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return fallback; }
@@ -126,7 +114,7 @@ function stoppedOf(runDir) {
   if (!j || j.format !== 'sdc.run-stopped/1' || isNaN(Date.parse(j.at))) return null;
   return {at: j.at, by: typeof j.by === 'string' && j.by ? j.by : null, reason: typeof j.reason === 'string' ? j.reason : '', verdict_at_stop: j.verdict_at_stop ?? null, case: j.case ?? null};
 }
-// The run's settings (sdc.run-settings/1, one line per start or resume by scripts/run-trial.sh): the
+// The run's settings (sdc.run-settings/1, one line per start or resume of the run): the
 // last line holds; its decider says who takes the decisions that wait on a person. Null without one.
 function settingsOf(runDir) {
   const text = readText(path.join(runDir, 'run-settings.jsonl')) || '';
@@ -309,22 +297,20 @@ function runSummary(s) {
     summaries.set(s.path, c);
   }
   const v = c.v;
-  // running now: a driver holds a case tree (driver.json with a live pid, or a live pid in the tree's lock),
-  // or a model or decider call is in progress (the newest records' status.json: running, its pid alive)
-  const driving = rootsOf(s).some((r) => { const j = readJson(path.join(r, 'driver.json')); const lock = (readText(path.join(r, '.sdc-drive.lock')) || '').trim(); return (j && alive(j.pid)) || (lock && alive(lock)); })
-    || RECORD_KINDS.some((k) => listDir(path.join(runDir, k)).slice(-2).some((n) => { const st = callStatus(path.join(runDir, k, n)); return st?.state === 'running' && alive(st.pid); }));
+  // Whether it is live (livenessOf): the runner writes no pid and no lock, so a run that has not ended is
+  // 'unknown' (a run directory of `runbook run`) or history (any other directory): never 'running'.
   const closed = v.status?.state === 'closed' ? {at: v.status.at, outcome: v.status.outcome ?? v.term?.outcome ?? null, delivered: v.status.delivered}
     : v.term ? {at: v.term.at, outcome: v.term.outcome, delivered: null} : null;
   if (closed && closed.delivered == null) closed.delivered = /^(operating|delivered)$/.test(String(closed.outcome || ''));
-  const state = v.stop ? 'stopped' : closed ? 'closed' : driving ? 'running' : 'idle';
-  const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'running' ? null : v.last;
+  const state = v.stop ? 'stopped' : closed ? 'closed' : fs.existsSync(path.join(runDir, 'settings.json')) ? 'unknown' : 'idle';
+  const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'unknown' ? null : v.last;
   return {state, started: v.started, ended, last: v.last, outcome: closed?.outcome ?? null, delivered: closed ? closed.delivered : null, closedBy: v.status?.closedBy ?? null,
     stopBy: v.stop?.by ?? null, cause: v.stop?.cause ?? null, cost: v.cost, calls: v.calls, work: v.work, decider: v.decider, setting: v.setting, autonomy: v.autonomy,
     forced: v.forced, unstuck: v.unstuck, reopens: v.reopens};
 }
 
-// When each event was written. The events' own `at` is the instant the caller passed to the whole
-// `sdc-drive run` (every step of one run shares it), so the wall clock of a step comes from here:
+// When each event was written. The events' own `at` is the instant the caller passed to a whole leg
+// of the run (every step of the leg shares it), so the wall clock of a step comes from here:
 // the mtime of events.jsonl when the server saw a line appear. On first sight only the last line
 // is dated (the file's mtime is when that line was appended); earlier ones stay undated.
 function observe(src, dir) {
@@ -401,8 +387,8 @@ function scan(src) {
 
 // ---- live: agent and decider calls in progress, and the run's file changes -----------------------
 // A call is in progress while its record directory has request.json and response.json is missing
-// or empty: llm-node.sh and decider.sh redirect the adapter's stdout into response.json, which the
-// shell creates empty when the call starts and fills when it ends.
+// or empty: a model or decider call's adapter stdout goes into response.json, which is created empty
+// when the call starts and filled when it ends.
 // With status.json (sdc.call-status/1) the call says itself: state running is in progress, finished
 // and failed are not, whatever response.json holds. Without it the rule above applies.
 const RECORD_KINDS = ['llm', 'decider'];
@@ -429,25 +415,19 @@ function openRecords(runDir) {
   }
   return out;
 }
-// Which driver holds each case tree: <root>/driver.json (sdc.driver/1, present while one holds the
-// tree), the pid in <root>/.sdc-drive.lock, and whether any case of the tree has an observed.jsonl.
-function driverOf(root) {
-  const j = readJson(path.join(root, 'driver.json'));
-  const lockPid = (readText(path.join(root, '.sdc-drive.lock')) || '').trim();
-  const file = !!(j && typeof j === 'object');
-  const observed = walk(root, null, 0, []).some((x) => fs.existsSync(path.join(x.dir, 'observed.jsonl')));
-  return {file, pid: file ? j.pid ?? null : null, started_at: file ? j.started_at ?? null : null, argv: file && Array.isArray(j.argv) ? j.argv : null,
-    alive: file && alive(j.pid), lock_pid: lockPid || null, lock_alive: !!lockPid && alive(lockPid), observed};
-}
-function driversOf(src) {
-  const out = {};
-  for (const r of rootsOf(src)) out[path.relative(src.path, r) || '.'] = driverOf(r);
-  return out;
+// Is the run live. `runbook run` writes no pid and no lock file (docs/loom-run-directory.md): what it leaves
+// is settings.json (first), run-stopped.json or status.json (the end). So a run directory with an end record
+// is `ended`; one with settings.json and no end record is `unknown` (running, or killed: the files do not say);
+// any other directory (a case store of the old driver) is `history`: shown, never reported as live.
+function livenessOf(src) {
+  const runDir = runDirOf(src);
+  if (readJson(path.join(runDir, 'run-stopped.json')) || readJson(path.join(runDir, 'status.json'))?.state === 'closed') return {state: 'ended'};
+  if (fs.existsSync(path.join(runDir, 'settings.json'))) return {state: 'unknown', why: 'the runner writes no record of a live process'};
+  return {state: 'history', why: 'a case store of the old driver: nothing runs it'};
 }
 function liveSignature(src, runDir) {
   const recs = openRecords(runDir).map((r) => `${r.kind}/${r.name}:${statSig(path.join(r.dir, 'events.jsonl'))}:${r.status ? alive(r.status.pid) : '-'}`);
-  const drv = Object.entries(driversOf(src)).map(([k, d]) => `${k}:${d.file}:${d.alive}:${d.lock_alive}:${d.observed}`).join(',');
-  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + drv;
+  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + livenessOf(src).state;
 }
 
 const argShort = (input) => {
@@ -613,7 +593,7 @@ function liveInfo(src) {
   const runDir = runDirOf(src);
   const records = openRecords(runDir).map((r) => recordProgress(r, runDir));
   const changes = fsChanges(runDir);
-  return {now: Date.now(), runDir, records, drivers: driversOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000)}};
+  return {now: Date.now(), runDir, records, liveness: livenessOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000)}};
 }
 
 function loadCase(src, entry) {
@@ -747,16 +727,13 @@ function meta() {
   }
   const levels = {};
   for (const f of listDir(path.join(sdc, 'eval/levels'))) if (f.endsWith('.json')) levels[f] = readJson(path.join(sdc, 'eval/levels', f));
-  return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels,
-    drive: drivePath(sdc), canon: canonPath()};
+  return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels};
 }
 
-// What decisions.mjs needs of a source: its paths, its cases, and the configured principal.
+// What decisions.mjs needs of a source: its paths and its cases.
 function ctx(src) {
   const cases = Array.from(src.cases.values()).map((e) => ({dir: e.dir, rel: path.relative(src.path, e.dir) || '.', ...pick(loadCase(src, e))}));
-  return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, principal: config.principal, write: writable(src), index: src.index,
-    canon: canonPath(), drive: drivePath(sdc),
-    refresh: () => { for (const e of src.cases.values()) e.data = null; }};
+  return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, index: src.index};
 }
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
 
@@ -810,6 +787,8 @@ const server = http.createServer((req, res) => {
 });
 
 function handle(req, res) {
+  // the inspector reads: no route takes a body or a command
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'this server only reads'});
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   const src = sources[Number(url.searchParams.get('source') || 0)];
@@ -833,7 +812,7 @@ function handle(req, res) {
     const cases = all.filter((e) => !want || want.has(path.relative(src.path, e.dir) || '.')).map((e) => loadCase(src, e));
     return send(res, 200, {source: src.index, version: src.version, now: Date.now(), exists: fs.existsSync(src.path), present: all.map((e) => path.relative(src.path, e.dir) || '.'), cases});
   }
-  if (p === '/api/run') return send(res, 200, {...runInfo(src), proc: procState(src.index)});
+  if (p === '/api/run') return send(res, 200, runInfo(src));
   if (p === '/api/live') return send(res, 200, liveInfo(src));
   if (p === '/api/workfacts') return send(res, 200, workFacts(src));
   if (p === '/api/fschange') {
@@ -842,29 +821,7 @@ function handle(req, res) {
   }
   if (p === '/api/inbox') {
     const x = ctx(src);
-    // what the driver needs and this server cannot find: the drawer says so before anyone acts
-    const missing = writable(src) ? missingPrograms(x, {kind: 'continue'}) : [];
-    return send(res, 200, {write: writable(src), principal: config.principal, items: inbox(x), history: history(x), missing, missingText: missing.length ? missingText(missing) : null, stopped: stoppedOf(runDirOf(src))});
-  }
-  if (p === '/api/act') {
-    if (req.method !== 'POST') return send(res, 405, {error: 'POST only'});
-    // same-origin only: a custom header forces a CORS preflight that this server never answers
-    if (req.headers['x-sdc-ui'] !== '1' || !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host || '')) return send(res, 403, {error: 'refused: not from this page'});
-    if (!writable(src)) return send(res, 403, {error: config.write ? 'refused: this store is not one of --write-only' : 'refused: the server runs without --write'});
-    let body = '';
-    req.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
-    req.on('end', () => inView(src, async () => {
-      let b;
-      try { b = JSON.parse(body); } catch { return send(res, 400, {error: 'bad JSON'}); }
-      // an open decision of a stopped run is not taken from here; continuing the run stays possible
-      const stop = stoppedOf(runDirOf(src));
-      if (stop && b && b.kind !== 'continue') return send(res, 409, {ok: false, error: `refused: the run was stopped by ${stop.by || 'someone'} at ${stop.at}${stop.reason ? ` (${stop.reason})` : ''}; its open decisions are not taken while it is stopped`});
-      try {
-        const out = await act(ctx(src), b, (ev, data) => push(ev, {source: src.index, ...data}));
-        send(res, out.ok ? 200 : 409, out);
-      } catch (e) { send(res, 500, {error: String(e.message || e)}); }
-    }));
-    return;
+    return send(res, 200, {items: inbox(x), history: history(x), stopped: stoppedOf(runDirOf(src))});
   }
   if (p === '/api/blob') {
     const rel = url.searchParams.get('case') || '.';

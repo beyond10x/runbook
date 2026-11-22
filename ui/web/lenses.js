@@ -86,18 +86,16 @@ export function humanNext(cases, meta) {
     const s = caseState(c);
     if (s.state !== 'awaiting_authority' && s.state !== 'awaiting_person') continue;
     if (Array.isArray(s.next) && s.next.some((n) => n && n.command)) {
-      for (const n of s.next) out.push({case: c, action: n.action, why: n.decides || `${n.action}: ${s.label}`, cmd: n.command, from: 'the driver (verdict event `next`)'});
+      for (const n of s.next) out.push({case: c, action: n.action, why: n.decides || `${n.action}: ${s.label}`, cmd: n.command, from: 'the run (verdict event `next`)'});
       continue;
     }
     const ev = evalAt(c, null);
-    const base = `${meta.drive} --canon ${meta.canon} --case-dir ${c.dir} approve --at $(date -u +%FT%TZ)`;
     for (const [a, x] of Object.entries(ev?.actions || {})) {
       const b = c.bindings?.[a] || {};
       if (x.status === 'approval-required') {
-        for (const r of x.reasons || []) if (r.capability) out.push({case: c, action: a, why: `${a} is approval-required: capability ${r.capability} has decision ${r.decision}`, cmd: `${base} --capability ${r.capability} --principal <you>${b.manual ? ` --action ${a}` : ''}`});
+        for (const r of x.reasons || []) if (r.capability) out.push({case: c, action: a, why: `${a} is approval-required: capability ${r.capability} has decision ${r.decision}`, cmd: null});
       } else if (x.status === 'admissible' && b.manual && s.state === 'awaiting_person') {
-        const cap = c.ir.actions[a]?.requires?.[0]?.capability;
-        out.push({case: c, action: a, why: `${a} is admissible and bound \`manual\`: a person takes it`, cmd: `${base}${cap ? ` --capability ${cap}` : ''} --principal <you> --action ${a}`});
+        out.push({case: c, action: a, why: `${a} is admissible and bound \`manual\`: a person takes it`, cmd: null});
       }
     }
     if (!out.some((o) => o.case === c)) out.push({case: c, action: null, why: s.label, cmd: null});
