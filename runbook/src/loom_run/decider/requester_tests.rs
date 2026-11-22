@@ -199,8 +199,9 @@ fn the_class_of_a_decision_is_read_from_decision_classes_and_its_side_routes_it(
         ("question", "scope.answer", "scope_changing_answer", "requester"),
         ("finding", "amend.upstream", "finding", "delivering"),
     ] {
-        let found = requester::route(&root, kind, action).unwrap();
-        assert_eq!((found.class.as_str(), found.side.as_str()), (class, side), "{kind} {action}");
+        let found = routing::Routing::load(&root).unwrap().class_of(kind, action);
+        let found_side = routing::Routing::load(&root).unwrap().side_of(&found);
+        assert_eq!((found.as_str(), found_side.as_str()), (class, side), "{kind} {action}");
     }
 }
 

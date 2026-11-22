@@ -27,24 +27,6 @@ pub(super) const PRINCIPAL: &str = "decider:requester";
 const REQUESTER_PERSON: &str = "person:requester";
 const DRY_WHY: &str = "dry run: no LLM was called; the approve rule decided";
 
-/// The decision class of a decision (`decision-classes.json`, `sdc.decision-classes/1`) and the side
-/// it belongs to.
-pub(super) struct Route {
-    pub(super) class: String,
-    pub(super) side: String,
-}
-
-/// The class of a request of `kind` (`approval`, `question`, `finding` or `close`) on `action`: a
-/// question is a `scope_changing_answer`, a finding a `finding`, a close a `close`, an approval the
-/// first class that lists the action (`<protocol>/<action>`), else `approval`. A class that is not
-/// in the file is on the delivering side.
-pub(super) fn route(root: &Path, kind: &str, action: &str) -> Result<Route, String> {
-    let classes = super::routing::read_classes(root)?;
-    let class = super::routing::class_of(&classes, kind, action);
-    let side = classes.get(&class).and_then(|c| c["side"].as_str()).unwrap_or("delivering").to_owned();
-    Ok(Route { class, side })
-}
-
 /// Adds to a request body what the requester reads of the run: the class and side, the level, and
 /// the decisions log of the run (its own earlier decisions are read from there).
 pub(super) fn tag(body: &mut Value, class: &str, run_dir: &Path) {
@@ -62,9 +44,11 @@ impl super::NativeDecider {
         if !self.requester {
             return Ok(None);
         }
-        let root = super::instructions_root(&run_dir.join("bindings").join("tools")).ok_or(super::NO_INSTRUCTIONS)?;
-        let found = route(&root, kind, action)?;
-        Ok((found.side == "requester").then_some(found.class))
+        // The classes are the run's table as it was read before the first action (`pin_routing`), not
+        // the file as a bound program may have left it.
+        let table = self.routing(run_dir)?;
+        let class = table.class_of(kind, action);
+        Ok((table.side_of(&class) == "requester").then_some(class))
     }
 
     /// The principal of an answer: the requester's when it answered, else the decider's.

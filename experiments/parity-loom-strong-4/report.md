@@ -1,0 +1,101 @@
+# parity-loom-strong-4: The to-do idea in the strong setting on the head of line 2 (runbook run, in process on Loom), against the three driver runs of release-0.1.2 (fourth record)
+
+Written by `sdc-experiment report parity-loom-strong-4` from `experiments/parity-loom-strong-4.yaml` and the run summaries in `experiments/parity-loom-strong-4/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
+
+- Kind: prospective; status: planned; created 2026-11-22.
+- Purpose: Registered hypothesis, written before the runs: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-3, which stays as the evidence of its three stops and is not edited.
+- Hypothesis: none; the record describes its runs.
+- Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
+- Tree: `9be5098c4bbd835111ff36418c031083f90da7c3`
+- Runs per variant: 3; pass rule: clean-delivery (closed, delivered, no reopen, forced step or unstick).
+- Decision rule (descriptive): Hypothesis: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. The record has one variant, so sdc-experiment reports it as descriptive and decides nothing; the verdict is read against the tolerance in the story, run by run: each quality measure of a Loom run lies within the range of the three driver runs (experiments/release-0.1.2/report.md, strong), and the members the story lists as equal are equal. A run that falls outside is reported as such. This record follows parity-loom-strong-3, whose runs stopped at the two places named above.
+
+## Settings
+
+| setting | strong |
+|---|---|
+| `adapter` | metaharness |
+| `autonomy` | A5 |
+| `decider.adapter` | claude-cli |
+| `decider.escalate` | final |
+| `decider.kind` | model |
+| `decider.max_decider_calls` | 40 |
+| `decider.model` | claude-opus-5-5 |
+| `loom.cap_micro_usd` | 14540000 |
+| `loom.confinement` | local |
+| `loom.in_process` | true |
+| `max_llm_calls` | 150 |
+| `max_wall_seconds` | 5400 |
+| `models.implement.model` | claude-sonnet-5-5 |
+| `models.other.model` | claude-sonnet-5-5 |
+| `models.review.model` | claude-sonnet-5-5 |
+| `models.writer.model` | claude-sonnet-5-5 |
+| `review.adapter` | claude-cli |
+
+Known confounds:
+
+- `runtime`: the runs go through `runbook run` in process on the Loom library the runbook crate links (commit 70b0e6e0), with no `b10x-loom` child binary and no `loom.bin`; record 3 went through `runbook loom-run` and the child binary of Loom 5af3f9c2, the driver runs of release-0.1.2 through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal.
+- `confinement`: --confinement local, the runs are not confined; the driver runs were not either, nor were the runs of record 3.
+- `unstick`: the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick (docs/loom-run-directory.md line 99), a run that stops stays stopped.
+- `decider`: the model decider runs inside `runbook run` (runbook/src/loom_run/decider/); bindings/tools/decider.sh is still in the tree and is not started by the runner (docs/loom-run-decisions.md, Notes), while the driver runs used it; the adapter is claude-cli as in both earlier runtimes. The answers file bindings/tools/answers.yaml and sdc-answers are used as in record 3 (scope.answer, amend.upstream); amend.upstream now has handoff_when (bindings/tools/sdc-tool.sh findings-wait), which record 3 did not. Who decides is read once from tools/autonomy-levels.json and the decision classes before the first action of the run.
+- `effort`: the record format carries no effort to the runner (efforts.* is refused for a loom variant), so the class defaults of bindings/tools/node-classes.json apply to every node and to the decider; the driver runs of release-0.1.2 set their efforts through SDC_LLM_EFFORT variables.
+- `canon`: Canon is linked into the runbook binary (b10x-canon 0.11.0, commit e81f970d, runbook/Cargo.toml and runbook/Cargo.lock) and no run needs a canon binary on the login's PATH; the runs of record 3 and release-0.1.2 used the canon binary on the login's PATH, which no record pinned.
+- `tree`: the tree is the head of line 2, the branch impl/loom-line-2 (9be5098), with its review fixes and main at 17c00ab57f merged (merge commit 3bac01d); the files of the old driver runtime are still in the tree, `runbook run` does not start them, and a later branch removes them; record 3 ran on e7dfa4b58 and the driver runs of release-0.1.2 on 72a3eef.
+- `ess`: driver/ess-pin.json pins ess 0.97.4 (commit b076ef00) and bindings/tools/sdc-tool.sh runs that release; the driver runs of release-0.1.2 and the runs of record 3 ran ess 0.96.0.
+
+## Runs
+
+| run | variant | end | clean pass | cost USD | wall s | looping factor | note |
+|---|---|---|---|---|---|---|---|
+
+## Per variant
+
+Median [min, max] (n) over the ended runs.
+
+| | strong |
+|---|---|
+| runs listed | 0 |
+| ended | 0 |
+| clean passes | 0 |
+| `run.cost_usd` | - |
+| `run.llm_calls` | - |
+| `run.decider_calls` | - |
+| `run.wall_s` | - |
+| `run.driver_s` | - |
+| `run.real_takes` | - |
+| `run.rework_takes` | - |
+| `run.looping_factor` | - |
+| `run.first_pass_yield` | - |
+| `run.rework_cost_usd` | - |
+| `run.furthest_stage_index` | - |
+| `run.findings_raised` | - |
+| `run.waiting_on_person_s` | - |
+| `run.clean` | - |
+
+## Loops
+
+Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
+
+- strong (n 0):
+  - no node taken again, no edge
+
+## Verdict
+
+descriptive: no hypothesis: the record describes its runs and decides nothing.
+
+## Facts
+
+- Loom commit 70b0e6e0, linked into the runbook crate (runbook/Cargo.toml lines 23 to 25, runbook/Cargo.lock) and run in process: the record sets loom.in_process: true and neither loom.bin nor loom.sha256, so the settings file of each run says in_process and the pinned commit and holds no digest. Loom 5af3f9c2, the binary of record 3 that names every-printed-decision-command-runs and person-action-records-a-named-result (the two conditions of the unconfined approval), is an ancestor of 70b0e6e0, and so is 5bcc26d9, the commit that runs handoff_when.
+- The model login is named at start time only: sdc-experiment run parity-loom-strong-4 --login-file <login file>; no record, log or report names its path.
+- Spend: the approved cap is 20.00 USD in total. parity-loom-strong-2 spent 0.37 USD (ledger 366257 micro-USD in 9 entries) and parity-loom-strong-3 4.09 USD of model calls (4.093 USD: decider 1.757016, steps 2.335859), so 15.54 USD are left. The ledger is per record id (runs/parity-loom-strong-4.loom-spend.json, the file sdc-experiment run passes as --spend-ledger) and starts empty, so the cap of this record is what is left: 15.54 USD, and loom.cap_micro_usd is the stop line, 14.54 USD (14540000 micro-USD). The ledger of record 3 booked 8.092875 USD because it booked two reservations of 2.00 USD for calls without a cost record; such a reservation counts against the stop line.
+- First stop of record 3, decider_cannot_decide in IDEA-1.intake: requirements.normalise raised a finding with status open, requirements.check exited 5, and Loom offered the handoff of amend.upstream to a person without running the amend program; sdc-answers requests findings lists only needs_person findings, so the declared answer had no request. On line 2 amend.upstream carries handoff_when (bindings/sdc-intake.yaml line 106, the same in sdc-direction.yaml line 100, sdc-plan.yaml line 88, sdc-spec.yaml line 107, sdc-story.yaml line 92): Loom runs `tools/sdc-tool.sh findings-wait --action amend.upstream` (a path under the bindings directory) before the writer (bindings/tools/sdc-tool.sh lines 588 to 594, docs/loom-bindings.md line 56), which exits 0 only while a needs_person finding has no decision with a principal; an open finding lets the amend program run, and `sdc-findings amend` classifies it, applies it or sets it needs_person (driver/src/bin/sdc-findings.rs lines 1373 to 1415), after which the handoff is offered and sdc-answers requests findings lists it (driver/src/bin/sdc-answers.rs line 67). Read in the code at 9be5098 (commit 0c58cf4); not run.
+- Second stop of record 3, error at change.review (exit 2, ResultNotInTable): the review read the conformance run log from the old driver case directory, which a program under Loom does not get. On line 2 bindings/tools/sdc-tool.sh keeps the log of the conformance run and of the ess gate in the workspace when LOOM_CASE is set (function recorded, lines 218 to 230; called at line 393 for ess_gate and line 586 for conformance_run), and the review reads it from there: driver/src/reply/records.rs lines 109 to 115 (record_log, workspace mode, <records>/<kind>/<revision>.log) and driver/src/reply/review.rs lines 149 to 153 (run_logs, the message "no conformance run recorded on change revision" is now the case of a log that was never kept). change.review is started as sdc-node change.review (bindings/sdc-story.yaml line 56). Read in the code at 9be5098; not run.
+
+## Links
+
+- experiments/parity-loom-strong-2.yaml: the second record; its three runs stopped at decider_cannot_decide in IDEA-1.intake (scope.answer), after 0.37 USD
+- experiments/parity-loom-strong-3.yaml: the third record; its runs stopped at decider_cannot_decide in IDEA-1.intake (requirements.check exited 5, amend.upstream offered to a person) and at error in change.review (exit 2, ResultNotInTable), after 4.09 USD of model calls
+- experiments/release-0.1.2.yaml: the three driver runs of the strong setting this record is compared with
+- story:parity-run-on-loom: the tolerance and the acceptance of the evaluation run
+- approval-record:operator-decision-parity-runs-4-2026-11-22: the approval of these three runs from the 15.54 USD left
+- approval-record:operator-decision-parity-runs-more-2026-11-22, approval-record:operator-decision-parity-runs-spend-2026-11-22 and approval-record:operator-decision-parity-runs-unconfined-2026-11-22: the three earlier approvals, the cap of 20 USD in total, the confinement and the conditions

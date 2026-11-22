@@ -52,9 +52,9 @@ pub struct Setup {
     pub effort: Option<String>,
 }
 
-const VALUED: [&str; 11] = [
+const VALUED: [&str; 12] = [
     "--model", "--max-turns", "--max-budget-usd", "--operations", "--instructions", "--adapter", "--principal",
-    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--effort",
+    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--effort", "--replay-plan",
 ];
 
 /// Reads standard input and `rest` (the arguments after the action name) as the Loom branch of the
@@ -110,6 +110,7 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     for (flag, var) in [
         ("--adapter", "SDC_LLM_ADAPTER"),
         ("--principal", "SDC_PRINCIPAL"),
+        ("--replay-plan", "SDC_REPLAY"),
         ("--stub-fixtures", "SDC_STUB_FIXTURES"),
         ("--stub-counter", "SDC_STUB_COUNTER"),
     ] {

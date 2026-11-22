@@ -26,7 +26,7 @@ pub const AUTONOMY_DECIDES: &str = "A5";
 
 const AUTONOMY_LEVELS: [&str; 6] = ["A0", "A1", "A2", "A3", "A4", "A5"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const MODEL_KEYS: [&str; 14] = [
+const MODEL_KEYS: [&str; 15] = [
     "requester",
     "without_claims",
     "kind",
@@ -41,6 +41,7 @@ const MODEL_KEYS: [&str; 14] = [
     "retries",
     "timeout_seconds",
     "reply_bin",
+    "replay_plan",
 ];
 const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
@@ -121,6 +122,7 @@ enum Mode {
         final_escalate: bool,
         retries: u64,
         reply_bin: Option<PathBuf>,
+        replay_plan: Option<PathBuf>,
         without_claims: bool,
     },
     Rule {
@@ -140,6 +142,9 @@ pub struct NativeDecider {
     principal: String,
     /// `decider.requester`: a decision of a requester-side class goes to the requester decider.
     requester: bool,
+    /// Who decides, read once (see [`Decider::pin_routing`]) and never again: the run's own
+    /// copy of the table is writable by a bound program.
+    routing: std::sync::OnceLock<Result<Routing, String>>,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -165,6 +170,13 @@ fn path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
         None => Ok(None),
         Some(Value::String(s)) if !s.is_empty() => Ok(Some(s.clone())),
         Some(_) => Err(format!("decider.{key}: a path")),
+    }
+}
+
+fn absolute_path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
+    match path_key(decider, key)? {
+        Some(p) if !Path::new(&p).is_absolute() => Err(format!("decider.{key}: an absolute path")),
+        other => Ok(other),
     }
 }
 
@@ -226,6 +238,7 @@ impl NativeDecider {
                 final_escalate: escalate,
                 retries: number_key(decider, "retries", 0)?.unwrap_or(DEFAULT_RETRIES),
                 reply_bin: path_key(decider, "reply_bin")?.map(PathBuf::from),
+                replay_plan: absolute_path_key(decider, "replay_plan")?.map(PathBuf::from),
                 without_claims,
             };
             (mode, max_calls, max_call)
@@ -236,7 +249,13 @@ impl NativeDecider {
             Some(_) => return Err("decider.requester: true or false".to_owned()),
         };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester, routing: std::sync::OnceLock::new() })
+    }
+
+    /// The table this run is routed by: the read of [`Decider::pin_routing`], or the first read
+    /// when nobody pinned it.
+    pub(super) fn routing(&self, run_dir: &Path) -> Result<&Routing, String> {
+        self.routing.get_or_init(|| Routing::load(run_dir)).as_ref().map_err(Clone::clone)
     }
 
     fn cannot(reason: impl Into<String>) -> Verdict {
@@ -264,17 +283,15 @@ impl NativeDecider {
     /// `question` or `finding`) on `action`. `Ok(false)`: the decider takes it. `Ok(true)`: a rule
     /// takes it (the close of the root case at A5: `rule:autopilot`, no decider call). `Err`: it
     /// stays with a person, with the reason. A5 gives every decision to the decider except that
-    /// close. Below A5 only a class the table gives to `decider` is taken; any other holder, a class
-    /// the table does not know and a table that cannot be read are a person's.
+    /// close. Below A5 only a class the table gives to `decider` is taken; any other holder and a
+    /// class the table does not know are a person's. At every level, A5 included, the table is
+    /// loaded first, and a table that cannot be read is a person's: no rule and no model decides
+    /// without it.
     fn route(&self, level: &str, run_dir: &Path, kind: &str, action: &str, outcome: Option<&str>) -> Result<bool, String> {
-        let load = || Routing::load(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"));
+        let routing = self.routing(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"))?;
         if level == AUTONOMY_DECIDES {
-            return match outcome.filter(|_| kind == "close") {
-                None => Ok(false),
-                Some(outcome) => Ok(load()?.closes_by_rule(level, outcome)),
-            };
+            return Ok(outcome.filter(|_| kind == "close").is_some_and(|outcome| routing.closes_by_rule(level, outcome)));
         }
-        let routing = load()?;
         let class = routing.class_of(kind, action);
         match routing.holder(level, &class) {
             Some("decider") => Ok(false),
@@ -357,6 +374,10 @@ impl NativeDecider {
         let mut env = vec![("PATH".to_owned(), path), ("HOME".to_owned(), home.display().to_string())];
         if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
+        }
+        if let Mode::Model { replay_plan: Some(plan), .. } = &self.mode {
+            // A re-drive's adapter takes the plan of the run from this path and searches nowhere.
+            env.push(("SDC_REPLAY".to_owned(), plan.display().to_string()));
         }
         if let (Mode::Model { .. }, Some(login)) = (&self.mode, &self.login_file) {
             // The link in the run's private directory, when there is one: the real path then
@@ -527,6 +548,10 @@ const NO_CLAIMS: &str = "claims of the position are not in Loom's output: the de
 const NO_INSTRUCTIONS: &str = "the instruction files are not found: the decider needs instructions/decider/ above the bindings copy";
 
 impl Decider for NativeDecider {
+    fn pin_routing(&self, run_dir: &Path) {
+        let _ = self.routing.get_or_init(|| Routing::load(run_dir));
+    }
+
     fn max_call_micro_usd(&self) -> u64 {
         match self.mode {
             Mode::Rule { .. } => 0,

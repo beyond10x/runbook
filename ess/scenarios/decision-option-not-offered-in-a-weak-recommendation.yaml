@@ -1,0 +1,111 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-option-not-offered-in-a-weak-recommendation
+summary: "Recommend refuses a letter the request does not offer whatever the strength: a weak and a moderate recommendation are refused as a strong one is, and nothing is recorded."
+
+timeline:
+  - at: 2026-11-22T15:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+      case_id: "IDEA-7.billing.refunds"
+      question_key: "IDEA-7.billing.refunds|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "t6r1"
+      subject_path: "aep/initiative/roadmap.md"
+      question: "Approve the roadmap at revision t6r1?"
+      options:
+        - letter: "A"
+          does: "Grant owner.approve at this case revision."
+          cost: "None beyond the approval."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny owner.approve."
+          cost: "The roadmap is revised first."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A1
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-22T15:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+          case_id: "IDEA-7.billing.refunds"
+          subject_artifact: "roadmap"
+          subject_revision: "t6r1"
+
+  - at: 2026-11-22T15:01:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+      recommended_option: "Z"
+      strength: weak
+      default_on_silence: false
+      grounds:
+        - source: policy
+          citation: {form: record_id, value: {store: canon_evidence, record_id: "e0150-roadmap.review"}}
+          supports: "Z"
+          how: "The policy names an option that the request does not offer."
+      proposed_by: llm
+      check_verdict: verified
+      check_report: "1 ground, 1 resolves"
+    outcome: option-not-offered
+
+  - at: 2026-11-22T15:02:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+      recommended_option: "Z"
+      strength: moderate
+      default_on_silence: false
+      grounds:
+        - source: policy
+          citation: {form: record_id, value: {store: canon_evidence, record_id: "e0150-roadmap.review"}}
+          supports: "Z"
+          how: "The policy names an option that the request does not offer."
+      proposed_by: llm
+      check_verdict: verified
+      check_report: "1 ground, 1 resolves"
+    outcome: option-not-offered
+
+  - at: 2026-11-22T15:03:00Z
+    command: sdc.decision.TakeRecommendation
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+      principal: "operator"
+      principal_kind: person
+      decided_at: 2026-11-22T15:03:00Z
+      reasons: ["Nothing was recommended."]
+    outcome: not-strong
+
+  - at: 2026-11-22T15:04:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+      option: "A"
+      principal: "operator"
+      principal_kind: person
+      decided_at: 2026-11-22T15:04:00Z
+      reasons: ["Approved."]
+    outcome: decided
+    events:
+      - event: sdc.decision.DecisionTaken
+        payload:
+          request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+          option: "A"
+          principal: "operator"
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "roadmap"}
+    contains: {request_id: "DR-IDEA-7.billing.refunds-roadmap.approve-1", state: Decided, decided_option: "A", decided_by: "operator"}

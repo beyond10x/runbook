@@ -1,0 +1,21 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-empty-record-id-on-an-unknown-request
+summary: "RecordProduced checks the record id before it looks for the request: an empty id answers empty-record-id also when no request has the id, and only a non-empty id answers no-request."
+
+timeline:
+  - at: 2026-11-22T16:00:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-8.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "", case_revision: "c1"}
+    outcome: empty-record-id
+
+  - at: 2026-11-22T16:01:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-8.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}
+    outcome: no-request

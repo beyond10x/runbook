@@ -86,6 +86,16 @@ tasks:
       - cargo build --locked --bin runbook
       - cargo nextest run --locked --color never --profile replay --run-ignored only -E 'test(loom_run::replay::replay_) | test(loom_run::replay::rule_approvals) | test(loom_run::replay::review_mode) | test(loom_run::replay::implement_coverage)'
 
+  test:bugfix-slow:
+    dir: runbook
+    desc: "Slow lane of runbook/, not part of `task check`: the two `#[ignore]`d bug-fix tests of runbook/tests/loom_run/bugfix.rs, `bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused` (stub adapter, about 20 s) and `bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (the adapter dry: the efforts on the dry commands and the constraints in the fix prompt; 17 to 30 s at load 44 to 45; 49 s and 61.5 s at load 130, where the runner's 60 s kill can end it), with `--run-ignored only` on the default nextest profile (a test over 60 s is killed and fails); builds the driver binaries and runbook first; no model call; start it in the background and without the slot prefix."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
+      - cargo build --locked --bin runbook
+      - cargo nextest run --locked --color never --run-ignored only -E 'test(loom_run::bugfix::bugfix_from_ticket_)'
+
   test:driver:
     silent: true
     dir: driver
