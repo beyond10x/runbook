@@ -168,3 +168,43 @@ fn a_run_that_names_no_login_file_needs_no_runtime_directory_and_makes_none() {
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(!w.root.join("xdg").join("runbook").exists());
 }
+
+/// A hook that leaves in the private directory what a call killed with SIGKILL leaves there: a home
+/// of an adapter with a copy of the login, a link to the real login file inside it, and a link to a
+/// program, as the adapters make them.
+fn leave_a_killed_calls_home(w: &World, run: &str) -> String {
+    let p = private_dir(w, run).display().to_string();
+    format!(
+        "h=\"{p}/login-home.AbCdEf\"; mkdir -p \"$h/.claude\" \"$h/.local/bin\" \"$h/.tmpXyZ/tmp\"\n\
+         cp \"{p}/login\" \"$h/.claude/.credentials.json\"\n\
+         ln -s \"$(readlink \"{p}/login\")\" \"$h/.tmpXyZ/link-to-the-real-login\"\n\
+         ln -s \"$(readlink \"{p}/login\")\" \"$h/.local/bin/claude\"\n\
+         mkdir -p \"{p}/config-home.GhIjKl\" && cp \"{p}/login\" \"{p}/config-home.GhIjKl/.credentials.json\"\n\
+         touch \"$D/left-a-home\"\n"
+    )
+}
+
+#[test]
+fn a_home_left_in_the_private_directory_by_a_killed_call_is_removed_with_it_and_the_login_file_stays() {
+    for (tag, error) in [("login-leftover-end", false), ("login-leftover-error", true)] {
+        let w = World::new(tag);
+        let login = w.login_path();
+        let content = std::fs::read_to_string(&login).unwrap();
+        if error {
+            w.fake.answer("tree_open", "default", "", 1);
+            w.fake.hook("tree_open", "default", &leave_a_killed_calls_home(&w, "r1"));
+        } else {
+            w.one_decision_tree();
+            w.fake.hook("tree_run", "1", &leave_a_killed_calls_home(&w, "r1"));
+        }
+        w.scripted_approve();
+        let o = w.run(&w.args("r1", 1_000_000));
+        assert_eq!(code(&o), if error { 1 } else { 0 }, "{tag}: {}", stderr(&o));
+        assert!(w.fake.dir.join("left-a-home").exists(), "{tag}: the hook did not run");
+        assert!(!private_dir(&w, "r1").exists(), "{tag}: the private directory is left with a home in it");
+        assert_eq!(std::fs::read_to_string(&login).unwrap(), content, "{tag}: the login file itself was changed or removed");
+        let mut hits = Vec::new();
+        grep_tree(&w.run_dir("r1"), &content, &mut hits);
+        assert!(hits.is_empty(), "{tag}: the login is in {hits:?}");
+    }
+}

@@ -70,3 +70,16 @@ stopped:
   at: 2026-11-22T10:20:13Z
   by: agent:sdc-experiment
   reason: 'all three runs ended in their first model step (idea.dissect) without a model call: the metaharness adapter got no login under Loom''s program environment (no HOME); bindings pass the login path to the claude-cli adapter only'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 0
+    id: strong
+    listed: 3
+    without_summary:
+    - parity-loom-strong.strong.1
+    - parity-loom-strong.strong.2
+    - parity-loom-strong.strong.3
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

@@ -1,7 +1,9 @@
 //! The private directory of a run: `$XDG_RUNTIME_DIR/runbook/<run name>/`, mode 0700.
 //!
 //! It holds the one link to the login file that the model nodes of the bindings copy and the
-//! model decider read (`--claude-credentials`, `SDC_CLAUDE_CREDENTIALS`). The run directory is
+//! model decider read (`--claude-credentials`, `SDC_CLAUDE_CREDENTIALS`), and the private homes the
+//! adapters make beside it for the length of a call (they hold a copy of the login; never in the run
+//! directory, where a SIGKILL would leave it). The run directory is
 //! copied, archived and read by other programs; the login file's path must not be in it, and
 //! neither a link to it. The private directory lives only as long as the run: [`PrivateDir`]
 //! removes it when it is dropped, which covers the end of a run, an error, and the signals the
@@ -82,9 +84,13 @@ impl PrivateDir {
 
 impl Drop for PrivateDir {
     fn drop(&mut self) {
+        // The link first, as a link: `remove_file` removes the symlink and never its target. Then the
+        // directory with all it holds: a call of an adapter that was killed with SIGKILL leaves its
+        // private home there (`.claude/.credentials.json`, a link to a program). `remove_dir_all`
+        // does not follow a link either: a link inside is removed, the file it names stays.
         if let Some(link) = &self.link {
             let _ = std::fs::remove_file(link);
         }
-        let _ = std::fs::remove_dir(&self.dir);
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

@@ -23,7 +23,7 @@ scope:
   path: runbook/src/parity.rs
 - confidence: cited
   path: runbook/tests/cli.rs
-revision: 20
+revision: 21
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 2, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 3, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -322,3 +322,5 @@ conditions (`approval-record:operator-decision-parity-runs-unconfined-2026-11-22
 - Not met: the per-pair `same`/`differs` report with `parity: pass` and `parity: fail`; the code
   prints `parity: identical`, `parity: equal on what both sides record` and `parity: different`
   (as in "State after the integration"). The three runs have not started and no spend was made.
+
+The first three runs of `experiments/parity-loom-strong.yaml` were started on 2026-11-22 and ended within 17 s each in their first model step (`idea.dissect`), before any model call and without spend (the ledger booked 2.00 USD of reservation per run for a step of unknown cost, 6.00 USD, none of it spent). A program bound under Loom has `PATH` and `LOOM_*` and no `HOME`; the bindings handed the login path to the claude-cli adapter only, and metaharness reads the login under `$HOME`, so it refused to plan the launch. The record is abandoned and stays as the evidence of the attempt; `experiments/parity-loom-strong-2.yaml` replaces it, with the same settings, hypothesis, models and cap (20.00 USD, stop line 19.00 USD) on the tree that fixes the adapter and the failed-call rule of `runbook loom-run` (`docs/loom-run.md`, "How each adapter gets the login under Loom" and "A failed model call"). The tolerance section above stands as written: no range was read again, as no run reached a model.

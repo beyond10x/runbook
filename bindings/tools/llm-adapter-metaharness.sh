@@ -12,7 +12,23 @@
 # usage, tool_calls, observed_models, is_error}. Its exit is the session's.
 #
 # Injection points: SDC_LLM_ENDPOINT (a model gateway root URL: metaharness --model-endpoint, with
-# --credentials none) and METAHARNESS (the binary).
+# --credentials none), METAHARNESS (the binary) and SDC_CLAUDE_CREDENTIALS (the login file).
+#
+# The login. `--credentials operator-login`, metaharness's default, copies `$HOME/.claude/.credentials.json`
+# of metaharness's own environment into the scratch config home of the session (metaharness
+# `credentials_file`; it reads HOME and no CLAUDE_CONFIG_DIR), and puts `$HOME/.local/bin` first on
+# the child's PATH, then /usr/local/bin:/usr/bin:/bin. A program bound under Loom has PATH and LOOM_*
+# alone, so there is no HOME. When SDC_CLAUDE_CREDENTIALS names a file (llm-node.sh: the binding's
+# `--claude-credentials`) in a directory of the user's with mode 700 (the private directory of
+# `runbook loom-run`) and `$HOME/.claude/.credentials.json` is no file, the adapter makes a private
+# HOME for the metaharness process alone, mode 700, in that directory (never in the record directory,
+# which a SIGKILL would leave with the login in it): `.claude/.credentials.json` (a copy, mode 600) and
+# `.local/bin/claude` (a link to the `claude` of this PATH, which the reduced child PATH would not
+# find in the operator's own `~/.local/bin`). TMPDIR is that HOME too, so the scratch root of
+# metaharness (its own copy of the login, in a config home) lies there as well. The directory is
+# removed on exit, also after a failed call; after a SIGKILL the runner removes it with its own.
+# In every other case nothing changes: metaharness gets the HOME the caller has (the driver's runs).
+# With SDC_LLM_ENDPOINT the credentials are none and no login is copied.
 set -uo pipefail
 for p in jq "${METAHARNESS:-metaharness}"; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-metaharness.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 req=$(cat "$1")
@@ -36,14 +52,32 @@ argv=("${METAHARNESS:-metaharness}" run claude --frame "$rec/frame.json" --decis
   --cwd "$(r .cwd)" --scratch-cwd --model "$(r .model)" --max-turns "$(r .max_turns)"
   --max-budget-usd "$(r .max_budget_usd)" --retain-dir "$rec/transcripts")
 [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
+home_env=()
 if [[ -n ${SDC_LLM_ENDPOINT:-} ]]; then
   argv+=(--model-endpoint "$SDC_LLM_ENDPOINT" --credentials none)
+elif [[ -n ${SDC_CLAUDE_CREDENTIALS:-} && ! -f ${HOME:-/nonexistent}/.claude/.credentials.json ]] &&
+  priv=$(dirname -- "$SDC_CLAUDE_CREDENTIALS") && [[ -d $priv && -O $priv && $(stat -c %a "$priv") == 700 ]]; then
+  [[ -f $SDC_CLAUDE_CREDENTIALS ]] || { echo "llm-adapter-metaharness.sh: SDC_CLAUDE_CREDENTIALS names no file" >&2; exit 127; }
+  # In the private directory of the login and never in the record directory: a SIGKILL of this
+  # script leaves the home, and the runner removes its private directory with all it holds.
+  home=$(mktemp -d "$priv/h.XXXXXX") && chmod 700 "$home" || exit 127
+  trap 'rm -rf "$home"' EXIT
+  trap 'exit 143' TERM INT HUP
+  mkdir -m 700 "$home/.claude" "$home/.local" "$home/.local/bin" || exit 127
+  install -m 600 "$SDC_CLAUDE_CREDENTIALS" "$home/.claude/.credentials.json" || exit 127
+  if claude_bin=$(command -v claude); then
+    [[ $claude_bin == /* ]] || claude_bin=$PWD/$claude_bin
+    ln -s "$claude_bin" "$home/.local/bin/claude" || exit 127
+  fi
+  # TMPDIR too: metaharness makes its scratch root, which holds a second copy of the login in the
+  # config home, below the temporary directory, and a SIGKILL of metaharness leaves it there.
+  home_env=(HOME="$home" TMPDIR="$home")
 fi
 argv+=(-p "$(cat "$(r .prompt_file)")")
 printf '%s\0' "${argv[@]}" | jq -Rs 'split("\u0000") | .[:-2] + ["<prompt_file>"]' > "$rec/argv.json"
 
 start=$(date +%s%3N)
-"${argv[@]}" < /dev/null > "$rec/events.jsonl" 2> "$rec/stderr.txt"
+env "${home_env[@]}" "${argv[@]}" < /dev/null > "$rec/events.jsonl" 2> "$rec/stderr.txt"
 code=$?
 end=$(date +%s%3N)
 

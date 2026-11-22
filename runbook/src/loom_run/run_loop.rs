@@ -100,7 +100,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         env: child::child_env(&run_dir),
         decider,
         sinks: Vec::new(),
-        reader: CostReader::default(),
+        reader: CostReader::with_home(std::env::var("HOME").ok()),
         ledger: None,
         llm_calls: 0,
         steps: 0,
@@ -374,16 +374,25 @@ impl Runner<'_> {
     }
 
     /// Reads what the step spent and books it. A cost that cannot be read books the whole
-    /// reservation (the most the call could spend) and fails the run closed.
+    /// reservation (the most the call could spend) and fails the run closed, except for a call that
+    /// ended with an exit other than 0 (and 126, 127, 75): the reservation is booked for it and the
+    /// run goes on, as the driver's does (the step's retry rule decides, `cost.rs`).
     fn book_step(&mut self, reservation: &Reservation) -> Result<(), Halt> {
         match self.reader.read_new(&self.workspace) {
             Ok(cost) => {
-                self.ledger().commit(reservation, &self.args.run, "step", cost.micro_usd)?;
-                self.spent += cost.micro_usd;
-                self.llm_calls += cost.records.len() as u64;
+                let unknown = cost.unknown.len() as u64;
+                let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
+                let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
+                self.ledger().commit(reservation, &self.args.run, what, booked)?;
+                self.spent += booked;
+                self.llm_calls += cost.records.len() as u64 + unknown;
                 for record in cost.records {
                     let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
                     self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
+                }
+                for mut record in cost.unknown {
+                    record["cost_unknown"] = Value::Bool(true);
+                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: reservation.micro_usd, record })?;
                 }
                 Ok(())
             }
