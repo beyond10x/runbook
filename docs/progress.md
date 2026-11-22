@@ -25,6 +25,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | `release-0.3.1` | 7 of 9 | not observed | haiku 1 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 | [0.4.1](#041) | release | 2026-11-22 | `da86a8f` | no experiment yet | no run | - | - |
+| [0.5.0](#050) | release | 2026-11-22 | `44e05a3` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -470,6 +471,29 @@ Limits of this measurement:
 
 - No run has used this tree and the release claims no measured change; it rests on the operator's order (approval-record:release-0-4-1), not on the standing rule of docs/releasing.md.
 - A comparison of runs across the move from ESS 0.96.0 to 0.97.3 has to say so; the engine that runs a case on Loom inside the daemon is not in this release.
+
+## 0.5.0
+
+Release, 2026-11-22. Tree: `44e05a3` (tag 0.5.0 at main 44e05a3: 0.4.1 (da86a8f) with the merges of the runner on the Loom engine (runbook run in process, runbook test, the decider and every model node in Rust, the options of the old launcher but the replay), the record of 0.4.1 and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `6a809a4` | runbook run makes the run in this process with Loom as a library and the command loom-run is gone | no run metric affected |
+| `af4059d` | runbook test runs a loom.tree-suite/1 file through Loom's suite runner in process | no run metric affected |
+| `6bdb085` | the model, rule and requester decider run inside the runner and start only the adapter program | no run metric affected |
+| `92a12f3` | all fourteen model nodes of the bindings start sdc-node; llm-node.sh serves the old driver only | no run metric affected |
+| `ad5286e` | sdc-experiment run starts a run only with runbook run and refuses a variant of the old driver | no run metric affected |
+| `3073dac` | runbook run --dry, --bugfix, --bugfix-ticket, --goals, --watch and --conformance observe are built; the replay options are refused | no run metric affected |
+| `0484566` | Loom 5b3142c7 and Canon 0.11.0 are linked as libraries, and the daemon can run through Loom with serve --runtime loom | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.
+- The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists.
 
 ## Experiments in no entry
 
