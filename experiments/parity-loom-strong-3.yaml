@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: parity-loom-strong-3
 kind: prospective
-status: planned
+status: complete
 created: 2026-11-22
 title: The to-do idea in the strong setting through Loom, against the three driver runs of release-0.1.2 (third record, the decider's answers declared in bindings/tools/answers.yaml)
 purpose: 'Registered hypothesis, written before the runs: with the decider''s answers declared in bindings/tools/answers.yaml (scope.answer, amend.upstream), the runs through Loom get past scope.answer, where all three runs of parity-loom-strong-2 stopped (decider_cannot_decide in IDEA-1.intake), and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). What counts against it: a run that stops at a decision the answers file declares, or an end outside the tolerance. It is the evaluation run of that story. This record follows parity-loom-strong-2, which stays as the evidence of its three stops and is not edited.'
@@ -34,7 +34,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-sonnet-5-5
     decider.model: claude-opus-5-5
-  runs: []
+  runs:
+  - parity-loom-strong-3.strong.1
+  - parity-loom-strong-3.strong.2
+  - parity-loom-strong-3.strong.3
 runs_per_variant: 3
 pass_rule: clean-delivery
 decision_rule:
@@ -68,3 +71,13 @@ facts:
 - 'The model login is named at start time only: sdc-experiment run parity-loom-strong-3 --login-file <login file>; no record, log or report names its path.'
 - 'Spend: the approved cap is 20.00 USD in total. parity-loom-strong-2 spent 0.37 USD (ledger 366257 micro-USD in 9 entries), so 19.63 USD are left. The ledger is per record id (runs/parity-loom-strong-3.loom-spend.json) and starts empty, so the cap of this record is what is left: 19.63 USD, and loom.cap_micro_usd is the stop line, 18.63 USD (18630000 micro-USD).'
 - 'The fix: the decider''s answers are declared in bindings/tools/answers.yaml (scope.answer on ApproveAction, amend.upstream on Handoff), each with the command that lists the requests, the command that applies an answer and the command that follows; the runs reach them through sdc-answers on the PATH of the runs. The three runs of parity-loom-strong-2 stopped at scope.answer without it.'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'
