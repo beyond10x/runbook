@@ -35,7 +35,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 - confidence: cited
   path: scripts/run-trial.sh
-revision: 14
+revision: 15
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -172,3 +172,32 @@ Acceptance:
   `POOL_FAKE_QUEUED_DELAY=4` in its environment).
 - A job that prints no `queued` line and runs 3.5 s with a bound of 1 s is not cancelled and ends
   with the command's own exit (tests `a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end`).
+
+## The bound under a locale with a decimal comma (2026-11-22)
+
+Observed in two full cycle runs of the release head (cycle `pool-wait`, step `impl-gate`, run as a
+systemd user unit with `LANG=de_DE.UTF-8`): the stand-in's job ran its whole 600 s, nothing cancelled
+it, `cargo test` ended 0 with no output, `tests.run` stopped with exit 126 and the cycle script died on
+`jq: parse error` of the text `sdc-drive` printed. The cycle passed in a terminal with `en_US`.
+
+Cause. `now_ms` in `bindings/tools/sdc-tool.sh` split bash's `EPOCHREALTIME` at a point. Under a locale
+with a decimal comma the variable reads `1795346493,227523`, the split found no point and the
+arithmetic gave noise (227 for the whole clock), so `pool_run` never saw the 1 s bound pass. Neither
+`sleep` nor `awk` is affected. The earlier start-race fix was right and did not touch this.
+
+Fixed: the comma is put back to a point before the split. The stand-in `fixtures/pool-wait/slot` keeps
+a queued job 30 s by default (it was 600 s), and `scripts/run-full-cycle.sh` reports the program and
+its first line when `sdc-drive run` prints no JSON.
+
+Acceptance:
+
+- With `LC_ALL=de_DE.UTF-8`, a job that never starts is cancelled and the step exits 69 within the
+  test's 12 s (test `the_bound_holds_under_a_locale_with_a_decimal_comma` in
+  `driver/tests/impl_gate.rs`; it says it was skipped on a host without that locale). The cycle
+  `pool-wait` run as a systemd user unit passes in 14 s.
+- The stand-in's default time is at most 30 s (test
+  `the_cycle_stand_in_keeps_a_queued_job_at_most_30_s_by_default`).
+- A round whose `sdc-drive run` prints text ends with "`sdc-drive run` printed no JSON (exit N); its
+  first line: ..." and exit 5 (test `a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line`).
+- Not covered: `scripts/check-protocols.sh` reads `EPOCHREALTIME` for its timings too; under a decimal
+  comma its durations lose their fractions, which gates nothing.
