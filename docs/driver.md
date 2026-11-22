@@ -1046,7 +1046,11 @@ be inside this driver binding"; `story:instructions-as-files`).
   program error (exit 126). So is a path that is not `instructions/<...>.md` or has a `..` segment.
 - Three Rust binaries tell a model something and read files too (`story:rust-prompts-as-instruction-files`):
   `sdc-reply implement-run` in `SDC_IMPLEMENT_MODE=request` (`instructions/change.implement.request.<part>.md`:
-  `head`, `build`, `task`, `rework`, `continuation`, `retry`, `request-failed`, `no-reply`), `sdc-conform`
+  `head`, `build`, `task`, `story`, `rework`, `continuation`, `retry`, `request-failed`, `no-reply`,
+  `feedback`, `findings`, `constraints.heading`, `constraints.heading.run`, `requirements.heading`,
+  `requirements.acceptance`, `requirements.none`, `spec.heading`, `spec.missing`, `tree.heading`,
+  `tree.count`, `tree.count.listed`, `tree.empty`, `tree.file`, `tree.listed`, `tree.listed.item`,
+  `tree.why.not-utf8`, `tree.why.over-cap`), `sdc-conform`
   (`instructions/conformance.table.md`, `.refused.md`, `.run-fault.md`) and `sdc-unstick`
   (`instructions/run.unstick.md`, `.retry.md`, `.closing.md`). They share one function,
   `driver/src/instructions.rs` (`render`, included by each binary with `#[path]`), with the rules above;

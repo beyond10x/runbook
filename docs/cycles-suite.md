@@ -25,7 +25,8 @@ One entry per cycle, in the order of the script:
   `file_exists`, `file_absent`, `file_empty`, `file_same_as`, `file_count_lines`. Paths use
   `{scratch}`, `{run}`, `{store}`, `{work}` and `{console}`.
 - `unexpressed`: every assertion or setup that needs more than one comparison or a program, with its
-  `kind`, the script's `lines` and a short `note`. Kinds: `aggregate`, `event-order`, `tree-search`,
+  `kind`, `lines` (the script's line numbers, as `"412"`, `"412-418"` or a comma list of both, or the name
+  of the script expression that makes the assertion, such as `"red_then_green"`) and a short `note`. Kinds: `aggregate`, `event-order`, `tree-search`,
   `second-run`, `cross-record`, `field-compare`, `derived-value`, `setup-shell`, `mutated-store`,
   `console-regex`, `conditional`, `computed-input`.
 - `source`: the line range of the cycle's block in the script.
