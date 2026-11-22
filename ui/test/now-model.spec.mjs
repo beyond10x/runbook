@@ -1,6 +1,6 @@
 // The in-flight derivation of web/now.js, on hand-made cases: no server, no browser.
 import {test, expect} from '@playwright/test';
-import {inFlight, nowState, waitOf, recentSteps, executorOf, phaseOf, parseDiff, fmtDur, fmtAgo, changesFor, driverState, renderNow} from '../web/now.js';
+import {inFlight, nowState, waitOf, recentSteps, executorOf, phaseOf, parseDiff, fmtDur, fmtAgo, changesFor, driverState, renderNow, renderChanges, renderDiff, toolText} from '../web/now.js';
 import {highlightLine, langOf} from '../web/highlight.js';
 import {unifiedDiff} from '../udiff.mjs';
 import {useSdcView} from './sdc-view.mjs';
@@ -203,6 +203,22 @@ test('file changes join their action by record, else by time', () => {
     {seq: 3, at: '2026-11-21T10:05:02Z', attribution: {case: 'S1', action: 'tests.run', record: null}}]}};
   expect(changesFor(live, 'S1', 'change.implement', 'llm/002-change.implement', null).map((x) => x.seq)).toEqual([2]);
   expect(changesFor(live, 'S1', 'tests.run', null, Date.parse('2026-11-21T10:05:00Z')).map((x) => x.seq)).toEqual([3]);
+});
+
+test('a Loom run’s changes (no case, no action, a step) are listed, one group per step', () => {
+  const ch = (seq, step, extra = {}) => ({seq, at: `2026-11-21T10:00:0${seq}Z`, root: 'work', path: `f${seq}.txt`, op: 'create', lines_added: 1, lines_removed: 0, attribution: {case: null, action: null, record: null, tool: null, basis: 'step-window', step, ...extra}});
+  const live = {fs: {present: true, changes: [ch(1, 1), ch(2, 1), ch(3, 2), ch(4, 2, {record: 'work/.sdc/llm/001-change.implement', action: 'change.implement', case: 'C1', basis: 'record'})]}};
+  const html = renderChanges(live, [], null, Date.parse('2026-11-21T10:00:09Z'));
+  expect(html).toContain('4 changes');
+  for (const f of ['f1.txt', 'f2.txt', 'f3.txt', 'f4.txt']) expect(html).toContain(f);
+  expect(html.match(/class="cg[ "]/g)).toHaveLength(3);
+  expect(html).toContain('step 1');
+  expect(html).toContain('step 2');
+  expect(html).not.toContain('unattributed');
+  expect(html).not.toContain('undefined');
+  expect(html).not.toContain('null');
+  expect(toolText(live.fs.changes[0]).name).toBe('the step');
+  expect(renderDiff(live.fs.changes[0], 0, 4)).toContain('<i>step</i>');
 });
 
 test('unified diff, parsed back with line numbers', () => {
