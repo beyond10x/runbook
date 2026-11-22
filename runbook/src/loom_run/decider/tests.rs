@@ -629,3 +629,25 @@ fn only_a_decider_at_a5_answers_requests() {
     assert!(asked.result.unwrap_err().starts_with("reserved for a person"));
     assert!(from_settings(&settings(&w, json!({}))).unwrap().answers_requests());
 }
+
+#[test]
+fn the_rule_decider_answers_a_request_with_its_answer_and_no_call_and_refuses_one_without() {
+    for (reply, want) in [
+        (r#"{"decision":"approve","answer":"keep it","reasons":["rule"],"valid":true,"adapter":"rule"}"#, Some("keep it")),
+        (r#"{"decision":"approve","reasons":["rule"],"valid":true,"adapter":"rule"}"#, None),
+    ] {
+        let w = world("ask-rule", &fake(reply));
+        let s = json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve", "program": w.program.display().to_string()}});
+        let decider = from_settings(&s).unwrap();
+        let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 0);
+        assert_eq!((asked.cost_micro_usd, asked.model_calls), (0, 0));
+        assert_eq!(record_dirs(&w.run.join("decider")), 0, "a rule decision counts against no call limit");
+        match want {
+            Some(answer) => {
+                let given = asked.result.unwrap();
+                assert_eq!((given.answer.as_str(), given.principal.as_deref(), asked.lines.len()), (answer, Some("decider:approve"), 1));
+            }
+            None => assert_eq!(asked.result.unwrap_err(), "the rule decider's reply has no answer"),
+        }
+    }
+}
