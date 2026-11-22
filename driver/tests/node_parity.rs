@@ -453,6 +453,19 @@ fn the_stub_records_a_rejection_in_a_yaml_file_the_same() {
     assert!(r.files["requirements.yaml"].contains("# rework 2 of the rejection of requirements.check at abc123:\n# - The refusal of an empty title is missing.\n# - Say who may cancel.\n"), "{r:#?}");
 }
 
+/// A rejection without `reasons` leaves the header line alone as the note: no empty comment line
+/// follows it (before the shell path chomped the rendered note, it appended `# `).
+#[test]
+fn the_stub_records_a_rejection_without_reasons_as_its_header_alone_the_same() {
+    let without = |root: &Path| {
+        rejection_files("requirements.check", "requirements")(root);
+        put(root, "rejection.json", &REJECTION.replace(r#""reasons":["The refusal of an empty title is missing.","Say who may cancel."],"#, ""));
+    };
+    let (_, r) = pair("reject-stub-no-reasons", &start("requirements.normalise").env(&FEEDBACK_ENV).jq_noise(), &without);
+    assert!(r.files["requirements.yaml"].ends_with("# rework 2 of the rejection of requirements.check at abc123:\n"), "{r:#?}");
+    assert!(!r.files["requirements.yaml"].ends_with("# \n"), "{r:#?}");
+}
+
 /// ... and in a tree.
 #[test]
 fn the_stub_records_a_rejection_in_a_tree_the_same() {

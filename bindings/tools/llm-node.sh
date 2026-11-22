@@ -389,6 +389,7 @@ if [[ $adapter == stub ]]; then
     render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
       revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
   fi
+  lines=$(printf '%s' "$lines")
   if [[ $code == 0 && -n $t && -n $lines && -e $work/$t ]]; then
     case $t in
       *.yaml|*.yml) [[ -d $work/$t ]] || sed 's/^/# /' <<< "$lines" >> "$work/$t" ;;
