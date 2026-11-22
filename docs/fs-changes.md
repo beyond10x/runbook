@@ -9,7 +9,8 @@ events, not by tool names.
 
 - Prototype (here): `sdc-watch` (Rust, `sdc/watch/`) watches a run directory with inotify and
   records each effective change with its attribution. Attribution is by time window: exact per
-  driver action, inferred per tool call inside one agent call (agent tools run one at a time).
+  driver action (per `tree run` step under `runbook run`), inferred per tool call inside one agent
+  call (agent tools run one at a time).
 - Target (Substrate): every process runs through Substrate, so the change record belongs there,
   per exec id, exact for concurrent processes too. Requested from the `substrate` session
   2026-11-21. Loom's run log then references the exec's change record; `sdc-watch` retires.
@@ -39,10 +40,14 @@ Append-only, one JSON object per line, ordered by `seq`. Content in `runs/<run>/
     "action": "change.implement" | null,
     "record": "llm/007-change.implement" | null,
     "tool": {"seq": 41, "name": "Bash", "input": "rustfmt src/lib.rs"} | null,
-    "basis": "action-window" | "tool-window" | "record" | "none"
+    "basis": "action-window" | "tool-window" | "record" | "none",
+    "step": 3
   }
 }
 ```
+
+`step` is in a record of a Loom run only (see "What is attributed under each runner"), where `basis`
+is `step-window`, `tool-window` or `record`.
 
 - `root` is the watched tree the path is relative to: a case's `work/` or an agent call's `cwd/`.
   Only files under a root are recorded: `store/<C>/work/` (a child case's `work` is a symlink to
@@ -83,6 +88,42 @@ Append-only, one JSON object per line, ordered by `seq`. Content in `runs/<run>/
   `target/`, `.git/`, `node_modules/`, `transcripts/`; not watched: the output dir (`fs/`), and
   outside a root the case store's `evidence/`, `blobs/`, `evaluations/`.
 
+## What is attributed under each runner
+
+The kind of run directory is detected as `driver/src/run_kind.rs` does (or given with `--kind
+driver|loom`): `settings.json` in it marks a Loom run, `runbook run`'s.
+
+| | driver run (`sdc-drive`, `scripts/run-trial.sh`) | Loom run (`runbook run --watch`) |
+|---|---|---|
+| roots | `store/<C>/work`, `llm/<NNN-action>/cwd`, `decider/<NNN-id>/cwd`, `work/.sdc/llm/<NNN-action>/cwd` | `work/` (the product tree of the whole run), `work/.sdc/llm/<NNN-action>/cwd`, `decider/<NNN-id>/cwd` |
+| not product | the case store's `evidence/`, `blobs/`, `evaluations/` | `store/` (Loom's case store and the projection of it), the run's own files, and under `work/.sdc/llm/` everything outside a `cwd/`: a call record's `request.json`, `status.json`, `response.json`, ... and `calls.jsonl` |
+| what was in flight | an action: `action_started` to `action_finished` of `store/**/events.jsonl` | a `tree run` step: the lines already in `rounds.jsonl` plus one |
+| `case` | the case whose action was open, or the call's `request.json` | the open call's `request.json` (`case`) when it names one, else `null` |
+| `action` | the open action | the open call's action (its directory name, `001-change.implement` is `change.implement`), `null` with no call open |
+| `step` | not in the record | the step number, 1 for the first `tree run` |
+| `basis` | `action-window`, `tool-window`, `record`, `none` | `step-window`, `tool-window`, `record` |
+
+Why a step and not an action under the Loom runner: the engine's run log has one line per action,
+written at its finish (`docs/loom-run-directory.md`, "Not recorded by a Loom run"), and the store
+projection is rewritten after each step, so no start marker of an action exists while its program
+runs. What the runner writes while a step runs is read instead: `rounds.jsonl` gets one line when a
+step ends, and the call record of a model step (`work/.sdc/llm/<NNN-action>/`) has its `status.json`
+(`running`, then `finished` or `failed`), `request.json` and the metaharness stream
+`events.jsonl`.
+
+- `step-window`, exact by order: the change's first inotify event came after the `rounds.jsonl`
+  lines that made it step N and before the line that ends step N. A change made by a hand-off
+  program between two steps (the person step the decider answered) falls in the step that comes
+  next. A change of the final `tree status` after the last step is step N + 1 of a step that never
+  was.
+- With a call record open (`status.json` not yet `finished` or `failed`, the one opened last), the
+  change carries that record and its action and case; the tool window applies as for a driver run
+  and gives `tool-window`.
+- A field a Loom run cannot give is `null`, and a reader shows the change: `ui/web/now.js` groups a
+  change without case and action under its step (`ui/test/now-model.spec.mjs`).
+- Limit: a `rounds.jsonl` line read late (the watcher lagging behind a fast step) moves the step
+  boundary to where it was read, as a case log line does for a driver run.
+
 ## Late attribution: `sdc.fs-attribution/1`
 
 The metaharness stream is written live: `metaharness run` prints each event with `println!` as it
@@ -117,8 +158,14 @@ no `seq`.
 
 - `sdc-watch run <run-dir> [--out DIR]`: foreground until SIGTERM/SIGINT, then flushes, exit 0.
 - `sdc-watch scan <run-dir> [--out DIR]`: writes `snapshot.json` and blobs once; no record.
+- `sdc-watch run <run-dir> --kind driver|loom`: the kind of run directory (default: `settings.json` in it
+  marks a Loom run).
+- `sdc-watch run <run-dir> --parent <pid>`: also ends, as on SIGTERM, when `pid` is no longer its parent
+  (a parent-death signal and a poll every 200 ms); refused when `pid` is not the parent at start.
+  `runbook run --watch` starts it so, with `--kind loom`: the watcher ends with the runner, also
+  when that is killed with SIGKILL (`docs/cli.md`, `run --watch`).
 - `scripts/watch-run.sh start|stop|status <run-dir>`: background start (returns once watching),
-  stop by PID (waits for the flush).
+  stop by PID (waits for the flush). The driver's launcher uses it; `runbook run` does not.
 
 ## Limits of the prototype
 
