@@ -251,7 +251,7 @@ Commands (`sdc-experiment.rs`):
 ### 7.1 Runner loom
 
 A variant with `runner: loom` (beside `sdc`, the default, and `free-agent`) starts a model run
-through Loom: the unit runs `runbook loom-run` of the record's tree (the `runbook` crate, built from
+through Loom: the unit runs `runbook run` of the record's tree (the `runbook` crate, built from
 `tree_commit` beside the driver's crates), which makes one run of the case tree through the
 `b10x-loom` binary and writes a run directory. Nothing of `run-trial.sh` takes part, and a `loom`
 unit is given no `SDC_` variable.
@@ -263,8 +263,8 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | setting | meaning | becomes |
 |---|---|---|
 | `loom.bin` | the `b10x-loom` binary, absolute or `~/…` (the launcher's `HOME`; a record holds no home path) | `--loom`; never recorded by a run |
-| `loom.sha256` | 64 hex digits; `runbook loom-run` refuses another binary | `--loom-sha256`, `settings.json` |
-| `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook loom-run --in-process`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | `--in-process`; `settings.json` records `in_process: true` and the pinned `commit` of the library |
+| `loom.sha256` | 64 hex digits; `runbook run` refuses another binary | `--loom-sha256`, `settings.json` |
+| `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook run` with no `--loom`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | no `--loom` option; `settings.json` records `in_process: true` and the pinned `commit` of the library |
 | `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given |
 | `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `settings.json`; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
 | `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `settings.json` `models.<class>.model` |
@@ -294,13 +294,13 @@ runners puts each runner's own settings in its variants' `settings` and the shar
 **`run --print`** for a `loom` run prints, besides the unit name, `description:` (the record and the
 run, never a setting), `env NAME=value` for each variable the unit gets, the idea file and the
 settings file it will write (under `<builds-dir>/../launch/<id>/<run>/`, outside the run directory,
-which `runbook loom-run` creates and refuses to find), the settings the file will hold, and the
+which `runbook run` creates and refuses to find), the settings the file will hold, and the
 command, one line:
 
 ```
-<build>/runbook/target/debug/runbook loom-run --run <name> --runs-dir <dir> --loom <bin> --loom-sha256 <hex>
+<build>/runbook/target/debug/runbook run sdc --run <name> --runs-dir <dir> [--loom <bin> --loom-sha256 <hex>]
   --bindings <build>/bindings --protocols <build>/protocol --root-protocol <id>@<revision> --case IDEA-1
-  --idea <file> --confinement <setting> --settings <file> --spend-ledger <runs-dir>/<record id>.loom-spend.json
+  --intake <file> --confinement <setting> --settings <file> --spend-ledger <runs-dir>/<record id>.loom-spend.json
   --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
@@ -308,7 +308,12 @@ The root protocol is read from `protocol/sdc.protocol.yaml` of the tree (`protoc
 `protocol.revision`, a `.` in the id written `-`): from the build directory when it exists, else with
 `git show <tree_commit>:…` in the working directory's repository. The same read refuses a tree
 with no `runbook/Cargo.toml`: `refused: tree_commit <c> has no runbook/ crate` (at `run`, with or
-without `--print`; `check` accepts a planned record whose commit is not pinned yet). The build step
+without `--print`; `check` accepts a planned record whose commit is not pinned yet). A tree whose
+crate lacks `runbook/src/loom_run/here.rs` (the file that makes `runbook run` run in process; an
+older build has only `runbook loom-run`) is refused in one line, `refused: tree_commit <c> has a
+runbook/ crate with no in-process ...`, the same way. The idea file is the input's text as
+`text: <text>`, given as `--intake`; the library is no option: a record without `loom.bin` and
+`loom.sha256` passes no `--loom`. The build step
 (`build:` line of `--print`) runs each crate as its own cargo job and adds `runbook`
 (`cargo build --locked`, debug) for a `loom` record; a build record that lacks it gets that crate
 added without rebuilding the others.
@@ -317,7 +322,7 @@ added without rebuilding the others.
 base variables that exist: `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `XDG_RUNTIME_DIR`,
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `DBUS_SESSION_BUS_ADDRESS`
 (the list of the `sdc` runner, `BASE_ENV`), and neither `SDC_RUNS_DIR` nor `SDC_PRINCIPAL` nor any
-setting as a variable. `runbook loom-run` builds the environment of `b10x-loom` and of its programs
+setting as a variable. `runbook run` builds the environment of `b10x-loom` and of its programs
 itself.
 
 **The login file.** `loom.login_file` is named by path in the settings file and nowhere else. The
@@ -331,7 +336,7 @@ under the state directory). A record that is committed names no login: `sdc-expe
 **`status` and `stop`.** A `loom` run's unit is `sdc-exp-<id>-<variant>-<n>` and its run `<id>.<variant>.<n>`,
 as for the other runners. `stop` writes `run-stopped.json` (`sdc.run-stopped/1`, `at`, `by`, `reason`) into the
 run's directory when it exists, is not stopped and not finished (it never calls `run-trial.sh`),
-then stops the unit: systemd sends SIGTERM to `runbook loom-run`, which writes its outcome on that
+then stops the unit: systemd sends SIGTERM to `runbook run`, which writes its outcome on that
 signal (unit R1, `story:loom-run-core`). A run already stopped keeps its record.
 
 **Example record** (not registered):

@@ -31,7 +31,7 @@
 //! n runs as transient systemd user units with the environment taken from the record only, names
 //! them `<id>.<variant>.<n>` and writes `experiment.json` into each run directory. `status` lists
 //! the runs of a record; `stop` stops them with run-trial.sh's stop command and a reason.
-//! A variant with `runner: loom` starts `runbook loom-run` of the build instead of `run-trial.sh`
+//! A variant with `runner: loom` starts `runbook run` of the build instead of `run-trial.sh`
 //! (docs/workflow-metrics.md § 7.1): the base environment, no `SDC_` variable, the settings in a file.
 //! `progress` writes the progress ledger from `experiments/releases.yaml` and the records
 //! (`sdc-experiment/progress.rs`); `report` rewrites it too, and `check --all` fails when it is
@@ -414,7 +414,7 @@ const LAUNCH: [(&str, &str); 33] = [
 ];
 /// What a launched variant with `runner: free-agent` sets (sdc-free-agent run).
 const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
-/// What a launched variant with `runner: loom` sets (`runbook loom-run`): the confinement (no
+/// What a launched variant with `runner: loom` sets (`runbook run`): the confinement (no
 /// default), the spend cap over every run of the record, the models of the four node classes, the
 /// kind of the decider, the autonomy level and the two ceilings. A `model` decider also sets
 /// `decider.model`, a `rule` decider `decider.verdict`. The way to Loom is one of two (see
@@ -422,7 +422,7 @@ const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "
 const REQUIRED_LOOM: [&str; 10] = ["loom.confinement", "loom.cap_micro_usd", "models.writer.model",
     "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_llm_calls", "max_wall_seconds"];
 /// The way to Loom is the binary as a child process (`loom.bin` with its digest `loom.sha256`),
-/// or, with `loom.in_process: 'true'`, Loom as a library of the build (`runbook loom-run
+/// or, with `loom.in_process: 'true'`, Loom as a library of the build (`runbook run
 /// --in-process`): then neither of these is set.
 const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
 /// `loom` settings that are optional: the path of the login file the model adapter reads, the way
@@ -1912,11 +1912,11 @@ fn launch_env(settings: &BTreeMap<String, String>, runs_dir: &Path, principal: &
 }
 
 /// The environment of a `loom` run's unit: the login's base variables and nothing else. No
-/// `SDC_` variable, not even the runs directory or the principal: `runbook loom-run` reads its
+/// `SDC_` variable, not even the runs directory or the principal: `runbook run` reads its
 /// settings from the settings file and its paths from its arguments, and builds the environment
 /// of Loom's programs itself.
 ///
-/// `PATH` is the login's with the build's `driver/target/debug` put first. `runbook loom-run`
+/// `PATH` is the login's with the build's `driver/target/debug` put first. `runbook run`
 /// gives `b10x-loom` (and so every bound program) its own `PATH`, and it is the one it was
 /// started with: `sdc-reply` (the model decider and the model nodes), `sdc-findings` and
 /// `sdc-bugfix` (the model nodes) are found there and nowhere else, because the copy of the
@@ -1984,7 +1984,7 @@ fn loom_in_process(settings: &BTreeMap<String, String>) -> bool {
 }
 
 /// The settings file of a `loom` run (`runbook.loom-run-settings/1`): the record's settings that
-/// `runbook loom-run` reads, nested by their dotted keys so the run can record them as
+/// `runbook run` reads, nested by their dotted keys so the run can record them as
 /// `run-settings.jsonl` under the record's own names. `loom.bin` is not in it (an argument). The
 /// login file is a path, only when the record names one; `redact` puts the setting's name in its
 /// place for printing.
@@ -2052,7 +2052,7 @@ fn loom_idea_yaml(input: &Y) -> String {
 }
 
 /// The files the launcher writes for one `loom` run, outside the run's directory (which
-/// `runbook loom-run` creates and refuses to find).
+/// `runbook run` creates and refuses to find).
 fn loom_launch_dir(builds: &Path, id: &str, name: &str) -> PathBuf {
     builds.parent().unwrap_or(builds).join("launch").join(id).join(name)
 }
@@ -2061,18 +2061,16 @@ fn loom_runbook_bin(build: &Path) -> PathBuf {
     build.join("runbook").join("target").join("debug").join("runbook")
 }
 
-/// The command line of a `loom` run: `runbook loom-run` of the build, its paths under the build's
+/// The command line of a `loom` run: `runbook run` of the build, its paths under the build's
 /// tree and the spend ledger shared by every run of the record.
 #[allow(clippy::too_many_arguments)]
 fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, String>, runs_dir: &Path, root: &str, files: &Path,
              base: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
     let g = |k: &str| settings.get(k).cloned().unwrap_or_default();
-    let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "loom-run".into()];
-    // the library is a flag with no value; the binary is `--loom` with its digest
+    let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "run".into(), "sdc".into()];
+    // the library is no option: without `--loom` Loom is a library of the build; the binary is
+    // `--loom` with its digest
     let in_process = loom_in_process(settings);
-    if in_process {
-        v.push("--in-process".into());
-    }
     let mut add =|flag: &str, value: String| {
         v.push(flag.into());
         v.push(value);
@@ -2087,7 +2085,7 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     add("--protocols", build.join("protocol").display().to_string());
     add("--root-protocol", root.into());
     add("--case", "IDEA-1".into());
-    add("--idea", files.join("idea.yaml").display().to_string());
+    add("--intake", files.join("idea.yaml").display().to_string());
     add("--confinement", g("loom.confinement"));
     add("--settings", files.join("settings.json").display().to_string());
     add("--spend-ledger", runs_dir.join(format!("{id}.loom-spend.json")).display().to_string());
@@ -2123,12 +2121,19 @@ fn tree_file(build: &Path, commit: &str, rel: &str) -> Result<Option<String>, St
     Err(format!("refused: cannot read {rel} of tree_commit {commit}: {err}"))
 }
 
+/// The file of the `runbook` crate that makes `runbook run` run in process; a tree without it has
+/// only the subcommand `loom-run`, which the launcher no longer starts.
+const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
+
 /// What a `loom` launch reads from the record's tree: that it has the `runbook/` crate and the
-/// root protocol, `<id>@<revision>` of `protocol/sdc.protocol.yaml`, as `runbook loom-run` is told
+/// root protocol, `<id>@<revision>` of `protocol/sdc.protocol.yaml`, as `runbook run` is told
 /// to register it (a `.` in an id is a `-`, as Loom names a registration).
 fn loom_root_protocol(build: &Path, commit: &str) -> Result<String, String> {
     if tree_file(build, commit, "runbook/Cargo.toml")?.is_none() {
-        return Err(format!("refused: tree_commit {commit} has no runbook/ crate (runbook/Cargo.toml): a loom run needs `runbook loom-run` of that commit"));
+        return Err(format!("refused: tree_commit {commit} has no runbook/ crate (runbook/Cargo.toml): a loom run needs `runbook run` of that commit"));
+    }
+    if tree_file(build, commit, IN_PROCESS_RUN)?.is_none() {
+        return Err(format!("refused: tree_commit {commit} has a runbook/ crate with no in-process `runbook run` ({IN_PROCESS_RUN} is missing): a loom run needs `runbook run` of that commit, an older build has only `runbook loom-run`"));
     }
     let text = tree_file(build, commit, "protocol/sdc.protocol.yaml")?
         .ok_or_else(|| format!("refused: tree_commit {commit} has no protocol/sdc.protocol.yaml, the root protocol of a run"))?;
@@ -2234,7 +2239,7 @@ fn absolute(p: &Path) -> PathBuf {
 
 /// The crates a build builds, each a cargo job of its own (the pool kills a job over 10 minutes),
 /// with its cargo arguments; a `loom` record also needs the `runbook` crate, whose binary is
-/// `runbook loom-run`.
+/// `runbook run`.
 fn build_steps(loom: bool) -> Vec<(&'static str, &'static [&'static str])> {
     let mut v: Vec<(&'static str, &'static [&'static str])> =
         vec![("driver", &["build", "--bins"][..]), ("goals", &["build"][..]), ("watch", &["build", "--release"][..])];
@@ -2491,7 +2496,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
     let repo = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_err(|m| (1, m))?);
     let build = prepare_build(&repo, &builds, &commit, &runs_dir, any_loom).map_err(|m| (1, m))?;
     if any_loom && !loom_runbook_bin(&build).is_file() {
-        return Err((1, format!("refused: {} was not built: a loom run starts `runbook loom-run`", loom_runbook_bin(&build).display())));
+        return Err((1, format!("refused: {} was not built: a loom run starts `runbook run`", loom_runbook_bin(&build).display())));
     }
     fs::create_dir_all(&runs_dir).map_err(|e| (1, format!("cannot create {}: {e}", runs_dir.display())))?;
     let mut started = 0;
@@ -2513,7 +2518,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         let _ = Command::new("systemctl").args(["--user", "reset-failed", &p.unit]).output();
         let RunPlan { env, argv, loom } = run_plan(p, false).map_err(|m| (1, m))?;
         let free = p.variant.runner == "free-agent";
-        // The files of a `loom` run go outside its directory, which `runbook loom-run` creates.
+        // The files of a `loom` run go outside its directory, which `runbook run` creates.
         if let Some(l) = &loom {
             let write = |name: &str, text: String| fs::create_dir_all(&l.dir).and_then(|()| fs::write(l.dir.join(name), text))
                 .map_err(|e| (1, format!("cannot write {}: {e}", l.dir.join(name).display())));
@@ -2521,7 +2526,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             write("settings.json", serde_json::to_string_pretty(&l.settings).unwrap_or_default() + "\n")?;
         }
         // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes
-        // free-agent.json; `runbook loom-run` makes the run directory itself.
+        // free-agent.json; `runbook run` makes the run directory itself.
         let marker = if free { dir.join("free-agent.json") } else if loom.is_some() { dir.clone() } else { dir.join("events") };
         // A free run's home holds a copy of the login: the unit removes it on every stop, also when
         // the launcher is killed or crashes and runs no destructor.
@@ -2601,7 +2606,7 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
     for (run, variant, unit) in rows {
         let dir = runs_dir.join(&run);
         // A directory the runner has just made holds nothing to read yet (not started). One that
-        // holds `outcome.json` (a `runbook loom-run` that ended) and cannot be read is said so.
+        // holds `outcome.json` (a `runbook run` that ended) and cannot be read is said so.
         let mut unreadable = None;
         let doc = if dir.is_dir() {
             match run_metrics::load(&dir) {
@@ -2663,7 +2668,7 @@ fn stop_cmd(args: &[String]) -> Result<ExitCode, Usage> {
             let open = dir.is_dir() && run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] != true);
             if v.runner == "loom" {
                 // The stop record first, so that a run the signal cannot reach still reads as
-                // stopped; then the unit below: systemd sends SIGTERM to `runbook loom-run`.
+                // stopped; then the unit below: systemd sends SIGTERM to `runbook run`.
                 let record = dir.join("run-stopped.json");
                 if record.is_file() {
                     println!("{}: already stopped ({} untouched)", rr.run, record.display());

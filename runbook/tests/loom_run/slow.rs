@@ -1,4 +1,4 @@
-//! The slow lane: the stub cycle through `runbook loom-run` on the real `b10x-loom`, compared with
+//! The slow lane: the stub cycle through `runbook run` on the real `b10x-loom`, compared with
 //! the summary of the same cycle under the old driver (`tests/fixtures/parity/stub-cycle-driver-summary.json`).
 //!
 //! Ignored in the gate lane. `task test:loom-real` runs it with `RUNBOOK_LOOM_BIN` set to the real
@@ -42,7 +42,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
         .env_clear()
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
-        .args(["loom-run", "--run", "stub-cycle", "--runs-dir"])
+        .args(["run", "sdc", "--run", "stub-cycle", "--runs-dir"])
         .arg(work.join("runs"))
         .arg("--loom")
         .arg(&loom)
@@ -51,7 +51,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
         .arg(root.join("bindings"))
         .arg("--protocols")
         .arg(root.join("protocol"))
-        .args(["--root-protocol", "sdc@8", "--case", "IDEA-1", "--idea"])
+        .args(["--root-protocol", "sdc@8", "--case", "IDEA-1", "--intake"])
         .arg(root.join("driver/examples/sdc/fixtures/idea.yaml"))
         .args(["--confinement", "local", "--settings"])
         .arg(work.join("settings.json"))
@@ -60,7 +60,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "1800"])
         .output()
         .unwrap();
-    assert_eq!(run.status.code(), Some(0), "loom-run: {}", String::from_utf8_lossy(&run.stderr));
+    assert_eq!(run.status.code(), Some(0), "run: {}", String::from_utf8_lossy(&run.stderr));
 
     let summary = work.join("summary-loom.json");
     let s = Command::new(BIN).args(["parity", "summarize", "--loom-run"]).arg(work.join("runs/stub-cycle")).arg("--output").arg(&summary).output().unwrap();
@@ -75,7 +75,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
 /// The sha256 of the `b10x-loom` binary the in-process library is compared with (Loom `5bcc26d9`).
 const CHILD_LOOM_SHA256: &str = "28378a17470e09fabdaa04de29f1079e379b0e1cb030740aa78049a758819f80";
 
-/// The stub cycle once through the child and once through `--in-process`, on the same inputs.
+/// The stub cycle once through the child and once with Loom as a library (no `--loom`), on the same inputs.
 /// Returns the directory of the two summaries, or `None` (with a message) when the child binary is absent.
 fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
     let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
@@ -99,20 +99,17 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
     std::fs::write(work.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
     let path = format!("{}:{}", driver_bin.display(), std::env::var("PATH").unwrap_or_default());
     let mut summaries = Vec::new();
-    for (name, way) in [("child", vec!["--loom".to_owned(), loom.display().to_string(), "--loom-sha256".to_owned(), sha.clone()]), ("library", vec!["--in-process".to_owned()])] {
+    for (name, way) in [("child", vec!["--loom".to_owned(), loom.display().to_string(), "--loom-sha256".to_owned(), sha.clone()]), ("library", Vec::new())] {
         let run = format!("stub-cycle-{name}");
         let out = Command::new(BIN)
             .env_clear()
             .env("PATH", &path)
             .env("HOME", &home)
-            .args(["loom-run", "--run", &run, "--runs-dir"])
+            .args(["run", "sdc", "--run", &run, "--runs-dir"])
             .arg(work.join("runs"))
             .args(&way)
-            .arg("--bindings")
-            .arg(root.join("bindings"))
-            .arg("--protocols")
-            .arg(root.join("protocol"))
-            .args(["--root-protocol", "sdc@8", "--case", "IDEA-1", "--idea"])
+            // the bindings, the protocols and the root protocol come from the asset root (this checkout)
+            .arg("--intake")
             .arg(root.join("driver/examples/sdc/fixtures/idea.yaml"))
             .args(["--confinement", "local", "--settings"])
             .arg(work.join("settings.json"))
@@ -121,7 +118,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
             .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "1800"])
             .output()
             .unwrap();
-        assert_eq!(out.status.code(), Some(0), "loom-run {name}: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(out.status.code(), Some(0), "run {name}: {}", String::from_utf8_lossy(&out.stderr));
         let summary = work.join(format!("summary-{name}.json"));
         let s = Command::new(BIN).args(["parity", "summarize", "--loom-run"]).arg(work.join("runs").join(&run)).arg("--output").arg(&summary).output().unwrap();
         assert_eq!(s.status.code(), Some(0), "summarize {name}: {}", String::from_utf8_lossy(&s.stderr));

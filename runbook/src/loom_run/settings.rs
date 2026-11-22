@@ -60,11 +60,11 @@ pub fn normalise(raw: &Value, args: &crate::loom_run::Args) -> Result<Value, Str
                             return Err("loom.sha256 is not the sha256 of --loom-sha256: the option decides; make them equal".to_owned());
                         }
                     }
-                    None => return Err("loom.sha256: --in-process runs no binary, so there is no digest to name; take it out".to_owned()),
+                    None => return Err("loom.sha256: Loom is a library of this process (no --loom), so there is no digest to name; take it out".to_owned()),
                 },
                 "in_process" => {
-                    if value != &Value::Bool(true) || !args.in_process {
-                        return Err("loom.in_process is true only with the option --in-process: make them equal".to_owned());
+                    if value != &Value::Bool(true) || !args.in_process() {
+                        return Err("loom.in_process is true only when Loom is a library of this process (no --loom): make them equal".to_owned());
                     }
                 }
                 "confinement" => {

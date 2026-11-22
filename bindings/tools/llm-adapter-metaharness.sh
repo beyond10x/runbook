@@ -20,7 +20,7 @@
 # the child's PATH, then /usr/local/bin:/usr/bin:/bin. A program bound under Loom has PATH and LOOM_*
 # alone, so there is no HOME. When SDC_CLAUDE_CREDENTIALS names a file (llm-node.sh: the binding's
 # `--claude-credentials`) in a directory of the user's with mode 700 (the private directory of
-# `runbook loom-run`) and `$HOME/.claude/.credentials.json` is no file, the adapter makes a private
+# `runbook run`) and `$HOME/.claude/.credentials.json` is no file, the adapter makes a private
 # HOME for the metaharness process alone, mode 700, in that directory (never in the record directory,
 # which a SIGKILL would leave with the login in it): `.claude/.credentials.json` (a copy, mode 600) and
 # `.local/bin/claude` (a link to the `claude` of this PATH, which the reduced child PATH would not

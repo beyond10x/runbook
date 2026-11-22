@@ -19,7 +19,7 @@ r() { jq -r "$1" <<< "$req"; }
 rec=$(r .record_dir)
 mkdir -p "$rec"
 # The config home holds the copy of the login. When the login is a file in a directory of the user's
-# with mode 700 (the private directory of `runbook loom-run`), the whole config home is made there,
+# with mode 700 (the private directory of `runbook run`), the whole config home is made there,
 # never in the record directory, which lies in the run directory: a SIGKILL of this script leaves the
 # home, and the runner removes its private directory with all it holds. Otherwise (the driver's runs)
 # it is made in the record directory, as it always was.

@@ -32,7 +32,7 @@ tasks:
       - slot npx playwright test --workers=4
 
   test:loom-real:
-    desc: "Slow lane of runbook/: the stub cycle through runbook loom-run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
+    desc: "Slow lane of runbook/: the stub cycle through runbook run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
     requires:
       vars: [RUNBOOK_LOOM_BIN, RUNBOOK_LOOM_WORK]
     env:
@@ -64,7 +64,7 @@ tasks:
       - RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
   test:loom-in-process:
-    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook loom-run --loom` (the child binary, default ~/.local/state/runbook/loom/5bcc26d9/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once through `--in-process`, then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
+    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/5bcc26d9/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
     requires:
       vars: [RUNBOOK_LOOM_WORK]
     env:

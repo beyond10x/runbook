@@ -1,5 +1,5 @@
 //! The calls into Loom's library that both runtimes make: the daemon's engine (`engine::Engine`)
-//! and `runbook loom-run --in-process` (`loom_run::library`). This is the one place that names
+//! and `runbook run --in-process` (`loom_run::library`). This is the one place that names
 //! `open_tree`, `run_tree`, `approve`, `close`, `tree_status` and `verify_tree`; neither caller
 //! has a second copy of what is done with them.
 

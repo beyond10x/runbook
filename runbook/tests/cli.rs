@@ -1496,7 +1496,7 @@ fn parity_a_copy_whose_record_is_not_in_the_target_case_is_an_error_that_names_t
     assert!(err.contains("case root") && err.contains("route_approval") && err.contains("copies[0]"), "{err}");
 }
 
-/// A Loom run directory as `runbook loom-run` leaves it, built from the fixtures: the status, the
+/// A Loom run directory as `runbook run` leaves it, built from the fixtures: the status, the
 /// product tree (`work`), the settings line, the decisions it answered and the protocol files it copied.
 fn loom_run_dir(s: &Synth, tag: &str) -> PathBuf {
     let dir = s.root.join(tag);

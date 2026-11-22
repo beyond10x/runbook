@@ -1187,7 +1187,7 @@ esac
         assert!(Path::new(&tmpdir).starts_with(login.parent().unwrap()), "the scratch root lies outside the private directory: {tmpdir}");
     }
 
-    /// The environment `runbook loom-run`'s model decider gives `decider.sh` (`runbook/src/loom_run/decider.rs`,
+    /// The environment `runbook run`'s model decider gives `decider.sh` (`runbook/src/loom_run/decider.rs`,
     /// `env`): `PATH`, an empty `HOME` inside the run directory, and the `SDC_*` it sets.
     fn decider_under_loom_run(name: &str, adapter: Option<&str>, st: &Standin) -> (Run, PathBuf) {
         use std::os::unix::fs::PermissionsExt;

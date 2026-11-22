@@ -1,6 +1,6 @@
-# Decisions of a `runbook loom-run`: what the decider answers, and the run's copy of the bindings
+# Decisions of a `runbook run`: what the decider answers, and the run's copy of the bindings
 
-`runbook loom-run` runs the SDC cycle under Loom (`b10x-loom tree`). Loom stops at a step that waits
+`runbook run` runs the SDC cycle under Loom (`b10x-loom tree`). Loom stops at a step that waits
 for a principal and prints it in `decisions[]` of the `tree run` result (exit 3). The decider
 (`runbook/src/loom_run/decider.rs`) answers those entries; the copy of the bindings
 (`runbook/src/loom_run/bindings_copy.rs`) is what makes Loom accept the decider as the principal
@@ -14,7 +14,7 @@ decision. The last two columns say whether Loom can ask the kind as a `decisions
 pinned commit, and what a run does with it. A kind Loom cannot ask is not answered by a path made up
 for it: the run ends or the step never exists.
 
-| Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `loom-run` does |
+| Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `runbook run` does |
 |---|---|---|---|---|
 | approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a result the action does not declare ends the run `error` |
 | approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |

@@ -14,7 +14,7 @@ first real run under Loom still has to confirm.
   the rows of the table below marked `(not recorded)`, and, when the summary is read from the status
   alone (`--loom-status`), the rows that name the run directory). A member listed there holds null
   or an empty list, and that is no fact: `compare` does not compare it. A summary read from the run
-  directory of `runbook loom-run` (`--loom-run`) records the run-directory members and lists only
+  directory of `runbook run` (`--loom-run`) records the run-directory members and lists only
   `decision_requests[].question` and `.options`, as the driver does.
 - `cases[]`, root first, then each case in the order the log opened it: `id`, `link` (the name of the
   case link: the driver names a child `<parent id>.<name>`; null for the root), `parent`, `protocol`,
@@ -132,7 +132,7 @@ runbook parity compare --product-digests a.json b.json
 runbook parity approvals a.json
 ```
 
-For a run of `runbook loom-run` read the run directory instead of the status alone:
+For a run of `runbook run` read the run directory instead of the status alone:
 
 ```
 runbook parity summarize --loom-run <runs-dir>/<name> --output b.json
@@ -206,7 +206,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `cases[].person_steps[].action` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].action | as is; none is null (a grant) |
 | `cases[].person_steps[].capability` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].capability | as is |
 | `cases[].person_steps[].answer` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].answer | Allow with an action: the result of the n-th record of that action in the case; Allow without: granted; Deny: denied (Allow = granted, Deny = denied) |
-| `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run answered with the principal the driver run used: under `runbook loom-run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none |
+| `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run answered with the principal the driver run used: under `runbook run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none |
 | `copies[].action` | `action_started` with `copy`, then `action_finished` | cases[].evidence[].action | the n-th record of copies[].kind in the target case whose action the source case's records of that kind do not name; the entry itself names source_case, target_case and record_kind only |
 | `copies[].kind` | `action_started` with `copy`, then `action_finished` | cases[].copies[].record_kind | as is |
 | `copies[].from_protocol` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | protocol_id of that case; compared by registration stem |

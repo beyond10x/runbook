@@ -31,6 +31,7 @@ and opens none, so its run belongs to no session; `--json` shows the daemon's an
 | Command | Route | Prints (text) |
 |---|---|---|
 | `runbook run <runbook> --intake <file\|-> [--context <dir>] [--set k=v]... --detach` | `POST /daemon/commands/submit-run` | the run id |
+| `runbook run <runbook> --intake <file\|-> --run <name> --runs-dir <dir> --confinement <level> --settings <file> --spend-ledger <file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>` | none: the run is made in this process | one line on standard error; the exit code is the outcome's (`docs/loom-run.md`) |
 | `runbook runs list` | `GET /daemon/views/runs` | one line per run, newest first: id, state, runbook, submitted-at, `outcome=` or `failure=` |
 | `runbook runs show <run>` | `GET /daemon/views/run`, `.../open-decisions` | the run's fields as `key: value`, then each open decision request |
 | `runbook runs events <run> [--no-follow]` | `GET /daemon/views/events` as a stream (`--no-follow`: as a page) | the lines of the stream |
@@ -38,14 +39,15 @@ and opens none, so its run belongs to no session; `--json` shows the daemon's an
 | `runbook runs decisions <run>` | `GET /daemon/views/open-decisions` | the open requests: `<request id>: <question>` and one line per option |
 | `runbook decide <run> <request> <answer> [--by <name>]` | `POST /daemon/commands/answer-decision` | `answered <request>` |
 
-Every command takes `--json`, `--daemon` and `--token-file`.
+Every command but the in-process `run` takes `--json`, `--daemon` and `--token-file`.
 
 - `run`. The intake is a file, or `-` for standard input (at most 1,048,576 bytes). A relative
   `--context` is sent as the absolute path of the directory; the daemon needs it under one of its
   context roots. `--set` is repeatable and each key may be given once. Without `--detach` the run
-  would be in process, which waits for `story:engine-on-loom-library-entry`: the command exits 64
-  with one line that names the story. `--detach` without a daemon exits 64 and says a daemon is
-  needed. `--json` prints the body of the submit's answer.
+  is made in this process (`docs/loom-run.md`); the options of the table are those of `--detach`,
+  and in process `--context`, `--set`, `--json`, `--daemon` and `--token-file` are refused with
+  exit 64. `--detach` without a daemon exits 64 and says a daemon is needed. `--json` prints the
+  body of the submit's answer.
 - `runs events`. The text is the lines `curl -N -H 'Accept: text/event-stream'` of the run's route
   gives: `id:` (the event's position), `event:` (its kind), `data:` (its row as one line) and a blank
   line per event; the `: keep-alive` comment lines are left out. It follows the stream until the
@@ -121,6 +123,4 @@ programs).
 
 ## Open
 
-- The in-process `runbook run` (without `--detach`), which `story:engine-on-loom-library-entry`
-  builds. Until then it exits 64.
 - HTTPS to a remote daemon: no TLS client in the crate.
