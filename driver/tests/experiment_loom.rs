@@ -397,6 +397,25 @@ fn the_login_file_is_named_by_its_setting_and_its_path_is_never_printed() {
     assert!(!out.contains("login") && !out.contains("login_file"), "{out}");
 }
 
+#[test]
+fn a_login_file_named_at_start_reaches_the_run_and_no_record_holds_it() {
+    let d = scratch("marker-start");
+    let builds = fake_build(&d, 8, true);
+    write_record(&d, &example(COMMIT));
+    let before = fs::read_to_string(d.join("experiments/lx.yaml")).unwrap();
+    let args = ["run", "lx", "--print", "--login-file", "/opt/marker-login-9f3a/credentials.json", "--builds-dir", builds.to_str().unwrap()];
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("marker-login-9f3a"), "the login path is printed: {out}");
+    assert_eq!(out.matches("login: loom.login_file is set").count(), 2, "{out}");
+    assert_eq!(out.matches("\"login_file\":\"<loom.login_file>\"").count(), 2, "{out}");
+    assert_eq!(fs::read_to_string(d.join("experiments/lx.yaml")).unwrap(), before, "the record is untouched");
+    // A path that is neither absolute nor ~/ is refused as a usage error.
+    let (code, out) = experiment(&["run", "lx", "--print", "--login-file", "creds.json", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 64, "{out}");
+    assert!(out.contains("--login-file needs an absolute path"), "{out}");
+}
+
 fn jsonl(path: &Path, lines: &[Value]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
