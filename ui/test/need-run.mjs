@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {canonPath, drivePath} from '../binaries.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sdc = path.resolve(here, '../..');
@@ -47,8 +48,8 @@ export function fixtureSource(scenario) {
 }
 
 // The driver and canon binaries test/scope-fixture.mjs runs.
-export const DRIVE = path.join(sdc, 'driver/target/debug/sdc-drive');
-export const CANON = process.env.SDC_UI_CANON || path.join(process.env.HOME || '/nonexistent', 'beyond10x/canon/target/debug/canon');
+export const DRIVE = drivePath(sdc);
+export const CANON = canonPath();
 export function needDriver(who, test) {
   needTool(DRIVE, 'cargo build in driver/', who, test);
   needTool(CANON, 'build canon (cargo build in the canon repository)', who, test);

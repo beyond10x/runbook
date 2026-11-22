@@ -21,6 +21,7 @@ import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {setView, checkView, viewCovers} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
+import {canonPath, drivePath} from './binaries.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -741,14 +742,14 @@ function meta() {
   const levels = {};
   for (const f of listDir(path.join(sdc, 'eval/levels'))) if (f.endsWith('.json')) levels[f] = readJson(path.join(sdc, 'eval/levels', f));
   return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels,
-    drive: path.join(sdc, 'driver/target/debug/sdc-drive'), canon: path.join(process.env.HOME, 'beyond10x/canon/target/debug/canon')};
+    drive: drivePath(sdc), canon: canonPath()};
 }
 
 // What decisions.mjs needs of a source: its paths, its cases, and the configured principal.
 function ctx(src) {
   const cases = Array.from(src.cases.values()).map((e) => ({dir: e.dir, rel: path.relative(src.path, e.dir) || '.', ...pick(loadCase(src, e))}));
   return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, principal: config.principal, write: writable(src), index: src.index,
-    canon: path.join(process.env.HOME, 'beyond10x/canon/target/debug/canon'), drive: path.join(sdc, 'driver/target/debug/sdc-drive'),
+    canon: canonPath(), drive: drivePath(sdc),
     refresh: () => { for (const e of src.cases.values()) e.data = null; }};
 }
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
