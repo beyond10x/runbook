@@ -2427,9 +2427,13 @@ cycles:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: implementation_change}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "last red repro_run and last passed test_run: revisions chain (red_then_green)"}
+      - {kind: cross-record, lines: "2310-2313", note: "red_then_green over the evidence records: the red repro_run (subject repro at revision R, upstream change at tree digest C1), the implementation_change after it (upstream repro R, subject C2) and the passed test_run (subject C2, upstream repro R) in record order, digests set and C1 differs from C2"}
     source: {lines: "2314-2315", helpers: "2290-2313"}
 
   - id: bugfix-not-red
@@ -2447,6 +2451,8 @@ cycles:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
       - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
@@ -2469,6 +2475,9 @@ cycles:
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
         - {kind: file_contains, file: "{store}/BUG-1/blobs/*", text: "the reproducing test was changed"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
       - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
@@ -2485,13 +2494,19 @@ cycles:
     arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
     expect:
       exit: 0
-      pass_line: "every test passes on the seed: not_reproduced, no fix written"
+      pass_line: "every test passes on the seed: not_reproduced, no fix written; the protocol's evaluation refuses the fix"
       checks:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_reproduced}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 0}
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: implementation_change}, count: 0}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run}, count: 0}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".claims.\"repro.red\".value", equals: "false"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".actions.\"change.fix\".status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".actions.\"tests.run\".status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.not_reproduced.status", equals: legitimate}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
     source: {lines: "2324-2326", helpers: "2290-2313"}

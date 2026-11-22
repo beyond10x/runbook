@@ -2291,9 +2291,9 @@ fi
 # --- sdc.bugfix (docs/bugfix.md): run-trial.sh --bugfix on the pager seed in autopilot, the stubs
 # write (fixtures/bugfix-pager/cycles/<name> through SDC_STUB_FIXTURES). Each closes by
 # rule:autopilot with its outcome and replay matches. The record check runs over the case's
-# evidence in order: `red` is the last repro_run red, `green` the last test_run passed.
+# evidence in order: `red` is the last repro_run red, `green` the last test_run passed; the sixth argument, if any, is a jq over decision.json.
 bfx=$fx/bugfix-pager
-bugfix_cycle() { # <name> <stub cycle or -> <outcome> <jq over the slurped evidence> <what passed>
+bugfix_cycle() { # <name> <stub cycle or -> <outcome> <jq over the slurped evidence> <what passed> [jq over decision.json]
   local name=$1 cyc=$2 want=$3 check=$4 what=$5 r=$s/runs/$1 code
   rm -rf "$r"
   env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=approve \
@@ -2303,17 +2303,17 @@ bugfix_cycle() { # <name> <stub cycle or -> <outcome> <jq over the slurped evide
   echo "$name: exit $code"
   if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
      jq -e --arg o "$want" '.outcome == $o and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
-     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null &&
+     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null && jq -e "${6:-true}" "$r/decision.json" >/dev/null &&
      cat "$r"/store/BUG-1/evidence/*.json | jq -se "$check" >/dev/null; then
     echo "$name: checks pass ($what)"
   else
     echo "$name: FAILED (exit $code, $(jq -c '{outcome, closed_by}' "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
   fi
 }
-red_then_green='([.[] | select(.kind == "repro_run" and .result == "red")] | last) as $red
-  | ([.[] | select(.kind == "test_run" and .result == "passed")] | last) as $green
-  | $red != null and $green != null and $green.upstream_revisions.repro == $red.subject_revision
-    and $green.subject_revision != $red.upstream_revisions.change'
+red_then_green='(to_entries | map(.value + {at: .key})) as $e | ([$e[] | select(.kind == "repro_run" and .result == "red")] | last) as $red
+  | ([$e[] | select(.kind == "test_run" and .result == "passed")] | last) as $green | ([$e[] | select(.kind == "implementation_change")] | last) as $fix
+  | $red != null and $green != null and $fix != null and $red.at < $fix.at and $fix.at < $green.at and $green.upstream_revisions.repro == $red.subject_revision
+    and $fix.upstream_revisions.repro == $red.subject_revision and $fix.subject_revision == $green.subject_revision and ([$red.subject_revision, $red.upstream_revisions.change, $green.subject_revision] | all(. != null and . != "none")) and $green.subject_revision != $red.upstream_revisions.change'
 bugfix_cycle bugfix-full - fixed "$red_then_green" \
   "fixed; red at one change revision, the same repro revision green at the next"
 bugfix_cycle bugfix-not-red not-red fixed \
@@ -2326,7 +2326,7 @@ grep -q 'the reproducing test was changed' "$s/runs/bugfix-edited-test/store/BUG
   echo "bugfix-edited-test: FAILED (no log names the changed test)"
 bugfix_cycle bugfix-never-red never-red not_reproduced \
   '([.[] | select(.kind == "repro_run" and .result == "red")] | length) == 0 and ([.[] | select(.kind == "implementation_change")] | length) == 0' \
-  "every test passes on the seed: not_reproduced, no fix written"
+  "every test passes on the seed: not_reproduced, no fix written; the protocol's evaluation refuses the fix" '.claims."repro.red".value == "false" and .actions."change.fix".status == "blocked" and .actions."tests.run".status == "blocked" and .outcomes.fixed.status == "blocked" and .outcomes.not_reproduced.status == "legitimate"'
 # bugfix-from-ticket: run-trial.sh --bugfix-ticket --dry --autopilot (the dry adapter writes each
 # prompt and calls nothing, the stubs write) on a git repository made from the pager crate, with an
 # ignored and an untracked file, from the invented ticket fixtures/bugfix-pager/ticket.yaml. Closes

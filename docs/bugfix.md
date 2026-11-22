@@ -156,7 +156,24 @@ What the record shows, by program:
 
 `canon-evidence/1` refuses unknown fields (`deny_unknown_fields`,
 `../canon/crates/canon/src/model/evidence.rs:16`). So the test id lives in the repro artifact at
-revision R (`repro/repro.json`) and in each step's log blob, not in the record itself.
+revision R (`repro/repro.json`) and in each step's log blob, not in the record itself. The exit
+status is the same: `red` says the test exited non-zero (and the suite without it passed), `passed`
+says it and the whole suite exited 0; the numbers are in the log blob (`exit N`).
+
+These two records are the red-then-green evidence; the protocol declares both kinds and requires
+them, so no third kind exists. The revisions are tree digests: C1 is the tree the red was observed
+on, C2 the fixed tree the green was observed on. `change.fix` is admissible only on claim
+`repro.red`, `tests.run` and `story.update` also on `repro.red`, and outcome `fixed` on `repro.red`
+and `tests.pass`. A fix whose test was never red is therefore refused by the protocol's evaluation:
+`cases/12-bugfix-red-first/green-without-red` (a fix and a passed suite, no red) has `change.fix`,
+`story.update` and `fixed` blocked, and the cycle `bugfix-never-red` asserts the same on the run's
+`decision.json` (`repro.red` false, `change.fix` and `tests.run` blocked, `fixed` blocked,
+`not_reproduced` legitimate). The cycles `bugfix-full`, `bugfix-not-red`, `bugfix-edited-test` and
+`bugfix-from-ticket` assert the chain over the run's evidence records (`red_then_green` in
+`scripts/run-finding-cycles.sh`): the red `repro_run` precedes the `implementation_change` of the
+fix, which precedes the passed `test_run`; the fix and the green name the red's test revision R; the
+green's tree digest is set and differs from C1. That C1 and C2 differ compares two records: the protocol cannot make that comparison and the
+suite cannot yet say it (`unexpressed` in `cycles/suite.yaml`), so the script does.
 
 ## Entry and fixture
 
