@@ -202,6 +202,21 @@ pub fn check_listen(addr: &SocketAddr, token: Option<&str>) -> Result<(), String
     Err(format!("a token is required to listen on {addr}: it is not a loopback address; give --token-file <file> or set RUNBOOK_TOKEN"))
 }
 
+/// The shortest token `runbook serve` starts with, in bytes.
+pub const MIN_TOKEN_BYTES: usize = 32;
+
+/// The floor at start for a token the daemon is to check: at least `MIN_TOKEN_BYTES`. The message
+/// names the minimum and where a token comes from, and never the token or its length. A client takes
+/// the token it was given and does not call this.
+pub fn check_token_length(token: Option<&str>) -> Result<(), String> {
+    match token {
+        Some(t) if t.len() < MIN_TOKEN_BYTES => Err(format!(
+            "the token is too short: it must be at least {MIN_TOKEN_BYTES} bytes; put a longer one in the file named by --token-file (see docs/daemon-api.md, \"Running the daemon\")"
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// The token from a file (its mode must not give anything to others) or from the environment value.
 pub fn load_token(file: Option<&Path>, env: Option<String>) -> Result<Option<String>, String> {
     let raw = match file {

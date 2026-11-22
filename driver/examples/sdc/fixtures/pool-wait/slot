@@ -5,6 +5,8 @@
 # `slot task ...` print slot's own `queued` line and stay queued; `slot status` lists them as
 # queued and `slot cancel <id>` records the cancel. With POOL_FAKE=overtime a test job ends at once with
 # exit 124, the pool's run-limit kill. Nothing here talks to the real pool for them.
+# POOL_FAKE_QUEUED_DELAY=<seconds> (default 0) holds the queued line back, as a loaded machine does;
+# POOL_FAKE_SLEEP=<seconds> (default 600) is how long the queued job stays queued.
 d=${POOL_FAKE_DIR:?POOL_FAKE_DIR names the state directory}
 case ${1:-} in
   status)
@@ -28,5 +30,6 @@ if [ "${POOL_FAKE:-never}" = overtime ]; then
   echo "slot: job $n ended at its run limit" >&2
   exit 124
 fi
+sleep "${POOL_FAKE_QUEUED_DELAY:-0}"
 echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
-exec sleep 600
+exec sleep "${POOL_FAKE_SLEEP:-600}"

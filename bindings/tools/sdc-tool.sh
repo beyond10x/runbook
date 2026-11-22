@@ -105,10 +105,13 @@ need yq jq
 # and recorded `timeout`, then the writer was called to repair tests that never ran). slot runs in
 # the background; the job's id is on slot's own `slot: job <id> queued ...` line, which it prints
 # only for a job that has to wait, and `slot status` shows the job as `queued` until it starts. A
+# start is never inferred from a missing line (on a loaded machine the line comes seconds late):
+# the line is read for as long as the process lives, and a job that ends without one was admitted
+# at once and waited nothing. A
 # job still queued when the step's bound (SDC_POOL_WAIT seconds, less what its earlier pool commands
 # waited, kept in SDC_POOL_LEDGER) is spent is cancelled and the function returns 69. Once the job
 # started, the run is the pool's: its limit is 10 minutes, or the `slot --timeout <t>` a command names (at
-# most 1 hour; none of these calls names one). A job the pool ends at that limit (slot 0.22: exit 124)
+# most 30 minutes; none of these calls names one). A job the pool ends at that limit (slot 0.22: exit 124)
 # makes the function return 70, "ran over its time": not red tests, not a pool wait. A
 # job cancelled then (exit 130) is the command's result, not 69. Without a bound it is plain
 # `slot`. SDC_POOL_POLL (seconds, default 2) is the longest pause between two looks at the pool.
@@ -130,9 +133,9 @@ pool_run() {
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$(( $(now_ms) - t0 ))
     if [[ -z $id ]]; then
+      # Never inferred from a missing line: on a loaded machine the line comes seconds late. It is
+      # read for as long as the process lives.
       id=$(sed -n 's/^slot: job \([0-9][0-9]*\) queued.*/\1/p' "$errf" | head -n 1)
-      # No queued line in 3 s: the pool admitted the job at once.
-      [[ -n $id ]] || (( elapsed < 3000 )) || started=yes
     fi
     if [[ -n $id ]]; then
       state=$(slot status 2>/dev/null | awk -v id="#$id" '$1 == id { print $2; exit }')
@@ -157,9 +160,18 @@ pool_run() {
   done
   wait "$pid"
   rc=$?
-  # A job that started and ended between two looks: it ran less than one pause, so what it took
-  # was wait.
-  [[ $started == yes ]] || echo $(( spent + $(now_ms) - t0 )) > "$ledger"
+  if [[ $started != yes ]]; then
+    [[ -n $id ]] || id=$(sed -n 's/^slot: job \([0-9][0-9]*\) queued.*/\1/p' "$errf" | head -n 1)
+    if [[ -n $id ]]; then
+      # It queued and ended between two looks: it ran less than one pause, so what it took was wait.
+      echo $(( spent + $(now_ms) - t0 )) > "$ledger"
+    else
+      # The process ended and never printed a queued line: the pool admitted the job at once, it
+      # waited nothing.
+      started=yes
+      echo "$spent" > "$ledger"
+    fi
+  fi
   if (( rc == 130 )) && grep -q '^slot: job [0-9]* cancelled' "$errf"; then
     if [[ $started == yes ]]; then
       echo "sdc-tool: pool: job ${id:-?} was cancelled by the pool while it ran (over its run limit, 10 minutes unless the command names a longer one, or by \`slot cancel\`); the command did not finish" >&2

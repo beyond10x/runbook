@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: release-0.3.0
 kind: prospective
-status: planned
+status: abandoned
 created: 2026-11-22
 title: Release 0.3.0 on main ae7a697, the to-do idea in the three baseline settings
 purpose: Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.
@@ -33,7 +33,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-sonnet-5-5
     decider.model: claude-opus-5-5
-  runs: []
+  runs:
+  - release-0.3.0.strong.1
+  - release-0.3.0.strong.2
+  - release-0.3.0.strong.3
 - id: mixed
   settings:
     models.writer.model: claude-sonnet-5-5
@@ -41,7 +44,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - release-0.3.0.mixed.1
+  - release-0.3.0.mixed.2
+  - release-0.3.0.mixed.3
 - id: haiku
   settings:
     models.writer.model: claude-haiku-5-5
@@ -49,7 +55,9 @@ variants:
     models.review.model: claude-haiku-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - release-0.3.0.haiku.1
+  - release-0.3.0.haiku.2
 runs_per_variant: 3
 pass_rule: clean-delivery
 decision_rule:
@@ -102,3 +110,27 @@ facts:
 links:
 - 'experiments/release-0.1.2.yaml: the baseline this record is compared with'
 - 'experiments/releases.yaml: the ledger entry of 0.3.0, whose limit says no run has used this tree'
+stopped:
+  at: 2026-11-22T07:02:46Z
+  by: agent:sdc-experiment
+  reason: 'operator pick 2026-11-22 08:02 CET: stop all, rerun after the fix; the test step was killed while it waited in the build pool queue, so the runs measure the queue'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  - clean_passes: 0
+    ended: 3
+    id: mixed
+    listed: 3
+    without_summary: []
+  - clean_passes: 0
+    ended: 2
+    id: haiku
+    listed: 2
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

@@ -8,6 +8,11 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
+/// Tokens for a daemon started as a process (`runbook serve`): each is at least `MIN_TOKEN_BYTES` long.
+pub const MIN_TOKEN_BYTES: usize = 32;
+pub const FILE_TOKEN: &str = "from-file-0123456789-abcdefghijklmnop";
+pub const ENV_TOKEN: &str = "from-env-0123456789-qrstuvwxyzabcdefg";
+
 /// The daemon of a fixture, served in this process on port 0.
 pub struct Server {
     pub fx: Fx,
@@ -543,14 +548,14 @@ fn a_token_file_that_others_can_read_is_refused_and_the_message_names_the_mode()
     use std::os::unix::fs::PermissionsExt;
     let dir = super::state::scratch("tokenmode");
     let file = dir.join("token");
-    std::fs::write(&file, "s3cret\n").unwrap();
+    std::fs::write(&file, format!("{FILE_TOKEN}\n")).unwrap();
     for mode in [0o644, 0o604, 0o607, 0o666] {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
         let (cmd, _) = serve_cmd("tokenmode-run", &["--listen", "127.0.0.1:0", "--token-file", file.to_str().unwrap()], None);
         let (status, out, err) = exits_within(cmd, Duration::from_secs(2));
         assert_eq!(status, Some(1), "mode {mode:o}: {err}");
         assert!(err.contains(&format!("mode {mode:04o}")), "{err}");
-        assert!(!err.contains("s3cret") && !out.contains("s3cret"), "the token is never printed");
+        assert!(!err.contains(FILE_TOKEN) && !out.contains(FILE_TOKEN), "the token is never printed");
     }
     // The group may read it; the others may not.
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
@@ -558,6 +563,51 @@ fn a_token_file_that_others_can_read_is_refused_and_the_message_names_the_mode()
     let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
     let line = first_line(&mut p);
     assert!(line.starts_with("runbook: listening on http://127.0.0.1:"), "{line}");
+}
+
+#[test]
+fn a_token_shorter_than_32_bytes_is_refused_at_start_and_the_message_does_not_show_it() {
+    let dir = super::state::scratch("tokenlen");
+    let short = "Qx9vK2mTz8LpR4wYb6NcJ1hGd3FsA5e";
+    let exact = "Qx9vK2mTz8LpR4wYb6NcJ1hGd3FsA5eU";
+    assert_eq!((short.len(), exact.len()), (MIN_TOKEN_BYTES - 1, MIN_TOKEN_BYTES));
+    let file = dir.join("token");
+    std::fs::write(&file, format!("{short}\n")).unwrap();
+    std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    let by_file = ["--listen", "127.0.0.1:0", "--token-file", file.to_str().unwrap()];
+    let by_env = ["--listen", "127.0.0.1:0"];
+    for (name, args, env) in [("file", &by_file[..], None), ("env", &by_env[..], Some(short))] {
+        let (cmd, _) = serve_cmd(&format!("tokenlen-{name}"), args, env);
+        let (status, out, err) = exits_within(cmd, Duration::from_secs(5));
+        assert_eq!(status, Some(1), "{name}: {err}");
+        assert!(err.contains("32") && err.contains("--token-file"), "{name}: names the minimum and the file option: {err}");
+        for n in 2..=short.len() {
+            assert!(!err.contains(&short[..n]) && !out.contains(&short[..n]), "{name}: a prefix of the token of {n} bytes is in the output: {err}");
+        }
+        assert!(!err.contains("31") && !err.contains(&format!("{} bytes", short.len())), "{name}: the length of the token is not named: {err}");
+        assert!(out.is_empty(), "{name}: nothing was announced: {out}");
+    }
+    // 32 bytes is enough, by the file and by the environment.
+    std::fs::write(&file, format!("{exact}\n")).unwrap();
+    let (cmd, _) = serve_cmd("tokenlen-ok-file", &by_file, None);
+    let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
+    let addr = bound(&first_line(&mut p));
+    assert_eq!(send(addr, "GET", "/daemon/views/runs", &[("Authorization", &format!("Bearer {exact}"))], None).status, 200);
+    drop(p);
+    let (cmd, _) = serve_cmd("tokenlen-ok-env", &by_env, Some(exact));
+    let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
+    assert!(first_line(&mut p).starts_with("runbook: listening on http://127.0.0.1:"));
+}
+
+#[test]
+fn the_http_views_answer_an_unknown_run_with_200_and_no_rows() {
+    // The MCP tools `read_run` and `read_events` answer 404 for the same run id
+    // (`mcp::an_unknown_run_id_is_an_error_with_the_status_of_the_http_404`); the views do not.
+    let s = Server::start("unknown-run-views", None);
+    for path in ["/daemon/views/run?run_id=no-such-run", "/daemon/views/events?run_id=no-such-run&after_position=0", "/daemon/views/events?run_id=no-such-run&after_position=5"] {
+        let r = s.get(path);
+        assert_eq!((r.status, r.json()), (200, json!({"rows": []})), "{path}");
+    }
 }
 
 fn first_line(p: &mut Proc) -> String {
@@ -596,27 +646,27 @@ fn without_a_state_dir_the_record_is_under_xdg_state_home_runbook() {
 fn serve_prints_the_bound_address_keeps_running_and_checks_the_token_of_the_file_or_the_environment() {
     let dir = super::state::scratch("process");
     let file = dir.join("token");
-    std::fs::write(&file, "from-file\n").unwrap();
+    std::fs::write(&file, format!("{FILE_TOKEN}\n")).unwrap();
     std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
     // The file wins over the environment.
-    let (cmd, _) = serve_cmd("process-run", &["--listen", "127.0.0.1:0", "--token-file", file.to_str().unwrap()], Some("from-env"));
+    let (cmd, _) = serve_cmd("process-run", &["--listen", "127.0.0.1:0", "--token-file", file.to_str().unwrap()], Some(ENV_TOKEN));
     let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
     let addr = bound(&first_line(&mut p));
     assert!(addr.ip().is_loopback() && addr.port() != 0);
     assert_eq!(send(addr, "GET", "/daemon/views/runs", &[], None).status, 401);
     assert_eq!(send(addr, "GET", "/no/such", &[], None).status, 401);
-    assert_eq!(send(addr, "GET", "/daemon/views/runs", &[("Authorization", "Bearer from-env")], None).status, 401);
-    let ok = send(addr, "GET", "/daemon/views/runs", &[("Authorization", "Bearer from-file")], None);
+    assert_eq!(send(addr, "GET", "/daemon/views/runs", &[("Authorization", &format!("Bearer {ENV_TOKEN}"))], None).status, 401);
+    let ok = send(addr, "GET", "/daemon/views/runs", &[("Authorization", &format!("Bearer {FILE_TOKEN}"))], None);
     assert_eq!((ok.status, ok.json()), (200, json!({"rows": []})));
     assert!(p.child.try_wait().unwrap().is_none(), "it keeps running");
     drop(p);
 
     // The environment alone.
-    let (cmd, _) = serve_cmd("process-env", &["--listen", "127.0.0.1:0"], Some("from-env"));
+    let (cmd, _) = serve_cmd("process-env", &["--listen", "127.0.0.1:0"], Some(ENV_TOKEN));
     let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
     let addr = bound(&first_line(&mut p));
     assert_eq!(send(addr, "GET", "/daemon/views/runs", &[], None).status, 401);
-    assert_eq!(send(addr, "GET", "/daemon/views/runs", &[("Authorization", "Bearer from-env")], None).status, 200);
+    assert_eq!(send(addr, "GET", "/daemon/views/runs", &[("Authorization", &format!("Bearer {ENV_TOKEN}"))], None).status, 200);
     drop(p);
 
     // No token on loopback: open. A second daemon on the same state directory is refused.
