@@ -1280,13 +1280,33 @@ fn parity_summarize_refuses_a_malformed_evaluation() {
     assert!(err.contains("0001.json"), "{err}");
 }
 
-/// A scratch copy of what `scripts/check-protocols.sh` reads, and a stub canon that validates and
-/// compiles anything: the fast lane takes every result from the ledger and runs no real check.
+/// The protocols the fast-lane fixture holds: one without a gate probe and one with. The script
+/// starts about 20 processes per protocol, and a test is slow when the pool is loaded because of
+/// its process count, so the fixture is two protocols, not the nine of the repository.
+const LANE_PROTOCOLS: [&str; 2] = ["sdc", "sdc-epic"];
+
+/// A scratch copy of what `scripts/check-protocols.sh` reads for `LANE_PROTOCOLS` (their sources,
+/// their pinned simulate reports and their entries of the committed ledger, byte for byte), and a
+/// stub canon that validates and compiles anything: the fast lane takes every result from the
+/// ledger and runs no real check.
 fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    copy_dir(&repo().join("scripts"), &root.join("scripts"), &[]);
-    copy_dir(&repo().join("protocol"), &root.join("protocol"), &["compiled", "probes"]);
+    let (src, dst) = (repo(), root.clone());
+    std::fs::create_dir_all(dst.join("scripts")).unwrap();
+    for f in ["check-protocols.sh", "evaluate-cases.sh"] {
+        std::fs::copy(src.join("scripts").join(f), dst.join("scripts").join(f)).unwrap();
+    }
+    std::fs::create_dir_all(dst.join("protocol/simulate")).unwrap();
+    std::fs::copy(src.join("protocol/simulate/CANON_REV"), dst.join("protocol/simulate/CANON_REV")).unwrap();
+    for n in LANE_PROTOCOLS {
+        std::fs::copy(src.join(format!("protocol/{n}.protocol.yaml")), dst.join(format!("protocol/{n}.protocol.yaml"))).unwrap();
+        std::fs::copy(src.join(format!("protocol/simulate/{n}.txt")), dst.join(format!("protocol/simulate/{n}.txt"))).unwrap();
+    }
+    let mut ledger: Value = serde_json::from_str(&std::fs::read_to_string(src.join("protocol/check-ledger.json")).unwrap()).unwrap();
+    ledger["protocols"].as_object_mut().unwrap().retain(|k, _| LANE_PROTOCOLS.contains(&k.as_str()));
+    assert_eq!(ledger["protocols"].as_object().unwrap().len(), LANE_PROTOCOLS.len());
+    std::fs::write(root.join("protocol/check-ledger.json"), serde_json::to_string_pretty(&ledger).unwrap() + "\n").unwrap();
     std::fs::create_dir_all(root.join("driver")).unwrap();
     std::fs::copy(repo().join("driver/canon-pin.json"), root.join("driver/canon-pin.json")).unwrap();
     let stub = root.join("canon-stub");
