@@ -599,6 +599,17 @@ fn a_token_shorter_than_32_bytes_is_refused_at_start_and_the_message_does_not_sh
     assert!(first_line(&mut p).starts_with("runbook: listening on http://127.0.0.1:"));
 }
 
+#[test]
+fn the_http_views_answer_an_unknown_run_with_200_and_no_rows() {
+    // The MCP tools `read_run` and `read_events` answer 404 for the same run id
+    // (`mcp::an_unknown_run_id_is_an_error_with_the_status_of_the_http_404`); the views do not.
+    let s = Server::start("unknown-run-views", None);
+    for path in ["/daemon/views/run?run_id=no-such-run", "/daemon/views/events?run_id=no-such-run&after_position=0", "/daemon/views/events?run_id=no-such-run&after_position=5"] {
+        let r = s.get(path);
+        assert_eq!((r.status, r.json()), (200, json!({"rows": []})), "{path}");
+    }
+}
+
 fn first_line(p: &mut Proc) -> String {
     let out = p.child.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();

@@ -279,6 +279,12 @@ Without `--ui`, `GET /` is `404`.
   the story `ui-embedded-in-the-binary`, section "Slice 1". Served by `ui/server.mjs`, the page reads
   that server as before.
 
+## MCP
+
+The MCP tools `read_run` and `read_events` ([`mcp.md`](mcp.md)) answer a run id the daemon does not know
+with an error: `isError` is true and `_meta["runbook/http-status"]` is `404`. The HTTP views `run` and
+`events` answer the same id with `200` and no rows; both stay as they are.
+
 ## Conformance
 
 The scenarios of `ess/scenarios/daemon-*.yaml` are compiled to a suite document
