@@ -27,6 +27,21 @@ pub const ORPHANED: &str = "orphaned";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
 
+/// Whether `text` is a principal: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`.
+pub fn check_principal(text: &str) -> Result<(), String> {
+    let id = text.strip_prefix("person:").or_else(|| text.strip_prefix("agent:"));
+    let ok = id.is_some_and(|id| {
+        let mut chars = id.chars();
+        let first = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+        first && id.len() <= 63 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+    });
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("--principal {text}: not a principal: use person:<id> or agent:<id>, <id> of 1 to 63 characters from a-z, 0-9, '.', '_' and '-', starting with a letter or digit"))
+    }
+}
+
 /// What the daemon was started with.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -35,6 +50,9 @@ pub struct Config {
     /// Directories a context path must lie under; none means no context from a path.
     pub context_roots: Vec<PathBuf>,
     pub runbook_dir: Option<PathBuf>,
+    /// Who the daemon acts as (`check_principal`): fixed for the life of the process, and the only
+    /// principal the runtime is ever given.
+    pub principal: String,
 }
 
 /// A request the daemon cannot take at all (no outcome of the specification), or a failure of its own.
@@ -294,6 +312,7 @@ impl Daemon {
     /// process (`clock::SetClock`); `runbook serve` calls `start`, and no option, environment variable
     /// or request reaches this.
     pub fn start_with_clock(cfg: Config, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
+        check_principal(&cfg.principal).map_err(io::Error::other)?;
         let mut roots = Vec::new();
         for r in &cfg.context_roots {
             let canon = std::fs::canonicalize(r).map_err(|e| io::Error::new(e.kind(), format!("context root {}: {e}", r.display())))?;
@@ -426,7 +445,8 @@ impl Daemon {
             return Ok(refuse("start-daemon", "already-started", json!({"daemon_id": daemon_id})));
         }
         let now = st.now();
-        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: daemon_id.to_string(), confinement_floor, started_at: now }))?;
+        let principal = self.inner.cfg.principal.clone();
+        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: daemon_id.to_string(), confinement_floor, principal, started_at: now }))?;
         Ok(done("start-daemon", "started", vec![("DaemonStarted", json!({"daemon_id": daemon_id, "confinement_floor": confinement_floor}))]))
     }
 
@@ -550,6 +570,9 @@ impl Daemon {
     }
 
     pub fn answer_decision(&self, input: AnswerDecision) -> Reply {
+        if !long_enough(&input.answered_by) {
+            return Err(Fault::Invalid(format!("answered_by is longer than {MAX_LABEL_CHARS} characters")));
+        }
         let mut st = self.st();
         let (run_id, request_id) = (input.run_id.clone(), input.request_id.clone());
         let Some(request) = st.decision(&request_id) else {
@@ -571,15 +594,18 @@ impl Daemon {
             Some(_) => {}
         }
         let now = st.now();
+        let principal = self.inner.cfg.principal.clone();
         st.commit(Fact::DecisionAnswered {
             request_id: request_id.clone(),
             answer: input.answer.clone(),
             answered_by: input.answered_by.clone(),
+            principal: Some(principal.clone()),
             at: now,
         })?;
         drop(st);
-        let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by});
-        match self.inner.runtime.answer(&run_id, &request_id, &input.answer, &input.answered_by) {
+        let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by, "principal": principal});
+        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
+        match self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal) {
             Ok(()) => {}
             Err(AnswerFailure::UnknownRun) | Err(AnswerFailure::Refused(_)) => {
                 // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
@@ -701,7 +727,7 @@ impl Daemon {
         self.st()
             .open_decisions_of(run_id)
             .into_iter()
-            .map(|d| json!({"request_id": d.request_id, "run_id": d.run_id, "question": d.question, "options": d.options, "opened_at": d.opened_at}))
+            .map(|d| json!({"request_id": d.request_id, "run_id": d.run_id, "case_id": d.case_id, "action": d.action, "capability": d.capability, "question": d.question, "options": d.options, "opened_at": d.opened_at}))
             .collect()
     }
 
@@ -719,6 +745,7 @@ impl Daemon {
                 m.insert("opened_at".into(), json!(d.opened_at));
                 put(&mut m, "answer", &d.answer);
                 put(&mut m, "answered_by", &d.answered_by);
+                put(&mut m, "principal", &d.principal);
                 put(&mut m, "answered_at", &d.answered_at);
                 Value::Object(m)
             })
@@ -760,7 +787,7 @@ impl Daemon {
     pub fn daemon_configuration(&self) -> Vec<Value> {
         self.st()
             .daemon()
-            .map(|d| json!({"daemon_id": d.daemon_id, "confinement_floor": d.confinement_floor, "started_at": d.started_at}))
+            .map(|d| json!({"daemon_id": d.daemon_id, "confinement_floor": d.confinement_floor, "principal": d.principal, "started_at": d.started_at}))
             .into_iter()
             .collect()
     }
@@ -939,6 +966,7 @@ fn request_decision_locked(st: &mut State, run_id: &str, request: RuntimeRequest
         state: DecisionState::Open,
         answer: None,
         answered_by: None,
+        principal: None,
         answered_at: None,
     }))?;
     Ok(done("request-decision", "requested", vec![("DecisionRequested", json!({"request_id": id, "run_id": run_id}))]))

@@ -10,6 +10,7 @@ timeline:
     input:
       daemon_id: "runbookd"
       confinement_floor: linux
+      principal: "agent:conformance"
       at: 2026-11-22T10:00:00Z
     outcome: started
     events:

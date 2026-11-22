@@ -17,7 +17,11 @@
       "type": "string"
     },
     "answered_by": {
-      "$ref": "#/$defs/sdc.decision.Principal"
+      "$ref": "#/$defs/sdc.daemon.AnswererLabel"
+    },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal",
+      "description": "The daemon's own principal (runbook serve --principal). The handler fills it from the daemon's configuration; a client never sends it, no HTTP body member or MCP argument sets it, and the HTTP/MCP schema of the client's input has no such member."
     },
     "at": {
       "type": "string",
@@ -29,16 +33,28 @@
     "request_id",
     "answer",
     "answered_by",
+    "principal",
     "at"
   ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:1fe9183c39e5a940e28b0f421ecc8f1b4f0780ae4bace55e0260d6c68bc507be",
+    "contract_digest": "slice-sha256/2:78d525905729c370d124779198a619b873f6e001ef89bf1c9c3921f249bdb92d",
     "regenerate": "ess generate"
   },
   "$defs": {
+    "sdc.daemon.AnswererLabel": {
+      "title": "AnswererLabel",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.",
+      "x-ess-name": "sdc.daemon.AnswererLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    },
     "sdc.daemon.DecisionRequestId": {
       "title": "DecisionRequestId",
       "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",

@@ -1,6 +1,6 @@
-//! The six tools and their calls. A tool names a route of the command layer: `submit_run`,
-//! `cancel_run` and `answer_decision` are the commands of the same names, `list_runs`, `read_run` and
-//! `read_events` are the views `runs*`, `run` and `events`. The result of a call is the body of the
+//! The seven tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! `cancel_run` and `answer_decision` are the commands of the same names, `list_runs`, `read_run`,
+//! `read_events` and `read_open_decisions` are the views `runs*`, `run`, `events` and `open-decisions`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
 
 use super::schema;
@@ -27,6 +27,7 @@ enum Kind {
     ListRuns,
     ReadRun,
     ReadEvents,
+    ReadOpenDecisions,
 }
 
 struct Tool {
@@ -37,7 +38,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 6] = [
+const TOOLS: [Tool; 7] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -67,9 +68,16 @@ const TOOLS: [Tool; 6] = [
         kind: Kind::ReadEvents,
     },
     Tool {
+        name: "read_open_decisions",
+        title: "Read the open decisions of a run",
+        description: "The decision requests of one run that no one has answered yet, in the `rows` of the result: the request id, the case, the action and the capability that ask, the question, the options and when it opened. A run with none, or a run id the daemon does not know, has no rows.",
+        read_only: true,
+        kind: Kind::ReadOpenDecisions,
+    },
+    Tool {
         name: "answer_decision",
         title: "Answer a decision",
-        description: "Answer an open decision request of a run that waits: the run id, the request id (read it with the decisions of the run), the answer and who answers. The first answer stands.",
+        description: "Answer an open decision request of a run that waits: the run id, the request id (read it with read_open_decisions), the answer and a label for who answers. The label is stored and shown; the daemon's own principal is what the runtime records. The first answer stands.",
         read_only: false,
         kind: Kind::Command("answer-decision"),
     },
@@ -85,18 +93,24 @@ const TOOLS: [Tool; 6] = [
 /// The members of a command's input the HTTP handler fills; a client never sends them.
 pub const SUBMIT_FILLED: [&str; 5] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at"];
 
+/// The members of the input of `answer-decision` the handler fills: the instant and the daemon's own
+/// principal, which no tool argument sets.
+pub const ANSWER_FILLED: [&str; 2] = ["at", "principal"];
+
 /// The members of a command's input the daemon defaults when the client leaves them out.
 pub const SUBMIT_DEFAULTED: [&str; 2] = ["settings", "confinement"];
 
 fn input_schema(tool: &Tool) -> Value {
     match &tool.kind {
         Kind::Command("submit-run") => schema::command_input("submit-run", &SUBMIT_FILLED, &SUBMIT_DEFAULTED),
+        Kind::Command("answer-decision") => schema::command_input("answer-decision", &ANSWER_FILLED, &[]),
         Kind::Command(command) => schema::command_input(command, &["at"], &[]),
         Kind::ListRuns => schema::object(
             vec![("session_id", schema::view_param("runs-of-session-in-state", "session_id")), ("state", schema::view_param("runs-of-session-in-state", "state"))],
             &[],
         ),
         Kind::ReadRun => schema::object(vec![("run_id", schema::view_param("run", "run_id"))], &["run_id"]),
+        Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
         Kind::ReadEvents => schema::object(
             vec![
                 ("run_id", schema::view_param("events", "run_id")),
@@ -113,7 +127,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the six tools, in a fixed order.
+/// The result of `tools/list`: exactly the seven tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -202,6 +216,7 @@ pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, I
                 _ => Ok(a),
             }
         }
+        Kind::ReadOpenDecisions => Ok(be.view("open-decisions", &query_of(&args)?)),
         Kind::ReadEvents => {
             let mut q = query_of(&args)?;
             let after_sequence = match q.remove("after_sequence") {

@@ -20,6 +20,14 @@ types:
     naming:
       summary: "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity."
 
+  - name: sdc.daemon.AnswererLabel
+    kind: newtype
+    of: String
+    invariants:
+      - value.count <= 200
+    naming:
+      summary: "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing."
+
   - name: sdc.daemon.DaemonId
     kind: newtype
     of: String
@@ -95,6 +103,14 @@ types:
     naming:
       summary: "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now."
 
+conversions:
+  - from: sdc.daemon.AnswererLabel
+    to: sdc.decision.Principal
+    because: The label is recorded as the principal that answered; the daemon takes the name as given and only bounds its length.
+  - from: sdc.daemon.AnswererLabel
+    to: Optional<sdc.decision.Principal>
+    because: The request row holds the answerer as an optional principal, set when it is answered.
+
 entities:
   - name: sdc.daemon.Session
     naming:
@@ -121,6 +137,7 @@ entities:
       type: sdc.daemon.DaemonId
     fields:
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel, summary: "The lowest level the daemon takes (runbook serve --min-confinement). A run below it is refused."}
+      - {name: principal, type: sdc.decision.Principal, summary: "Who the daemon acts as: person:<id> or agent:<id> (runbook serve --principal, required, no default). Fixed for the life of the process: no command, header, MCP input or HTTP input changes it. The daemon passes it, and nothing a client typed, to the runtime as the principal of an answer."}
       - {name: started_at, type: Timestamp}
     lifecycle:
       initial: Up
@@ -191,7 +208,8 @@ entities:
       - {name: options, type: "List<sdc.decision.DecisionOption>"}
       - {name: opened_at, type: Timestamp}
       - {name: answer, type: Optional<String>, summary: "The option letter, or the free text for a question that takes one; present once Answered."}
-      - {name: answered_by, type: Optional<sdc.decision.Principal>}
+      - {name: answered_by, type: Optional<sdc.decision.Principal>, summary: "The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal."}
+      - {name: principal, type: Optional<sdc.decision.Principal>, summary: "The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one."}
       - {name: answered_at, type: Optional<Timestamp>}
     lifecycle:
       initial: Open
@@ -452,10 +470,11 @@ commands:
     naming:
       wire: start-daemon
       display: Start the daemon
-      summary: "Record what the daemon was started with: its confinement floor. Runs once, before the daemon takes a request; the daemon holds the row until it stops."
+      summary: "Record what the daemon was started with: its confinement floor and its principal. Runs once, before the daemon takes a request; the daemon holds the row until it stops."
     input:
       - {name: daemon_id, type: sdc.daemon.DaemonId}
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+      - {name: principal, type: sdc.decision.Principal}
       - {name: at, type: Timestamp}
     outcomes:
       - name: started
@@ -464,6 +483,7 @@ commands:
         instance: daemon_id
         sets:
           confinement_floor: input.confinement_floor
+          principal: input.principal
           started_at: input.at
         emits:
           - sdc.daemon.DaemonStarted
@@ -790,7 +810,8 @@ commands:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
       - {name: answer, type: String}
-      - {name: answered_by, type: sdc.decision.Principal}
+      - {name: answered_by, type: sdc.daemon.AnswererLabel}
+      - {name: principal, type: sdc.decision.Principal, summary: "The daemon's own principal (runbook serve --principal). The handler fills it from the daemon's configuration; a client never sends it, no HTTP body member or MCP argument sets it, and the HTTP/MCP schema of the client's input has no such member."}
       - {name: at, type: Timestamp}
     outcomes:
       - name: no-request
@@ -825,6 +846,7 @@ commands:
         sets:
           answer: input.answer
           answered_by: input.answered_by
+          principal: input.principal
           answered_at: input.at
         emits:
           - sdc.daemon.DecisionAnswered
@@ -833,7 +855,8 @@ commands:
             request_id: input.request_id
             run_id: input.run_id
             answered_by: input.answered_by
-        summary: "The request is Answered; the runtime takes the answer up and reports ResumeRun."
+            principal: input.principal
+        summary: "The request is Answered, with the label the client gave (answered_by) and the daemon's principal (principal); the runtime is given the principal and never the label, takes the answer up and reports ResumeRun."
 
   - name: sdc.daemon.RecordRunEvent
     naming:
@@ -992,6 +1015,7 @@ events:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: answered_by, type: sdc.decision.Principal}
+      - {name: principal, type: sdc.decision.Principal}
   - name: sdc.daemon.RunEventRecorded
     fields:
       - {name: event_id, type: sdc.daemon.EventId}
@@ -1046,6 +1070,7 @@ views:
     fields:
       - {name: daemon_id, type: sdc.daemon.DaemonId}
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+      - {name: principal, type: sdc.decision.Principal}
       - {name: started_at, type: Timestamp}
 
   - name: sdc.daemon.Runs
@@ -1187,6 +1212,9 @@ views:
     fields:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
       - {name: run_id, type: sdc.daemon.RunId}
+      - {name: case_id, type: String, summary: "The case the runtime opened the request for: which step asks."}
+      - {name: action, type: String, summary: "The action of the case that asks."}
+      - {name: capability, type: String, summary: "The capability the answer is for."}
       - {name: question, type: String}
       - {name: options, type: "List<sdc.decision.DecisionOption>"}
       - {name: opened_at, type: Timestamp}
@@ -1209,6 +1237,7 @@ views:
       - {name: opened_at, type: Timestamp}
       - {name: answer, type: Optional<String>}
       - {name: answered_by, type: Optional<sdc.decision.Principal>}
+      - {name: principal, type: Optional<sdc.decision.Principal>}
       - {name: answered_at, type: Optional<Timestamp>}
 
   - name: sdc.daemon.EventsAfter

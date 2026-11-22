@@ -33,7 +33,7 @@ scope:
   path: ui/vclock.mjs
 - confidence: cited
   path: ui/web
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:34Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T10:13:13Z", actor: "human:operator", revision: 7, executor: "agent:onebin-u-ui-embed", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -233,3 +233,72 @@ the text above says otherwise, this section is the current state.
 - F6, `ui/web/source.js` passes `position` and `sequence` through `Number()` before they enter markup.
 - The daemon enforces no minimum token length: `load_token` in `runbook/src/api/auth.rs` refuses an empty
   token only. Not changed.
+
+## Slice 2
+
+Branch `impl/daemon-ui-decide` (base `160c4df85`). Goal story moved: this one, acceptance line 3 (a decision
+request of a stub run is answered from the page's drawer through the ESS-specified command, and the run
+continues). Not in this slice: removal of `ui/server.mjs` and the other Node files (line 5), the Loom runtime
+as the daemon's default, and any command or view added to the specification.
+
+What was built.
+
+- Page: `ui/web/decide.js` (new, embedded by the build like every file of `ui/web/`; no inline script, the policy
+  is unchanged). When the daemon serves the page, the Decisions drawer lists the open decision requests of the
+  selected run (question, each option with its letter, what it does, cost, what it admits and blocks) and
+  answers one: an option, or free text. Hooks: `source.js` answers `/api/inbox` from the view
+  `GET /daemon/views/open-decisions`, `app.js` calls `renderDaemonDrawer` in place of `renderDrawer` (and
+  reads the inbox when a run is selected, only for a daemon's page), `style.css` has the few rules of the
+  form. Every text of the daemon is set with `textContent`; the module has no `innerHTML`.
+- The command is the daemon's own `answer-decision`, the one `runbook decide` sends. One answer is one
+  request: `POST /daemon/commands/answer-decision`; headers the page sets: `Content-Type: application/json`
+  and, only for a daemon with a token, `Authorization: Bearer <token>`; `credentials: 'omit'`, so no cookie
+  goes with it; the browser adds `Origin` (the page's own), `Host` and the usual. Body: `run_id`,
+  `request_id`, `answer`, `answered_by`. No new route, no change of the guard or of the specification.
+- Token. The read cookie is unchanged (`GET` and `HEAD` only). The page asks for the token once, in a field
+  of the drawer, and keeps it in a variable of the module: no cookie, no `localStorage`, `sessionStorage` or
+  `IndexedDB`, not in the URL, the history state or the DOM (the field is emptied when read). A reload
+  forgets it and the next command asks again, before anything is sent. A wrong token is `401` and the daemon's
+  message shows on the page; the page does not send again. Whether a token is needed is found with one read of
+  `GET /daemon/views/configuration` without credentials (`401`: needed); a daemon without a token on
+  loopback takes the command without a bearer and the page shows no token field.
+- Principal. The command needs `answered_by`; the daemon authenticates none, so the form asks for a name
+  and says it is a label the daemon records (as `--by`).
+- Stub runtime: `StubRuntime::decision_script`, the preset `stub-decision` of `runbook serve`. Two requests at
+  once, the question made from the intake (`{intake}` and `{run}` in an `Ask` are filled per run, so the
+  request ids are unique per daemon), `stub.answered` after both are answered, outcome `approved`. Without it
+  no run of the binary waited.
+- After an answer the page reads the daemon again: the views `runs` and `open-decisions`, and the event
+  stream goes on (`stub.answered` shows in the feed). The daemon records no event when a run starts to wait
+  or goes on, so the page also asks again every two seconds while visible.
+
+What did not hold.
+
+- "By which step": the views `open-decisions` and `decisions` carry no case, action or capability
+  (`ess/domains/daemon.yaml`, view `OpenDecisionsOfRun`; `runbook/src/commands.rs`, `open_decisions_of_run`),
+  although the request has them (`DecisionRequest`). The page shows the question and the options and does
+  not say which step asked. Adding the three fields to both views is a change of the specification and of
+  the generated contract: open for the orchestrator.
+- The gate config has projects `wide` and `laptop`, no mobile project; the phone is a `test.use` of a
+  phone viewport (as `mobile.spec.mjs` does), inside project `wide`.
+- `aep plan artifact body` takes no actor or correlation.
+
+Tests, with their time.
+
+- `ui/test/daemon-decide.spec.mjs` (gate lane, project `wide`; six tests, three runs of the file with
+  `daemon-ui.spec.mjs` 24 of 24 passed, 51 s with load, the slowest 7.3 s): the open decisions show and an
+  answer ends the wait, 3 to 6 s; token asked once, wrong token refused, one request only, 6 to 13 s (a 2.5 s
+  wait that proves no second send); a reload asks again, 3 to 5 s; token in no cookie, storage, URL, history
+  state or DOM, 2 to 5 s; markup in a question is text, 1.6 to 2 s; phone, 2 to 4 s. Mutants killed: the
+  token field not emptied (two tests fail), credentials sent with the command (the token test fails).
+- The whole UI step: 119 passed, 1 failed (the phone test measured the drawer while it slid in; it waits for
+  it now), 51 s of 120 s.
+- Crate (`slot task test:runbook`, 263 tests, 4.1 s): `ui_decide.rs`, in the one test binary:
+  `a_cookie_alone_does_not_answer_a_decision` 0.011 s (the generic cookie test
+  `a_cookie_authorizes_get_and_head_and_nothing_else_on_any_route` covered the route; this one shows the
+  decision stays open), `a_decision_from_another_origin_is_refused_with_a_token_and_without_one` 0.018 s,
+  `a_decision_is_answered_by_json_only` 0.015 s, `the_page_keeps_the_token_in_memory_and_writes_no_markup`
+  0.007 s, `the_binary_has_a_stub_run_that_waits_on_two_decisions_and_goes_on_when_they_are_answered`
+  0.018 s; `stub.rs`: `an_ask_is_filled_with_the_run_id_and_the_intake_so_that_two_runs_of_one_script_do_not_collide`
+  0.012 s. `the_embedded_list_is_the_directory_and_the_committed_files` holds with `decide.js` added.
+  None over 5 s.

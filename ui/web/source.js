@@ -41,12 +41,22 @@ const EMPTY = {
   '/api/view-info': null,
   '/api/run': {proc: null, settings: null, hasLog: false, runDir: ''},
   '/api/workfacts': {files: []},
-  '/api/inbox': {write: false, principal: null, items: [], history: [], missing: [], missingText: null, stopped: null},
 };
+
+// The open decision requests of the selected run, from the daemon's view open-decisions (rows as the daemon
+// has them: request_id, run_id, question, options, opened_at). The decisions made and the grounds are not in
+// the daemon's views, so the history stays empty. decide.js shows them and sends the answers.
+async function inbox(index) {
+  const run = order[index];
+  const rows = run ? (await json(`/daemon/views/open-decisions?run_id=${encodeURIComponent(run)}`)).rows : [];
+  return {write: true, principal: null, daemon: true, run, items: rows.map((r) => ({...r, id: r.request_id})), history: [], missing: [], missingText: null, stopped: null,
+    tag: 'Runbook daemon · you answer a decision from the Decisions drawer · the daemon records it'};
+}
 
 async function daemonApi(p) {
   const {pathname, searchParams} = new URL(p, location.href);
   if (pathname === '/api/sources') return sources();
+  if (pathname === '/api/inbox') return inbox(Number(searchParams.get('source') || 0));
   if (pathname === '/api/tree') return {source: Number(searchParams.get('source') || 0), version: 0, now: Date.now(), exists: true, present: [], cases: []};
   if (pathname === '/api/live') return {now: Date.now(), fs: {present: false, changes: []}};
   if (pathname in EMPTY) return EMPTY[pathname];
@@ -72,6 +82,11 @@ function daemonStream() {
     emit('sources', {count: order.length});
     for (const id of runs) if (order.includes(id)) emit('change', {source: order.indexOf(id), version: 0, cases: [], run: true, live: true});
   };
+  again = () => {
+    emit('sources', {count: order.length});
+    order.forEach((_, source) => emit('change', {source, version: 0, cases: [], run: true, live: false}));
+  };
+  const timer = setInterval(() => { if (!closed && document.visibilityState === 'visible') again(); }, 2000);
   (async () => {
     while (!closed) {
       try {
@@ -100,10 +115,16 @@ function daemonStream() {
       await new Promise((ok) => setTimeout(ok, 1000));
     }
   })();
-  return {addEventListener: (name, f) => (handlers[name] ||= []).push(f), set onerror(f) { on.error = f; }, close() { closed = true; }};
+  return {addEventListener: (name, f) => (handlers[name] ||= []).push(f), set onerror(f) { on.error = f; }, close() { closed = true; clearInterval(timer); }};
 }
 
 export const openEvents = () => (daemon ? daemonStream() : new EventSource('/events'));
+
+// Read the daemon's views again: the run list and the open decisions of the selected run. The daemon records no
+// event when a run starts to wait or goes on after an answer, so the page asks again after an answer of its own
+// and every two seconds while it is visible. (No-op for a page the Node server serves.)
+let again = () => {};
+export const refresh = () => again();
 
 const when = (t) => { const v = ms(t); return v == null ? '' : new Date(v).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}); };
 const short = (rec) => { const t = JSON.stringify(rec ?? null); return t === '{}' || t === 'null' ? '' : t.length > 160 ? `${t.slice(0, 159)}…` : t; };

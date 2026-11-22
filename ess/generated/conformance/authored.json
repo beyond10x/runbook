@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "767c3858ec84d5a976849c169f175ab1021b865bc400614daad9761cc9f807c4",
-    "contract_digest": "b70f64f52ef1cf2a7de87312f0128e6f948d1ffc367113425d37e424e67f2e00",
+    "spec_digest": "362047b7a9e737c94e4f369da6b9e9ff2c81d2a5a7aa4c2bd7a1d741356abeba",
+    "contract_digest": "e33827723b8e2c1e489cf239fa886bc6a12c12113a34ce35d495dbc3c706bf28",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -27,6 +27,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -523,6 +527,10 @@
               "kind": "literal",
               "value": "2026-11-22T11:01:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -705,6 +713,10 @@
         {
           "kind": "domain",
           "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
         },
         {
           "kind": "type",
@@ -952,6 +964,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -1157,6 +1173,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:05:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -1214,6 +1234,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -1277,6 +1301,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:09:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -1512,6 +1540,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:17:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-2"
@@ -1596,6 +1628,10 @@
         {
           "kind": "domain",
           "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
         },
         {
           "kind": "type",
@@ -1823,6 +1859,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -2135,6 +2175,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:05:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -2168,6 +2212,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:06:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -2205,6 +2253,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -2267,6 +2319,10 @@
         {
           "kind": "domain",
           "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
         },
         {
           "kind": "type",
@@ -2457,6 +2513,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -2784,6 +2844,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:08:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -2880,6 +2944,10 @@
         {
           "kind": "domain",
           "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
         },
         {
           "kind": "type",
@@ -3123,6 +3191,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -3543,6 +3615,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.CloseSession"
         },
@@ -3655,6 +3731,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -3911,6 +3991,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -3979,6 +4063,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -4310,6 +4398,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -4335,11 +4427,16 @@
           "event": "sdc.daemon.DecisionAnswered",
           "payload": {
             "answered_by": "operator",
+            "principal": "agent:conformance",
             "request_id": "dr-1",
             "run_id": "run-1"
           },
           "shape": {
             "answered_by": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "principal": {
               "holds": "primitive",
               "kind": "string"
             },
@@ -4440,6 +4537,10 @@
                 "kind": "literal",
                 "value": "operator"
               },
+              "principal": {
+                "kind": "literal",
+                "value": "agent:conformance"
+              },
               "request_id": {
                 "kind": "literal",
                 "value": "dr-1"
@@ -4481,6 +4582,10 @@
         {
           "kind": "domain",
           "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
         },
         {
           "kind": "type",
@@ -4721,6 +4826,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -5156,6 +5265,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.RecordRunEvent"
         },
@@ -5236,6 +5349,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -5616,6 +5733,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -5685,6 +5806,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -6258,6 +6383,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.EndRun"
         },
@@ -6377,6 +6506,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -6624,6 +6757,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -6693,6 +6830,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -7728,6 +7869,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
         },
         {
           "kind": "command",

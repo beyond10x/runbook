@@ -593,6 +593,18 @@ table.ctx tr.editing td { background: var(--accent-bg); }
 .res details { margin-top: 6px; color: var(--text-2); }
 .dr-f { border-top: 1px solid var(--line); padding: 12px 24px 16px; background: var(--bg-2); }
 .dr-fa { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.dd-who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 24px 0; font-size: 12px; color: var(--text-2); }
+.dd-who label { display: flex; align-items: center; gap: 8px; }
+.dd-who [hidden] { display: none; }
+.dd-who .tin { width: 200px; }
+#dd-msg { margin: 0 24px; }
+#dd-msg:empty { display: none; }
+#dd-msg.res { margin-top: 12px; }
+.dd-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 10px; }
+.dd-other { display: flex; gap: 8px; margin-top: 14px; }
+.dd-other .tin { flex: 1; }
+:where(html.phone) .dd-who { padding: 12px 12px 0; }
+:where(html.phone) #dd-msg { margin: 0 12px; }
 pre.proc { margin: 10px 0 0; max-height: 180px; overflow: auto; background: #07080b; border: 1px solid var(--line-2); border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #c9cfda; white-space: pre-wrap; }
 .empty-d { text-align: center; padding: 48px 16px; color: var(--text-2); }
 .empty-d .big { font-size: 28px; color: var(--true); margin-bottom: 8px; }
