@@ -7,9 +7,17 @@ description: The scripted checks and a dry run of Runbook with stub executors.
 
 ## What it needs
 
-Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`): the scripts build `runbook` once and run `runbook canon <subcommand>`; no `canon` binary is installed. Rust,
-`jq`, `yq`, and Node 22 for the live view in `ui/`
-([`README.md:48-49`](https://github.com/beyond10x/runbook/blob/0.1.1/README.md#L48-L49)).
+Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`); no `canon` binary is
+installed. Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`. Build `runbook` and the
+programs it runs once, in the repository root
+([`README.md`](https://github.com/beyond10x/runbook/blob/main/README.md)):
+
+```console
+(cd driver && cargo build --locked --bins)
+(cd runbook && cargo build --locked --bin runbook)
+```
+
+The binary is `runbook/target/debug/runbook`; the commands below write it as `runbook`.
 
 ## The scripted checks
 
@@ -30,9 +38,9 @@ takes about 12 minutes ([`Taskfile.yml`](https://github.com/beyond10x/runbook/bl
 
 ## A dry run
 
-A stub idea, stub executors that write the artifacts, every model command printed and none run,
-approvals scripted
-([`README.md:61-68`](https://github.com/beyond10x/runbook/blob/0.1.1/README.md#L61-L68)):
+The idea text you give with `--intake`, stub executors that write the artifacts, every model
+command printed and none run, approvals scripted
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md), "A dry run"):
 
 ```console
 runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \

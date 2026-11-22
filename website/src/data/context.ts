@@ -135,7 +135,7 @@ export const LAYERS: Layer[] = [
     name: 'Instruction',
     holds: 'A fixed preamble ("one step", "no shell", "programs check what you write") and the task text of this node.',
     owner: 'binding',
-    lever: 'the node’s instruction files under instructions/, which its binding names',
+    lever: 'at the pinned commit, the node’s entry in the model-node script (cited); today, the instruction files under instructions/ that the node’s binding names',
     cite: {path: NODE, lines: '540-559'},
   },
   {

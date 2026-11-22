@@ -583,10 +583,10 @@ export default function Evaluation({evaluation}: Props): ReactNode {
           <h3>How a run is started</h3>
           <p>
             <code>sdc-experiment run &lt;id&gt;</code> starts the runs of a prospective record, each with{' '}
-            the driver's trial script in autopilot (<Cite path="driver/src/bin/sdc-experiment.rs" lines={[1507]} />); it starts <code>runbook run</code> since the driver runtime was deleted.
-            Autopilot is autonomy level A5: the decider takes the scope answers and the findings, its decision is final,
-            and a stop that needs a person ends the run with a stop record by <code>rule:autopilot</code>{' '}
-            (<Cite path="docs/autonomy-levels.md" lines={[449]} />). Nobody is waited on.
+            <code>runbook run</code> (<Cite path="driver/src/bin/sdc-experiment.rs" lines={[2115]} at="main" />).
+            Autopilot is autonomy level A5: the decider takes the scope answers and the findings, its decision is final
+            (<Cite path="docs/autonomy-levels.md" lines={[466]} at="main" />), and a stop that needs a person ends the run with a
+            stop record by <code>rule:loom-run</code> (<Cite path="docs/loom-run-directory.md" lines={[76]} at="main" />). Nobody is waited on.
             {fixed.max_llm_calls ? <> Budgets of the latest record: {fixed.max_llm_calls} model calls, {fixed['decider.max_decider_calls'] ?? '–'} decider calls, {Math.round(Number(fixed.max_wall_seconds) / 60)} minutes.</> : null}
           </p>
           <h3>A clean pass, and what stops a run</h3>
