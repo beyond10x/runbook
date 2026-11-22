@@ -49,7 +49,8 @@ are not); never compared (`source`, `not_recorded`). File digests of the product
 with `--product-digests`: a stub run is deterministic, a model run is not. A test fails when a member of
 a summary has no row.
 
-Two named rules came from the first real run under Loom (`stub-cycle`):
+Two named rules came from the first real run under Loom (`stub-cycle`); a third, for the revision of a
+child's `case_outcome` record, is described under "Known differences of the two runtimes" below:
 
 - Registration stem (`cases[].protocol`, `copies[].from_protocol`, `protocols[].id`). The driver records
   a protocol's declared id (`sdc.intake`), Loom the name the protocol is registered under (`sdc-intake`:
@@ -70,6 +71,34 @@ lies below a member it lists) is not compared, and `compare` names it on a line
 reads `equal on what both sides record:` instead of `equal:`, and the exit is 0. A member both sides
 list is skipped and not named. The driver lists `decision_requests[].question` and `.options`, Loom
 lists `decision_requests`: the driver's two are below Loom's, so only Loom's is named.
+
+## Known differences of the two runtimes
+
+Differences that are not a defect of either side and that `compare` is built to read past. Each goes
+away with the driver's runtime.
+
+- The record a child's outcome leaves in its parent (`case_outcome`; named rule
+  `cases[].evidence[case_outcome].subject_revision` and `.upstream_revisions.*`). The driver writes it
+  with the parent's revision of the subject at the moment the child is opened and keeps it
+  (`driver/src/main.rs:1022-1028`). Loom writes it at the opening too and replaces its subject
+  revision at the child's termination with the revision the terminated child holds for that subject
+  (Loom at `64e8f5e2`, `crates/loom-governor/src/children.rs:480-484,605-614,707-718,734-754`). Loom's
+  reading is the intended one (the outcome is about what the child produced) and the driver is not
+  changed. Example: epic case `billing`, evidence index 2, the `case_outcome` on `spec`: the driver
+  holds no revision (`none`), Loom the specification's tree revision. `compare` takes the
+  `subject_revision` and the `upstream_revisions` of every evidence record of the kind `case_outcome`
+  out of both summaries before it names the labels `r1`, `r2`, ... in order of first appearance, so
+  such a record is neither compared nor counted and the labels of the records after it stay aligned.
+  The summary holds no mark of which action opened a child (it keeps no child id on a record), so the
+  records are found by their kind; both readers name it so, and in the first run all 7 `case_outcome`
+  records belong to the 7 child cases and no other record has that kind. The summaries themselves keep
+  what each runtime recorded.
+- Directory revisions differ in value between the runtimes because the algorithms differ (the driver's
+  `tree_digest`, `driver/src/main.rs:274-293`; Loom's `crates/loom-bindings/src/revision.rs:80-157`);
+  the comparison by order of first appearance is what makes them comparable.
+- File digests with `--product-digests` need no rule for the wall clock: a stamp
+  `YYYY-MM-DDTHH:MM:SSZ` in a text file is read as `<time>`, so the two files of the plan that carry
+  an `at:` (`aep/epic/billing.md`, `aep/story/invoices.md`) compare equal in the first run.
 
 ## How to run it
 
@@ -129,6 +158,8 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `cases[].evidence[].subject` | `evidence/<id>.json` | cases[].evidence[].subject | as is |
 | `cases[].evidence[].subject_revision` | `evidence/<id>.json` | cases[].evidence[].subject_revision | as is |
 | `cases[].evidence[].upstream_revisions.*` | `evidence/<id>.json` | cases[].evidence[].upstream_revisions.* | as is |
+| `cases[].evidence[case_outcome].subject_revision` | `evidence/<id>.json` | cases[].evidence[].subject_revision | taken out of both summaries before the labels are named; a known difference of the two runtimes (docs/parity.md) |
+| `cases[].evidence[case_outcome].upstream_revisions.*` | `evidence/<id>.json` | cases[].evidence[].upstream_revisions.* | taken out of both summaries before the labels are named, as the subject_revision |
 | `cases[].evidence[].action` | the action started or finished that names the record | cases[].evidence[].action | as is, none is null; a case_outcome record with none takes the action of the next record (the opening step's own) |
 | `cases[].program_runs[].action` | `action_finished` events with an argv and no principal | cases[].runs[].action | as is |
 | `cases[].program_runs[].attempt` | `action_finished` events with an argv and no principal | (counted) | n-th run of the action in the case's runs[]; Loom's attempt counts within a retry chain and is not read |

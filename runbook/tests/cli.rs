@@ -1797,6 +1797,7 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
 /// record carries, `outcome_up` its upstream revision, `check_rev` the revision of the first check.
 fn outcome_summary(check_rev: &str, outcome_rev: &str, outcome_up: &str) -> Value {
     let mut v = mini_summary("p");
+    v["copies"] = json!([]);
     let rec = |i: usize, kind: &str, action: &str, rev: &str, up: Value| {
         json!({"index": i, "kind": kind, "result": null, "subject": "doc", "subject_revision": rev,
             "upstream_revisions": up, "action": action})
