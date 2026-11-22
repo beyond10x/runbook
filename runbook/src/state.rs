@@ -6,6 +6,7 @@
 //! `commit` changes the state, so a replay gives the state the process had. The journal is not
 //! synced to the disk per fact: it survives the process, not a power cut.
 
+use crate::clock::{format_instant, Clock, SystemClock};
 use crate::runtime::Confinement;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,7 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunState {
@@ -172,6 +173,7 @@ pub struct State {
     events_of_run: HashMap<String, Vec<usize>>,
     /// A version that grows with every commit: what an event stream waits on.
     changes: tokio::sync::watch::Sender<u64>,
+    clock: Arc<dyn Clock>,
 }
 
 /// A read of the events after a position: the events, and how far the read looked.
@@ -181,27 +183,6 @@ pub struct EventPage<'a> {
     pub scanned: u64,
 }
 
-/// The RFC 3339 time now, in UTC, with milliseconds.
-pub fn now() -> String {
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    format_time(d.as_secs() as i64, d.subsec_millis())
-}
-
-fn format_time(secs: i64, millis: u32) -> String {
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
-}
-
 fn invalid(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
@@ -209,6 +190,12 @@ fn invalid(msg: String) -> io::Error {
 impl State {
     /// Open the state directory: make `runs/` and `workspaces/`, take its lock, replay the journal.
     pub fn open(root: &Path) -> io::Result<State> {
+        State::open_with_clock(root, Arc::new(SystemClock))
+    }
+
+    /// `open` with the clock the state reads every recorded instant from (a test sets one; the
+    /// daemon's own start takes the system clock).
+    pub fn open_with_clock(root: &Path, clock: Arc<dyn Clock>) -> io::Result<State> {
         std::fs::create_dir_all(root.join("runs"))?;
         std::fs::create_dir_all(root.join("workspaces"))?;
         let lock = OpenOptions::new().create(true).truncate(false).write(true).open(root.join("daemon.lock"))?;
@@ -232,6 +219,7 @@ impl State {
             events: vec![],
             events_of_run: HashMap::new(),
             changes: tokio::sync::watch::channel(0).0,
+            clock,
         };
         state.replay(&path)?;
         Ok(state)
@@ -252,6 +240,12 @@ impl State {
         // The configuration row lives as long as the process: a new start writes its own.
         self.daemon = None;
         Ok(())
+    }
+
+    /// The RFC 3339 instant now by the state's clock, in UTC, with milliseconds: the one place the
+    /// daemon reads the time for a record.
+    pub fn now(&self) -> String {
+        format_instant(self.clock.now_millis())
     }
 
     pub fn root(&self) -> &Path {

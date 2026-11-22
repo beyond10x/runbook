@@ -33,7 +33,7 @@ scope:
   path: ui/vclock.mjs
 - confidence: cited
   path: ui/web
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:34Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -65,7 +65,7 @@ moves with this one (the orchestrator decides; this story edits none of them).
 - The files of `ui/web/` are compiled into the binary at build time: `runbook serve --ui` started from
   an empty directory with no `ui/` answers `GET /` with 200 and the content of `ui/web/index.html`
   byte for byte, and `GET /app.js` likewise; without `--ui`, `GET /` answers 404.
-- The UI reads runs from `GET /v1/runs` and events from the SSE routes of the daemon; with two stub
+- The UI reads runs from `GET /daemon/views/runs` and events from the SSE routes of the daemon; with two stub
   runs in two sessions the page lists both and the feed of each shows its own events (a Playwright
   spec, in the existing `ui/test/` set, two workers).
 - A decision request of a stub run is answered from the UI's drawer through

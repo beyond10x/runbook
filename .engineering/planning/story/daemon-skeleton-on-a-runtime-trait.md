@@ -27,7 +27,7 @@ scope:
   path: runbook/src/stub.rs
 - confidence: cited
   path: runbook/tests
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T05:12:16Z", actor: "human:operator", revision: 7}
@@ -206,3 +206,42 @@ to that module; `runbook/tests/daemon/http.rs` lost the test of the `406`.
 
 Known limit: a client that holds a connection and never reads keeps its connection task until the
 process ends; `serve` returns one second after the shutdown began whether or not it finished.
+
+## Part C5
+
+Branch `impl/daemon-budget-clock`: the test budget of the crate is enforced by its runner, the daemon
+reads one clock, and the stories name the routes that exist.
+
+- Budget: `runbook/.config/nextest.toml` (30 s period, terminate after 2: a test over 60 s is killed and
+  fails) and the task `test:runbook` (build with `--no-run` first, then the timed run, the ten slowest
+  tests, exit non-zero over 120 s), a dependency of `task check` in place of the crate's `cargo test`.
+  The forge runs the same task for a change classified as code (`.github/workflows/pages.yml`, with
+  go-task and cargo-nextest installed from checksummed release archives as `surf` does). Before this the
+  forge ran no test of the crate. Step times: `cargo test --locked` 41.5 s test run, 47 s job; nextest
+  40.8 s run, 57 s job (both with the pool queue wait not counted, 171 tests, before the clock). The
+  in-process `OnceLock` of `runbook/tests/daemon/openapi.rs` reads and parses the generated OpenAPI
+  document (well under 1 s per test, no test of it in the ten slowest), so it stays. Test binaries carry
+  no debug info already (`.cargo/config.toml` of the repository sets `debug = false` and wins over the
+  manifest here: `readelf -S` on `target/debug/deps/cli-*` shows no `.debug_*` section, 13 MB).
+  Proof of the kill: a scratch test sleeping 70 s was `TIMEOUT [60.154s]`, the summary said `1 timed
+  out` and the task exited non-zero; the test is not committed.
+- Clock: `runbook/src/clock.rs` has the trait `Clock`, `SystemClock` (the only production
+  implementation) and `SetClock` (tests). The state holds the clock and `State::now` is the one place
+  the daemon reads the time for a record (12 call sites of the former free function `state::now`, all in
+  `commands.rs`; `Instant::now` in `doctor.rs` and `stub.rs` measures durations and records nothing).
+  `Daemon::start` takes `SystemClock`; `Daemon::start_with_clock` is called by test code only: `serve`
+  does not call it, and no option, environment variable or request reaches it. The conformance runner
+  already built the daemon in process on `127.0.0.1:0`; it now builds it with a `SetClock` and moves the
+  clock to the `at` of each command step before the step runs, and compares instants as instants.
+- Conformance: before the clock the two scenarios, read strictly, failed (12 executed, 10 passed, 2
+  failed: `answered_at` and `closed_at` held the wall clock); after: 12 executed, 12 passed, 0 skipped,
+  and `GATE` says so. The `ended_at` claims removed by the earlier unit are back in
+  `daemon-cancel-a-run` and `daemon-a-run-whose-runtime-is-gone-ends-as-orphaned`. The interpreted target
+  still passes 15 of 15. Red proof (not committed): `cancel_run` stamping `2020-01-01T00:00:00.000Z`
+  turned `daemon-cancel-a-run` red on `ended_at`.
+- Routes: the story's own routes (`/daemon/commands/<name>`, `/daemon/views/<name>`) are the 5 commands
+  and 12 views of the generated OpenAPI document and of the route table; two other stories of the epic
+  named `GET /v1/runs`, which exists nowhere, and now name `GET /daemon/views/runs`
+  (`ui-embedded-in-the-binary`, `confinement-level-per-run`). Not changed, outside the routes:
+  `confinement-level-per-run` says a submit below the floor answers `403`; the specification and the
+  daemon answer `409` (`BelowConfinementFloor`).
