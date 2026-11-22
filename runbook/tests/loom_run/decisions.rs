@@ -502,3 +502,17 @@ fn at_a4_the_decider_is_asked_for_the_close_rejects_and_the_run_stops_unclosed()
 fn one_close_forever(w: &World) {
     w.fake.answer("tree_run", "default", &tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", close_decision("operating"))), 3);
 }
+
+#[test]
+fn a_missing_table_stops_for_a_person_at_a5_too_and_calls_no_model() {
+    let w = World::new("table-missing-a5");
+    install_decider(&w, &reject_reply("unused").replace("\"reject\"", "\"approve\""));
+    std::fs::remove_file(w.root.join("tools/autonomy-levels.json")).unwrap();
+    bindings(&w, &bindings_of("context.approve"));
+    approve_tree(&w, "context.approve");
+    at_level(&w, "A5");
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 8, "a table that cannot be read must stop every decision for a person, at A5 as at A3: {}", stderr(&o));
+    assert_eq!(adapter_starts(&w), 0, "the decider was asked with no table");
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "an approval was given with no table");
+}

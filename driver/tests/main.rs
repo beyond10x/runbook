@@ -6,6 +6,7 @@ mod answers;
 mod bugfix_languages;
 mod bugfix_prompt;
 mod conformance;
+mod decision_contract_mutants;
 mod decision_grounds;
 mod decision_request;
 mod experiment_loom;
