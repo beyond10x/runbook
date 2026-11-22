@@ -93,7 +93,7 @@
     {
       "arguments": [],
       "capabilities": [],
-      "description": "run the specification's conformance suite against the current change revision; only while no run is recorded about it against the current specification revision",
+      "description": "run the specification's conformance suite against the current change revision; only while no run is recorded about it against the current specification revision, and not on a revision whose requirement coverage the writer's program check refused",
       "effect": "read",
       "executor": {
         "kind": "program",
@@ -120,6 +120,20 @@
         {
           "depth": 1,
           "reference": "claim:tests.run_recorded",
+          "text": "claim is unknown:"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:change.coverage_refused",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:change.coverage_refused",
           "text": "claim is unknown:"
         }
       ],
@@ -338,9 +352,10 @@
   ],
   "bindings": "driver/examples/sdc/sdc-story.bindings.json",
   "check": {
+    "note": "the committed check output is of revision 7, not 8",
     "revision": 7,
     "source": "docs/check-output.txt",
-    "states": 49152
+    "states": null
   },
   "children": [],
   "claims": [
@@ -353,6 +368,18 @@
           "reference": "evidence:implementation_change",
           "suffix": "about change",
           "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the writer's run that made the current change revision was refused by the program check of the requirement coverage (result coverage_refused of its implementation_change record); no conformance run is due on that revision, the writer is sent back with the check's output",
+      "name": "change.coverage_refused",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:implementation_change",
+          "suffix": "about change",
+          "text": "evidence = coverage_refused:"
         }
       ]
     },
@@ -569,6 +596,18 @@
         "to": "outcome:passed"
       },
       {
+        "from": "claim:change.coverage_refused",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "claim:change.coverage_refused",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:tests.run"
+      },
+      {
         "from": "claim:change.merged",
         "kind": "requires",
         "to": "outcome:passed"
@@ -707,6 +746,12 @@
         "to": "claim:change.built"
       },
       {
+        "from": "evidence:implementation_change",
+        "kind": "establishes",
+        "qualifier": "coverage_refused",
+        "to": "claim:change.coverage_refused"
+      },
+      {
         "from": "evidence:merge_approval",
         "kind": "establishes",
         "qualifier": "approved",
@@ -793,6 +838,11 @@
         "id": "claim:change.built",
         "kind": "claim",
         "name": "change.built"
+      },
+      {
+        "id": "claim:change.coverage_refused",
+        "kind": "claim",
+        "name": "change.coverage_refused"
       },
       {
         "id": "claim:change.merged",
@@ -964,19 +1014,19 @@
       "stem": "sdc-epic"
     }
   ],
-  "revision": 7,
+  "revision": 8,
   "simulate": {
     "by_outcome": {
-      "dropped": 27,
-      "passed": 2
+      "dropped": 48,
+      "passed": 4
     },
     "canon": "2c7a1ea6",
     "findings": 5,
-    "reachable": 54,
-    "revision": 7,
+    "reachable": 96,
+    "revision": 8,
     "source": "protocol/simulate/sdc-story.txt",
     "stuck_or_cycle": 11,
-    "terminable": 28
+    "terminable": 50
   },
   "source": {
     "path": "protocol/sdc-story.protocol.yaml",

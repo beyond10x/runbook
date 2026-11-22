@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.story
-  revision: 7
+  revision: 8
   description: >-
     Deliver one AEP story of an approved ESS specification: implement it against the current
     specification revision, verify it with the ESS conformance run against the implementation,
@@ -73,6 +73,16 @@ claims:
     true_when:
       evidence:
         kind: implementation_change
+        subject: change
+  change.coverage_refused:
+    description: >-
+      the writer's run that made the current change revision was refused by the program check of
+      the requirement coverage (result coverage_refused of its implementation_change record); no
+      conformance run is due on that revision, the writer is sent back with the check's output
+    true_when:
+      evidence:
+        kind: implementation_change
+        result: coverage_refused
         subject: change
   tests.pass:
     description: >-
@@ -170,13 +180,19 @@ actions:
   tests.run:
     description: >-
       run the specification's conformance suite against the current change revision; only while no
-      run is recorded about it against the current specification revision
+      run is recorded about it against the current specification revision, and not on a revision whose
+      requirement coverage the writer's program check refused
     effect: read
     precondition:
       all:
         - claim: change.built
         - claim: tests.run_recorded
           is: unknown
+        - any:
+            - claim: change.coverage_refused
+              is: "false"
+            - claim: change.coverage_refused
+              is: unknown
     may_produce:
       - evidence: conformance_run
   change.review:

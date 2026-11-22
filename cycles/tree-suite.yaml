@@ -350,15 +350,15 @@ cycles:
         - {check: exists, name: stop-recorded, select: [{files: {in: store, glob: "run-stopped.*.json"}}]}
 
   - name: writer-own-error
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/own-error, to: .stub}, {from: seeds/stub/settings/questions-answer.yaml, to: .stub/settings.yaml}]
     expect:
-      exit: 0
+      exit: 3
       checks:
         - check: some
           name: the-refusal-reached-the-next-run
           select: [{files: {in: work, glob: ".sdc/llm/*-questions.answer/cwd/in/feedback.md"}}, {follow: file}, {as: text}]
           where: {".": {contains: "changed a scope-changing question"}}
+        - {check: count, name: answered-three-times-then-spent, select: [{log: {case: intake, event: ActionFinished}}, {where: {action: questions.answer, exit: 1}}], is: 3}
 
   - name: writer-sees-test-failure
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/test-failure, to: .stub}, {from: seeds/stub/settings/implement.yaml, to: .stub/settings.yaml}]
@@ -376,7 +376,6 @@ cycles:
           where: {".": {matches: "(?m)^slot: job "}}
 
   - name: coverage-not-built
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-not-built.yaml, to: .stub/replies/coverage.yaml}]
     expect:
       exit: 0
@@ -389,7 +388,6 @@ cycles:
           where: {".": {contains: "- r2: not built: fixture: the email is not sent yet"}}
 
   - name: coverage-line-outside
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-line-outside.yaml, to: .stub/replies/coverage.yaml}]
     expect:
       exit: 0
@@ -401,7 +399,6 @@ cycles:
           where: {".": {contains: "- r2: src/lib.rs:999 is outside src/lib.rs (79 lines)"}}
 
   - name: coverage-test-missing
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-test-missing.yaml, to: .stub/replies/coverage.yaml}]
     expect:
       exit: 0
@@ -413,12 +410,11 @@ cycles:
           where: {".": {contains: "- r2: test email_is_sent: no #[test] function of that name in the test sources"}}
 
   - name: coverage-spent
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-spent.yaml, to: .stub/replies/coverage.yaml}]
     expect:
       exit: 4
       checks:
-        - {check: count, name: three-implement-runs, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], is: 3}
+        - {check: count, name: three-implement-runs, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement, exit: 8}}], is: 3}
         - {check: count, name: no-tests-run, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: tests.run}}], is: 0}
 
   - name: coverage-reply-retry

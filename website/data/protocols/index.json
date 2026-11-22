@@ -379,7 +379,7 @@
       "actions": 10,
       "children": [],
       "claims": 10,
-      "evidence": 5,
+      "evidence": 6,
       "id": "sdc.intake",
       "outcomes": [
         "passed",
@@ -388,9 +388,9 @@
       "parents": [
         "sdc"
       ],
-      "revision": 9,
+      "revision": 10,
       "simulate_findings": 17,
-      "states": 49152,
+      "states": null,
       "stem": "sdc-intake",
       "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3)."
     },
@@ -654,7 +654,7 @@
       ],
       "actions": 7,
       "children": [],
-      "claims": 10,
+      "claims": 11,
       "evidence": 6,
       "id": "sdc.story",
       "outcomes": [
@@ -664,9 +664,9 @@
       "parents": [
         "sdc.epic"
       ],
-      "revision": 7,
+      "revision": 8,
       "simulate_findings": 5,
-      "states": 49152,
+      "states": null,
       "stem": "sdc-story",
       "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision."
     }
@@ -916,7 +916,7 @@
     },
     {
       "path": "protocol/sdc-intake.protocol.yaml",
-      "sha256": "cf4f2e5f5e4f762a1b2d4c36ee22b37dbb9c5ed3b7e1d5958205047b52c4b739"
+      "sha256": "2a90be971a89c8e16e2ff4f022895fd07686f1ae40a99dfe30623f64822a6ca4"
     },
     {
       "path": "protocol/sdc-plan.protocol.yaml",
@@ -932,7 +932,7 @@
     },
     {
       "path": "protocol/sdc-story.protocol.yaml",
-      "sha256": "a90b7d589eb20011513ddcaac3ef235521c7659987582ee417e633daadfaa651"
+      "sha256": "103ef846933fc5ad5da6a5ee88e6963fd3dd56eaf1f5d353dd9642f80197df00"
     },
     {
       "path": "protocol/sdc.protocol.yaml",
@@ -956,7 +956,7 @@
     },
     {
       "path": "protocol/simulate/sdc-intake.txt",
-      "sha256": "0560b6516a9eb80e39311dd4f5463b34d0b58d6d158dbc878b0bed5d7665e955"
+      "sha256": "64bc76e9f63a00f9509218363d1472c80e432c1d6551729d811fbc126cc33fef"
     },
     {
       "path": "protocol/simulate/sdc-plan.txt",
@@ -972,7 +972,7 @@
     },
     {
       "path": "protocol/simulate/sdc-story.txt",
-      "sha256": "672e06b592799a249a2184a558146dc528f729f199e992219fee84ee7d3f6dc7"
+      "sha256": "fa8d3b83f19348db05071c440c39cc023eb85900ce53fe05fdc25487a003b4c8"
     },
     {
       "path": "protocol/simulate/sdc.txt",

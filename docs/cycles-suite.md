@@ -150,14 +150,14 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 20 converted, 30 pending (5 wait for a story the pinned Loom has not shipped and are
-not run; 25 run and still fail), 80 not converted (1 full-cycle, 18 re-drive and other, 61 trial).
+130 entries: 25 converted, 25 pending (5 wait for a story the pinned Loom has not shipped and are
+not run; 20 run and still fail), 80 not converted (1 full-cycle, 18 re-drive and other, 61 trial).
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
 50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
 pending`. The ten slowest cycles took 35.9 s (`implement-percause`, pending), 27.5 s (`trace-gap`),
-26.8, 26.8, 26.3, 26.1, 24.2, 24.0, 21.4 and 20.8 s. Every converted cycle took between 10.6 s and 27.5 s,
-so all of them are over 5 s. The time is
+26.8, 26.8, 26.3, 26.1, 24.2, 24.0, 21.4 and 20.8 s. Every cycle converted by then took between 10.6 s and 27.5 s,
+so all of them are over 5 s. The five converted later (the four coverage cycles and `writer-own-error`) took 13.2, 8.5, 10.3, 10.1 and 3.1 s in single runs; `writer-own-error` is the only cycle of the file under 5 s. The time is
 the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
 programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
 test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
@@ -233,7 +233,7 @@ replay model calls from and no injected rejection, timeout or failed check.
 ### Trial entries (83)
 
 These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
-with a model adapter's replies scripted. Seven are converted and fifteen are pending cycles in the
+with a model adapter's replies scripted. Twelve are converted and ten are pending cycles in the
 file (the scripted-reply entries among them have their replies as seeds); the other 61 are not
 converted. The classes of the 61:
 
@@ -305,7 +305,7 @@ converted. The classes of the 61:
 | rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-invalid-named | pending | the run stops at the inputs of `change.review` (no conformance run recorded, exit 4: story:bound-agent-node), not at the scripted invalid review; `stop-names-the-review` fails |
-| writer-own-error | pending | the first `questions.answer` exits 1 (`changed a scope-changing question: not applied`) and the run stops, exit 3: Loom does not run the node again with the refused apply's log as feedback (a retry after a program's exit; no Loom story yet) |
+| writer-own-error | converted | `questions.answer` records `answer_applied` (`sdc.intake` revision 10: exit 0 empty, exit 1 `refused`) and its binding has `retry_when: {answer_applied: [refused]}`: the refused apply is a retry record, the next run reads its log in `in/feedback.md`; the fixture never fixes the answer, so the run ends after the third refusal (`RunsSpent`, stop at `scope.answer`, exit 3) |
 | implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
 | writer-sees-test-failure | converted | the failing test's message and the absence of a pool line are read from the second call's `in/feedback.md` (`files`, `follow: file`) |
 | implement-request-build | converted | the request record (`reply-schema.json`, `implement-inputs.json`) is read the same way; not said: the written `impl/src/lib.rs` equal to the fixture's file, and a non-empty `commands` in the inputs |
@@ -315,10 +315,10 @@ converted. The classes of the 61:
 | implement-request-invalid-named | converted | the cause `implement_reply_invalid` is a field of the call line; not said: the old driver's `run-stopped.json`, here the stop is exit 4 |
 | implement-request-path-escape | converted | |
 | coverage-complete | pending | stops at the inputs of `change.review`, exit 4, as review-reject-once |
-| coverage-not-built | pending | `bindings/sdc-story.yaml` has no `check-coverage` postcondition (the driver's postcondition with a `switch` and the kind `requirement_coverage` has no form in a loom.bindings/1 file), so a `not_built` document is not refused: one implement run, expected 2 |
-| coverage-line-outside | pending | same: not refused, one implement run, expected 2 |
-| coverage-test-missing | pending | same: not refused, one implement run, expected 2 |
-| coverage-spent | pending | same: never refused, so no `writer_spent`; the run ends exit 0, expected 4 |
+| coverage-not-built | converted | `sdc.story` revision 8: `llm-node.sh` runs `sdc-reply check-coverage` after the writer under Loom (`SDC_IMPLEMENT_COVERAGE` from `.stub/settings.yaml`) and exits 8 on a refusal; the binding records exit 8 as `implementation_change` `coverage_refused` and `retry_when` lists it; `tests.run` is not admissible on a revision with that record |
+| coverage-line-outside | converted | same form |
+| coverage-test-missing | converted | same form |
+| coverage-spent | converted | same form; the three runs are the `change.implement` runs that ended with exit 8 (a fourth action finishes with no exit when the allowance is spent) |
 | coverage-reply-retry | converted | the node's own shape check and its second request run in `llm-node.sh`, so they hold under Loom; the refused reply and the reason in the prompt are read from the call record |
 | review-real-path | not converted | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
 | review-real-path-facts | not converted | same |

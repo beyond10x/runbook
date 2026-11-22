@@ -342,6 +342,24 @@ check (sdc.intake); requirements → context check; vision → roadmap approval 
 spec → plan validation and coverage (sdc.plan); spec → implementation record and conformance run
 (sdc.story); spec → release conformance (sdc.release).
 
+
+## A writer that Loom sends back on its own run
+
+Loom sends a writer back by `retry_when`, which lists a result of an evidence kind recorded about
+the current revision of an artifact; a run that records nothing cannot be retried. The driver's
+`postcondition` and a writer's own refused apply record nothing, so under Loom they take a record
+of their own:
+
+| Protocol | Writer | Record | Exit | Effect |
+|---|---|---|---|---|
+| sdc.story (8) | `change.implement` | `implementation_change` result `coverage_refused` | 8 (`sdc-reply check-coverage` refused, run by `llm-node.sh` under Loom only) | claim `change.coverage_refused`; `tests.run` is admissible only while it is false or unknown, so no conformance run is due on that revision (`tests.run` is a read action and Loom orders it before the write action `change.implement`) |
+| sdc.intake (10) | `questions.answer` | `answer_applied` result `refused` | 1 (the apply step refused the answers) | none: the writer's `retry_when` sends it back |
+
+The retry gives the writer the refused run's output (the tail Loom keeps of the cited blob) as
+`in/feedback.md`. The driver's records are unchanged: it never records `coverage_refused` or
+`answer_applied`, so `change.coverage_refused` stays unknown and `tests.run` stays admissible as
+before. `canon check` counts 196,608 states for sdc.story (was 49,152) and 98,304 for sdc.intake
+(was 49,152) and reports no finding at the pinned Canon.
 ## Reconciliation with docs/intake.md
 
 - Kept as named: `idea_shape`, `questions_shape`, `questions_settled`, `spec_validation`,
