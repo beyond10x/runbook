@@ -2,6 +2,7 @@
 //! `run`, `ui` and `handback` come in later versions and are not stubbed here.
 
 mod assets;
+mod canon_cmd;
 mod check;
 mod doctor;
 mod list;
@@ -62,6 +63,15 @@ enum Cmd {
     Parity {
         #[command(subcommand)]
         cmd: ParityCmd,
+    },
+    /// The `canon` subcommands the scripts call (validate, compile, check, simulate, evaluate) over the linked Canon library.
+    #[command(args_conflicts_with_subcommands = true)]
+    Canon {
+        /// Print the linked Canon version, as `canon --version` did.
+        #[arg(long)]
+        version: bool,
+        #[command(subcommand)]
+        cmd: Option<canon_cmd::CanonCmd>,
     },
 }
 
@@ -138,6 +148,9 @@ fn main() -> ExitCode {
         Cmd::Runs { cmd } => runbook::client::runs(cmd),
         Cmd::Decide(args) => runbook::client::decide(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
+        Cmd::Canon { version: true, .. } => canon_cmd::version(),
+        Cmd::Canon { cmd: Some(cmd), .. } => canon_cmd::run(cmd),
+        Cmd::Canon { .. } => ExitCode::from(USAGE_ERROR),
         Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
             let assets = assets::Lookup::from_process().locate().ok();

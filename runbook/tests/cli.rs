@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod canon_cmd;
 mod ess_digest;
 mod loom_run;
 mod reply_lib;
@@ -245,7 +246,12 @@ fn doctor_json_reports_every_check() {
 }
 
 fn canon_pin() -> serde_json::Value {
-    serde_json::from_str(&std::fs::read_to_string(repo().join("driver/canon-pin.json")).unwrap()).unwrap()
+    let lock = std::fs::read_to_string(repo().join("runbook/Cargo.lock")).unwrap();
+    let entry = &lock[lock.find("name = \"b10x-canon\"\n").unwrap()..];
+    let mut lines = entry.lines().skip(1);
+    let version = lines.next().unwrap().trim_start_matches("version = \"").trim_end_matches('"');
+    let commit = lines.next().unwrap().rsplit('#').next().unwrap().trim_end_matches('"');
+    serde_json::json!({"version": version, "commit": commit})
 }
 
 fn fake_canon_at(p: &Path, version: &str) {
@@ -1293,7 +1299,7 @@ const LANE_PROTOCOLS: [&str; 2] = ["sdc", "sdc-epic"];
 
 /// A scratch copy of what `scripts/check-protocols.sh` reads for `LANE_PROTOCOLS` (their sources,
 /// their pinned simulate reports and their entries of the committed ledger, byte for byte), and a
-/// stub canon that validates and compiles anything: the fast lane takes every result from the
+/// stub `runbook` that validates and compiles anything: the fast lane takes every result from the
 /// ledger and runs no real check.
 fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
@@ -1313,18 +1319,17 @@ fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     ledger["protocols"].as_object_mut().unwrap().retain(|k, _| LANE_PROTOCOLS.contains(&k.as_str()));
     assert_eq!(ledger["protocols"].as_object().unwrap().len(), LANE_PROTOCOLS.len());
     std::fs::write(root.join("protocol/check-ledger.json"), serde_json::to_string_pretty(&ledger).unwrap() + "\n").unwrap();
-    std::fs::create_dir_all(root.join("driver")).unwrap();
-    std::fs::copy(repo().join("driver/canon-pin.json"), root.join("driver/canon-pin.json")).unwrap();
-    let stub = root.join("canon-stub");
-    let version = canon_pin()["version"].as_str().unwrap().to_string();
-    std::fs::write(&stub, format!("#!/bin/sh\ncase \"$1\" in --version) echo 'canon {version}';; compile) echo '{{}}';; esac\n")).unwrap();
+    std::fs::create_dir_all(root.join("runbook")).unwrap();
+    std::fs::copy(repo().join("runbook/Cargo.lock"), root.join("runbook/Cargo.lock")).unwrap();
+    let stub = root.join("runbook-stub");
+    std::fs::write(&stub, "#!/bin/sh\ncase \"$2\" in compile) echo '{}';; esac\n").unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
     (root, stub)
 }
 
 fn check_protocols(root: &Path, stub: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut c = Command::new("bash");
-    c.arg(root.join("scripts/check-protocols.sh")).args(args).env("CANON", stub);
+    c.arg(root.join("scripts/check-protocols.sh")).args(args).env("RUNBOOK_BIN", stub);
     for (k, v) in env {
         c.env(k, v);
     }

@@ -465,7 +465,7 @@ These metrics extend the eval design's metrics; they do not redefine them.
 - **Revisions.** A run made before the launcher does not record the driver and bindings
   revision: `opened.bindings` names a worktree path, not a commit, and runs from different hours
   ran different code. A launched run records its `tree_commit` in `experiment.json`; the canon
-  binary is pinned in `driver/canon-pin.json` and checked by the scripts.
+  library is pinned in `runbook/Cargo.lock` (`runbook canon`, formerly a `canon` binary pinned in `driver/canon-pin.json`).
 - **Effort.** Absent before `feat/effort-per-class`; those runs read `unrecorded`.
 - **Quality of the delivered app.** No run writes `oracle.json`.
 - **Retries inside a session.** An invalid model reply retried inside `llm-node.sh` (review

@@ -151,7 +151,7 @@ log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
 **Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
 approval record and no `rejected` result: the same treatment (`release_approval` with a manual
 `release.approve`) gives 98,304 states, past the bound of 65,536 that Canon enforced when this was
-written. The pinned Canon (`driver/canon-pin.json`) enforces no such bound: it checks `sdc.story`
+written. The pinned Canon (`runbook/Cargo.lock`) enforces no such bound: it checks `sdc.story`
 at 196,608 states and `sdc.intake` at 98,304 with no finding. Dropping the capability to fit the
 bound would leave authority resting on a manual record alone, which is not allowed. A refused release
 therefore records nothing in the case; the tools stop such a run with a named cause
@@ -281,16 +281,15 @@ difference fails with a unified diff and
 terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
 `e81f970d`, the commit of Canon's release tag `0.11.0` (`2c7a1ea6`, tag `0.10.0`, until 2026-11-22; before it, until
 SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
-protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
-`${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
-`PATH`). Every script resolves the same pinned binary (`canon_resolve` in `scripts/evaluate-cases.sh`):
-`CANON`, else that cache; it refuses unless `canon --version` equals `driver/canon-pin.json`, and
-`runbook doctor` compares the version with the pin too.
+protocols are byte-equal on both). Canon is the library the `runbook` crate links, not a binary: every script
+runs `runbook canon <subcommand>` (`runbook_resolve` in `scripts/evaluate-cases.sh` finds or builds it;
+`runbook/src/canon_cmd.rs`), and the pin is the `b10x-canon` entry of `runbook/Cargo.lock`, which
+`CANON_REV` must be a prefix of; `runbook doctor` reads its Canon pin from the same lock file.
 
 - Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
   `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the
   protocol and the reason in the commit body.
-- A new Canon release: put the commit of its tag in `CANON_REV`, then `--repin` if a report
+- A new Canon release: move the `b10x-canon` tag in `runbook/Cargo.toml` and the lock, put the commit of its tag in `CANON_REV`, then `--repin` if a report
   changes; Canon's next waves change simulate's output, so the reports move with them.
 - `SDC_SIMULATE=off` skips the step with a printed line (no network).
 - The pinned reports are a ratchet, not a verdict: every protocol still exits 1 with findings

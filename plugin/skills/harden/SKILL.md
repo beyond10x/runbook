@@ -10,7 +10,7 @@ Four steps, cheapest first. Each step ends on a command that exits 0, or on a re
 This skill works today inside a checkout of this repository. Run `test -x scripts/check-protocols.sh`
 from the checkout root; when it fails, stop and tell the person that `harden` needs this repository.
 
-Needs: the pinned `canon` binary (`CANON`, else the cached install of the commit in `driver/canon-pin.json`; refused unless `canon --version` equals the pin), `cargo`, `jq`,
+Needs: `runbook` (built by the scripts with `cargo build --locked --bin runbook` in `runbook/`; it links Canon, and `runbook/Cargo.lock` is the pin), `cargo`, `jq`,
 `yq`. Prefix every build or test with `slot` when `slot` is on `PATH`. A command that takes more than 30 seconds
 runs in the background; wait on its output file.
 
@@ -29,7 +29,7 @@ the protocol):
 
 ```console
 repo=$(pwd)
-source scripts/evaluate-cases.sh && canon_resolve && "$canon" check --path "$repo/<file>"
+source scripts/evaluate-cases.sh && runbook_resolve && "$runbook" canon check --path "$repo/<file>"
 ```
 
 `validate` and `compile` take the same `--path`. `scripts/evaluate-cases.sh` evaluates every case
@@ -64,12 +64,11 @@ removed, in the same commit.
 
 ## 3. Simulate against the expected findings
 
-`canon simulate` walks the state space of a protocol. The simulate step of
-`scripts/check-protocols.sh` runs `canon simulate --path` on each `protocol/*.protocol.yaml` with
-the Canon commit in `protocol/simulate/CANON_REV`, and compares the output byte for byte with the
-pinned report `protocol/simulate/<name>.txt`. The script installs that Canon build into
-`${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<commit>/` on first use (network needed); it is the
-binary every script resolves. A different finding set fails with a diff and
+`runbook canon simulate` walks the state space of a protocol. The simulate step of
+`scripts/check-protocols.sh` runs `runbook canon simulate --path` on each `protocol/*.protocol.yaml` with
+the Canon commit in `protocol/simulate/CANON_REV` (the one of `runbook/Cargo.lock`), and compares the output byte for byte with the
+pinned report `protocol/simulate/<name>.txt`. Canon is the library `runbook` links; no Canon is installed.
+A different finding set fails with a diff and
 `simulate: <protocol>: findings changed (was N, now M)`.
 
 1. Read the diff. Classify each new or removed finding with the verdicts of

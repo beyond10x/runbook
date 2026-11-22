@@ -220,18 +220,11 @@ fn probe(spec: &Spec, l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets
     }
 }
 
-/// The Canon release Runbook pins (`driver/canon-pin.json`, compiled in so it always matches the
-/// scripts of the same checkout).
-struct CanonPin {
-    version: String,
-    commit: String,
-}
+/// The Canon release this binary links: the `b10x-canon` entry of `runbook/Cargo.lock`
+/// (`canon_cmd::pin`), which is the one pin there is.
+type CanonPin = crate::canon_cmd::Pin;
 
-static CANON_PIN: std::sync::LazyLock<CanonPin> = std::sync::LazyLock::new(|| {
-    let v: Value = serde_json::from_str(include_str!("../../driver/canon-pin.json")).expect("driver/canon-pin.json is JSON");
-    let field = |k: &str| v[k].as_str().unwrap_or_default().to_string();
-    CanonPin { version: field("version"), commit: field("commit") }
-});
+static CANON_PIN: std::sync::LazyLock<CanonPin> = std::sync::LazyLock::new(crate::canon_cmd::pin);
 
 /// The canon binary, as the scripts find it (`canon_resolve` in `scripts/evaluate-cases.sh`):
 /// `CANON` (a path, or a name on `PATH`), else the cached install of the pinned commit under
