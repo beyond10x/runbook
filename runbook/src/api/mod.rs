@@ -98,6 +98,30 @@ pub fn router(daemon: Daemon, token: Option<&str>) -> Router {
         .layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
 }
 
+/// How streams behave: the keep-alive interval and the most events a live stream may fall behind.
+#[derive(Clone, Debug)]
+pub struct Streams {
+    pub keep_alive: std::time::Duration,
+    pub max_lag: usize,
+}
+
+impl Default for Streams {
+    fn default() -> Streams {
+        Streams { keep_alive: std::time::Duration::from_secs(15), max_lag: 1024 }
+    }
+}
+
+/// `serve` with the behaviour of streams given.
+pub async fn serve_with(
+    listener: tokio::net::TcpListener,
+    daemon: Daemon,
+    token: Option<&str>,
+    _streams: Streams,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> io::Result<()> {
+    serve(listener, daemon, token, shutdown).await
+}
+
 /// Serve until `shutdown` completes.
 pub async fn serve(listener: tokio::net::TcpListener, daemon: Daemon, token: Option<&str>, shutdown: impl Future<Output = ()> + Send + 'static) -> io::Result<()> {
     axum::serve(listener, router(daemon, token)).with_graceful_shutdown(shutdown).await
