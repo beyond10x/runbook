@@ -512,6 +512,20 @@ impl RunDirWriter {
         append_line(&self.path("decisions.jsonl"), &Value::Object(line))
     }
 
+    /// One line of the decider's answer to a request of the answers file, in the driver's format
+    /// (the line is built by `answers::decision_line`); `time` is the runner's clock.
+    fn answer_recorded(&mut self, at: u64, line: &Value) -> Result<(), String> {
+        let Value::Object(map) = self.clean.value(line) else {
+            return Err("an answer line is not a JSON object".into());
+        };
+        let mut out = Map::new();
+        out.insert("time".into(), json!(rfc3339(at)));
+        for (k, v) in map {
+            out.insert(k, v);
+        }
+        append_line(&self.path("decisions.jsonl"), &Value::Object(out))
+    }
+
     // ------------------------------------------------------------------- stop and end records
 
     fn write_stop(&mut self, at: u64, cause: &str, reason: &str) -> Result<(), String> {
@@ -810,6 +824,13 @@ impl EventSink for RunDirWriter {
             }
             Event::DecisionAnswered { decision, approve, principal, cost_micro_usd, model_calls } => {
                 self.decision_answered(at_secs, decision, *approve, principal, *cost_micro_usd, *model_calls)?;
+                let start = self.asked_at.take().unwrap_or(self.last_at).min(at_secs);
+                self.project((start, at_secs))?;
+                self.last_at = at_secs;
+                Ok(())
+            }
+            Event::AnswerRecorded { line } => self.answer_recorded(at_secs, line),
+            Event::DeclaredTaken { .. } => {
                 let start = self.asked_at.take().unwrap_or(self.last_at).min(at_secs);
                 self.project((start, at_secs))?;
                 self.last_at = at_secs;

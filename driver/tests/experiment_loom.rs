@@ -616,3 +616,37 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
     assert_eq!(stop["reason"], "the cap was wrong");
 }
+
+#[test]
+fn a_launch_is_refused_when_a_program_of_the_answers_file_is_not_on_the_path() {
+    let d = scratch("answers-path");
+    let builds = fake_build(&d, 8, true);
+    write_record(&d, &example(COMMIT));
+    let build = builds.join(COMMIT);
+    fs::create_dir_all(build.join("bindings/tools")).unwrap();
+    fs::write(
+        build.join("bindings/tools/answers.yaml"),
+        "format: runbook.loom-run-answers/1\nanswers:\n- action: scope.answer\n  on: ApproveAction\n  requests: [sdc-answers, requests, questions]\n  apply: [sdc-answers, apply, question, '{id}', '{answer}', '{principal}']\n  then: [tools/sdc-tool.sh, scope-answer, '{principal}']\n",
+    )
+    .unwrap();
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for t in ["jq", "yq", "rsync"] {
+        fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    let path = tools.to_str().unwrap();
+    let run = ["run", "lx", "--builds-dir", builds.to_str().unwrap()];
+    let (code, out) = experiment_env(&run, &d, &[("PATH", path)]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("refused: sdc-answers not on PATH: `bindings/tools/answers.yaml`"), "{out}");
+    fs::write(tools.join("sdc-answers"), "#!/bin/sh\n").unwrap();
+    fs::set_permissions(tools.join("sdc-answers"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let (_, out) = experiment_env(&run, &d, &[("PATH", path)]);
+    assert!(!out.contains("sdc-answers not on PATH"), "a PATH with the program passes the check: {out}");
+    fs::remove_file(tools.join("sdc-answers")).unwrap();
+    fs::create_dir_all(build.join("driver/src/bin")).unwrap();
+    fs::write(build.join("driver/src/bin/sdc-answers.rs"), "fn main() {}\n").unwrap();
+    let (_, out) = experiment_env(&run, &d, &[("PATH", path)]);
+    assert!(!out.contains("sdc-answers not on PATH"), "a program the build makes passes the check: {out}");
+}

@@ -13,6 +13,7 @@
 //! - R2 (decider): `decider.rs`, `bindings_copy.rs`;
 //! - R3 (run directory writer): `run_dir.rs`.
 
+pub mod answers;
 pub mod bindings_copy;
 pub mod budget;
 pub mod child;

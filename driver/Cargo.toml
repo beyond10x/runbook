@@ -18,6 +18,10 @@ name = "sdc-findings"
 path = "src/bin/sdc-findings.rs"
 
 [[bin]]
+name = "sdc-answers"
+path = "src/bin/sdc-answers.rs"
+
+[[bin]]
 name = "sdc-finding-kpis"
 path = "src/bin/sdc-finding-kpis.rs"
 

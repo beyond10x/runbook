@@ -51,6 +51,8 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
             "decision_answered",
             json!({"decision": decision, "approve": approve, "principal": principal, "cost_micro_usd": cost_micro_usd, "model_calls": model_calls}),
         ),
+        Event::AnswerRecorded { line } => ("answer_recorded", json!({"line": line})),
+        Event::DeclaredTaken { decision, principal } => ("declared_taken", json!({"decision": decision, "principal": principal})),
         Event::CostedCall { source, cost_micro_usd, record } => {
             let source = match source {
                 CostSource::Step => "step",
