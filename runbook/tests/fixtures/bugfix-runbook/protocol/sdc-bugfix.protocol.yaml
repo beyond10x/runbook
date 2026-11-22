@@ -1,0 +1,22 @@
+format: protocol/1
+protocol:
+  id: sdc.bugfix
+  revision: 1
+  description: >-
+    A stand-in for the bug-fix runbook of the port tests: one case whose one step reads what the seed wrote into the case's work directory.
+artifacts:
+  bug: {}
+evidence_kinds:
+  seed_check: {}
+claims:
+  seed.found:
+    true_when:
+      evidence: {kind: seed_check, subject: bug, result: found}
+actions:
+  seed.check:
+    effect: read
+    may_produce:
+      - evidence: seed_check
+outcomes:
+  fixed:
+    requires: {claim: seed.found}

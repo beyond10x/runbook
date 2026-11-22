@@ -292,8 +292,8 @@ Refused for a `loom` variant, each with its reason in the message: `implement_mo
 `flags.recorded` (each waits for its port into `runbook run`; in `sdc-experiment.rs` one function
 per setting, marked `// port: <name>`, which the port removes), `efforts.<class>.effort` (no
 argument of `llm-node.sh` in Loom mode carries an effort, so the class defaults of
-`tools/node-classes.json` apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`); a
-`seed` input (a bug-fix case) is refused until `runbook run` opens one (`// port: bugfix`). A record that compares the
+`tools/node-classes.json` apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`) or a
+`seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
 

@@ -171,7 +171,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
     };
     let root_protocol = match here.root_protocol {
         Some(r) => r,
-        None => root_protocol_of(&base.runbook, &protocols).map_err(|e| (EXIT_REFUSED, e))?,
+        None => root_protocol_of(super::bugfix::runbook_of(&ports, &base.runbook)?, &protocols).map_err(|e| (EXIT_REFUSED, e))?,
     };
     Ok(Args {
         run: here.run.ok_or_else(|| missing("--run"))?,
@@ -181,7 +181,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         bindings,
         protocols,
         root_protocol,
-        case: here.case,
+        case: super::bugfix::case_of(&ports, here.case),
         intake,
         confinement: here.confinement.ok_or_else(|| missing("--confinement"))?,
         settings: here.settings.ok_or_else(|| missing("--settings"))?,

@@ -220,11 +220,42 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("a loom variant starts from an idea input"), "{out}");
-    // A seed input is the bug-fix case that `runbook run` cannot open yet.
+    // A seed input is the bug-fix case that `runbook run --bugfix` opens: it needs its directory.
     write_record(&d, &example("null").replace("kind: idea", "kind: seed"));
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 1, "{out}");
-    assert!(out.contains("`runbook run` has no --bugfix or --bugfix-ticket yet"), "{out}");
+    assert!(out.contains("a seed needs `seed`, its directory relative to the tree") && !out.contains("a loom variant starts from"), "{out}");
+    write_record(&d, &example("null").replace("kind: idea", "kind: seed, seed: driver/examples/sdc/fixtures/bugfix-pager"));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+}
+
+/// A seed input starts `runbook run sdc-bugfix --bugfix <seed directory of the tree>`: the root
+/// protocol is the bug-fix one, the case is `BUG-1`, the intake is the bug report.
+#[test]
+fn a_seed_input_starts_the_bug_fix_runbook_with_bugfix_and_its_root_protocol() {
+    let d = scratch("seed-input");
+    let builds = fake_build(&d, 11, true);
+    fs::write(builds.join(COMMIT).join("protocol/sdc-bugfix.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc.bugfix\n  revision: 1\n").unwrap();
+    write_record(&d, &example(COMMIT).replace("kind: idea", "kind: seed, seed: driver/examples/sdc/fixtures/bugfix-pager"));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let build = builds.join(COMMIT);
+    let launch = builds.parent().unwrap().join("launch").join("lx");
+    let runs = d.join("runs");
+    let want = format!(
+        "  {} run sdc-bugfix --run lx.low.1 --runs-dir {} --loom /opt/loom/b10x-loom --loom-sha256 {LOOM_SHA} --bindings {} --protocols {} \
+         --root-protocol sdc-bugfix@1 --case BUG-1 --bugfix {} --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
+         --max-llm-calls 100 --max-wall-seconds 3600",
+        build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
+        build.join("driver/examples/sdc/fixtures/bugfix-pager").display(), launch.join("lx.low.1").join("idea.yaml").display(),
+        launch.join("lx.low.1").join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+    assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
+    // a build without the bug-fix root protocol is refused for that file
+    fs::remove_file(build.join("protocol/sdc-bugfix.protocol.yaml")).unwrap();
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("has no protocol/sdc-bugfix.protocol.yaml"), "{out}");
 }
 
 /// A planned record of the old driver: no `runner`, the settings of its launch table.

@@ -33,6 +33,23 @@ unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exi
 calls, signal, decider, denied), 64 usage. The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
+A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
+and so is a directory or file that is not there). The root protocol is `sdc-bugfix` and the root case
+`BUG-1` (a `--case` that is not `IDEA-1` is kept); the runbook argument may be `sdc` or `sdc-bugfix`,
+another is exit 64, and a `--root-protocol` that is not `sdc-bugfix@<revision>` is refused with exit
+2. Before the tree opens, the runner starts the helper `sdc-bugfix` (found as `runbook doctor` finds
+the helpers: beside the executable, `driver/target/` of a checkout, then `PATH`; not found is exit 2
+before anything is written) with the environment of the bound programs, in `work/`, and the seed
+writes `bug.yaml`, `mainline/`, `impl/`, `checks.yaml` and the story there (`runbook/src/loom_run/bugfix.rs`,
+`docs/bugfix.md`). With a seed directory it runs `sdc-bugfix seed --from <dir> --text <the intake's
+text> --story story:bug-<run>`; with a ticket, `sdc-bugfix seed --ticket <file>`, and the intake is
+not read for it (it is still required, and the runner still writes `work/idea.yaml` from it). The
+runner prints nothing of a seed that worked. A seed that failed ends the run `error`, exit 1, with
+the last three lines the seed printed (`sdc-bugfix` quotes the ticket's id and no other value of it).
+The text of a ticket is in `work/` and in no other file the runner writes and on neither stream
+(`runbook/tests/loom_run/bugfix.rs`). The bug-fix runbook works on Rust repositories only
+(`docs/bugfix.md`).
+
 ## The two ways to Loom
 
 One of two (`--loom` without `--loom-sha256`, or the reverse, is refused with exit 2, nothing written):

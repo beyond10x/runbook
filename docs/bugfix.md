@@ -179,6 +179,7 @@ suite cannot yet say it (`unexpressed` in `cycles/suite.yaml`), so the script do
 
 ```console
 $ scripts/run-trial.sh <run> --bugfix <seed dir> ["<bug report>"] [--autopilot | --dry]
+$ runbook run sdc-bugfix --bugfix <seed dir> --intake <bug report> ...      # on Loom (docs/loom-run.md)
 ```
 
 This opens root `BUG-1` on `sdc.bugfix`. `sdc-bugfix seed` copies the code tree (`<seed dir>` when
@@ -225,6 +226,7 @@ defines the document it writes and makes the bug-fix runbook take it.
 
 ```console
 $ scripts/run-trial.sh <run> --bugfix-ticket <ticket file> [--autopilot | --dry]
+$ runbook run sdc-bugfix --bugfix-ticket <ticket file> --intake <any text> ...   # on Loom: the intake is not read for the ticket
 $ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>]      # what run-trial.sh calls in work/
 $ sdc-bugfix schema ticket                                         # the JSON schema of the format
 ```
