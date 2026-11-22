@@ -464,10 +464,283 @@ fn version_unknown_subcommand_and_help() {
     let o = Command::new(BIN).arg("help").output().unwrap();
     assert_eq!(o.status.code(), Some(0));
     let h = stdout(&o);
-    assert!(h.contains("doctor") && h.contains("list"), "{h}");
-    for later in ["run", "resume", "stop", "ui", "handback", "check", "simulate"] {
+    assert!(h.contains("doctor") && h.contains("list") && h.contains("check"), "{h}");
+    for later in ["run", "resume", "stop", "ui", "handback", "simulate"] {
         assert!(!h.lines().any(|l| l.trim_start().starts_with(&format!("{later} "))), "{later} listed\n{h}");
         assert_eq!(Command::new(BIN).arg(later).output().unwrap().status.code(), Some(64), "{later}");
     }
     assert_eq!(Command::new(BIN).output().unwrap().status.code(), Some(64));
+}
+
+fn copy_dir(from: &Path, to: &Path, skip: &[&str]) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let name = e.file_name();
+        let (src, dst) = (e.path(), to.join(&name));
+        if src.is_dir() {
+            if !skip.contains(&name.to_string_lossy().as_ref()) {
+                copy_dir(&src, &dst, &[]);
+            }
+        } else {
+            std::fs::copy(&src, &dst).unwrap();
+        }
+    }
+}
+
+/// A scratch copy of the text of this checkout: what `runbook check` reads. The fixtures the
+/// cycles name are linked, not copied; `ui/` is an empty directory.
+fn text_copy(w: &World) -> PathBuf {
+    let co = w.root.join("co");
+    let r = repo();
+    for d in ["protocol", "bindings", "views", "cycles"] {
+        copy_dir(&r.join(d), &co.join(d), &[]);
+    }
+    copy_dir(&r.join("instructions"), &co.join("instructions"), &["golden"]);
+    std::fs::create_dir_all(co.join("ui")).unwrap();
+    std::fs::create_dir_all(co.join("scripts")).unwrap();
+    std::fs::copy(r.join("scripts/run-finding-cycles.sh"), co.join("scripts/run-finding-cycles.sh")).unwrap();
+    std::fs::create_dir_all(co.join("driver/examples/sdc")).unwrap();
+    for e in std::fs::read_dir(r.join("driver/examples/sdc")).unwrap().flatten() {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n.ends_with(".bindings.json") {
+            std::fs::copy(e.path(), co.join("driver/examples/sdc").join(&n)).unwrap();
+        }
+    }
+    std::os::unix::fs::symlink(r.join("driver/examples/sdc/fixtures"), co.join("driver/examples/sdc/fixtures")).unwrap();
+    std::os::unix::fs::symlink(r.join("decision"), co.join("decision")).unwrap();
+    co
+}
+
+/// Replace the first `from` of `file` under `co` by `to`; the text must be there.
+fn edit(co: &Path, file: &str, from: &str, to: &str) {
+    let p = co.join(file);
+    let t = std::fs::read_to_string(&p).unwrap();
+    assert!(t.contains(from), "{file} has no {from:?}");
+    std::fs::write(&p, t.replacen(from, to, 1)).unwrap();
+}
+
+fn check(w: &World, co: &Path) -> Output {
+    w.run(&["check"], &[("RUNBOOK_HOME", co.to_str().unwrap())])
+}
+
+/// The finding lines of `runbook check`: every line but `note:` and the closing `check:` line.
+fn findings(o: &Output) -> Vec<String> {
+    stdout(o).lines().filter(|l| !l.starts_with("note: ") && !l.starts_with("check: ")).map(String::from).collect()
+}
+
+/// The check fails, and a finding names `file` and holds every text of `has`, with a fix.
+fn assert_finding(o: &Output, file: &str, has: &[&str]) {
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(o));
+    let hit = findings(o).into_iter().find(|l| l.starts_with(&format!("{file}: ")) && has.iter().all(|h| l.contains(h)));
+    let hit = hit.unwrap_or_else(|| panic!("no finding of {file} with {has:?}\n{}", stdout(o)));
+    assert!(hit.contains("; fix: "), "{hit}");
+}
+
+#[test]
+fn check_passes_on_this_checkout() {
+    let w = World::new("check-checkout");
+    let o = w.run(&["check"], &[("RUNBOOK_HOME", repo().to_str().unwrap())]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    assert!(stdout(&o).starts_with("check: ok ("), "{}", stdout(&o));
+    assert!(stdout(&o).contains("compared with scripts/run-finding-cycles.sh"), "{}", stdout(&o));
+}
+
+#[test]
+fn check_passes_on_a_clean_copy_and_json_says_so() {
+    let w = World::new("check-clean");
+    let co = text_copy(&w);
+    let o = w.run(&["check", "--json"], &[("RUNBOOK_HOME", co.to_str().unwrap())]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    let j: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(j["ok"], true);
+    assert_eq!(j["findings"].as_array().unwrap().len(), 0);
+    assert!(j["summary"].as_str().unwrap().contains("compared with"), "{j}");
+}
+
+#[test]
+fn check_json_lists_each_finding_with_file_what_and_fix() {
+    let w = World::new("check-json");
+    let co = text_copy(&w);
+    edit(&co, "views/sdc.view.json", "runbook.view/1", "runbook.view/9");
+    let o = w.run(&["check", "--json"], &[("RUNBOOK_HOME", co.to_str().unwrap())]);
+    assert_eq!(o.status.code(), Some(1));
+    let j: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(j["ok"], false);
+    let f = &j["findings"][0];
+    assert_eq!((f["check"].as_str(), f["file"].as_str()), (Some("views"), Some("views/sdc.view.json")));
+    assert!(f["what"].as_str().unwrap().contains("runbook.view/9") && !f["fix"].as_str().unwrap().is_empty(), "{f}");
+}
+
+#[test]
+fn check_without_assets_fails_and_says_why() {
+    let w = World::new("check-no-assets");
+    let o = w.run(&["check"], &[("RUNBOOK_HOME", w.root.join("home").to_str().unwrap())]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("RUNBOOK_HOME"), "{:?}", o);
+}
+
+#[test]
+fn check_names_a_part_of_the_layout_that_is_missing() {
+    let w = World::new("check-layout");
+    let co = text_copy(&w);
+    std::fs::remove_dir_all(co.join("views")).unwrap();
+    std::fs::set_permissions(co.join("bindings/tools/decider.sh"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "views/", &["missing", "no such directory"]);
+    assert_finding(&o, "bindings/tools/decider.sh", &["missing", "not an executable file"]);
+}
+
+#[test]
+fn check_fails_a_binding_that_names_a_missing_instruction_file() {
+    let w = World::new("check-instr-missing");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-intake.yaml", "instructions/idea.dissect.md", "instructions/no-such-file.md");
+    let o = check(&w, &co);
+    assert_finding(&o, "bindings/sdc-intake.yaml", &["idea.dissect", "instructions/no-such-file.md", "existing"]);
+    edit(&co, "bindings/sdc-intake.yaml", "instructions/no-such-file.md", "instructions/../README.md");
+    assert_finding(&check(&w, &co), "bindings/sdc-intake.yaml", &["instructions/../README.md", "without .."]);
+}
+
+#[test]
+fn check_fails_a_json_binding_that_names_a_missing_instruction_file() {
+    let w = World::new("check-instr-missing-json");
+    let co = text_copy(&w);
+    edit(&co, "driver/examples/sdc/sdc-intake.bindings.json", "instructions/idea.dissect.md", "instructions/no-such-file.md");
+    assert_finding(&check(&w, &co), "driver/examples/sdc/sdc-intake.bindings.json", &["idea.dissect", "instructions/no-such-file.md"]);
+}
+
+#[test]
+fn check_fails_two_forms_that_name_different_files() {
+    let w = World::new("check-forms-differ");
+    let co = text_copy(&w);
+    edit(&co, "driver/examples/sdc/sdc-intake.bindings.json", "instructions/idea.dissect.md", "instructions/questions.write.md");
+    let o = check(&w, &co);
+    assert_finding(&o, "bindings/sdc-intake.yaml", &["idea.dissect", "differs from llm.instructions", "sdc-intake.bindings.json"]);
+    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+}
+
+#[test]
+fn check_fails_a_binding_pair_with_one_form_missing_and_an_unreadable_one() {
+    let w = World::new("check-pair");
+    let co = text_copy(&w);
+    std::fs::remove_file(co.join("bindings/sdc-plan.yaml")).unwrap();
+    std::fs::write(co.join("bindings/sdc-epic.yaml"), "actions: [unclosed\n").unwrap();
+    std::fs::write(co.join("driver/examples/sdc/sdc-spec.bindings.json"), "{").unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "driver/examples/sdc/sdc-plan.bindings.json", &["no bindings/sdc-plan.yaml"]);
+    assert_finding(&o, "bindings/sdc-epic.yaml", &["does not parse"]);
+    assert_finding(&o, "driver/examples/sdc/sdc-spec.bindings.json", &["does not parse"]);
+}
+
+#[test]
+fn check_fails_a_binding_whose_program_is_not_an_executable_tool() {
+    let w = World::new("check-tool");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-intake.yaml", "tools/sdc-tool.sh, check-idea", "tools/no-such-tool.sh, check-idea");
+    assert_finding(&check(&w, &co), "bindings/sdc-intake.yaml", &["idea.check", "tools/no-such-tool.sh", "not an executable bindings/tools/<file>"]);
+    edit(&co, "bindings/sdc-intake.yaml", "tools/no-such-tool.sh, check-idea", "../tools/sdc-tool.sh, check-idea");
+    assert_finding(&check(&w, &co), "bindings/sdc-intake.yaml", &["../tools/sdc-tool.sh", "a path with .."]);
+}
+
+#[test]
+fn check_fails_an_instruction_file_with_a_bad_placeholder() {
+    let w = World::new("check-placeholder");
+    let co = text_copy(&w);
+    let p = co.join("instructions/idea.dissect.md");
+    let t = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, format!("{t}\nGiven {{{{Bad-Name}}}} and {{{{good_name}}}}.\n")).unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "instructions/idea.dissect.md", &["{{Bad-Name}}", "{{[a-z_]+}}"]);
+    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+}
+
+#[test]
+fn check_fails_an_instruction_file_nothing_names() {
+    let w = World::new("check-unreferenced");
+    let co = text_copy(&w);
+    std::fs::write(co.join("instructions/orphan.md"), "Nothing names this file.\n").unwrap();
+    std::fs::write(co.join("instructions/decider/orphan-two.md"), "Nor this one.\n").unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "instructions/orphan.md", &["no binding, program or other instruction file names it"]);
+    assert_finding(&o, "instructions/decider/orphan-two.md", &["names it"]);
+    assert_eq!(findings(&o).len(), 2, "{}", stdout(&o));
+}
+
+#[test]
+fn check_fails_a_view_with_another_format_id() {
+    let w = World::new("check-view");
+    let co = text_copy(&w);
+    edit(&co, "views/sdc.view.json", "runbook.view/1", "runbook.view/2");
+    let o = check(&w, &co);
+    assert_finding(&o, "views/sdc.view.json", &["runbook.view/2", "runbook.view/1"]);
+    std::fs::write(co.join("views/sdc.view.json"), "[]").unwrap();
+    assert_finding(&check(&w, &co), "views/sdc.view.json", &["not a JSON object"]);
+    std::fs::write(co.join("views/other.view.json"), "{\"phases\": {}}").unwrap();
+    assert_finding(&check(&w, &co), "views/other.view.json", &["no \"format\" member"]);
+}
+
+#[test]
+fn check_fails_a_duplicate_cycle_id() {
+    let w = World::new("check-dup");
+    let co = text_copy(&w);
+    edit(&co, "cycles/suite.yaml", "- id: finding-agent\n", "- id: stub-cycle\n");
+    let o = check(&w, &co);
+    assert_finding(&o, "cycles/suite.yaml", &["cycle id stub-cycle appears more than once"]);
+}
+
+#[test]
+fn check_fails_a_cycle_state_that_differs_from_the_script() {
+    let w = World::new("check-state");
+    let co = text_copy(&w);
+    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: stub-cycle\n    state: pending");
+    let o = check(&w, &co);
+    assert_finding(&o, "cycles/suite.yaml", &["stub-cycle is pending in the suite and expected in scripts/run-finding-cycles.sh"]);
+    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+}
+
+#[test]
+fn check_fails_a_cycle_the_suite_and_the_script_do_not_share() {
+    let w = World::new("check-ids");
+    let co = text_copy(&w);
+    edit(&co, "scripts/run-finding-cycles.sh", "pending=(rework-spent-dropped rework-spent-abandoned)", "pending=(rework-spent-dropped rework-spent-abandoned brand-new-cycle)");
+    edit(&co, "cycles/suite.yaml", "- id: finding-agent\n", "- id: finding-agent-renamed\n");
+    let o = check(&w, &co);
+    assert_finding(&o, "cycles/suite.yaml", &["brand-new-cycle", "not in the suite"]);
+    assert_finding(&o, "cycles/suite.yaml", &["finding-agent-renamed", "not in the arrays"]);
+    assert_finding(&o, "cycles/suite.yaml", &["cycle finding-agent ", "not in the suite"]);
+}
+
+#[test]
+fn check_fails_a_missing_fixture_and_a_bad_suite_header() {
+    let w = World::new("check-fixture");
+    let co = text_copy(&w);
+    edit(&co, "cycles/suite.yaml", "fixtures: [driver/examples/sdc/fixtures/finding-spec-agent.yaml]", "fixtures: [driver/examples/sdc/fixtures/no-such-fixture.yaml]");
+    assert_finding(&check(&w, &co), "cycles/suite.yaml", &["cycle finding-agent", "driver/examples/sdc/fixtures/no-such-fixture.yaml", "does not exist"]);
+    edit(&co, "cycles/suite.yaml", "format: runbook.cycles/1", "format: runbook.cycles/2");
+    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: stub-cycle\n    state: done");
+    let o = check(&w, &co);
+    assert_finding(&o, "cycles/suite.yaml", &["runbook.cycles/2"]);
+    assert_finding(&o, "cycles/suite.yaml", &["cycle stub-cycle has state \"done\""]);
+}
+
+#[test]
+fn check_skips_the_comparison_with_the_script_when_it_is_gone_and_says_so() {
+    let w = World::new("check-no-script");
+    let co = text_copy(&w);
+    std::fs::remove_file(co.join("scripts/run-finding-cycles.sh")).unwrap();
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    let notes: Vec<String> = stdout(&o).lines().filter(|l| l.starts_with("note: ")).map(String::from).collect();
+    assert_eq!(notes, ["note: scripts/run-finding-cycles.sh does not exist: the ids and states of cycles/suite.yaml are not compared with it"]);
+}
+
+#[test]
+fn check_does_not_compare_an_unlisted_cycle_with_the_script() {
+    let w = World::new("check-unlisted");
+    let co = text_copy(&w);
+    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: ran-outside-the-arrays\n    state: unlisted");
+    let o = check(&w, &co);
+    assert_finding(&o, "cycles/suite.yaml", &["stub-cycle", "not in the suite"]);
+    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+    assert!(stdout(&o).contains("note: 1 cycles of cycles/suite.yaml are unlisted"), "{}", stdout(&o));
 }

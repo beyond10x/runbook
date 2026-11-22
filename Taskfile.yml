@@ -64,28 +64,10 @@ tasks:
         exit $fail
 
   check:cycles-suite:
-    silent: true
-    desc: "Hold cycles/suite.yaml equal to the expected and pending arrays of scripts/run-finding-cycles.sh: same cycle ids, same state, no duplicate id (state unlisted: a cycle the script runs outside both arrays, not compared)."
+    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/suite.yaml against the expected and pending arrays of scripts/run-finding-cycles.sh."
     cmds:
-      - |
-        set -eu
-        script=scripts/run-finding-cycles.sh
-        suite=${CYCLES_SUITE:-cycles/suite.yaml}
-        want=$(grep -Pzo '(?:expected|pending)\+?=\([^)]*\)' "$script" | tr '\0' '\n' | awk '
-          /^(expected|pending)\+?=\(/ { st = ($0 ~ /^pending/) ? "pending" : "expected"; sub(/^[a-z]+\+?=\(/, ""); open = 1 }
-          open { line = $0; done = (line ~ /\)/); sub(/\).*/, "", line); n = split(line, w, " "); for (i = 1; i <= n; i++) print w[i] " " st; if (done) open = 0 }
-        ' | sort)
-        got=$(yq '.cycles[] | select(.state != "unlisted") | .id + " " + .state' "$suite" | sort)
-        dup=$(yq '.cycles[].id' "$suite" | sort | uniq -d)
-        test -n "$want" || { echo "no cycle arrays found in $script"; exit 1; }
-        fail=0
-        missing=$(printf '%s\n' "$want" | grep -vxF "$got" || true)
-        extra=$(printf '%s\n' "$got" | grep -vxF "$want" || true)
-        if [ -n "$missing" ]; then echo "in $script, not in $suite (id state):"; echo "$missing"; fail=1; fi
-        if [ -n "$extra" ]; then echo "in $suite, not in $script (id state):"; echo "$extra"; fail=1; fi
-        if [ -n "$dup" ]; then echo "duplicate ids in $suite:"; echo "$dup"; fail=1; fi
-        echo "$(printf '%s\n' "$want" | wc -l) cycles in the script, $(printf '%s\n' "$got" | wc -l) in the suite"
-        exit $fail
+      - cd runbook && cargo build --locked --quiet --bin runbook
+      - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
 
   check:protocols:
     desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).

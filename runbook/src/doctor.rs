@@ -3,7 +3,7 @@
 //! The table below is the list of prerequisites, each with the place in the code that makes the
 //! program necessary. A login or an API key is only checked for existence; its value is never read.
 
-use crate::assets::{is_executable, Assets, Lookup, Shape, Part, LAYOUT};
+use crate::assets::{is_executable, Assets, Lookup, Part, LAYOUT};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -173,11 +173,7 @@ fn layout_check(part: &Part, assets: Option<&Assets>) -> Check {
     let (found, detail, path) = match assets {
         None => missing("no assets"),
         Some(a) if part.present(&a.root) => (true, a.root.join(part.path).display().to_string(), Some(a.root.join(part.path))),
-        Some(_) => missing(match part.shape {
-            Shape::Dir => "no such directory",
-            Shape::Files(_) => "no such files",
-            Shape::Program => "not an executable file",
-        }),
+        Some(_) => missing(part.absent_reason()),
     };
     Check { name: part.name, found, required: true, detail, path, by: part.by, hint: LAYOUT_HINT }
 }

@@ -85,6 +85,15 @@ pub const LAYOUT: &[Part] = &[
 ];
 
 impl Part {
+    /// Why the part is not there, in a few words.
+    pub fn absent_reason(&self) -> &'static str {
+        match self.shape {
+            Shape::Dir => "no such directory",
+            Shape::Files(_) => "no such files",
+            Shape::Program => "not an executable file",
+        }
+    }
+
     /// Whether the part is there under `root`.
     pub fn present(&self, root: &Path) -> bool {
         let p = root.join(self.path);

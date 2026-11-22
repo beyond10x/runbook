@@ -35,6 +35,15 @@ is dropped.
 
 ## The check
 
-`task check:cycles-suite` (part of `task check`) reads the `expected` and `pending` arrays from the
-script text and fails when the suite differs in the set of ids or in a state, or repeats an id. An
-entry with state `unlisted` is not compared. `CYCLES_SUITE=<file>` points the check at another file.
+`runbook check` (run by `task check:cycles-suite`, part of `task check`) reads the suite and fails when
+it is not format `runbook.cycles/1`, repeats an id, has an entry without an `id` or with a state other
+than `expected`, `pending` or `unlisted`, or names a fixture (`stub.fixtures`) that does not exist
+under the asset root. While `scripts/run-finding-cycles.sh` exists it also reads the script text:
+every `expected=(...)`, `expected+=(...)`, `pending=(...)` and `pending+=(...)` array, a conditional
+append included, and fails when the suite differs from them in the set of ids or in a state. An entry
+with state `unlisted` is not compared with the arrays; it fails only when the script lists its id
+after all, and the check prints a note with the number of such entries. Without the script the
+comparison is skipped and one note says so. `RUNBOOK_HOME=<root>` points the check at another tree
+(the task defaults to this checkout; the old `CYCLES_SUITE` variable is gone). `runbook check` also
+checks the rest of the text layout: the parts `runbook doctor` lists, the bindings and the
+instruction files they name, the placeholders of the instruction files, and the view files.
