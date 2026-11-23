@@ -152,9 +152,10 @@ sources are paths below the suite file's own directory (Loom's rule).
   64 is a usage error (exit 64).
 - `--cycle-timeout <seconds>` (Loom's `SuiteSettings.cycle_timeout`; 1 to 60, default 60) bounds each
   cycle from its start: past it the cycle's running program is killed and the cycle ends
-  `CycleTimedOut`, naming its step; the other cycles go on. A value outside 1 to 60 is refused with
-  exit 2 before the suite is read, in Loom's words (`--cycle-timeout 61 is outside 1 to 60 seconds:
-  a cycle may not outlive the 60 s bound of one test`). Raising the bound is not possible: 60 s is
+  `CycleTimedOut`, naming its step; the other cycles go on. A whole number outside 1 to 60 is refused by
+  `runbook` itself, in its own words, with exit 2 before the suite is read (`--cycle-timeout 61 is
+  outside 1 to 60 seconds: a cycle may not outlive the 60 s bound of one test`); a word or an empty
+  value is not a number and is refused by the option parser with exit 64. Raising the bound is not possible: 60 s is
   the most.
 - `--list` prints one line per cycle (`<name>`, `<name>: pending`, `<name>: pending, waits for
   story:<id> (<kind>)`) in suite order and runs nothing (Loom's `list_suite`): it reads and decodes
