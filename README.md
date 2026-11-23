@@ -83,16 +83,19 @@ exist; the script builds with `cargo build --locked --release`, which takes minu
 scripts/install.sh --prefix <dir>
 ```
 
-It writes `<dir>/bin/runbook`, `<dir>/libexec/` (the helper programs), and `<dir>/share/runbook/` (the
+It writes `<dir>/bin/runbook`, `<dir>/libexec/runbook/` (the helper programs), and `<dir>/share/runbook/` (the
 protocols, bindings, instructions, views and the files of the page, `VERSION` and `MANIFEST`, the list of every
-file it wrote). Nothing is written elsewhere and no shell profile is changed; run again over the same prefix to
-update it (a file the old `MANIFEST` lists that the new one does not is removed, nothing else). At its end it
-prints three lines, one per shell; add the one for yours to its profile to put `<dir>/bin` on `PATH`:
+file it wrote). In a git work tree it copies the files git tracks; from a source archive, the regular files that
+are not dot-files. Nothing is written elsewhere and no shell profile is changed; run again over the same prefix to
+update it (a file the old `MANIFEST` lists that the new one does not is removed, nothing else). While it runs,
+`<dir>/share/runbook/INSTALLING` is there: a prefix that keeps it is half installed (`runbook doctor` says
+`incomplete install`), and running the script over it again finishes the job. At its end it prints three lines,
+one per shell; add the one for yours to its profile to put `<dir>/bin` on `PATH`:
 
 ```console
 bash (~/.bashrc):  export PATH="<dir>/bin:$PATH"
 zsh (~/.zshrc):    export PATH="<dir>/bin:$PATH"
-fish (config.fish): fish_add_path <dir>/bin
+fish (config.fish): fish_add_path '<dir>/bin'
 ```
 
 The installed `runbook` runs from any directory and needs no checkout (`runbook --version` prints the version and the
@@ -108,12 +111,22 @@ runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --set
 ```
 
 From a checkout without installing, build `runbook` and the programs it runs once, in the repository root, and
-start `runbook/target/debug/runbook` in place of `runbook`:
+start `runbook/target/debug/runbook` in place of `runbook`, with `driver/target/debug` and `watch/target/debug`
+on `PATH`:
 
 ```console
 (cd driver && cargo build --locked --bins)
+(cd watch && cargo build --locked)
 (cd runbook && cargo build --locked --bin runbook)
+PATH="$PWD/driver/target/debug:$PWD/watch/target/debug:$PATH" runbook/target/debug/runbook run sdc --dry --intake <idea file> <the other options as above>
 ```
+
+The checkout build finds the programs it starts itself in `driver/target/{release,debug}` and
+`watch/target/{release,debug}` of the checkout (`runbook doctor` shows where), but the tools of the bindings
+(`bindings/tools/sdc-tool.sh`, `sdc-node`) start `sdc-reply`, `sdc-findings` and the others by name: without those
+directories on `PATH` the dry run above ends after 6 steps with no stub call, with them after 11 steps, as the
+installed one does. The installed prefix needs nothing on `PATH` beside `<dir>/bin`: `runbook` puts
+`<dir>/libexec/runbook` in front of the `PATH` of the programs it starts.
 
 The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 

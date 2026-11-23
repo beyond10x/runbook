@@ -59,7 +59,7 @@
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
 - `eval/` levels, personas, quality checks and reports; the scripts that drove the old driver are deleted, and `reports/` and `baseline.json` are the record of its evaluation, not ported (`eval/README.md`, `docs/eval-design.md`).
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
-- `scripts/` check and evaluate scripts, and `scripts/install.sh --prefix <dir>` (POSIX sh: builds `runbook`, the helper programs a run starts and `sdc-watch` with `--locked --release` and writes them with the asset directories under one prefix; its tests are `runbook/tests/install/`, the release build is `task test:install`).
+- `scripts/` check and evaluate scripts, and `scripts/install.sh --prefix <dir>` (POSIX sh: builds `runbook`, the helper programs a run starts and `sdc-watch` with `--locked --release` and writes them with the asset directories under one prefix, helpers in `libexec/runbook/`; its tests are `runbook/tests/install/`, the release build is `task test:install`).
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
 - `docs/` design notes and research results; start with `phases.md`, `loom-run.md`, `orchestration.md`.
 - `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
