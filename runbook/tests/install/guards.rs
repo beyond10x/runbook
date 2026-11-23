@@ -236,6 +236,7 @@ fn stale_release_install(tag: &str, env: &[(&str, &str)]) {
             if [ \"$before\" = --bin ]; then\n\
                 printf '#!/bin/sh\\necho \"{version}\"\\n' > \"$to/release/$a\"\n\
                 chmod 755 \"$to/release/$a\"\n\
+                printf '{{\"reason\":\"compiler-artifact\",\"executable\":\"%s\"}}\\n' \"$to/release/$a\"\n\
             fi\n\
             before=$a\n\
         done\n",

@@ -32,6 +32,7 @@ fn a_release_install_with_a_cross_triple_installs_the_older_release_build_of_ano
             if [ \"$before\" = --bin ]; then\n\
                 printf '#!/bin/sh\\necho \"{version}\"\\n' > \"$to/release/$a\"\n\
                 chmod 755 \"$to/release/$a\"\n\
+                printf '{{\"reason\":\"compiler-artifact\",\"executable\":\"%s\"}}\\n' \"$to/release/$a\"\n\
             fi\n\
             before=$a\n\
         done\n",
@@ -50,11 +51,14 @@ fn a_release_install_with_a_cross_triple_installs_the_older_release_build_of_ano
         .output()
         .unwrap();
     let version = fs::read_to_string(prefix.join("share/runbook/VERSION")).unwrap_or_default();
-    assert!(root.join("runbook/target/x86_64-unknown-linux-gnu/release/runbook").is_file(), "the stub built below the triple: {}", err(&o));
+    assert!(root.join("watch/target/x86_64-unknown-linux-gnu/release/sdc-watch").is_file(), "the stub built below the triple: {}", err(&o));
     assert!(
         !(code(&o) == 0 && version.contains("000000000000")),
         "exit 0 and VERSION {:?}: the older release build of another commit is installed, HEAD of the checkout is {head}\n{}",
         version.trim(),
         err(&o)
     );
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("target triple") && err(&o).contains("CARGO_BUILD_TARGET"), "the refusal names the cause: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }

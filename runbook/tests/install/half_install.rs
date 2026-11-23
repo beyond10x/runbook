@@ -36,49 +36,111 @@ fn the_marker_is_written_through_a_link_at_its_place_into_a_file_outside_the_pre
 }
 // ---- the installed binary finds its own files ----
 
-/// An install that stops before `share/runbook/protocol/` is written (the asset directories are copied in the order of
-/// their names: `bindings`, `cycles`, `driver`, `instructions` come first and hold most of the files) leaves
-/// `bin/runbook`, the helpers and the marker. That `runbook` does not count itself as installed (`Lookup::locate`
-/// asks for `share/runbook/protocol`), walks up from its working directory, finds the checkout the person installed
-/// from, and `runbook doctor` reports the checkout's files with no word about the install that did not finish. Here a
-/// stub `cp` fails at its fifth call, as on a full disk.
-#[test]
-fn doctor_of_an_install_that_stopped_before_protocol_was_copied_reports_the_checkout_and_no_incomplete_install() {
-    let sandbox = scratch("fix2-half");
-    let prefix = sandbox.join("prefix");
-    fs::create_dir_all(&prefix).unwrap();
-    fs::create_dir_all(sandbox.join("home")).unwrap();
-    let cp = "#!/bin/sh\n\
-        n=$(cat \"$FAIL_COUNT\" 2>/dev/null || echo 0)\n\
-        n=$((n + 1))\n\
-        echo \"$n\" > \"$FAIL_COUNT\"\n\
-        if [ \"$n\" -eq 5 ]; then echo 'cp: No space left on device (the stub of the test)' >&2; exit 1; fi\n\
-        exec /usr/bin/cp \"$@\"\n";
-    executable(&sandbox.join("stub-bin/cp"), cp);
-    let o = Command::new("sh")
-        .arg(script())
-        .arg("--prefix")
-        .arg(&prefix)
-        .args(["--from-built", "debug"])
-        .env_clear()
-        .env("PATH", format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()))
-        .env("HOME", sandbox.join("home"))
-        .env("FAIL_COUNT", sandbox.join("cp-calls"))
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert_eq!(code(&o), 1, "{}{}", out(&o), err(&o));
-    assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker of the stopped install is there");
-    assert!(prefix.join("bin/runbook").is_file() && !prefix.join("share/runbook/protocol").exists(), "the install stopped after bin/runbook and before protocol/: {}", err(&o));
-    let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
-    let doctor = Command::new("runbook").arg("doctor").env_clear().env("PATH", path).env("HOME", sandbox.join("home")).current_dir(repo()).stdin(Stdio::null()).output().unwrap();
-    let text = out(&doctor);
-    let assets = text.lines().find(|l| l.contains("  assets  ")).unwrap_or_default().split("  required").next().unwrap_or_default().trim_end().to_owned();
-    assert!(
-        text.contains("incomplete install"),
-        "runbook doctor of a prefix with share/runbook/INSTALLING, started in the checkout, says nothing of the install that did not finish; its assets line: {assets}"
-    );
+/// The prefix of an install that stopped before `share/runbook/protocol/` was written (the asset directories are
+/// copied in the order of their names: `bindings`, `cycles`, `driver`, `instructions` come first): it has
+/// `bin/runbook`, the helpers and the marker. Made once per run of the tests; a stub `cp` fails at its fifth call, as on
+/// a full disk.
+fn stopped_prefix() -> PathBuf {
+    shared_prefix_of("stopped", &|partial| {
+        let cp = "#!/bin/sh\n\
+            n=$(cat \"$FAIL_COUNT\" 2>/dev/null || echo 0)\n\
+            n=$((n + 1))\n\
+            echo \"$n\" > \"$FAIL_COUNT\"\n\
+            if [ \"$n\" -eq 5 ]; then echo 'cp: No space left on device (the stub of the test)' >&2; exit 1; fi\n\
+            exec /usr/bin/cp \"$@\"\n";
+        executable(&partial.join("stub-bin/cp"), cp);
+        let prefix = partial.join("prefix");
+        let o = Command::new("sh")
+            .arg(script())
+            .arg("--prefix")
+            .arg(&prefix)
+            .args(["--from-built", "debug"])
+            .env_clear()
+            .env("PATH", format!("{}:{SYSTEM_PATH}", partial.join("stub-bin").display()))
+            .env("HOME", partial.join("home"))
+            .env("FAIL_COUNT", partial.join("cp-calls"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(code(&o), 1, "{}{}", out(&o), err(&o));
+        assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker of the stopped install is there");
+        assert!(prefix.join("bin/runbook").is_file() && !prefix.join("share/runbook/protocol").exists(), "the install stopped after bin/runbook and before protocol/: {}", err(&o));
+    })
 }
+
+/// A directory that is a checkout to `runbook` (`protocol/` and `driver/examples/sdc/`) with nothing else in it: the
+/// working directory of a run that would find a checkout if the prefix did not claim its place. It is no copy of this
+/// repository, so a program that reads `rust-toolchain.toml` in the working directory finds none.
+fn bare_checkout(tag: &str) -> PathBuf {
+    let dir = scratch(tag);
+    fs::create_dir_all(dir.join("protocol")).unwrap();
+    fs::create_dir_all(dir.join("driver/examples/sdc")).unwrap();
+    dir
+}
+
+/// `runbook doctor` of a stopped install, started in the checkout the person installed from: the install line is
+/// there, it fails and says `incomplete install`, and the assets line is not the checkout's.
+#[test]
+fn doctor_of_an_install_that_stopped_before_protocol_was_copied_says_incomplete_install_in_a_checkout() {
+    let prefix = stopped_prefix();
+    let o = from_prefix(&prefix, &bare_checkout("stopped-doctor"), &["doctor"]);
+    let text = out(&o);
+    assert_ne!(code(&o), 0, "{text}");
+    let line = |name: &str| text.lines().find(|l| l.split("  ").map(str::trim).filter(|s| !s.is_empty()).nth(1) == Some(name)).unwrap_or_else(|| panic!("no {name} line:\n{text}")).to_owned();
+    let install = line("install");
+    assert!(install.contains("incomplete install") && install.contains("INSTALLING"), "{install}");
+    let assets = line("assets");
+    assert!(assets.contains("incomplete install"), "the assets line is not the stopped prefix's: {assets}");
+}
+
+/// The same from an empty directory, and `list` and `check` of the stopped prefix: each is refused with the words
+/// `incomplete install` and the marker's name, in the checkout and outside it.
+#[test]
+fn list_and_check_of_an_install_that_stopped_are_refused_by_name_in_every_directory() {
+    let prefix = stopped_prefix();
+    let elsewhere = scratch("stopped-elsewhere");
+    for cwd in [bare_checkout("stopped-list"), elsewhere.clone()] {
+        for args in [&["list"][..], &["check"], &["doctor"]] {
+            let o = from_prefix(&prefix, &cwd, args);
+            let said = format!("{}{}", out(&o), err(&o));
+            assert_ne!(code(&o), 0, "{args:?} in {cwd:?} succeeded: {said}");
+            assert!(said.contains("incomplete install"), "{args:?} in {cwd:?}: {said}");
+        }
+    }
+}
+
+/// A prefix without a marker and without `protocol/` (the install was never started there, or a person removed what
+/// it wrote) is also its own: refused by name, never a checkout.
+#[test]
+fn a_prefix_with_a_share_directory_and_no_protocol_is_refused_and_never_falls_back_to_the_checkout() {
+    let sandbox = scratch("share-without-protocol");
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(prefix.join("bin")).unwrap();
+    fs::create_dir_all(prefix.join("share/runbook")).unwrap();
+    fs::copy(BIN, prefix.join("bin/runbook")).unwrap();
+    let o = from_prefix(&prefix, &bare_checkout("share-without-protocol-checkout"), &["list"]);
+    assert_ne!(code(&o), 0, "{}", out(&o));
+    assert!(err(&o).contains("incomplete install"), "{}", err(&o));
+}
+
+/// An old MANIFEST that lists the marker, `VERSION.new` or `MANIFEST.new` removes none of them: the install keeps those
+/// names for itself (the marker is what says the install did not finish), and says so.
+#[test]
+fn a_manifest_line_that_names_the_marker_or_a_new_file_removes_nothing_and_the_marker_stays_after_a_failed_rename() {
+    let root = fake_checkout("fix2-manifest-marker", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    assert_eq!(code(&from_built(&root, &prefix)), 0);
+    let manifest_path = prefix.join("share/runbook/MANIFEST");
+    let mut manifest = fs::read_to_string(&manifest_path).unwrap();
+    manifest.push_str("share/runbook/INSTALLING\nshare/runbook/VERSION.new\nshare/runbook/MANIFEST.new\n");
+    fs::write(&manifest_path, manifest).unwrap();
+    executable(&sandbox.join("stub-bin/mv"), "#!/bin/sh\necho 'mv: no space left on device' >&2\nexit 1\n");
+    let o = from_built_with(&root, &prefix, &format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()), &[]);
+    assert_ne!(code(&o), 0);
+    assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker was removed by a line of the old MANIFEST: {}", err(&o));
+    assert!(err(&o).contains("not removing share/runbook/INSTALLING"), "{}", err(&o));
+}
+
 /// Links at the places of `VERSION.new` and `MANIFEST.new` are removed, not written through; a prefix whose
 /// `libexec/runbook` is a link is refused before anything is written.
 #[test]

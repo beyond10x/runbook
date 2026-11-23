@@ -11,6 +11,17 @@
 set -efu
 umask 022
 
+# What the caller's environment must not change: the field separators, what `cd`, `sort` and the globbing do, the
+# start files and the strictness of the shell, and which repository, index and object store git reads.
+IFS=$(printf ' \t\n_')
+IFS=${IFS%_}
+unset CDPATH ENV BASH_ENV GLOBIGNORE POSIXLY_CORRECT LANG LANGUAGE LC_COLLATE LC_CTYPE LC_MESSAGES
+LC_ALL=C
+export LC_ALL
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_PREFIX \
+    GIT_LITERAL_PATHSPECS GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS GIT_QUARANTINE_PATH
+
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 
 usage() {
@@ -26,25 +37,45 @@ and writes them under <dir>:
                                    driver/examples/sdc/ VERSION MANIFEST
 
 <dir> must be an absolute path to a directory that exists. It is not / and not inside ~/.cargo, its name has
-no newline, and it is not inside one of the directories above of the checkout.
+no newline, it is not inside one of the directories above of the checkout, and it is not the checkout, a
+directory that holds it, or its .git.
 Nothing else is written (the build's own target/ directories aside) and no shell profile is changed.
+The build is for the machine the script runs on: with a target triple set (CARGO_BUILD_TARGET, build.target of a
+cargo configuration file) the script stops and says so, and installs no cross build.
 
   --prefix <dir>          where to install (once)
   --from-built <profile>  do not build: take the binaries that exist already in runbook/target/<profile>,
                           driver/target/<profile> and watch/target/<profile> (debug or release);
                           fails with the name of the first one that is missing, and when the commit that
                           runbook --version prints is not HEAD of the checkout (the helpers print no
-                          commit, so only runbook is checked); once
+                          commit, so only runbook is checked; a build made here is checked the same way); once
   --help                  print this text
 
-What is copied below share/runbook/: in a git work tree the files git tracks in those directories, else the
-regular files that are not dot-files; modes are 755 for a file that is executable in the checkout (git mode
-100755; without git: the owner's execute bit) and 644 for the others, 755 for directories.
+What is copied below share/runbook/: when the checkout has a .git, the files git tracks in those directories (the
+bytes of the work tree: VERSION ends in " dirty" when a tracked file there differs from HEAD, and names HEAD,
+the commit the binary was built from); when git cannot be asked about a checkout that has a .git, the script
+stops and copies nothing. Without a .git (a source archive): the regular files that are not dot-files. A link is
+copied only when its target stays inside the checkout and is copied too. Modes are 755 for a file that is
+executable in the checkout (git mode 100755; without git: the owner's execute bit) and 644 for the others; the
+directories below libexec/runbook and share/runbook are 755, without a set-id bit.
 share/runbook/INSTALLING is there from before the first change until after VERSION and MANIFEST are written:
-a prefix that has it is half installed (runbook doctor says so), and an install over it finishes the job.
+a prefix that has it is half installed (runbook doctor says so, and a runbook started from <dir>/bin runs
+nothing), and an install over it finishes the job.
 
 A second run over the same prefix replaces the files of the first and removes the files the old
 share/runbook/MANIFEST lists that the new one does not. It removes nothing else.
+
+Limits:
+  - Two installs at once into one prefix are not held apart (there is no lock): the one that ends first
+    removes INSTALLING while the other still copies. Run one at a time; after a stop, run it again.
+  - A prefix that is a link to a directory whose name ends in a newline is installed into the directory
+    without the newline: name the directory itself, or a link to a directory without such a name.
+  - A source tree without a .git unpacked inside a repository that tracks runbook/Cargo.toml is built with that
+    repository's commit, and the script then stops at the commit check (an archive has no HEAD): unpack it
+    outside any repository. A .git that is a file names the repository it points to; that repository's HEAD is
+    the commit taken.
+  - bin, libexec and share keep the mode they have (mkdir's, under a set-id prefix the set-id bit is
+    inherited): they are shared with other packages. Everything below libexec/runbook and share/runbook is set.
 
 Exit status: 0 done, 1 failed, 2 a usage error (the arguments or the prefix are refused; nothing is written).
 EOF
@@ -197,19 +228,26 @@ for dir in $(list "$ASSET_DIRS") ui; do
         refuse "the prefix $prefix is inside $root/$dir: the files of that directory are copied into the prefix"
     fi
 done
+# The checkout, or what holds it, is no prefix: its files would be copied into themselves or their directory replaced.
+if inside "$root" "$physical_prefix"; then
+    refuse "the prefix $prefix is the checkout $root or holds it: name a directory of its own"
+fi
+if inside "$physical_prefix" "$root/.git"; then
+    refuse "the prefix $prefix is inside the git directory of the checkout"
+fi
 prefix=$physical_prefix
 
-# Git must not be pointed at another repository by the environment.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-
-# Whether the checkout is the top of a git work tree of its own (an unpacked source archive inside another
-# repository is not): then git says which files are the repository's.
+# Whether the checkout is a git work tree of its own: then git says which files are the repository's. A source
+# directory with a `.git` (a directory, or a file of a linked work tree) is that, and when git cannot be asked
+# about it the script stops: copying it like an archive would copy what git does not track (a settings file, a key,
+# a note of a run). An archive has no `.git` at its root, also when it is unpacked inside another repository.
 in_git=
-if command -v git >/dev/null 2>&1; then
-    top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)
-    if [ -n "$top" ] && [ "$(cd "$top" && pwd -P)" = "$root" ]; then
-        in_git=1
-    fi
+if [ -e "$root/.git" ] || [ -L "$root/.git" ]; then
+    command -v git >/dev/null 2>&1 || die "$root has a .git and git is not on PATH: put git on PATH (this script copies the files git tracks and nothing else), or install from a source archive that has no .git"
+    top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) || top=
+    [ -n "$top" ] || die "$root has a .git and git cannot be asked about it (git refuses a repository of another owner, or the repository is broken): run this as the owner of the checkout, name it in safe.directory, or repair it, then run the script again; nothing was written"
+    [ "$(cd "$top" && pwd -P)" = "$root" ] || die "$root has a .git and git says the top of its work tree is $top, not $root: nothing was written"
+    in_git=1
 fi
 
 built_path() {
@@ -246,7 +284,7 @@ collect() {
               print mode "\t" path }'
     else
         (
-            cd "$root"
+            cd "$root" || exit 1
             # shellcheck disable=SC2046
             for dir in $(list "$ASSET_DIRS"); do
                 [ -d "$dir" ] || die "the repository has no $dir/ (looked in $root)"
@@ -266,6 +304,7 @@ collect() {
 
 entries=$(collect) || exit 1
 checked=
+e_links=
 while IFS="$tab" read -r e_mode e_path; do
     [ -n "$e_path" ] || continue
     case $e_path in
@@ -280,12 +319,9 @@ while IFS="$tab" read -r e_mode e_path; do
         [ -L "$root/$e_path" ] || die "$e_path is tracked as a link and is not one in the work tree"
         e_target=$(readlink "$root/$e_path")
         case $e_target in
-        /*) die "$e_path is a link to the absolute path $e_target: it cannot be copied" ;;
+        *"$tab"* | *"$nl"*) die "$e_path is a link whose target has a tab or a newline in it: it cannot be copied" ;;
         esac
-        case $(lexical "/r/${e_path%/*}/$e_target") in
-        /r/*) ;;
-        *) die "$e_path is a link to $e_target, which leaves the directory tree it is copied with" ;;
-        esac
+        e_links="$e_links$e_path$tab$e_target$nl"
         ;;
     *)
         [ -f "$root/$e_path" ] && [ ! -L "$root/$e_path" ] || die "$e_path is tracked and is not in the work tree as a file"
@@ -296,6 +332,39 @@ done <<EOF
 $entries
 EOF
 entries=$checked
+
+# A link is installed as it is, so its target must stay inside the checkout, name a file or directory that is copied
+# too, and mean the same below the prefix: `..` only at the start of the target, and no `.` or empty part. Nothing
+# is written before every link passed.
+while IFS="$tab" read -r l_path l_target; do
+    [ -n "$l_path" ] || continue
+    case $l_target in
+    '') die "$l_path is a link with an empty target" ;;
+    /*) die "$l_path is a link to the absolute path $l_target: it cannot be copied" ;;
+    esac
+    l_rest=$l_target
+    while :; do
+        case $l_rest in
+        ../*) l_rest=${l_rest#../} ;;
+        *) break ;;
+        esac
+    done
+    case /$l_rest/ in
+    */../* | */./* | *//*) die "$l_path is a link to $l_target: .. is allowed at the start of a link target only, and no . or empty part" ;;
+    esac
+    l_full=$(lexical "$root/${l_path%/*}/$l_target")
+    case $l_full in
+    "$root"/*) ;;
+    *) die "$l_path is a link to $l_target, which leaves the checkout $root" ;;
+    esac
+    l_rel=${l_full#"$root"/}
+    case $entries in
+    *"$tab$l_rel$nl"* | *"$tab$l_rel/"*) ;;
+    *) die "$l_path is a link to $l_target ($l_rel), which is not among the files that are copied" ;;
+    esac
+done <<EOF
+$e_links
+EOF
 for dir in $(list "$ASSET_DIRS"); do
     case $entries in
     *"$tab$dir/"*) ;;
@@ -317,35 +386,59 @@ if [ -n "$from_built" ]; then
         file="$root/$(built_path "$name" "$profile")"
         [ -f "$file" ] && [ -x "$file" ] || die "$(built_path "$name" "$profile") is missing (--from-built $profile takes binaries that exist already)"
     done
-    # The helpers print no commit; runbook does, and it is the one whose build depends on the checkout's HEAD.
-    built_said=$("$root/$(built_path runbook "$profile")" --version 2>/dev/null) || die "$(built_path runbook "$profile") does not print its version"
-    built_commit=$(printf '%s\n' "$built_said" | sed -n 's/^.*(\([^()]*\))[[:space:]]*$/\1/p')
-    head_commit=unknown
-    if [ -n "$in_git" ]; then
-        head_commit=$(git -C "$root" rev-parse HEAD 2>/dev/null | cut -c1-12 || true)
-        [ -n "$head_commit" ] || head_commit=unknown
-    fi
-    [ "$built_commit" = "$head_commit" ] || die "$(built_path runbook "$profile") says commit ${built_commit:-none} ($built_said) and HEAD of $root is $head_commit: build it again"
 else
-    driver_bins=
+    # `build_release <crate directory> <bin>...`: `cargo build --locked --release` of those programs. `--target-dir`
+    # beats CARGO_TARGET_DIR, CARGO_BUILD_TARGET_DIR and `build.target-dir` of a configuration file. A target triple
+    # (CARGO_BUILD_TARGET, `build.target`) writes below <target dir>/<triple>/release/, where this script does not look,
+    # so it takes an older native build for the new one: the script asks cargo which files it built and stops when
+    # one of them is not the file it takes. It builds for the machine it runs on, and for no other triple.
+    build_release() {
+        br_crate=$1
+        shift
+        br_names=$*
+        set -- --locked --release --manifest-path "$root/$br_crate/Cargo.toml" --target-dir "$root/$br_crate/target" --message-format=json-render-diagnostics
+        # shellcheck disable=SC2086
+        for br_name in $br_names; do
+            set -- "$@" --bin "$br_name"
+        done
+        mkdir -p "$root/$br_crate/target"
+        br_log=$root/$br_crate/target/install-build.json
+        rm -f "$br_log"
+        echo "install.sh: building $br_crate/ (release)" >&2
+        cargo build "$@" > "$br_log" || die "cargo build failed in $br_crate/"
+        # shellcheck disable=SC2086
+        for br_name in $br_names; do
+            br_file="$root/$(built_path "$br_name" release)"
+            grep -F -q "\"executable\":\"$br_file\"" "$br_log" || die "cargo did not report $(built_path "$br_name" release) as built: a target triple (CARGO_BUILD_TARGET, build.target of a cargo configuration file) or another setting moves the output; unset it, or build for this machine yourself and use --from-built release (this script installs no cross build)"
+            [ -f "$br_file" ] && [ -x "$br_file" ] || die "the build did not make $(built_path "$br_name" release)"
+        done
+        rm -f "$br_log"
+    }
     # shellcheck disable=SC2046
-    for name in $(list "$DRIVER_HELPERS"); do
-        driver_bins="$driver_bins --bin $name"
-    done
-    # `--target-dir` beats CARGO_TARGET_DIR, CARGO_BUILD_TARGET_DIR and `build.target-dir` of a configuration file,
-    # so the files built here are the files taken below.
-    echo "install.sh: building watch/ (release)" >&2
-    cargo build --locked --release --manifest-path "$root/watch/Cargo.toml" --target-dir "$root/watch/target" --bin sdc-watch
-    echo "install.sh: building driver/ (release)" >&2
-    # shellcheck disable=SC2086
-    cargo build --locked --release --manifest-path "$root/driver/Cargo.toml" --target-dir "$root/driver/target" $driver_bins
-    echo "install.sh: building runbook/ (release)" >&2
-    cargo build --locked --release --manifest-path "$root/runbook/Cargo.toml" --target-dir "$root/runbook/target" --bin runbook
+    build_release watch $(list "$WATCH_HELPERS")
     # shellcheck disable=SC2046
-    for name in $(all_programs); do
-        file="$root/$(built_path "$name" release)"
-        [ -f "$file" ] && [ -x "$file" ] || die "the build did not make $(built_path "$name" release)"
-    done
+    build_release driver $(list "$DRIVER_HELPERS")
+    build_release runbook runbook
+fi
+
+# The helpers print no commit; runbook does, and it is the one whose build depends on the checkout's HEAD. Built or
+# taken as it is, its commit is HEAD of the checkout, or the script stops.
+built_said=$("$root/$(built_path runbook "$profile")" --version 2>/dev/null) || die "$(built_path runbook "$profile") does not print its version"
+built_commit=$(printf '%s\n' "$built_said" | sed -n 's/^.*(\([^()]*\))[[:space:]]*$/\1/p')
+head_commit=unknown
+if [ -n "$in_git" ]; then
+    head_commit=$(git -C "$root" rev-parse HEAD 2>/dev/null | cut -c1-12 || true)
+    [ -n "$head_commit" ] || head_commit=unknown
+fi
+[ "$built_commit" = "$head_commit" ] || die "$(built_path runbook "$profile") says commit ${built_commit:-none} ($built_said) and HEAD of $root is $head_commit: build it again"
+
+# VERSION is what the binary prints, and ` dirty` after it when a tracked file of the copied directories differs
+# from HEAD: the bytes installed are those of the work tree.
+version_mark=
+if [ -n "$in_git" ]; then
+    # shellcheck disable=SC2046
+    changed=$(GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain --untracked-files=no -- $(list "$ASSET_DIRS") ui) || die "git status of $root failed"
+    [ -z "$changed" ] || version_mark=' dirty'
 fi
 
 share=$prefix/share/runbook
@@ -391,8 +484,20 @@ for top in bin libexec libexec/runbook share share/runbook; do
     fi
 done
 
-# From here the prefix is half installed until the last line of the install: the marker says so.
+# `clear_name <directory> <name>`: a link of an old install at the place of a file is removed (it is never
+# written through), and a directory at that place is refused.
+clear_name() {
+    if [ -L "$prefix/$1/$2" ]; then
+        rm -f "$prefix/$1/$2"
+    elif [ -d "$prefix/$1/$2" ]; then
+        die "$prefix/$1/$2 is a directory: cannot write the file $1/$2 there"
+    fi
+}
+
+# From here the prefix is half installed until the last line of the install: the marker says so. A link or a leftover
+# at the marker's place is cleared like the place of every other name this script writes: nothing is written through it.
 mkdir -p "$share"
+clear_name share/runbook INSTALLING
 printf 'an install of this prefix was started and has not finished\n' > "$share/INSTALLING"
 installing=1
 
@@ -408,6 +513,10 @@ $rel
 "*) continue ;;
         esac
         case $rel in
+        share/runbook/INSTALLING | share/runbook/VERSION | share/runbook/MANIFEST | share/runbook/VERSION.new | share/runbook/MANIFEST.new)
+            echo "install.sh: not removing $rel: the install keeps that file for itself" >&2
+            continue
+            ;;
         bin/* | libexec/* | share/runbook/*) ;;
         *)
             echo "install.sh: not removing $rel: outside bin, libexec and share/runbook" >&2
@@ -431,19 +540,23 @@ $rel
 fi
 
 # `make_dir <directory relative to the prefix>`: makes it, and refuses a symbolic link or an odd name on the way.
+# The directories of this product's own trees (libexec/runbook and share/runbook, and below them) get 755 and no set-id
+# bit, whatever the prefix hands down (a setgid prefix gives 2755) and whatever an older install left. bin, libexec and
+# share are shared with other packages: they keep the mode mkdir gave them.
 make_dir() {
     clean_path "$1/x" || die "$1: a symbolic link or an odd name on the way: nothing is written through a link"
     mkdir -p "$prefix/$1"
-}
-
-# `clear_name <directory> <name>`: a link of an old install at the place of a file is removed (it is never
-# written through), and a directory at that place is refused.
-clear_name() {
-    if [ -L "$prefix/$1/$2" ]; then
-        rm -f "$prefix/$1/$2"
-    elif [ -d "$prefix/$1/$2" ]; then
-        die "$prefix/$1/$2 is a directory: cannot write the file $1/$2 there"
-    fi
+    case $1 in
+    libexec/runbook | libexec/runbook/* | share/runbook | share/runbook/*) ;;
+    *) return 0 ;;
+    esac
+    md_path=$1
+    set --
+    while [ "$md_path" != libexec ] && [ "$md_path" != share ]; do
+        set -- "$@" "$prefix/$md_path"
+        md_path=${md_path%/*}
+    done
+    chmod a-s,u=rwx,go=rx "$@"
 }
 
 # `put_dir <directory relative to the prefix> <mode> <source file>...`: the files (absolute paths) go into the
@@ -524,10 +637,12 @@ copy_files() {
 }
 printf '%s\n' "$sources" | copy_files
 
-rm -f "$share/VERSION.new" "$share/MANIFEST.new"
-"$prefix/bin/runbook" --version > "$share/VERSION.new" || die "the installed runbook does not print its version"
+installed_said=$("$prefix/bin/runbook" --version) || die "the installed runbook does not print its version"
+rm -f "$share/VERSION.new"
+printf '%s%s\n' "$installed_said" "$version_mark" > "$share/VERSION.new"
 rm -f "$share/VERSION"
 mv "$share/VERSION.new" "$share/VERSION"
+rm -f "$share/MANIFEST.new"
 printf '%s\n' "$new_manifest" > "$share/MANIFEST.new"
 rm -f "$share/MANIFEST"
 mv "$share/MANIFEST.new" "$share/MANIFEST"

@@ -9,12 +9,16 @@
 //! on the prefix of the fast lane (`slow.rs`). `guards.rs` and `rules.rs` hold the cases of what is copied, the
 //! modes, the printed lines, the marker of a half install, the checks of the arguments and the commit.
 
+mod caller_environment;
 mod guards;
 mod half_install;
 mod installed_path;
+mod modes;
+mod refused_prefixes;
 mod rules;
 mod slow;
 mod stale_build;
+mod version_file;
 mod what_is_copied;
 
 use serde_json::{json, Value};
@@ -160,23 +164,32 @@ fn key() -> String {
 
 /// The prefix made from the debug builds, built by the first caller under a lock, read by every other.
 fn shared_prefix() -> PathBuf {
+    shared_prefix_of("whole", &|partial| {
+        let o = install(&script(), &partial.join("prefix"), &["--from-built", "debug"]);
+        assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    })
+}
+
+/// `<base>/<key>-<kind>/prefix`, made by `make(<directory with an empty prefix/ and home/>)` by the first caller under
+/// the lock; the directories of an older key are removed. Each kind is made once per run of the tests, not once per test.
+fn shared_prefix_of(kind: &str, make: &dyn Fn(&Path)) -> PathBuf {
     let base = Path::new(env!("CARGO_TARGET_TMPDIR")).join("install-prefix");
     fs::create_dir_all(&base).unwrap();
     let lock = fs::OpenOptions::new().create(true).truncate(false).write(true).open(base.join("lock")).unwrap();
     lock.lock().unwrap();
     let key = key();
-    let dir = base.join(&key);
-    if !dir.join("prefix/share/runbook/MANIFEST").is_file() {
+    let dir = base.join(format!("{key}-{kind}"));
+    if !dir.join("prefix").is_dir() {
         for e in fs::read_dir(&base).unwrap().flatten() {
-            if e.path().is_dir() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if e.path().is_dir() && (!name.starts_with(&key) || name == format!("{key}-{kind}.partial")) {
                 fs::remove_dir_all(e.path()).unwrap();
             }
         }
-        let partial = base.join(format!("{key}.partial"));
+        let partial = base.join(format!("{key}-{kind}.partial"));
         fs::create_dir_all(partial.join("prefix")).unwrap();
         fs::create_dir_all(partial.join("home")).unwrap();
-        let o = install(&script(), &partial.join("prefix"), &["--from-built", "debug"]);
-        assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+        make(&partial);
         fs::rename(&partial, &dir).unwrap();
     }
     drop(lock);
@@ -311,7 +324,8 @@ fn the_prefix_holds_the_binary_the_helpers_and_the_files_and_its_manifest_lists_
     let version = fs::read_to_string(share.join("VERSION")).unwrap();
     let said = from_prefix(&prefix, &prefix, &["--version"]);
     assert_eq!(code(&said), 0);
-    assert_eq!(version.trim(), out(&said).trim(), "VERSION is what `runbook --version` prints");
+    let marked = version.trim().strip_suffix(" dirty");
+    assert_eq!(marked.unwrap_or(version.trim()), out(&said).trim(), "VERSION is what `runbook --version` prints, and ` dirty` after it when a tracked file differs from HEAD");
     let cargo_version = env!("CARGO_PKG_VERSION");
     assert!(version.contains(cargo_version), "{version}");
     let head = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo()).output().unwrap();

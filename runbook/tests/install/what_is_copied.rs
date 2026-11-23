@@ -113,3 +113,133 @@ fn a_tracked_file_that_is_a_link_in_the_work_tree_is_refused_and_nothing_is_writ
     assert_ne!(code(&o), 0, "the bytes of a file outside the checkout were copied through a link");
     assert_eq!(listing(&prefix), Vec::<String>::new(), "{}", err(&o));
 }
+
+// ---- a checkout whose git cannot be asked ----
+
+/// A checkout with a `.git` whose git cannot be asked is never copied like an archive: the script stops with exit 1 and
+/// writes nothing, and the message gives the reason and the remedy. Three ways there: the checkout belongs to another
+/// user than the one who installs (`GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own switch for that state), `git` is not
+/// on `PATH`, and the `.git` is a file that names a repository that does not exist. Files git does not track lie in the
+/// checkout (a settings file, a key, a note of a run).
+#[test]
+fn a_git_checkout_whose_git_cannot_be_asked_is_refused_with_the_reason_and_what_to_do_and_nothing_is_written() {
+    for (case, said) in [("owner", "another owner"), ("nogit", "git is not on PATH"), ("brokengit", "cannot be asked")] {
+        let root = fake_checkout(&format!("fix2-ask-{case}"), None);
+        let (sandbox, prefix) = sandbox_of(&root);
+        fs::write(root.join("bindings/settings.json"), "{\"login_file\": \"/somewhere/login.json\"}\n").unwrap();
+        fs::write(root.join("tools/id_ed25519"), "a key\n").unwrap();
+        stubs(&root, None, &stub_version("unknown"));
+        let mut cmd = Command::new("sh");
+        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().env("HOME", sandbox.join("home")).stdin(Stdio::null());
+        match case {
+            "owner" => {
+                cmd.env("PATH", SYSTEM_PATH).env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
+            }
+            "nogit" => {
+                let tools = sandbox.join("tools-without-git");
+                fs::create_dir_all(&tools).unwrap();
+                for t in ["sh", "awk", "sed", "sort", "tr", "cut", "cat", "find", "cp", "chmod", "mkdir", "rm", "rmdir", "mv", "ln", "readlink", "dirname", "wc"] {
+                    std::os::unix::fs::symlink(Path::new("/usr/bin").join(t), tools.join(t)).unwrap();
+                }
+                cmd.env("PATH", &tools);
+            }
+            _ => {
+                fs::remove_dir_all(root.join(".git")).unwrap();
+                fs::write(root.join(".git"), "gitdir: ./no-such-repository\n").unwrap();
+                cmd.env("PATH", SYSTEM_PATH);
+            }
+        }
+        let o = cmd.output().unwrap();
+        assert_eq!(code(&o), 1, "{case}: {}", err(&o));
+        assert!(err(&o).contains("nothing was written") || err(&o).contains("install from a source archive"), "{case}: no remedy in: {}", err(&o));
+        assert!(err(&o).contains(said), "{case}: the reason is not named: {}", err(&o));
+        assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
+    }
+}
+
+/// A source archive has no `.git` and is copied as before, also when it is unpacked inside another git work tree.
+#[test]
+fn a_tree_without_a_dot_git_is_copied_as_an_archive_inside_another_repository_too() {
+    let outer = fake_checkout("fix2-archive-in-repository", None);
+    let inner = outer.join("unpacked");
+    fs::create_dir_all(&inner).unwrap();
+    let archive = fake_archive("fix2-archive-copy");
+    let status = Command::new("cp").arg("-a").arg(format!("{}/.", archive.display())).arg(&inner).status().unwrap();
+    assert!(status.success());
+    let sandbox = scratch("fix2-archive-prefix");
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    let o = install(&inner.join("scripts/install.sh"), &prefix, &["--from-built", "debug"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(prefix.join("share/runbook/protocol/file.txt").is_file());
+}
+
+// ---- links ----
+
+fn commit_link(root: &Path, name: &str, target: &str) {
+    std::os::unix::fs::symlink(target, root.join(name)).unwrap();
+    git_in(root, &["add", name]);
+    git_in(root, &["commit", "-q", "-m", "a link"]);
+    stubs(root, None, &stub_version(&head12(root)));
+}
+
+/// A link is installed only when its target stays inside the checkout, is copied too, and has `..` at its start only:
+/// each of these is refused before anything is written, with the link and its target named.
+#[test]
+fn a_tracked_link_to_a_file_that_is_not_copied_or_with_a_dot_dot_in_its_middle_is_refused_before_anything_is_written() {
+    for (case, target, said) in [
+        ("not-copied", "../README.md", "not among the files that are copied"),
+        ("dangling", "no-such-file.txt", "not among the files that are copied"),
+        ("middle", "../scripts/../protocol/file.txt", "allowed at the start of a link target only"),
+        ("above-and-back", "../../../../x/y", "leaves the checkout"),
+        ("absolute", "/etc/hostname", "absolute path"),
+    ] {
+        let root = fake_checkout(&format!("fix2-link-{case}"), None);
+        let (_, prefix) = sandbox_of(&root);
+        fs::write(root.join("README.md"), "not copied\n").unwrap();
+        git_in(&root, &["add", "README.md"]);
+        commit_link(&root, "protocol/lnk", target);
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 1, "{case}: {}", err(&o));
+        assert!(err(&o).contains("protocol/lnk") && err(&o).contains(target), "{case}: the link is not named: {}", err(&o));
+        assert!(err(&o).contains(said), "{case}: the refusal gives the reason {said:?}: {}", err(&o));
+        assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
+    }
+}
+
+/// A link to a file and a link to a directory that are copied too are copied as links with their targets as written.
+#[test]
+fn a_tracked_link_to_a_copied_file_and_to_a_copied_directory_is_installed_as_a_link() {
+    let root = fake_checkout("fix2-link-good", None);
+    let (_, prefix) = sandbox_of(&root);
+    std::os::unix::fs::symlink("file.txt", root.join("protocol/same-directory")).unwrap();
+    std::os::unix::fs::symlink("../scripts", root.join("protocol/to-a-directory")).unwrap();
+    std::os::unix::fs::symlink("../scripts/file.txt", root.join("protocol/to-a-file")).unwrap();
+    git_in(&root, &["add", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "links"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let share = prefix.join("share/runbook/protocol");
+    for (name, target) in [("same-directory", "file.txt"), ("to-a-directory", "../scripts"), ("to-a-file", "../scripts/file.txt")] {
+        assert_eq!(fs::read_link(share.join(name)).unwrap(), Path::new(target), "{name}");
+    }
+    assert_eq!(fs::read_to_string(share.join("to-a-file")).unwrap(), "scripts\n");
+    assert!(share.join("to-a-directory/file.txt").is_file());
+}
+
+/// A `.git` whose repository names another work tree (`core.worktree`) is not the work tree of this checkout: git's
+/// top is that other directory, and the script stops with the two names and writes nothing.
+#[test]
+fn a_checkout_whose_git_names_another_work_tree_is_refused_and_nothing_is_written() {
+    let root = fake_checkout("fix2-other-top", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    let elsewhere = sandbox.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    git_in(&root, &["config", "core.worktree", elsewhere.to_str().unwrap()]);
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("top of its work tree"), "{}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
