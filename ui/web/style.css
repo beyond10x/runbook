@@ -666,7 +666,7 @@ pre.proc { margin: 10px 0 0; max-height: 180px; overflow: auto; background: #070
 .now-s.m-waiting i { background: var(--appr); }
 .now-s.m-closed i, .now-s.m-terminable i { background: var(--true); }
 .now-s.m-stuck i { background: var(--false); }
-.now-s.m-gone i { background: var(--false); }
+.now-s.m-gone i, .now-s.m-notlive i { background: var(--false); }
 .now-sub { font-size: 11.5px; color: var(--text-3); padding-left: 15px; }
 .now-drv { display: block; font-size: 11px; font-weight: 600; color: var(--text-3); padding-left: 15px; line-height: 1.35; }
 .now-drv i { display: block; font-style: normal; font-weight: 400; color: var(--text-4); font-variant-numeric: tabular-nums; }
@@ -1135,7 +1135,7 @@ html:where(.phone), :where(html.phone) body { height: auto; }
 :where(html.phone) .nb-state.m-running i { background: var(--accent-2); }
 :where(html.phone) .nb-state.m-waiting i { background: var(--appr); }
 :where(html.phone) .nb-state.m-closed i, :where(html.phone) .nb-state.m-terminable i { background: var(--true); }
-:where(html.phone) .nb-state.m-stuck i, :where(html.phone) .nb-state.m-gone i, :where(html.phone) .nb-state.m-stalled i { background: var(--false); }
+:where(html.phone) .nb-state.m-stuck i, :where(html.phone) .nb-state.m-gone i, :where(html.phone) .nb-state.m-notlive i, :where(html.phone) .nb-state.m-stalled i { background: var(--false); }
 :where(html.phone) .nb-state.m-stopped i { border-radius: 2px; background: var(--text-2); }
 :where(html.phone) .nb-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text-2); }
 

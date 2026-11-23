@@ -20,6 +20,8 @@ import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
+import {runnerLiveness} from './runnerlive.mjs';
+import {recordNotRead} from './runnerlive.mjs';
 import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
 import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
 import {readSeeded, writtenOf, finishedSteps} from './written.mjs';
@@ -329,8 +331,7 @@ function runSummary(s) {
     } catch (e) { summaries.set(s.path, {sig, failed: e}); throw e; }
   }
   const v = c.v;
-  // Whether it is live (livenessOf): the runner writes no pid and no lock, so a run that has not ended is
-  // 'unknown' (a run directory of `runbook run`) or history (any other directory): never 'running'.
+  // Whether it is live is livenessOf's answer, served by /api/live, not part of this summary.
   const closed = v.status?.state === 'closed' ? {at: v.status.at, outcome: v.status.outcome ?? v.term?.outcome ?? null, delivered: v.status.delivered}
     : v.term ? {at: v.term.at, outcome: v.term.outcome, delivered: null} : null;
   // How a closed run ended: good when the runner's own record says delivered (status.json) or the view of its
@@ -462,19 +463,23 @@ function openRecords(runDir) {
   }
   return out;
 }
-// Is the run live. `runbook run` writes no pid and no lock file (docs/loom-run-directory.md): what it leaves
-// is settings.json (first), run-stopped.json or status.json (the end). So a run directory with an end record
-// is `ended`; one with settings.json and no end record is `unknown` (running, or killed: the files do not say);
-// any other directory (a case store of the old driver) is `history`: shown, never reported as live.
+// Is the run live. A run directory with an end record (run-stopped.json, status.json closed) is `ended`. A run
+// directory with runner.json (the runner's pid and the start time the kernel gave it, docs/loom-run-directory.md) says
+// what the runner does: `running` (an action started and no step finished since), `between` (alive, no action in flight)
+// or `not_live` (closed, or no process of that pid and start time): runnerlive.mjs, which asks the kernel and sends no
+// signal. A run without that record keeps the older answer: settings.json and no end record is `unknown` (the files do not
+// say whether it runs), any other directory (a case store of the old driver) is `history`: shown, never reported as live.
 function livenessOf(src) {
   const runDir = runDirOf(src);
   if (readJson(path.join(runDir, 'run-stopped.json')) || readJson(path.join(runDir, 'status.json'))?.state === 'closed') return {state: 'ended'};
-  if (exists(path.join(runDir, 'settings.json'))) return {state: 'unknown', why: 'the runner writes no record of a live process'};
+  const runner = runnerLiveness(runDir);
+  if (runner) return runner;
+  if (exists(path.join(runDir, 'settings.json'))) return {state: 'unknown', why: recordNotRead(runDir) || 'the runner writes no record of a live process'};
   return {state: 'history', why: 'a case store of the old driver: nothing runs it'};
 }
 function liveSignature(src, runDir) {
   const recs = openRecords(runDir).map((r) => `${r.kind}/${r.name}:${statSig(path.join(r.dir, 'events.jsonl'))}:${r.status ? alive(r.status.pid) : '-'}`);
-  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + livenessOf(src).state;
+  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + JSON.stringify(livenessOf(src));
 }
 
 const argShort = (input) => {

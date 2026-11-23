@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:daemon-default-confinement-is-stated
 kind: story
-status: proposed
+status: active
 title: A daemon with a stated default confinement starts a submit that names none
 summary: The daemon takes --default-confinement or the value of its runbook.toml; a submit without a level runs at it. No built-in default; the floor is not read as one.
 relations:
 - informed_by: story:runbook-toml-carries-defaults
-revision: 2
+revision: 3
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T10:20:13Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-23T15:29:53Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
 ---
 ## Outcome
 
