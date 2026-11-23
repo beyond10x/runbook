@@ -224,6 +224,140 @@ fn a_decider_that_cannot_decide_leaves_the_decision_open_and_a_client_may_answer
     assert_eq!(given[0].2, json!(PRINCIPAL_LABEL), "the answer of a client is under the label it gave: {given:?}");
 }
 
+#[test]
+fn level_a0_and_a_kind_with_no_level_leave_every_decision_to_a_client() {
+    let l = serve("autonomy-a0", &[], RULE);
+    for (tag, extra) in [("a0", json!({"autonomy": "A0", "decider": "rule"})), ("kind-only", json!({"decider": "rule"}))] {
+        let run = run_of(&submit(&l, extra).1);
+        let waiting = until_state(&l, &run, &["WaitingOnDecision", "Ended", "FailedToStart", "Cancelled"]);
+        assert_eq!(waiting["state"], "WaitingOnDecision", "{tag}: {waiting}");
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(open(&l, &run).len(), 1, "{tag}: the first decision waits");
+        assert!(answers(&l, &run).iter().all(|(_, state, _)| state == "Open"), "{tag}: nothing was answered by a decider");
+    }
+}
+
+#[test]
+fn below_a5_a_class_the_table_gives_to_another_holder_is_not_taken_by_the_decider() {
+    for holder in ["decider_final", "rule", "advised"] {
+        let home = broken_copy(&format!("autonomy-holder-{holder}"));
+        let table = home.join("tools/autonomy-levels.json");
+        let text = std::fs::read_to_string(&table).unwrap();
+        let a4 = r#""A4": {"staging": "decider", "review": "decider", "close": "person"}"#;
+        assert!(text.contains(a4));
+        std::fs::write(&table, text.replace(a4, &format!(r#""A4": {{"staging": "decider", "review": "{holder}", "close": "person"}}"#))).unwrap();
+        let l = serve_home(&format!("autonomy-holder-{holder}-d"), &home, &[], RULE);
+        let run = run_of(&submit(&l, json!({"autonomy": "A4", "decider": "rule"})).1);
+        let open = until_open(&l, &run, "notes.review");
+        assert!(open.iter().any(|r| r["action"] == "notes.review"), "{holder}: the review step waits for a client: {open:?}");
+    }
+}
+
+#[test]
+fn at_a5_a_close_of_a_case_that_one_outcome_already_closed_is_not_asked_of_the_decider() {
+    let l = serve("autonomy-a5-close", &[], RULE);
+    let run = run_of(&submit(&l, json!({"autonomy": "A5", "decider": "rule"})).1);
+    let ended = until_state(&l, &run, &["Ended", "FailedToStart", "Cancelled"]);
+    assert_eq!(ended["state"], "Ended", "{ended}");
+    let given = answers(&l, &run);
+    let autopilot = given.iter().filter(|(_, _, by)| by == "rule:autopilot").count();
+    assert_eq!(autopilot, 1, "{given:?}");
+    // `runbook run` asks nothing after one close ran (docs/loom-run-decisions.md): the staging approval, the review and the one close
+    assert_eq!(given.len(), 3, "the decider was asked about a close the case no longer needed, and the record says it answered: {given:?}");
+}
+
+fn write_exe(path: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, text).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A daemon with the model kind whose adapter is a stand-in that writes its own environment and fails; the pairs it saw, and the login path the file names.
+fn environment_of_the_model_child(tag: &str) -> (Vec<(String, String)>, String) {
+    let base = super::state::scratch(tag);
+    let home = base.join("home");
+    copy_tree(&fixture(), &home);
+    copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("instructions/decider"), &home.join("instructions/decider"));
+    let adapter = base.join("adapter.sh");
+    write_exe(&adapter, "#!/bin/sh\nd=$(dirname \"$1\")\nenv > \"$d/env.txt\"\nexit 1\n");
+    let login = base.join("login-dir/credentials.json");
+    std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+    std::fs::write(&login, "{}").unwrap();
+    let file = format!("login_file = \"{}\"\n[deciders.model]\nmodel = \"a-model\"\nadapter = \"{}\"\nwithout_claims = true\ntimeout_seconds = 20\n", login.display(), adapter.display());
+    std::env::set_var("DAEMON_CANARY", "canary-value");
+    let l = serve_home(&format!("{tag}-d"), &home, &[], &file);
+    let run = run_of(&submit(&l, json!({"autonomy": "A5", "decider": "model"})).1);
+    until_state(&l, &run, &["WaitingOnDecision", "Ended", "FailedToStart", "Cancelled"]);
+    let state = l.dir.join("state");
+    // the decision is open before the decider's child starts: wait for the file, not for the state
+    let limit = Instant::now() + Duration::from_secs(30);
+    let found = loop {
+        if let Some(path) = find_named(&state, "env.txt") {
+            break path;
+        }
+        assert!(Instant::now() < limit, "the stand-in adapter was never started: {:?} {}", answers(&l, &run), row(&l, &run));
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let pairs = std::fs::read_to_string(found).unwrap().lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+    (pairs, login.display().to_string())
+}
+
+fn find_named(dir: &Path, name: &str) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.file_name().is_some_and(|n| n == name) {
+            return Some(path);
+        }
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            if let Some(found) = find_named(&path, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn the_model_child_holds_nothing_of_the_daemons_environment() {
+    let (env, _login) = environment_of_the_model_child("autonomy-model-env");
+    let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(!keys.contains(&"DAEMON_CANARY"), "a variable of the daemon's own reached the model's adapter: {keys:?}");
+    assert!(!keys.iter().any(|k| k.contains("TOKEN") || *k == "RUNBOOK_CONFIG"), "{keys:?}");
+    assert!(keys.iter().all(|k| ["PATH", "HOME", "PWD", "SHLVL", "_", "SDC_CLAUDE_CREDENTIALS"].contains(k)), "{keys:?}");
+}
+
+#[test]
+fn the_model_child_is_given_no_path_to_the_login_file_itself() {
+    let (env, login) = environment_of_the_model_child("autonomy-model-login");
+    let held: Vec<_> = env.iter().filter(|(_, v)| v.contains(&login)).map(|(k, _)| k.clone()).collect();
+    assert!(held.is_empty(), "the real path of the operator's login file is in the environment of the model's adapter ({held:?}); `runbook run` hands it a link in a private directory");
+}
+
+#[test]
+fn a_refused_decider_table_ends_the_daemon_and_names_no_value_of_the_file() {
+    let files = [
+        "[deciders.rule]\nverdict = \"SECRETVALUE1\"\n",
+        "[deciders.rule]\nverdict = \"approve\"\nzz = \"SECRETVALUE2\"\n",
+        "[deciders.model]\nmodel = \"SECRETVALUE3 x\"\n",
+        "[deciders.scripted]\nanswers = \"SECRETVALUE4\"\n",
+        "[deciders.rule]\nkind = \"SECRETVALUE5\"\nverdict = \"approve\"\n",
+        "[deciders]\nrule = \"SECRETVALUE6\"\n",
+        "[deciders.model]\nmodel = \"a-model\"\nadapter = \"/SECRETVALUE7/adapter\"\nmax_budget_usd = \"SECRETVALUE7\"\n",
+    ];
+    for (n, file) in files.iter().enumerate() {
+        let dir = super::state::scratch(&format!("autonomy-table-refused-{n}"));
+        std::fs::write(dir.join("runbook.toml"), file).unwrap();
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
+        cmd.arg("serve").args(["--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0"]).arg("--state-dir").arg(dir.join("state"));
+        cmd.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_CONFIG", dir.join("runbook.toml")).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        let (status, out, err) = super::http::exits_within(cmd, Duration::from_secs(10));
+        assert!(status.is_some_and(|s| s != 0), "file {n}: the daemon started with a table it cannot take: {out} {err}");
+        assert!(!err.contains("SECRETVALUE") && !out.contains("SECRETVALUE"), "file {n}: a value of the file is in the refusal: {err}");
+        assert!(!dir.join("state").exists(), "file {n}: nothing written");
+    }
+}
+
 const PRINCIPAL_LABEL: &str = "a-client";
 
 fn send_answer(l: &Live, run: &str, request: &str, answer: &str) -> Value {

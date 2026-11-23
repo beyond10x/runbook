@@ -3,9 +3,12 @@
 //! own that asks and tries to answer as a decider would; the engine and the decider of the binary are the cases of
 //! `autonomy.rs` (the binary) and of `src/loom_run/arbiter.rs`.
 
-use super::commands::config;
+use super::commands::{config, Fx};
+use super::http::Server;
+use super::stub::ask;
 use runbook::commands::{AnswerDecision, CancelRun, Daemon, Fault, Policy, SubmitRun};
-use runbook::runtime::{AnswerFailure, Autonomy, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use runbook::runtime::{AnswerFailure, Autonomy, Confinement, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use runbook::stub::{Script, Step, StubRuntime};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -208,4 +211,99 @@ fn a_default_level_needs_a_kind_to_take_it_or_the_daemon_does_not_start() {
     assert!(why.contains("model") && why.contains("rule"), "the default kind is one that is configured: {why}");
     assert!(!dir.join("state").exists(), "nothing was written");
     assert!(started(policy(Some(Autonomy::A3), Some("rule"), &["rule"])).is_none());
+}
+
+fn stub_with_quick() -> Arc<StubRuntime> {
+    let stub = Arc::new(StubRuntime::new());
+    stub.script("quick", Script::new(vec![Step::End("done".into())]));
+    stub.script("hold", Script::new(vec![Step::Sleep(60_000)]));
+    stub
+}
+
+#[test]
+fn a_reserved_prefix_is_refused_in_every_spelling_of_a_client_label() {
+    let fx = Fx::new("auto-labels");
+    let spellings: Vec<String> = vec![
+        "rule:approve".into(),
+        "decider:model".into(),
+        "Rule:approve".into(),
+        "RULE:approve".into(),
+        "Decider:model".into(),
+        " rule:approve".into(),
+        "\trule:approve".into(),
+        "\u{a0}rule:approve".into(),
+        "\u{200b}rule:approve".into(),
+        "rule\u{200b}:approve".into(),
+        "\u{ff52}ule:approve".into(),
+        "rule\u{ff1a}approve".into(),
+        "r\u{200d}ule:approve".into(),
+        "\u{0440}ule:approve".into(),
+        "rule:\u{200b}approve".into(),
+    ];
+    let asks: Vec<_> = (0..spellings.len()).map(|n| ask(&format!("s{n}"))).collect();
+    fx.stub.script("labels-ask", Script::new(vec![Step::Ask(asks), Step::End("approved".into())]));
+    let run = fx.submit("labels-ask");
+    fx.wait_open_decisions(&run, spellings.len());
+    let mut taken = Vec::new();
+    for (n, label) in spellings.iter().enumerate() {
+        let answered = fx.d().answer_decision(AnswerDecision { run_id: run.clone(), request_id: format!("s{n}"), answer: "A".into(), answered_by: label.clone() });
+        if answered.is_ok_and(|o| o.name == "answered") {
+            taken.push(label.escape_unicode().to_string());
+        }
+    }
+    // the same prefix as a JSON escape arrives decoded: the body of a request, parsed as the route parses it
+    let escaped: AnswerDecision = serde_json::from_str(r#"{"run_id":"r","request_id":"q","answer":"A","answered_by":"rule:approve"}"#).unwrap();
+    assert_eq!(escaped.answered_by, "rule:approve");
+    assert!(taken.is_empty(), "a client label that reads as a rule's or a decider's was recorded under the daemon's principal; the exact `rule:` and `decider:` are refused, and the ones that were taken: {taken:?}");
+}
+
+#[test]
+fn a_resubmit_with_the_same_key_changes_neither_the_level_nor_the_kind_and_a_hostile_kind_is_not_echoed_whole() {
+    let dir = super::state::scratch("auto-terms");
+    std::fs::create_dir_all(dir.join("ctx")).unwrap();
+    let policy = Policy { autonomy: None, decider: None, kinds: vec!["rule".into()], ..Policy::default() };
+    let mut cfg = config(&dir);
+    cfg.confinement_floor = Confinement::Local;
+    let d = Daemon::start_with(cfg, policy, stub_with_quick()).unwrap();
+    let first = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), confinement: Some(Confinement::Local), autonomy: Some(Autonomy::A5), decider: Some("rule".into()), idempotency_key: Some("k1".into()), ..SubmitRun::default() }).unwrap();
+    let run = first.run_id.clone().unwrap();
+    let again = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), confinement: Some(Confinement::Local), autonomy: Some(Autonomy::A0), decider: Some("rule".into()), idempotency_key: Some("k1".into()), ..SubmitRun::default() }).unwrap();
+    assert_eq!((again.name, again.run_id.clone()), ("already-submitted", Some(run.clone())));
+    let row = d.run_detail(&run)[0].clone();
+    assert_eq!((row["autonomy"].clone(), row["decider"].clone()), (json!("A5"), json!("rule")), "{row}");
+    let runs_before = d.runs().len();
+    for hostile in ["x".repeat(5000), "/etc/passwd".to_owned(), "rule\nmodel".to_owned()] {
+        let message = match d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), confinement: Some(Confinement::Local), decider: Some(hostile.clone()), ..SubmitRun::default() }) {
+            Err(Fault::Invalid(m)) => m,
+            other => panic!("a kind that is not configured was not refused: {other:?}"),
+        };
+        assert!(message.len() < 400 && !message.contains(&"x".repeat(65)) && !message.contains('\n'), "the refusal echoes the client's text whole or on several lines: {message:?}");
+        assert!(!message.contains("runbook.toml"), "{message}");
+    }
+    assert_eq!(d.runs().len(), runs_before, "no run");
+    d.stop();
+}
+
+#[test]
+fn the_new_members_of_a_submit_pass_the_one_token_check_and_origin_guard() {
+    const TOKEN: &str = "guard-token-0123456789-abcdefghijklmnopqrstuv";
+    let s = Server::start("auto-guard", Some(TOKEN));
+    let body = json!({"runbook_id": "quick", "intake": "x", "confinement": "linux", "autonomy": "A5", "decider": "rule"});
+    let tool = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_run", "arguments": body}});
+    let json_header = ("Content-Type", "application/json");
+    let bearer = format!("Bearer {TOKEN}");
+    let routes: [(&str, &Value); 2] = [("/daemon/commands/submit-run", &body), ("/mcp", &tool)];
+    for (path, payload) in routes {
+        let bytes = payload.to_string();
+        let none = s.send("POST", path, &[json_header], Some(bytes.as_bytes()));
+        assert_eq!(none.status, 401, "{path} without the token");
+        let wrong = s.send("POST", path, &[json_header, ("Authorization", "Bearer not-the-token-0123456789-abcdefghijklmnop")], Some(bytes.as_bytes()));
+        assert_eq!(wrong.status, 401, "{path} with another token");
+        let foreign = s.send("POST", path, &[json_header, ("Authorization", &bearer), ("Origin", "http://evil.example")], Some(bytes.as_bytes()));
+        assert_eq!(foreign.status, 403, "{path} from a foreign origin with the token");
+    }
+    assert!(s.fx.d().runs().is_empty(), "a refused request wrote no run");
+    let ok = s.send("POST", "/daemon/commands/submit-run", &[json_header, ("Authorization", &bearer)], Some(body.to_string().as_bytes()));
+    assert_eq!(ok.status, 400, "with the token a kind nobody configured is refused: {}", ok.text());
+    assert!(s.fx.d().runs().is_empty());
 }

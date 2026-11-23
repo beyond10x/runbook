@@ -1,14 +1,20 @@
 //! The level of a submit that names none: stated by the person who starts the daemon (`--default-confinement`, or
 //! `confinement` of `runbook.toml`), never read from the floor, never below it.
 
+use super::commands::config;
 use super::http::{exits_within, send};
+use super::state::scratch;
 use super::PRINCIPAL;
+use runbook::commands::{Daemon, Fault, Policy, SubmitRun};
+use runbook::runtime::Confinement;
 use runbook::serve::STUB_DECISION;
+use runbook::stub::{Script, Step, StubRuntime};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
@@ -129,5 +135,70 @@ fn a_submit_that_names_a_level_is_unchanged_by_the_default() {
     assert_eq!((status, body["outcome"].clone()), (409, json!("below-floor")), "{body}");
     assert!(rows(&l, "/daemon/views/runs").is_empty(), "a refused submit writes no run");
     assert!(!l.dir.join("state/runs").read_dir().map(|mut d| d.next().is_some()).unwrap_or(false), "nor a run directory");
+}
+
+fn stub_with_quick() -> Arc<StubRuntime> {
+    let stub = Arc::new(StubRuntime::new());
+    stub.script("quick", Script::new(vec![Step::End("done".into())]));
+    stub.script("hold", Script::new(vec![Step::Sleep(60_000)]));
+    stub
+}
+
+#[test]
+fn a_daemon_with_no_default_refuses_a_submit_without_confinement_by_name() {
+    for floor in [Confinement::Linux, Confinement::Local] {
+        let dir = scratch(&format!("dc-nodefault-{}", floor.as_str()));
+        std::fs::create_dir_all(dir.join("ctx")).unwrap();
+        let mut cfg = config(&dir);
+        cfg.confinement_floor = floor;
+        let d = Daemon::start(cfg, stub_with_quick()).unwrap();
+        let out = d.submit_run(SubmitRun { runbook_id: "quick".into(), intake: "x".into(), ..SubmitRun::default() });
+        let refused_by_name = match &out {
+            Err(Fault::Invalid(message)) => message.contains("confinement"),
+            Ok(o) => o.is_refusal(),
+            Err(_) => false,
+        };
+        let runs = d.runs().len();
+        d.stop();
+        assert!(refused_by_name && runs == 0, "floor {}: a daemon with neither --default-confinement nor a file value took a submit without `confinement` and made {runs} run(s): {out:?}", floor.as_str());
+    }
+}
+
+#[test]
+fn the_default_never_lowers_a_named_level_and_the_floor_holds_on_every_path() {
+    // a default below the floor does not start the daemon, and nothing is written
+    let dir = scratch("dc-floor-a");
+    std::fs::create_dir_all(dir.join("ctx")).unwrap();
+    let why = Daemon::start_with(config(&dir), Policy { default_confinement: Some(Confinement::Local), ..Policy::default() }, stub_with_quick()).err().map(|e| e.to_string()).unwrap();
+    assert!(why.contains("local") && why.contains("linux"), "{why}");
+    assert!(!dir.join("state").exists(), "nothing written by a daemon that did not start");
+
+    // floor local, default local: a submit without a level runs at local and says where it came from; a named level wins and is never lowered
+    let dir = scratch("dc-floor-b");
+    std::fs::create_dir_all(dir.join("ctx")).unwrap();
+    let mut cfg = config(&dir);
+    cfg.confinement_floor = Confinement::Local;
+    let policy = Policy { default_confinement: Some(Confinement::Local), ..Policy::default() };
+    let d = Daemon::start_with(cfg, policy, stub_with_quick()).unwrap();
+    let none = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+    let named = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), confinement: Some(Confinement::Linux), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+    let (a, b) = (d.run_detail(&none)[0].clone(), d.run_detail(&named)[0].clone());
+    assert_eq!((a["confinement"].clone(), a["confinement_source"].clone()), (json!("local"), json!("daemon-default")), "{a}");
+    assert_eq!((b["confinement"].clone(), b["confinement_source"].clone()), (json!("linux"), json!("submit")), "{b}");
+    d.stop();
+    drop(d);
+
+    // after a restart under a higher floor: a submit that names a level below it, or none (the default is below it), starts nothing
+    let mut cfg = config(&dir);
+    cfg.confinement_floor = Confinement::Linux;
+    let d = Daemon::start_with(cfg.clone(), Policy { default_confinement: Some(Confinement::Linux), ..Policy::default() }, stub_with_quick()).unwrap();
+    let before = d.runs().len();
+    let below = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
+    assert_eq!((below.name, below.is_refusal()), ("below-floor", true), "{below:?}");
+    assert_eq!(d.runs().len(), before, "a refused submit writes no run");
+    assert!(d.events_of_daemon_after(0).iter().filter(|e| e["kind"] == "runbook.submitted" && e["record"]["confinement"] == "local").count() == 1, "only the first daemon's submit is recorded at local");
+    let plain = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+    assert_eq!(d.run_detail(&plain)[0]["confinement"], "linux", "the default is the one this daemon was started with");
+    d.stop();
 }
 
