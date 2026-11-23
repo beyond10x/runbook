@@ -34,6 +34,8 @@
 // (sdc.observed/1), `case` in the call's request.json and a `status.json` (sdc.call-status/1).
 // `person` is written without them, as an older runtime did.
 // speed: 1 plays gaps between events as recorded, capped at 2.5 s (default 1).
+// SDC_FIXTURE_HOLD=<file>: a call is held after its last event, response.json still empty, until that file exists, so a test
+// that looks at a call in flight waits for the page and then releases it, where a slow speed made the window by the clock.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -257,6 +259,7 @@ async function playRecord(kind, name, {caseId, action, onTool} = {}) {
     fs.appendFileSync(path.join(to, 'events.jsonl'), rel(l) + '\n');
     if (e.event === 'tool.requested' && onTool) await onTool(e, `${kind}/${name}`);
   }
+  if (process.env.SDC_FIXTURE_HOLD) while (!fs.existsSync(process.env.SDC_FIXTURE_HOLD)) await realSleep(20);
   await sleep(600 / speed);
   fs.writeFileSync(path.join(to, 'response.json'), rel(fs.readFileSync(path.join(from, 'response.json'), 'utf8')));
   status('finished', {finished_at: iso(Date.now()), exit: 0});

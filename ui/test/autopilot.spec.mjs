@@ -50,8 +50,9 @@ test.beforeAll(async ({}, info) => {
 
 test('autopilot: the decider is deciding or no decision is pending, never a person, never "waiting on you"', async ({page}) => {
   test.setTimeout(60000);
-  // the decider's call plays slowly enough to be seen deciding
-  procs.push(spawnChild('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '0.6'], {cwd: ui, stdio: 'ignore'}));
+  // the decider's call is held after its last event, response still empty, until the page has been seen deciding
+  const hold = path.join(runs, 'autopilot.hold');
+  procs.push(spawnChild('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '50'], {cwd: ui, stdio: 'ignore', env: {...process.env, SDC_FIXTURE_HOLD: hold}}));
   for (let i = 0; i < 100 && !fs.existsSync(path.join(runs, 'autopilot', 'store')); i++) await new Promise((x) => setTimeout(x, 100));
   await expect.poll(async () => (sources = await (await fetch(base + '/api/sources')).json()).some((s) => s.path.endsWith('/autopilot/store')), {timeout: 15000}).toBe(true);
   await page.setViewportSize(GATING[0]);
@@ -65,6 +66,7 @@ test('autopilot: the decider is deciding or no decision is pending, never a pers
   await expect(page.locator('#lg-person')).toHaveText('decider (on the operator’s behalf)');
   expect(await said(page)).toEqual([]);
   // the call ends: nothing pends on anyone
+  fs.writeFileSync(hold, '');
   await expect(head).toHaveText('No decision is pending: the decider takes the next one when the run continues', {timeout: 60000});
   await expect(page.locator('#kpis .kt.k-decisions .k-l')).toContainText('Decisions');
   await expect(page.locator('#feed .fd-w.w-decider').first()).toContainText('on the operator’s behalf');
