@@ -534,6 +534,20 @@ fn a_persons_rejection_reaches_the_stub() {
     assert!(r.files["requirements.yaml"].ends_with("# rework of the rejection of requirements.check:\n# - The requirements lack the named risks.\n# - Name the failure modes of a missing connection.\n"), "{r:#?}");
 }
 
+/// The second rejection of an approval by a person with the same reasons: the note says so, so the
+/// rework is not the artifact the first rejection left (a stub that wrote the same lines twice made
+/// no new revision and left the tree without a step to take).
+#[test]
+fn the_second_rejection_of_an_approval_by_a_person_is_numbered_in_the_note() {
+    let reasons = "The requirements lack the named risks.\n";
+    let blob = "5e".repeat(32);
+    let one = |id: &str| json!({"evidence_id": id, "kind": "requirements_approval", "subject": "requirements", "subject_revision": "r2", "result": "rejected", "blob_sha256": blob, "action": "requirements.check", "exit": null});
+    let doc = retry_doc(json!([one("e1"), one("e2")]), json!([{"blob_sha256": blob, "tail": reasons}]));
+    let (_, r) = pair("retry-person-twice", &start("requirements.normalise").env(&RETRY_ENV), &|root| put(root, "feedback-doc.json", &doc));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files["requirements.yaml"].ends_with("# rework 2 of the rejection of requirements.check:\n# - The requirements lack the named risks.\n"), "{r:#?}");
+}
+
 #[test]
 fn a_retry_feedback_document_of_another_format_is_a_program_error() {
     let (_, r) = pair("retry-bad", &start("change.fix").env(&RETRY_ENV), &|root| put(root, "feedback-doc.json", "{\"format\":\"other\"}"));

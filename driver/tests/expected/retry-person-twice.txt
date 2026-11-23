@@ -1,0 +1,37 @@
+exit 0
+stdout:
+stderr:
+written:
+71f20eb8850458da  .sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e
+    | The requirements lack the named risks.
+d064be68a028fea9  .sdc/loom-feedback/9cca45474f6752f1/feedback.json
+    | [
+    |   {
+    |     "kind": "requirements_approval",
+    |     "result": "rejected",
+    |     "subject": "requirements",
+    |     "action": "requirements.check",
+    |     "exit": null,
+    |     "log": "<root>/work/.sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+    |   },
+    |   {
+    |     "kind": "requirements_approval",
+    |     "result": "rejected",
+    |     "subject": "requirements",
+    |     "action": "requirements.check",
+    |     "exit": null,
+    |     "log": "<root>/work/.sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+    |   }
+    | ]
+e65e8733be0fb850  requirements.yaml
+    | requirements:
+    |   - id: r1
+    |     text: A billing clerk creates, issues, pays and cancels invoices.
+    |     cites: [d1, q1, q2]
+    |     spec_domains: [billing.invoice]
+    |   - id: r2
+    |     text: The customer is emailed when an invoice is created.
+    |     cites: [d2]
+    |     spec_domains: [billing.email]
+    | # rework 2 of the rejection of requirements.check:
+    | # - The requirements lack the named risks.

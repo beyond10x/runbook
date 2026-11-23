@@ -681,7 +681,7 @@ rejected record is about the current revision; the driver passes the record in S
 `llm-node.sh` gives the writer the blob as `in/rejection.json` with a prompt to address each reason
 and cite it back. A model writer writes the artifact itself; only the stub, which writes the same
 output every time, appends the rejection to the subject (`.rework` in a tree, a comment in a YAML or
-Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
+Markdown file) so its rework is a new revision (a person's nth rejection of the same approval is numbered in the note, `rework 2 of the rejection of ...`, so the same reasons twice still make a new revision; cycle `decider-rework-model`: none on a model
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
 evidence and the event log). The rejection after the last rework (the third, unless `SDC_MAX_REJECTIONS` sets another rework cap than `rework_limit` of rule-ends.json; run-settings.jsonl records the effective `rework_limit`, D184) stops the run with cause `rework_spent`; a

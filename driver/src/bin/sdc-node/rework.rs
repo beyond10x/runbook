@@ -60,7 +60,11 @@ impl Ctx {
             let log = field("log");
             if !approval.is_empty() && PathBuf::from(&log).is_file() {
                 let reasons = dashed(&String::from_utf8_lossy(&fs::read(&log).unwrap_or_default()));
-                let text = self.render("instructions/shared/rework.stub.person.md", &[("action", &approval), ("reasons", &reasons)])?;
+                // The nth rejection of the approval says so, so a rework that addresses the same
+                // reasons again is still a new revision of the artifact.
+                let n = recs.iter().filter(|r| r.str_of("result") == Some("rejected") && r.field("action").map(Ov::raw).as_deref() == Some(approval.as_str())).count();
+                let nth = if n > 1 { format!(" {n}") } else { String::new() };
+                let text = self.render("instructions/shared/rework.stub.person.md", &[("nth", &nth), ("action", &approval), ("reasons", &reasons)])?;
                 lines = chomp(&text).to_string();
             }
         } else if let Some(rej) = self.rejection.as_ref() {
