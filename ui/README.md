@@ -312,10 +312,14 @@ code, and the files of the run with their content. It reads and acts on nothing.
   not read at all, and a regular file with more than one link is not read (`null`, as an absent file), for
   every caller (`console.txt`, `expected-llm-calls.txt`, the events, the case files; the default limit is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
   64 KiB). The reads of the run's own small control files (`settings.json`, `events.jsonl`, case
-  state) keep the default bound; no smaller size is defined for them. Three reads open a file of a run
-  themselves and have neither the link-count check nor the limit of `readText`: the first 64 KiB of
-  `events.jsonl` (the protocol of a case), and `fs/changes.jsonl` read from the offset the page has seen and
-  by position for one change.
+  state) keep the default bound; no smaller size is defined for them. The three reads that need a part of
+  a file go through the same checked open as the blob and the file route (`readRegular` of `runfiles.mjs`:
+  one descriptor, its real path under the run, a regular file, one link), on the one descriptor: the first
+  64 KiB of a case's `events.jsonl` (its protocol), `fs/changes.jsonl` from the offset the page has seen (in
+  chunks of 32 MiB), and one change of it by its position. A file that fails the check is read as absent
+  (`fs.present` is false; the change is 404). No read of a file of a run opens it any other way; the files
+  the server reads without that check are not files of a run (the checkout's protocols, docs and
+  experiment records, the files of `--view` and `--clock`, the page's own files).
 - An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
   page draws at most 24 levels of it (`cut at depth 24`).
 - A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404

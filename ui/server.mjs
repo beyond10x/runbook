@@ -103,23 +103,17 @@ const HEAD_BYTES = 65536;
 // the most of a blob of fs/blobs/ that the page diffs or parses for its meaning, and of a blob it shows
 const DIFF_BLOB_LIMIT = 8 * 1048576, BLOB_SHOWN = 200000;
 function openedProtocol(dir) {
-  const file = runPath(path.join(dir, 'events.jsonl'));
-  if (!file) return null;
-  let fd;
-  try {
-    fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    const lines = buf.toString('utf8', 0, n).split('\n');
-    if (n === HEAD_BYTES) lines.pop();
-    for (const line of lines) {
-      let e;
-      try { e = JSON.parse(line); } catch { continue; }
-      if (e?.event !== 'opened') continue;
-      const p = e.protocol?.id ?? e.protocol;
-      return typeof p === 'string' && p ? p : null;
-    }
-  } catch { /* no log */ } finally { if (fd != null) fs.closeSync(fd); }
+  const r = readRegular(path.join(dir, 'events.jsonl'), {limit: HEAD_BYTES});
+  if (r.state !== 'ok') return null;
+  const lines = r.bytes.toString('utf8').split('\n');
+  if (r.bytes.length === HEAD_BYTES && r.size > HEAD_BYTES) lines.pop();
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (e?.event !== 'opened') continue;
+    const p = e.protocol?.id ?? e.protocol;
+    return typeof p === 'string' && p ? p : null;
+  }
   return null;
 }
 const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
@@ -571,17 +565,20 @@ function recordProgress(r, runDir) {
 // field but `diff`, which /api/fschange reads back from the line's byte offset. A late
 // `sdc.fs-attribution/1` line (no seq) replaces the attribution of the change it names.
 const fsCache = new Map();
+const FS_CHUNK = 32 * 1048576;
 function fsChanges(runDir) {
-  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
-  let size;
-  try { size = fs.statSync(file).size; } catch { fsCache.delete(runDir); return {present: false, list: []}; }
+  const file = path.join(runDir, 'fs', 'changes.jsonl');
   let c = fsCache.get(runDir);
-  if (!c || size < c.offset) { c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()}; fsCache.set(runDir, c); }
-  if (size > c.offset) {
-    const fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(size - c.offset);
-    fs.readSync(fd, buf, 0, buf.length, c.offset);
-    fs.closeSync(fd);
+  // read through the checked open of runfiles.mjs (one name, regular, under the run), a chunk at a time from the offset
+  for (;;) {
+    const r = readRegular(file, {root: runDir, at: c ? c.offset : 0, limit: FS_CHUNK});
+    if (r.state !== 'ok') { fsCache.delete(runDir); return {present: false, list: []}; }
+    if (!c || r.size < c.offset) {
+      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()};
+      fsCache.set(runDir, c);
+      if (r.from !== 0) continue; // the file is shorter than what was read: read it again from its start
+    }
+    const buf = r.bytes;
     let start = 0;
     for (let i = 0; i < buf.length; i++) {
       if (buf[i] !== 10) continue;
@@ -609,6 +606,7 @@ function fsChanges(runDir) {
       } catch { /* not JSON: skipped */ }
     }
     c.offset += start; // a line without its newline yet is read on the next call
+    if (start === 0 || c.offset >= r.size) break;
   }
   return {present: true, list: c.list};
 }
@@ -617,13 +615,9 @@ function fsChange(runDir, seq) {
   const c = fsCache.get(runDir);
   const loc = c?.at.get(seq);
   if (!loc) return null;
-  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
-  if (!file) return null;
-  const fd = fs.openSync(file, 'r');
-  const buf = Buffer.alloc(loc.len);
-  fs.readSync(fd, buf, 0, loc.len, loc.off);
-  fs.closeSync(fd);
-  const r = JSON.parse(buf.toString('utf8'));
+  const got = readRegular(path.join(runDir, 'fs', 'changes.jsonl'), {root: runDir, at: loc.off, limit: loc.len});
+  if (got.state !== 'ok' || got.bytes.length !== loc.len) return null;
+  const r = JSON.parse(got.bytes.toString('utf8'));
   if (c.late.has(seq)) r.attribution = c.late.get(seq);
   if (!r.diff && !r.binary && !r.too_large && !(r.op === 'rename' && r.before === r.after)) {
     const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h), undefined, DIFF_BLOB_LIMIT) : null);

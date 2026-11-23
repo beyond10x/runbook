@@ -123,7 +123,9 @@ export const typeOf = (st) => TYPES.find(([m]) => st[m]())?.[1] ?? (st.isFile() 
 // is the reason the file is not served (answer {state: 'refused', why: 'not served', reason}), null lets it through.
 // It is the one place a caller says where a file may lie, because it is asked about the file that is open, not about
 // a path computed before. `nameOf` is the kernel's name for a descriptor (a test supplies one that cannot answer).
-export function readRegular(p, {root, limit = 1048576, tail = false, end = null, accept = null, nameOf = fdPath} = {}) {
+// `at` starts the window at a position of the file (the `limit` bytes from there): an incremental read, or one record by its
+// offset, on the same checked descriptor.
+export function readRegular(p, {root, limit = 1048576, tail = false, end = null, at = null, accept = null, nameOf = fdPath} = {}) {
   const abs = path.resolve(p);
   const real = runPath(abs, root);
   if (!real) {
@@ -143,8 +145,9 @@ export function readRegular(p, {root, limit = 1048576, tail = false, end = null,
     const now = fs.fstatSync(fd);
     if (!now.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(now)};
     if (now.nlink > 1) return {state: 'refused', why: 'more than one link', type: 'file'};
-    const to = end != null ? Math.min(end, now.size) : tail ? now.size : Math.min(now.size, limit);
-    const from = end != null || tail ? Math.max(0, to - limit) : 0;
+    const begin = at != null ? Math.min(at, now.size) : 0;
+    const to = end != null ? Math.min(end, now.size) : tail ? now.size : Math.min(now.size, begin + limit);
+    const from = end != null || tail ? Math.max(0, to - limit) : begin;
     const want = to - from;
     const buf = Buffer.alloc(want);
     let got = 0;
