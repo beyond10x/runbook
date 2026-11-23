@@ -1,8 +1,11 @@
 # The settings file of `runbook run`: `runbook.loom-run-settings/1`
 
 One TOML file, named by `--settings`. A file that is JSON is refused before anything starts, by its
-content and not by its name, with a message that names the TOML form and this page (exit 2, nothing
-written). One format serves the loop (`docs/loom-run.md`), the decider and the bindings copy
+content and not by its name, also after a byte order mark, blank lines and comment lines, with a
+message that says it is JSON and names the TOML form and this page (exit 2, nothing written). A syntax
+error is refused with its line, its column and the parser's own words for the kind of error (cut to
+160 characters), and never with a line, a value or a part of a value of the file: a line of the file can
+hold the path of the login file. One format serves the loop (`docs/loom-run.md`), the decider and the bindings copy
 (`docs/loom-run-decisions.md`) and the run directory writer (`docs/loom-run-directory.md`).
 `sdc-experiment run` writes this file for a launched run (`docs/workflow-metrics.md` section 7.1);
 the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`read`,
@@ -20,6 +23,13 @@ place named.
 Types are TOML's, and a member takes the one type it names. A whole number is written as an integer
 (`100`): `100.0`, `1e2`, `"100"`, a negative number and an integer that does not fit 64 bits are
 refused, as are a date, a date and time and a time, which no setting takes. A path is text.
+
+A whole number may be written in any spelling TOML gives an integer: `0x10` is 16, `0o20` is 16,
+`0b10` is 2, `1_000` is 1000 and `+5` is 5. A float (`1.0`, `1e3`, `inf`, `nan`) is refused where a
+whole number is asked for. The three members that repeat an option, `cap_micro_usd`, `max_llm_calls`
+and `max_wall_seconds`, must equal the option: a spelling that is the option's number (`0x4C4B40` for
+5000000) is the option, any other number is refused with the member named, and no value is read as
+larger than the option, as absent or as unlimited.
 
 ## Example
 
@@ -114,7 +124,10 @@ form: it is the settings with `login_file` replaced by `named`, `format` and `ru
 `loom` (an object, as before: `sha256` or `in_process` and `commit`, `confinement`, `cap_micro_usd`),
 `max_llm_calls`, `max_wall_seconds`, `case` and `root_protocol` set from the options. It never holds
 the path of the binary. The same holds for `run-settings.jsonl` (`sdc.run-settings/1`). The input is
-TOML, the records are not.
+TOML, the records are not. The members of the records stand in the order of the settings file, with
+`loom`, `case` and `root_protocol` after them; a reader of the records reads by member name, not by
+position (the file `sdc-experiment` writes has its own order, so a run of 0.7.0 from such a file has
+its members in another order).
 
 ## `[decider]`
 

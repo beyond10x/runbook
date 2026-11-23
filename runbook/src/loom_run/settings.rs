@@ -423,4 +423,20 @@ mod tests {
         assert!(parse("# only a comment\n").is_ok());
         assert!(parse("# a comment\n[decider]\nkind = \"rule\"\nverdict = \"approve\"\n").is_ok());
     }
+
+    #[test]
+    fn a_whole_number_has_the_spellings_of_a_toml_integer_and_no_float_is_one() {
+        let v = parse("hex = 0x10\noctal = 0o20\nbinary = 0b10\nunderscored = 1_000\nplus = +5\nplain = 16\n").unwrap();
+        for (member, want) in [("hex", 16), ("octal", 16), ("binary", 2), ("underscored", 1000), ("plus", 5), ("plain", 16)] {
+            assert_eq!(v[member].as_u64(), Some(want), "{member}");
+        }
+        for raw in ["1.0", "1e3", "-0.0", "0.5"] {
+            let v = parse(&format!("x = {raw}\n")).unwrap();
+            assert!(v["x"].is_f64() && v["x"].as_u64().is_none(), "{raw}: {}", v["x"]);
+        }
+        for raw in ["inf", "+inf", "-inf", "nan", "-nan", "1e400"] {
+            let e = parse(&format!("x = {raw}\n")).unwrap_err();
+            assert!(e.contains("settings.x"), "{raw}: {e}");
+        }
+    }
 }
