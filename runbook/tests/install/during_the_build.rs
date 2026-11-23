@@ -7,7 +7,8 @@ use super::*;
 /// A stub `cargo build` like the one of `stale_build.rs`, with one addition: before the first crate is "built" it runs
 /// the shell file `$DURING` once with the checkout as its argument, which is what another process does in the checkout
 /// while the build runs. Every program it writes prints HEAD as it is at that moment, as a build of `runbook` does
-/// whose build script runs after the change.
+/// whose build script runs after the change. With `$DURING_LAST` set the file runs instead after the programs of the
+/// crate `runbook` are written, which print HEAD as it was before: a change after the binary was built.
 const CARGO_DURING: &str = r#"#!/bin/sh
 to=
 before=
@@ -16,7 +17,9 @@ for a in "$@"; do
     before=$a
 done
 root=${to%/*/target}
-if [ -n "${DURING:-}" ] && [ ! -e "$root/../during-done" ]; then
+late=
+case " $* " in *" runbook "*) [ -n "${DURING_LAST:-}" ] && late=1 ;; esac
+if [ -n "${DURING:-}" ] && [ -z "${DURING_LAST:-}" ] && [ ! -e "$root/../during-done" ]; then
     : > "$root/../during-done"
     sh "$DURING" "$root" >&2
 fi
@@ -31,24 +34,34 @@ for a in "$@"; do
     fi
     before=$a
 done
+if [ -n "$late" ] && [ -n "${DURING:-}" ]; then
+    sh "$DURING" "$root" >&2
+fi
 "#;
 
 /// The release install of a fake checkout with the stub above on `PATH`; `during` is the shell text run in the checkout
 /// while the first crate builds.
 fn release_install_during(root: &Path, sandbox: &Path, prefix: &Path, during: &str) -> Output {
+    release_install_during_at(root, sandbox, prefix, during, false)
+}
+
+/// The same; with `last` the text runs after the binary of `runbook`, the last crate, is built.
+fn release_install_during_at(root: &Path, sandbox: &Path, prefix: &Path, during: &str, last: bool) -> Output {
     executable(&sandbox.join("stub-bin/cargo"), CARGO_DURING);
     fs::write(sandbox.join("during.sh"), during).unwrap();
-    Command::new("sh")
-        .arg(root.join("scripts/install.sh"))
+    let mut cmd = Command::new("sh");
+    cmd.arg(root.join("scripts/install.sh"))
         .arg("--prefix")
         .arg(prefix)
         .env_clear()
         .env("PATH", format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()))
         .env("HOME", sandbox.join("home"))
         .env("DURING", sandbox.join("during.sh"))
-        .stdin(Stdio::null())
-        .output()
-        .unwrap()
+        .stdin(Stdio::null());
+    if last {
+        cmd.env("DURING_LAST", "1");
+    }
+    cmd.output().unwrap()
 }
 
 const GIT_AS_TEST: &str = "git -c user.name=test -c user.email=test@example.org -c commit.gpgsign=false";
@@ -178,4 +191,26 @@ fn a_directory_that_became_a_link_while_the_build_runs_stops_the_install_with_th
     assert!(err(&o).contains("protocol/sub/x.txt"), "the file below the link is named: {}", err(&o));
     assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker stays: {}", err(&o));
     assert!(!prefix.join("share/runbook/protocol/sub/x.txt").exists(), "nothing is copied from outside the checkout");
+}
+
+/// A commit made after the binary of `runbook` was built: the binary prints the commit it was built from, which is the
+/// commit the script read first, and HEAD is another. Only the second read of HEAD sees it: the install stops with both
+/// commits named and writes nothing.
+#[test]
+fn a_commit_made_after_the_binary_was_built_stops_the_install_naming_both_commits_and_writes_nothing() {
+    let root = fake_checkout("after-the-binary", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    let before = head12(&root);
+    let during = format!(
+        "r=$1\n\
+        echo 'new in HEAD' > \"$r/protocol/new-in-head.txt\"\n\
+        git -C \"$r\" add protocol/new-in-head.txt\n\
+        {GIT_AS_TEST} -C \"$r\" commit -q -m 'made after the binary was built'\n"
+    );
+    let o = release_install_during_at(&root, &sandbox, &prefix, &during, true);
+    let head = head12(&root);
+    assert_ne!(before, head, "the commit was made after the binary was built: {}", err(&o));
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains(&before) && err(&o).contains(&head), "both commits are named: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
