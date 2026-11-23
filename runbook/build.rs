@@ -4,6 +4,8 @@
 //! daemon serves (the answer to a decision). A path in both fails the build. A symbolic link in either
 //! directory, to a file or to a directory, fails the build and names the link.
 
+mod build_commit;
+
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -54,6 +56,11 @@ fn loom_commit(lock: &Path) -> String {
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let lock = manifest.join("Cargo.lock");
+    let commit = build_commit::commit(&manifest);
+    println!("cargo:rustc-env=RUNBOOK_COMMIT={}", commit.value);
+    for p in &commit.watch {
+        println!("cargo:rerun-if-changed={}", p.display());
+    }
     println!("cargo:rerun-if-changed={}", lock.display());
     println!("cargo:rustc-env=RUNBOOK_LOOM_COMMIT={}", loom_commit(&lock));
     println!("cargo:rerun-if-changed=build.rs");
