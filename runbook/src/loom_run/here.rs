@@ -33,8 +33,8 @@ pub struct HereOptions {
     /// The run settings (JSON): principals, models, budgets, the decider, the login file's path.
     #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
     pub settings: Option<PathBuf>,
-    /// The spend ledger shared by every run that counts against the same cap.
-    #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
+    /// The spend ledger shared by every run that counts against the same cap. Required when the run has a model node; a run without one opens none.
+    #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub spend_ledger: Option<PathBuf>,
     /// The spend cap in micro USD over all runs that share the ledger.
     #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
@@ -185,7 +185,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         intake,
         confinement: here.confinement.ok_or_else(|| missing("--confinement"))?,
         settings: here.settings.ok_or_else(|| missing("--settings"))?,
-        spend_ledger: here.spend_ledger.ok_or_else(|| missing("--spend-ledger"))?,
+        spend_ledger: here.spend_ledger,
         cap_micro_usd: here.cap_micro_usd.ok_or_else(|| missing("--cap-micro-usd"))?,
         max_llm_calls: here.max_llm_calls.ok_or_else(|| missing("--max-llm-calls"))?,
         max_wall_seconds: here.max_wall_seconds.ok_or_else(|| missing("--max-wall-seconds"))?,

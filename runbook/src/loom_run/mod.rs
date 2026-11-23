@@ -30,6 +30,7 @@ pub mod here;
 pub mod host;
 pub mod ledger;
 pub mod library;
+pub mod model_node;
 pub mod ports;
 pub mod private;
 pub mod replay;
@@ -88,11 +89,13 @@ pub struct Args {
     pub confinement: Confinement,
     /// The run settings (JSON): principals, models, budgets, the decider, the login file's path.
     pub settings: PathBuf,
-    /// The spend ledger shared by every run that counts against the same cap.
-    pub spend_ledger: PathBuf,
+    /// The spend ledger shared by every run that counts against the same cap. `None` is allowed
+    /// only for a run without a model node (`model_node.rs`); a run with one refuses it.
+    pub spend_ledger: Option<PathBuf>,
     /// The spend cap in micro USD over all runs that share the ledger.
     pub cap_micro_usd: u64,
-    /// The most model calls of this run (steps and decisions together).
+    /// The most model calls of this run (steps and decisions together). Without a model node
+    /// nothing is counted against it, and 0 is accepted.
     pub max_llm_calls: u64,
     /// The most wall seconds of this run.
     pub max_wall_seconds: u64,
@@ -154,6 +157,9 @@ pub const EXIT_DIVERGED: u8 = 11;
 /// Exit code: Loom refused a call of the run by a named reason (`TreeStopped`, `ConfinementRefused`,
 /// `PersonProgramFailed`, ...): the cause in `outcome.json` and `run-stopped.json` is the reason's name.
 pub const EXIT_LOOM_REFUSED: u8 = 12;
+/// Exit code: a model program was about to start in a run opened without a model node
+/// (cause `model_call_without_model_node`).
+pub const EXIT_MODEL_CALL: u8 = 13;
 
 /// How a run ended; the `outcome` of `outcome.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,6 +190,9 @@ pub enum Outcome {
     Denied { action: String },
     /// A re-drive of a recording reached a call the recording has no reply for (policy `stop`, a spent live cap).
     Diverged { reason: String },
+    /// A model program was about to start, or a model call was recorded, in a run that was opened
+    /// without a model node. `path` names the way (`tree run`, `handoff`, `decider`, ...).
+    StoppedModelCall { path: &'static str, reason: String },
     /// Loom refused a call of the run by a named reason: `cause` is the reason's snake-case name
     /// (`engine::refusal::cause`), `reason` Loom's text. A child's refusal also has the exit code and
     /// the tail of standard error.
@@ -195,6 +204,7 @@ impl Outcome {
     pub fn cause(&self) -> Option<&'static str> {
         match self {
             Outcome::Refused { cause, .. } => Some(cause),
+            Outcome::StoppedModelCall { .. } => Some(model_node::CAUSE),
             _ => None,
         }
     }
@@ -215,13 +225,14 @@ impl Outcome {
             Outcome::Denied { .. } => "denied",
             Outcome::Diverged { .. } => "stopped: recording diverged",
             Outcome::Refused { .. } => "refused",
+            Outcome::StoppedModelCall { .. } => "stopped: model call",
         }
     }
 
     /// The reason text of the outcome, when it has one.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } | Outcome::Refused { reason, .. } => Some(reason),
+            Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } | Outcome::Refused { reason, .. } | Outcome::StoppedModelCall { reason, .. } => Some(reason),
             Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
             _ => None,
@@ -243,6 +254,7 @@ impl Outcome {
             Outcome::Denied { .. } => EXIT_DENIED,
             Outcome::Diverged { .. } => EXIT_DIVERGED,
             Outcome::Refused { .. } => EXIT_LOOM_REFUSED,
+            Outcome::StoppedModelCall { .. } => EXIT_MODEL_CALL,
         }
     }
 }
@@ -285,6 +297,7 @@ mod outcome_tests {
             Outcome::StoppedRejected { reason: String::new() },
             Outcome::Diverged { reason: String::new() },
             Outcome::Refused { cause: "tree_stopped", reason: String::new(), loom_exit: None, stderr_tail: None },
+            Outcome::StoppedModelCall { path: "tree run", reason: String::new() },
         ];
         let codes: std::collections::BTreeSet<u8> = outcomes.iter().map(Outcome::exit_code).collect();
         assert_eq!(codes.len(), outcomes.len(), "{codes:?}");

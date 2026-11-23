@@ -567,7 +567,7 @@ impl RunDirWriter {
             return Ok(());
         }
         let cause = match (outcome, named) {
-            ("refused", Some(cause)) => cause,
+            ("refused" | "stopped: model call", Some(cause)) => cause,
             (outcome, _) => Self::cause_of(outcome),
         };
         let reason = match reason {
@@ -589,6 +589,7 @@ impl RunDirWriter {
             "stopped: signal" => "signal",
             "stopped: decider" => "decider_cannot_decide",
             "stopped: rejected" => "rejected_without_rework_path",
+            "stopped: model call" => super::events::MODEL_CALL_CAUSE,
             _ => "error",
         }
     }
@@ -855,12 +856,13 @@ impl EventSink for RunDirWriter {
                 self.last_decider_model = record["model"].as_str().filter(|m| !m.is_empty()).map(String::from);
                 Ok(())
             }
-            Event::NoModelCall { .. } => Ok(()),
+            Event::NoModelCall { .. } | Event::ModelNodeDecided { .. } => Ok(()),
             Event::CapReached { cap, detail } => {
                 let cause = match cap {
                     Cap::Spend => "spend_cap",
                     Cap::LlmCalls => "llm_calls_spent",
                     Cap::WallTime => "wall_time_spent",
+                    Cap::ModelNode => super::events::MODEL_CALL_CAUSE,
                 };
                 self.write_stop(at_secs, cause, detail)
             }

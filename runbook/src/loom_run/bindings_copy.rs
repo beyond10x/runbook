@@ -32,7 +32,7 @@ const ADAPTERS: [&str; 3] = ["metaharness", "claude-cli", "dry"];
 /// checks the requester decider runs (`tools/decision-grounds.sh`).
 const COMPANIONS: [&str; 3] = ["instructions", "driver/examples", "tools"];
 /// The program of a model node, found on PATH.
-const MODEL_TOOL: &str = "sdc-node";
+pub const MODEL_TOOL: &str = "sdc-node";
 /// The option that names the tools directory of the copy.
 const TOOLS_DIR_OPTION: &str = "--tools-dir";
 
@@ -222,6 +222,105 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
         return Err(format!("{}: the root bindings file is missing in the copy", root.display()));
     }
     Ok(root)
+}
+
+/// Whether the bindings in `dir` (a bindings directory or the run's copy of it) hold a model node,
+/// and why. `None`: none of the forms below was found. It reads every `*.yaml` and `*.yml` file
+/// below `dir` (the bindings files, `tools/answers.yaml`) and fails closed: a form that cannot be
+/// read or is not one the rule knows counts as a model node. The forms that count:
+///
+/// - a word of an `argv`, or any other text of a file, that names the model tool: its last path
+///   part is `sdc-node`, or `sdc-node` is a part of the text (so `sh -c "sdc-node ..."`, `env X=1
+///   sdc-node ...` and `timeout 60 sdc-node ...` count, as does a program whose first word is the
+///   tool, the rule `rewrite_document` applies);
+/// - an `argv` that is not a non-empty list of texts;
+/// - an executor of a kind other than `person`, `copy` (Loom copies evidence of another case, it starts no program) and `program`, or an action without an executor;
+/// - `actions` that is not a list, an action that is not a mapping;
+/// - a file that is not valid YAML or cannot be read, a directory that cannot be read, and a link
+///   to a directory or to anything that cannot be read.
+///
+/// What it cannot see: a bound program that starts a model by a name this function does not read
+/// (a script that calls a service by itself). It is not covered by a cap either.
+pub fn model_node_in(dir: &Path) -> Option<String> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let entries = match std::fs::read_dir(&d) {
+            Ok(e) => e,
+            Err(e) => return Some(format!("{} cannot be read ({})", d.display(), e.kind())),
+        };
+        for entry in entries {
+            let path = match entry {
+                Ok(e) => e.path(),
+                Err(e) => return Some(format!("{} cannot be listed ({})", d.display(), e.kind())),
+            };
+            let meta = match std::fs::symlink_metadata(&path) {
+                Ok(m) => m,
+                Err(e) => return Some(format!("{} cannot be read ({})", path.display(), e.kind())),
+            };
+            if meta.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if meta.file_type().is_symlink() && std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(true) {
+                return Some(format!("{} is a link to a directory or to nothing", path.display()));
+            }
+            if !path.extension().is_some_and(|x| x == "yaml" || x == "yml") {
+                continue;
+            }
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => return Some(format!("{} cannot be read ({})", path.display(), e.kind())),
+            };
+            let doc: Yaml = match serde_yaml::from_str(&text) {
+                Ok(d) => d,
+                Err(_) => return Some(format!("{} is not valid YAML", path.display())),
+            };
+            if let Some(why) = model_node_in_document(&doc) {
+                return Some(format!("{}: {why}", path.strip_prefix(dir).unwrap_or(&path).display()));
+            }
+        }
+    }
+    None
+}
+
+/// The form of one document that counts as a model node, see [`model_node_in`].
+fn model_node_in_document(doc: &Yaml) -> Option<String> {
+    if let Some(actions) = doc.get("actions") {
+        let Some(actions) = actions.as_sequence() else {
+            return Some("actions is not a list".to_owned());
+        };
+        for action in actions {
+            let name = action.get("action").and_then(Yaml::as_str).unwrap_or("?");
+            if !action.is_mapping() {
+                return Some("an action that is not a mapping".to_owned());
+            }
+            let Some(executor) = action.get("executor").filter(|e| e.is_mapping()) else {
+                return Some(format!("{name}: no executor"));
+            };
+            match executor.get("kind").and_then(Yaml::as_str) {
+                Some("person" | "copy") => {}
+                Some("program") => {
+                    let argv = executor.get("argv").and_then(Yaml::as_sequence);
+                    if !argv.is_some_and(|a| !a.is_empty() && a.iter().all(Yaml::is_string)) {
+                        return Some(format!("{name}: argv is not a list of texts"));
+                    }
+                }
+                other => return Some(format!("{name}: an executor kind the rule does not know ({})", other.unwrap_or("none"))),
+            }
+        }
+    }
+    names_model_tool(doc).map(|text| format!("{MODEL_TOOL} is named in {text:?}"))
+}
+
+/// The first text in `value`, at any depth, that names the model tool.
+fn names_model_tool(value: &Yaml) -> Option<String> {
+    match value {
+        Yaml::String(s) => s.contains(MODEL_TOOL).then(|| s.chars().take(80).collect()),
+        Yaml::Sequence(items) => items.iter().find_map(names_model_tool),
+        Yaml::Mapping(map) => map.iter().find_map(|(k, v)| names_model_tool(k).or_else(|| names_model_tool(v))),
+        Yaml::Tagged(tagged) => names_model_tool(&tagged.value),
+        _ => None,
+    }
 }
 
 fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {

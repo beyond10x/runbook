@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 pub struct BasicFiles {
     run_dir: PathBuf,
     log: File,
+    /// The decision of the opening, written into `outcome.json` as it was made; absent when the run
+    /// ended before the opening decided.
+    has_model_node: Option<bool>,
 }
 
 impl BasicFiles {
@@ -18,7 +21,7 @@ impl BasicFiles {
     pub fn open(run_dir: &Path) -> Result<BasicFiles, String> {
         let path = run_dir.join("events.jsonl");
         let log = OpenOptions::new().create_new(true).append(true).open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(BasicFiles { run_dir: run_dir.to_path_buf(), log })
+        Ok(BasicFiles { run_dir: run_dir.to_path_buf(), log, has_model_node: None })
     }
 }
 
@@ -45,6 +48,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 pub fn event_json(at_secs: u64, event: &Event) -> Value {
     let (name, fields) = match event {
         Event::RunStarted { run, settings } => ("run_started", json!({"run": run, "settings": settings})),
+        Event::ModelNodeDecided { has_model_node, because } => ("model_node_decided", json!({"has_model_node": has_model_node, "because": because})),
         Event::StepMade { index, exit, stop, steps } => ("step_made", json!({"index": index, "exit": exit, "stop": stop, "steps": steps})),
         Event::DecisionAsked { decision } => ("decision_asked", json!({"decision": decision})),
         Event::DecisionAnswered { decision, approve, principal, cost_micro_usd, model_calls } => (
@@ -66,6 +70,7 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
                 Cap::Spend => "spend",
                 Cap::LlmCalls => "llm_calls",
                 Cap::WallTime => "wall_time",
+                Cap::ModelNode => "model_node",
             };
             ("cap_reached", json!({"cap": cap, "detail": detail}))
         }
@@ -93,6 +98,9 @@ impl EventSink for BasicFiles {
             let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())? + "\n";
             std::fs::write(self.run_dir.join("settings.json"), text).map_err(|e| format!("settings.json: {e}"))?;
         }
+        if let Event::ModelNodeDecided { has_model_node, .. } = event {
+            self.has_model_node.get_or_insert(*has_model_node);
+        }
         let line = serde_json::to_string(&event_json(at_secs, event)).map_err(|e| e.to_string())?;
         let line = relative_text(&self.run_dir, &line);
         writeln!(self.log, "{line}").map_err(|e| format!("events.jsonl: {e}"))?;
@@ -110,6 +118,9 @@ impl EventSink for BasicFiles {
             });
             if let (Some(cause), Some(map)) = (cause, v.as_object_mut()) {
                 map.insert("cause".to_owned(), Value::from(cause.as_str()));
+            }
+            if let (Some(has), Some(map)) = (self.has_model_node, v.as_object_mut()) {
+                map.insert("has_model_node".to_owned(), Value::from(has));
             }
             let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
             write_atomic(&self.run_dir.join("outcome.json"), relative_text(&self.run_dir, &text).as_bytes())?;

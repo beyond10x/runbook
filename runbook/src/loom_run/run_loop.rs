@@ -13,6 +13,7 @@ use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
 use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Opening};
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
+use crate::loom_run::model_node::{self, ModelNode};
 use crate::loom_run::private::PrivateDir;
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
@@ -97,6 +98,13 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()));
     }
+    // A run with a model node needs the ledger: refused here, before anything is written. The
+    // opening decides again on the run's copy and that decision is the one that counts.
+    if args.spend_ledger.is_none() {
+        if let ModelNode::With { because } = model_node::decide(args, &settings_value, &*decider, &args.bindings) {
+            return Err(ledger_required(&because));
+        }
+    }
     if run_dir.exists() {
         return Err(format!("the run directory {} exists", run_dir.display()));
     }
@@ -134,6 +142,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         decider,
         sinks: Vec::new(),
         reader: CostReader::with_home(std::env::var("HOME").ok()),
+        node: ModelNode::With { because: "the opening has not decided yet".to_owned() },
         ledger: None,
         llm_calls: 0,
         steps: 0,
@@ -161,8 +170,13 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &runner.node);
     Ok(outcome)
+}
+
+/// The refusal of a run that has a model node and names no `--spend-ledger`.
+fn ledger_required(because: &str) -> String {
+    format!("--spend-ledger is required: the run has a model node ({because}); a run without one needs none")
 }
 
 fn file_sha256(path: &Path) -> Result<String, String> {
@@ -212,6 +226,10 @@ struct Runner<'a> {
     decider: Box<dyn Decider>,
     sinks: Vec<Box<dyn EventSink>>,
     reader: CostReader,
+    /// Whether the run has a model node: decided once at the opening (`drive_inner`), never again.
+    /// Until then it is "with": unclear counts as a model node.
+    node: ModelNode,
+    /// Open only in a run with a model node.
     ledger: Option<Ledger>,
     llm_calls: u64,
     steps: u64,
@@ -288,11 +306,20 @@ impl Runner<'_> {
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
             std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
-        self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         // The copy is made and no bound program has run: who decides is read now and not again.
         self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;
+        // The one decision of the run: whether it has a model node. It is made here, from the
+        // options, the decider and the copy before any program of the run has started, written to
+        // the records, and never made again. With a model node the ledger is opened and every cap
+        // holds; without one nothing is counted, reserved or opened.
+        self.node = model_node::decide(self.args, &self.settings, &*self.decider, &self.bindings_dir);
+        self.emit(Event::ModelNodeDecided { has_model_node: self.node.has_model_node(), because: self.node.because() })?;
+        if self.node.is_with() {
+            let path = self.args.spend_ledger.as_deref().ok_or_else(|| ledger_required(&self.node.because()))?;
+            self.ledger = Some(Ledger::open(path)?);
+        }
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         if let Some(goals) = &self.args.ports.goals {
@@ -308,7 +335,7 @@ impl Runner<'_> {
         let mut index = 0u64;
         loop {
             self.check_stop()?;
-            if self.llm_calls >= self.args.max_llm_calls {
+            if self.node.is_with() && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Ok(Outcome::StoppedLlmCalls);
             }
@@ -346,7 +373,14 @@ impl Runner<'_> {
     /// Runs a `b10x-loom` call that may start model programs: the ledger reserves what the largest
     /// per-call budget of the bindings copy allows (at most what the cap has left), the copy is
     /// limited to it, and what the call spent is booked after it.
+    ///
+    /// In a run without a model node nothing is reserved and nothing is booked: the call goes
+    /// through [`Runner::uncosted`], which refuses to start a model program and ends the run when a
+    /// model call turns up in the records.
     fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
+        if !self.node.is_with() {
+            return self.uncosted(handoff);
+        }
         let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
         let reservation = self.reserve(want)?;
         budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
@@ -358,6 +392,88 @@ impl Runner<'_> {
         let result = result?;
         cost_halt?;
         Ok(result)
+    }
+
+    /// A `b10x-loom` call in a run opened without a model node. Before it starts, the bindings copy is
+    /// read again and the call is refused when it now names the model tool or cannot be read (a bound
+    /// program may have written it; the decision of the opening is not changed, the path only
+    /// refuses). After it, the cost records are read: a model call in them ends the run.
+    fn uncosted(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
+        let path = if handoff.is_some() { "handoff command" } else { "tree run" };
+        self.refuse_model_path(path)?;
+        let result = match handoff {
+            None => self.host.step(),
+            Some(answer) => self.host.handoff(answer),
+        };
+        let seen = self.refuse_recorded_call(path);
+        let result = result?;
+        seen?;
+        Ok(result)
+    }
+
+    /// Ends the run, naming the cause, when `path` is about to start a model program in a run
+    /// opened without a model node. Reads the bindings copy as it is now: it can only make this
+    /// refuse, never lift a cap.
+    fn refuse_model_path(&mut self, path: &'static str) -> Result<(), Halt> {
+        if self.node.is_with() {
+            return Ok(());
+        }
+        match bindings_copy::model_node_in(&self.bindings_dir) {
+            None => Ok(()),
+            Some(why) => self.stop_model_call(path, format!("a model program was about to start by {path} in a run opened without a model node: the bindings copy now says: {why}")),
+        }
+    }
+
+    /// Records an answer with Loom (`tree approve`, which runs the program a person action binds).
+    /// In a run opened without a model node the bindings copy is read again first, like a `tree run`.
+    fn take_answer(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
+        self.refuse_model_path("tree approve")?;
+        self.host.answer(answer)?;
+        Ok(())
+    }
+
+    /// Ends the run, naming the cause, when the decider could start a model program in a run opened
+    /// without a model node.
+    fn refuse_decider_path(&mut self, path: &'static str) -> Result<(), Halt> {
+        if self.node.is_with() || !(self.decider.may_call_model() || self.decider.max_call_micro_usd() > 0) {
+            return Ok(());
+        }
+        self.stop_model_call(path, format!("the decider was about to start a model program ({path}) in a run opened without a model node"))
+    }
+
+    /// In a run opened without a model node: a model call in the cost records after `path` ends the
+    /// run. The calls are counted in the records of the run (they happened) and booked nowhere else.
+    fn refuse_recorded_call(&mut self, path: &'static str) -> Result<(), Halt> {
+        let cost = match self.reader.read_new(&self.workspace) {
+            Ok(cost) => cost,
+            Err(reason) => return self.stop_model_call("recorded call", format!("the cost records after {path} cannot be read, so a model call cannot be ruled out in a run opened without a model node: {reason}")),
+        };
+        for note in cost.no_call {
+            let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
+            let exit = note.get("exit").and_then(Value::as_i64).unwrap_or(-1);
+            self.emit(Event::NoModelCall { call, exit })?;
+        }
+        let calls = cost.records.len() as u64 + cost.unknown.len() as u64;
+        if calls == 0 {
+            return Ok(());
+        }
+        self.llm_calls += calls;
+        self.spent += cost.micro_usd;
+        for record in cost.records {
+            let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+            self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
+        }
+        for mut record in cost.unknown {
+            record["cost_unknown"] = Value::Bool(true);
+            self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: 0, record })?;
+        }
+        self.stop_model_call("recorded call", format!("{calls} model call(s) recorded in .sdc/llm/calls.jsonl after {path} in a run opened without a model node; no ledger was open, so nothing was reserved or booked"))
+    }
+
+    /// The end of a run that met a model program without a model node: the event, then the outcome.
+    fn stop_model_call<T>(&mut self, path: &'static str, reason: String) -> Result<T, Halt> {
+        self.emit(Event::CapReached { cap: Cap::ModelNode, detail: reason.clone() })?;
+        Err(Halt::Done(Outcome::StoppedModelCall { path, reason }))
     }
 
     /// Runs `tree status` and writes `tree-status.json` (atomically, paths relative to the run
@@ -375,14 +491,37 @@ impl Runner<'_> {
         Ok(())
     }
 
-    fn ledger(&self) -> &Ledger {
-        self.ledger.as_ref().expect("the ledger is opened before the loop")
+    /// The ledger of a run with a model node. A run without one never gets here: its paths
+    /// reserve, commit and release nothing.
+    fn ledger(&self) -> Result<&Ledger, Halt> {
+        self.ledger.as_ref().ok_or_else(|| Halt::Failed("the run has a model node and no ledger is open".to_owned()))
+    }
+
+    /// Books `micro_usd` for `reservation` under `what`; nothing in a run without a model node.
+    fn commit(&mut self, reservation: &Reservation, what: &str, micro_usd: u64) -> Result<(), Halt> {
+        if !self.node.is_with() {
+            return Ok(());
+        }
+        self.ledger()?.commit(reservation, &self.args.run, what, micro_usd)?;
+        Ok(())
+    }
+
+    /// Gives `reservation` back; nothing in a run without a model node.
+    fn release(&mut self, reservation: &Reservation) -> Result<(), Halt> {
+        if !self.node.is_with() {
+            return Ok(());
+        }
+        self.ledger()?.release(reservation)?;
+        Ok(())
     }
 
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
-        let r = self.ledger().reserve(&self.args.run, self.args.cap_micro_usd, want)?;
+        if !self.node.is_with() {
+            return Ok(Reservation { id: String::new(), micro_usd: 0 });
+        }
+        let r = self.ledger()?.reserve(&self.args.run, self.args.cap_micro_usd, want)?;
         if want > 0 && r.micro_usd == 0 {
-            let spent = self.ledger().spent()?;
+            let spent = self.ledger()?.spent()?;
             self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {} micro USD spent", self.args.cap_micro_usd) })?;
             return Err(Halt::Done(Outcome::StoppedSpendCap));
         }
@@ -401,7 +540,7 @@ impl Runner<'_> {
                 let unknown = cost.unknown.len() as u64;
                 let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
                 let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
-                self.ledger().commit(reservation, &self.args.run, what, booked)?;
+                self.commit(reservation, what, booked)?;
                 self.spent += booked;
                 self.llm_calls += cost.records.len() as u64 + unknown;
                 for record in cost.records {
@@ -420,7 +559,7 @@ impl Runner<'_> {
                 Ok(())
             }
             Err(reason) => {
-                self.ledger().commit(reservation, &self.args.run, "step, cost unknown: reservation booked", reservation.micro_usd)?;
+                self.commit(reservation, "step, cost unknown: reservation booked", reservation.micro_usd)?;
                 self.spent += reservation.micro_usd;
                 Err(Halt::Failed(reason))
             }
@@ -456,8 +595,9 @@ impl Runner<'_> {
             if self.answer_declared(&decision, &kind, &case)? {
                 continue;
             }
+            self.refuse_decider_path("decider")?;
             let want = self.decider.max_call_micro_usd();
-            if want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if self.node.is_with() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -475,17 +615,23 @@ impl Runner<'_> {
             };
             let (approve, principal, cost, calls, reasons) = match verdict {
                 Verdict::CannotDecide { reason } => {
-                    self.ledger().release(&reservation)?;
+                    self.release(&reservation)?;
                     return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
-                    self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
+                    self.commit(&reservation, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
                     self.spent += reservation.micro_usd;
                     return Err(Halt::Failed("the decider answered without a cost".to_owned()));
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
-            self.ledger().commit(&reservation, &self.args.run, "decider", cost)?;
+            if !self.node.is_with() && (cost > 0 || calls > 0) {
+                // A decider that said it calls no model answered with a call: nothing can book it.
+                self.spent += cost;
+                self.llm_calls += calls;
+                return self.stop_model_call("decider", format!("the decider reported {calls} model call(s) and {cost} micro USD in a run opened without a model node; no ledger was open"));
+            }
+            self.commit(&reservation, "decider", cost)?;
             self.spent += cost;
             self.llm_calls += calls;
             if cost > 0 || calls > 0 {
@@ -502,7 +648,7 @@ impl Runner<'_> {
                 // A close the decider does not want is not run: Loom prints one per outcome.
                 "Close" if !approve => {}
                 "Close" => {
-                    self.host.answer(&answer)?;
+                    self.take_answer(&answer)?;
                     closed.push(case);
                 }
                 "Handoff" => {
@@ -513,7 +659,7 @@ impl Runner<'_> {
                 _ => {
                     let reasons_file = self.person_answer(&mut answer, reasons.as_deref())?;
                     answer.reasons_file = reasons_file.as_deref();
-                    self.host.answer(&answer)?;
+                    self.take_answer(&answer)?;
                 }
             }
             self.decided.insert(key, approve);
@@ -525,7 +671,7 @@ impl Runner<'_> {
     /// A handoff's printed command is `tree run`: it runs as printed, through the ledger like every
     /// call that may start a model program, and what it printed is read like any `tree run`.
     fn run_handoff(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        if self.llm_calls >= self.args.max_llm_calls {
+        if self.node.is_with() && self.llm_calls >= self.args.max_llm_calls {
             self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
             return Err(Halt::Done(Outcome::StoppedLlmCalls));
         }
@@ -734,6 +880,9 @@ fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
 mod declared;
 
 #[cfg(test)]
+mod no_model_node_tests;
+
+#[cfg(test)]
 #[allow(dead_code)] // fake.rs is shared with the integration binary; this unit test uses part of it
 #[path = "../../tests/loom_run/fake.rs"]
 mod fake;
@@ -756,7 +905,7 @@ mod tests {
         }
     }
 
-    fn world(tag: &str) -> (PathBuf, fake::Fake) {
+    pub(super) fn world(tag: &str) -> (PathBuf, fake::Fake) {
         let exe = std::env::current_exe().unwrap();
         let root = exe.parent().unwrap().join(format!("loomrun-unit-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -771,7 +920,7 @@ mod tests {
         (root, f)
     }
 
-    fn args(root: &Path, f: &fake::Fake, wall: u64) -> Args {
+    pub(super) fn args(root: &Path, f: &fake::Fake, wall: u64) -> Args {
         Args {
             run: "r1".into(),
             runs_dir: root.join("runs"),
@@ -784,7 +933,7 @@ mod tests {
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
             settings: root.join("settings.json"),
-            spend_ledger: root.join("ledger.json"),
+            spend_ledger: Some(root.join("ledger.json")),
             cap_micro_usd: 1_000_000,
             max_llm_calls: 100,
             max_wall_seconds: wall,

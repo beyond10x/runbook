@@ -214,7 +214,7 @@ fn a_binary_without_its_digest_or_a_digest_without_its_binary_is_refused_and_wri
 #[test]
 fn the_options_of_a_run_in_process_that_are_required_are_named_when_missing_and_detach_only_options_are_refused() {
     let rig = Rig::new("required");
-    for flag in ["--run", "--runs-dir", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
+    for flag in ["--run", "--runs-dir", "--settings", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
         let o = rig.run(&without(&rig.args("r1", 1_000_000), flag, true));
         assert_eq!(code(&o), 64, "{flag}: {}", stderr(&o));
         assert!(stderr(&o).contains(flag), "{flag} is not named: {}", stderr(&o));

@@ -13,6 +13,7 @@ mod held;
 mod inproc;
 mod login;
 mod model_call;
+mod no_model_node;
 mod pages;
 mod replay;
 mod replay_boundaries;

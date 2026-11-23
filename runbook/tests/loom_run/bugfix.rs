@@ -227,7 +227,8 @@ fn the_ticket_text_reaches_the_work_directory_and_no_other_file_stream_or_event(
     assert!(!text(&o).contains(MARKER), "the ticket's text is on a stream: {}", text(&o));
     let held = files_holding(&rig.root.join("runs"), MARKER, &rig.work());
     assert!(held.is_empty(), "the ticket's text is in files outside the work directory: {held:?}");
-    assert!(!std::fs::read_to_string(rig.p("ledger.json")).unwrap().contains(MARKER));
+    // the stand-in bindings hold no model node, so the run opens no ledger: a ledger that is there must not hold the text
+    assert!(std::fs::read_to_string(rig.p("ledger.json")).is_ok_and(|t| !t.contains(MARKER)) || !std::path::Path::new(&rig.p("ledger.json")).exists());
 }
 
 #[test]

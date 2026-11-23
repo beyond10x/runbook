@@ -6,6 +6,12 @@
 
 use serde_json::Value;
 
+/// The named cause of a run that ended because a model program was about to start, or a model call
+/// was recorded, in a run opened without a model node (`run-stopped.json`, `outcome.json`,
+/// `docs/loom-run.md`). It lives here because the run directory writer is compiled into a test
+/// binary with this file alone.
+pub const MODEL_CALL_CAUSE: &str = "model_call_without_model_node";
+
 /// Which kind of call a cost belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CostSource {
@@ -24,6 +30,9 @@ pub enum Cap {
     LlmCalls,
     /// `--max-wall-seconds`.
     WallTime,
+    /// A model program was about to start, or a model call was recorded, in a run that was opened
+    /// without a model node (`model_node.rs`); not a cap of an option, the guard that replaces them.
+    ModelNode,
 }
 
 /// One thing that happened in a run.
@@ -32,6 +41,9 @@ pub enum Event {
     /// The run directory exists and the settings are written. `settings` has the login file's
     /// path replaced by the text `named`.
     RunStarted { run: String, settings: Value },
+    /// The opening decided whether the run has a model node, once: `because` names the form that
+    /// counted, or says that none did. It is the event after `RunStarted` and is never repeated.
+    ModelNodeDecided { has_model_node: bool, because: String },
     /// One `tree run --max-steps 1` ended. `stop` is Loom's `stop` field, `steps` its `steps`,
     /// `exit` the exit code of `b10x-loom`.
     StepMade { index: u64, exit: i32, stop: String, steps: i64 },

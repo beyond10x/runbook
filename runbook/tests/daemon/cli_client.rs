@@ -149,7 +149,7 @@ fn run_without_detach_runs_in_process_and_names_the_options_it_lacks() {
     let o = cli_in(&dir, &["run", "sdc", "--intake", "i"], &[], None);
     assert_eq!(code(&o), 64);
     let text = err(&o);
-    for flag in ["--run", "--runs-dir", "--confinement", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds"] {
+    for flag in ["--run", "--runs-dir", "--confinement", "--settings", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds"] {
         assert!(text.contains(flag), "{flag} is not named: {text}");
     }
     assert!(!text.contains("waits for"), "{text}");

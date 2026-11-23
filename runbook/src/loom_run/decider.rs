@@ -559,6 +559,11 @@ impl Decider for NativeDecider {
         }
     }
 
+    /// A rule is answered inside the runner; a model decider starts its adapter program.
+    fn may_call_model(&self) -> bool {
+        matches!(self.mode, Mode::Model { .. })
+    }
+
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict {
         let level = match self.level() {
             Ok(level) => level,
