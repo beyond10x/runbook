@@ -39,6 +39,17 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
   run picker without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
   first and are not listed twice.
+- When the server reads: only for a page that looks, or for a request. With no page connected it does
+  nothing (no timer runs, no run file is read; measured: 50 runs, under 1 % of a core). A page opens
+  `/events?source=<index>` for the run it shows, and while that stream is open a round every 700 ms
+  reads that run only (the stream is opened again when the page shows another run), and a file whose
+  size, modification time, inode and status-change time are those of its last read is answered from memory (at most 64 MiB,
+  every call still passes the run-path check first). Another run is read when a request names it
+  (`/api/sources` reads each run once, then only what changed), so the run picker is as old as its last
+  opening, and a line that is written to a run nobody looked at for 5 s is dated by the file's time, as
+  on first sight. A run that appears under `--runs` is announced to every page. With `--clock` every run is
+  read on each step of the clock, as before. `--count-reads` (a test option) counts the rounds and the reads
+  of run files by run at `GET /api/reads`; without it the route does not exist.
 - A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands

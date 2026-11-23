@@ -12,10 +12,23 @@ export const registerRun = (dir) => { runDirs.add(path.resolve(dir)); };
 
 export const within = (child, root) => child === root || child.startsWith(root + path.sep);
 
+// the longest registered run directory `abs` lies under: the first one met going up, so the cost does not
+// grow with the number of runs the server knows
 function ownerOf(abs) {
-  let best = null;
-  for (const d of runDirs) if (within(abs, d) && (!best || d.length > best.length)) best = d;
-  return best;
+  for (let d = abs; ; d = path.dirname(d)) {
+    if (runDirs.has(d)) return d;
+    if (d === path.dirname(d)) return null;
+  }
+}
+
+// Test option of the server (--count-reads): the reads of run files by run, counted where a file's content is
+// read. Off, it costs one test of a flag.
+export const readCount = {on: false, total: 0, byRun: new Map()};
+function counted(abs, root) {
+  if (!readCount.on) return;
+  const run = root ? path.resolve(root) : ownerOf(abs);
+  readCount.total++;
+  readCount.byRun.set(run, (readCount.byRun.get(run) || 0) + 1);
 }
 
 // The real path of `p` when it lies under the real path of its run directory (`root` when given, else
@@ -67,17 +80,47 @@ const runRealOf = (abs, root) => {
 // all, so no request can make the server hold more than that). The limit is the size of the largest file of its kind that
 // the page reads; the default is the most any file of a run it reads can be.
 export const TEXT_LIMIT = 64 * 1048576;
+// What a checked read returned, for the run and the real path it was read for: a file whose size, modification time and
+// inode and status-change time are those of the last read is not read again. The key names the run and the real path, so an entry is served for
+// that run and that path only; every call passes the run-path check first and a file that is not a regular file with one
+// link is never answered from here. A file over CACHE_FILE bytes is not kept, and the whole stays under CACHE_TOTAL bytes
+// (the least recently used entry goes first).
+const CACHE_FILE = 8 * 1048576, CACHE_TOTAL = 64 * 1048576;
+const textCache = new Map();
+let textCached = 0;
+function keep(key, st, text) {
+  const old = textCache.get(key);
+  if (old) { textCached -= old.size; textCache.delete(key); }
+  if (st.size > CACHE_FILE) return;
+  textCache.set(key, {size: st.size, mtimeMs: st.mtimeMs, ino: st.ino, ctimeMs: st.ctimeMs, text});
+  textCached += st.size;
+  for (const [k, v] of textCache) { if (textCached <= CACHE_TOTAL) break; textCache.delete(k); textCached -= v.size; }
+}
 export function readText(p, root, limit = TEXT_LIMIT) {
   const real = runPath(p, root);
   if (!real) return null;
+  const abs = path.resolve(p);
+  const key = `${root ? path.resolve(root) : ownerOf(abs)}\0${real}`;
+  const hit = textCache.get(key);
+  if (hit) {
+    let now = null;
+    try { now = fs.statSync(real); } catch { /* gone: read as before */ }
+    if (now && now.isFile() && now.nlink <= 1 && now.size <= limit && now.size === hit.size && now.mtimeMs === hit.mtimeMs && now.ino === hit.ino && now.ctimeMs === hit.ctimeMs) {
+      textCache.delete(key); textCache.set(key, hit);
+      return hit.text;
+    }
+  }
   let fd = null;
   try {
-    const o = openChecked(real, runRealOf(path.resolve(p), root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const o = openChecked(real, runRealOf(abs, root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
     if (o.fd == null) return null;
     fd = o.fd;
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.nlink > 1 || st.size > limit) return null;
-    return fs.readFileSync(fd, 'utf8');
+    counted(abs, root);
+    const text = fs.readFileSync(fd, 'utf8');
+    keep(key, st, text);
+    return text;
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
 export const readJson = (p, fallback = null, root) => {
@@ -151,6 +194,7 @@ export function readRegular(p, {root, limit = 1048576, tail = false, end = null,
     const to = end != null ? Math.min(end, now.size) : tail ? now.size : Math.min(now.size, begin + limit);
     const from = end != null || tail ? Math.max(0, to - limit) : begin;
     const want = to - from;
+    counted(abs, root);
     const buf = Buffer.alloc(want);
     let got = 0;
     while (got < want) {
