@@ -182,7 +182,7 @@ fn a_file_that_is_not_utf8_prints_none_of_its_text() {
     let w = World::new(&tag("utf"));
     for (what, bytes) in [
         ("a bad byte in a string", [format!("a = \"{S}").as_bytes(), &[0xff], format!("{S}\"\n").as_bytes()].concat()),
-        ("a bad byte in a key", [format!("{S}").as_bytes(), &[0xc3, 0x28], b" = 1\n".as_slice(), format!("# {S}\n").as_bytes()].concat()),
+        ("a bad byte in a key", [S.as_bytes(), &[0xc3, 0x28], b" = 1\n".as_slice(), format!("# {S}\n").as_bytes()].concat()),
         ("a bad byte after a table named by the secret", [format!("[{S}]\n").as_bytes(), &[0xfe, 0xfe], b"\n".as_slice()].concat()),
         ("a truncated sequence at the end", [format!("a = \"{S}\"\n").as_bytes(), &[0xe2, 0x82]].concat()),
         ("a UTF-16 mark and text", {
