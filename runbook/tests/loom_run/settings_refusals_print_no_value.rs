@@ -121,8 +121,29 @@ fn syntax_errors() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// Runs `part` for `0..parts` on a thread each and returns what they return. A row of these matrices costs
+/// one process start of `runbook run` (about 30 ms, 2 s for a row of 8 MiB); the rows
+/// share nothing, so each part has a `World` of its own and the parts run beside each other.
+fn in_parallel<R: Send>(parts: usize, part: impl Fn(usize) -> R + Sync) -> Vec<R> {
+    std::thread::scope(|scope| {
+        let part = &part;
+        let threads: Vec<_> = (0..parts).map(|i| scope.spawn(move || part(i))).collect();
+        threads.into_iter().map(|t| t.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    })
+}
+
+/// The placements of one bad line in a settings file; `syntax_matrix_at` takes each on a thread of its own.
+const PLACEMENTS: usize = 7;
+
 #[test]
 fn a_syntax_error_prints_none_of_the_text_at_any_position_and_any_neighbour_line() {
+    let seen: usize = in_parallel(PLACEMENTS, syntax_matrix_at).into_iter().sum();
+    assert!(seen > 300, "{seen} cases");
+    assert_eq!(seen, syntax_errors().len() * PLACEMENTS, "a placement of the matrix is not run");
+}
+
+/// Every syntax error of `syntax_errors` at the placement number `placement`; returns the rows it ran.
+fn syntax_matrix_at(placement: usize) -> usize {
     let w = World::new(&tag("syn"));
     let base = base_text(&w);
     let mut seen = 0;
@@ -135,7 +156,11 @@ fn a_syntax_error_prints_none_of_the_text_at_any_position_and_any_neighbour_line
             ("inside a table named by the secret", format!("[{S}]\nok = 1\n{bad}\n")),
             ("after a comment that holds the secret", format!("# {S}\n{bad}\n")),
             ("after a bom", format!("\u{feff}{bad}\n")),
-        ] {
+        ]
+        .into_iter()
+        .skip(placement)
+        .take(1)
+        {
             let o = run_bytes(&w, text.as_bytes());
             let what = format!("{what}, {place}");
             if code(&o) == 0 || w.run_dir("r1").exists() {
@@ -149,7 +174,7 @@ fn a_syntax_error_prints_none_of_the_text_at_any_position_and_any_neighbour_line
             seen += 1;
         }
     }
-    assert!(seen > 300, "{seen} cases");
+    seen
 }
 
 #[test]
@@ -210,23 +235,33 @@ const BAD_NUMBERS: [&str; 29] = [
     "0x8000_0000_0000_0000",
 ];
 
+/// The whole-number members the matrix puts each bad number into; `number_matrix_at` takes each on a thread of its own.
+const NUMBER_MEMBERS: [(Option<&str>, &str); 11] = [
+    (None, "cap_micro_usd"),
+    (None, "max_llm_calls"),
+    (None, "max_wall_seconds"),
+    (Some("decider"), "max_decider_calls"),
+    (Some("decider"), "max_turns"),
+    (Some("decider"), "timeout_seconds"),
+    (Some("decider"), "retries"),
+    (Some("decider"), "max_budget_usd"),
+    (Some("models.writer"), "max_turns"),
+    (Some("models.writer"), "max_budget_usd"),
+    (Some("review"), "max_budget_usd"),
+];
+
 #[test]
 fn a_number_a_setting_cannot_take_is_refused_with_the_member_named_and_the_value_not_printed() {
+    let seen: usize = in_parallel(NUMBER_MEMBERS.len(), number_matrix_at).into_iter().sum();
+    assert_eq!(seen, NUMBER_MEMBERS.len() * BAD_NUMBERS.len(), "a member of the matrix is not run");
+}
+
+/// Every bad number in the member number `member_at` of `NUMBER_MEMBERS`; returns the rows it ran.
+fn number_matrix_at(member_at: usize) -> usize {
     let w = World::new(&tag("num"));
     let base = base_text(&w);
-    for (table, key) in [
-        (None, "cap_micro_usd"),
-        (None, "max_llm_calls"),
-        (None, "max_wall_seconds"),
-        (Some("decider"), "max_decider_calls"),
-        (Some("decider"), "max_turns"),
-        (Some("decider"), "timeout_seconds"),
-        (Some("decider"), "retries"),
-        (Some("decider"), "max_budget_usd"),
-        (Some("models.writer"), "max_turns"),
-        (Some("models.writer"), "max_budget_usd"),
-        (Some("review"), "max_budget_usd"),
-    ] {
+    let mut seen = 0;
+    for (table, key) in NUMBER_MEMBERS.into_iter().skip(member_at).take(1) {
         for raw in BAD_NUMBERS {
             let at = format!("settings.{}{key}", table.map(|t| format!("{t}.")).unwrap_or_default());
             let o = run_bytes(&w, member(&base, table, key, raw).as_bytes());
@@ -237,8 +272,10 @@ fn a_number_a_setting_cannot_take_is_refused_with_the_member_named_and_the_value
             let digits: String = raw.trim_start_matches(['-', '+']).chars().take_while(|c| c.is_ascii_digit()).take(12).collect();
             assert!(!err.contains(raw) && (digits.len() < 8 || !err.contains(&digits)), "{what}: the value is on the output: {err}");
             assert!(err.len() < 700, "{what}: {} bytes", err.len());
+            seen += 1;
         }
     }
+    seen
 }
 
 #[test]
@@ -316,23 +353,27 @@ fn a_toml_file_that_has_a_byte_order_mark_is_read_or_refused_and_never_panics() 
 
 #[test]
 fn a_whole_file_of_one_giant_line_is_refused_in_bounded_text_and_time() {
-    let w = World::new(&tag("giant"));
     let started = std::time::Instant::now();
-    for (what, text) in [
+    let rows = [
         ("a key of 8 MiB", format!("{} = 1\n", "k".repeat(8 << 20))),
         ("a quoted key of 8 MiB with a bad value", format!("\"{}\" = oops\n", "k".repeat(8 << 20))),
         ("a table name of 8 MiB, unclosed", format!("[{}\n", "t".repeat(8 << 20))),
         ("a value of 8 MiB, bare", format!("a = {}\n", "v".repeat(8 << 20))),
         ("an array of a million items, unclosed", format!("a = [{}\n", "1,".repeat(1 << 20))),
-    ] {
-        let o = run_bytes(&w, text.as_bytes());
-        assert_before_anything(&w, &o, what);
-        assert!(stderr(&o).len() < 1024 || what.contains("key of 8 MiB"), "{what}: {} bytes", stderr(&o).len());
-        let all = all_output(&o);
-        assert!(!all.contains("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk") || what == "a key of 8 MiB", "{what}: the key is on the output");
-        assert!(!all.contains("vvvvvvvvvvvvvvvvvvvvvvvv") && !all.contains("tttttttttttttttttttttttt"), "{what}: text of the file is on the output");
-    }
+    ];
+    in_parallel(rows.len(), |i| giant_row(rows[i].0, &rows[i].1));
     assert!(started.elapsed().as_secs() < 30, "{:?}", started.elapsed());
+}
+
+/// One row of the giant-line case, in a `World` of its own: a row costs about 2 s (8 MiB written, read and parsed).
+fn giant_row(what: &str, text: &str) {
+    let w = World::new(&tag("giant"));
+    let o = run_bytes(&w, text.as_bytes());
+    assert_before_anything(&w, &o, what);
+    assert!(stderr(&o).len() < 1024 || what.contains("key of 8 MiB"), "{what}: {} bytes", stderr(&o).len());
+    let all = all_output(&o);
+    assert!(!all.contains("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk") || what == "a key of 8 MiB", "{what}: the key is on the output");
+    assert!(!all.contains("vvvvvvvvvvvvvvvvvvvvvvvv") && !all.contains("tttttttttttttttttttttttt"), "{what}: text of the file is on the output");
 }
 
 /// The four places of `normalise` that print the file's value, and the member names. A probe, not a
