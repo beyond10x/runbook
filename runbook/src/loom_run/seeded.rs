@@ -404,4 +404,166 @@ mod tests {
             assert!(listed(&run).is_empty(), "{tag}: {:?}", listed(&run));
         }
     }
+
+    /// Every file under `dir` with its content, a link with its target: what a function that must leave a tree alone is compared on.
+    fn tree_state(dir: &Path) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                let md = fs::symlink_metadata(&p).unwrap();
+                let rel = p.strip_prefix(dir).unwrap().display().to_string();
+                if md.is_dir() {
+                    stack.push(p);
+                } else if md.is_file() {
+                    out.push((rel, fs::read_to_string(&p).unwrap()));
+                } else {
+                    out.push((rel, format!("{:?}", fs::read_link(&p))));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A directory outside the run with a file in it, and the state of both: the run's own record must never touch it.
+    fn outside_of(run: &Path) -> (PathBuf, Vec<(String, String)>) {
+        let outside = run.join("outside-dir");
+        fs::create_dir_all(outside.join("inner")).unwrap();
+        fs::write(outside.join("inner/keep.txt"), "KEEP").unwrap();
+        let before = tree_state(&outside);
+        (outside, before)
+    }
+
+    #[test]
+    fn a_link_at_the_final_name_is_replaced_not_followed() {
+        let run = scratch("final-link");
+        let victim = run.join("victim.txt");
+        fs::write(&victim, "VICTIM-ORIGINAL").unwrap();
+        fs::write(run.join("work/a.txt"), "a").unwrap();
+        std::os::unix::fs::symlink(&victim, run.join(RECORD)).unwrap();
+        std::os::unix::fs::symlink(&victim, run.join(LIST)).unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "VICTIM-ORIGINAL", "the record was written through a link at its final name");
+        for name in [RECORD, LIST] {
+            assert!(fs::symlink_metadata(run.join(name)).unwrap().is_file(), "{name} is a regular file of its own");
+        }
+        assert_eq!(paths(&run), ["a.txt"]);
+    }
+
+    #[test]
+    fn a_hard_link_is_listed_by_its_own_name_only_and_the_record_holds_no_outside_path() {
+        let run = scratch("hard-link");
+        let outside = run.join("outside.txt");
+        fs::write(&outside, "OUTSIDE-CONTENT").unwrap();
+        fs::hard_link(&outside, run.join("work/inside-name.txt")).unwrap();
+        write_in_time(&run).unwrap();
+        let list = fs::read_to_string(run.join(LIST)).unwrap();
+        let all = format!("{}{}", fs::read_to_string(run.join(RECORD)).unwrap(), list);
+        assert_eq!(paths(&run), ["inside-name.txt"]);
+        assert!(!all.contains("outside.txt") && !all.contains("OUTSIDE-CONTENT") && !all.contains(run.to_str().unwrap()), "{all}");
+    }
+
+    /// `write` reaches the walk's bound of entries through `write_with` and `write_limited`; the case above runs `write_limited` with
+    /// a bound of 5, so only a walk of more than the default (200 000, docs/loom-run-directory.md) holds the wiring of the constant.
+    /// The links are made by eight threads, each in a directory of its own.
+    #[test]
+    fn the_default_walk_stops_at_the_documented_number_of_entries_and_says_it_is_not_complete() {
+        let run = scratch("entries-default");
+        let work = run.join("work");
+        let per = MAX_ENTRIES / 8 + 1;
+        std::thread::scope(|s| {
+            for t in 0..8 {
+                let dir = work.join(format!("d{t}"));
+                s.spawn(move || {
+                    fs::create_dir_all(&dir).unwrap();
+                    for i in 0..per {
+                        std::os::unix::fs::symlink("x", dir.join(format!("l{i}"))).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!((MAX_ENTRIES, MAX_FILES), (200_000, 20_000), "the numbers docs/loom-run-directory.md names");
+        write(&run, &work, 1).unwrap();
+        assert_eq!(record(&run)["complete"], false, "{}", record(&run));
+    }
+
+    #[test]
+    fn a_link_to_a_directory_at_the_temporary_name_is_removed_and_the_directory_is_left_alone() {
+        let run = scratch("tmp-dir-link");
+        let (outside, before) = outside_of(&run);
+        std::os::unix::fs::symlink(&outside, run.join("seeded.tmp")).unwrap();
+        std::os::unix::fs::symlink(&outside, run.join("seeded-files.tmp")).unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(tree_state(&outside), before, "the directory behind the link at the temporary name was written into or removed from");
+        assert!(fs::symlink_metadata(run.join(RECORD)).unwrap().is_file());
+    }
+
+    #[test]
+    fn a_directory_at_the_temporary_name_or_at_the_final_name_ends_in_an_error_and_nothing_outside_the_run_changes() {
+        for (tag, name) in [("tmp-dir", "seeded.tmp"), ("final-dir", RECORD)] {
+            let run = scratch(tag);
+            let (_outside, before) = outside_of(&run);
+            fs::create_dir_all(run.join(name)).unwrap();
+            fs::write(run.join(name).join("inside.txt"), "INSIDE").unwrap();
+            let r = write_in_time(&run);
+            assert!(r.is_err(), "{tag}: a directory at the name: {r:?}");
+            assert_eq!(fs::read_to_string(run.join(name).join("inside.txt")).unwrap(), "INSIDE", "{tag}: the directory was emptied");
+            assert_eq!(tree_state(&run.join("outside-dir")), before, "{tag}");
+        }
+    }
+
+    /// A program of the run that plants a link at the temporary name between the removal and the create: the file is created
+    /// new, so the plant makes the create fail and is never written through. 60 writes against a planter that never stops.
+    #[test]
+    fn a_link_planted_at_the_temporary_name_while_the_record_is_written_is_never_written_through() {
+        let run = scratch("race-link");
+        fs::write(run.join("work/a.txt"), "a").unwrap();
+        let victim = run.join("victim.txt");
+        fs::write(&victim, "VICTIM-ORIGINAL").unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let planter = {
+            let (stop, run, victim) = (stop.clone(), run.clone(), victim.clone());
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    for name in ["seeded.tmp", "seeded-files.tmp"] {
+                        let _ = fs::remove_file(run.join(name));
+                        let _ = std::os::unix::fs::symlink(&victim, run.join(name));
+                    }
+                }
+            })
+        };
+        for _ in 0..60 {
+            let _ = write_in_time(&run);
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        planter.join().unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "VICTIM-ORIGINAL", "a link planted at the temporary name was written through");
+    }
+
+    /// Two writers of one run directory: each record is whole after both ended, never a mix of the two writes.
+    #[test]
+    fn two_writers_never_leave_a_record_that_is_not_the_whole_record() {
+        let run = scratch("two-writers");
+        for i in 0..40 {
+            fs::write(run.join("work").join(format!("f{i}.txt")), format!("{i}\n").repeat(200)).unwrap();
+        }
+        for round in 0..30 {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let run = run.clone();
+                    std::thread::spawn(move || {
+                        let _ = write(&run, &run.join("work"), 1);
+                    })
+                })
+                .collect();
+            for h in handles {
+                h.join().unwrap();
+            }
+            let lines = fs::read_to_string(run.join(LIST)).unwrap();
+            let valid = lines.lines().filter(|l| serde_json::from_str::<Value>(l).is_ok()).count();
+            assert_eq!((record(&run)["files"].clone(), lines.lines().count(), valid), (Value::from(40), 40, 40), "round {round}");
+        }
+    }
 }
