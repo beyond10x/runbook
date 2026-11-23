@@ -1,7 +1,9 @@
 // The checks of budget.spec.mjs, each a function of its inputs (a map, the text of files), so that the spec can call each
 // on a good input and a bad one of its own and not only on the live lists. A check returns the list of what it found.
 
-export const SIZE = /setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(|toBeVisible|toBeHidden|isHidden|toBeInViewport|scrollIntoViewIfNeeded|matchMedia/;
+import path from 'node:path';
+
+export const SIZE =/setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(|toBeVisible|toBeHidden|isHidden|toBeInViewport|scrollIntoViewIfNeeded|matchMedia/;
 
 // The skips on the project name that bothSkipProblems knows.
 export const SKIP_SPELLINGS = ["project.name !== 'wide'", "project.name != 'wide'", "project.name === 'laptop'", "project.name == 'laptop'"];
@@ -86,10 +88,12 @@ const topLevel = (s) => {
 const literal = (s) => (/^\s*\d[\d_]*\s*$/.test(s ?? '') ? Number(s.replace(/_/g, '')) : null);
 
 // The sleeps of a file: every `waitForTimeout` (a call with or without a space before the bracket, a bracket member, a
-// reference) and every `setTimeout` that a `new Promise` waits for (the callback is the promise's resolver or calls it).
-// Each is {ms}: its literal time in milliseconds, or null when the time is no literal. Counted per call site: how often a
-// loop runs a call, a `waitForFunction` or `expect.poll` timeout or interval and a timer that ends a child or a request
-// are not sleeps here.
+// reference), every `setTimeout` that a `new Promise` with an arrow function waits for (the callback is the promise's
+// resolver or calls it) and every window `Date.now() + <number>`.
+// Each is {ms} (its literal time in milliseconds, or null when the time is no literal), and {ms, window: true} for a window.
+// Counted per call site: how often a loop runs a call, a `waitForFunction` or `expect.poll` timeout or interval and a timer
+// that ends a child or a request are not sleeps here. Not found: a `function` callback of the promise, `timers/promises`,
+// `Atomics.wait`, an alias of `setTimeout`, a resolver passed on by `bind`, `setInterval` and a window whose time is no number.
 export const sleeps = (src) => {
   const t = stripComments(src);
   const found = [];
@@ -97,6 +101,7 @@ export const sleeps = (src) => {
     const call = /^['"`]?\s*\]?\s*\(\s*(\d[\d_]*)\s*\)/.exec(t.slice(m.index + m[0].length));
     found.push({ms: call ? literal(call[1]) : null});
   }
+  for (const m of t.matchAll(/Date\.now\(\)\s*\+\s*(\d[\d_]*)/g)) found.push({ms: literal(m[1]), window: true});
   const seen = new Set();
   for (const p of t.matchAll(/new\s+Promise\s*\(/g)) {
     const open = p.index + p[0].length - 1;
@@ -116,16 +121,25 @@ export const sleeps = (src) => {
   return found;
 };
 
-// `entries`: {file: {calls, ms, variable?}}; `files`: {file: text} of the gate's files.
+// The arguments of the calls `name(...)` in a text, as text each (the definition `const name = (...)` is no call).
+const callArguments = (src, name) => {
+  const t = stripComments(src);
+  return [...t.matchAll(new RegExp(`(?<![\\w$.])(?<!function\\s)${name}\\s*\\(`, 'g'))].map((m) => inside(t, m.index + m[0].length - 1));
+};
+
+// `entries`: {file: {calls, ms, variable?, helper?, largest?, window?}}; `files`: {file: text} of the gate's files. `variable`
+// (a reason) says a sleep takes its time from the argument of a helper: `helper` is the helper's name and `largest` the
+// largest number its call sites in the file pass. `window` (a reason) says the file has a `Date.now() + <number>` window.
 export const sleepProblems = (files, entries) => {
   const bad = [];
-  const hint = 'wait for an event (settled, expect, expect.poll) or name the file in FIXED_WAITS; counted: waitForTimeout in any spelling and a setTimeout inside new Promise';
+  const hint = 'wait for an event (settled, expect, expect.poll) or name the file in FIXED_WAITS; counted: waitForTimeout in any spelling, a setTimeout inside new Promise and a Date.now() + number window';
   for (const [f, src] of Object.entries(files)) {
     const s = sleeps(src);
     const entry = entries[f];
     const calls = s.length;
     const ms = s.reduce((a, x) => a + (x.ms ?? 0), 0);
     const variable = s.filter((x) => x.ms === null).length;
+    const windows = s.filter((x) => x.window).length;
     if (!entry) {
       if (calls) bad.push(`${f}: ${calls} sleeps, none allowed: ${hint}`);
       continue;
@@ -135,23 +149,40 @@ export const sleepProblems = (files, entries) => {
     else if (ms !== entry.ms) bad.push(`${f}: the literal sleeps add up to ${ms} ms, the entry says ${entry.ms}: a longer sleep is a change a reviewer reads`);
     if (variable && !entry.variable) bad.push(`${f}: ${variable} sleeps whose time is no number: the entry needs "variable" with a reason of one to five words`);
     if (!variable && entry.variable) bad.push(`${f}: the entry says "variable", every sleep has a number: drop it`);
+    if (windows && !entry.window) bad.push(`${f}: ${windows} Date.now() + number windows: the entry needs "window" with a reason of one to five words`);
+    if (!windows && entry.window) bad.push(`${f}: the entry says "window", no Date.now() + number window is made: drop it`);
+    if (variable && entry.variable) {
+      if (!/^\w+$/.test(entry.helper ?? '') || !Number.isInteger(entry.largest)) bad.push(`${f}: "variable" needs "helper" (the name of the helper) and "largest" (the largest number its call sites pass)`);
+      else {
+        const args = callArguments(src, entry.helper).map((a) => ({a: a.trim(), n: literal(a)}));
+        if (!args.length) bad.push(`${f}: the helper ${entry.helper} has no call site in the file: drop "variable"`);
+        for (const x of args.filter((y) => y.n === null)) bad.push(`${f}: ${entry.helper}(${x.a}) passes no number`);
+        const top = Math.max(...args.filter((y) => y.n !== null).map((y) => y.n), 0);
+        if (top > entry.largest) bad.push(`${f}: ${entry.helper}(${top}) is over the largest the entry names, ${entry.largest}: a longer pause is a change a reviewer reads`);
+        else if (args.length && top < entry.largest) bad.push(`${f}: the call sites of ${entry.helper} pass at most ${top}, the entry says ${entry.largest}: lower it`);
+      }
+    }
   }
   for (const f of Object.keys(entries)) if (!(f in files)) bad.push(`${f}: in FIXED_WAITS, not a file of the gate lane`);
   return bad;
 };
 
-// The files a set of roots reaches by relative imports (`from './x.mjs'`, `import('./x.mjs')`); `read` gives a file's
-// text, or undefined for a file that is not there.
-export const closure = (roots, read) => {
+// The files a set of roots reaches by relative imports (`from './x.mjs'`, `from '../x.mjs'`, `import('./x.mjs')`, in any
+// directory); each name is relative to the directory of the roots, so a file one level up is `../x.mjs`. `read` gives a
+// file's text, or undefined for a file that is not there. A file is read once, so a cycle ends; more than `limit` files read
+// is an error.
+export const closure = (roots, read, limit = 500) => {
   const out = new Set();
   const todo = [...roots];
+  let reads = 0;
   while (todo.length) {
     const f = todo.pop();
     if (out.has(f)) continue;
+    if (++reads > limit) throw new Error(`the closure reads more than ${limit} files (at ${f}): it does not end`);
     const src = read(f);
     if (src === undefined) continue;
     out.add(f);
-    for (const m of stripComments(src).matchAll(/(?:from\s+|import\s*\(\s*)['"]\.\/([^'"/]+)['"]/g)) todo.push(m[1]);
+    for (const m of stripComments(src).matchAll(/(?:from\s+|import\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) todo.push(path.posix.join(path.posix.dirname(f), m[1]));
   }
   return [...out].sort();
 };

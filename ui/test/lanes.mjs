@@ -97,7 +97,7 @@ export const WIDE_ONLY = {
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
-// A wide-only file whose code names a size, a position or a visibility matcher (`viewport:`, `setViewportSize`, `boundingBox`,
+// A wide-only file whose code names a size, a position or a visibility matcher (`viewport:`, `setViewportSize`, `viewportSize`, `boundingBox`,
 // `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`,
 // `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) is listed here with the reason its
 // claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file that names one and is
@@ -138,28 +138,38 @@ export const SPEC_FORM = /\/test\/[^/]+\.spec\.mjs$/;
 
 // The sleeps of the gate: the files that wait a fixed time, with how many sleeps each has (`calls`) and the sum of their
 // literal milliseconds (`ms`). A sleep is a `waitForTimeout` (also with a space before the bracket, as a bracket member or
-// as a reference) or a `setTimeout` that a `new Promise` waits for, in a `*.spec.mjs` of the gate and in the helper modules
-// they import; it is counted per call site, once however often a loop runs it. A `waitForFunction` or `expect.poll`
-// timeout or interval and a timer that ends a child or a request are not sleeps. A sleep whose time is no literal makes
-// the entry say `variable`, with a reason of one to five words. budget.spec.mjs fails a count or a sum that differs from
-// its entry, so a new or a longer sleep is a line here, in a change a reviewer reads.
+// as a reference), a `setTimeout` that a `new Promise` with an arrow function waits for, or a window `Date.now() + <number>`
+// (the entry says `window`, with a reason of one to five words), in a `*.spec.mjs` of the gate and in every file they
+// import by `from '<path>'` or `import('<path>')` with a relative path (`./x`, `../x`, in `ux/` too; an `import '<path>'` with no bindings is not followed; a name starting `../` here is relative to `test/`); it is counted per
+// call site, once however often a loop runs it. A `waitForFunction` or `expect.poll` timeout or interval, a timer that ends a
+// child or a request, a `function` callback of a promise, `timers/promises`, `Atomics.wait`, an alias of `setTimeout`,
+// `setInterval` and a window whose time is no number are not found. A sleep whose time is the argument of a helper makes the
+// entry say `variable`, with a reason of one to five words, the `helper` and the `largest` number its call sites in the file
+// pass. `why` is a reason of one to five words that any entry may carry. budget.spec.mjs fails a count or a sum that differs
+// from its entry, a call site over `largest` and one that passes no number, so a new or a longer sleep is a line here, in a
+// change a reviewer reads.
 export const FIXED_WAITS = {
+  '../ux/core/contract.mjs': {calls: 1, ms: 750, why: 'upper bound, ends on event'},
+  '../ux/core/phone.mjs': {calls: 1, ms: 60, why: 'lets the scroll settle'},
   'autopilot.spec.mjs': {calls: 1, ms: 100},
   'child.spec.mjs': {calls: 2, ms: 1025},
   'daemon-decide-review.spec.mjs': {calls: 2, ms: 5300},
   'daemon-decide.spec.mjs': {calls: 2, ms: 3000},
   'daemon-start.spec.mjs': {calls: 1, ms: 300},
+  'decisions-yaml-parses-what-was-read.spec.mjs': {calls: 1, ms: 8000, window: 'race window, runs in full'},
   'event-log-lines.spec.mjs': {calls: 1, ms: 2500},
   'fixture-hold.spec.mjs': {calls: 1, ms: 20000},
   'paths-served.spec.mjs': {calls: 1, ms: 700},
+  'security-products-2-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
   'security-products-3-reads.spec.mjs': {calls: 1, ms: 100},
+  'security-products-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
   'security-start-content.spec.mjs': {calls: 2, ms: 800},
-  'security-start-floor-reread.spec.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop'},
+  'security-start-floor-reread.spec.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop', helper: 'later', largest: 250},
   'security-start-gone-runbook.spec.mjs': {calls: 1, ms: 300},
   'security-start-idempotency.spec.mjs': {calls: 1, ms: 1500},
   'security-start-key.spec.mjs': {calls: 5, ms: 3600},
   'security-start-late-answers.spec.mjs': {calls: 1, ms: 300},
-  'security-start-ready-window.spec.mjs': {calls: 9, ms: 2400, variable: 'retry pause of a loop'},
+  'security-start-ready-window.spec.mjs': {calls: 9, ms: 2400, variable: 'retry pause of a loop', helper: 'later', largest: 250},
   'security-start-second-paint.spec.mjs': {calls: 3, ms: 800},
   'security-start-token-places.spec.mjs': {calls: 2, ms: 3700},
   'security-start-token.spec.mjs': {calls: 2, ms: 800},
