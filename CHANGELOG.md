@@ -7,6 +7,17 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-23
+
+The settings file of a run is TOML, the daemon's page starts a run and the ESS pin is 0.98.0. The page of
+`runbook serve --ui` has a form (runbook, intake, a confinement level the person picks, none preset) that sends
+`submit-run`, and its header names the mode, "watch" under the inspector and "operate" under the daemon; the
+daemon has a view `runbooks` that lists what it can start. `scripts/check-bindings.sh --exits <root>` checks the
+bindings of a runbook in another repository. The ESS pins move from 0.97.4 to 0.98.0 (the synthesized suite has
+118 scenarios). The driver's test step pays each expensive step once. Breaking: the file `--settings` names is
+TOML, a JSON file is refused (exit 2) and each member that lived under `loom` is at the top level. No evaluation
+run was made on this code. The longer note is `docs/releases/0.9.0.md`.
+
 ### Added
 
 - The daemon has a view `runbooks` (`GET /daemon/views/runbooks`; ESS entity `Runbook`, view `Runbooks`, `docs/daemon-api.md`): the runbooks it can start, by name, version and runtime, from `--runbook-home` under `--runtime loom` and from the stub's scripts and `--runbook-dir` under the stub runtime, behind the daemon's one token check. No new command; no path of the host is in a row.
