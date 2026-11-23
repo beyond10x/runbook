@@ -548,37 +548,50 @@ function recordProgress(r, runDir) {
 // runs/<run>/fs/changes.jsonl (docs/fs-changes.md), read incrementally; the list keeps every
 // field but `diff`, which /api/fschange reads back from the line's byte offset. A late
 // `sdc.fs-attribution/1` line (no seq) replaces the attribution of the change it names.
+// The answer says when the reader stopped before the end of the file: `stopped` is null, or `{cause, offset, size}` where the
+// cause is `line` (a line longer than FS_CHUNK, or bytes with no line end in a whole chunk: nothing after it is read) or
+// `records` (the list holds MAX_RECORDS records, the most the server keeps for one run: nothing after them is read). `rev` moves
+// when a record that was read is changed afterwards (a late attribution).
 const fsCache = new Map();
 const FS_CHUNK = 32 * 1048576;
+const MAX_RECORDS = Number(process.env.SDC_UI_MAX_RECORDS) > 0 ? Math.floor(Number(process.env.SDC_UI_MAX_RECORDS)) : 100000;
+const fsSig = (file) => { try { const s = fs.lstatSync(file); return `${s.size}:${s.mtimeMs}:${s.ino}`; } catch { return '-'; } };
 function fsChanges(runDir) {
   const file = path.join(runDir, 'fs', 'changes.jsonl');
   let c = fsCache.get(runDir);
+  // a reader that stopped does not read the same bytes again: the file as it was, or a bound that more bytes do not lift
+  if (c?.stopped && (c.stopped.sig === fsSig(file) || (c.stopped.cause === 'records' && Number(fsSig(file).split(':')[0]) >= c.stopped.size))) {
+    return {present: true, list: c.list, stopped: {cause: c.stopped.cause, offset: c.stopped.offset, size: c.stopped.size}, rev: c.rev};
+  }
   // read through the checked open of runfiles.mjs (one name, regular, under the run), a chunk at a time from the offset
   for (;;) {
     const r = readRegular(file, {root: runDir, at: c ? c.offset : 0, limit: FS_CHUNK});
     if (r.state !== 'ok') { fsCache.delete(runDir); return {present: false, list: []}; }
     if (!c || r.size < c.offset) {
-      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()};
+      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map(), rev: 0, stopped: null};
       fsCache.set(runDir, c);
       if (r.from !== 0) continue; // the file is shorter than what was read: read it again from its start
     }
+    c.stopped = null;
     const buf = r.bytes;
-    let start = 0;
+    let start = 0, full = false;
     for (let i = 0; i < buf.length; i++) {
       if (buf[i] !== 10) continue;
       const line = buf.subarray(start, i).toString('utf8');
-      const off = c.offset + start, len = i - start;
+      const off = c.offset + start, len = i - start, lineStart = start;
       start = i + 1;
       if (!line.trim()) continue;
       try {
         const r = JSON.parse(line);
         if (r.format === 'sdc.fs-attribution/1') {
+          if (c.late.size >= MAX_RECORDS && !c.late.has(r.change)) { start = lineStart; full = true; break; }
           const late = {...r.attribution, late_at: r.at};
           c.late.set(r.change, late);
           const x = c.bySeq.get(r.change);
-          if (x) x.attribution = late;
+          if (x) { x.attribution = late; c.rev++; }
           continue;
         }
+        if (c.list.length >= MAX_RECORDS) { start = lineStart; full = true; break; }
         const {diff, ...rest} = r;
         if (c.late.has(r.seq)) rest.attribution = c.late.get(r.seq);
         if (rest.lines_added == null && diff) Object.assign(rest, (({add, del}) => ({lines_added: add, lines_removed: del}))(diffCounts(diff)));
@@ -590,9 +603,11 @@ function fsChanges(runDir) {
       } catch { /* not JSON: skipped */ }
     }
     c.offset += start; // a line without its newline yet is read on the next call
+    // a whole chunk with no line end in it is a line the reader cannot take: it stops there and says so
+    if (full || (start === 0 && buf.length >= FS_CHUNK)) { c.stopped = {cause: full ? 'records' : 'line', offset: c.offset, size: r.size, sig: fsSig(file)}; break; }
     if (start === 0 || c.offset >= r.size) break;
   }
-  return {present: true, list: c.list};
+  return {present: true, list: c.list, stopped: c.stopped && {cause: c.stopped.cause, offset: c.stopped.offset, size: c.stopped.size}, rev: c.rev};
 }
 function fsChange(runDir, seq) {
   fsChanges(runDir);
@@ -643,6 +658,10 @@ function workFacts(src) {
 const posix = (p) => p.split(path.sep).join('/');
 // the directories of a run whose files are served and listed: its work/ and the work/ of each of its cases
 const workRoots = (src) => [...new Set([path.join(runDirOf(src), 'work'), ...Array.from(src.cases.values()).map((e) => path.join(e.dir, 'work'))])];
+const STOP_WHY = {
+  line: 'a line of it is longer than the inspector reads (32 MiB) or is not a line, and the records after it are not read',
+  records: `it holds more records than the inspector keeps for one run (${MAX_RECORDS}), and the records after them are not read`,
+};
 function productsOf(src) {
   const runDir = runDirOf(src);
   const entries = Array.from(src.cases.values());
@@ -656,13 +675,18 @@ function productsOf(src) {
   const {view, runbook, protocols} = viewOf(src);
   const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
   // the files the run's records name as written by an action (written.mjs), when the run has both records; else today's listing
+  // a record file the reader stopped in before it read one record is not "no action has written a file": the listing, with the reason
   const seeded = readSeeded(runDir), changes = fsChanges(runDir);
-  if (seeded.state === 'ok' && changes.present) {
-    const {isInput, last, ...answer} = writtenOf({runDir, roots: [...new Set(roots)], seeded, changes: changes.list, finished: finishedSteps(runDir), artifacts});
+  const unread = changes.present && changes.stopped && !changes.list.length;
+  if (seeded.state === 'ok' && changes.present && !unread) {
+    const {isInput, last, ...answer} = writtenOf({runDir, roots: [...new Set(roots)], seeded, changes: changes.list, rev: changes.rev, finished: finishedSteps(runDir), artifacts});
     const written = {...answer, last, isInput};
-    return {served: true, basis: 'records', product: productOf({runDir, roots, files: answer.files, view, ids, written}), ...answer, truncated: answer.notShown > 0, cut: answer.notShown > 0 ? 'lines' : null};
+    // an answer says what it left out: lines past the bound, an action name cut, records the reader did not get to
+    const stop = changes.stopped ? {...changes.stopped, read: changes.list.length, why: STOP_WHY[changes.stopped.cause]} : null;
+    const cut = answer.notShown > 0 ? 'lines' : stop ? 'records' : answer.cutStrings > 0 ? 'strings' : null;
+    return {served: true, basis: 'records', product: productOf({runDir, roots, files: answer.files, view, ids, written}), ...answer, recordsStopped: stop, truncated: cut != null, cut};
   }
-  const why = seeded.state !== 'ok' ? seeded.why : 'this run has no record of its file changes (fs/changes.jsonl): it was not started with --watch';
+  const why = seeded.state !== 'ok' ? seeded.why : !changes.present ? 'this run has no record of its file changes (fs/changes.jsonl): it was not started with --watch' : `the record of its file changes (fs/changes.jsonl) cannot be read: ${STOP_WHY[changes.stopped.cause]}`;
   const listing = listFiles(runDir, [...new Set(roots)], artifacts);
   return {served: true, basis: 'listing', basisNote: `${why}: every file under work/ is listed`, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
 }

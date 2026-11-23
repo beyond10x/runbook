@@ -293,12 +293,23 @@ is compared by time:
   at another hash it is a product marked `changed`; not listed it is a product (marked `added` when it lies
   in a seeded tree); listed and deleted by an action it is marked `removed`. A path in either record goes
   through the run-path check like every other path: one that leaves `work/` or the run is not listed and not
-  opened, and is only counted.
+  opened, and is only counted. A name is looked at one component at a time from the real path of the run, and a
+  link is resolved by the run-path check before the next component is looked at, so a name behind a link that
+  leaves the run is counted as left out (`leftOut`), the same whether or not anything lies behind it; `gone` counts
+  only names that lie in the run and are not there.
 - The answer of `/api/products` has `basis`: `records` (as above: `groups` by step, each with its `actions`
   and `files`; `files` flat in the same order; `inputs` `{trees, files}`; `total`, `shown`, `notShown`,
-  `truncated`, `cut: "lines"`, `leftOut`, `gone`, `refusedRecords`) or `listing` (an older run, one without
+  `truncated`, `cut`, `leftOut`, `gone`, `refusedRecords`, `cutStrings`, `maxAction`, `recordsStopped`) or `listing` (an older run, one without
   `--watch`, or a seed record that is incomplete: every file under `work/` as before, and `basisNote` says
-  why). The products are not cut by depth; the page lists at most 500 and says how many are not shown.
+  why). The products are not cut by depth; the page lists at most 500 and says how many are not shown. Every string of a record
+  that enters the answer has a bound, and the answer says when it cut one: an action name is cut at `maxAction` (256)
+  characters and counted in `cutStrings` (`cut: "strings"`), a path longer than 1024 characters is not listed and is
+  counted in `refusedRecords`. The server keeps at most 100 000 records of `fs/changes.jsonl` for one run (the variable
+  `SDC_UI_MAX_RECORDS` sets it lower, for a test), and it keeps the state of the records with them, so an answer for a run
+  that did not change reads no record again; each answer still looks at the files it lists. When the reader stops before
+  the end of that file (a line longer than 32 MiB or bytes with no line end in a whole chunk, or the 100 000 records)
+  the answer has `recordsStopped` `{cause: "line" | "records", read, offset, size, why}`, `truncated: true` and
+  `cut: "records"`; a file the reader cannot take one record from is answered as `listing` with the reason.
 - The file the product line names is the last file the last finished step wrote (`via: last-written`),
   never a file of an input tree; a view's `product` or the runbook's own file is refused when it is an
   unchanged seeded file. For an older run the newest Markdown file is taken, but not one inside a tree with

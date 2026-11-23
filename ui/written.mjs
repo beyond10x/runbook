@@ -20,13 +20,15 @@ import {scopeOf, refusalOf, formatOf, resultOf} from './products.mjs';
 export const SEEDED_FORMAT = 'runbook.seeded/1';
 export const LIST_LIMIT = 8 * 1048576; // the list of seeded files is read to this size; a longer one is not used
 export const MAX_LINES = 500; // the products the page lists; the answer says how many are not shown
+export const MAX_PATH = 1024; // the longest path of a record that is listed; a longer one is counted in `refusedRecords`
+export const MAX_ACTION = 256; // the longest action name the answer carries; a longer one is cut and counted in `cutStrings`
 const MAX_TREES = 5000, SHA = /^[0-9a-f]{64}$/, KINDS = new Set(['dir', 'file', 'link', 'other']);
 const posix = (p) => p.split(path.sep).join('/');
 
 // A run-relative path from a record: {rel} for a plain path, {dot: true} for a path with a dot-part (never listed, never
-// counted as wrong), null for anything else (absolute, a `..`, a NUL or a backslash, not a string).
+// counted as wrong), null for anything else (absolute, a `..`, a NUL or a backslash, not a string, longer than MAX_PATH).
 export function cleanRel(p) {
-  if (typeof p !== 'string' || p === '' || p.length > 4096 || p.includes('\0') || p.includes('\\') || p.startsWith('/')) return null;
+  if (typeof p !== 'string' || p === '' || p.length > MAX_PATH || p.includes('\0') || p.includes('\\') || p.startsWith('/')) return null;
   const parts = p.split('/').filter((n) => n !== '' && n !== '.');
   if (!parts.length || parts.includes('..')) return null;
   if (parts.some(dotName)) return {dot: true};
@@ -56,7 +58,7 @@ function readSeededNow(runDir) {
   if (rec.state !== 'ok' || rec.cut) return no('the record of what the run was seeded with (seeded.json) is not a readable file');
   const v = jsonOf(rec);
   if (!v || typeof v !== 'object' || v.format !== SEEDED_FORMAT) return no('seeded.json is not a runbook.seeded/1 record');
-  if (v.complete !== true) return no('the record of what the run was seeded with is not complete (the seeded tree holds more files than the runner lists)');
+  if (v.complete !== true) return no('the record of what the run was seeded with says it is not complete (complete: false): the list of seeded files is not the whole seed');
   if (!Array.isArray(v.entries) || v.entries.length > MAX_TREES || !Number.isInteger(v.files) || v.files < 0) return no('seeded.json does not say what it must');
   const trees = [];
   for (const e of v.entries) {
@@ -89,38 +91,48 @@ export function finishedSteps(runDir) {
 }
 
 // ---- the products ---------------------------------------------------------------------------------------
-// `changes`: the list of fs/changes.jsonl (server.mjs fsChanges). Answers the products with their groups, the inputs, the
-// product to open first and the counts of what is not shown.
-export function writtenOf({runDir, roots, seeded, changes, finished, artifacts = new Map()}) {
-  const scope = scopeOf(runDir, roots);
-  const rootRels = new Set(roots.map((r) => posix(path.relative(runDir, r))));
-  const state = new Map(); // run-relative path -> what the last change of it says
-  let refused = 0;
+// `changes`: the list of fs/changes.jsonl (server.mjs fsChanges) and `rev`, its revision (it moves when a record that was
+// read is changed afterwards: a late attribution). The records are folded into one state per path once and kept with the list
+// they were read from, as fsChanges keeps the list: an answer for a list that did not change reads no record, a list that
+// grew folds its new records only, and a list whose revision moved is folded again from its start. The files themselves are
+// never kept: each answer describes the files it lists, through the run-path check, again.
+// Answers the products with their groups, the inputs, the product to open first and the counts of what is not shown or cut.
+const folds = new WeakMap();
+
+function fold(f, changes, rootRels) {
   const here = (root, p) => {
     const r = cleanRel(root), c = cleanRel(p);
     if (!r?.rel || !rootRels.has(r.rel)) return undefined; // a root that is no work root (an agent's cwd, a decider's): not a product
-    if (c == null) { refused++; return undefined; }
+    if (c == null) { f.refused++; return undefined; }
     if (c.dot) return undefined;
     return `${r.rel}/${c.rel}`;
   };
-  for (const ch of changes) {
+  for (let i = f.done; i < changes.length; i++) {
+    const ch = changes[i];
     if (!ch || typeof ch !== 'object') continue;
     const step = Number.isInteger(ch.attribution?.step) ? ch.attribution.step : null;
-    const action = typeof ch.attribution?.action === 'string' ? ch.attribution.action : null;
+    let action = typeof ch.attribution?.action === 'string' ? ch.attribution.action : null;
+    if (action != null && action.length > MAX_ACTION) { action = action.slice(0, MAX_ACTION); f.cutStrings++; }
     if (ch.op === 'rename' && ch.from_path != null) {
       const from = here(ch.root, ch.from_path);
-      if (from) state.set(from, {exists: false, step, seq: ch.seq, action});
+      if (from) f.state.set(from, {exists: false, step, seq: ch.seq, action});
     }
     const p = here(ch.root, ch.path);
     if (!p) continue;
-    if (ch.op === 'delete') state.set(p, {exists: false, step, seq: ch.seq, action});
-    else if (ch.op === 'create' || ch.op === 'modify' || ch.op === 'rename') state.set(p, {exists: true, after: typeof ch.after === 'string' ? ch.after : null, step, seq: ch.seq, action});
+    if (ch.op === 'delete') f.state.set(p, {exists: false, step, seq: ch.seq, action});
+    else if (ch.op === 'create' || ch.op === 'modify' || ch.op === 'rename') f.state.set(p, {exists: true, after: typeof ch.after === 'string' ? ch.after : null, step, seq: ch.seq, action});
   }
+  f.done = changes.length;
+}
+
+// The products of the state against what the run was seeded with, newest step first: kept while neither changes.
+function viewOf(f, seeded) {
+  if (f.view?.seeded === seeded) return f.view;
   const trees = new Set(seeded.trees.filter((t) => t.kind === 'dir').map((t) => t.path));
   const inTree = (p) => p.startsWith('work/') && trees.has(p.split('/')[1]) && p.split('/').length > 2;
   const changed = new Set(), removed = new Set();
   const products = [];
-  for (const [p, s] of state) {
+  for (const [p, s] of f.state) {
     const listed = seeded.files.get(p);
     if (!s.exists) {
       if (listed !== undefined) { removed.add(p); products.push({path: p, mark: 'removed', ...s}); }
@@ -132,10 +144,24 @@ export function writtenOf({runDir, roots, seeded, changes, finished, artifacts =
       products.push({path: p, mark: 'changed', ...s});
     } else products.push({path: p, mark: inTree(p) ? 'added' : null, ...s});
   }
-  const isInput = (p) => seeded.files.has(p) && !changed.has(p) && !removed.has(p);
   // newest step first (a change without a step last), a path order inside a step
   const byStep = (a, b) => (a.step === b.step ? 0 : a.step == null ? 1 : b.step == null ? -1 : b.step - a.step);
   products.sort((a, b) => byStep(a, b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  f.view = {seeded, products, isInput: (p) => seeded.files.has(p) && !changed.has(p) && !removed.has(p)};
+  return f.view;
+}
+
+export function writtenOf({runDir, roots, seeded, changes, rev = 0, finished, artifacts = new Map()}) {
+  const scope = scopeOf(runDir, roots);
+  const rootRels = new Set(roots.map((r) => posix(path.relative(runDir, r))));
+  const key = [...rootRels].sort().join('\n');
+  let f = folds.get(changes);
+  if (!f || f.rev !== rev || f.key !== key || f.done > changes.length) {
+    f = {rev, key, done: 0, state: new Map(), refused: 0, cutStrings: 0, view: null};
+    folds.set(changes, f);
+  }
+  if (f.done < changes.length) { fold(f, changes, rootRels); f.view = null; }
+  const {products, isInput} = viewOf(f, seeded);
   const total = products.length;
   const shownList = products.slice(0, MAX_LINES);
   let leftOut = 0, gone = 0;
@@ -147,19 +173,20 @@ export function writtenOf({runDir, roots, seeded, changes, finished, artifacts =
     files.push({path: x.path, step: x.step, mark: x.mark, action: x.action, ...(typeof info === 'object' ? info : {size: null, mtime: null, format: formatOf(x.path), result: null}), artifact: artifacts.get(x.path) ?? null});
   }
   const groups = [];
-  for (const f of files) {
+  for (const fl of files) {
     let g = groups.at(-1);
-    if (!g || g.step !== f.step) { g = {step: f.step, actions: [], files: []}; groups.push(g); }
-    g.files.push({path: f.path, mark: f.mark, size: f.size, mtime: f.mtime, format: f.format, result: f.result, artifact: f.artifact});
-    if (f.action && !g.actions.includes(f.action)) g.actions.push(f.action);
+    if (!g || g.step !== fl.step) { g = {step: fl.step, actions: [], files: []}; groups.push(g); }
+    g.files.push({path: fl.path, mark: fl.mark, size: fl.size, mtime: fl.mtime, format: fl.format, result: fl.result, artifact: fl.artifact});
+    if (fl.action && !g.actions.includes(fl.action)) g.actions.push(fl.action);
   }
   // the file to open first: the last file the last finished step wrote, never an input, never a removed file
-  const open = products.filter((x) => x.mark !== 'removed' && files.some((f) => f.path === x.path) && (finished == null ? true : x.step != null && x.step <= finished));
+  const listedPaths = new Set(files.map((x) => x.path));
+  const open = shownList.filter((x) => x.mark !== 'removed' && listedPaths.has(x.path) && (finished == null ? true : x.step != null && x.step <= finished));
   let last = null;
   for (const x of open) if (!last || (x.step ?? -1) > (last.step ?? -1) || ((x.step ?? -1) === (last.step ?? -1) && (x.seq ?? -1) > (last.seq ?? -1))) last = x;
   const others = last ? open.filter((x) => x.step === last.step && x.path !== last.path).sort((a, b) => (b.seq ?? -1) - (a.seq ?? -1)).slice(0, 5).map((x) => ({path: x.path})) : [];
   return {
-    groups, files, total, shown: shownList.length, notShown: total - shownList.length, leftOut, gone, refusedRecords: refused,
+    groups, files, total, shown: shownList.length, notShown: total - shownList.length, leftOut, gone, refusedRecords: f.refused, cutStrings: f.cutStrings, maxAction: MAX_ACTION,
     inputs: {trees: seeded.trees, files: seeded.count},
     last: last ? {path: last.path, step: last.step, others} : null, finished, isInput,
   };
@@ -167,14 +194,25 @@ export function writtenOf({runDir, roots, seeded, changes, finished, artifacts =
 
 // the size, time, format and result of a file a record names, or 'gone' (nothing is there) or 'refused' (a file the file route
 // would not serve). It reads no content but a step file's result line, and only through the checked open.
+// The name is walked from the real path of the run, one component at a time, and nothing is looked at that lies outside the
+// run: a component that is a link is resolved by the run-path check before the next one is looked at, so a link that leaves
+// the run is `refused` whatever lies behind it and no answer says whether a file of the host is there.
 function describe(runDir, rel, scope) {
-  if (hasDotPart(rel)) return 'refused';
-  const abs = path.join(runDir, rel);
-  try { fs.lstatSync(abs); } catch { return 'gone'; }
+  if (hasDotPart(rel) || scope.runReal == null) return 'refused';
+  let abs = scope.runReal;
+  for (const part of rel.split('/')) {
+    const next = path.join(abs, part);
+    let st;
+    try { st = fs.lstatSync(next); } catch { return 'gone'; }
+    if (st.isSymbolicLink()) {
+      abs = runPath(next, runDir);
+      if (abs == null) return 'refused';
+    } else abs = next;
+  }
   const real = runPath(abs, runDir);
   if (real == null || refusalOf(scope, real)) return 'refused';
   let st;
   try { st = fs.statSync(real); } catch { return 'gone'; }
   if (!st.isFile() || st.nlink > 1) return 'refused';
-  return {size: st.size, mtime: Math.round(st.mtimeMs), format: formatOf(rel), result: /\.txt$/i.test(rel) && st.size <= 65536 ? resultOf(abs, runDir, scope) : null};
+  return {size: st.size, mtime: Math.round(st.mtimeMs), format: formatOf(rel), result: /\.txt$/i.test(rel) && st.size <= 65536 ? resultOf(path.join(runDir, rel), runDir, scope) : null};
 }

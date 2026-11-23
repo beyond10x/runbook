@@ -15,10 +15,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = process.env.SDC_UI_SHOTS || path.join(ui, 'screenshots');
 const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'written-page');
-let srv, base;
+let srv, srv2, base, base2;
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, the sizes are set in the cases'));
-test.afterAll(() => srv?.kill());
+test.afterAll(() => { srv?.kill(); srv2?.kill(); });
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   test.setTimeout(60000);
@@ -31,7 +31,11 @@ test.beforeAll(async ({}, info) => {
     {step: 3, path: 'work/<script>window.__pwned=2<script>.md', text: '# a\n', op: 'create', action: 'change.fix'},
   ];
   writeWrittenRun(path.join(runs, 'hostile'), {written: hostile});
+  writeWrittenRun(path.join(runs, 'cutname'), {written: [{step: 2, path: 'work/a.md', text: '# a\n', op: 'create', action: 'x'.repeat(300)}]});
+  writeWrittenRun(path.join(root, 'stopped', 'run'), {});
   ({url: base, proc: srv} = await startServer(['--no-view', '--runs', runs]));
+  // 201 seeded files and five written ones are 206 records: this server keeps 203 of them
+  ({url: base2, proc: srv2} = await startServer(['--no-view', '--runs', path.join(root, 'stopped')], {env: {...process.env, SDC_UI_MAX_RECORDS: '203'}}));
 });
 
 const open = async (page, name) => {
@@ -139,4 +143,21 @@ test('what a run holds is text: a file name and an action name with markup are s
   expect(await panel.locator('b, i, img, script').count()).toBe(0);
   expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
   expect(WRITTEN.length).toBe(5);
+});
+
+test('an action name that was cut and a list of changes that was not read to its end are said on the tab', async ({page}) => {
+  await page.setViewportSize({width: 1600, height: 1000});
+  await open(page, 'cutname');
+  await tab(page);
+  await expect(page.locator('#panel .prod-note').filter({hasText: '1 action name is cut to 256 characters'})).toHaveCount(1);
+  const head = await page.locator('#panel .prod-group[data-step="2"] h5').innerText();
+  expect(head).toContain('x'.repeat(256));
+  expect(head).not.toContain('x'.repeat(257));
+  await page.goto(`${base2}/`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  await tab(page);
+  const note = page.locator('#panel .prod-cut').filter({hasText: 'read to record 203 only'});
+  await expect(note).toHaveCount(1);
+  await expect(note).toContainText('the records after them are not read');
+  await expect(page.locator('#panel .prod-group .prod-file')).toHaveCount(2);
 });

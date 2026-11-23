@@ -5,7 +5,7 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {readSeeded, writtenOf, finishedSteps, cleanRel, MAX_LINES} from '../written.mjs';
+import {readSeeded, writtenOf, finishedSteps, cleanRel, MAX_LINES, MAX_PATH, MAX_ACTION} from '../written.mjs';
 import {productOf} from '../products.mjs';
 import {writeWrittenRun, change, sha, WRITTEN} from './written-fixture.mjs';
 
@@ -197,4 +197,74 @@ test('cleanRel accepts one plain relative path only', () => {
   for (const bad of ['', '/a', 'a/../b', '..', 'a\\b', 'a\0b', null, 5, {}]) expect(cleanRel(bad), String(bad)).toBeNull();
   expect(cleanRel('a/.git/x')).toEqual({dot: true});
   expect(WRITTEN.length).toBe(5);
+});
+
+test('cleanRel refuses a path longer than MAX_PATH and keeps one of exactly that length', () => {
+  expect(cleanRel('a'.repeat(MAX_PATH))).toEqual({rel: 'a'.repeat(MAX_PATH)});
+  expect(cleanRel('a'.repeat(MAX_PATH + 1))).toBeNull();
+});
+
+// the records of a list that was folded are not read again: the state is kept with the list, as fsChanges keeps the list
+const counting = (list) => {
+  const reads = {n: 0};
+  const proxy = new Proxy(list, {get(t, k, r) { if (typeof k === 'string' && /^\d+$/.test(k)) reads.n++; return Reflect.get(t, k, r); }});
+  return {proxy, reads};
+};
+const answerOf = (dir, seeded, changes, extra = {}) => writtenOf({runDir: dir, roots: [path.join(dir, 'work')], seeded, changes, finished: finishedSteps(dir), ...extra});
+const listOf = (dir) => fs.readFileSync(path.join(dir, 'fs', 'changes.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+test('a second answer for a list that did not change reads no record; a list that grew reads the new records only', () => {
+  const N = 2000;
+  const many = Array.from({length: N}, (_, i) => change(0, `bulk/f${i}.txt`, {text: `${i}\n`, step: 3 + i}));
+  const dir = fresh({written: [], extra: many});
+  fs.mkdirSync(path.join(dir, 'work/bulk'), {recursive: true});
+  for (let i = N - 20; i < N; i++) fs.writeFileSync(path.join(dir, `work/bulk/f${i}.txt`), `${i}\n`);
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  const {proxy, reads} = counting(list);
+  const first = answerOf(dir, seeded, proxy);
+  expect(reads.n).toBe(list.length);
+  expect(first.total).toBe(N);
+  reads.n = 0;
+  const second = answerOf(dir, seeded, proxy);
+  expect(reads.n).toBe(0);
+  expect(second.files).toEqual(first.files);
+  list.push(change(0, 'bulk/late.txt', {text: 'late\n', step: 9999}));
+  fs.writeFileSync(path.join(dir, 'work/bulk/late.txt'), 'late\n');
+  const third = answerOf(dir, seeded, proxy);
+  expect(reads.n).toBe(1);
+  expect(third.files[0].path).toBe('work/bulk/late.txt');
+  expect(third.total).toBe(N + 1);
+});
+
+test('a list whose revision moved is folded again: a late attribution of a record that was read changes its step', () => {
+  const dir = fresh({written: [], extra: [change(0, 'late.txt', {text: 'x\n', step: 2, action: 'a.one'})]});
+  fs.writeFileSync(path.join(dir, 'work/late.txt'), 'x\n');
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  expect(answerOf(dir, seeded, list, {rev: 0}).groups.map((g) => [g.step, g.actions])).toEqual([[2, ['a.one']]]);
+  list.at(-1).attribution = {...list.at(-1).attribution, step: 3, action: 'a.two'};
+  expect(answerOf(dir, seeded, list, {rev: 0}).groups.map((g) => g.step)).toEqual([2]);
+  expect(answerOf(dir, seeded, list, {rev: 1}).groups.map((g) => [g.step, g.actions])).toEqual([[3, ['a.two']]]);
+});
+
+test('a file that is gone or became a link out of the run after the state was kept is described again, not answered from the state', () => {
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2}), change(0, 'b.txt', {text: 'b\n', step: 2})]});
+  for (const f of ['a.txt', 'b.txt']) fs.writeFileSync(path.join(dir, 'work', f), `${f[0]}\n`);
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  expect(paths(answerOf(dir, seeded, list))).toEqual(['work/a.txt', 'work/b.txt']);
+  fs.rmSync(path.join(dir, 'work/a.txt'));
+  fs.rmSync(path.join(dir, 'work/b.txt'));
+  fs.symlinkSync(root, path.join(dir, 'work/b.txt'));
+  const w = answerOf(dir, seeded, list);
+  expect([paths(w), w.gone, w.leftOut]).toEqual([[], 1, 1]);
+});
+
+test('an action name over MAX_ACTION is cut and counted once per record, one of exactly that length is kept', () => {
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2, action: 'x'.repeat(MAX_ACTION)}), change(0, 'b.txt', {text: 'b\n', step: 3, action: 'y'.repeat(MAX_ACTION + 1)})]});
+  for (const f of ['a.txt', 'b.txt']) fs.writeFileSync(path.join(dir, 'work', f), `${f[0]}\n`);
+  const w = answerOf(dir, readSeeded(dir), listOf(dir));
+  expect(w.cutStrings).toBe(1);
+  expect(w.groups.map((g) => g.actions.map((a) => a.length))).toEqual([[MAX_ACTION], [MAX_ACTION]]);
 });
