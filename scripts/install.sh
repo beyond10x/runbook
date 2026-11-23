@@ -52,15 +52,20 @@ cargo configuration file) the script stops and says so, and installs no cross bu
   --help                  print this text
 
 What is copied below share/runbook/: when the checkout has a .git, the files git tracks in those directories (the
-bytes of the work tree: VERSION ends in " dirty" when a tracked file there differs from HEAD, and names HEAD,
-the commit the binary was built from); when git cannot be asked about a checkout that has a .git, the script
-stops and copies nothing. Without a .git (a source archive): the regular files that are not dot-files. A link is
-copied only when its target stays inside the checkout and is copied too. Modes are 755 for a file that is
-executable in the checkout (git mode 100755; without git: the owner's execute bit) and 644 for the others; the
-directories below libexec/runbook and share/runbook are 755, without a set-id bit.
-share/runbook/INSTALLING is there from before the first change until after VERSION and MANIFEST are written:
-a prefix that has it is half installed (runbook doctor says so, and a runbook started from <dir>/bin runs
-nothing), and an install over it finishes the job.
+bytes of the work tree: VERSION names HEAD, the commit the binary was built from, and VERSION ends in " dirty"
+when any tracked file of the checkout differs from HEAD (index or work tree), not only a copied one); when git
+cannot be asked about a checkout that has a .git, the script stops and copies nothing, and a sparse checkout, which
+leaves tracked files out of the work tree, is refused with the name of the first file that is missing. Without a
+.git (a source archive): the regular files that are not dot-files. A link is copied only when its target stays
+inside the checkout and is copied too; no part of the path of a copied file is a link. HEAD is read once, before
+the list of files is taken, and again after the build: when it moved, the script stops and writes nothing. Modes
+are 755 for a file that is executable in the checkout (git mode 100755; without git: the owner's execute bit) and
+644 for the others, as the list took them; the directories below libexec/runbook and share/runbook are 755,
+without a set-id bit.
+share/runbook/INSTALLING is the marker of a half install: share and share/runbook are made first, then the marker,
+then every other change, and the marker is removed after VERSION and MANIFEST are written. A prefix that has it
+is half installed (runbook doctor says so, and a runbook started from <dir>/bin runs nothing), and an install over
+it finishes the job.
 
 A second run over the same prefix replaces the files of the first and removes the files the old
 share/runbook/MANIFEST lists that the new one does not. It removes nothing else.
@@ -74,6 +79,13 @@ Limits:
     repository's commit, and the script then stops at the commit check (an archive has no HEAD): unpack it
     outside any repository. A .git that is a file names the repository it points to; that repository's HEAD is
     the commit taken.
+  - An install from an archive copies no link and no dot file and skips runs/, target/ and node_modules/, so it
+    lacks files a git checkout has (the links, and dot files such as .review-reject).
+  - After a branch was moved from another work tree a release install is refused until an input of the build
+    changes (touch runbook/build.rs, then run it again): no file the build watches changed, so cargo compiles
+    nothing and the binary keeps the commit it was built from.
+  - A reftable checkout cannot be installed: the binary cannot name its commit there, and the script stops at the
+    commit check.
   - bin, libexec and share keep the mode they have (mkdir's, under a set-id prefix the set-id bit is
     inherited): they are shared with other packages. Everything below libexec/runbook and share/runbook is set.
 
@@ -250,6 +262,14 @@ if [ -e "$root/.git" ] || [ -L "$root/.git" ]; then
     in_git=1
 fi
 
+# The commit this install is of: HEAD, read once, before the list of files is taken. The build is compared with it,
+# and so is HEAD after the build, so that the files, their modes, VERSION and the binary are of one commit.
+head_commit=unknown
+if [ -n "$in_git" ]; then
+    head_commit=$(git -C "$root" rev-parse HEAD 2>/dev/null | cut -c1-12 || true)
+    [ -n "$head_commit" ] || head_commit=unknown
+fi
+
 built_path() {
     case $1 in
     runbook) echo "runbook/target/$2/runbook" ;;
@@ -274,8 +294,11 @@ tab=$(printf '\t')
 collect() {
     if [ -n "$in_git" ]; then
         # shellcheck disable=SC2046
-        git -C "$root" ls-files -s -z -- $(list "$ASSET_DIRS") ui | tr '\0' '\n' | awk '
+        # A newline in a name would split it into two lines: it is turned into a byte (SOH) that a name does not
+        # hold in practice, and the name that has it is refused as `newline`.
+        git -C "$root" ls-files -s -z -- $(list "$ASSET_DIRS") ui | tr '\n\0' '\001\n' | awk '
             { t = index($0, "\t"); path = substr($0, t + 1); split(substr($0, 1, t - 1), m, " ")
+              if (index(path, "\001") > 0) { print "newline\t" path; next }
               mode = (m[1] == "100755") ? "0755" : (m[1] == "100644") ? "0644" : (m[1] == "120000") ? "link" : ""
               if (mode == "") { print "skip\t" path; next }
               if (path == "scripts/install.sh") next
@@ -302,42 +325,43 @@ collect() {
     fi
 }
 
-entries=$(collect) || exit 1
-checked=
-e_links=
-while IFS="$tab" read -r e_mode e_path; do
-    [ -n "$e_path" ] || continue
-    case $e_path in
-    *"$tab"*) die "$e_path has a tab in its name: the list of files cannot hold it" ;;
-    esac
-    case $e_mode in
-    skip)
-        echo "install.sh: not copying $e_path: it is not a file or a link (a submodule?)" >&2
-        continue
-        ;;
-    link)
-        [ -L "$root/$e_path" ] || die "$e_path is tracked as a link and is not one in the work tree"
-        e_target=$(readlink "$root/$e_path")
-        case $e_target in
-        *"$tab"* | *"$nl"*) die "$e_path is a link whose target has a tab or a newline in it: it cannot be copied" ;;
-        esac
-        e_links="$e_links$e_path$tab$e_target$nl"
-        ;;
-    *)
-        [ -f "$root/$e_path" ] && [ ! -L "$root/$e_path" ] || die "$e_path is tracked and is not in the work tree as a file"
-        ;;
-    esac
-    checked="$checked$e_mode$tab$e_path$nl"
-done <<EOF
-$entries
-EOF
-entries=$checked
+# `link_above <path relative to the checkout>`: sets `link_part` to the first directory above the path that is a link in
+# the work tree, and to nothing when none is. The answer of the last directory is kept (`link_dir`) unless the caller
+# empties `link_dir`: the list is in the order of the paths, so the directories repeat.
+link_dir=
+link_part=
+link_above() {
+    la_dir=${1%/*}
+    [ "$la_dir" != "$1" ] || {
+        link_part=
+        return 0
+    }
+    [ "$la_dir" != "$link_dir" ] || return 0
+    link_dir=$la_dir
+    link_part=
+    la_walked=
+    la_old_ifs=$IFS
+    IFS=/
+    # Split at `/` only: the names are no patterns (set -f).
+    # shellcheck disable=SC2086
+    set -- $la_dir
+    IFS=$la_old_ifs
+    for la_part in "$@"; do
+        la_walked=${la_walked:+$la_walked/}$la_part
+        if [ -L "$root/$la_walked" ]; then
+            link_part=$la_walked
+            return 0
+        fi
+    done
+}
 
 # A link is installed as it is, so its target must stay inside the checkout, name a file or directory that is copied
 # too, and mean the same below the prefix: `..` only at the start of the target, and no `.` or empty part. Nothing
-# is written before every link passed.
-while IFS="$tab" read -r l_path l_target; do
-    [ -n "$l_path" ] || continue
+# is written before every link passed (and each is checked again right before it is written).
+# `check_link <link path> <target>`
+check_link() {
+    l_path=$1
+    l_target=$2
     case $l_target in
     '') die "$l_path is a link with an empty target" ;;
     /*) die "$l_path is a link to the absolute path $l_target: it cannot be copied" ;;
@@ -362,6 +386,60 @@ while IFS="$tab" read -r l_path l_target; do
     *"$tab$l_rel$nl"* | *"$tab$l_rel/"*) ;;
     *) die "$l_path is a link to $l_target ($l_rel), which is not among the files that are copied" ;;
     esac
+}
+
+# Why a tracked file is not in the work tree as a file: a sparse checkout leaves tracked files out of it.
+not_a_file() {
+    if [ -n "$in_git" ] && [ "$(git -C "$root" config --get core.sparseCheckout 2>/dev/null || true)" = true ]; then
+        die "$1 is tracked and is not in the work tree as a file: this is a sparse checkout, which leaves tracked files out of the work tree; check them all out first (git sparse-checkout disable)"
+    fi
+    die "$1 is tracked and is not in the work tree as a file"
+}
+
+entries=$(collect) || exit 1
+checked=
+e_links=
+while IFS="$tab" read -r e_mode e_path; do
+    [ -n "$e_path" ] || continue
+    case $e_mode in
+    newline)
+        e_shown=$(printf '%s' "$e_path" | sed "s/$(printf '\001')/\\\\n/g")
+        die "$e_shown has a newline in its name: the list of files cannot hold it"
+        ;;
+    esac
+    case $e_path in
+    *"$tab"*) die "$e_path has a tab in its name: the list of files cannot hold it" ;;
+    esac
+    case $e_mode in
+    skip)
+        echo "install.sh: not copying $e_path: it is not a file or a link (a submodule?)" >&2
+        continue
+        ;;
+    esac
+    link_above "$e_path"
+    [ -z "$link_part" ] || die "$e_path is tracked below $link_part, which is a link in the work tree: nothing is copied through a link"
+    case $e_mode in
+    link)
+        [ -L "$root/$e_path" ] || die "$e_path is tracked as a link and is not one in the work tree"
+        e_target=$(readlink "$root/$e_path")
+        case $e_target in
+        *"$tab"* | *"$nl"*) die "$e_path is a link whose target has a tab or a newline in it: it cannot be copied" ;;
+        esac
+        e_links="$e_links$e_path$tab$e_target$nl"
+        ;;
+    *)
+        { [ -f "$root/$e_path" ] && [ ! -L "$root/$e_path" ]; } || not_a_file "$e_path"
+        ;;
+    esac
+    checked="$checked$e_mode$tab$e_path$nl"
+done <<EOF
+$entries
+EOF
+entries=$checked
+
+while IFS="$tab" read -r l_name l_to; do
+    [ -n "$l_name" ] || continue
+    check_link "$l_name" "$l_to"
 done <<EOF
 $e_links
 EOF
@@ -425,19 +503,20 @@ fi
 # taken as it is, its commit is HEAD of the checkout, or the script stops.
 built_said=$("$root/$(built_path runbook "$profile")" --version 2>/dev/null) || die "$(built_path runbook "$profile") does not print its version"
 built_commit=$(printf '%s\n' "$built_said" | sed -n 's/^.*(\([^()]*\))[[:space:]]*$/\1/p')
-head_commit=unknown
+# HEAD again: a commit or a checkout while the build ran gives files and modes of one commit and a binary of another.
 if [ -n "$in_git" ]; then
-    head_commit=$(git -C "$root" rev-parse HEAD 2>/dev/null | cut -c1-12 || true)
-    [ -n "$head_commit" ] || head_commit=unknown
+    head_now=$(git -C "$root" rev-parse HEAD 2>/dev/null | cut -c1-12 || true)
+    [ -n "$head_now" ] || head_now=unknown
+    [ "$head_now" = "$head_commit" ] || die "HEAD of $root was $head_commit when the list of files was taken and is $head_now now: the checkout changed while the script ran, nothing was written; run it again"
 fi
-[ "$built_commit" = "$head_commit" ] || die "$(built_path runbook "$profile") says commit ${built_commit:-none} ($built_said) and HEAD of $root is $head_commit: build it again"
+[ "$built_commit" = "$head_commit" ] || die "$(built_path runbook "$profile") says commit ${built_commit:-none} ($built_said) and HEAD of $root is $head_commit: build it again (when the branch was moved from another work tree cargo compiles nothing: touch runbook/build.rs first)"
 
-# VERSION is what the binary prints, and ` dirty` after it when a tracked file of the copied directories differs
-# from HEAD: the bytes installed are those of the work tree.
+# VERSION is what the binary prints, and ` dirty` after it when any tracked file of the checkout differs from HEAD
+# (index or work tree), not only a file of a copied directory: the binary is built from the whole checkout, and the
+# bytes installed are those of the work tree.
 version_mark=
 if [ -n "$in_git" ]; then
-    # shellcheck disable=SC2046
-    changed=$(GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain --untracked-files=no -- $(list "$ASSET_DIRS") ui) || die "git status of $root failed"
+    changed=$(GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain --untracked-files=no) || die "git status of $root failed"
     [ -z "$changed" ] || version_mark=' dirty'
 fi
 
@@ -512,6 +591,14 @@ $new_manifest
 $rel
 "*) continue ;;
         esac
+        # The script writes `<part>/<part>...` with no empty part, no `.` or `..` part and no leading `/`; any other
+        # spelling of a name is never compared as text with the names kept for the install, so it removes nothing.
+        case $rel in
+        /* | *//* | */ | . | ./* | */. | */./* | .. | ../* | */.. | */../*)
+            echo "install.sh: not removing $rel: it is not in the form this script writes (no leading /, no empty part, no . or .. part)" >&2
+            continue
+            ;;
+        esac
         case $rel in
         share/runbook/INSTALLING | share/runbook/VERSION | share/runbook/MANIFEST | share/runbook/VERSION.new | share/runbook/MANIFEST.new)
             echo "install.sh: not removing $rel: the install keeps that file for itself" >&2
@@ -581,10 +668,10 @@ put_dir() {
     chmod "$pd_mode" "$@"
 }
 
-# `put_link <link of the repository> <directory> <name>`: all of them are relative and stay inside the copied
-# directories (checked before the first write).
+# `put_link <target of the link of the repository> <directory> <name>`: the target is relative and stays inside the
+# copied directories (checked before the first write, and again right before this one).
 put_link() {
-    pl_target=$(readlink "$1")
+    pl_target=$1
     make_dir "$2"
     clear_name "$2" "$3"
     rm -f "$prefix/$2/$3"
@@ -605,9 +692,24 @@ copy_group() {
     cg_dir=$1
     cg_mode=$2
     shift 2
+    # The list was taken before the build, and the build takes minutes: what was a file is looked at again right
+    # before it is copied. A file that is a link now, or below a directory that is one, stops the install by name.
+    link_dir=
+    for cg_name in "$@"; do
+        cg_rel=$cg_dir/$cg_name
+        link_above "$cg_rel"
+        [ -z "$link_part" ] || die "$cg_rel is below $link_part, which is a link in the work tree now and was not when the list of files was taken: the checkout changed while the script ran"
+        if [ "$cg_mode" = link ]; then
+            [ -L "$root/$cg_rel" ] || die "$cg_rel was a link when the list of files was taken and is not one now: the checkout changed while the script ran"
+        else
+            { [ -f "$root/$cg_rel" ] && [ ! -L "$root/$cg_rel" ]; } || die "$cg_rel was a file when the list of files was taken and is not one now (a link, or gone): the checkout changed while the script ran"
+        fi
+    done
     if [ "$cg_mode" = link ]; then
         for cg_name in "$@"; do
-            put_link "$root/$cg_dir/$cg_name" "share/runbook/$cg_dir" "$cg_name"
+            cg_target=$(readlink "$root/$cg_dir/$cg_name") || die "$cg_dir/$cg_name cannot be read as a link: the checkout changed while the script ran"
+            check_link "$cg_dir/$cg_name" "$cg_target"
+            put_link "$cg_target" "share/runbook/$cg_dir" "$cg_name"
         done
         return
     fi
