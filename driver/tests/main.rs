@@ -24,4 +24,5 @@ mod run_timeline;
 mod runtime_block;
 mod sdc_node;
 mod unreferenced;
+mod workspace_empty_loom_case;
 mod workspace_layout;

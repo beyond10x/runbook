@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+mod notcalled_neighbours;
 mod amend;
 mod notcalled;
 mod options;

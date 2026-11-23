@@ -1,0 +1,12 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-notcalled@1
+  bindings: bindings/notcalled-neighbour.yaml
+cycles:
+  - name: writes79
+    seed:
+      - {from: seeds/spec-v1.txt, to: spec.txt}
+      - {from: seeds/finding-waits.txt, to: findings.txt}
+      - {from: seeds/mode-writes79.txt, to: mode.txt}
+    expect:
+      exit: 4
