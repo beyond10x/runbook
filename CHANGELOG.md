@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- The test step of `driver/` pays each expensive step once: the `decision_request` shape tests read the committed `ess/generated/schema` instead of running `ess generate`, the conformance tests resolve the pinned `ess` once per test and compile a fixture once per directory; `sdc-conform` and `sdc-conform-adapter` poll a child within at most 5 ms (the bounded commands) and 50 ms (the capture and the readiness request) in place of 100 ms, and `sdc-conform-adapter` decides a capture whose stream ended without the value by what the product does within the capture's `timeout_s`: it exits (`product_not_started`), it answers `start.ready` (`capture_missing`), neither (the capture did not appear within `timeout_s`). The adapter reads a product's output lines as bytes, so a line that is not UTF-8 no longer ends the reading. The pin of the `ess` binary is unchanged: one digest over every byte of the binary, streamed in chunks, at each start of `sdc-conform` that observes (`observe`, `recompute`, `ess-path`; `check-table` takes none), and no cache, file or variable stands in for that digest.
+
 ## [0.8.0] - 2026-11-23
 
 The inspector has a Products tab, Loom `c9b4c177` is linked and the bindings state their exits. The tab lists
