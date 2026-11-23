@@ -208,6 +208,44 @@ function fileDetail(path, files, src) {
   return d;
 }
 
+// ---- the products of a run: the files its records name as written by an action (story products-are-what-the-run-wrote) ----
+// Groups by step, newest first, then one closed "Inputs" line for what the run was seeded with. Every name, step, action and
+// count below is a run's own text: set with createElement and text nodes, never as markup.
+const MARKS = {changed: 'changed', added: 'added', removed: 'removed'};
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function recordLists(products) {
+  const out = [];
+  out.push(h('h4', '', `Products (${products.total})`));
+  const body = h('div', 'prod-files prod-groups');
+  for (const g of products.groups || []) {
+    const sec = attr(h('section', 'prod-group'), {'data-step': g.step == null ? 'unknown' : g.step});
+    const names = (g.actions || []).join(', ');
+    sec.append(h('h5', 'prod-gh', g.step == null ? 'A step the record does not name' : `Step ${g.step}`, names ? h('span', 'prod-sub', names) : null));
+    for (const f of g.files) {
+      const mark = MARKS[f.mark] ? attr(h('span', `prod-mark prod-mark-${f.mark}`, MARKS[f.mark]), {'data-mark': f.mark}) : null;
+      const sub = f.size == null ? 'no longer in the run' : f.artifact ? `${fmtBytes(f.size)} · artifact ${f.artifact}` : fmtBytes(f.size);
+      const b = btn('prod-file', {'data-path': f.path, ...(f.mark ? {'data-mark': f.mark} : {})}, () => { P.view = {kind: 'file', path: f.path}; hooks.refresh(); },
+        h('span', 'prod-fp', f.path), mark, h('span', 'prod-sub', sub), f.result ? h('span', 'prod-result', f.result) : null);
+      if (f.mark === 'removed') b.disabled = true;
+      sec.append(b);
+    }
+    body.append(sec);
+  }
+  if (!(products.groups || []).length) body.append(h('p', 'prod-note', 'no action has written a file yet'));
+  if (products.notShown) body.append(h('p', 'prod-note prod-cut', `${plural(products.notShown, 'product is', 'products are')} not shown: the page lists at most ${products.shown} of ${products.total} (the oldest steps come last)`));
+  if (products.leftOut) body.append(h('p', 'prod-note', `${plural(products.leftOut, 'file is', 'files are')} not listed: a file with more than one link, or a link the inspector does not follow, is neither listed nor served`));
+  if (products.gone) body.append(h('p', 'prod-note', `${plural(products.gone, 'file', 'files')} a record names ${products.gone === 1 ? 'is' : 'are'} no longer in the run`));
+  if (products.refusedRecords) body.append(h('p', 'prod-note', `${plural(products.refusedRecords, 'change record names', 'change records name')} a path outside the run's work/ directory: not listed, not opened`));
+  out.push(body);
+  const inputs = products.inputs || {trees: [], files: 0};
+  const det = attr(h('details', 'prod-inputs'), {'data-files': inputs.files});
+  det.append(h('summary', 'prod-inputs-s', `Inputs · ${plural(inputs.trees.length, 'entry', 'entries')} · ${plural(inputs.files, 'file', 'files')}`));
+  det.append(h('p', 'prod-note', 'what the run was seeded with: not products, not listed file by file; a file here that an action changed or added is listed above'));
+  for (const t of inputs.trees) det.append(attr(h('div', 'prod-input', h('span', 'prod-fp', t.path), h('span', 'prod-sub', `${t.kind === 'dir' ? 'tree' : t.kind} · ${plural(t.files, 'file', 'files')}`)), {'data-path': t.path}));
+  out.push(det);
+  return out;
+}
+
 // ---- the panel -------------------------------------------------------------------------------------------------
 function lists(c, products, src) {
   const root = h('div', 'prod-lists');
@@ -229,9 +267,11 @@ function lists(c, products, src) {
   }
   if (!acts.length) al.append(h('p', 'prod-note', 'no action has finished yet'));
   root.append(al);
+  if (products?.basis === 'records') { root.append(...recordLists(products)); return root; }
   const files = products?.files || [];
   root.append(h('h4', '', `Files (${files.length})`));
   const fl = h('div', 'prod-files');
+  if (products?.basisNote) fl.append(h('p', 'prod-note prod-basis', products.basisNote));
   for (const f of files) {
     fl.append(btn('prod-file', {'data-path': f.path}, () => { P.view = {kind: 'file', path: f.path}; hooks.refresh(); },
       h('span', 'prod-fp', f.path), h('span', 'prod-sub', f.artifact ? `${fmtBytes(f.size)} · artifact ${f.artifact}` : fmtBytes(f.size)), f.result ? h('span', 'prod-result', f.result) : null));
@@ -246,7 +286,7 @@ function lists(c, products, src) {
 }
 
 export function renderProducts(host, {c, products, src, daemon}) {
-  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}`), products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
+  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}:${f.mark}:${f.step}`), products?.basis, products?.basisNote, products?.notShown, products?.gone, products?.refusedRecords, products?.inputs, products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
   if (host.firstChild?.__sig === sig) return;
   const root = h('div', 'prod');
   root.__sig = sig;

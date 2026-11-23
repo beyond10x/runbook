@@ -22,6 +22,7 @@ import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web
 import {installClock, readGate} from './vclock.mjs';
 import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
 import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
+import {readSeeded, writtenOf, finishedSteps} from './written.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -652,10 +653,18 @@ function productsOf(src) {
       if (typeof f === 'string') for (const base of [path.join(runDir, 'work'), path.join(e.dir, 'work')]) artifacts.set(posix(path.relative(runDir, path.join(base, f))), name);
     }
   }
-  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
   const {view, runbook, protocols} = viewOf(src);
   const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
-  return {served: true, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
+  // the files the run's records name as written by an action (written.mjs), when the run has both records; else today's listing
+  const seeded = readSeeded(runDir), changes = fsChanges(runDir);
+  if (seeded.state === 'ok' && changes.present) {
+    const {isInput, last, ...answer} = writtenOf({runDir, roots: [...new Set(roots)], seeded, changes: changes.list, finished: finishedSteps(runDir), artifacts});
+    const written = {...answer, last, isInput};
+    return {served: true, basis: 'records', product: productOf({runDir, roots, files: answer.files, view, ids, written}), ...answer, truncated: answer.notShown > 0, cut: answer.notShown > 0 ? 'lines' : null};
+  }
+  const why = seeded.state !== 'ok' ? seeded.why : 'this run has no record of its file changes (fs/changes.jsonl): it was not started with --watch';
+  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
+  return {served: true, basis: 'listing', basisNote: `${why}: every file under work/ is listed`, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
 }
 
 function liveInfo(src) {

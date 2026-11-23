@@ -278,6 +278,32 @@ The Products tab of the panel (and the product line under the header) shows what
 produced: the evidence records of the case with every field and nested value, the actions with their exit
 code, and the files of the run with their content. It reads and acts on nothing.
 
+**A product is a file an action of the run wrote or changed.** A file the run was seeded with (the copy
+of a repository, the intake, a goals file) is an input, not a product. The tab lists the products grouped
+by the step that wrote them, newest step first, and shows the inputs as one closed line, "Inputs", with
+the seeded trees and their file counts. Two records of the run directory say which is which, and neither
+is compared by time:
+
+- `fs/changes.jsonl` (`docs/fs-changes.md`): every file the watcher saw change under `work/`, with the
+  step that was in flight. It needs a run started with `--watch`.
+- `seeded.json` and `seeded-files.jsonl` (`docs/loom-run-directory.md`): what the runner listed in `work/`
+  when the seed ended, each file with the SHA-256 of its content. A seeded file is a `create` of step 1 in
+  the first record, the same as a file the first step writes, so the hash tells them apart: a path that is
+  listed and whose last change ends at the listed hash is an input and is not listed; listed and ending
+  at another hash it is a product marked `changed`; not listed it is a product (marked `added` when it lies
+  in a seeded tree); listed and deleted by an action it is marked `removed`. A path in either record goes
+  through the run-path check like every other path: one that leaves `work/` or the run is not listed and not
+  opened, and is only counted.
+- The answer of `/api/products` has `basis`: `records` (as above: `groups` by step, each with its `actions`
+  and `files`; `files` flat in the same order; `inputs` `{trees, files}`; `total`, `shown`, `notShown`,
+  `truncated`, `cut: "lines"`, `leftOut`, `gone`, `refusedRecords`) or `listing` (an older run, one without
+  `--watch`, or a seed record that is incomplete: every file under `work/` as before, and `basisNote` says
+  why). The products are not cut by depth; the page lists at most 500 and says how many are not shown.
+- The file the product line names is the last file the last finished step wrote (`via: last-written`),
+  never a file of an input tree; a view's `product` or the runbook's own file is refused when it is an
+  unchanged seeded file. For an older run the newest Markdown file is taken, but not one inside a tree with
+  a build manifest at its top.
+
 - Routes, all GET and behind the guard of every route (a Host that is not this server's is 421):
   `/api/products?source=N` (the files under the run's `work/` and the `work/` of each case, with size,
   format and, for a `.txt` step file, its `result:` line; the product and the rule that named it; how many
@@ -361,6 +387,7 @@ code, and the files of the run with their content. It reads and acts on nothing.
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
 `test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/written-model.spec.mjs`, `test/written-api.spec.mjs`, `test/written-page.spec.mjs`,
 `test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
 ## Where "now" comes from
