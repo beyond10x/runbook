@@ -26,7 +26,7 @@ scope:
   path: runbook/src/loom_run/run_loop.rs
 - confidence: cited
   path: runbook/src/main.rs
-revision: 12
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T10:20:07Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
 - {from: "proposed", to: "active", at: "2026-11-23T10:20:07Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
@@ -60,6 +60,16 @@ money cap:
    stops as before.
 6. `story:runbook-toml-carries-defaults` said the caps have no built-in default and fail closed. Now: no cap
    named, in an option or in the file, means no limit.
+7. No built-in budget per model call: the 1 USD of a `sdc-node` call, the 0.25 USD of the decider and the
+   2 USD of the observation step are gone; a call has a budget only when a binding, an option or, for the
+   observation step, the environment variable that already names one, names it.
+8. The decider's built-in cap of 20 calls is gone; a named `decider.max_calls` or `decider.max_decider_calls`
+   holds as before.
+9. `--live-cap` of the replay has no default (it was 5); none named means no limit.
+10. In an experiment record `loom.max_llm_calls`, the launch member `max_llm_calls` and `free.max_usd` are
+    optional and 0 is allowed; so is `--max-usd` of `sdc-free-agent`.
+
+`--max-wall-seconds` stays required, and `--max-budget-usd` in a committed binding stays: it is a cap a runbook names.
 
 ## Scope
 

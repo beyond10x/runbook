@@ -57,7 +57,7 @@ Every command but the in-process `run` takes `--json`, `--daemon` and `--token-f
   second row are not built yet. `--detach` without a daemon exits 64 and says a daemon is needed. `--json` prints the
   body of the submit's answer.
 - `run --watch` (in process only). The run starts the helper `sdc-watch run <run directory>` as its child once the
-  run directory exists, found as the other helpers are (`runbook doctor`: `libexec`, beside the executable, the
+  run directory exists, found as the other helpers are (`runbook doctor`: `libexec/runbook`, beside the executable, the
   checkout's `watch/target`, `PATH`), and ends it by its process id when the run ends, whatever the end (closed,
   stopped, cancelled, a signal, an error). The id is in `<run>/fs/watcher.json` (`runbook.watcher/1`), the
   watcher's own output is `fs/watch.log`. The watcher ends itself when the runner is killed (`sdc-watch run

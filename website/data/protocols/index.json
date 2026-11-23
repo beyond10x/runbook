@@ -673,11 +673,54 @@
   ],
   "release": {
     "date": "2026-11-23",
-    "notes": "docs/releases/0.8.0.md",
-    "tag": "0.8.0",
-    "version": "0.8.0"
+    "notes": "docs/releases/0.9.1.md",
+    "tag": "0.9.1",
+    "version": "0.9.1"
   },
   "releases": [
+    {
+      "date": "2026-11-23",
+      "limits": [
+        "**No binary asset.** A user builds from a checkout, now with the install script; the script is the source of an asset that does not exist yet (`docs/releasing.md`, \"The binary\").",
+        "**The script builds on the machine it runs on and installs from the checkout it lies in.** It copies only files git tracks (a file that is not tracked is not installed) and refuses a checkout whose git cannot be asked. Two installs at once into one prefix are not held apart; an install from an archive lacks the links and dot files of a git checkout; a release install after a branch was moved from another work tree is refused until an input of the build changes; a checkout with the reftable format cannot be installed (its commit is unknown); the modes of `bin`, `libexec` and `share` are the ones they have. `scripts/install.sh --help` has each.",
+        "**No evaluation run was made on this code.** The records of `experiments/` ran on earlier code; this release claims no measured change over 0.9.0.",
+        "**The Loom pin is unchanged since 0.8.0** (`c9b4c177`, `runbook/Cargo.toml`). A rejection still gives the writer no new allowance of runs: `decider-rework-spent` and `rework-fresh-allowance` stay `pending` and `budget.max_runs` counts every run of an action in a case (`docs/cycles-suite.md`).",
+        "**Money caps are as in 0.8.0.** `runbook run` takes `--cap-micro-usd`, `--max-llm-calls` and `--max-wall-seconds` as required options (`docs/loom-run.md`); a file never sets or lowers the confinement level, and a cap in the settings file must equal the option.",
+        "**A run started from the daemon's page or over MCP has no wall-time bound of its own.** The engine starts a run with no `max_wall_seconds` (`runbook/src/engine/calls.rs`, `run_settings`); a run ends by its outcome or by `cancel-run`. Its products are read on disk under the daemon's state directory (`runs/<run_id>/` and `workspaces/<run_id>/`, `docs/daemon-api.md`): no tool or route serves them yet.",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime, in which nothing is executed, unless `--runtime loom` is given (`docs/engine.md`).",
+        "**The cycles that run `change.review` and the request entries are not observed as `expected` here.** `docs/cycles-suite.md` says that no entry changed from expected to another state is not observed on the host where they were run; it needs one run of the suite at a load where a cycle ends inside Loom's 60 s bound, and that run has not been made.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** A figure in these notes is a count read from the tree or from a command named above.",
+        "**The inspector is read-only and has no route to the daemon** (`ui/README.md`).",
+        "**`--confinement local` is unconfined** (`docs/loom-run.md`): a bound program can write the whole run directory.",
+        "`task check:ess-suite:slow`, the slow lane `task test:cycles-loom`, `task test:install` and `task docs:test` were not run for this release."
+      ],
+      "notes": "docs/releases/0.9.1.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.9.1/docs/releases/0.9.1.md",
+      "summary": "A patch release of 0.9.0, the same day. `scripts/install.sh --prefix <dir>` lays out an installed runbook: the `runbook` command, the helper programs a run starts and the files it reads, under one directory you name. `runbook --version` prints the version and the commit of the build. A `runbook` started from an installed prefix puts `<prefix>/libexec/runbook` in front of the `PATH` of the programs it starts. Nothing is marked breaking. A source release at tag `0.9.1`; nothing is published to crates.io, there is no binary asset and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.9.0.md` for the release this one follows.",
+      "version": "0.9.1"
+    },
+    {
+      "date": "2026-11-23",
+      "limits": [
+        "**No evaluation run was made on this code.** The records of `experiments/` ran on earlier code; this release claims no measured change over 0.8.0.",
+        "**The Loom pin is unchanged since 0.8.0** (`c9b4c177`, `runbook/Cargo.toml`). A rejection still gives the writer no new allowance of runs: `decider-rework-spent` and `rework-fresh-allowance` stay `pending` and `budget.max_runs` counts every run of an action in a case (`docs/cycles-suite.md`).",
+        "**Money caps are as in 0.8.0.** `runbook run` takes `--cap-micro-usd`, `--max-llm-calls` and `--max-wall-seconds` as required options (`docs/loom-run.md`); a file never sets or lowers the confinement level, and a cap in the settings file must equal the option.",
+        "**A run started from the daemon's page or over MCP has no wall-time bound of its own.** The engine starts a run with no `max_wall_seconds` (`runbook/src/engine/calls.rs`, `run_settings`), and neither the form nor `submit_run` takes a cap; a run ends by its outcome or by `cancel-run`. Its products are read on disk under the daemon's state directory (`runs/<run_id>/` and `workspaces/<run_id>/`, `docs/daemon-api.md`): no tool or route serves them yet, and served by the daemon the Products tab says \"the daemon serves no files of a run yet\".",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime, in which nothing is executed, unless `--runtime loom` is given (`--runbook-home` names the directory with `protocol/` and `bindings/`; `docs/engine.md`). A runbook the view lists under the stub runtime and that the stub has no script for is accepted and its run ends `FailedToStart`. The daemon's default confinement floor is `linux` and `local` must be asked for by name; a `submit-run` command without the member `confinement` runs at `linux` (the form always sends the person's pick).",
+        "**The cycles that run `change.review` and the request entries are not observed as `expected` here.** `docs/cycles-suite.md` says that no entry changed from expected to another state is not observed on the host where they were run (seven of eight ended on Loom's 60 s bound at a one-minute load of 94 to 156); it needs one run of the suite at a load where a cycle ends inside the bound, and that run has not been made.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** A figure in these notes is a count read from the tree or from a command named above.",
+        "**No binary asset.** A user builds from the checkout.",
+        "**The inspector is read-only and has no route to the daemon.** It starts no program, takes no decision and sends no command to the daemon (`ui/README.md`); the page that starts a run is the daemon's own.",
+        "**`sdc-experiment` does not carry an effort.** It refuses `efforts.*` in a `loom` variant; `sdc-node --effort` and the settings file of `runbook run` do carry one.",
+        "**`--confinement local` is unconfined** (`docs/loom-run.md`): a bound program can write the whole run directory.",
+        "**The rule approver, the rework cap of the old driver and the end by rule `withhold` are not in the runner** (`docs/loom-run-decisions.md`).",
+        "`task check:ess-suite:slow` (the byte comparison of a new synthesis with the committed suite), the slow lane `task test:cycles-loom` and `task docs:test` were not run for this release."
+      ],
+      "notes": "docs/releases/0.9.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.9.0/docs/releases/0.9.0.md",
+      "summary": "A minor release of 0.8.0, the same day. The settings file of a run is TOML (it was JSON). The daemon's page starts a run: the daemon lists the runbooks it can start, and its page opens a form (runbook, intake, a confinement level the person picks) that sends `submit-run`. `scripts/check-bindings.sh --exits <root>` checks the exits of a runbook in another repository. The ESS pin is 0.98.0. A source release at tag `0.9.0`; nothing is published to crates.io, there is no binary asset and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.8.0.md` for the release this one follows.",
+      "version": "0.9.0"
+    },
     {
       "date": "2026-11-23",
       "limits": [
@@ -933,7 +976,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "adaedf23246d6ba30ffb41da6768c98b1173a07067f2031fc37c4fb2b8e99093"
+      "sha256": "23fa45946602e5ec02bc03ddbb26e63b586a40b98c17fb32dae71e8c6dea4c7f"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -1002,6 +1045,14 @@
     {
       "path": "docs/releases/0.8.0.md",
       "sha256": "c55e461a5eb70efd0aa9366af778367ad63fa4c8ebc37ee1cc01c29503056639"
+    },
+    {
+      "path": "docs/releases/0.9.0.md",
+      "sha256": "e85b5338ceb498c7134023bba6963c041348b82af6d7eabf156ad71c4b76b5ba"
+    },
+    {
+      "path": "docs/releases/0.9.1.md",
+      "sha256": "5c0a3c67c73a5c8b34ee7dff3a233e48f1c8e92d1e4f33837a386216918c0905"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
