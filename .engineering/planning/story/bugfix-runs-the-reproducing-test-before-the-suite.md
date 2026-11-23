@@ -7,6 +7,7 @@ title: tests.run of the bug-fix runbook runs the reproducing test before the sui
 summary: The reproducing test alone runs first; a red one ends the step without the suite; the record names the deciding command and both times.
 relations:
 - decomposes: epic:ticket-to-merge-request-on-a-real-repository
+- depends_on: story:bugfix-checks-are-one-action-each
 scope:
 - confidence: cited
   path: driver/src/bin/sdc-bugfix.rs
