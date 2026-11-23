@@ -66,7 +66,10 @@ impl Ctx {
                 // the records about the subject's current revision, so one document never holds
                 // the earlier rejections: they are counted from the ledger of the evidence ids this
                 // workspace numbered before, with the ones this document holds.
-                seen = self.rejections_of(&approval)?;
+                seen = match self.rejections_of(&approval) {
+                    Err(_) if code != 0 => (Vec::new(), Vec::new()),
+                    counted => counted?,
+                };
                 let n = seen.0.iter().chain(seen.1.iter()).collect::<std::collections::BTreeSet<_>>().len();
                 let nth = if n > 1 { format!(" {n}") } else { String::new() };
                 let text = self.render("instructions/shared/rework.stub.person.md", &[("nth", &nth), ("action", &approval), ("reasons", &reasons)])?;
@@ -161,7 +164,8 @@ impl Ctx {
             return Ok(());
         }
         let Some(mut f) = self.ledger_open(true)? else { return Ok(()) };
-        f.write_all(new.as_bytes()).map_err(|e| ledger_error(&format!("cannot be written: {e}")))
+        let lead = if known.is_empty() || known.ends_with('\n') { "" } else { "\n" };
+        f.write_all(format!("{lead}{new}").as_bytes()).map_err(|e| ledger_error(&format!("cannot be written: {e}")))
     }
 
     /// The whole ledger; empty when there is none yet (the first rejection). Any other failure to
@@ -219,6 +223,21 @@ impl Ctx {
 
 /// The path of the ledger of the rejections numbered so far, relative to the work directory.
 const LEDGER: &str = ".sdc/rework-seen";
+
+/// Before the first write under `.sdc` (the copy of the retry feedback): `.sdc` and
+/// `.sdc/loom-feedback` are each missing or a directory of the work directory, never a link or
+/// another kind of file. Checked here, then opened by the writes; a swap in between is not covered.
+pub fn check_sdc_dirs(work: &std::path::Path) -> crate::util::R<()> {
+    for rel in [".sdc", ".sdc/loom-feedback"] {
+        match fs::symlink_metadata(work.join(rel)) {
+            Ok(m) if m.file_type().is_dir() => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => return Err(ledger_error(&format!("cannot be used: {rel} is not a directory of the work directory"))),
+            Err(e) => return Err(ledger_error(&format!("cannot be reached: {e}"))),
+        }
+    }
+    Ok(())
+}
 
 /// The error that ends the stub when the ledger cannot be used: one line, no note written.
 fn ledger_error(what: &str) -> crate::util::Exit {

@@ -285,6 +285,7 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
     let Some(parsed) = parsed.filter(|d| d.str_of("format") == Some("loom.retry-feedback/1")) else {
         return Err(die(format!("llm-node: {node} could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document"), 126));
     };
+    crate::rework::check_sdc_dirs(work)?;
     let dir = work.join(".sdc/loom-feedback").join(sha16(doc));
     // "Was there before" is asked of the path itself, not of what a link points at: a dangling link is there.
     let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| d.symlink_metadata().is_err()).cloned();

@@ -102,13 +102,22 @@ impl Case {
 
     /// One start of the stub with the feedback document `doc`: its whole output.
     fn run(&mut self, doc: &str) -> std::process::Output {
+        self.run_with(doc, None)
+    }
+
+    /// The same; `source` replaces the stub's source file.
+    fn run_with(&mut self, doc: &str, source: Option<&str>) -> std::process::Output {
         self.runs += 1;
         let work = self.root.join("work");
         let name = format!("feedback-doc-{}.json", self.runs);
         fs::write(self.root.join(&name), doc).unwrap();
         let bins = Path::new(env!("CARGO_BIN_EXE_sdc-findings")).parent().unwrap();
         let path = format!("{}:{}", bins.display(), std::env::var("PATH").unwrap_or_default());
-        let rest = binding("requirements.normalise");
+        let mut rest = binding("requirements.normalise");
+        if let Some(s) = source {
+            let n = rest.len();
+            rest[n - 2] = s.to_string();
+        }
         let mut c = Command::new(env!("CARGO_BIN_EXE_sdc-node"));
         c.arg("requirements.normalise").arg("--tools-dir").arg(repo().join("bindings/tools")).args(&rest);
         c.current_dir(&work).env_clear().env("PATH", path).env("LOOM_CASE", "IDEA-1.x").env("LOOM_RETRY_FEEDBACK", self.root.join(&name));
@@ -362,7 +371,130 @@ fn a_ledger_that_cannot_be_read_is_an_error() {
     fs::write(case.ledger(), "requirements.check e0\n").unwrap();
     fs::set_permissions(case.ledger(), fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_to_string(case.ledger()).is_ok() {
+        eprintln!("skipped: the ledger of mode 0000 can be read here (the user ignores file modes)");
         return;
     }
     ends_the_stub(&mut case, "a file with no permission");
+}
+
+fn tree_listing(dir: &Path) -> Vec<String> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<String>) {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                out.push(p.strip_prefix(base).unwrap().display().to_string());
+                if p.is_dir() {
+                    walk(base, &p, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// The feedback copy is written under `.sdc/loom-feedback/` before the ledger is read: a `.sdc` that is
+/// a link ends the stub before it, and the directory the link names stays empty.
+#[test]
+fn a_sdc_that_is_a_link_leaves_the_directory_it_names_empty() {
+    let mut case = Case::new("sdc-link-empty");
+    let outside = case.root.join("outside-dir");
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, case.work().join(".sdc")).unwrap();
+    let o = case.run(&one("e1", "r1"));
+    assert_eq!(o.status.code(), Some(126), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(tree_listing(&outside), Vec::<String>::new(), "the stub wrote through the .sdc link");
+}
+
+/// The same, with `.sdc` a directory of the work directory and `.sdc/loom-feedback` the link.
+#[test]
+fn a_feedback_directory_that_is_a_link_leaves_the_directory_it_names_empty() {
+    let mut case = Case::new("feedback-link-empty");
+    let outside = case.root.join("outside-dir");
+    fs::create_dir_all(&outside).unwrap();
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    std::os::unix::fs::symlink(&outside, case.work().join(".sdc/loom-feedback")).unwrap();
+    let o = case.run(&one("e1", "r1"));
+    assert_eq!(o.status.code(), Some(126), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(tree_listing(&outside), Vec::<String>::new(), "the stub wrote through the .sdc/loom-feedback link");
+}
+
+/// The read works and the write after it fails: one line, exit 126, no note, the ledger's bytes kept.
+/// The ledger is written before the note, so a ledger that cannot be written leaves no note.
+#[test]
+fn a_ledger_that_is_read_only_ends_the_stub_without_a_note_and_keeps_its_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut case = Case::new("ledger-0400");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "requirements.check e0\n").unwrap();
+    fs::set_permissions(case.ledger(), fs::Permissions::from_mode(0o400)).unwrap();
+    if fs::OpenOptions::new().append(true).open(case.ledger()).is_ok() {
+        eprintln!("skipped: the ledger of mode 0400 can be opened for writing here (the user ignores file modes)");
+        return;
+    }
+    let before = fs::read_to_string(case.work().join("requirements.yaml")).unwrap();
+    let o = case.run(&one("e1", "r1"));
+    let err = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_eq!(o.status.code(), Some(126), "{err}");
+    assert_eq!(err.lines().count(), 1, "{err}");
+    assert!(err.starts_with("sdc-node: the ledger .sdc/rework-seen "), "{err}");
+    assert!(!err.contains(case.root.to_str().unwrap()) && !err.contains("e0"), "{err}");
+    assert_eq!(fs::read_to_string(case.work().join("requirements.yaml")).unwrap(), before, "a note was written");
+    assert_eq!(fs::read_to_string(case.ledger()).unwrap(), "requirements.check e0\n");
+}
+
+/// A ledger of mode 0200 (write only): the read is the error.
+#[test]
+fn a_ledger_that_is_write_only_ends_the_stub_without_a_note() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut case = Case::new("ledger-0200");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "requirements.check e0\n").unwrap();
+    fs::set_permissions(case.ledger(), fs::Permissions::from_mode(0o200)).unwrap();
+    if fs::read_to_string(case.ledger()).is_ok() {
+        eprintln!("skipped: the ledger of mode 0200 can be read here (the user ignores file modes)");
+        return;
+    }
+    ends_the_stub(&mut case, "a file of mode 0200");
+}
+
+/// `.sdc` a regular file: the same error, one line, no note.
+#[test]
+fn a_sdc_that_is_a_file_ends_the_stub_without_a_note() {
+    let mut case = Case::new("sdc-file");
+    fs::write(case.work().join(".sdc"), "x").unwrap();
+    ends_the_stub(&mut case, "a .sdc that is a file");
+}
+
+/// A stub that failed (its source file is missing) ends with its own code, and a ledger it could not
+/// use is printed and gives no other code.
+#[test]
+fn a_ledger_error_does_not_replace_the_exit_code_of_a_stub_that_failed() {
+    let mut plain = Case::new("failed-plain");
+    let o = plain.run_with(&one("e1", "r1"), Some("missing-source.yaml"));
+    let own = o.status.code();
+    assert!(own.is_some() && own != Some(0), "the premise: the stub fails with a code of its own ({own:?}) {}", String::from_utf8_lossy(&o.stderr));
+    assert!(!plain.ledger().exists(), "a failed stub kept a ledger line");
+    let mut bad = Case::new("failed-bad-ledger");
+    fs::create_dir_all(bad.ledger()).unwrap();
+    let o2 = bad.run_with(&one("e1", "r1"), Some("missing-source.yaml"));
+    let err = String::from_utf8_lossy(&o2.stderr).into_owned();
+    assert_eq!(o2.status.code(), own, "{err}");
+    assert!(err.contains("sdc-node: the ledger .sdc/rework-seen "), "the ledger error is printed: {err}");
+}
+
+/// A ledger whose last line has no newline (a write that stopped short): the next id is a line of its
+/// own, so the third rework is numbered 3 and not the same as the second.
+#[test]
+fn a_last_ledger_line_without_a_newline_does_not_glue_to_the_next_id() {
+    let mut case = Case::new("torn");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "requirements.check e0").unwrap();
+    let second = case.start(&one("e1", "r1"));
+    assert!(second.ends_with(&note(" 2")), "{second}");
+    let third = case.start(&one("e2", "r2"));
+    assert_eq!(fs::read_to_string(case.ledger()).unwrap(), "requirements.check e0\nrequirements.check e1\nrequirements.check e2\n");
+    assert!(third.ends_with(&note(" 3")), "{third}");
 }
