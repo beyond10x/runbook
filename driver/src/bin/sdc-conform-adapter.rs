@@ -44,9 +44,6 @@ use conformance::{at, fill, fill_path, fill_text, http, none_of, read_json, s, s
 
 const SPEAKS: &str = "ess-conformance-target/1";
 
-/// How long a product whose stdout and stderr both ended is waited for before it counts as living.
-const EXIT_AFTER_STREAMS: Duration = Duration::from_millis(250);
-
 struct Product {
     child: Child,
     port: u16,
@@ -101,16 +98,30 @@ enum Fail {
 }
 
 /// Copies one output stream of the product, line by line, into `product.log` and a buffer the
-/// captures are read from.
+/// captures are read from. A line is read as bytes and a byte that is not UTF-8 becomes U+FFFD, so
+/// a line of another encoding does not end the reading; `closed` is set when the stream ended (the
+/// end of the file or an error of the pipe), after its last line is in the buffer.
 fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>, closed: Arc<AtomicBool>) {
     std::thread::spawn(move || {
-        for line in BufReader::new(r).lines().map_while(Result::ok) {
+        let mut r = BufReader::new(r);
+        let mut bytes = Vec::new();
+        loop {
+            bytes.clear();
+            match r.read_until(b'\n', &mut bytes) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let line = text.strip_suffix('\n').unwrap_or(&text);
+            let line = line.strip_suffix('\r').unwrap_or(line);
             if let Ok(mut f) = log.lock() {
                 let _ = writeln!(f, "{line}");
             }
             if let Ok(mut b) = buf.lock() {
                 if b.len() < 1 << 20 {
-                    b.push_str(&line);
+                    b.push_str(line);
                     b.push('\n');
                 }
             }
@@ -253,11 +264,17 @@ impl Adapter {
         let mut product = Product { child, port };
         let exited = |product: &mut Product| -> Option<String> {
             let st = product.child.try_wait().ok().flatten()?;
-            std::thread::sleep(Duration::from_millis(100));
+            // The pumps copy what the product printed last: wait until both streams ended, at most
+            // 100 ms (a child of the product may hold them open).
+            let until = Instant::now() + Duration::from_millis(100);
+            while !closed.iter().all(|c| c.load(Ordering::SeqCst)) && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(1));
+            }
             let tail = fs::read_to_string(dir.join("product.log")).unwrap_or_default();
             let tail: String = tail.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
             Some(format!("the product exited before it answered ({st}): {tail}"))
         };
+        let ready = self.table["start"]["ready"].clone();
         let mut captured = serde_json::Map::new();
         for c in self.table["captures"].as_array().cloned().unwrap_or_default() {
             let (name, stream) = (s(&c["name"]).to_string(), s(&c["stream"]).to_string());
@@ -266,6 +283,7 @@ impl Adapter {
             let (buf, ended) = (&streams[which], &closed[which]);
             let secs = c["timeout_s"].as_u64().unwrap_or(5);
             let deadline = spawned + Duration::from_secs(secs);
+            let mut poll = Duration::from_millis(2);
             loop {
                 // Read before the text: the pump sets it after its last line is in the buffer.
                 let stream_ended = ended.load(Ordering::SeqCst);
@@ -278,30 +296,35 @@ impl Adapter {
                     return Err(Fail::Start(why));
                 }
                 if stream_ended {
-                    // A product that closed the stream prints nothing more on it: waiting out
-                    // `timeout_s` cannot change the answer. The streams also end when the product
-                    // exits, a moment before it can be waited for (long on a loaded host, and the
-                    // other stream's pump may not have seen its end yet): wait for the child
-                    // within a bound before it is called a living product that closed a stream.
-                    let until = Instant::now() + EXIT_AFTER_STREAMS;
-                    while Instant::now() < until {
+                    // The stream prints nothing more, and the product's end closes it a moment
+                    // before the product can be waited for: what the product does next decides.
+                    // It exits: it did not start. It answers `start.ready`: the table asks for a
+                    // value the product does not print. Neither within `timeout_s`: the capture
+                    // did not appear in time.
+                    loop {
                         if let Some(why) = exited(&mut product) {
                             return Err(Fail::Start(why));
                         }
+                        if self.answers(&ready, port, &captured) {
+                            return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")));
+                        }
+                        if Instant::now() > deadline {
+                            return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
+                        }
                         std::thread::sleep(Duration::from_millis(5));
                     }
-                    return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")));
                 }
                 if Instant::now() > deadline {
                     return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(poll);
+                poll = (poll * 2).min(Duration::from_millis(50));
             }
         }
         self.captured = J::Object(captured);
         self.product = Some(product);
-        let ready = self.table["start"]["ready"].clone();
         let deadline = spawned + self.start_timeout;
+        let mut wait = Duration::from_millis(5);
         loop {
             if let Some(why) = self.product.as_mut().and_then(exited) {
                 self.product = None;
@@ -314,9 +337,17 @@ impl Adapter {
                 self.product = None;
                 return Err(Fail::Start(format!("the product did not answer {} {} within {} s", s(&ready["method"]), s(&ready["path"]), self.start_timeout.as_secs())));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(wait);
+            wait = (wait * 2).min(Duration::from_millis(50));
         }
         Ok(())
+    }
+
+    /// Whether the product on `port` answers the request `ready` of the table now, with the captures
+    /// read so far.
+    fn answers(&self, ready: &J, port: u16, captured: &serde_json::Map<String, J>) -> bool {
+        let Ok((path, body, headers)) = self.fill_request_with(ready, &BTreeMap::new(), &J::Object(captured.clone())) else { return false };
+        http(port, s(&ready["method"]), &path, body.as_ref(), &headers, Duration::from_millis(500)).is_ok()
     }
 
     fn send(&self, r: &J, ctx: &Ctx) -> Result<Reply, String> {
@@ -332,8 +363,13 @@ impl Adapter {
     /// Path, body and headers of a table request, filled; an error names the placeholder that
     /// has no value (the table's fault when the scenario does not carry it).
     fn fill_request(&self, r: &J, ctx: &Ctx) -> Result<Filled, String> {
+        self.fill_request_with(r, ctx, &self.captured)
+    }
+
+    /// `fill_request` with the captures read so far.
+    fn fill_request_with(&self, r: &J, ctx: &Ctx, captured: &J) -> Result<Filled, String> {
         let mut ctx = ctx.clone();
-        ctx.insert("capture", self.captured.clone());
+        ctx.insert("capture", captured.clone());
         let path = fill_path(s(&r["path"]), &ctx)?;
         let body = match r.get("body") {
             None | Some(J::Null) => None,

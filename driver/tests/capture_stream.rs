@@ -57,10 +57,12 @@ fn detail(reply: &J) -> String {
     reply["target_error"]["detail"].as_str().unwrap_or("").to_string()
 }
 
-/// A product that closed stdout and keeps stderr open is missing the stdout capture at once.
+/// A product that closed stdout, keeps stderr open and serves is missing the stdout capture as soon
+/// as it answers `start.ready`. (One that neither serves nor exits is bounded by `timeout_s`:
+/// `capture_fate`.)
 #[test]
 fn a_product_that_closed_only_stdout_is_missing_its_stdout_capture_at_once() {
-    let (reply, took) = begin_scenario("closed-stdout-only", "exec 1>&-\nexec sleep 30", 20);
+    let (reply, took) = begin_scenario("closed-stdout-only", "exec 1>&-\nexec bin/stub-product \"$1\" \"$2\" token-quiet", 20);
     assert_eq!(reply["target_error"]["kind"], "unavailable", "{reply:#}");
     assert!(detail(&reply).contains("closed stdout"), "{reply:#}");
     assert!(took < Duration::from_secs(10), "answered after {took:?}");
