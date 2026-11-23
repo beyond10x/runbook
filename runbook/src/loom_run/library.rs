@@ -192,6 +192,10 @@ impl LoomHost for LibraryHost<'_> {
         false
     }
 
+    fn announces_starts(&self) -> bool {
+        true
+    }
+
     fn handoff(&mut self, _: &Answer<'_>) -> Result<Call, Halt> {
         Err(Halt::Failed("the library runs no call for a handoff".to_owned()))
     }
