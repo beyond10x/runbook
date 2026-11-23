@@ -135,8 +135,9 @@ runs once and after each of the first two rejections). The value 2 follows Loom'
 entries of `cycles/tree-suite.yaml` that hold it (`decider-rework-spent`: three rejections, then exit 4;
 `rework-fresh-allowance`: two rejections, then four writer runs and exit 0): at 2 the third rejection is
 the last, at 3 a fourth run follows it. No run has told 2 from 3: both entries ended the same way at both
-(before the change of the stub) and, after it, on Loom's 60 s bound (`docs/cycles-suite.md`); a run at low
-load settles them, and both stay `pending` until then.
+(before the change of the stub) and, after it, on Loom's 60 s bound in every run, three runs each at
+a one-minute load of 45 to 75 among them, before `change.implement` ran (`docs/cycles-suite.md`). Both
+stay `pending`; nothing here says a run settles them.
 
 ## Written in the YAML, carried out by Loom later
 
