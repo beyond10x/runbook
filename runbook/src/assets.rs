@@ -4,12 +4,16 @@
 //! Assets, first match wins:
 //! 1. `RUNBOOK_HOME`, when set and non-empty. It is used as given; a directory without `protocol/`
 //!    is an error, not a reason to look further, because the person asked for that one.
-//! 2. `<directory of the executable>/../share/runbook`, when it holds `protocol/`.
+//! 2. `<directory of the executable>/../share/runbook`, when the executable is in a directory named `bin` and
+//!    that `share/runbook` is a directory: the binary is installed by its own place. It holds `protocol/` and no
+//!    `INSTALLING` marker, or the lookup is an error that says the install is incomplete: it never goes on to a
+//!    checkout.
 //! 3. A checkout: walking up from the executable's directory, then from the current directory, the
 //!    first directory that holds `protocol/` and `driver/examples/sdc/`.
 //!
-//! Helper binaries, first match wins: `<exe dir>/../libexec`, the executable's own directory, in a
-//! checkout `driver/target/{release,debug}` and `watch/target/{release,debug}`, then `PATH`.
+//! Helper binaries, first match wins: `<exe dir>/../libexec/runbook`, the executable's own directory, in a
+//! checkout `driver/target/{release,debug}` and `watch/target/{release,debug}`, then `PATH`. A flat
+//! `<prefix>/libexec` is not read.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -132,6 +136,18 @@ impl Lookup {
         self.exe.as_deref().and_then(Path::parent)
     }
 
+    /// `<prefix>/share/runbook` when this executable is started from `<prefix>/bin` and that directory exists: the
+    /// binary knows it is installed by its own place, not by what the prefix holds, so a prefix that an install left
+    /// half done is still its prefix and never a reason to look at a checkout.
+    pub fn own_share(&self) -> Option<PathBuf> {
+        let bin = self.exe_dir()?;
+        if bin.file_name()? != "bin" {
+            return None;
+        }
+        let share = bin.join("..").join("share").join("runbook");
+        share.is_dir().then_some(share)
+    }
+
     pub fn locate(&self) -> Result<Assets, String> {
         if let Some(h) = &self.home {
             if h.join("protocol").is_dir() {
@@ -139,11 +155,15 @@ impl Lookup {
             }
             return Err(format!("RUNBOOK_HOME={} holds no protocol/ directory", h.display()));
         }
-        if let Some(d) = self.exe_dir() {
-            let share = d.join("..").join("share").join("runbook");
+        if let Some(share) = self.own_share() {
+            let shown = share.display();
+            if share.join("INSTALLING").symlink_metadata().is_ok() {
+                return Err(format!("incomplete install: {shown}/INSTALLING is there, an install of this prefix did not finish: run scripts/install.sh --prefix <prefix> again over it"));
+            }
             if share.join("protocol").is_dir() {
                 return Ok(Assets { root: share, source: Source::Installed });
             }
+            return Err(format!("incomplete install: {shown} holds no protocol/ directory: run scripts/install.sh --prefix <prefix> again over this prefix"));
         }
         for start in [self.exe_dir(), self.cwd.as_deref()].into_iter().flatten() {
             let below_ceiling = |d: &&Path| self.ceiling.as_deref().is_none_or(|c| d.starts_with(c));
@@ -158,7 +178,7 @@ impl Lookup {
     pub fn helper(&self, name: &str, assets: Option<&Assets>) -> Option<PathBuf> {
         let mut dirs: Vec<PathBuf> = Vec::new();
         if let Some(d) = self.exe_dir() {
-            dirs.push(d.join("..").join("libexec"));
+            dirs.push(d.join("..").join("libexec").join("runbook"));
             dirs.push(d.to_path_buf());
         }
         if let Some(a) = assets.filter(|a| a.source == Source::Checkout) {
@@ -169,6 +189,48 @@ impl Lookup {
             }
         }
         dirs.iter().map(|d| d.join(name)).find(|p| is_executable(p)).or_else(|| self.which(name))
+    }
+
+    /// The directory of the helpers of an installed prefix, `<prefix>/libexec/runbook`, or `None` when the
+    /// executable does not run from an installed layout. The layout is installed when all of these hold: the
+    /// executable's directory is named `bin`, `<prefix>/libexec/runbook` is a directory and
+    /// `<prefix>/share/runbook/protocol` is a directory. `libexec/runbook` belongs to this product alone, so
+    /// nothing another package keeps in `<prefix>/libexec` is ever found through it.
+    pub fn installed_helpers(&self) -> Option<PathBuf> {
+        let bin = self.exe_dir()?;
+        if bin.file_name()? != "bin" {
+            return None;
+        }
+        let prefix = bin.parent()?;
+        let helpers = prefix.join("libexec").join("runbook");
+        (helpers.is_dir()
+            && prefix
+                .join("share")
+                .join("runbook")
+                .join("protocol")
+                .is_dir())
+        .then_some(helpers)
+    }
+
+    /// The `PATH` for this process and the programs it starts, when it runs from an installed prefix:
+    /// `<prefix>/libexec/runbook` in front of the current `PATH`, so a bound tool that starts a helper
+    /// (`sdc-reply`, `sdc-findings`) finds it there: the install puts the helpers in `libexec/runbook`, not in
+    /// `bin`, so a `PATH` of `<prefix>/bin` alone does not reach them. The new `PATH` has no empty entry (an
+    /// empty entry is the working directory): empty entries of the current one are dropped, and with `PATH` unset
+    /// or empty the rest is `/usr/bin:/bin`. `None` when there is nothing to change: no installed layout, or the
+    /// helpers directory already on `PATH`.
+    pub fn path_with_libexec(&self) -> Option<OsString> {
+        let helpers = self.installed_helpers()?;
+        let current = self.path.clone().unwrap_or_default();
+        let mut dirs: Vec<PathBuf> = std::env::split_paths(&current)
+            .filter(|d| !d.as_os_str().is_empty() && *d != helpers)
+            .collect();
+        if dirs.is_empty() {
+            dirs = vec![PathBuf::from("/usr/bin"), PathBuf::from("/bin")];
+        }
+        dirs.insert(0, helpers);
+        let new = std::env::join_paths(dirs).ok()?;
+        (self.path.as_ref() != Some(&new)).then_some(new)
     }
 
     /// `name` on `PATH`.
@@ -316,10 +378,17 @@ mod tests {
         let release = t.exe("co/driver/target/release/sdc-x");
         assert_eq!(l.helper("sdc-x", Some(&a)), Some(release));
         let beside = t.exe("prefix/bin/sdc-x");
-        assert_eq!(l.helper("sdc-x", Some(&a)), Some(beside));
-        let libexec = t.exe("prefix/libexec/sdc-x");
+        assert_eq!(l.helper("sdc-x", Some(&a)), Some(beside.clone()));
+        let flat = t.exe("prefix/libexec/sdc-x");
+        assert_eq!(
+            l.helper("sdc-x", Some(&a)),
+            Some(beside.clone()),
+            "a flat libexec is not read"
+        );
+        let libexec = t.exe("prefix/libexec/runbook/sdc-x");
         let got = l.helper("sdc-x", Some(&a)).unwrap();
         assert_eq!(got.canonicalize().unwrap(), libexec.canonicalize().unwrap());
+        assert_ne!(got.canonicalize().unwrap(), flat.canonicalize().unwrap());
     }
 
     #[test]
@@ -329,6 +398,141 @@ mod tests {
         t.exe("co/driver/target/debug/sdc-x");
         let a = Assets { root, source: Source::Env };
         assert_eq!(lookup(&t).helper("sdc-x", Some(&a)), None);
+    }
+
+    #[test]
+    fn libexec_goes_in_front_of_the_path_only_from_an_installed_layout() {
+        let t = Dir::new("libexec-path");
+        let mut l = lookup(&t);
+        l.path = Some("/usr/bin:/bin".into());
+        assert_eq!(l.path_with_libexec(), None, "no libexec");
+        t.dir("prefix/libexec");
+        t.dir("prefix/share/runbook/protocol");
+        assert_eq!(
+            l.path_with_libexec(),
+            None,
+            "a flat libexec is not the helpers' directory"
+        );
+        let libexec = t.dir("prefix/libexec/runbook");
+        std::fs::remove_dir_all(t.path().join("prefix/share/runbook/protocol")).unwrap();
+        assert_eq!(
+            l.path_with_libexec(),
+            None,
+            "libexec/runbook without share/runbook/protocol is not an install"
+        );
+        t.dir("prefix/share/runbook/protocol");
+        let mut want = libexec.clone().into_os_string();
+        want.push(":/usr/bin:/bin");
+        l.path = Some("/usr/bin:/bin".into());
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(want.clone()),
+            "in front of the given PATH"
+        );
+        l.path = Some(std::env::join_paths([libexec.clone(), PathBuf::from("/usr/bin")]).unwrap());
+        assert_eq!(l.path_with_libexec(), None, "already first on PATH");
+        l.path = Some(std::env::join_paths([PathBuf::from("/usr/bin"), libexec.clone()]).unwrap());
+        let mut moved = libexec.clone().into_os_string();
+        moved.push(":/usr/bin");
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(moved),
+            "on PATH further back: moved to the front, once"
+        );
+        l.path = Some(
+            std::env::join_paths([
+                PathBuf::from("/other"),
+                libexec.clone(),
+                PathBuf::from("/usr/bin"),
+                libexec.clone(),
+            ])
+            .unwrap(),
+        );
+        let mut twice = libexec.clone().into_os_string();
+        twice.push(":/other:/usr/bin");
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(twice),
+            "a program of the same name earlier on PATH does not win"
+        );
+        for unset in [None, Some(OsString::new()), Some(OsString::from(":"))] {
+            l.path = unset.clone();
+            assert_eq!(l.path_with_libexec(), Some(want.clone()), "PATH {unset:?}");
+        }
+        l.path = Some("/usr/local/bin::/bin:".into());
+        let mut want = libexec.into_os_string();
+        want.push(":/usr/local/bin:/bin");
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(want),
+            "empty entries are dropped"
+        );
+    }
+
+    #[test]
+    fn the_executable_directory_of_an_installed_layout_is_named_bin() {
+        let t = Dir::new("libexec-bin-name");
+        t.dir("prefix/libexec/runbook");
+        t.dir("prefix/share/runbook/protocol");
+        let mut l = lookup(&t);
+        l.path = Some("/usr/bin".into());
+        assert!(l.path_with_libexec().is_some());
+        l.exe = Some(t.dir("prefix/debug").join("runbook"));
+        assert_eq!(
+            l.installed_helpers(),
+            None,
+            "<x>/debug/runbook with <x>/libexec/runbook is no install"
+        );
+        assert_eq!(l.path_with_libexec(), None);
+    }
+
+    /// A binary started from `<prefix>/bin` is installed by its own place: when `<prefix>/share/runbook` is a
+    /// directory, assets are that directory's or an error that says the install is incomplete, never the checkout
+    /// the working directory is in.
+    #[test]
+    fn a_binary_of_a_prefix_with_a_share_directory_never_falls_back_to_a_checkout() {
+        let t = Dir::new("own-prefix");
+        let root = make_checkout(&t, "co");
+        let mut l = lookup(&t);
+        l.cwd = Some(t.dir("co/docs"));
+        assert_eq!(
+            l.locate().unwrap().root,
+            root,
+            "no share directory: the checkout of the working directory"
+        );
+        let share = t.dir("prefix/share/runbook");
+        let said = l.locate().unwrap_err();
+        assert!(
+            said.contains("incomplete install") && said.contains("protocol"),
+            "{said}"
+        );
+        t.dir("prefix/share/runbook/protocol");
+        assert_eq!(l.locate().unwrap().source, Source::Installed);
+        std::fs::write(share.join("INSTALLING"), "").unwrap();
+        let said = l.locate().unwrap_err();
+        assert!(
+            said.contains("incomplete install") && said.contains("INSTALLING"),
+            "{said}"
+        );
+        std::fs::remove_file(share.join("INSTALLING")).unwrap();
+        assert_eq!(l.locate().unwrap().source, Source::Installed);
+        l.home = Some(t.dir("home"));
+        assert!(
+            l.locate().unwrap_err().contains("RUNBOOK_HOME"),
+            "RUNBOOK_HOME is asked for first, as before"
+        );
+    }
+
+    #[test]
+    fn a_share_directory_beside_a_binary_that_is_not_in_a_directory_named_bin_is_not_its_prefix() {
+        let t = Dir::new("own-prefix-not-bin");
+        let root = make_checkout(&t, "co");
+        t.dir("prefix/share/runbook");
+        let mut l = lookup(&t);
+        l.exe = Some(t.dir("prefix/debug").join("runbook"));
+        l.cwd = Some(t.dir("co/docs"));
+        assert_eq!(l.own_share(), None);
+        assert_eq!(l.locate().unwrap().root, root);
     }
 
     #[test]
