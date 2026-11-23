@@ -24,7 +24,7 @@ impl Runner<'_> {
         if !self.decider.answers_requests() {
             return Ok(false);
         }
-        self.stop_when_nothing_is_left()?;
+        self.stop_when_a_cap_is_reached()?;
         let bindings = self.bindings_dir.clone();
         let workspace = self.workspace.clone();
         let path = self.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()).unwrap_or_default();
@@ -82,6 +82,8 @@ impl Runner<'_> {
                 Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{action} in {case}: {reason} (decision kind {kind:?})") })),
             };
             self.answered.insert(count_key, times + 1);
+            // the decider's own cost may have taken the cap: no program of the file starts after it
+            self.stop_when_a_cap_is_reached()?;
             let who = answer.principal.clone().unwrap_or_else(|| self.host.principal(&Answer { decision, kind, approve: true, principal: None, result: None, reasons_file: None, deny: false }));
             let applied = place.run(&declaration.apply, &[("id", &request.id), ("answer", &answer.answer), ("principal", &who), ("case", case), ("type", &request.kind)])?;
             ran_ok(&declaration.apply, &applied)?;
@@ -90,6 +92,7 @@ impl Runner<'_> {
         }
         let who = taken_by.unwrap_or_default();
         if let Some(then) = &declaration.then {
+            self.stop_when_a_cap_is_reached()?;
             let done = place.run(then, &[("principal", &who), ("case", case)])?;
             ran_ok(then, &done)?;
         }

@@ -199,7 +199,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &mut observation::ObservationGate::new(&mut runner));
     Ok(outcome)
 }
 
@@ -434,10 +434,10 @@ impl Runner<'_> {
     }
 
     /// Records an answer with Loom (`tree approve`, which runs the program a person action binds).
-    /// Once a named cap has nothing left no answer is made: the decision stays open and the run ends
-    /// at the cap.
+    /// Once a named cap is reached (the spend cap with nothing left, or the call cap) no answer is
+    /// made: the decision stays open and the run ends at the cap.
     fn take_answer(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        self.stop_when_nothing_is_left()?;
+        self.stop_when_a_cap_is_reached()?;
         self.host.answer(answer)?;
         Ok(())
     }
@@ -501,16 +501,21 @@ impl Runner<'_> {
     /// whatever the bindings name, and a wanted amount of 0 (a model tool that names no budget
     /// option, a decider that costs nothing) is no way round it.
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
-        let cap = self.args.cap_micro_usd;
-        let granted = match (&self.ledger, cap) {
-            (Some(ledger), Some(cap)) => ledger.reserve(&self.args.run, cap, want)?,
-            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)), left: cap.saturating_sub(self.spent) },
-            (_, None) => Reservation { id: String::new(), micro_usd: want, left: u64::MAX },
-        };
-        if let Some(cap) = cap.filter(|_| granted.left == 0 && (want > 0 || self.may_spend())) {
+        let granted = self.grant(want)?;
+        if let Some(cap) = self.args.cap_micro_usd.filter(|_| granted.left == 0 && (want > 0 || self.may_spend())) {
             return Err(self.end_at_spend_cap(cap)?);
         }
         Ok(granted)
+    }
+
+    /// The grant of [`Runner::reserve`] before any stop is decided: held in the ledger when the run
+    /// names one and a cap.
+    fn grant(&self, want: u64) -> Result<Reservation, String> {
+        Ok(match (&self.ledger, self.args.cap_micro_usd) {
+            (Some(ledger), Some(cap)) => ledger.reserve(&self.args.run, cap, want)?,
+            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)), left: cap.saturating_sub(self.spent) },
+            (_, None) => Reservation { id: String::new(), micro_usd: want, left: u64::MAX },
+        })
     }
 
     /// Whether what the run starts next may spend: the opening decided it has a model node, or the
@@ -531,10 +536,15 @@ impl Runner<'_> {
         Ok(Halt::Done(Outcome::StoppedSpendCap))
     }
 
-    /// Ends the run when a named cap has nothing left and the run may spend. Asked before a call that
-    /// answers a decision (`tree approve` runs the program a person action binds, and so do the
-    /// programs of an answers file), where no amount is reserved.
-    fn stop_when_nothing_is_left(&mut self) -> Result<(), Halt> {
+    /// Ends the run when a named cap is reached: the call cap, or the spend cap with nothing left
+    /// while the run may spend. Asked before every program that answers a decision (`tree approve`
+    /// runs the program a person action binds, and so do the programs of an answers file), where no
+    /// amount is reserved.
+    fn stop_when_a_cap_is_reached(&mut self) -> Result<(), Halt> {
+        if self.calls_cap_reached() {
+            self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
+            return Err(Halt::Done(Outcome::StoppedLlmCalls));
+        }
         let Some(cap) = self.args.cap_micro_usd else { return Ok(()) };
         let left = match &self.ledger {
             Some(ledger) => ledger.left(cap)?,
@@ -899,6 +909,7 @@ fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
 }
 
 mod declared;
+mod observation;
 
 #[cfg(test)]
 mod no_model_node_tests;

@@ -32,10 +32,40 @@ fn setup_of(args: &Args, run_dir: &Path) -> Setup {
     }
 }
 
+/// What the observation cost, as far as its own record says.
+pub enum Spent {
+    /// No table slot was reached: no model could have been called.
+    Nothing,
+    /// The cost its record names, micro USD.
+    Cost(u64),
+    /// Not known (a failure, or a record that names no cost): the most it could have spent.
+    Unknown,
+}
+
+/// What stands between the observation and a named spend cap (`run_loop/observation.rs`): `start`
+/// refuses with the line to print when nothing is left, `finish` books what the observation cost.
+pub trait Gate {
+    /// `Err(line)`: the observation is not started.
+    fn start(&mut self) -> Result<(), String>;
+    /// Called once after a started observation.
+    fn finish(&mut self, spent: Spent);
+}
+
+/// What an observation's record says it cost.
+fn spent_of(doc: &serde_json::Value) -> Spent {
+    let record = &doc["conformance"];
+    match record.get("table_cost_usd").filter(|v| !v.is_null()) {
+        Some(cost) => crate::loom_run::cost::usd_to_micro(cost).map_or(Spent::Unknown, Spent::Cost),
+        None if record.get("tables_written").is_some() => Spent::Unknown,
+        None => Spent::Nothing,
+    }
+}
+
 /// Observes the product of a run that ended, when `--conformance observe` was given. The line it
 /// prints says what was written or why nothing was; a failure is the line or `oracle.json`'s
-/// `unknown` with its cause, never a change of the run's outcome.
-pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome) {
+/// `unknown` with its cause, never a change of the run's outcome (so a run that closed ends with
+/// the exit it had, also when the observation is not started for a spend cap that has nothing left).
+pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, gate: &mut dyn Gate) {
     if args.ports.conformance != Conformance::Observe {
         return;
     }
@@ -50,12 +80,25 @@ pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome) {
             return;
         }
     };
+    if let Err(line) = gate.start() {
+        eprintln!("runbook run: conformance: {line}");
+        return;
+    }
     let setup = setup_of(args, run_dir);
     let pin = Path::new("driver/ess-pin.json");
     let seen = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| conform::observe(run_dir, None, tables, pin, &setup)));
     match seen {
-        Ok(Ok(doc)) => eprintln!("runbook run: conformance: {}", doc["conformance"]["summary"].as_str().unwrap_or("")),
-        Ok(Err(e)) => eprintln!("runbook run: conformance: not observed ({e})"),
-        Err(_) => eprintln!("runbook run: conformance: not observed (the observation failed unexpectedly)"),
+        Ok(Ok(doc)) => {
+            gate.finish(spent_of(&doc));
+            eprintln!("runbook run: conformance: {}", doc["conformance"]["summary"].as_str().unwrap_or(""));
+        }
+        Ok(Err(e)) => {
+            gate.finish(Spent::Unknown);
+            eprintln!("runbook run: conformance: not observed ({e})");
+        }
+        Err(_) => {
+            gate.finish(Spent::Unknown);
+            eprintln!("runbook run: conformance: not observed (the observation failed unexpectedly)");
+        }
     }
 }
