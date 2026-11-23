@@ -20,26 +20,74 @@ pub fn parse(text: &str) -> Result<Value, String> {
     if looks_like_json(text) {
         return Err("this is JSON, and the settings file is TOML now: write the same members as TOML, the members that were under `loom` at the top level (the form and an example: docs/loom-run-settings.md)".to_owned());
     }
-    let table: toml::Table = toml::from_str(text).map_err(|e| format!("not TOML ({}; the form: docs/loom-run-settings.md): {e}", e.message()))?;
-    json_of(&toml::Value::Table(table), "settings")
+    let table = toml::de::DeTable::parse(text).map_err(|e| not_toml(&e, text))?;
+    table_of(table.get_ref(), "settings")
 }
 
-/// Whether the text is the old form: an object, or an array, as JSON begins. TOML has no value that
-/// begins with `{`, and a table header begins with `[` but is no JSON array of anything.
+/// The most of the parser's own words a refusal prints, in characters.
+const MESSAGE_LIMIT: usize = 160;
+
+/// The refusal of a syntax error: where it is (line and column, in characters) and the parser's own
+/// words for the kind of error, cut to `MESSAGE_LIMIT`. Never a line, a value or a part of a value of
+/// the file: the library's `Display` prints the offending line, and that line can hold the login's
+/// path or a pasted login content.
+fn not_toml(e: &toml::de::Error, text: &str) -> String {
+    let words: String = e.message().lines().next().unwrap_or("").chars().take(MESSAGE_LIMIT).collect();
+    let at = e.span().map(|span| {
+        let start = span.start.min(text.len());
+        let before = &text.as_bytes()[..start];
+        let line_start = before.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+        let line = before.iter().filter(|b| **b == b'\n').count() + 1;
+        let column = String::from_utf8_lossy(&before[line_start..]).chars().count() + 1;
+        format!(" at line {line}, column {column}")
+    });
+    format!("not TOML{} ({words}; the form: docs/loom-run-settings.md)", at.unwrap_or_default())
+}
+
+/// Whether the text is the old form: an object, or an array, as JSON begins, after a byte order mark,
+/// blank lines and comment lines (which TOML also has). TOML has no value that begins with `{`, and a
+/// table header begins with `[` but is no JSON array of anything.
 fn looks_like_json(text: &str) -> bool {
-    let t = text.trim_start();
-    t.starts_with('{') || (t.starts_with('[') && serde_json::from_str::<Value>(t).is_ok())
+    let mut rest = text.strip_prefix('\u{feff}').unwrap_or(text).trim_start();
+    while rest.starts_with('#') {
+        rest = rest.split_once('\n').map_or("", |(_, after)| after).trim_start();
+    }
+    rest.starts_with('{') || (rest.starts_with('[') && serde_json::from_str::<Value>(rest).is_ok())
 }
 
-fn json_of(v: &toml::Value, at: &str) -> Result<Value, String> {
+/// A table of the file as a JSON object in file order. The reading is the library's syntax tree and
+/// this walk, not its serde glue: the glue words an error with the value it met.
+fn table_of(t: &toml::de::DeTable<'_>, at: &str) -> Result<Value, String> {
+    let mut object = serde_json::Map::new();
+    for (k, x) in t.iter() {
+        let k = k.get_ref().to_string();
+        let member = json_of(x.get_ref(), &format!("{at}.{k}"))?;
+        object.insert(k, member);
+    }
+    Ok(Value::Object(object))
+}
+
+/// One value of the file as the JSON value the settings readers take. An error names the member and
+/// the kind of value, never the value.
+fn json_of(v: &toml::de::DeValue<'_>, at: &str) -> Result<Value, String> {
+    use toml::de::DeValue;
     Ok(match v {
-        toml::Value::String(s) => Value::String(s.clone()),
-        toml::Value::Integer(n) => Value::from(*n),
-        toml::Value::Float(f) => Value::Number(serde_json::Number::from_f64(*f).ok_or_else(|| format!("{at}: {f} is not a number a setting takes"))?),
-        toml::Value::Boolean(b) => Value::Bool(*b),
-        toml::Value::Datetime(_) => return Err(format!("{at}: a date or a time is not a value of any setting")),
-        toml::Value::Array(items) => Value::Array(items.iter().enumerate().map(|(i, x)| json_of(x, &format!("{at}[{i}]"))).collect::<Result<_, _>>()?),
-        toml::Value::Table(t) => Value::Object(t.iter().map(|(k, x)| Ok((k.clone(), json_of(x, &format!("{at}.{k}"))?))).collect::<Result<_, String>>()?),
+        DeValue::String(s) => Value::String(s.to_string()),
+        DeValue::Integer(n) => match i64::from_str_radix(n.as_str(), n.radix()) {
+            Ok(n) => Value::from(n),
+            Err(_) => return Err(format!("{at}: not TOML: an integer must fit 64 bits")),
+        },
+        DeValue::Float(f) => {
+            let x: f64 = f.as_str().parse().map_err(|_| format!("{at}: not TOML: a float the settings cannot read"))?;
+            if x.is_infinite() && !f.as_str().contains("inf") {
+                return Err(format!("{at}: not TOML: a float too large for 64 bits"));
+            }
+            Value::Number(serde_json::Number::from_f64(x).ok_or_else(|| format!("{at}: a float that is not finite is not a number a setting takes"))?)
+        }
+        DeValue::Boolean(b) => Value::Bool(*b),
+        DeValue::Datetime(_) => return Err(format!("{at}: a date or a time is not a value of any setting")),
+        DeValue::Array(items) => Value::Array(items.iter().enumerate().map(|(i, x)| json_of(x.get_ref(), &format!("{at}[{i}]"))).collect::<Result<_, _>>()?),
+        DeValue::Table(t) => table_of(t, at)?,
     })
 }
 
@@ -358,8 +406,8 @@ mod tests {
         let e = parse("a = 1\nb = 2\nsecret_member = SECRET-VALUE-77 more\n").unwrap_err();
         assert!(e.starts_with("not TOML at line 3, column 17"), "{e}");
         assert!(!e.contains("SECRET-VALUE-77") && !e.contains("secret_member"), "{e}");
-        let e = parse("\u{fc}n\u{ef} = oops\n").unwrap_err();
-        assert!(e.starts_with("not TOML at line 1, column 7"), "{e}");
+        let e = parse("\"\u{fc}n\u{ef}\" = oops\n").unwrap_err();
+        assert!(e.starts_with("not TOML at line 1, column 9"), "{e}");
         let e = parse("a = 1\na = 2\n").unwrap_err();
         assert!(e.contains("line 2") && e.contains("duplicate key"), "{e}");
         let e = parse(&format!("a = {}\n", "x".repeat(1 << 20))).unwrap_err();

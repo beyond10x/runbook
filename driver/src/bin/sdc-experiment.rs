@@ -2092,7 +2092,7 @@ fn loom_settings_toml(name: &str, settings: &BTreeMap<String, String>, redact: b
         models.insert(c.into(), T::Table(Table::from_iter([("model".to_string(), text(&format!("models.{c}.model")))])));
     }
     top.insert("models".into(), T::Table(models));
-    toml::to_string(&top).map_err(|e| format!("refused: the settings file cannot be written: {e}"))
+    toml::to_string(&top).map_err(|e| format!("refused: the settings file cannot be written: {}", e.to_string().lines().next().unwrap_or("").chars().take(160).collect::<String>()))
 }
 
 /// The idea file of a `loom` run: `text: <the input's text>`, the shape of `work/idea.yaml`.
