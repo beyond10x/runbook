@@ -132,6 +132,21 @@ fn this_repository_passes_and_a_removed_pool_binding_is_still_reported() {
     );
 }
 
+#[test]
+fn a_root_without_bindings_files_is_refused_by_one_line_naming_the_root() {
+    for (name, with_dir) in [("no-bindings-dir", false), ("empty-bindings-dir", true)] {
+        let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("check-bindings-exits").join(name);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(if with_dir { root.join("bindings") } else { root.clone() }).unwrap();
+        let o = run_exits(&root);
+        let (out, err) = said(&o);
+        let root = root.canonicalize().unwrap();
+        assert_eq!(o.status.code(), Some(1), "{name}: {out}\n{err}");
+        assert_eq!(out, format!("FAIL exits\n  {}: no bindings/*.yaml\n", root.display()), "{name}: {err}");
+        assert!(err.is_empty(), "{name}: {err}");
+    }
+}
+
 const POOL_FILES: [&str; 3] = ["sdc-story.yaml", "sdc-release.yaml", "sdc-bugfix.yaml"];
 
 #[test]

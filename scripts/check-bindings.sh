@@ -34,14 +34,19 @@ check_exits() {
 # for `exits.error` [75, 126, 127] and no `--pool-wait` alone.
 own_repo=false
 [[ $sdc == "$repo" ]] && own_repo=true
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn --argjson own_repo "$own_repo" '
+if ! compgen -G "$sdc/bindings/*.yaml" > /dev/null; then
+  exit_findings="$sdc: no bindings/*.yaml"
+else
+exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actions? // null)}' bindings/*.yaml | jq -rn --argjson own_repo "$own_repo" '
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
-  | [inputs] as $docs
+  | [inputs] as $all
+  | ([$all[] | select((.actions | type) == "array")]) as $docs
   | ([$pools[] | split(":")[0]] | unique) as $poolfiles
   | ($own_repo or ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null))) as $own
   | (if $own then $pools else [] end) as $pools
-  | ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
+  | ($all[] | select((.actions | type) != "array") | "\(.f): not a bindings file, it is no mapping with an actions list"),
+  ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
      | "\(.): a binding that waits for the build pool is not in bindings/"),
   ($docs[]
   | .f as $f | .actions[]
@@ -74,6 +79,7 @@ exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .action
         (if ([$err[] | select(. as $c | $nc | index($c))] | length) > 0 then "\($f) \($a.action): a code is in exits.error and exits.not_called" else empty end)
       end)
     end)')
+fi
 if [[ -n $exit_findings ]]; then
   echo "FAIL exits"; echo "$exit_findings" | sed 's/^/  /'; fail=1
 else
