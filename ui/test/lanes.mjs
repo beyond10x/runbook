@@ -97,7 +97,7 @@ export const WIDE_ONLY = {
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
-// A wide-only file whose code names a size, a position or a visibility (`viewport`, `setViewportSize`, `boundingBox`,
+// A wide-only file whose code names a size, a position or a visibility matcher (`viewport:`, `setViewportSize`, `boundingBox`,
 // `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`,
 // `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) is listed here with the reason its
 // claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file that names one and is
@@ -131,21 +131,38 @@ export const SIZE_EXCEPTIONS = {
   'view.spec.mjs': 'presence, not layout',
 };
 
-// The gate's specs that wait a fixed time (`page.waitForTimeout`), with how many times: each is a wait for something that
-// must not happen (nothing changes, nothing is drawn), which no event ends. budget.spec.mjs fails a gate spec whose count
-// differs from its entry, so a new fixed wait is a line here, in a change a reviewer reads.
+// The one form of a spec file that the lists above know: `test/<name>.spec.mjs`, directly under test/. The Playwright config
+// matches test files by it, and budget.spec.mjs fails a file under test/ that Playwright's default match would take and
+// this form does not, so a misnamed spec is told, not left out.
+export const SPEC_FORM = /\/test\/[^/]+\.spec\.mjs$/;
+
+// The sleeps of the gate: the files that wait a fixed time, with how many sleeps each has (`calls`) and the sum of their
+// literal milliseconds (`ms`). A sleep is a `waitForTimeout` (also with a space before the bracket, as a bracket member or
+// as a reference) or a `setTimeout` that a `new Promise` waits for, in a `*.spec.mjs` of the gate and in the helper modules
+// they import; it is counted per call site, once however often a loop runs it. A `waitForFunction` or `expect.poll`
+// timeout or interval and a timer that ends a child or a request are not sleeps. A sleep whose time is no literal makes
+// the entry say `variable`, with a reason of one to five words. budget.spec.mjs fails a count or a sum that differs from
+// its entry, so a new or a longer sleep is a line here, in a change a reviewer reads.
 export const FIXED_WAITS = {
-  'daemon-decide-review.spec.mjs': 2,
-  'daemon-decide.spec.mjs': 2,
-  'daemon-start.spec.mjs': 1,
-  'paths-served.spec.mjs': 1,
-  'security-start-content.spec.mjs': 2,
-  'security-start-gone-runbook.spec.mjs': 1,
-  'security-start-key.spec.mjs': 2,
-  'security-start-late-answers.spec.mjs': 1,
-  'security-start-ready-window.spec.mjs': 8,
-  'security-start-second-paint.spec.mjs': 3,
-  'security-start-token-places.spec.mjs': 1,
-  'security-start-token.spec.mjs': 2,
-  'stopped.spec.mjs': 2,
+  'autopilot.spec.mjs': {calls: 1, ms: 100},
+  'child.spec.mjs': {calls: 2, ms: 1025},
+  'daemon-decide-review.spec.mjs': {calls: 2, ms: 5300},
+  'daemon-decide.spec.mjs': {calls: 2, ms: 3000},
+  'daemon-start.spec.mjs': {calls: 1, ms: 300},
+  'event-log-lines.spec.mjs': {calls: 1, ms: 2500},
+  'fixture-hold.spec.mjs': {calls: 1, ms: 20000},
+  'paths-served.spec.mjs': {calls: 1, ms: 700},
+  'security-products-3-reads.spec.mjs': {calls: 1, ms: 100},
+  'security-start-content.spec.mjs': {calls: 2, ms: 800},
+  'security-start-floor-reread.spec.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop'},
+  'security-start-gone-runbook.spec.mjs': {calls: 1, ms: 300},
+  'security-start-idempotency.spec.mjs': {calls: 1, ms: 1500},
+  'security-start-key.spec.mjs': {calls: 5, ms: 3600},
+  'security-start-late-answers.spec.mjs': {calls: 1, ms: 300},
+  'security-start-ready-window.spec.mjs': {calls: 9, ms: 2400, variable: 'retry pause of a loop'},
+  'security-start-second-paint.spec.mjs': {calls: 3, ms: 800},
+  'security-start-token-places.spec.mjs': {calls: 2, ms: 3700},
+  'security-start-token.spec.mjs': {calls: 2, ms: 800},
+  'serve.mjs': {calls: 1, ms: 50},
+  'stopped.spec.mjs': {calls: 2, ms: 4400},
 };

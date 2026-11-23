@@ -1,5 +1,5 @@
 import {defineConfig} from '@playwright/test';
-import {slowFiles, wideOnlyFiles} from './test/lanes.mjs';
+import {slowFiles, wideOnlyFiles, SPEC_FORM} from './test/lanes.mjs';
 
 export const BUDGET = {testMs: 60000, runMs: 120000};
 export const VIEWPORTS = {wide: {width: 1600, height: 1000}, laptop: {width: 1280, height: 800}};
@@ -8,6 +8,7 @@ const glob = (files) => files.map((f) => `**/${f}`);
 
 export default defineConfig({
   testDir: 'test',
+  testMatch: SPEC_FORM,
   testIgnore: glob(slowFiles),
   outputDir: process.env.PW_OUT || 'node_modules/.pw-results',
   timeout: BUDGET.testMs,
