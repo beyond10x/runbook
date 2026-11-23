@@ -125,15 +125,23 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
   fi
 done
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
-# [75, 126, 127], and [69, 70, 75, 126, 127] where the argv names `--pool-wait`; a model node (the
+# [75, 126, 127], and [69, 70, 75, 126, 127] for the five bindings the checker names as waiting for
+# the build pool (each must carry `--pool-wait`, and no other may); a model node (the
 # program `sdc-node`) has `exits.not_called` with the one code 79; no code is in both classes or in
 # a `from: exit` result table of the action, and `exits` is on no other action. Loom refuses an
 # overlap itself; this fails before a run does.
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -r '
-  .f as $f | .actions[]
+exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
+  ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
+   "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
+  | [inputs] as $docs
+  | ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
+     | "\(.): a binding that waits for the build pool is not in bindings/"),
+  ($docs[]
+  | .f as $f | .actions[]
   | . as $a
   | (($a.executor.kind // "") == "program") as $program
-  | (($a.executor.argv // []) | index("--pool-wait") != null) as $pool
+  | (($a.executor.argv // []) | index("--pool-wait") != null) as $waits
+  | ($pools | index("\($f):\($a.action)") != null) as $pool
   | (($a.executor.argv[0] // "") == "sdc-node") as $node
   | (if $pool then [69, 70, 75, 126, 127] else [75, 126, 127] end) as $want
   | (($a.exits.error // []) | sort) as $err
@@ -142,12 +150,14 @@ exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .action
   | if ($program | not) then
       (if $a.exits != null then "\($f) \($a.action): exits on an executor that is not a program" else empty end)
     else
+      (if $pool and ($waits | not) then "\($f) \($a.action): a binding that waits for the build pool has no --pool-wait in its argv" else empty end),
+      (if $waits and ($pool | not) then "\($f) \($a.action): --pool-wait in the argv of a binding the checker does not list as waiting for the build pool" else empty end),
       (if $err != $want then "\($f) \($a.action): exits.error is \($err | tojson), want \($want | tojson)" else empty end),
       (if $node and $nc != [79] then "\($f) \($a.action): exits.not_called is \($nc | tojson), want [79]" else empty end),
       (if ($node | not) and $nc != [] then "\($f) \($a.action): exits.not_called on a program that is no model node" else empty end),
       (if ([$err[], $nc[]] | map(select(. as $c | $keys | index($c))) | length) > 0 then "\($f) \($a.action): an exits code is a key of the result table" else empty end),
       (if ([$err[] | select(. as $c | $nc | index($c))] | length) > 0 then "\($f) \($a.action): a code is in exits.error and exits.not_called" else empty end)
-    end')
+    end)')
 if [[ -n $exit_findings ]]; then
   echo "FAIL exits"; echo "$exit_findings" | sed 's/^/  /'; fail=1
 else

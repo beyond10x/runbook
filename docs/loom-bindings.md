@@ -129,7 +129,8 @@ not counted either. `sdc-node` ends 79 where it prints "not called" and writes n
 (`questions.write` with an interview, a stage agent while a finding waits for a person); the one
 "not called" that stays exit 0 is a derived tree that is only renewed (`derived_skip`): its
 renewed `.derived-from` is what moves the case, and a run that records nothing leaves the case at
-its revision (`spec-own-default` of `cycles/tree-suite.yaml` ended Stuck with 79 there). A node
+its revision (`spec-own-default` of `cycles/tree-suite.yaml` ended Stuck with 79 there). That
+renewal of `spec.author` exits 0 and so counts as one of its `budget.max_runs`. A node
 that is not called while it stays due (`retry_when`) is taken again at once, since Loom counts no
 run of it: see `spec-person-wait` in `docs/cycles-suite.md`. The bindings that wait for the build pool (story `tests.run`, release
 `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) list `[69, 70, 75, 126, 127]`: 69 is
