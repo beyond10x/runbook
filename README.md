@@ -107,7 +107,7 @@ The dry run uses an idea text you give it (`--intake`) and stub executors that w
 artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`:
 
 ```console
-runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
   --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 

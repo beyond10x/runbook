@@ -158,8 +158,8 @@ fn a_run_that_names_no_login_file_needs_no_runtime_directory_and_makes_none() {
     let w = World::new("login-none");
     w.one_decision_tree();
     std::fs::write(
-        w.root.join("settings.json"),
-        json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0}]}}).to_string(),
+        w.root.join("settings.toml"),
+        super::core::toml_text(&json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0}]}})),
     )
     .unwrap();
     let mut c = w.command(&w.args("r1", 1_000_000));

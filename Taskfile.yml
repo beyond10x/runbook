@@ -216,7 +216,7 @@ tasks:
       - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
-    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.4`); from the repository root the ess dispatcher does not switch to it."
+    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.98.0`); from the repository root the ess dispatcher does not switch to it."
     dir: ess
     cmds:
       - ess specify validate --path .
@@ -293,14 +293,14 @@ tasks:
 
   check:ess-suite:slow:
     dir: ess
-    desc: "Slow lane (ess 0.97.3 synthesizes it in about 27 s of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
+    desc: "Slow lane (ess 0.98.0 synthesizes it in under a minute of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
       - task: ess-suite:pin
       - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json --check
 
   ess-suite:record:
     dir: ess
-    desc: "Synthesize the conformance suite from the sources (about 27 s with ess 0.97.3, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
+    desc: "Synthesize the conformance suite from the sources (under a minute with ess 0.98.0, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
       - task: ess-suite:pin
       - mkdir -p generated/conformance

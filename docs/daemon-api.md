@@ -98,6 +98,23 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
+| `runbooks` | none | the runbooks a `submit-run` of this daemon accepts, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
+
+The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
+command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
+the runbooks of `--runbook-home` that have a `protocol/<name>.protocol.yaml` and a
+`bindings/<name>.yaml`, the version being the revision of the root protocol. Under the stub runtime
+they are its scripts (the presets and `stub-decision`) and the entries of `--runbook-dir`: a
+directory `<name>/` or a file `<name>.protocol.yaml` with a plain name (letters, digits, `-`, `_`,
+`.`, no leading dot). A name is listed once. Under the stub runtime the view lists every entry of
+`--runbook-dir` and every script of the stub, and an entry of `--runbook-dir` that the stub has no
+script for is accepted: its run is `Submitted` and then ends `FailedToStart` with the reason `the stub
+has no script for runbook <name>` (the stub plays scripts and reads no runbook of the directory). Only
+the runtime `loom` runs what the view lists. A row has a name and a version only: no path of the host
+is in it. The view sits behind the same token check as every route; it is a read, so the cookie of
+the web UI's login opens it. It is a view and no new command: the language cannot read a file system,
+so the specification declares the entity `Runbook` that no command creates, and the daemon fills the
+rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
@@ -310,6 +327,47 @@ Without `--ui`, `GET /` is `404`.
   principal (the daemon's own, see "Running the daemon"). The daemon bounds it like `client` and `idempotency_key`: at
   most 200 characters, and a longer one is refused `400` with the message `answered_by is longer than
   200 characters`, before the request is looked up (it stays open). The form allows 100.
+- Two modes. The header names the mode of the page: "watch" when the inspector `ui/server.mjs` serves
+  it (it only reads: no start form, no token field, every `POST` is `405`) and "operate" when the daemon
+  serves it (start a run, take a decision). Operate adds the button "Start a run" (`ui/daemon/start.js`,
+  loaded only when the daemon named itself, like `decide.js`). Its form takes a runbook from
+  `GET /daemon/views/runbooks`, the intake as text and the confinement, and Start sends `submit-run`:
+  `POST /daemon/commands/submit-run`, JSON, `Authorization: Bearer <token>` when the daemon has a token,
+  no cookie, `runbook_id`, `intake`, `confinement` and an `idempotency_key` that belongs to one filled form: the page
+  makes it when the form is first sent and sends the same key for a press repeated after an answer that is not
+  the command's whole answer (a network error, a reset, a body that is cut or is not JSON, an answer of the
+  HTTP layer such as `401`, `403`, `400` or `415`, a `5xx`), so the daemon's replay rule (`already-submitted`)
+  returns the first run and no second one starts; the key changes only when the daemon answered the command
+  with a `2xx` or `4xx` status and a named outcome (`submitted`, `already-submitted` or a refusal such as
+  `no-runbook`), read whole (a `5xx` keeps the key whatever its body names), and
+  when the runbook, the intake or the confinement changed (the page then says that the earlier press may have
+  started a run: look in the list of runs). The levels offered start at the daemon's floor
+  (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
+  level, Start stays disabled until then, and the form says what the floor is. The form presets no level; the
+  command does: a `submit-run` without the member `confinement` runs at `linux` (the specification says so in
+  the summary of `sdc.daemon.ConfinementLevel`, `ess/domains/daemon.yaml`: "The default of a submit is linux
+  (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
+  the person picked while the form was still reading the floor and the list stays picked when the floor just
+  read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
+  `below-floor`). The page checks the level against the floor it read when the form opened; when the daemon
+  comes back with a higher floor while the form is open, a start with the lower level can leave the page, and the
+  daemon refuses it with `409 below-floor` and starts no run: the daemon's check is the guard
+  (`ui/test/security-start-ready-window.spec.mjs`, "measured: the daemon comes back with a higher floor while the form is open and has read its floor", which asserts `409` and 0 runs).
+  From the moment the form opens until it has read the floor of that opening, Start is
+  disabled and a press sends nothing, whatever level an earlier opening offered. A runbook the person
+  picked that the list just read no longer has is not replaced by another: none is selected, Start is
+  disabled and the form says that the picked runbook is no longer listed. The answer of a press belongs to
+  the opening that sent it: it shows the run and changes nothing that was typed into the form opened
+  again. A token that a header cannot carry (a character above U+00FF, a control character) is
+  forgotten at once, the form asks for it again and says that the token cannot be sent; closing the form
+  (Close, Escape, a successful start) empties the token field.
+  The token follows the rules of the answer above and is held in its own variable of the page's memory (the
+  form asks for it once beside its own button). The new run is read back from the answer
+  (`published[0].payload.run_id`), appears in the run list and is selected. A refusal is shown as its
+  name and status (`no-runbook (422)`, `intake-too-large (422)`, `401`) with its text, and the form keeps
+  what was typed. Under the stub runtime (the `runtime` of the rows) the form says that the run is
+  scripted and nothing is executed. The text of an intake, a runbook name and a refusal reaches the
+  page as text nodes (`textContent`), never as markup.
 - What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
   `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
   the events of every run; the feed of the selected run is the events of that run. The Decisions drawer
@@ -359,7 +417,7 @@ and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrph
 --report-format 2`): 23 of 23 scenarios (13 of `sdc.daemon`, 10 of `sdc.decision`).
 
 The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is committed as
-`ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.97.3 makes it in about 30 s (0.97.1 took 1048 s and did not finish in 1800 s).
+`ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.98.0 makes it in under a minute (0.97.1 took 1048 s and did not finish in 1800 s).
 `CONFORMANCE_SUITE=<file> CONFORMANCE_ONLY=sdc.daemon cargo test conformance` runs any suite document, the synthesized one included, and prints its counts.
 
 ## Outside the language

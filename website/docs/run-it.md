@@ -43,11 +43,11 @@ command printed and none run, approvals scripted
 ([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md), "A dry run"):
 
 ```console
-runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
   --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
-`<settings.json>` is a JSON object in the format `runbook.loom-run-settings/1`
+`<settings.toml>` is a TOML file in the format `runbook.loom-run-settings/1`
 ([`docs/loom-run-settings.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run-settings.md)).
 `--dry` keeps every other option required; a dry call costs nothing and reads no login file
 ([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)). The run
@@ -61,7 +61,7 @@ A real run calls models and costs money. With autonomy level A5 in its settings,
 anything; the spend ledger and the three caps bound what it can spend:
 
 ```console
-runbook run sdc --intake <idea file> --run <name> --runs-dir runs --settings <settings.json> \
+runbook run sdc --intake <idea file> --run <name> --runs-dir runs --settings <settings.toml> \
   --confinement <local|substrate> --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 

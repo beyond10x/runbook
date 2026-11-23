@@ -1,32 +1,32 @@
 {
   "format": "sdc.ess-pin/1",
-  "version": "0.97.4",
-  "release": "https://github.com/beyond10x/ess/releases/tag/0.97.4",
-  "commit": "b076ef00be60564dc532d30912c684c62ea09d6c",
+  "version": "0.98.0",
+  "release": "https://github.com/beyond10x/ess/releases/tag/0.98.0",
+  "commit": "eb2bdd51d9ed229eb527e5bb2747f16ef8bcdcf1",
   "platforms": {
     "aarch64-apple-darwin": {
-      "asset": "ess-0.97.4-aarch64-apple-darwin.tar.gz",
-      "archive_sha256": "1adba5b579c790a9b398cf8d5939df7b89b9e4907204715e0e3db8897c4bae59",
-      "member": "ess-0.97.4-aarch64-apple-darwin/ess",
-      "binary_sha256": "6057935a1619ec45b0c75f1f799439adcafd53e7fa6a05668e8f347e52a46503"
+      "asset": "ess-0.98.0-aarch64-apple-darwin.tar.gz",
+      "archive_sha256": "c4e4f3b800e89a9d97461a2f0474cbdb6a469fd586f8eb02db21dbbfa3a497f5",
+      "member": "ess-0.98.0-aarch64-apple-darwin/ess",
+      "binary_sha256": "852c8e1484513c32fc5c63bebd51ef3951573bb1a7a933c58aed109c8a63c0b5"
     },
     "aarch64-unknown-linux-gnu": {
-      "asset": "ess-0.97.4-aarch64-unknown-linux-gnu.tar.gz",
-      "archive_sha256": "9126fbe9a32b40a29ddda7107f84fbc3808095def64804281a6bfe02a07f06fa",
-      "member": "ess-0.97.4-aarch64-unknown-linux-gnu/ess",
-      "binary_sha256": "edca211788b2b8636fea05236ee5134f1ddca29e307f67d6f5ef7b3f6030ffa2"
+      "asset": "ess-0.98.0-aarch64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "a1c10e11026ea856ddb945100612350df080af063431bb27f4ef69bb361296de",
+      "member": "ess-0.98.0-aarch64-unknown-linux-gnu/ess",
+      "binary_sha256": "87414d1c63f9f9444583e40a7bae0391efef15d4c81daf878d3de2f98ea022ae"
     },
     "x86_64-apple-darwin": {
-      "asset": "ess-0.97.4-x86_64-apple-darwin.tar.gz",
-      "archive_sha256": "104deefc1345b1bf23cdbe0dbe03d7812a78df04722468bdf150725383d14ffc",
-      "member": "ess-0.97.4-x86_64-apple-darwin/ess",
-      "binary_sha256": "68efd499a0bcb94cde98443b1fdc661cd4c628f26945f56831ad93ae011abaf9"
+      "asset": "ess-0.98.0-x86_64-apple-darwin.tar.gz",
+      "archive_sha256": "957fb0673580028716ace2509d5e521f49de1aff83982d06a4df340beab49452",
+      "member": "ess-0.98.0-x86_64-apple-darwin/ess",
+      "binary_sha256": "bf1bf321849375a68d820679fda26b9b082a1467d7bed07a07add78282475a2e"
     },
     "x86_64-unknown-linux-gnu": {
-      "asset": "ess-0.97.4-x86_64-unknown-linux-gnu.tar.gz",
-      "archive_sha256": "235ad6a993c3e81369e3b5439a4ef8d6e2b82df66ad8e4a22809e00557297938",
-      "member": "ess-0.97.4-x86_64-unknown-linux-gnu/ess",
-      "binary_sha256": "07ccfdb235b3da520a6a35cecceba7770e0ea3e7694e162a56e79261f9676779"
+      "asset": "ess-0.98.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "c6c9a3a3d6956ce1a237f0340905dfadc431d31b1a15b104a6d2e64bb5acaa8e",
+      "member": "ess-0.98.0-x86_64-unknown-linux-gnu/ess",
+      "binary_sha256": "e9ae8adffdca5c334959b2d21ad2dbfbf5fd9d42b2f4fa217716d535e91d6d84"
     }
   }
 }

@@ -29,6 +29,27 @@ fn scratch(name: &str) -> PathBuf {
     d
 }
 
+/// The settings file of the first run of a `--print`, as printed: the lines after `  settings:`
+/// that are indented by four spaces (a blank line of the file is an empty line), without the indent.
+fn printed_settings(out: &str) -> String {
+    let mut text = String::new();
+    let mut on = false;
+    for l in out.lines() {
+        if l == "  settings:" {
+            on = true;
+        } else if on && l.is_empty() {
+            text.push('\n');
+        } else if on {
+            match l.strip_prefix("    ") {
+                Some(rest) => text.push_str(&format!("{rest}\n")),
+                None => break,
+            }
+        }
+    }
+    assert!(on, "no settings block in\n{out}");
+    text
+}
+
 fn sha(text: &str) -> String {
     use sha2::Digest;
     sha2::Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -249,7 +270,7 @@ fn a_seed_input_starts_the_bug_fix_runbook_with_bugfix_and_its_root_protocol() {
          --max-llm-calls 100 --max-wall-seconds 3600",
         build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
         build.join("driver/examples/sdc/fixtures/bugfix-pager").display(), launch.join("lx.low.1").join("idea.yaml").display(),
-        launch.join("lx.low.1").join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+        launch.join("lx.low.1").join("settings.toml").display(), runs.join("lx.loom-spend.json").display());
     assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
     // a build without the bug-fix root protocol is refused for that file
     fs::remove_file(build.join("protocol/sdc-bugfix.protocol.yaml")).unwrap();
@@ -341,7 +362,7 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
              --root-protocol sdc@11 --case IDEA-1 --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
              --max-llm-calls {calls} --max-wall-seconds 3600",
             build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
-            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.toml").display(), runs.join("lx.loom-spend.json").display());
         assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
     }
     // The root protocol is the registration of the tree's file: another revision, another argument.
@@ -351,8 +372,15 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
     // The build step names the runbook crate beside the driver's.
     assert!(out.lines().any(|l| l.starts_with("build: ") && l.contains("runbook (cargo build --locked)")), "{out}");
     // The settings the file will hold are printed, and the files are not written by --print.
-    assert!(out.contains("\"decider\":{\"adapter\":\"claude-cli\",\"escalate\":\"final\",\"kind\":\"model\",\"max_decider_calls\":40,\"model\":\"claude-opus-5-5\",\"without_claims\":true}"), "{out}");
-    assert!(out.contains("\"autonomy\":\"A5\"") && out.contains("\"adapter\":\"metaharness\"") && out.contains("\"review\":{\"adapter\":\"claude-cli\"}"), "{out}");
+    let printed = printed_settings(&out);
+    assert!(
+        printed.contains("[decider]\nkind = \"model\"\nmodel = \"claude-opus-5-5\"\nwithout_claims = true\nescalate = \"final\"\nadapter = \"claude-cli\"\nmax_decider_calls = 40\n"),
+        "{out}"
+    );
+    assert!(
+        printed.contains("autonomy = \"A5\"\n") && printed.contains("adapter = \"metaharness\"\n") && printed.contains("[review]\nadapter = \"claude-cli\"\n"),
+        "{out}"
+    );
     assert!(!out.contains("principal"), "the principal of the decider's answers is the runner's to derive: {out}");
     assert!(!launch.exists(), "--print wrote {}", launch.display());
 }
@@ -589,19 +617,18 @@ fn the_settings_file_is_the_committed_fixture_the_runner_reads_and_a_rule_decide
     write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
     let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
     assert_eq!(code, 0, "{out}");
-    let printed = out.lines().filter_map(|l| l.strip_prefix("  settings {").map(|r| format!("{{{r}"))).next().expect("a settings line");
-    let printed: Value = serde_json::from_str(&printed).unwrap();
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../runbook/tests/fixtures/loom-run-settings.json");
-    let committed: Value = serde_json::from_str(&fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap();
-    assert_eq!(printed, committed, "the file sdc-experiment writes and runbook/tests/fixtures/loom-run-settings.json differ");
+    let printed = printed_settings(&out);
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../runbook/tests/fixtures/loom-run-settings.toml");
+    let committed = fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    assert_eq!(printed, committed, "the file sdc-experiment writes and runbook/tests/fixtures/loom-run-settings.toml differ (byte for byte)");
     // A rule decider: kind and verdict, nothing a model decider has, no claims member.
     let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && !k.starts_with("decider.") && k != "review.adapter" && k != "adapter").collect();
     f.extend([("decider.kind", "rule"), ("decider.verdict", "approve")].map(|(k, v)| (k.to_string(), v.to_string())));
     write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
     let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("\"decider\":{\"kind\":\"rule\",\"verdict\":\"approve\"}"), "{out}");
-    assert!(!out.contains("without_claims") && !out.contains("\"adapter\""), "{out}");
+    assert!(printed_settings(&out).contains("[decider]\nkind = \"rule\"\nverdict = \"approve\"\n"), "{out}");
+    assert!(!out.contains("without_claims") && !out.contains("adapter ="), "{out}");
 }
 
 #[test]
@@ -617,7 +644,7 @@ fn the_login_file_is_named_by_its_setting_and_its_path_is_never_printed() {
     assert_eq!(code, 0, "{out}");
     assert!(!out.contains("marker-login-9f3a"), "the login path is printed: {out}");
     assert!(out.contains("login: loom.login_file is set (named in the settings file; the launcher never reads it)"), "{out}");
-    assert!(out.contains("\"login_file\":\"<loom.login_file>\""), "{out}");
+    assert!(out.contains("login_file = \"<loom.login_file>\""), "{out}");
     let desc: Vec<&str> = out.lines().filter(|l| l.starts_with("  description: ")).collect();
     assert_eq!(desc, ["  description: sdc experiment lx: run lx.low.1", "  description: sdc experiment lx: run lx.high.1"], "{out}");
     // Without the setting there is no login line and no member.
@@ -637,7 +664,7 @@ fn a_login_file_named_at_start_reaches_the_run_and_no_record_holds_it() {
     assert_eq!(code, 0, "{out}");
     assert!(!out.contains("marker-login-9f3a"), "the login path is printed: {out}");
     assert_eq!(out.matches("login: loom.login_file is set").count(), 2, "{out}");
-    assert_eq!(out.matches("\"login_file\":\"<loom.login_file>\"").count(), 2, "{out}");
+    assert_eq!(out.matches("login_file = \"<loom.login_file>\"").count(), 2, "{out}");
     assert_eq!(fs::read_to_string(d.join("experiments/lx.yaml")).unwrap(), before, "the record is untouched");
     // A path that is neither absolute nor ~/ is refused as a usage error.
     let (code, out) = experiment(&["run", "lx", "--print", "--login-file", "creds.json", "--builds-dir", builds.to_str().unwrap()], &d);
@@ -768,14 +795,17 @@ fn a_loom_record_may_run_loom_as_a_library_and_names_the_way_to_loom_once() {
              --root-protocol sdc@11 --case IDEA-1 --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
              --max-llm-calls {calls} --max-wall-seconds 3600",
             build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
-            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.toml").display(), runs.join("lx.loom-spend.json").display());
         assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
     }
     assert!(!out.contains("--loom ") && !out.contains("--loom-sha256"), "{out}");
     // the settings file the run reads says in_process and holds no digest
-    let printed = out.lines().filter_map(|l| l.strip_prefix("  settings {").map(|r| format!("{{{r}"))).next().expect("a settings line");
-    let printed: Value = serde_json::from_str(&printed).unwrap();
-    assert_eq!(printed["loom"], json!({"in_process": true, "confinement": "local", "cap_micro_usd": 5000000}), "{printed}");
+    let printed = printed_settings(&out);
+    let table: toml::Table = toml::from_str(&printed).unwrap();
+    assert_eq!(table["in_process"].as_bool(), Some(true), "{printed}");
+    assert_eq!(table["confinement"].as_str(), Some("local"), "{printed}");
+    assert_eq!(table["cap_micro_usd"].as_integer(), Some(5_000_000), "{printed}");
+    assert!(!table.contains_key("loom") && !table.contains_key("loom_sha256"), "{printed}");
 }
 
 #[test]
