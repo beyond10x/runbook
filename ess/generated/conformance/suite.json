@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/40",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "2d3082722d67504d0d88576ff0029ccca8794f938cfc1b3bd199ca7d99cb9b8c",
-    "contract_digest": "0544faf940946db577489f9acd2e93a092076e88322d06e7860312cf93e8f891",
+    "spec_digest": "00975180e641d9b395e39a37ab53bd3c9417f7648847137ddb3d2966963efff7",
+    "contract_digest": "a6b1e63bb21da1a574cdcde9dac753683f1103383e4671110f9bb4065bafb6eb",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -6541,6 +6541,439 @@
         {
           "kind": "actor",
           "name": "sdc.daemon.Runtime"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-a-missing-session-is-refused-before-the-floor": {
+      "purpose": "A run below the floor into a missing session is refused as NoSuchSession, into an existing one as BelowConfinementFloor.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:00:30Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "ci"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-a"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "monthly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "no-session"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:02:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-b"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.CloseSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:03:00Z"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.CloseSession",
+            "outcome": "closed"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:04:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-c"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.Sessions"
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.Sessions",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "client": {
+                "kind": "literal",
+                "value": "ci"
+              },
+              "session_id": {
+                "kind": "literal",
+                "value": "weekly"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Closed"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.DaemonConfiguration"
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.DaemonConfiguration",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "confinement_floor": {
+                "kind": "literal",
+                "value": "linux"
+              },
+              "daemon_id": {
+                "kind": "literal",
+                "value": "runbookd"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ClientLabel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Session.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.CloseSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.OpenSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.CloseSession",
+            "outcome": "closed"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "no-session"
+          }
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.DaemonConfiguration"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.Sessions"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
         }
       ]
     },

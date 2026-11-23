@@ -457,6 +457,12 @@ fn write_actions(ir: &Value) -> HashSet<String> {
 fn loom_events(store: &Path, case: &str) -> Option<Vec<Value>> {
     let hex: String = case.bytes().map(|b| format!("{b:02x}")).collect();
     let text = fs::read_to_string(store.join(format!("runlog-case-{hex}.jsonl"))).ok()?;
+    Some(events_of_log(&text))
+}
+
+/// [`loom_events`] of the text of one case's run log. A kind it does not know (`StopRecorded` and
+/// `StopLifted`, the lines of a hold and its reopen, among them) adds no event and breaks nothing.
+fn events_of_log(text: &str) -> Vec<Value> {
     let mut evs: Vec<Value> = Vec::new();
     let mut last_revision: Option<u64> = None;
     let mut own_since_evaluation = false;
@@ -485,7 +491,7 @@ fn loom_events(store: &Path, case: &str) -> Option<Vec<Value>> {
             _ => {}
         }
     }
-    Some(evs)
+    evs
 }
 
 /// Whether a run directory is one of `runbook run`: Loom's run logs are in its store.
@@ -1893,6 +1899,26 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lines_of_a_hold_and_its_reopen_in_a_run_log_add_no_event() {
+        let log = |held: bool| {
+            let mut lines = vec![
+                r#"{"seq":0,"kind":"CaseOpened","case":"c","protocol":"p@1"}"#.to_string(),
+                r#"{"seq":1,"kind":"Evaluated","case_revision":1}"#.to_string(),
+            ];
+            if held {
+                lines.push(r#"{"seq":2,"kind":"StopRecorded","principal":"person:operator","reason":"review"}"#.to_string());
+                lines.push(r#"{"seq":3,"kind":"StopLifted","principal":"person:operator","stop":2}"#.to_string());
+            }
+            lines.push(r#"{"seq":4,"kind":"ActionFinished","action":"a.b","exit":0}"#.to_string());
+            lines.join("\n")
+        };
+        let events = events_of_log(&log(true));
+        assert_eq!(events, events_of_log(&log(false)));
+        let names: Vec<&str> = events.iter().filter_map(|e| e["event"].as_str()).collect();
+        assert_eq!(names, ["opened", "revised", "action_started", "action_finished"]);
+    }
 
     #[test]
     fn normalise_hides_what_differs_between_runs() {

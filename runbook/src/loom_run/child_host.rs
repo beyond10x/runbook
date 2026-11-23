@@ -5,7 +5,7 @@
 use crate::loom_run::child::{self, EndedBy};
 use crate::loom_run::host::{tail_of, Answer, Call, Halt, LoomHost, Opening};
 use crate::loom_run::run_loop::Clock;
-use crate::loom_run::Confinement;
+use crate::loom_run::{Confinement, Outcome};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -48,9 +48,16 @@ impl<'a> ChildHost<'a> {
     }
 }
 
+/// A call that must exit 0. One that does not and printed `b10x-loom: tree refused: <Reason>: ...`
+/// ends the run `refused` with the reason as its cause, as `tree run` does (`run_loop::parse_run`);
+/// any other failure is a failed call of `b10x-loom` with its exit code and the tail of its standard
+/// error.
 fn expect_exit0(r: &Call, what: &str) -> Result<(), Halt> {
     if r.code == Some(0) {
         return Ok(());
+    }
+    if let Some(refusal) = runbook::engine::refusal::in_stderr(&String::from_utf8_lossy(&r.stderr)) {
+        return Err(Halt::Done(Outcome::Refused { cause: refusal.cause(), reason: format!("b10x-loom {what} refused: {refusal}"), loom_exit: r.code, stderr_tail: Some(tail_of(&r.stderr)) }));
     }
     Err(Halt::Loom { reason: format!("b10x-loom {what} exited {:?}", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) })
 }
