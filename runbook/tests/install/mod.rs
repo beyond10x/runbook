@@ -10,8 +10,12 @@
 //! modes, the printed lines, the marker of a half install, the checks of the arguments and the commit.
 
 mod guards;
+mod half_install;
+mod installed_path;
 mod rules;
 mod slow;
+mod stale_build;
+mod what_is_copied;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -632,4 +636,37 @@ fn a_manifest_path_that_leaves_the_prefix_or_goes_through_a_link_is_never_remove
     assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
     assert_eq!(files_below(&outside).len(), 3, "a file outside the prefix was removed");
     assert!(sandbox.join("elsewhere.txt").is_file());
+}
+
+// ---- helpers of the cases of several files ----
+
+fn sandbox_of(root: &Path) -> (PathBuf, PathBuf) {
+    let sandbox = root.parent().unwrap().to_path_buf();
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    (sandbox, prefix)
+}
+
+fn from_built(root: &Path, prefix: &Path) -> Output {
+    install(&root.join("scripts/install.sh"), prefix, &["--from-built", "debug"])
+}
+
+fn head12(root: &Path) -> String {
+    git_in(root, &["rev-parse", "HEAD"]).chars().take(12).collect()
+}
+
+fn executable(path: &Path, text: &str) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn from_built_with(root: &Path, prefix: &Path, path: &str, vars: &[(&str, &Path)]) -> Output {
+    let mut cmd = Command::new("sh");
+    cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(prefix).args(["--from-built", "debug"]).env_clear().env("PATH", path).env("HOME", prefix.parent().unwrap().join("home")).stdin(Stdio::null());
+    for (k, v) in vars {
+        cmd.env(k, v);
+    }
+    cmd.output().unwrap()
 }

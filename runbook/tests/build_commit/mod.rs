@@ -11,6 +11,8 @@
 #[path = "../../build_commit.rs"]
 mod commit_source;
 
+mod other_refs;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
