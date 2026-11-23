@@ -4,6 +4,8 @@
 //! daemon serves (the answer to a decision). A path in both fails the build. A symbolic link in either
 //! directory, to a file or to a directory, fails the build and names the link.
 
+mod build_commit;
+
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -51,31 +53,14 @@ fn loom_commit(lock: &Path) -> String {
     panic!("{} holds no package b10x-loom-tree with a source", lock.display());
 }
 
-/// What `git` prints for `args` in `dir`, or `None` outside a git checkout, without git, or on any error.
-fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new("git").args(args).current_dir(dir).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|s| !s.is_empty())
-}
-
-/// The first 12 characters of the commit this build is made from (`runbook --version`), or `unknown` outside a
-/// git checkout. The build is redone when the commit moves: when `HEAD`, the branch it names or `packed-refs`
-/// changes.
-fn commit(manifest: &Path) -> String {
-    let Some(head) = git(manifest, &["rev-parse", "HEAD"]) else { return "unknown".to_owned() };
-    let path = |name: &str| git(manifest, &["rev-parse", "--git-path", name]).map(|p| manifest.join(p));
-    for p in ["HEAD", "packed-refs"].iter().filter_map(|n| path(n)) {
-        println!("cargo:rerun-if-changed={}", p.display());
-    }
-    if let Some(branch) = git(manifest, &["symbolic-ref", "-q", "HEAD"]).and_then(|r| path(&r)) {
-        println!("cargo:rerun-if-changed={}", branch.display());
-    }
-    head.chars().take(12).collect()
-}
-
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let lock = manifest.join("Cargo.lock");
-    println!("cargo:rustc-env=RUNBOOK_COMMIT={}", commit(&manifest));
+    let commit = build_commit::commit(&manifest);
+    println!("cargo:rustc-env=RUNBOOK_COMMIT={}", commit.value);
+    for p in &commit.watch {
+        println!("cargo:rerun-if-changed={}", p.display());
+    }
     println!("cargo:rerun-if-changed={}", lock.display());
     println!("cargo:rustc-env=RUNBOOK_LOOM_COMMIT={}", loom_commit(&lock));
     println!("cargo:rerun-if-changed=build.rs");

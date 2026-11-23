@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 mod linked_canon;
+mod build_commit;
 mod canon_cmd;
 mod ess_digest;
 mod loom_run;
