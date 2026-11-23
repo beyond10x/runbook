@@ -100,8 +100,15 @@ enum Fail {
 /// Copies one output stream of the product, line by line, into `product.log` and a buffer the
 /// captures are read from. A line is read as bytes and a byte that is not UTF-8 becomes U+FFFD, so
 /// a line of another encoding does not end the reading; `closed` is set when the stream ended (the
-/// end of the file or an error of the pipe), after its last line is in the buffer.
-fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>, closed: Arc<AtomicBool>) {
+/// end of the file or an error of the pipe), after its last line is in the buffer. The buffer takes
+/// lines until it holds [`CAPTURE_BUFFER`] bytes; `partial` is set when the buffer did not take
+/// every line of the stream (a line left out, or the stream ended by an error), and it is set
+/// before `closed`: once `closed` is seen, `partial` says whether the buffer holds the whole stream.
+type Pump = (Arc<Mutex<String>>, Arc<AtomicBool>, Arc<AtomicBool>);
+
+const CAPTURE_BUFFER: usize = 1 << 20;
+
+fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, (buf, closed, partial): Pump) {
     std::thread::spawn(move || {
         let mut r = BufReader::new(r);
         let mut bytes = Vec::new();
@@ -111,7 +118,10 @@ fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<Str
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
+                Err(_) => {
+                    partial.store(true, Ordering::SeqCst);
+                    break;
+                }
             }
             let text = String::from_utf8_lossy(&bytes);
             let line = text.strip_suffix('\n').unwrap_or(&text);
@@ -120,9 +130,11 @@ fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<Str
                 let _ = writeln!(f, "{line}");
             }
             if let Ok(mut b) = buf.lock() {
-                if b.len() < 1 << 20 {
+                if b.len() < CAPTURE_BUFFER {
                     b.push_str(line);
                     b.push('\n');
+                } else {
+                    partial.store(true, Ordering::SeqCst);
                 }
             }
         }
@@ -255,11 +267,12 @@ impl Adapter {
         let spawned = Instant::now();
         let streams = [Arc::new(Mutex::new(String::new())), Arc::new(Mutex::new(String::new()))];
         let closed = [Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false))];
+        let partial = [Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false))];
         if let Some(o) = child.stdout.take() {
-            pump(o, log.clone(), streams[0].clone(), closed[0].clone());
+            pump(o, log.clone(), (streams[0].clone(), closed[0].clone(), partial[0].clone()));
         }
         if let Some(e) = child.stderr.take() {
-            pump(e, log.clone(), streams[1].clone(), closed[1].clone());
+            pump(e, log.clone(), (streams[1].clone(), closed[1].clone(), partial[1].clone()));
         }
         let mut product = Product { child, port };
         let exited = |product: &mut Product| -> Option<String> {
@@ -280,7 +293,7 @@ impl Adapter {
             let (name, stream) = (s(&c["name"]).to_string(), s(&c["stream"]).to_string());
             let re = regex::Regex::new(s(&c["regex"])).map_err(|e| Fail::Start(format!("capture {name}: {e}")))?;
             let which = usize::from(stream == "stderr");
-            let (buf, ended) = (&streams[which], &closed[which]);
+            let (buf, ended, partial) = (&streams[which], &closed[which], &partial[which]);
             let secs = c["timeout_s"].as_u64().unwrap_or(5);
             let deadline = spawned + Duration::from_secs(secs);
             let mut poll = Duration::from_millis(2);
@@ -306,7 +319,13 @@ impl Adapter {
                             return Err(Fail::Start(why));
                         }
                         if self.answers(&ready, port, &captured) {
-                            return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")));
+                            // "Without printing it" is said only of a stream the buffer took whole.
+                            let why = if partial.load(Ordering::SeqCst) {
+                                format!("capture {name} did not appear on {stream} in the part the adapter read (the buffer takes the first {CAPTURE_BUFFER} bytes of a stream)")
+                            } else {
+                                format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")
+                            };
+                            return Err(Fail::Capture(name.clone(), why));
                         }
                         if Instant::now() > deadline {
                             return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
