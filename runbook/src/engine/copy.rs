@@ -4,64 +4,150 @@
 //! directory is here too: the daemon names it in the run's record and checks the copy against it.
 
 use sha2::{Digest, Sha256};
+use std::fs::{File, OpenOptions};
+use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// How deep a copied directory may nest, links followed. A link that points back up is refused by it.
+/// How deep a copied directory may nest, links followed (the daemon's copy; a link that points back
+/// up is refused by it). The copy of `runbook run` keeps links as links and has no depth bound.
 const MAX_DEPTH: usize = 24;
+
+/// The most entries (directories and files, a link counted as what it is copied as) the daemon's copy
+/// takes. The runbook home of this repository holds about 600 (`bindings/`, `protocol/`,
+/// `instructions/`, `views/`, `driver/examples/`, `tools/`): the bound is about seven times that.
+pub const MAX_ENTRIES: usize = 4096;
+
+/// The most bytes (the lengths of the files) the daemon's copy takes. The same home holds about
+/// 1.1 MB, its largest file 37 KB: the bound is about fourteen times the home.
+pub const MAX_BYTES: u64 = 16 << 20;
 
 /// What a link in the source is.
 #[derive(Clone, Copy)]
 pub enum Links<'a> {
-    /// A link is made again as a link, whatever it points at.
+    /// A link is made again as a link, whatever it points at. Files keep the mode they had (and are
+    /// writable); nothing is bounded.
     Keep,
     /// A link is followed, and only a file or directory whose real path lies below this canonical
-    /// directory is copied, as what it is. Anything that is not a regular file or a directory is refused.
+    /// directory is copied, as what it is. Anything that is not a regular file or a directory is
+    /// refused. The copy is bounded (`MAX_ENTRIES`, `MAX_BYTES`, `MAX_DEPTH`), it is private to its
+    /// owner (directories `0o700`, files `0o600`, or `0o700` when the source has an executable bit),
+    /// and a source that is not the file the plan saw refuses the whole copy.
     Within(&'a Path),
+}
+
+/// What the plan saw of a file it will copy.
+#[derive(Clone, Copy)]
+struct Seen {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    exec: bool,
 }
 
 enum Entry {
     Dir(PathBuf),
-    File { from: PathBuf, to: PathBuf },
+    File { from: PathBuf, to: PathBuf, seen: Option<Seen> },
     Link { target: PathBuf, to: PathBuf },
 }
 
-/// Copies each `(source, destination)` directory. Every refusal comes before the first write: when
-/// this returns an error, no destination was created.
+/// What the plan has counted.
+struct Budget {
+    bounded: bool,
+    entries: usize,
+    bytes: u64,
+}
+
+impl Budget {
+    fn charge(&mut self, bytes: u64) -> Result<(), String> {
+        self.entries += 1;
+        self.bytes = self.bytes.saturating_add(bytes);
+        if self.bounded && (self.entries > MAX_ENTRIES || self.bytes > MAX_BYTES) {
+            return Err(format!("the runbook is over the bound of {MAX_ENTRIES} entries or {MAX_BYTES} bytes"));
+        }
+        Ok(())
+    }
+}
+
+/// Opens a file for reading without following a link in its last component and without waiting on a
+/// pipe: what is opened is checked by the caller to be a regular file.
+fn open_regular(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
+}
+
+/// Copies each `(source, destination)` directory. Every refusal of the plan comes before the first
+/// write: when it refuses, no destination was created. A `Within` copy that fails while it writes
+/// removes the destinations it created.
 pub fn copy_dirs(jobs: &[(&Path, &Path)], links: Links<'_>) -> Result<(), String> {
     let mut entries = Vec::new();
+    let mut budget = Budget { bounded: matches!(links, Links::Within(_)), entries: 0, bytes: 0 };
     for (src, dst) in jobs {
         match links {
-            Links::Keep => plan(src, dst, links, 0, &mut entries)?,
+            Links::Keep => plan(src, dst, links, 0, &mut budget, &mut entries)?,
             Links::Within(root) => {
                 let real = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
                 if !real.starts_with(root) {
                     return Err(format!("{}: a link that leaves the runbook home", src.display()));
                 }
-                plan(&real, dst, links, 0, &mut entries)?
+                plan(&real, dst, links, 0, &mut budget, &mut entries)?
             }
         }
     }
+    let created: Vec<&Path> = jobs.iter().map(|(_, dst)| *dst).filter(|dst| std::fs::symlink_metadata(dst).is_err()).collect();
+    let written = write(entries, links);
+    if written.is_err() && matches!(links, Links::Within(_)) {
+        for dst in created {
+            let _ = std::fs::remove_dir_all(dst);
+        }
+    }
+    written
+}
+
+fn write(entries: Vec<Entry>, links: Links<'_>) -> Result<(), String> {
     for entry in entries {
         match entry {
-            Entry::Dir(dir) => std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?,
+            Entry::Dir(dir) => match links {
+                Links::Keep => std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?,
+                Links::Within(_) => std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| format!("the copy cannot be written: {e}"))?,
+            },
             Entry::Link { target, to } => std::os::unix::fs::symlink(&target, &to).map_err(|e| format!("{}: {e}", to.display()))?,
-            Entry::File { from, to } => {
+            Entry::File { from, to, seen: None } => {
                 std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
                 // A read-only source is copied writable: the copy is the run's.
                 let mut permissions = std::fs::metadata(&to).map_err(|e| format!("{}: {e}", to.display()))?.permissions();
-                use std::os::unix::fs::PermissionsExt;
                 permissions.set_mode(permissions.mode() | 0o200);
                 std::fs::set_permissions(&to, permissions).map_err(|e| format!("{}: {e}", to.display()))?;
             }
+            Entry::File { from, to, seen: Some(seen) } => copy_seen(&from, &to, seen)?,
         }
     }
     Ok(())
 }
 
-fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, out: &mut Vec<Entry>) -> Result<(), String> {
-    if depth > MAX_DEPTH {
+/// Copies the file the plan saw: the source is opened without following a link and must be that
+/// file (same device, inode and length); the copy is private to its owner.
+fn copy_seen(from: &Path, to: &Path, seen: Seen) -> Result<(), String> {
+    let changed = || "a file of the runbook home changed while it was copied".to_string();
+    let mut source = open_regular(from).map_err(|_| changed())?;
+    let meta = source.metadata().map_err(|_| changed())?;
+    if !meta.is_file() || meta.dev() != seen.dev || meta.ino() != seen.ino || meta.len() != seen.len {
+        return Err(changed());
+    }
+    let mode = if seen.exec { 0o700 } else { 0o600 };
+    let mut out = OpenOptions::new().write(true).create_new(true).mode(mode).open(to).map_err(|e| format!("the copy cannot be written: {e}"))?;
+    let copied = std::io::copy(&mut (&mut source).take(seen.len), &mut out).map_err(|e| format!("the copy cannot be written: {e}"))?;
+    if copied != seen.len {
+        return Err(changed());
+    }
+    out.set_permissions(std::fs::Permissions::from_mode(mode)).map_err(|e| format!("the copy cannot be written: {e}"))
+}
+
+fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, budget: &mut Budget, out: &mut Vec<Entry>) -> Result<(), String> {
+    if matches!(links, Links::Within(_)) && depth > MAX_DEPTH {
         return Err(format!("{}: nested deeper than {MAX_DEPTH} levels, or a link that loops", src.display()));
     }
+    budget.charge(0)?;
     out.push(Entry::Dir(dst.to_path_buf()));
     let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
     for entry in entries {
@@ -75,8 +161,8 @@ fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, out: &mut Vec<En
                 let target = std::fs::read_link(&from).map_err(|e| format!("{}: {e}", from.display()))?;
                 out.push(Entry::Link { target, to });
             }
-            Links::Keep if kind.is_dir() => plan(&from, &to, links, depth + 1, out)?,
-            Links::Keep => out.push(Entry::File { from, to }),
+            Links::Keep if kind.is_dir() => plan(&from, &to, links, depth + 1, budget, out)?,
+            Links::Keep => out.push(Entry::File { from, to, seen: None }),
             Links::Within(root) => {
                 let real = if kind.is_symlink() {
                     let real = std::fs::canonicalize(&from).map_err(|e| format!("{}: {e}", from.display()))?;
@@ -87,11 +173,12 @@ fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, out: &mut Vec<En
                 } else {
                     from.clone()
                 };
-                let meta = std::fs::metadata(&real).map_err(|e| format!("{}: {e}", from.display()))?;
+                let meta = std::fs::symlink_metadata(&real).map_err(|e| format!("{}: {e}", from.display()))?;
                 if meta.is_dir() {
-                    plan(&real, &to, links, depth + 1, out)?;
+                    plan(&real, &to, links, depth + 1, budget, out)?;
                 } else if meta.is_file() {
-                    out.push(Entry::File { from: real, to });
+                    budget.charge(meta.len())?;
+                    out.push(Entry::File { from: real, to, seen: Some(Seen { dev: meta.dev(), ino: meta.ino(), len: meta.len(), exec: meta.mode() & 0o111 != 0 }) });
                 } else {
                     return Err(format!("{}: not a regular file or a directory", from.display()));
                 }
@@ -101,25 +188,42 @@ fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, out: &mut Vec<En
     Ok(())
 }
 
-/// The sha256 (hex) over a directory: for each entry in path order its kind, its relative path
-/// and, for a file, its length, its executable bit and its bytes; for a link, its target. A file
-/// edited, added, removed, made executable or replaced by a link changes it.
+/// The sha256 (hex) over a directory: for each entry in name order its kind, its relative path
+/// (the raw bytes of the names) and, for a file, its length, whether it has an executable bit (any of
+/// the three, so that the group and other bits of a source change nothing) and its bytes, streamed
+/// through the hasher; for a link, its target (raw bytes). A file edited, added, removed, made
+/// executable or replaced by a link changes it. A failure names the entry relative to `dir`.
 pub fn digest(dir: &Path) -> Result<String, String> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Err(".: not a directory".to_string()),
+        Err(e) => return Err(format!(".: {e}")),
+    }
     let mut hasher = Sha256::new();
     walk(dir, dir, &mut hasher)?;
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+fn shown(base: &Path, path: &Path) -> String {
+    let rel = path.strip_prefix(base).unwrap_or(path);
+    if rel.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        rel.display().to_string()
+    }
+}
+
 fn walk(base: &Path, dir: &Path, hasher: &mut Sha256) -> Result<(), String> {
     let mut names = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        names.push(entry.map_err(|e| format!("{}: {e}", dir.display()))?.file_name());
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", shown(base, dir)))? {
+        names.push(entry.map_err(|e| format!("{}: {e}", shown(base, dir)))?.file_name());
     }
     names.sort();
     for name in names {
         let path = dir.join(&name);
-        let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().into_owned();
-        let meta = std::fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let rel = path.strip_prefix(base).unwrap_or(&path);
+        let at = |e: std::io::Error| format!("{}: {e}", rel.display());
+        let meta = std::fs::symlink_metadata(&path).map_err(at)?;
         let kind: &[u8] = if meta.file_type().is_symlink() {
             b"L"
         } else if meta.is_dir() {
@@ -131,21 +235,46 @@ fn walk(base: &Path, dir: &Path, hasher: &mut Sha256) -> Result<(), String> {
         };
         hasher.update(kind);
         hasher.update([0]);
-        hasher.update(rel.as_bytes());
+        hasher.update(rel.as_os_str().as_bytes());
         hasher.update([0]);
         if meta.file_type().is_symlink() {
-            let target = std::fs::read_link(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            hasher.update(target.to_string_lossy().as_bytes());
+            let target = std::fs::read_link(&path).map_err(at)?;
+            hasher.update(target.as_os_str().as_bytes());
         } else if meta.is_dir() {
             walk(base, &path, hasher)?;
         } else if meta.is_file() {
-            use std::os::unix::fs::PermissionsExt;
-            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            hasher.update(bytes.len().to_string().as_bytes());
-            hasher.update([0, u8::from(meta.permissions().mode() & 0o111 != 0), 0]);
-            hasher.update(&bytes);
+            hash_file(&path, rel, hasher)?;
         }
         hasher.update([0]);
+    }
+    Ok(())
+}
+
+/// A file of the directory, read through the descriptor it was opened with, in blocks.
+fn hash_file(path: &Path, rel: &Path, hasher: &mut Sha256) -> Result<(), String> {
+    let bad = |what: &str| format!("{}: {what}", rel.display());
+    let mut file = open_regular(path).map_err(|e| bad(&e.to_string()))?;
+    let meta = file.metadata().map_err(|e| bad(&e.to_string()))?;
+    if !meta.is_file() {
+        return Err(bad("not a regular file"));
+    }
+    let len = meta.len();
+    hasher.update(len.to_string().as_bytes());
+    hasher.update([0, u8::from(meta.mode() & 0o111 != 0), 0]);
+    let mut block = vec![0u8; 64 << 10];
+    let mut left = len;
+    while left > 0 {
+        let want = usize::try_from(left).unwrap_or(usize::MAX).min(block.len());
+        let n = file.read(&mut block[..want]).map_err(|e| bad(&e.to_string()))?;
+        if n == 0 {
+            return Err(bad("changed while it was read"));
+        }
+        hasher.update(&block[..n]);
+        left -= n as u64;
+    }
+    let mut more = [0u8; 1];
+    if file.read(&mut more).map_err(|e| bad(&e.to_string()))? != 0 {
+        return Err(bad("changed while it was read"));
     }
     Ok(())
 }
