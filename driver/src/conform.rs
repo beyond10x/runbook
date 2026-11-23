@@ -202,6 +202,7 @@ fn run_bounded(cmd: &mut Command, limit: Duration, stdout: Option<&Path>, stderr
         Err(e) => return (None, format!("cannot start: {e}")),
     };
     let end = Instant::now() + limit;
+    let mut poll = Duration::from_millis(1);
     let code = loop {
         match child.try_wait() {
             Ok(Some(st)) => break st.code(),
@@ -210,7 +211,10 @@ fn run_bounded(cmd: &mut Command, limit: Duration, stdout: Option<&Path>, stderr
                 let _ = child.wait();
                 return (None, format!("killed after {} s", limit.as_secs()));
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) => {
+                std::thread::sleep(poll);
+                poll = (poll * 2).min(Duration::from_millis(5));
+            }
             Err(e) => return (None, e.to_string()),
         }
     };
