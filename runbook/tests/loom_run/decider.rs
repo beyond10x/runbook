@@ -78,12 +78,12 @@ pub fn install_routing_table_at(root: &Path) {
 }
 
 /// The file `sdc-experiment run` writes for a loom run, as committed in
-/// `tests/fixtures/loom-run-settings.json` (`driver/tests/experiment_loom.rs` keeps the writer equal
+/// `tests/fixtures/loom-run-settings.toml` (`driver/tests/experiment_loom.rs` keeps the writer equal
 /// to it), with the fake's sha256 and the world's login file put where the writer prints them as names.
 pub fn fixture(w: &World) -> Value {
-    let mut v: Value = serde_json::from_str(include_str!("../fixtures/loom-run-settings.json")).unwrap();
-    v["loom"]["sha256"] = json!(w.fake.sha256());
-    v["loom"]["login_file"] = json!(w.login_path().display().to_string());
+    let mut v: Value = super::core::from_toml(include_str!("../fixtures/loom-run-settings.toml"));
+    v["loom_sha256"] = json!(w.fake.sha256());
+    v["login_file"] = json!(w.login_path().display().to_string());
     v
 }
 
@@ -92,13 +92,13 @@ pub fn fixture(w: &World) -> Value {
 pub fn fixture_settings(w: &World, cap: u64) -> Value {
     let mut v = fixture(w);
     v["run"] = json!("r1");
-    v["loom"]["cap_micro_usd"] = json!(cap);
+    v["cap_micro_usd"] = json!(cap);
     v["max_wall_seconds"] = json!(600);
     v
 }
 
 pub fn write_settings(w: &World, v: &Value) {
-    std::fs::write(w.root.join("settings.json"), serde_json::to_string_pretty(v).unwrap()).unwrap();
+    std::fs::write(w.root.join("settings.toml"), super::core::toml_text(v)).unwrap();
 }
 
 /// The file as it is: `sdc-reply` is found on the runner's PATH (the world puts its root there).

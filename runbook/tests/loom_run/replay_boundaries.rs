@@ -206,13 +206,13 @@ fn run_with_replay_key(tag: &str, extra: &[&str]) -> (Option<i32>, String, bool)
         }
     }
     put(&root.join("idea.yaml"), "text: a note on tea\n");
-    let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "replay": {"adapter": "/bin/true"},
+    let settings = json!({"in_process": true, "confinement": "local", "replay": {"adapter": "/bin/true"},
         "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
-    put(&root.join("settings.json"), &settings.to_string());
+    put(&root.join("settings.toml"), &super::core::toml_text(&settings));
     let r = |p: &str| root.join(p).display().to_string();
     let out = Command::new(super::core::BIN)
         .args(["run", "sdc", "--run", "r1", "--runs-dir", &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-demo@1", "--case", "ROOT-1"])
-        .args(["--intake", &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.json"), "--spend-ledger", &r("ledger.json")])
+        .args(["--intake", &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.toml"), "--spend-ledger", &r("ledger.json")])
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .args(extra)
         .env_clear()
@@ -344,11 +344,11 @@ fn run_with_settings(tag: &str, settings: Value, extra: &[&str]) -> (Option<i32>
         }
     }
     put(&root.join("idea.yaml"), "text: a note on tea\n");
-    put(&root.join("settings.json"), &settings.to_string());
+    put(&root.join("settings.toml"), &super::core::toml_text(&settings));
     let r = |p: &str| root.join(p).display().to_string();
     let out = Command::new(super::core::BIN)
         .args(["run", "sdc", "--run", "r1", "--runs-dir", &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-demo@1", "--case", "ROOT-1"])
-        .args(["--intake", &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.json"), "--spend-ledger", &r("ledger.json")])
+        .args(["--intake", &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.toml"), "--spend-ledger", &r("ledger.json")])
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .args(extra)
         .env_clear()
@@ -360,7 +360,7 @@ fn run_with_settings(tag: &str, settings: Value, extra: &[&str]) -> (Option<i32>
 }
 
 fn base(extra: Value) -> Value {
-    let mut v = json!({"loom": {"in_process": true, "confinement": "local"},
+    let mut v = json!({"in_process": true, "confinement": "local",
         "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
     for (k, x) in extra.as_object().unwrap() {
         v[k] = x.clone();
@@ -368,10 +368,10 @@ fn base(extra: Value) -> Value {
     v
 }
 
-/// F3: a null and an empty `replay` are refused without `--recorded`.
+/// F3: an empty or a typed `replay` (TOML has no null) is refused without `--recorded`.
 #[test]
-fn a_null_or_an_empty_replay_key_without_recorded_is_refused() {
-    for (what, value) in [("null", Value::Null), ("empty object", json!({})), ("empty array", json!([])), ("string", json!("x")), ("false", json!(false))] {
+fn an_empty_or_a_typed_replay_key_without_recorded_is_refused() {
+    for (what, value) in [("empty object", json!({})), ("empty array", json!([])), ("string", json!("x")), ("false", json!(false))] {
         let (code, said, made) = run_with_settings(&format!("key-{}", what.replace(' ', "-")), base(json!({"replay": value})), &[]);
         assert_eq!(code, Some(2), "replay: {what}: {said}");
         assert!(!made, "replay: {what}: a run directory was made");

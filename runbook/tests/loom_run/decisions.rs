@@ -721,9 +721,9 @@ fn probe(tag: &str, level: &str) -> Probe {
     put(&root.join("fx/instructions/decider/approval.md"), INSTRUCTION);
     executable(&root.join("fx/bindings/tools/llm-adapter-claude-cli.sh"), ADAPTER);
     put(&root.join("idea.yaml"), "text: a note on tea\n");
-    let settings = json!({"loom": {"in_process": true, "confinement": level},
+    let settings = json!({"in_process": true, "confinement": level,
         "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
-    put(&root.join("settings.json"), &settings.to_string());
+    put(&root.join("settings.toml"), &super::core::toml_text(&settings));
     let run_dir = root.join("runs/r1");
     let r = run_dir.display();
     // The writer tries each target by its absolute host path and says what it saw in `target/probe.txt`
@@ -742,7 +742,7 @@ fn probe(tag: &str, level: &str) -> Probe {
     let a = |p: &str| root.join(p).display().to_string();
     let out = Command::new(BIN)
         .args(["run", "sdc", "--run", "r1", "--runs-dir", &a("runs"), "--bindings", &a("fx/bindings"), "--protocols", &a("fx/protocol"), "--root-protocol", "engine-demo@1", "--case", "ROOT-1"])
-        .args(["--intake", &a("idea.yaml"), "--confinement", level, "--settings", &a("settings.json"), "--spend-ledger", &a("ledger.json")])
+        .args(["--intake", &a("idea.yaml"), "--confinement", level, "--settings", &a("settings.toml"), "--spend-ledger", &a("ledger.json")])
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .env_clear()
         .env("PATH", std::env::var("PATH").unwrap_or_default())
