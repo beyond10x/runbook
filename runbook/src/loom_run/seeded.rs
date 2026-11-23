@@ -20,7 +20,7 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 /// The summary record.
@@ -68,7 +68,7 @@ fn names_of(dir: &Path) -> Option<Vec<String>> {
     Some(names)
 }
 
-fn list(workspace: &Path, max_files: usize) -> Listing {
+fn list(workspace: &Path, max_files: usize, max_entries: usize) -> Listing {
     let mut out = Listing { files: Vec::new(), entries: Vec::new(), complete: true };
     let mut seen = 0usize;
     let Some(top) = names_of(workspace) else {
@@ -104,7 +104,7 @@ fn list(workspace: &Path, max_files: usize) -> Listing {
                 let mut sub = Vec::new();
                 for n in names.into_iter().filter(|n| !n.starts_with('.')) {
                     seen += 1;
-                    if seen > MAX_ENTRIES {
+                    if seen > max_entries {
                         out.complete = false;
                         break;
                     }
@@ -140,13 +140,27 @@ fn list(workspace: &Path, max_files: usize) -> Listing {
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    // What lies at the temporary name is removed (a link is removed, never followed) and the file is then created new: the
+    // open fails on anything that is there, so the record is never written into a file this function did not create.
+    match fs::remove_file(&tmp) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", tmp.display())),
+    }
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    file.write_all(bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    drop(file);
     fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// [`write`] with the bound on files given.
 pub fn write_with(run_dir: &Path, workspace: &Path, at_secs: u64, max_files: usize) -> Result<(), String> {
-    let listing = list(workspace, max_files);
+    write_limited(run_dir, workspace, at_secs, max_files, MAX_ENTRIES)
+}
+
+/// [`write`] with both bounds given: files, and entries of any kind.
+pub fn write_limited(run_dir: &Path, workspace: &Path, at_secs: u64, max_files: usize, max_entries: usize) -> Result<(), String> {
+    let listing = list(workspace, max_files, max_entries);
     let mut lines = String::new();
     for (path, sha) in &listing.files {
         lines.push_str(&json!({"path": path, "sha256": sha}).to_string());
@@ -230,5 +244,164 @@ mod tests {
         let r = record(&run);
         let kinds: Vec<(&str, &str)> = r["entries"].as_array().unwrap().iter().map(|e| (e["path"].as_str().unwrap(), e["kind"].as_str().unwrap())).collect();
         assert_eq!(kinds, [("a", "dir"), ("out-link", "link")]);
+    }
+
+    /// `write` on its own thread: a call that does not return in 10 s is a hang, reported, not waited for.
+    fn write_in_time(run: &Path) -> Result<(), String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (run, work) = (run.to_path_buf(), run.join("work"));
+        std::thread::spawn(move || {
+            let _ = tx.send(write(&run, &work, 1));
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("write did not return in 10 s: it opened something that blocks"))
+    }
+
+    fn mkfifo(path: &Path) {
+        assert!(std::process::Command::new("mkfifo").arg(path).status().unwrap().success());
+    }
+
+    fn paths(run: &Path) -> Vec<String> {
+        listed(run).into_iter().map(|(p, _)| p).collect()
+    }
+
+    /// A mode 000 file or directory is read by the superuser: the cases that need one are not run there.
+    fn permissions_bind(probe: &Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        fs::write(probe, "p").unwrap();
+        fs::set_permissions(probe, fs::Permissions::from_mode(0o000)).unwrap();
+        let binds = fs::read(probe).is_err();
+        fs::set_permissions(probe, fs::Permissions::from_mode(0o644)).unwrap();
+        binds
+    }
+
+    #[test]
+    fn the_record_is_not_written_through_a_link_at_its_temporary_name() {
+        let run = scratch("tmp-link");
+        let victim = run.join("victim.txt");
+        fs::write(&victim, "VICTIM-ORIGINAL").unwrap();
+        std::os::unix::fs::symlink(&victim, run.join("seeded.tmp")).unwrap();
+        std::os::unix::fs::symlink(&victim, run.join("seeded-files.tmp")).unwrap();
+        fs::write(run.join("work/a.txt"), "a").unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "VICTIM-ORIGINAL", "the seed record was written through a link into a file it does not own");
+        assert_eq!(paths(&run), ["a.txt"]);
+        assert_eq!(record(&run)["files"], 1);
+        for name in [RECORD, LIST] {
+            assert!(fs::symlink_metadata(run.join(name)).unwrap().is_file(), "{name} is a regular file of its own");
+        }
+    }
+
+    #[test]
+    fn a_named_pipe_in_the_seed_is_never_opened_and_the_record_says_so() {
+        let run = scratch("fifo");
+        let work = run.join("work");
+        fs::create_dir_all(work.join("tree")).unwrap();
+        fs::write(work.join("tree/a.txt"), "a").unwrap();
+        mkfifo(&work.join("pipe-top"));
+        mkfifo(&work.join("tree/pipe-nested"));
+        write_in_time(&run).unwrap();
+        assert_eq!(paths(&run), ["tree/a.txt"]);
+        let kinds: Vec<(String, String)> = record(&run)["entries"].as_array().unwrap().iter().map(|e| (e["path"].as_str().unwrap().to_owned(), e["kind"].as_str().unwrap().to_owned())).collect();
+        assert_eq!(kinds, [("pipe-top".to_owned(), "other".to_owned()), ("tree".to_owned(), "dir".to_owned())]);
+    }
+
+    #[test]
+    fn a_name_that_is_not_text_makes_the_record_incomplete_not_wrong() {
+        use std::os::unix::ffi::OsStrExt;
+        let run = scratch("non-utf8");
+        let work = run.join("work");
+        fs::create_dir_all(work.join("tree")).unwrap();
+        fs::write(work.join("tree/ok.txt"), "a").unwrap();
+        fs::write(work.join("tree").join(std::ffi::OsStr::from_bytes(b"bad-\xff.txt")), "b").unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(record(&run)["complete"], false, "{}", record(&run));
+    }
+
+    #[test]
+    fn the_list_is_sorted_by_path_as_the_docs_say() {
+        let run = scratch("sorted");
+        let work = run.join("work");
+        fs::create_dir_all(work.join("a")).unwrap();
+        fs::write(work.join("a/x.txt"), "x").unwrap();
+        fs::write(work.join("a.txt"), "a").unwrap();
+        fs::write(work.join("b.txt"), "b").unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(paths(&run), ["a.txt", "a/x.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn top_level_dot_entries_are_skipped() {
+        let run = scratch("dot-top");
+        let work = run.join("work");
+        fs::create_dir_all(work.join(".cache")).unwrap();
+        fs::write(work.join(".cache/token.txt"), "t").unwrap();
+        fs::write(work.join(".hidden"), "h").unwrap();
+        fs::write(work.join("ok.txt"), "o").unwrap();
+        write_in_time(&run).unwrap();
+        assert_eq!(paths(&run), ["ok.txt"]);
+        let names: Vec<String> = record(&run)["entries"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(names, ["ok.txt"]);
+    }
+
+    #[test]
+    fn a_nested_listing_past_the_bound_says_it_is_not_complete() {
+        let run = scratch("bound-nested");
+        let work = run.join("work");
+        fs::create_dir_all(work.join("tree")).unwrap();
+        for i in 0..7 {
+            fs::write(work.join("tree").join(format!("f{i}.txt")), format!("{i}")).unwrap();
+        }
+        write_with(&run, &work, 1, 4).unwrap();
+        assert_eq!(record(&run)["complete"], false);
+        assert_eq!(listed(&run).len(), 4);
+    }
+
+    #[test]
+    fn a_directory_past_the_entry_bound_says_it_is_not_complete() {
+        let run = scratch("entries");
+        let work = run.join("work");
+        fs::create_dir_all(work.join("many")).unwrap();
+        for i in 0..6 {
+            std::os::unix::fs::symlink("x", work.join("many").join(format!("l{i}"))).unwrap();
+        }
+        write_limited(&run, &work, 1, MAX_FILES, 5).unwrap();
+        assert_eq!(record(&run)["complete"], false);
+        write_limited(&run, &work, 1, MAX_FILES, 6).unwrap();
+        assert_eq!(record(&run)["complete"], true, "a directory of exactly the bound is complete");
+    }
+
+    #[test]
+    fn a_workspace_that_cannot_be_read_is_said_not_listed_as_empty() {
+        let run = scratch("no-workspace");
+        write(&run, &run.join("no-such-work"), 1).unwrap();
+        assert_eq!(record(&run)["complete"], false, "{}", record(&run));
+    }
+
+    #[test]
+    fn an_unreadable_directory_and_an_unreadable_file_make_the_record_incomplete() {
+        use std::os::unix::fs::PermissionsExt;
+        let run = scratch("unreadable");
+        if !permissions_bind(&run.join("probe")) {
+            eprintln!("skipped: this user reads a file of mode 000");
+            return;
+        }
+        let work = run.join("work");
+        fs::create_dir_all(work.join("closed")).unwrap();
+        fs::write(work.join("closed/in.txt"), "i").unwrap();
+        fs::write(work.join("ok.txt"), "o").unwrap();
+        fs::set_permissions(work.join("closed"), fs::Permissions::from_mode(0o000)).unwrap();
+        write_in_time(&run).unwrap();
+        fs::set_permissions(work.join("closed"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(record(&run)["complete"], false, "an unreadable directory: {}", record(&run));
+        // an unreadable nested file and an unreadable top-level file, each alone: neither is listed and each says so
+        for (tag, rel) in [("unreadable-nested-file", "tree/secret.txt"), ("unreadable-top-file", "top.txt")] {
+            let run = scratch(tag);
+            fs::create_dir_all(run.join("work/tree")).unwrap();
+            fs::write(run.join("work").join(rel), "s").unwrap();
+            fs::set_permissions(run.join("work").join(rel), fs::Permissions::from_mode(0o000)).unwrap();
+            write_in_time(&run).unwrap();
+            assert_eq!(record(&run)["complete"], false, "{tag}: {}", record(&run));
+            assert!(listed(&run).is_empty(), "{tag}: {:?}", listed(&run));
+        }
     }
 }
