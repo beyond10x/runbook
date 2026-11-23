@@ -364,7 +364,7 @@ test('the laptop project leaves out the wide-only and slow files, the wide proje
 
 test('the config matches test files by the one form the lists know, and no file under test/ is left out by it', () => {
   expect(gate.testMatch).toBe(SPEC_FORM);
-  const formMatches = (rel) => SPEC_FORM.test(path.join('/ui/test', rel));
+  const formMatches = (rel) => SPEC_FORM.test(path.join(here, rel));
   expect(formMatches('x.spec.mjs')).toBe(true);
   for (const rel of ['x.test.mjs', 'sub/x.spec.mjs', 'x.spec.js', 'x.spec.ts', 'x.spec.mts', 'x.mjs', 'x.spec.mjs.bak']) expect(formMatches(rel), rel).toBe(false);
   expect(strayProblems(['x.spec.mjs', 'x.mjs', 'data.json', 'fixtures/x.txt'], formMatches)).toEqual([]);
@@ -372,6 +372,39 @@ test('the config matches test files by the one form the lists know, and no file 
   expect(strayProblems([...stray, 'x.spec.mjs'], formMatches)).toHaveLength(stray.length);
   expect(strayProblems(['x.spec.mjs.bak', 'x.mjs'], formMatches)).toEqual([]);
   expect(strayProblems(testFiles(), formMatches)).toEqual([]);
+});
+
+// A spec below a directory that is itself named `test` (inside test/, test/fixtures/ or test/recorded/) is no test of the step: the
+// config's pattern starts at test/, and the stray check sees such a file as a file the lists do not know.
+for (const rel of ['sub/test/x.spec.mjs', 'fixtures/a/test/x.spec.mjs', 'recorded/a/test/x.spec.mjs']) {
+  test(`the config does not take a spec below a nested directory named test: ${rel}`, () => {
+    expect(SPEC_FORM.test(path.join(here, rel)), `Playwright's testMatch takes ${rel}`).toBe(false);
+  });
+  test(`the stray check tells a spec below a nested directory named test: ${rel}`, () => {
+    const formMatches = (r) => SPEC_FORM.test(path.join(here, r));
+    expect(formMatches('x.spec.mjs'), 'the form takes a spec directly under test/').toBe(true);
+    expect(strayProblems([rel], formMatches), rel).toHaveLength(1);
+  });
+}
+
+// The live calls of the two checks above stay whole: a case that replaces the assertion line itself is no case of a clean tree,
+// so the text of this file is read. The patterns are regular expressions, so that this case does not contain what it looks for.
+test('the live sleep check and the live stray check of this file are called whole', () => {
+  const src = text('budget.spec.mjs');
+  expect(src).toMatch(/expect\(sleepProblems\(textOf\(files\), FIXED_WAITS\)\)\.toEqual\(\[\]\);/);
+  expect(src).toMatch(/expect\(strayProblems\(testFiles\(\), formMatches\)\)\.toEqual\(\[\]\);/);
+});
+
+const LATER = 'const later = (ms) => new Promise((r) => setTimeout(r, ms));\nawait later(250);';
+const laterEntry = (helper) => ({'a.mjs': {calls: 1, ms: 0, variable: 'retry pause', helper, largest: 250}});
+test('the helper an entry names for a variable sleep is one word, not any text', () => {
+  expect(sleepProblems({'a.mjs': LATER}, laterEntry('later'))).toEqual([]);
+  for (const helper of ['two words', 'later|x', '', 'a.b']) {
+    expect(sleepProblems({'a.mjs': LATER}, laterEntry(helper)), `helper "${helper}"`).toEqual([expect.stringContaining('needs "helper"')]);
+  }
+});
+test('a call site of the helper that passes no number is told with its argument as written, spaces left out', () => {
+  expect(sleepProblems({'a.mjs': `${LATER}\nawait later( ms );`}, laterEntry('later'))).toEqual([expect.stringContaining('later(ms) passes no number')]);
 });
 
 const CHURN = `

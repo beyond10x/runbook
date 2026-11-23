@@ -1,3 +1,6 @@
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
 // The lanes of the UI tests, and the viewports each spec runs at.
 //   gate  the test step (`task test` in ui/): nothing in it reads runs/ (git-ignored), the driver or a canon binary or
 //         a server somebody else started, so it runs the same on a fresh clone and on a machine with every
@@ -131,10 +134,13 @@ export const SIZE_EXCEPTIONS = {
   'view.spec.mjs': 'presence, not layout',
 };
 
-// The one form of a spec file that the lists above know: `test/<name>.spec.mjs`, directly under test/. The Playwright config
-// matches test files by it, and budget.spec.mjs fails a file under test/ that Playwright's default match would take and
-// this form does not, so a misnamed spec is told, not left out.
-export const SPEC_FORM = /\/test\/[^/]+\.spec\.mjs$/;
+// The one form of a spec file that the lists above know: `<this directory>/<name>.spec.mjs`, directly under test/ (the pattern
+// starts at this directory and Playwright matches it against the absolute path, so a spec below a subdirectory, also one
+// below a directory that is itself named `test`, is not a test). The Playwright config matches test files by it, and
+// budget.spec.mjs fails a file anywhere below test/ that Playwright's default match would take and this form does not, so a
+// misnamed or misplaced spec is told, not left out.
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+export const SPEC_FORM = new RegExp(`^${TEST_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[^/]+\\.spec\\.mjs$`);
 
 // The sleeps of the gate: the files that wait a fixed time, with how many sleeps each has (`calls`) and the sum of their
 // literal milliseconds (`ms`). A sleep is a `waitForTimeout` (also with a space before the bracket, as a bracket member or
