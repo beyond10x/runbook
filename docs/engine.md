@@ -62,6 +62,16 @@ directory holds no copy. Nothing a client sends chooses the source or the target
 runbook by name and version (a name with a separator or a leading dot is `no-runbook`), the source is
 the daemon's `--runbook-home` and the target is the run's directory.
 
+The daemon's copy is bounded: a runbook of more than 4096 entries (directories and files; a link
+counts as what it is copied as, so links that lead to the same directory many times end at the
+bound) or 16 MiB is refused before the first write, naming no path (`engine::copy::MAX_ENTRIES`,
+`MAX_BYTES`; the home of this repository holds about 600 entries and 1.1 MB). It is private to the
+daemon's user: `runs/<run id>/` and every directory of the copy are `0o700`, every file `0o600`, or
+`0o700` when the source has an executable bit. The plan names each file it will copy by device,
+inode and length; the copy opens each source without following a link and refuses the whole copy,
+leaving nothing behind, when a source is no longer that file. `runbook run` keeps links and the
+modes of its sources, as before, and has none of these bounds.
+
 What a revision of the home does during a run: nothing, for that run. An edit, a replacement by a file
 that does not parse, a removal and a revision of the protocols and bindings in the home change nothing
 for a run that was submitted before it; a run submitted after takes the new files, and a submit that
@@ -71,24 +81,35 @@ The run's record names its copy: the event `runbook.pinned` (the daemon's own ki
 the run started and before the first line of Loom's log; open text, not one of the kinds ESS declares)
 holds `runbook` (the name), `protocol` (the id the root protocol declares), `revision` (its revision),
 `bindings_sha256` (sha256 over the copied `bindings/` directory) and `copy_sha256` (over the whole copy).
-No path is in it. The digest is over every entry in path order: its kind, its relative path and, for a
-file, its length, its executable bit and its bytes, for a link its target
-(`engine::copy::digest`); `runs/<run id>/runbook-pin.json` holds the same members.
+No path is in it. The digest is over every entry in name order: its kind, its relative path (the raw
+bytes of the names) and, for a file, its length, whether it has an executable bit (any of the three, so
+that the group and other bits of a source make no second digest for one runbook) and its bytes, read in
+blocks, for a link its target (`engine::copy::digest`); `runs/<run id>/runbook-pin.json` holds the same
+members. The value for an unchanged runbook is the one earlier daemons wrote.
 
-The copy is checked, before every call into Loom that reads it or runs a program of it (each `run_tree`,
-each answer that is a library call, each `tree status`), against `copy_sha256`. A copy that changed (a
-file edited, added, removed or made executable) ends the run: `runbook.runtime-failed`, reason
-`RunbookCopyChanged: ...`, outcome `runtime-failure`, and the call that would have read or run the
-changed file is not made. A run that the runtime fails on while it waits on decisions (this one, or a
-failure to read the run's log) has its open requests withdrawn, as a cancel does, and
-ends the same way; before, such a run stayed `WaitingOnDecision` for good. The check is a read before a call: a bound program of the run that rewrites
-a program of the copy while another program is running is seen at the next check, not while it runs;
-the copy is the run's own and the confinement of the bound programs is what keeps them from it.
+The copy is checked against `copy_sha256` before each round (each `run_tree`), before each answer that
+is a library call and before the final `tree status`; `open` reads the copy right after it is made and
+nothing runs between the two. A copy that changed (a file edited, added, removed or made executable)
+ends the run: `runbook.runtime-failed`, reason `RunbookCopyChanged: ...` (an entry named relative to the
+copy, never a path of the host), outcome `runtime-failure`, and the round, answer or status that would
+have read or run the changed file is not started. A run that the runtime fails on while it waits on
+decisions (this one, or a failure to read the run's log) has its open requests withdrawn, as a cancel
+does, and ends the same way; before, such a run stayed `WaitingOnDecision` for good. An answer to a run
+whose runtime has failed and whose end the daemon has not recorded yet is refused as `run-not-waiting`:
+it is not recorded as given.
+
+The check is a read before a call, not a guard around each program. Inside one round a bound program at
+confinement `local` is unconfined: it can change the copy, and a later program of the same round runs
+the changed bytes. The next check ends the run, and the digest the run recorded is then not what ran in
+that round. At confinement `linux` the copy is not in a bound program's view, by the pinned Loom's mount
+list. A check before each program is Loom's, not the engine's.
 `runbook run` has no such check; it limits the copy's budgets before each step and pins who decides.
 
 `start` with a store that exists goes on from the store (resuming an orphaned run is not built, below):
-it takes the run's copy and checks it as above; a store opened before the copy existed has no
-`runbook-pin.json` and reads the home as it always did.
+it takes the run's copy and checks it as above. A run that has neither a copy nor a `runbook-pin.json` (a
+store opened before the copy existed) reads the home as it always did. A copy that stands without a pin
+file that is a regular file of one name, text, and what the submit wrote ends the run by the refusal a
+changed copy has; the pin file is opened without following a link and without waiting on a pipe.
 
 ## Decisions and answers
 
