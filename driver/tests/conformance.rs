@@ -2,6 +2,7 @@
 //! table node (`examples/conformance-stub-product.rs`), and the route table check. They need the
 //! pinned ess (driver/ess-pin.json): `sdc-conform ess-install` once, or `ESS_BIN`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -20,10 +21,29 @@ fn stub() -> PathBuf {
     p
 }
 
+/// Runs of `sdc-conform ess-path` in this process.
+static ESS_PATH_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The pinned ess, resolved once per process (each test is one process under cargo-nextest).
 fn ess() -> PathBuf {
-    let o = Command::new(BIN).arg("ess-path").output().unwrap();
-    assert!(o.status.success(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", String::from_utf8_lossy(&o.stderr));
-    PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
+    static ESS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ESS.get_or_init(|| {
+        ESS_PATH_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let o = Command::new(BIN).arg("ess-path").output().unwrap();
+        assert!(o.status.success(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", String::from_utf8_lossy(&o.stderr));
+        PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
+    })
+    .clone()
+}
+
+/// The precondition of a test that runs the pinned ess through `sdc-conform`: the binary is
+/// installed where `sdc-conform` looks (`ESS_BIN`, else the cache path). `sdc-conform` checks the
+/// pin against the binary's bytes at each start; a test that does not need the path asks only this
+/// and does not start `sdc-conform` for it.
+fn installed() {
+    let pin: J = serde_json::from_str(&fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("ess-pin.json")).unwrap()).unwrap();
+    let path = crate::ess_pin_guard::installed_ess(&pin);
+    assert!(path.is_file(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", path.display());
 }
 
 fn copy(from: &Path, to: &Path) {
@@ -97,7 +117,7 @@ fn says(o: &Output) -> String {
 
 #[test]
 fn every_scenario_passes_and_the_check_holds() {
-    ess();
+    installed();
     let run = run_dir("all-pass", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &t, &[]);
@@ -122,7 +142,7 @@ fn every_scenario_passes_and_the_check_holds() {
 
 #[test]
 fn one_deviation_is_contradicted_with_its_expected_and_observed() {
-    ess();
+    installed();
     let run = run_dir("deviation", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &with_mode("gone"));
     let (o, d) = observe(&run, &t, &[("SDC_LLM_MODEL_CONFORMANCE", "claude-opus-5-5"), ("SDC_LLM_EFFORT_CONFORMANCE", "medium")]);
@@ -144,7 +164,7 @@ fn one_deviation_is_contradicted_with_its_expected_and_observed() {
 
 #[test]
 fn an_empty_suite_is_unknown_never_a_pass() {
-    ess();
+    installed();
     let run = run_dir("empty", "spec-empty");
     let t = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &t, &[]);
@@ -157,7 +177,7 @@ fn an_empty_suite_is_unknown_never_a_pass() {
 
 #[test]
 fn a_product_that_does_not_start_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nostart", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &with_mode("nostart"));
     let (o, d) = observe(&run, &t, &[]);
@@ -175,7 +195,7 @@ fn s(v: &J) -> &str {
 
 #[test]
 fn a_refused_table_is_asked_again_twice_then_unknown() {
-    ess();
+    installed();
     let run = run_dir("refused", "spec");
     let mut t = table();
     t["views"] = json!([]);
@@ -194,7 +214,7 @@ fn a_refused_table_is_asked_again_twice_then_unknown() {
 
 #[test]
 fn a_table_fixed_on_the_retry_is_used() {
-    ess();
+    installed();
     let run = run_dir("retry", "spec");
     let mut bad = table();
     bad["commands"][1]["outcomes"][2]["status"] = json!(200);
@@ -210,7 +230,7 @@ fn a_table_fixed_on_the_retry_is_used() {
 
 #[test]
 fn a_product_that_does_not_build_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nobuild", "spec");
     let mut t = table();
     t["build"] = json!({"argv": ["bin/stub-product", "0", "x", "failbuild"]});
@@ -223,7 +243,7 @@ fn a_product_that_does_not_build_is_unknown() {
 
 #[test]
 fn a_missing_table_and_a_model_less_adapter_are_unknown() {
-    ess();
+    installed();
     let run = run_dir("notable", "spec");
     let (o, d) = observe(&run, "-", &[]);
     assert!(o.status.success(), "{}", says(&o));
@@ -257,18 +277,37 @@ fn an_ess_binary_that_is_not_the_pinned_one_is_refused() {
 
 #[test]
 fn a_run_without_a_delivered_tree_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nodelivery", "spec");
     fs::remove_dir_all(run.join("store/IDEA-1/work/published")).unwrap();
     let (_, d) = observe(&run, "-", &[]);
     assert_eq!(d["conformance"]["cause"], "no_delivered_tree", "{:#}", d["conformance"]);
 }
 
+/// Runs of `ess compile` per output file in this process (the test of `ir_of` reads them).
+static COMPILES: std::sync::Mutex<BTreeMap<PathBuf, u32>> = std::sync::Mutex::new(BTreeMap::new());
+
 fn ir_of(dir: &Path, spec: &str) -> PathBuf {
     let p = dir.join(format!("ir-{spec}.json"));
+    if p.is_file() {
+        return p;
+    }
+    *COMPILES.lock().unwrap().entry(p.clone()).or_default() += 1;
     let o = Command::new(ess()).args(["compile", "--path"]).arg(fixtures().join(spec)).arg("--out").arg(&p).output().unwrap();
     assert!(o.status.success());
     p
+}
+
+/// A test that checks one table many times starts the pinned ess once: one `sdc-conform ess-path`
+/// (a digest and a `--version`) and one `ess compile` of the fixture, not one of each per check.
+#[test]
+fn the_pinned_ess_and_the_compiled_fixture_are_made_once_for_many_checks() {
+    let dir = tmp("check-once");
+    for _ in 0..4 {
+        assert!(check(&dir, &table()).0);
+    }
+    assert_eq!(ESS_PATH_RUNS.load(std::sync::atomic::Ordering::SeqCst), 1, "runs of `sdc-conform ess-path`");
+    assert_eq!(COMPILES.lock().unwrap().get(&dir.join("ir-spec.json")).copied(), Some(1), "runs of `ess compile`");
 }
 
 fn check(dir: &Path, t: &J) -> (bool, J) {
@@ -354,7 +393,7 @@ fn token_table(mode: &str, bind: bool) -> J {
 
 #[test]
 fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value() {
-    ess();
+    installed();
     let run = run_dir("capture", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &token_table("token", true));
     let (o, d) = observe(&run, &t, &[]);
@@ -370,12 +409,66 @@ fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value()
     assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.OpenBoard/outcome/opened" && x["status"] == "failed"), "{c:#}");
 }
 
+const ADAPTER: &str = env!("CARGO_BIN_EXE_sdc-conform-adapter");
+
+/// One `begin_scenario` sent to a bare `sdc-conform-adapter` whose table captures `token` from
+/// stdout within `timeout_s`, for the stub product in `mode`: the `unavailable` detail the adapter
+/// answered, and how long the answer took.
+fn begin_scenario_detail(name: &str, mode: &str, timeout_s: u64) -> (String, std::time::Duration) {
+    use std::io::{BufRead, BufReader, Write};
+    let run = run_dir(name, "spec");
+    let work = run.join("store/IDEA-1/work");
+    let mut t = token_table(mode, true);
+    t["captures"][0]["timeout_s"] = json!(timeout_s);
+    let table = write_table(run.parent().unwrap(), "t.json", &t);
+    let mut child = Command::new(ADAPTER)
+        .args(["--table", &table, "--tree"])
+        .arg(work.join("published"))
+        .arg("--work")
+        .arg(run.parent().unwrap().join("adapter-work"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", json!({"id": 1, "op": "begin_scenario", "request": {"scenario": "x"}})).unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let took = started.elapsed();
+    drop(stdin);
+    child.wait().unwrap();
+    let reply: J = serde_json::from_str(&line).unwrap_or_else(|e| panic!("reply {line:?}: {e}"));
+    assert_eq!(reply["target_error"]["kind"], "unavailable", "{reply:#}");
+    (s(&reply["target_error"]["detail"]).to_string(), took)
+}
+
+/// A product that closed the stream the capture is read from can never print it: the adapter says
+/// so at once and does not wait out `timeout_s` (20 s here; 7 scenarios x 3 runs made 21 s of
+/// waiting at 1 s in the test below).
+#[test]
+fn a_capture_on_a_stream_the_product_closed_is_missing_at_once() {
+    let (detail, took) = begin_scenario_detail("capture-closed", "token-silent", 20);
+    assert!(detail.contains("capture token did not appear on stdout") && detail.contains("closed"), "{detail}");
+    assert!(took < std::time::Duration::from_secs(10), "answered after {took:?}, the timeout is 20 s");
+}
+
+/// A product that keeps the stream open and prints nothing is waited for until `timeout_s`.
+#[test]
+fn a_capture_that_does_not_appear_on_an_open_stream_waits_its_timeout() {
+    let (detail, took) = begin_scenario_detail("capture-open", "token-quiet", 1);
+    assert!(detail.contains("capture token did not appear on stdout within 1 s"), "{detail}");
+    assert!(took >= std::time::Duration::from_secs(1), "answered after {took:?}, before the timeout");
+}
+
 #[test]
 fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
-    ess();
+    installed();
     let run = run_dir("capture-missing", "spec");
     let mut silent = token_table("token-silent", true);
-    // the product never prints the token: each of the 7 scenarios x 2 runs waits the capture out
+    // the product never prints the token and closes its output: each scenario of the 3 runs ends
+    // at once (`a_capture_on_a_stream_the_product_closed_is_missing_at_once`)
     silent["captures"][0]["timeout_s"] = json!(1);
     let t = write_table(run.parent().unwrap(), "t.json", &silent);
     let (o, d) = observe(&run, &t, &[]);
@@ -391,7 +484,7 @@ fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
 
 #[test]
 fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
-    ess();
+    installed();
     let mut t = table();
     t["commands"][1]["forced"] = json!([]);
     t["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable",
@@ -415,7 +508,7 @@ fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
 
 #[test]
 fn a_scenario_with_a_failed_check_fails_even_when_it_also_needs_what_cannot_be_reached() {
-    ess();
+    installed();
     let mut t = table();
     t["views"][0] = json!({"view": "chores.list.OpenChores",
         "none": {"kind": "not_reachable_over_the_interface", "why": "the open list is drawn only in the browser"}});
@@ -487,7 +580,7 @@ fn scenario<'a>(c: &'a J, id: &str) -> &'a J {
 
 #[test]
 fn three_tables_are_run_and_a_scenario_passes_when_every_table_that_reaches_it_passes_it() {
-    ess();
+    installed();
     let run = run_dir("three-tables", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let a = write_table(&dir, "a.json", &with_mode("gone"));
@@ -519,7 +612,7 @@ fn three_tables_are_run_and_a_scenario_passes_when_every_table_that_reaches_it_p
 
 #[test]
 fn a_table_that_never_signs_in_is_refused_after_its_run_and_asked_again_once() {
-    ess();
+    installed();
     let run = run_dir("unsigned", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let plain = write_table(&dir, "plain.json", &with_mode("token"));
@@ -544,7 +637,7 @@ fn a_table_that_never_signs_in_is_refused_after_its_run_and_asked_again_once() {
 
 #[test]
 fn a_request_naming_an_input_the_scenario_leaves_out_is_the_tables_fault() {
-    ess();
+    installed();
     let run = run_dir("optional", "spec-optional");
     let dir = run.parent().unwrap().to_path_buf();
     let mut bad = optional_table();
@@ -562,7 +655,7 @@ fn a_request_naming_an_input_the_scenario_leaves_out_is_the_tables_fault() {
 
 #[test]
 fn several_statuses_may_mean_one_outcome() {
-    ess();
+    installed();
     let dir = tmp("check-many");
     let mut many = table();
     many["commands"][1]["outcomes"][0]["status"] = json!([200, 202]);
@@ -581,7 +674,7 @@ fn several_statuses_may_mean_one_outcome() {
 
 #[test]
 fn an_id_the_scenario_never_created_is_refused_wrong_state_by_the_adapter() {
-    ess();
+    installed();
     let dir = tmp("check-absent");
     let mut t = with_mode("deviate");
     t["commands"][1]["outcomes"][2]["status"] = json!([409, 404]);
@@ -599,7 +692,7 @@ fn an_id_the_scenario_never_created_is_refused_wrong_state_by_the_adapter() {
 
 #[test]
 fn a_404_for_an_entity_the_scenario_created_is_never_wrong_state() {
-    ess();
+    installed();
     let run = run_dir("gone", "spec");
     let tp = write_table(run.parent().unwrap(), "t.json", &with_mode("gone"));
     let (o, d) = observe(&run, &tp, &[]);
@@ -612,7 +705,7 @@ fn a_404_for_an_entity_the_scenario_created_is_never_wrong_state() {
 
 #[test]
 fn a_scenario_the_tables_disagree_on_is_disputed_and_the_figure_unknown() {
-    ess();
+    installed();
     let run = run_dir("disputed", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let a = write_table(&dir, "a.json", &table());
@@ -643,7 +736,7 @@ fn partner_table() -> J {
 
 #[test]
 fn a_start_value_the_readme_leaves_to_the_operator_is_taken_from_the_scenario() {
-    ess();
+    installed();
     let dir = tmp("check-start-args");
     let readme = format!("{README}{PARTNER}");
     assert!(check_in(&dir, "spec", &partner_table(), &readme).0, "{}", check_in(&dir, "spec", &partner_table(), &readme).1);
@@ -677,7 +770,7 @@ fn a_start_value_the_readme_leaves_to_the_operator_is_taken_from_the_scenario() 
 
 #[test]
 fn a_slot_refused_after_its_retry_gets_one_more_session_and_at_most_five() {
-    ess();
+    installed();
     let run = run_dir("one-more", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let plain = write_table(&dir, "plain.json", &with_mode("token"));
@@ -713,7 +806,7 @@ fn the_check_refuses_a_literal_in_an_event_payload_or_an_error_field() {
 
 #[test]
 fn a_check_of_a_field_filled_from_the_request_input_is_unverified() {
-    ess();
+    installed();
     let run = run_dir("unverified", "spec");
     let tp = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &tp, &[]);
@@ -728,7 +821,7 @@ fn a_check_of_a_field_filled_from_the_request_input_is_unverified() {
 
 #[test]
 fn a_scenario_one_table_saw_fail_is_failed_though_the_others_declare_it_unreachable() {
-    ess();
+    installed();
     let run = run_dir("failed-over-unreachable", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let mut a = table();
@@ -750,7 +843,7 @@ fn a_scenario_one_table_saw_fail_is_failed_though_the_others_declare_it_unreacha
 
 #[test]
 fn a_sign_in_the_specification_does_not_model_fails_the_refused_scenarios_as_a_precondition() {
-    ess();
+    installed();
     let run = run_dir("precondition", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let (o, d) = observe(&run, &write_table(&dir, "t.json", &with_mode("session")), &[]);
@@ -772,7 +865,7 @@ fn a_sign_in_the_specification_does_not_model_fails_the_refused_scenarios_as_a_p
 
 #[test]
 fn a_stored_observation_is_recomputed_without_a_node_and_summarized_without_product_text() {
-    ess();
+    installed();
     let run = run_dir("recompute", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let (o, d) = observe(&run, &write_table(&dir, "t.json", &with_mode("session")), &[]);

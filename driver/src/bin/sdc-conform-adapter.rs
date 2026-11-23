@@ -12,7 +12,8 @@
 //! `end_scenario`. The product gets no environment but `PATH`, `LANG`, `HOST`, `PORT`, and `HOME`
 //! and `TMPDIR` set to the scenario's directory: no credential of the caller reaches it. Its stdout
 //! and stderr go to `product.log`; the table's `captures` are read from them (one regex group, within
-//! `timeout_s` of the start; a capture that does not appear answers `begin_scenario` `unavailable`)
+//! `timeout_s` of the start, or until the product closes the stream; a capture that does not appear
+//! answers `begin_scenario` `unavailable`)
 //! and are filled into paths, headers and bodies as `{capture.<name>}`. A `binding` replaces an input
 //! field of that name by its capture and maps the captured value back to the spec value in events,
 //! error fields and view rows. The adapter reports what the product answered, never a verdict: a
@@ -29,6 +30,7 @@ use std::net::TcpListener;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -96,20 +98,47 @@ enum Fail {
 }
 
 /// Copies one output stream of the product, line by line, into `product.log` and a buffer the
-/// captures are read from.
-fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>) {
+/// captures are read from. A line is read as bytes and a byte that is not UTF-8 becomes U+FFFD, so
+/// a line of another encoding does not end the reading; `closed` is set when the stream ended (the
+/// end of the file or an error of the pipe), after its last line is in the buffer. The buffer takes
+/// lines until it holds [`CAPTURE_BUFFER`] bytes; `partial` is set when the buffer did not take
+/// every line of the stream (a line left out, or the stream ended by an error), and it is set
+/// before `closed`: once `closed` is seen, `partial` says whether the buffer holds the whole stream.
+type Pump = (Arc<Mutex<String>>, Arc<AtomicBool>, Arc<AtomicBool>);
+
+const CAPTURE_BUFFER: usize = 1 << 20;
+
+fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, (buf, closed, partial): Pump) {
     std::thread::spawn(move || {
-        for line in BufReader::new(r).lines().map_while(Result::ok) {
+        let mut r = BufReader::new(r);
+        let mut bytes = Vec::new();
+        loop {
+            bytes.clear();
+            match r.read_until(b'\n', &mut bytes) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    partial.store(true, Ordering::SeqCst);
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let line = text.strip_suffix('\n').unwrap_or(&text);
+            let line = line.strip_suffix('\r').unwrap_or(line);
             if let Ok(mut f) = log.lock() {
                 let _ = writeln!(f, "{line}");
             }
             if let Ok(mut b) = buf.lock() {
-                if b.len() < 1 << 20 {
-                    b.push_str(&line);
+                if b.len() < CAPTURE_BUFFER {
+                    b.push_str(line);
                     b.push('\n');
+                } else {
+                    partial.store(true, Ordering::SeqCst);
                 }
             }
         }
+        closed.store(true, Ordering::SeqCst);
     });
 }
 
@@ -237,28 +266,40 @@ impl Adapter {
             .map_err(|e| Fail::Start(format!("cannot start {}: {e}", prog.display())))?;
         let spawned = Instant::now();
         let streams = [Arc::new(Mutex::new(String::new())), Arc::new(Mutex::new(String::new()))];
+        let closed = [Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false))];
+        let partial = [Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false))];
         if let Some(o) = child.stdout.take() {
-            pump(o, log.clone(), streams[0].clone());
+            pump(o, log.clone(), (streams[0].clone(), closed[0].clone(), partial[0].clone()));
         }
         if let Some(e) = child.stderr.take() {
-            pump(e, log.clone(), streams[1].clone());
+            pump(e, log.clone(), (streams[1].clone(), closed[1].clone(), partial[1].clone()));
         }
         let mut product = Product { child, port };
         let exited = |product: &mut Product| -> Option<String> {
             let st = product.child.try_wait().ok().flatten()?;
-            std::thread::sleep(Duration::from_millis(100));
+            // The pumps copy what the product printed last: wait until both streams ended, at most
+            // 100 ms (a child of the product may hold them open).
+            let until = Instant::now() + Duration::from_millis(100);
+            while !closed.iter().all(|c| c.load(Ordering::SeqCst)) && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(1));
+            }
             let tail = fs::read_to_string(dir.join("product.log")).unwrap_or_default();
             let tail: String = tail.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
             Some(format!("the product exited before it answered ({st}): {tail}"))
         };
+        let ready = self.table["start"]["ready"].clone();
         let mut captured = serde_json::Map::new();
         for c in self.table["captures"].as_array().cloned().unwrap_or_default() {
             let (name, stream) = (s(&c["name"]).to_string(), s(&c["stream"]).to_string());
             let re = regex::Regex::new(s(&c["regex"])).map_err(|e| Fail::Start(format!("capture {name}: {e}")))?;
-            let buf = &streams[usize::from(stream == "stderr")];
+            let which = usize::from(stream == "stderr");
+            let (buf, ended, partial) = (&streams[which], &closed[which], &partial[which]);
             let secs = c["timeout_s"].as_u64().unwrap_or(5);
             let deadline = spawned + Duration::from_secs(secs);
+            let mut poll = Duration::from_millis(2);
             loop {
+                // Read before the text: the pump sets it after its last line is in the buffer.
+                let stream_ended = ended.load(Ordering::SeqCst);
                 let found = re.captures(&buf.lock().map(|b| b.clone()).unwrap_or_default()).and_then(|m| m.get(1).map(|g| g.as_str().to_string()));
                 if let Some(v) = found {
                     captured.insert(name.clone(), J::String(v));
@@ -267,16 +308,42 @@ impl Adapter {
                 if let Some(why) = exited(&mut product) {
                     return Err(Fail::Start(why));
                 }
+                if stream_ended {
+                    // The stream prints nothing more, and the product's end closes it a moment
+                    // before the product can be waited for: what the product does next decides.
+                    // It exits: it did not start. It answers `start.ready`: the table asks for a
+                    // value the product does not print. Neither within `timeout_s`: the capture
+                    // did not appear in time.
+                    loop {
+                        if let Some(why) = exited(&mut product) {
+                            return Err(Fail::Start(why));
+                        }
+                        if self.answers(&ready, port, &captured) {
+                            // "Without printing it" is said only of a stream the buffer took whole.
+                            let why = if partial.load(Ordering::SeqCst) {
+                                format!("capture {name} did not appear on {stream} in the part the adapter read (the buffer takes the first {CAPTURE_BUFFER} bytes of a stream)")
+                            } else {
+                                format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")
+                            };
+                            return Err(Fail::Capture(name.clone(), why));
+                        }
+                        if Instant::now() > deadline {
+                            return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
                 if Instant::now() > deadline {
                     return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(poll);
+                poll = (poll * 2).min(Duration::from_millis(50));
             }
         }
         self.captured = J::Object(captured);
         self.product = Some(product);
-        let ready = self.table["start"]["ready"].clone();
         let deadline = spawned + self.start_timeout;
+        let mut wait = Duration::from_millis(5);
         loop {
             if let Some(why) = self.product.as_mut().and_then(exited) {
                 self.product = None;
@@ -289,9 +356,17 @@ impl Adapter {
                 self.product = None;
                 return Err(Fail::Start(format!("the product did not answer {} {} within {} s", s(&ready["method"]), s(&ready["path"]), self.start_timeout.as_secs())));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(wait);
+            wait = (wait * 2).min(Duration::from_millis(50));
         }
         Ok(())
+    }
+
+    /// Whether the product on `port` answers the request `ready` of the table now, with the captures
+    /// read so far.
+    fn answers(&self, ready: &J, port: u16, captured: &serde_json::Map<String, J>) -> bool {
+        let Ok((path, body, headers)) = self.fill_request_with(ready, &BTreeMap::new(), &J::Object(captured.clone())) else { return false };
+        http(port, s(&ready["method"]), &path, body.as_ref(), &headers, Duration::from_millis(500)).is_ok()
     }
 
     fn send(&self, r: &J, ctx: &Ctx) -> Result<Reply, String> {
@@ -307,8 +382,13 @@ impl Adapter {
     /// Path, body and headers of a table request, filled; an error names the placeholder that
     /// has no value (the table's fault when the scenario does not carry it).
     fn fill_request(&self, r: &J, ctx: &Ctx) -> Result<Filled, String> {
+        self.fill_request_with(r, ctx, &self.captured)
+    }
+
+    /// `fill_request` with the captures read so far.
+    fn fill_request_with(&self, r: &J, ctx: &Ctx, captured: &J) -> Result<Filled, String> {
         let mut ctx = ctx.clone();
-        ctx.insert("capture", self.captured.clone());
+        ctx.insert("capture", captured.clone());
         let path = fill_path(s(&r["path"]), &ctx)?;
         let body = match r.get("body") {
             None | Some(J::Null) => None,

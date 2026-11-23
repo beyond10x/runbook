@@ -1,6 +1,6 @@
 //! Test double for `sdc-conform` (driver/tests/conformance.rs), two roles in one binary.
 //!
-//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|gone|nostart|failbuild|token|token-silent|session|partner <code>]`
+//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|gone|nostart|failbuild|token|token-silent|token-quiet|session|partner <code>]`
 //! serves the `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1
 //! over HTTP: `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503
 //! or 409 `{"error","state"}`, `GET /boards/<code>` 200 `{"code"}`, `GET /chores/open`,
@@ -10,7 +10,8 @@
 //! fails); `nostart` exits at once; `failbuild` exits 1 (a build step that fails). `token` mints a
 //! token at start and prints `board token: <token>` on stdout; every route but `/health` then needs
 //! the header `x-token: <token>` (else 401) and `/boards/<code>` knows only the token (else 404).
-//! `token-silent` does the same without printing the token. `session` answers every `/chores` route
+//! `token-silent` does the same without printing the token and closes stdout and stderr;
+//! `token-quiet` prints nothing either and leaves both open. `session` answers every `/chores` route
 //! 401 `NotSignedIn` without the header `x-session`, which only `POST /sessions` hands out: a sign-in
 //! the fixture specification has no command for; `/boards` stays open.
 //!
@@ -49,6 +50,21 @@ fn respond(st: &mut TcpStream, status: u16, body: &J) {
     let _ = write!(st, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}", b.len());
 }
 
+/// Closes stdout and stderr, as a product that detaches from its terminal does. Descriptors 1 and 2
+/// are taken again by `/dev/null` so that no socket opened later is given them.
+fn close_output_streams() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    // SAFETY: descriptors 1 and 2 are this process's stdout and stderr; nothing else owns them
+    // and nothing writes to them after this call.
+    unsafe {
+        drop(OwnedFd::from_raw_fd(1));
+        drop(OwnedFd::from_raw_fd(2));
+    }
+    for _ in 0..2 {
+        std::mem::forget(std::fs::File::open("/dev/null").unwrap());
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Ok(tables) = std::env::var("SDC_STUB_TABLE_NODE") {
@@ -82,6 +98,9 @@ fn main() {
     // `token`: a secret minted at start, printed on stdout, required as the header `x-token` and as
     // the board code; `token-silent` mints it and prints nothing.
     let token = mode.starts_with("token").then(|| format!("tok{port}x{}", std::process::id()));
+    if mode == "token-silent" {
+        close_output_streams();
+    }
     if let (Some(t), "token") = (&token, mode) {
         println!("listening on 127.0.0.1:{port}");
         println!("board token: {t}");
