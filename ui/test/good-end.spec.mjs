@@ -44,12 +44,13 @@ test.beforeAll(async ({}, info) => {
   sdcRun(path.join(sdcRuns, 'sdc-operating'), 'operating');
   sdcRun(path.join(sdcRuns, 'sdc-not-delivered'), 'not_delivered');
   sdcRun(path.join(sdcRuns, 'sdc-term-only'), 'operating', {status: false});
-  for (const [args, set] of [[['--view', viewFile, '--runs', runs], (s) => { withKey = s; }], [['--view', plain, '--runs', runs], (s) => { withoutKey = s; }],
-    [['--no-view', '--runs', runs], (s) => { noView = s; }], [['--runs', sdcRuns], (s) => { sdc = s; }]]) {
+  const started = [[['--view', viewFile, '--runs', runs], (s) => { withKey = s; }], [['--view', plain, '--runs', runs], (s) => { withoutKey = s; }],
+    [['--no-view', '--runs', runs], (s) => { noView = s; }], [['--runs', sdcRuns], (s) => { sdc = s; }]].map(async ([args, set]) => {
     const s = await startServer(args);
     procs.push(s.proc);
     set({url: s.url, sources: await (await fetch(s.url + '/api/sources')).json()});
-  }
+  });
+  await Promise.all(started);
 });
 
 const runOf = (srv, name) => srv.sources.find((s) => s.name === name).run;
