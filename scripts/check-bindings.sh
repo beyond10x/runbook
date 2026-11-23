@@ -31,7 +31,8 @@ check_exits() {
 # it applies when <root> is the repository this script lies in, or when <root>/bindings/ holds one of
 # the files it names (sdc-story.yaml, sdc-release.yaml, sdc-bugfix.yaml: a copy of this repository's
 # bindings); a root that is neither is the runbook of another repository, whose programs are checked
-# for `exits.error` [75, 126, 127] and no `--pool-wait` alone.
+# by the binding itself: an argv with `--pool-wait` wants `exits.error` [69, 70, 75, 126, 127], one
+# without it [75, 126, 127].
 own_repo=false
 [[ $sdc == "$repo" ]] && own_repo=true
 if ! compgen -G "$sdc/bindings/*.yaml" > /dev/null; then
@@ -53,7 +54,7 @@ exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actio
   | . as $a
   | (($a.executor.kind // "") == "program") as $program
   | (($a.executor.argv // []) | index("--pool-wait") != null) as $waits
-  | ($pools | index("\($f):\($a.action)") != null) as $pool
+  | (if $own then ($pools | index("\($f):\($a.action)") != null) else $waits end) as $pool
   | (($a.executor.argv[0] // "") == "sdc-node") as $node
   | (if $pool then [69, 70, 75, 126, 127] else [75, 126, 127] end) as $want
   | (if ($a.exits | type) == "object" then $a.exits else {} end) as $ex

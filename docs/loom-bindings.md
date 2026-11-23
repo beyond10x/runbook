@@ -145,15 +145,17 @@ over its time"). The tool exits 69 and 70 in both modes; under Loom neither maps
 more.
 
 `scripts/check-bindings.sh --exits <root>` runs the exits check alone over `<root>/bindings/*.yaml`.
-The list of the five pool bindings is this repository's: it applies when `<root>/bindings/` holds one of
-the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`). For a root that holds none
-of them, the runbook of another repository, the option asks nothing about the build pool and checks only
-the root's own files: every `program` binding states `exits.error` as `[75, 126, 127]`, a model node
-(`sdc-node`) also `exits.not_called: [79]`, no code is in both classes or a key of the action's `from:
-exit` result table, and `exits` is on no other executor. A binding that lacks it gets one named line
+The list of the five pool bindings is this repository's: it applies when `<root>` is the repository the
+script lies in, or when `<root>/bindings/` holds one of the files it names (`sdc-story.yaml`,
+`sdc-release.yaml`, `sdc-bugfix.yaml`, as a copy of this repository's bindings does). For any other root,
+the runbook of another repository, the option asks nothing about the build pool and checks the root's own
+files by the binding itself: every `program` binding states `exits.error`, `[75, 126, 127]`, or
+`[69, 70, 75, 126, 127]` when its argv holds `--pool-wait`; a model node (`sdc-node`) also states
+`exits.not_called: [79]`; no code is in both classes or a key of the action's `from: exit` result table,
+and `exits` is on no other executor. A binding that lacks it gets one named line
 (`bindings/<file> <action>: exits.error is [], want [75,126,127]`); the line a user adds to its program
-binding is `exits.error: [75, 126, 127]`. A binding of such a root that names `--pool-wait` in its argv is
-refused too, as this repository's list does not name it.
+binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
+the root, and a file that is no mapping with an `actions` list by one line that names the file.
 
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5 and 8, the exits of the check tools) and

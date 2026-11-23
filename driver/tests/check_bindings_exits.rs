@@ -103,6 +103,35 @@ fn a_binding_of_another_runbook_without_exits_error_is_the_one_line_named() {
     assert_eq!(out, "FAIL exits\n  bindings/example.yaml bare.action: exits.error is [], want [75,126,127]\n", "{err}");
 }
 
+fn waiting_action(name: &str, exits: &str) -> String {
+    format!("  - action: {name}\n    executor: {{kind: program, argv: [tools/x.sh, --pool-wait, \"600\"]}}\n    exits: {exits}\n")
+}
+
+#[test]
+fn a_binding_of_another_runbook_that_waits_for_the_pool_wants_the_five_codes_and_passes_with_them() {
+    let doc = format!(
+        "format: loom.bindings/1\nprotocol: example@1\nactions:\n{}{}",
+        action("plain.action", "{error: [75, 126, 127]}"),
+        waiting_action("waits.action", "{error: [69, 70, 75, 126, 127]}")
+    );
+    let o = outside_root("other-runbook-pool-wait-passes", &doc);
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(0), "{out}\n{err}");
+    assert_eq!(out, "pass exits\n", "{err}");
+}
+
+#[test]
+fn a_binding_of_another_runbook_that_waits_for_the_pool_with_three_codes_gets_one_line_naming_the_list() {
+    let doc = format!(
+        "format: loom.bindings/1\nprotocol: example@1\nactions:\n{}",
+        waiting_action("waits.action", "{error: [75, 126, 127]}")
+    );
+    let o = outside_root("other-runbook-pool-wait-short", &doc);
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
+    assert_eq!(out, "FAIL exits\n  bindings/example.yaml waits.action: exits.error is [75,126,127], want [69,70,75,126,127]\n", "{err}");
+}
+
 /// A copy of this repository's `bindings/*.yaml` as a root: the root of this repository.
 fn own_root(name: &str) -> PathBuf {
     let root = root_in(name);
