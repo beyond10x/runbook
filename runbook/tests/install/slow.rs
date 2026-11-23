@@ -57,8 +57,8 @@ fn the_dry_run_of_sdc_from_the_prefix_ends_as_the_same_run_of_the_checkout_build
         )
         .unwrap();
         fs::write(
-            w.join("settings.json"),
-            "{\"loom\": {\"in_process\": true, \"confinement\": \"local\"}}\n",
+            w.join("settings.toml"),
+            "in_process = true\nconfinement = \"local\"\n",
         )
         .unwrap();
         let o = Command::new(program)
@@ -73,7 +73,7 @@ fn the_dry_run_of_sdc_from_the_prefix_ends_as_the_same_run_of_the_checkout_build
                 "--runs-dir",
                 "runs",
                 "--settings",
-                "settings.json",
+                "settings.toml",
             ])
             .args([
                 "--confinement",

@@ -258,13 +258,12 @@ fn copy_tree(from: &Path, to: &Path) {
 }
 
 /// An empty working directory holding the hand-written runbook (`protocol/`, `bindings/`, `intake.yaml`,
-/// `settings.json`) of `tests/fixtures/install-runbook`.
+/// `settings.toml`) of `tests/fixtures/install-runbook`.
 pub(crate) fn world(tag: &str) -> PathBuf {
     let w = scratch(tag);
     copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/install-runbook"), &w);
     fs::write(w.join("intake.yaml"), "text: kettle and teacup\n").unwrap();
-    let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": []}});
-    fs::write(w.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    fs::write(w.join("settings.toml"), "in_process = true\nconfinement = \"local\"\n\n[decider]\nkind = \"scripted\"\nmax_call_micro_usd = 0\nanswers = []\n").unwrap();
     w
 }
 
@@ -290,7 +289,7 @@ pub(crate) fn run_example(with: &dyn Fn(&Path, &[&str]) -> Output, w: &Path) -> 
         "--confinement",
         "local",
         "--settings",
-        "settings.json",
+        "settings.toml",
         "--spend-ledger",
         "ledger.json",
         "--cap-micro-usd",
