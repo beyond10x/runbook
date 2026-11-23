@@ -164,12 +164,21 @@ binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is re
 the root. A file of no bytes (`the file is empty`), a link named `*.yaml` that points at nothing, a file
 that is no mapping with an `actions` list, an entry of `actions` that is no mapping or has no `action` name,
 an `executor` that is present and no mapping (`executor:` with no value too), an `executor.argv` that is no
-list, and `evidence` that is no list of mappings, a `results` that is no mapping or a result key read from
-the exit that is no exit code are each refused by one line that names the file (and the action where there
-is one), exit 1; the other files are still checked. The full `scripts/check-bindings.sh` refuses the same
-shapes in the bindings file of a protocol under `FAIL <name>`, and its registrations step fails the script
-when it cannot read a file. Text that is no YAML ends the check with the message of `yq`, which names the
-file. A root given as a relative path may start with a dash. A copy of
+list, `evidence` that is no list of mappings, a `results` that is no mapping, and a result key read from
+the exit that is no exit code (plain digits for a number from 0 to 255: `+1`, `01`, `256` and `1` with a
+final newline are refused) are each refused by one line that names the file (and the action where there
+is one), exit 1; the other files are still checked. Of every member the script reads, an absent or null
+value counts as absent and any other value must have the type the check needs: `false` is not an empty
+list. The full `scripts/check-bindings.sh` refuses the same shapes in the bindings file of a protocol under
+`FAIL <name>`, and there also an element of `executor.argv` or of `arguments_from` that is no string, an
+`arguments_from` that is no list and a `budget` that is no mapping; its registrations step reads a file of
+any shape without a message of `yq`, and fails the script when it cannot read a file. Every member
+the script reads, with each JSON type in it (null, false, true, a number, a string, an empty string, a
+list, an empty list, a mapping, an empty mapping; for text and keys also a final newline, a leading `+`, a
+leading zero, a number of 26 digits), ends in exit 0 or 1 with a line that names the file, never in a
+message of `jq` or `yq`; the table is in `driver/tests/check_bindings_exits_value_table.rs`. Text that is
+no YAML ends the check with the message of `yq`, which names the file. A root given as a relative path may
+start with a dash. A copy of
 this repository's bindings elsewhere is this repository only while it holds one of the three named files.
 That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.

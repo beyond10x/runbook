@@ -18,31 +18,52 @@ set -euo pipefail
 sdc=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
 fail=0
 # The shapes of an action that the checks below read (jq definitions, used by the exits check and by the
-# per-protocol loop): badaction($f) is one line for an action that is no mapping, has no name, has an executor
-# that is present and no mapping, an executor.argv that is no list, evidence that is no list of mappings, a
-# results member that is no mapping, or a result key of an entry read from the exit that is no exit code.
+# per-protocol loop). A member that is absent or null counts as absent, and any other value must have the
+# type the check needs: `//` reads a member only after its type is checked, since `false // []` is `[]`.
+# problem is the first reason an action cannot be read by the exits check: an action that is no mapping, has
+# no name, has an executor that is present and no mapping (null too), an executor.argv that is no list,
+# evidence that is no list of mappings, a results member that is no mapping, or a result key of an entry read
+# from the exit that is no exit code (0 to 255, written without sign, zero or final newline: \A and \z, since
+# `$` matches before a final newline). loop_problem adds what the per-protocol loop reads: an argv element or
+# arguments_from that is no list of strings, a budget that is no mapping. badaction($f) and loop_badaction($f)
+# are the line of each, naming the file and the action.
 jq_shapes='
-  def xe: (.executor // {});
+  def xe: if has("executor") then .executor else {} end;
   def execok: (has("executor") | not) or ((.executor | type) == "object");
+  def typed($v; $t): $v == null or ($v | type) == $t;
+  def exitcode: test("\\A(0|[1-9][0-9]{0,2})\\z") and (tonumber <= 255);
   def evidence_problem:
-    if ((.evidence // []) | type) != "array" then "evidence is not a list"
-    elif ([(.evidence // [])[] | select(type != "object")] | length) > 0 then "an evidence entry is not a mapping"
-    elif ([(.evidence // [])[] | select(((.results // {}) | type) != "object")] | length) > 0 then "results of an evidence entry is not a mapping"
-    elif ([(.evidence // [])[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and (test("^[0-9]+$") | not))] | length) > 0 then "a result key of an evidence entry read from the exit is no exit code"
+    if typed(.evidence; "array") | not then "evidence is not a list"
+    else (.evidence // []) as $ev
+    | if ([$ev[] | select(type != "object")] | length) > 0 then "an evidence entry is not a mapping"
+      elif ([$ev[] | select(typed(.results; "object") | not)] | length) > 0 then "results of an evidence entry is not a mapping"
+      elif ([$ev[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and (exitcode | not))] | length) > 0 then "a result key of an evidence entry read from the exit is no exit code"
+      else null end end;
+  def problem:
+    if type != "object" then "an entry of actions is not a mapping"
+    elif (.action | type) != "string" then "an entry of actions has no action name"
+    elif (execok | not) then "executor is not a mapping"
+    elif typed(xe.argv; "array") | not then "executor.argv is not a list"
+    else evidence_problem end;
+  def loop_problem:
+    problem //
+    if ((xe.argv // []) | all(type == "string")) | not then "an element of executor.argv is not a string"
+    elif typed(.arguments_from; "array") | not then "arguments_from is not a list"
+    elif ((.arguments_from // []) | all(type == "string")) | not then "an element of arguments_from is not a string"
+    elif typed(.budget; "object") | not then "budget is not a mapping"
     else null end;
-  def okaction: type == "object" and ((.action | type) == "string") and execok and (((xe.argv // []) | type) == "array") and (evidence_problem == null);
-  def badaction($f):
-    if type != "object" then "\($f): an entry of actions is not a mapping"
-    elif (.action | type) != "string" then "\($f): an entry of actions has no action name"
-    elif (execok | not) then "\($f) \(.action): executor is not a mapping"
-    elif ((xe.argv // []) | type) != "array" then "\($f) \(.action): executor.argv is not a list"
-    elif evidence_problem != null then "\($f) \(.action): \(evidence_problem)"
-    else empty end;
+  def okaction: problem == null;
+  def line($f; $p):
+    if $p == null then empty
+    elif type == "object" and ((.action | type) == "string") then "\($f) \(.action): \($p)"
+    else "\($f): \($p)" end;
+  def badaction($f): line($f; problem);
+  def loop_badaction($f): line($f; loop_problem);
 '
 shape_lines() {
   yq -o=json -I=0 '{"actions": (.actions? // null)}' "$1" | jq -r --arg f "$2" "$jq_shapes"'
     if (.actions | type) != "array" then "\($f): not a bindings file, it is no mapping with an actions list"
-    else .actions[] | badaction($f) end'
+    else .actions[] | loop_badaction($f) end'
 }
 check_exits() {
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
@@ -261,9 +282,7 @@ done
 reg_protocols=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "id": .protocol.id, "rev": .protocol.revision}' protocol/*.protocol.yaml) || reg_unreadable=1
 reg_bindings=
 if [[ ${#reg_files[@]} -gt 0 ]]; then
-  reg_bindings=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "protocol": .protocol, "root": .program_root,
-      "froms": [.actions[].executor | select(.kind == "copy") | .from],
-      "program": ([.actions[] | select(.executor.argv != null or .arguments_from != null)] | length > 0)}' "${reg_files[@]}") || reg_unreadable=1
+  reg_bindings=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "doc": .}' "${reg_files[@]}") || reg_unreadable=1
 fi
 if [[ $reg_unreadable -eq 1 ]]; then
   regs="a file this step reads could not be read (the message of yq is above)"
@@ -273,15 +292,18 @@ regs=$(jq -r --slurpfile p <(printf '%s\n' "$reg_protocols") '
   ($p | map({key: (.f | ltrimstr("protocol/") | rtrimstr(".protocol.yaml")), value: reg}) | from_entries) as $byname
   | ($p | map(reg)) as $all
   | .f as $f | (.f | ltrimstr("bindings/") | rtrimstr(".yaml")) as $n
+  | (.doc | if type == "object" then . else {} end) as $d
+  | ([$d.actions | arrays | .[] | objects | .executor | objects | select(.kind == "copy") | .from]) as $froms
+  | (any($d.actions | arrays | .[] | objects; ((.executor | if type == "object" then .argv else null end) != null) or .arguments_from != null)) as $program
   | (if $byname[$n] == null then "\($f): no protocol/\($n).protocol.yaml"
-     elif .protocol != $byname[$n]
-     then "\($f): protocol is \(.protocol), the registration of protocol/\($n).protocol.yaml is \($byname[$n])"
+     elif $d.protocol != $byname[$n]
+     then "\($f): protocol is \($d.protocol), the registration of protocol/\($n).protocol.yaml is \($byname[$n])"
      else empty end),
-    (.froms[] | select(. as $x | $all | index($x) | not)
+    ($froms[] | select(. as $x | $all | index($x) | not)
      | "\($f): copy from \(.) is the registration of no protocol file in protocol/"),
-    (if .program | not then empty
-     elif .root == null then "\($f): binds a program and has no program_root; write program_root: bindings"
-     elif .root != "bindings" then "\($f): program_root is \(.root); write program_root: bindings"
+    (if $program | not then empty
+     elif $d.program_root == null then "\($f): binds a program and has no program_root; write program_root: bindings"
+     elif $d.program_root != "bindings" then "\($f): program_root is \($d.program_root); write program_root: bindings"
      else empty end)' <<< "$reg_bindings")
 fi
 if [[ -n $regs ]]; then
