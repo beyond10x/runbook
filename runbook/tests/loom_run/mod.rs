@@ -14,6 +14,7 @@ mod inproc;
 mod login;
 mod model_call;
 mod no_model_node;
+mod no_model_node_guards;
 mod pages;
 mod replay;
 mod replay_boundaries;
