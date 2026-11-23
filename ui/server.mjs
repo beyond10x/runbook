@@ -20,7 +20,7 @@ import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
-import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir, readCount, within} from './runfiles.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir, readCount, within, servedUnder} from './runfiles.mjs';
 import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
@@ -849,7 +849,14 @@ const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
 // a `change` goes to the pages that show its source; `sources` (no source) to every page
 function push(name, data, source = null) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
-  for (const [res, c] of clients) if (source == null || c.source === source) res.write(msg);
+  for (const [res, c] of clients) if (source == null || c.source === source) tell(res, msg);
+}
+// A page that is further behind than this many bytes of unsent output is not reading: its stream is ended (the page opens
+// it again), so the memory held for a page is bounded and the rounds stop when it was the last one.
+const MAX_PENDING = 1048576;
+function tell(res, msg) {
+  if (res.writableLength > MAX_PENDING) { clients.delete(res); res.destroy(); stopRounds(); return; }
+  res.write(msg);
 }
 
 // One source brought up to date: what a round does for each run a page shows, and what a request does for the run
@@ -865,11 +872,26 @@ function roundOf(src, light = false) {
 const refresh = (src, light = false) => { if (!CLOCK) guardRun(src, () => inView(src, () => roundOf(src, light))); };
 
 // A round runs only while a page is connected (the timer is started by the first stream and stopped by the last) and
-// reads only the sources a page shows. With --clock every source is read on each step of the clock, as before.
+// reads only the sources a page shows. With SDC_CLOCK_DIR set (the clock of the ux loop) every source is read on each step
+// of the clock, as before.
 // look for runs that appeared under --runs and tell the pages
 const findRuns = () => { if (discover().length) push('sources', {count: sources.length}); };
 let rounds = 0;
+// what the run picker's row of a run shows of its state, as one string: a store that came, a run that started, closed or was stopped
+const stateSigOf = (src) => guardRun(src, () => inView(src, () => `${src.path}:${fs.existsSync(src.path)}:${statSig(path.join(runDirOf(src), 'run-stopped.json'))}:${runSummary(src).state}`), `${src.path}:unreadable`);
 const stateSigs = new Map();
+// The states the lists served by /api/sources carried in the last LISTED_WINDOW_MS, by source. A page opens its stream within
+// seconds of its list; when the run's state now is not one of those a list carried (the run changed between the list and the
+// stream), the page is sent `sources` once at the stream's start, so that the list it holds is read again.
+const LISTED_WINDOW_MS = 60000;
+const listed = new Map();
+function noteListed(src, sig) {
+  const now = Date.now();
+  const kept = (listed.get(src.index) || []).filter((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig);
+  kept.push({sig, at: now});
+  listed.set(src.index, kept.slice(-8));
+}
+const listStale = (src, sig) => { const now = Date.now(); return (listed.get(src.index) || []).some((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig); };
 function tick() {
   rounds++;
   findRuns();
@@ -877,9 +899,8 @@ function tick() {
   for (const src of sources) {
     if (!CLOCK && !watchedBy(src.index)) continue;
     guardRun(src, () => inView(src, () => roundOf(src)));
-    // the list the run picker shows: a store that came, a run that started, closed or was stopped (its state) is
-    // announced for the runs a page shows; the picker reads the list again when it opens
-    const sig = guardRun(src, () => inView(src, () => `${src.path}:${fs.existsSync(src.path)}:${statSig(path.join(runDirOf(src), 'run-stopped.json'))}:${runSummary(src).state}`), `${src.path}:unreadable`);
+    // the list the run picker shows is announced for the runs a page shows; the picker reads the list again when it opens
+    const sig = stateSigOf(src);
     if (stateSigs.has(src.index) && stateSigs.get(src.index) !== sig) stateChanged = true;
     stateSigs.set(src.index, sig);
   }
@@ -949,17 +970,23 @@ function handle(req, res, url) {
   if (p === '/events') {
     res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive'});
     res.write(`event: hello\ndata: ${JSON.stringify({versions: sources.map((s) => s.version)})}\n\n`);
-    clients.set(res, {source: Number(url.searchParams.get('source') || 0)});
+    const shown = Number(url.searchParams.get('source') || 0);
+    clients.set(res, {source: shown});
+    if (src) {
+      const sig = stateSigOf(src);
+      if (listStale(src, sig)) res.write(`event: sources\ndata: ${JSON.stringify({count: sources.length})}\n\n`);
+      if (!stateSigs.has(shown)) stateSigs.set(shown, sig);
+    }
     startRounds();
     req.on('close', () => { clients.delete(res); stopRounds(); });
     return;
   }
-  if (p === '/api/sources') { findRuns(); return send(res, 200, sources.map((s) => { refresh(s, true); return sourceRow(s); })); }
+  if (p === '/api/sources') { findRuns(); return send(res, 200, sources.map((s) => { refresh(s, true); noteListed(s, stateSigOf(s)); return sourceRow(s); })); }
   if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
   if (countReads && p === '/api/reads') {
     const byRun = {};
-    for (const [dir, n] of readCount.byRun) { const name = sources.find((s) => within(dir, runDirOf(s)))?.name ?? dir; byRun[name] = (byRun[name] || 0) + n; }
+    for (const [dir, n] of readCount.byRun) { const name = sources.find((s) => within(dir, runDirOf(s)))?.name ?? 'other'; byRun[name] = (byRun[name] || 0) + n; }
     return send(res, 200, {rounds, total: readCount.total, byRun});
   }
   if (p === '/api/view') return send(res, 200, src ? viewOf(src).view : null);
@@ -1005,13 +1032,13 @@ function handle(req, res, url) {
     return send(res, r.state === 'ok' ? 200 : 404, r.state === 'ok' ? r.bytes.toString('utf8') : 'not found', 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);
-  const abs = path.join(here, 'web', file);
-  if (!abs.startsWith(path.join(here, 'web')) || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
+  const abs = servedUnder(path.join(here, 'web'), file);
+  if (!abs || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
   return send(res, 200, fs.readFileSync(abs), MIME[path.extname(abs)] || 'application/octet-stream');
 }
 
 if (CLOCK) { tick(); setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25); }
-setInterval(() => { for (const res of clients.keys()) res.write(': ping\n\n'); }, 15000);
+setInterval(() => { for (const res of clients.keys()) tell(res, ': ping\n\n'); }, 15000);
 // --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
 server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {

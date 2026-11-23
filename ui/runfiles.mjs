@@ -12,6 +12,10 @@ export const registerRun = (dir) => { runDirs.add(path.resolve(dir)); };
 
 export const within = (child, root) => child === root || child.startsWith(root + path.sep);
 
+// the file `rel` names under `root`, or null when it lies outside: a sibling directory whose name starts with the name of
+// `root` is outside it (the check has a separator)
+export const servedUnder = (root, rel) => { const abs = path.join(root, rel); return within(abs, root) ? abs : null; };
+
 // the longest registered run directory `abs` lies under: the first one met going up, so the cost does not
 // grow with the number of runs the server knows
 function ownerOf(abs) {
@@ -81,34 +85,53 @@ const runRealOf = (abs, root) => {
 // the page reads; the default is the most any file of a run it reads can be.
 export const TEXT_LIMIT = 64 * 1048576;
 // What a checked read returned, for the run and the real path it was read for: a file whose size, modification time and
-// inode and status-change time are those of the last read is not read again. The key names the run and the real path, so an entry is served for
-// that run and that path only; every call passes the run-path check first and a file that is not a regular file with one
-// link is never answered from here. A file over CACHE_FILE bytes is not kept, and the whole stays under CACHE_TOTAL bytes
-// (the least recently used entry goes first).
-const CACHE_FILE = 8 * 1048576, CACHE_TOTAL = 64 * 1048576;
+// inode and status-change time are those of the last read is not read again. An entry is named by the path that was asked
+// for and holds the run and the real path it was read for, so it is served for that run and that real path only; every
+// call passes the run-path check first and a file that is not a regular file with one link is never answered from here.
+// An entry whose file is gone, refused or changed leaves the cache when a call sees it.
+// The cache holds at most CACHE_BOUND bytes of MEMORY (one constant): each entry costs ENTRY_OVERHEAD (the map slot, the
+// record and its numbers) plus the cost of its three strings, and the least recently used entry goes first when the sum
+// passes the bound. A string costs a byte per character when every character is one byte in UTF-8 (ASCII), else two:
+// V8 keeps a text with a character above U+00FF at two bytes per character, and the count may not be below the memory.
+// A file over CACHE_FILE bytes is not kept at all.
+export const CACHE_BOUND = 16 * 1048576;
+const CACHE_FILE = 8 * 1048576, ENTRY_OVERHEAD = 768;
 const textCache = new Map();
-let textCached = 0;
-function keep(key, st, text) {
-  const old = textCache.get(key);
-  if (old) { textCached -= old.size; textCache.delete(key); }
+let cacheHeld = 0;
+const stringCost = (s) => (Buffer.byteLength(s) === s.length ? s.length : 2 * s.length);
+// test hooks: what the cache holds, and an empty cache
+export const cacheStats = () => ({entries: textCache.size, held: cacheHeld});
+export const cacheClear = () => { textCache.clear(); cacheHeld = 0; };
+function drop(key) {
+  const e = textCache.get(key);
+  if (!e) return;
+  textCache.delete(key);
+  cacheHeld -= e.cost;
+}
+function keep(key, run, real, st, text) {
+  drop(key);
   if (st.size > CACHE_FILE) return;
-  textCache.set(key, {size: st.size, mtimeMs: st.mtimeMs, ino: st.ino, ctimeMs: st.ctimeMs, text});
-  textCached += st.size;
-  for (const [k, v] of textCache) { if (textCached <= CACHE_TOTAL) break; textCache.delete(k); textCached -= v.size; }
+  const cost = ENTRY_OVERHEAD + stringCost(key) + stringCost(run) + stringCost(real) + stringCost(text);
+  if (cost > CACHE_BOUND) return;
+  textCache.set(key, {run, real, cost, size: st.size, mtimeMs: st.mtimeMs, ino: st.ino, ctimeMs: st.ctimeMs, text});
+  cacheHeld += cost;
+  for (const k of textCache.keys()) { if (cacheHeld <= CACHE_BOUND) break; drop(k); }
 }
 export function readText(p, root, limit = TEXT_LIMIT) {
-  const real = runPath(p, root);
-  if (!real) return null;
   const abs = path.resolve(p);
-  const key = `${root ? path.resolve(root) : ownerOf(abs)}\0${real}`;
-  const hit = textCache.get(key);
+  const real = runPath(abs, root);
+  if (!real) { drop(abs); return null; }
+  const run = root ? path.resolve(root) : ownerOf(abs);
+  const hit = textCache.get(abs);
   if (hit) {
     let now = null;
     try { now = fs.statSync(real); } catch { /* gone: read as before */ }
-    if (now && now.isFile() && now.nlink <= 1 && now.size <= limit && now.size === hit.size && now.mtimeMs === hit.mtimeMs && now.ino === hit.ino && now.ctimeMs === hit.ctimeMs) {
-      textCache.delete(key); textCache.set(key, hit);
+    const same = now && hit.run === run && hit.real === real && now.isFile() && now.nlink <= 1 && now.size === hit.size && now.mtimeMs === hit.mtimeMs && now.ino === hit.ino && now.ctimeMs === hit.ctimeMs;
+    if (same && now.size <= limit) {
+      textCache.delete(abs); textCache.set(abs, hit);
       return hit.text;
     }
+    if (!same) drop(abs);
   }
   let fd = null;
   try {
@@ -119,7 +142,7 @@ export function readText(p, root, limit = TEXT_LIMIT) {
     if (!st.isFile() || st.nlink > 1 || st.size > limit) return null;
     counted(abs, root);
     const text = fs.readFileSync(fd, 'utf8');
-    keep(key, st, text);
+    keep(abs, run, real, st, text);
     return text;
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
