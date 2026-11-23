@@ -71,7 +71,8 @@
 //!
 //! Where the facts come from (`Facts`): the old driver's case directory (`case.json`, the event
 //! log, the evidence and the blobs) or, with `LOOM_CASE` set, record files of the workspace
-//! (`<case-dir>/work/.sdc/records/`; Loom gives a bound program its working directory and nothing
+//! (`.sdc/records/` of the directory the program was started in, the workspace, whatever `--case-dir`
+//! names; Loom gives a bound program its working directory and nothing
 //! else). The revision of an artifact is then the digest of its tree (`impl`, `spec`); the log of
 //! the conformance run and of the gate is `<kind>/<digest>.log`, written by `sdc-reply record
 //! --kind <kind> --tree <tree> --log <file>` from the tools of tests.run and spec.gate; the

@@ -125,7 +125,7 @@ fn spec_facts(ir: &Value, traces: &Value, cov: &[String], mine: &[Value]) -> (Va
 /// The node's whole input as one prompt, and a manifest of what went in (sections and bytes,
 /// the files inlined and listed with the rank that put them there).
 pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
-    let work = i.case_dir.join("work");
+    let work = crate::reply::records::case_work(i.case_dir);
     let rel = format!("aep/story/{}.md", i.story);
     let story_text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
     let (sl, summary) = story_summary(&story_text).ok_or(format!("{rel} has no summary"))?;

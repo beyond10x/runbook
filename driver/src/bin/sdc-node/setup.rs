@@ -48,6 +48,9 @@ pub struct Setup {
     pub case: String,
     /// The feedback records file, when the run has feedback.
     pub feedback: Option<PathBuf>,
+    /// The outermost directory the start made in the workspace (the copy of a retry's feedback
+    /// document); a not-called exit removes it, since that exit writes nothing.
+    pub made: Option<PathBuf>,
     /// The reasoning effort the caller names (`--effort`); the class default applies without it.
     pub effort: Option<String>,
 }
@@ -127,10 +130,13 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     }
 
     let mut feedback = env_set("SDC_FEEDBACK").map(PathBuf::from);
+    let mut made = None;
     if let Some(doc) = env_set("LOOM_RETRY_FEEDBACK") {
-        feedback = retry_feedback(node, &work, Path::new(&doc))?.or(feedback);
+        let (copy, dir) = retry_feedback(node, &work, Path::new(&doc))?;
+        feedback = copy.or(feedback);
+        made = dir;
     }
-    Ok(Setup { here, root, args, cfg, case, feedback, effort: given("--effort") })
+    Ok(Setup { here, root, args, cfg, case, feedback, made, effort: given("--effort") })
 }
 
 /// `--effort` is one of the levels `node-classes.json` lists (`efforts`): both model CLIs ignore an
@@ -272,13 +278,16 @@ fn is_blob(v: &Ov) -> Option<&str> {
 
 /// The retry records of a `loom.retry-feedback/1` document as the driver's feedback file: kind,
 /// result, subject and the log, here the tail Loom keeps of the cited blob, written beside the
-/// document's copy under `.sdc/loom-feedback/`.
-fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<Option<PathBuf>> {
+/// document's copy under `.sdc/loom-feedback/`. The second value is the outermost directory this
+/// call made (`Setup::made`), or none when they all existed.
+fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Option<PathBuf>)> {
     let parsed = fs::read_to_string(doc).ok().and_then(|t| Ov::parse(&t).ok());
     let Some(parsed) = parsed.filter(|d| d.str_of("format") == Some("loom.retry-feedback/1")) else {
         return Err(die(format!("llm-node: {node} could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document"), 126));
     };
     let dir = work.join(".sdc/loom-feedback").join(sha16(doc));
+    // "Was there before" is asked of the path itself, not of what a link points at: a dangling link is there.
+    let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| d.symlink_metadata().is_err()).cloned();
     let _ = fs::create_dir_all(&dir);
     let logs: Vec<&Ov> = parsed.get("logs").map(Ov::items).unwrap_or_default();
     let blobs: Vec<&str> = logs.iter().filter_map(|l| l.get("blob_sha256").and_then(is_blob)).collect();
@@ -289,7 +298,7 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<Option<PathBuf>> {
     let target = dir.join("feedback.json");
     let Some(records) = parsed.get("records") else {
         let _ = fs::write(&target, "");
-        return Ok(None);
+        return Ok((None, made));
     };
     let one = |r: &Ov| {
         let get = |k: &str| r.get(k).cloned().unwrap_or(Ov::Null);
@@ -311,5 +320,5 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<Option<PathBuf>> {
     let mut text = serde_json::to_string_pretty(&out).map_err(|_| Exit(126))?;
     text.push('\n');
     let _ = fs::write(&target, text);
-    Ok(Some(target))
+    Ok((Some(target), made))
 }

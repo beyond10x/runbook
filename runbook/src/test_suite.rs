@@ -4,7 +4,9 @@
 //! Loom's runner, with `PATH` and `LOOM_*` and nothing else of this process's environment.
 
 use b10x_loom_tree::model::{CycleResult, SuiteReport, SuiteRefusalReason};
-use b10x_loom_tree::suite::{cycle_line, read_suite, run_suite, workers_served, SuiteRefused, SuiteSettings};
+use b10x_loom_tree::suite::{
+    cycle_line, list_suite, read_suite, run_suite, slowest_line, workers_served, SuiteRefused, SuiteSettings, CYCLE_WALL_SECONDS, SUITE_AVAILABILITY,
+};
 use b10x_loom_tree::{ConfinementAdapter, EngineConfinement, EngineRunner, TestRunner, TreeTime, UNCONFINED_FLAG_REASON};
 use clap::{Args as ClapArgs, ValueEnum};
 use std::num::NonZeroUsize;
@@ -12,6 +14,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The exit code when every cycle that ran is as expected.
 pub const EXIT_AS_EXPECTED: u8 = 0;
@@ -24,7 +27,7 @@ pub const EXIT_REFUSED: u8 = 2;
 pub enum Level {
     /// Unconfined, declared insecure: Loom's `local`.
     Local,
-    /// Substrate's linux adapter. Loom's suite runner refuses it today.
+    /// Substrate's linux adapter. Refused here: `runbook test` takes no `--cgroup-root` yet.
     Substrate,
 }
 
@@ -47,11 +50,17 @@ pub struct Args {
     /// Run only these cycles, by name (comma-separated; may be repeated), in suite order. A name that is no cycle of the suite is refused (CycleUnknown) before any cycle.
     #[arg(long, value_name = "NAME[,NAME...]", value_delimiter = ',')]
     pub only: Vec<String>,
-    /// How many cycles run beside each other, 1 to 64 (Loom's `workers`). Default 1: one after another. Each cycle has its own directory in the scratch directory and its own 60 s bound; under `local` nothing is confined, so a program can read the other cycles' workspaces. More than 1 under `--confinement substrate` is refused (SubstrateWorkersUnserved).
+    /// How many cycles run beside each other, 1 to 64 (Loom's `workers`). Default 1: one after another. Each cycle has its own directory in the scratch directory and its own time bound (--cycle-timeout); under `local` nothing is confined, so a program can read the other cycles' workspaces. More than 16 under `--confinement substrate` is refused (SubstrateWorkersUnserved, Loom's bound).
     #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=64))]
     pub workers: u8,
-    /// The confinement every bound program starts under: local or substrate. No default; passed on unchanged.
-    #[arg(long, value_enum, required = true, value_name = "LEVEL")]
+    /// How long a cycle may run, 1 to 60 seconds (Loom's `cycle_timeout`; default 60): past it the running program of the cycle is killed and the cycle ends CycleTimedOut, naming its step; the other cycles go on. A value outside 1 to 60 is refused (exit 2) before the suite is read.
+    #[arg(long, value_name = "SECONDS", default_value_t = CYCLE_WALL_SECONDS)]
+    pub cycle_timeout: u64,
+    /// Print one line per cycle of the suite and run nothing: `<name>`, `<name>: pending` or `<name>: pending, waits for story:<id> (<kind>)` (Loom's listing). Reads the suite alone; --only applies; no --confinement is needed.
+    #[arg(long)]
+    pub list: bool,
+    /// The confinement every bound program starts under: local or substrate. No default; passed on unchanged. Not needed with --list.
+    #[arg(long, value_enum, required_unless_present = "list", value_name = "LEVEL")]
     pub confinement: Option<Level>,
 }
 
@@ -89,7 +98,7 @@ fn runner(level: Level) -> Result<Arc<dyn TestRunner>, String> {
     match level {
         Level::Substrate => Err(
             "ConfinementRefused: CgroupUndelegated: runbook test holds no cgroup root, which the substrate level needs; \
-             Loom's suite runner takes none today. Use --confinement local to run the bound programs unconfined."
+             it takes no --cgroup-root option (Loom's tree test does). Use --confinement local to run the bound programs unconfined."
                 .to_owned(),
         ),
         Level::Local => EngineRunner::open(&EngineConfinement { adapter: ConfinementAdapter::Local, local_reason: Some(UNCONFINED_FLAG_REASON.to_owned()), cgroup_root: None })
@@ -110,20 +119,13 @@ pub fn default_scratch(env: &dyn Fn(&str) -> Option<PathBuf>, pid: u32) -> Resul
     Ok(base.join(format!("test-{seconds}-{pid}")))
 }
 
-fn seconds(result: &CycleResult) -> f64 {
-    result.seconds.0.parse::<f64>().unwrap_or(0.0)
-}
-
-/// The lines after the cycles: the ten slowest that ran, then the verdict.
+/// The lines after the cycles: Loom's `slowest:` line (the ten slowest that ran), then the verdict.
 pub fn closing_lines(report: &SuiteReport) -> Vec<String> {
-    let mut ran: Vec<&CycleResult> = report.cycles.iter().filter(|c| c.run).collect();
-    ran.sort_by(|a, b| seconds(b).partial_cmp(&seconds(a)).unwrap_or(std::cmp::Ordering::Equal));
     let mut lines = Vec::new();
     if let Some(only) = &report.only {
         lines.push(format!("selected {} of {} cycles", only.len(), report.suite_cycles));
     }
-    lines.push("ten slowest:".to_owned());
-    lines.extend(ran.iter().take(10).map(|c| format!("  {:>7.1} s  {}", seconds(c), c.name)));
+    lines.push(slowest_line(report));
     lines.push(format!("{} of {} as expected, {} pending", report.as_expected, report.expected, report.pending));
     if !report.failed.is_empty() {
         lines.push(format!("failed: {}", report.failed.join(", ")));
@@ -133,11 +135,28 @@ pub fn closing_lines(report: &SuiteReport) -> Vec<String> {
 
 /// Runs the command and returns its exit code. `protocols` is the directory of the runbook's protocol files (the asset root's `protocol/`).
 pub fn command(args: Args, protocols: Result<PathBuf, String>) -> ExitCode {
-    let Some(level) = args.confinement else { return refuse("--confinement is required") };
+    if !(1..=CYCLE_WALL_SECONDS).contains(&args.cycle_timeout) {
+        return refuse(format!(
+            "--cycle-timeout {} is outside 1 to {CYCLE_WALL_SECONDS} seconds: a cycle may not outlive the {CYCLE_WALL_SECONDS} s bound of one test",
+            args.cycle_timeout
+        ));
+    }
     let suite = match std::path::absolute(&args.suite) {
         Ok(p) => p,
         Err(e) => return refuse(format!("{}: {e}", args.suite.display())),
     };
+    if args.list {
+        return match list_suite(&suite, &args.only, SUITE_AVAILABILITY) {
+            Ok(lines) => {
+                for line in lines {
+                    println!("{}", clean(&line));
+                }
+                ExitCode::from(EXIT_AS_EXPECTED)
+            }
+            Err(refused) => refused_suite(&refused),
+        };
+    }
+    let Some(level) = args.confinement else { return refuse("--confinement is required") };
     let protocols = match protocols {
         Ok(p) => p,
         Err(e) => return refuse(e),
@@ -167,6 +186,7 @@ pub fn command(args: Args, protocols: Result<PathBuf, String>) -> ExitCode {
     let mut settings = SuiteSettings::new(protocols, scratch.clone(), TreeTime::Host, runner, Some(level.name().to_owned()));
     settings.workers = workers;
     settings.only = args.only.clone();
+    settings.cycle_timeout = Duration::from_secs(args.cycle_timeout);
     catch_signals();
     let mut print = |result: &CycleResult| println!("{}", clean(&cycle_line(result)));
     let ran = run_suite(&suite, &settings, Some(&mut print), Some(&CANCEL));
@@ -226,6 +246,26 @@ mod tests {
         for bad in ["0", "65", "256", "-1", "x"] {
             assert!(parse(&["--workers", bad]).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_cycle_runs_for_loom_s_bound_unless_cycle_timeout_says_otherwise() {
+        assert_eq!(parse(&[]).unwrap().cycle_timeout, CYCLE_WALL_SECONDS);
+        assert_eq!(parse(&["--cycle-timeout", "7"]).unwrap().cycle_timeout, 7);
+        assert!(parse(&["--cycle-timeout", "x"]).is_err());
+        assert!(parse(&["--cycle-timeout", "-1"]).is_err());
+    }
+
+    #[test]
+    fn list_needs_no_confinement_and_a_run_needs_one() {
+        let argv = |extra: &[&str]| {
+            let mut v = vec!["runbook-test", "suite.yaml"];
+            v.extend_from_slice(extra);
+            Cli::try_parse_from(v).map(|c| c.args)
+        };
+        let listed = argv(&["--list"]).unwrap();
+        assert!(listed.list && listed.confinement.is_none());
+        assert!(argv(&[]).is_err());
     }
 
     #[test]

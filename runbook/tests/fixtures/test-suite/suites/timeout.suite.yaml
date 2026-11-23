@@ -1,0 +1,14 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-demo@1
+  bindings: bindings/suite-demo.yaml
+cycles:
+  - name: sleeps-long
+    seed: [{from: seeds/greeting.txt, to: greeting.txt}, {from: seeds/pause-long.txt, to: pause.txt}]
+    expect:
+      exit: 0
+      outcome: written
+  - name: writes-a-note
+    expect:
+      exit: 0
+      outcome: written

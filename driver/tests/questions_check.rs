@@ -570,7 +570,7 @@ mod loom_mode {
         put(&r, "questions.yaml", "questions: []\n");
         let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
         let l = loom(&r.1, "sdc-node", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
-        assert_eq!(l.code, Some(0), "{l:#?}");
+        assert_eq!(l.code, Some(79), "questions.write, no feedback: not called, the code of exits.not_called: {l:#?}");
         assert!(!l.files.keys().any(|k| k.ends_with("/cwd/in/feedback.md")), "{l:#?}");
         // The check's record that sent it back, with its log: Loom's loom.retry-feedback/1 document
         // holding the record and the log's tail.
