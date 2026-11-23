@@ -483,15 +483,15 @@ impl Daemon {
             Some(d) if d.daemon_id == daemon_id => d.confinement_floor,
             _ => return refused("no-daemon", json!({"daemon_id": daemon_id})),
         };
+        let session = input.session_id.as_ref().map(|sid| (sid, st.session(sid).map(|s| s.state)));
+        if let Some((sid, None)) = &session {
+            return refused("no-session", json!({"session_id": sid}));
+        }
         if confinement.rank() < floor.rank() {
             return refused("below-floor", json!({"run_id": run_id, "confinement": confinement}));
         }
-        if let Some(sid) = &input.session_id {
-            match st.session(sid).map(|s| s.state) {
-                None => return refused("no-session", json!({"session_id": sid})),
-                Some(SessionState::Closed) => return refused("session-closed", json!({"run_id": run_id, "session_id": sid})),
-                Some(SessionState::Open) => {}
-            }
+        if let Some((sid, Some(SessionState::Closed))) = &session {
+            return refused("session-closed", json!({"run_id": run_id, "session_id": sid}));
         }
         if let Some(key) = &input.idempotency_key {
             if let Some(first) = st.run_by_key(key) {

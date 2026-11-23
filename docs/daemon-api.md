@@ -369,8 +369,8 @@ for tests only: no option, environment variable or request sets it.
 
 The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
 may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
-failure cannot hide behind them. Now: 12 scenarios of the daemon (3 more are of `sdc.decision`, out of
-the daemon's domain), 12 executed, 12 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
+failure cannot hide behind them. Now: 13 scenarios of the daemon (3 more are of `sdc.decision`, out of
+the daemon's domain), 13 executed, 13 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
 (before the clock: 10 executed, 10 passed, 2 skipped for an exact instant each). Before part C4 it was
 4 passed and 6 failed: two differences between the
 specification and the daemon, which the specification now states (the daemon's first event of a run,

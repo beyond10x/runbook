@@ -563,6 +563,31 @@ fn the_floor_refuses_below_it_and_the_view_shows_it() {
 }
 
 #[test]
+fn a_missing_session_is_refused_before_the_floor_and_an_existing_one_is_not() {
+    let fx = Fx::new("floor-session");
+    let low = |session: &str| SubmitRun {
+        runbook_id: "quick".into(),
+        intake: "x".into(),
+        confinement: Some(Confinement::Local),
+        session_id: Some(session.into()),
+        ..SubmitRun::default()
+    };
+    // Both hold: below the floor, and the session does not exist. The specification answers no-session.
+    let o = fx.d().submit_run(low("none")).unwrap();
+    assert_eq!((o.name, o.status, o.error), ("no-session", 409, Some("NoSuchSession")));
+    // The session exists, open: the floor refuses.
+    let opened = fx.d().open_session(OpenSession { session_id: "s".into(), client: "test".into() }).unwrap();
+    assert_eq!(opened.name, "opened");
+    let o = fx.d().submit_run(low("s")).unwrap();
+    assert_eq!((o.name, o.status, o.error), ("below-floor", 409, Some("BelowConfinementFloor")));
+    // The session exists, closed: below-floor is declared above session-closed, so the floor still refuses.
+    assert_eq!(fx.d().close_session(CloseSession { session_id: "s".into() }).unwrap().name, "closed");
+    let o = fx.d().submit_run(low("s")).unwrap();
+    assert_eq!((o.name, o.status, o.error), ("below-floor", 409, Some("BelowConfinementFloor")));
+    assert!(fx.d().runs().is_empty());
+}
+
+#[test]
 fn after_a_restart_the_runs_the_runtime_holds_no_more_end_as_orphaned_and_the_others_keep_their_state() {
     let mut fx = Fx::new("restart");
     let ended = fx.submit("quick");
