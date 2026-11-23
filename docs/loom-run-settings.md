@@ -98,6 +98,7 @@ effort = "low"
 | `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
 | `cap_micro_usd` | whole number | none | `normalise` | when present, equal to `--cap-micro-usd` |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
+| `gateway` | table | none | `materialise`, decider, conformance | an address and a token for the model programs instead of the login file; never with `login_file`. See `[gateway]`. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; text, a float and a date are refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |
 | `autonomy` | `A0` to `A5` | none | decider, `materialise` | the decider answers only at `A5`; with no level every decision stops the run for a person |
@@ -150,6 +151,81 @@ its members in another order).
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |
 | `principal` | text | none | all | model, rule: accepted when it is what the kind gives (`decider:model`, `decider:approve`, `decider:reject`) and then taken out; another value is refused. scripted: the principal of every answer that names none (an answer's own `principal` wins); none given: the principal Loom printed is kept |
 | `answers`, `max_call_micro_usd` | list of tables, whole number | none | scripted | the double's answers and its reservation |
+
+## `[gateway]`
+
+An address and a token that every model program of the run reaches its model through, instead of the login
+file. It is the other way to give a run its model access: a settings file names a gateway or a `login_file`,
+never both. There is no default address and no default token.
+
+```toml
+[gateway]
+base_url = "http://127.0.0.1:8080"
+token = "placeholder"
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's |
+| `token` | text | the token itself: one line of visible text, 1 to 8192 bytes |
+| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists |
+
+Exactly one of `token` and `token_file`. A token in a settings file lies where the file lies: use
+`token_file` and keep that file readable by its owner alone.
+
+Refusals (exit 2, nothing written, no run directory, no private directory, no call of Loom). Each names the
+member, as `gateway.base_url`, and never a value, a part of a value or the path of a file:
+
+- the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host
+- both `token` and `token_file`, or neither
+- a `token_file` that is not absolute, not a readable file, empty, or more than one line
+- a `token` that is empty or not one line of visible text
+- a member that is none of the three
+- a `gateway` and a `login_file` (in the place `loom.login_file` of the old form too)
+- no `XDG_RUNTIME_DIR` of the user (the same rule as for the login file: the file lies in the private directory)
+- `confinement = substrate` (below)
+- an adapter that cannot take it: `adapter = "metaharness"`, and a model decider whose `decider.adapter` is
+  `metaharness`, which is the decider's default (below)
+
+What a run does with it:
+
+1. The runner writes one file, `gateway`, into its private directory `$XDG_RUNTIME_DIR/runbook/<run>/`
+   (mode 700, the directory of the login link). The file has mode 600 and two lines, `base_url=<address>` and
+   `token=<token>`. With a gateway no login file is linked, copied or required.
+2. It writes `--gateway-file <that file>` into the argv of every `sdc-node` node of its copy of the bindings
+   (the way `--claude-credentials` is written for a login). The file's path is in the copy; the token is not.
+3. `sdc-node` hands the path to the adapter in `SDC_GATEWAY_FILE`. The adapter reads the file with the sh
+   function `sdc_gateway_read` (`bindings/tools/gateway.sh`; the Rust reader is `sdc_tools::gateway::read`),
+   and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
+   start, a fresh `CLAUDE_CONFIG_DIR` that holds no login, and `ANTHROPIC_API_KEY` unset. The two values
+   are exported only inside the subshell of that start (the shell's own `export`) and are in no argv. Loom's contract is unchanged: a program Loom
+   starts has `PATH` and `LOOM_*` and nothing of the gateway.
+4. The starts that are not a node take it the same way: the model decider (`SDC_GATEWAY_FILE` in the
+   environment the runner builds for its adapter), the adapter calls of `sdc-reply` (it clears nothing, so
+   its adapter has the variable of the process that started it) and the conformance
+   observation (`--conformance observe`, whose adapter is started while the private directory exists).
+5. The private directory and the file go with the run: after a normal end, after an error and after
+   SIGTERM. A SIGKILL leaves the directory; the next run of that name refuses to start over it, by its
+   path, and the user removes it.
+6. The token is in no argv, no environment of a program Loom starts, no log line, no event, no file of the
+   run directory and not in the copy. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
+
+Where a gateway works:
+
+| `--confinement` | A gateway on loopback |
+|---|---|
+| `local` | works: the bound program runs on the host's network |
+| `substrate` | refused by the name `gateway`: a bound program at that level has no network, so no address (not even loopback) is reachable (`loom-substrate` `NetworkMode::None`, no egress aperture). The runner changes no confinement |
+
+The only adapter that takes a gateway is `claude-cli`. `metaharness` starts its own proxy and removes every
+`ANTHROPIC_*` variable of its environment, so it cannot carry the token: the setting and the adapter refuse it
+(the adapter with exit 127, before any process starts). `stub`, `dry` and `fixture` call no model and ignore the
+option.
+
+`runbook run --dry` presets the adapter `dry`: it checks the shape of the table (the refusals above except
+those that read a file or the runtime directory), reads no `token_file`, writes no private directory and
+no option, and records `"gateway": "named"`. The daemon starts runs from a flat text map of settings and has
+no place for a gateway: a run it starts has none.
 
 ## What `sdc-experiment run` writes, and what a run does with it
 

@@ -199,7 +199,8 @@ read with the catalog of its run.
 Bound programs get only `PATH` from Loom itself. No login file, no path of one and no credential
 variable is in the run directory or in the child's environment; the login file's path is a setting
 that is replaced by `named` in every file the runner writes. The programs reach the login through
-the link of the private directory (next section).
+the link of the private directory (next section), or, with `[gateway]` in the settings, an address and a
+token through one file of that directory (the section "The gateway").
 
 ## The login file
 
@@ -242,6 +243,31 @@ record directory, which is inside the run directory:
 SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
 removes the link itself and never follows it: the login file stays. A SIGKILL of the runner leaves
 the directory, as the section above says.
+
+### The gateway
+
+A settings file that names `[gateway]` (`docs/loom-run-settings.md`, "`[gateway]`") gives the model programs
+an address and a token and no login: with it no login file is named, linked, copied or required, and a
+file that names both is refused. The runner writes one file, `gateway` (mode 0600, two lines
+`base_url=` and `token=`), into the same private directory (mode 0700, same removal on a normal end, an
+error, SIGTERM and SIGINT), and writes `--gateway-file <that file>` into the argv of every model node of
+the copy, where a login would have `--claude-credentials <link>`. `sdc-node` hands the path to the adapter as
+`SDC_GATEWAY_FILE`; `llm-adapter-claude-cli.sh` reads it with `sdc_gateway_read` (`bindings/tools/gateway.sh`)
+and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
+start, `ANTHROPIC_API_KEY` unset, and a fresh config home that holds no `.credentials.json`. The token is in no
+argv, no environment of a program Loom starts, no log line, no event, no file of the run directory and not in
+the copy.
+
+Every start of a model process that belongs to a run takes it the same way: the nodes (the review step is
+one of them), the model decider (the runner puts `SDC_GATEWAY_FILE` into the environment it builds for the
+decider's adapter) and the conformance observation. `llm-adapter-metaharness.sh` cannot take a gateway (it
+starts its own proxy and removes every `ANTHROPIC_*` variable): it ends with exit 127 when `SDC_GATEWAY_FILE`
+is set, and the runner refuses a gateway together with `adapter = "metaharness"` or with a model decider
+that uses it (the decider's default adapter is `metaharness`: name `decider.adapter = "claude-cli"`).
+
+A gateway works at `--confinement local` only: a bound program under `substrate` has no network, not even
+loopback, so the runner refuses a gateway there by the name `gateway` before a run directory exists. It
+changes no confinement.
 
 The metaharness adapter makes its home only when metaharness would find no login otherwise:
 `SDC_CLAUDE_CREDENTIALS` names a file in such a directory and `$HOME/.claude/.credentials.json` is
@@ -350,7 +376,9 @@ It sets three things before the run opens and keeps every required option requir
   the person steps of the copy are bound to `decider:approve` and every one is approved by script. A
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
 - A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
-  needed). A dry call still counts against `--max-llm-calls`.
+  needed). A dry call still counts against `--max-llm-calls`. A `[gateway]` in the settings is checked for its
+  shape and used for nothing: no `token_file` is read, no private directory or `--gateway-file` is written, and
+  `settings.json` says `gateway: named`.
 - The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
   `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
   of `sdc-node`, else the class default of `node-classes.json`. The two adapters that take an effort

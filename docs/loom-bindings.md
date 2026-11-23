@@ -282,6 +282,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `SDC_PRINCIPAL` | `SDC_PRINCIPAL` | `--principal` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` or G2 |
 | `SDC_LLM_ADAPTER` | `SDC_LLM_ADAPTER` | `--adapter` is taken; the YAML names none, so the stub runs | pending: N3, N9 |
 | `SDC_CLAUDE_CREDENTIALS` | `SDC_CLAUDE_CREDENTIALS` (the login file of `llm-adapter-claude-cli.sh` and of `llm-adapter-metaharness.sh`; else `CLAUDE_CONFIG_DIR`, else `HOME`) | `--claude-credentials <file>`; with none of the four (`ANTHROPIC_API_KEY` too) the claude-cli adapter exits 127 and names them | done; the runner writes it into every model node (`docs/loom-run.md`, "How each adapter gets the login under Loom") |
+| `SDC_GATEWAY_FILE` | `SDC_GATEWAY_FILE` (the file with the address and the token of a gateway, read by `llm-adapter-claude-cli.sh` through `bindings/tools/gateway.sh`; `llm-adapter-metaharness.sh` exits 127 when it is set) | `--gateway-file <file>`, never with `--claude-credentials`; without it the adapter reads no gateway | done; the runner writes it into every model node when the settings name a `[gateway]` (`docs/loom-run-settings.md`) |
 | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | the defaults | pending: N9 |
 | `SDC_LLM_NODES` | `SDC_LLM_NODES` | the default: every node on the adapter | pending: N9 |
 | `SDC_STUB_FINDINGS` | `SDC_STUB_FINDINGS` | the default: none | pending: N3 |

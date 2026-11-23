@@ -218,6 +218,7 @@ name before anything is written.
 | `models.<role>.max_budget_usd` | option `--max-budget-usd` |
 | `adapter` (`metaharness`, `claude-cli`) | option `--adapter` of every model node |
 | `login_file` | option `--claude-credentials <run>/login` of every model node; `<run>/login` is a link to the file |
+| `gateway` | option `--gateway-file <private dir>/gateway` of every model node; the file holds the address and the token, the copy only its path (`docs/loom-run-settings.md`, "`[gateway]`") |
 
 `budget.max_runs`, the only budget member a tree acts on, stays as committed: `max_turns` and
 `max_budget_micro_usd` are refused on program bindings by Loom.
