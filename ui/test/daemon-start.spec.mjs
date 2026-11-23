@@ -1,14 +1,17 @@
 // A person starts a run from the page the daemon serves (`runbook serve --ui`, the binary cargo built;
 // story daemon-page-starts-a-run). The page lists the runbooks from the view `runbooks`, takes the intake
 // as text and the confinement (never below the daemon's floor), and sends the daemon's own command
-// `submit-run`: a POST with `Authorization: Bearer <token>` (when the daemon has a token), JSON, a fresh
-// idempotency key per press, and no cookie. The new run appears in the run list and is selected; a refusal
-// of the daemon is shown with its name. The header says "operate". Under the stub runtime the form says
-// that the run is scripted and nothing is executed. The token stays in the memory of the page and the text
-// of an intake never becomes markup.
-// Four daemons, each on 127.0.0.1:0 with a state directory of its own, and no model call: the stub
-// runtime's presets and one runbook directory with an invented runbook `example`; one daemon runs the
-// Loom runtime over the fixture runbook home of the engine tests and is only listed from, never run.
+// `submit-run`: a POST with `Authorization: Bearer <token>` (when the daemon has a token), JSON, an
+// idempotency key that belongs to one filled form (a new one once the daemon answered), and no cookie. The
+// confinement is picked by the person: no level is preset and Start is disabled until one is picked. The new
+// run appears in the run list and is selected; a refusal of the daemon is shown with its name. The header
+// says "operate". Under the stub runtime the form says that the run is scripted and nothing is executed.
+// The token stays in the memory of the page and the text of an intake never becomes markup.
+// Four daemons, shared by the tests of this file (each test counts the runs it adds), each on 127.0.0.1:0
+// with a state directory of its own, and no model call. They differ in what a test needs of them: `open`
+// (the stub runtime's presets and one runbook directory with an invented runbook `example`), `guarded` (a
+// token and the floor `local`), `refusing` (a runbook that goes away under the page) and `loom` (the Loom
+// runtime over the fixture runbook home of the engine tests, only listed from, never run).
 import {test, expect as plain} from '@playwright/test';
 import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
@@ -101,11 +104,13 @@ async function form(page) {
 const texts = (page, sel) => page.locator(sel).evaluateAll((els) => els.map((e) => e.textContent));
 const values = (page, sel) => page.locator(sel).evaluateAll((els) => els.map((e) => e.value));
 const bodyOf = (req) => JSON.parse(req.postData());
+const count = (s) => rows(s, 'runs').then((r) => r.length);
 
-test('the header says operate, the form lists the runbooks and says the run is scripted, and no level below the floor is offered', async ({page}) => {
+test('the header says operate, the form lists the runbooks and says the run is scripted, and no level is preset or offered below the floor', async ({page}) => {
   const s = servers.open;
   const problems = watch(page);
   const sent = commands(page);
+  const runs0 = await count(s);
   await enter(page, s);
   await expect(page.locator('#mode')).toHaveText('operate');
   await form(page);
@@ -113,30 +118,39 @@ test('the header says operate, the form lists the runbooks and says the run is s
   await expect(page.locator('#st-note')).toContainText('scripted');
   await expect(page.locator('#st-note')).toContainText('nothing is executed');
   expect(await values(page, '#st-confinement option')).toEqual(['linux']);
-  await expect(page.locator('#st-confinement')).toHaveValue('linux');
+  // no level is preset: none is selected and Start waits for the person's pick; the form says the floor
+  await expect(page.locator('#st-confinement')).toHaveValue('');
+  expect(await page.locator('#st-confinement').evaluate((el) => el.selectedIndex)).toBe(-1);
+  await expect(page.locator('#st-start')).toBeDisabled();
+  await expect(page.locator('#st-note')).toContainText('floor of this daemon is linux');
   await expect(page.locator('#st-token')).toBeHidden();
+  await page.locator('#st-intake').fill('an intake of the invented kind');
+  await expect(page.locator('#st-start'), 'an intake alone does not enable Start').toBeDisabled();
+  await page.locator('#st-confinement').selectOption('linux');
+  await expect(page.locator('#st-start')).toBeEnabled();
 
   // a level below the floor, put into the select by hand, is not sent
   await page.locator('#st-confinement').evaluate((el) => { el.insertAdjacentElement('afterbegin', Object.assign(document.createElement('option'), {value: 'local', textContent: 'local'})); el.value = 'local'; });
-  await page.locator('#st-intake').fill('an intake of the invented kind');
   await page.click('#st-start');
   await expect(page.locator('#st-msg')).toContainText('floor');
   await expect(page.locator('#st-msg')).toContainText('linux');
   expect(sent.length).toBe(0);
-  expect(await rows(s, 'runs')).toEqual([]);
+  expect(await count(s)).toBe(runs0);
   expect(problems).toEqual([]);
 });
 
-test('Start sends submit-run with a fresh key each press, the new run appears in the list and is selected', async ({page}) => {
+test('Start sends submit-run with a key of its own for each filled form, the new run appears in the list and is selected', async ({page}) => {
   const s = servers.open;
   const problems = watch(page);
   const sent = commands(page);
+  const runs0 = await count(s);
   await enter(page, s);
   const keys = [];
   for (const [i, intake] of ['first intake of the invented runbook', 'second intake'].entries()) {
     await form(page);
     await page.locator('#st-runbook').selectOption('sdc');
     await page.locator('#st-intake').fill(intake);
+    await page.locator('#st-confinement').selectOption('linux');
     const [response] = await Promise.all([page.waitForResponse((r) => r.request().method() === 'POST'), page.click('#st-start')]);
     expect(response.status()).toBe(202);
     const run = (await response.json()).published[0].payload.run_id;
@@ -158,10 +172,29 @@ test('Start sends submit-run with a fresh key each press, the new run appears in
     await expect(page.locator('#feed .fd-list')).toHaveAttribute('data-run', run);
   }
   expect(new Set(keys).size).toBe(2);
-  expect((await rows(s, 'runs')).length).toBe(2);
-  // the intake is cleared once it was sent
+  expect((await count(s)) - runs0).toBe(2);
+  // the intake is cleared once it was sent, and the level is not kept for the next form
   await form(page);
   await expect(page.locator('#st-intake')).toHaveValue('');
+  await expect(page.locator('#st-confinement')).toHaveValue('');
+  expect(problems).toEqual([]);
+});
+
+test('a start of a runbook of the directory that the stub has no script for is taken, and the run is shown as FailedToStart with the reason', async ({page}) => {
+  const s = servers.open;
+  const problems = watch(page);
+  await enter(page, s);
+  await form(page);
+  await page.locator('#st-runbook').selectOption('example');
+  await page.locator('#st-intake').fill('an intake for a runbook the stub cannot play');
+  await page.locator('#st-confinement').selectOption('linux');
+  const [response] = await Promise.all([page.waitForResponse((r) => r.request().method() === 'POST'), page.click('#st-start')]);
+  expect(response.status()).toBe(202);
+  const run = (await response.json()).published[0].payload.run_id;
+  await expect.poll(async () => (await rows(s, 'run', `?run_id=${run}`))[0].state).toBe('FailedToStart');
+  expect((await rows(s, 'run', `?run_id=${run}`))[0].failure).toContain('no script for runbook example');
+  await expect(page.locator('#runpick')).toContainText(run.slice(-8));
+  await expect(page.locator('#runpick')).toContainText('FailedToStart');
   expect(problems).toEqual([]);
 });
 
@@ -172,6 +205,7 @@ test('the text of an intake never becomes markup', async ({page}) => {
   const intake = '<img src="x" onerror="window.__ran = 1"><b>bold</b> & <script>window.__ran = 2</script>';
   await form(page);
   await page.locator('#st-intake').fill(intake);
+  await page.locator('#st-confinement').selectOption('linux');
   const [response] = await Promise.all([page.waitForResponse((r) => r.request().method() === 'POST'), page.click('#st-start')]);
   const run = (await response.json()).published[0].payload.run_id;
   await expect(page.locator('#runpick')).toContainText(run.slice(-8));
@@ -193,6 +227,7 @@ test('a refusal of the daemon is shown with its name, and the form keeps what wa
   fs.rmSync(path.join(s.books, 'example'), {recursive: true});
   await page.locator('#st-runbook').selectOption('example');
   await page.locator('#st-intake').fill('a text the person does not want to lose');
+  await page.locator('#st-confinement').selectOption('linux');
   await page.click('#st-start');
   await expect(page.locator('#st-msg')).toContainText('no-runbook');
   await expect(page.locator('#st-msg')).toContainText('422');
@@ -223,12 +258,16 @@ test('a daemon with a token: the page asks once, sends the bearer and no cookie,
   const sent = commands(page);
   await enter(page, s);
   await form(page);
-  // the floor is local here: both levels are offered and the floor is the preset
+  // the floor is local here: both levels are offered, none is preset (not even the floor), the form says the floor
   expect(await values(page, '#st-confinement option')).toEqual(['local', 'linux']);
-  await expect(page.locator('#st-confinement')).toHaveValue('local');
+  await expect(page.locator('#st-confinement')).toHaveValue('');
+  await expect(page.locator('#st-start')).toBeDisabled();
+  await expect(page.locator('#st-note')).toContainText('floor of this daemon is local');
   await expect(page.locator('#st-token')).toBeVisible();
   await page.locator('#st-intake').fill('an intake for the guarded daemon');
   await page.locator('#st-runbook').selectOption('sdc');
+  await page.locator('#st-confinement').selectOption('local');
+  await expect(page.locator('#st-start')).toBeEnabled();
 
   // no token typed: nothing is sent
   await page.click('#st-start');
@@ -259,6 +298,7 @@ test('a daemon with a token: the page asks once, sends the bearer and no cookie,
   await form(page);
   await expect(page.locator('#st-token')).toBeHidden();
   await page.locator('#st-intake').fill('a second one');
+  await page.locator('#st-confinement').selectOption('linux');
   await Promise.all([page.waitForResponse((r) => r.request().method() === 'POST' && r.status() === 202), page.click('#st-start')]);
   expect((await sent.at(-1).allHeaders()).authorization).toBe(`Bearer ${s.token}`);
   await page.reload();

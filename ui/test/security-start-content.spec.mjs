@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 const expect = plain.configure({timeout: 15000});
 const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
-let s, dir;
+let s, dir, n0;
 
 function start(name, args = [], env = {}) {
   return new Promise((resolve, reject) => {
@@ -30,6 +30,7 @@ function start(name, args = [], env = {}) {
 }
 
 const rows = (view, q = '') => fetch(`${s.base}/daemon/views/${view}${q}`).then((r) => r.json()).then((j) => j.rows);
+const added = async () => (await rows('runs')).length - n0;
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 const HOSTILE = '<img src=x onerror="window.__ran=1"><script>window.__ran=2</script><b id="sec-b">b</b><svg onload="window.__ran=3">"\'>&amp;';
 // what markup would leave behind, anywhere in the page
@@ -41,14 +42,14 @@ test.beforeAll(async ({}, info) => {
   expect(fs.existsSync(bin), `${bin} is missing`).toBe(true);
   const root = process.env.SEC_SCRATCH || path.join(ui, 'node_modules');
   fs.mkdirSync(root, {recursive: true});
-  dir = fs.mkdtempSync(path.join(root, '.pw-sec-content-'));
+  dir = fs.mkdtempSync(path.join(root, '.pw-start-content-'));
+  s = await start('content');
 });
 test.beforeEach(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  s = await start(`d-${info.testId}-${info.retry}`);
+  n0 = (await rows('runs')).length;
 });
-test.afterEach(() => { if (s?.proc.exitCode == null) s?.proc.kill(); });
-test.afterAll(() => { if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
+test.afterAll(() => { if (s?.proc.exitCode == null) s?.proc.kill(); if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
 
 function watch(page) {
   const problems = [];
@@ -106,6 +107,7 @@ test('a runbook name, a version, a runtime and a refusal that look like markup a
   for (const a of answers) {
     if (!(await page.locator('#startdlg').evaluate((d) => d.open))) await form(page);
     await page.locator('#st-intake').fill(HOSTILE);
+    await page.locator('#st-confinement').selectOption('linux');
     await Promise.all([page.waitForResponse((r) => isStart(r.request())), page.click('#st-start')]);
     await expect(page.locator('#st-start')).toBeEnabled();
     const msg = await page.locator('#st-msg').evaluate((e) => [e.children.length, e.textContent]);
@@ -115,7 +117,7 @@ test('a runbook name, a version, a runtime and a refusal that look like markup a
   await page.waitForTimeout(300);
   expect(await made(page)).toEqual(baseline);
   expect(problems).toEqual([]);
-  expect(await rows('runs')).toEqual([]);
+  expect(await added()).toBe(0);
 });
 
 test('the floor is the daemon\'s: a page told a lower floor is refused by the daemon, and an unread floor offers only the strictest level', async ({page}) => {
@@ -153,7 +155,7 @@ test('the floor is the daemon\'s: a page told a lower floor is refused by the da
   expect(response.status()).toBe(409);
   await expect(page.locator('#st-msg')).toContainText('below-floor (409)');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
-  expect(await rows('runs')).toEqual([]);
+  expect(await added()).toBe(0);
   expect(await rows('daemon-events', '?after_position=0')).toEqual(eventsBefore);
   expect(problems).toEqual([]);
 });
@@ -166,6 +168,7 @@ test('an intake with control characters, markup and 200 000 characters reaches t
   await form(page);
   await page.locator('#st-runbook').selectOption('sdc');
   await page.locator('#st-intake').evaluate((el, v) => { el.value = v; }, intake);
+  await page.locator('#st-confinement').selectOption('linux');
   const [response] = await Promise.all([page.waitForResponse((r) => isStart(r.request())), page.click('#st-start')]);
   expect(response.status()).toBe(202);
   const sent = JSON.parse(response.request().postData());

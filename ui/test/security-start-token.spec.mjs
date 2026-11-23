@@ -1,5 +1,7 @@
 // Security review, pass 1, of the unit daemon-page-starts-a-run: the token field of the start form.
-// A daemon of its own with a token (stub runtime, floor linux) on 127.0.0.1:0; invented texts; no model call.
+// One daemon for the file, with a token (stub runtime, floor linux) on 127.0.0.1:0, shared by its tests: each test
+// counts the runs it adds. Invented texts; no model call. The log of the daemon holds the output of every test, so
+// the test that reads it holds the whole file to it.
 // The state directory lies under SEC_SCRATCH when it is set (the reviewer's scratch), else under node_modules.
 import {test, expect as plain} from '@playwright/test';
 import {spawnChild} from './child.mjs';
@@ -13,7 +15,7 @@ const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
 const TOKEN = `tok-${randomBytes(24).toString('hex')}`;
 const WRONG = 'not-the-token-of-this-daemon-0123456789';
-let s, dir;
+let s, dir, n0;
 
 function start(name, args = [], env = {}) {
   return new Promise((resolve, reject) => {
@@ -32,6 +34,7 @@ function start(name, args = [], env = {}) {
 }
 
 const runs = () => fetch(`${s.base}/daemon/views/runs`, {headers: {authorization: `Bearer ${TOKEN}`}}).then((r) => r.json()).then((j) => j.rows);
+const added = async () => (await runs()).length - n0;
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
@@ -40,14 +43,14 @@ test.beforeAll(async ({}, info) => {
   expect(fs.existsSync(bin), `${bin} is missing`).toBe(true);
   const root = process.env.SEC_SCRATCH || path.join(ui, 'node_modules');
   fs.mkdirSync(root, {recursive: true});
-  dir = fs.mkdtempSync(path.join(root, '.pw-sec-token-'));
+  dir = fs.mkdtempSync(path.join(root, '.pw-start-token-'));
+  s = await start('token', [], {RUNBOOK_TOKEN: TOKEN});
 });
 test.beforeEach(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  s = await start(`d-${info.testId}-${info.retry}`, [], {RUNBOOK_TOKEN: TOKEN});
+  n0 = (await runs()).length;
 });
-test.afterEach(() => { if (s?.proc.exitCode == null) s?.proc.kill(); });
-test.afterAll(() => { if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
+test.afterAll(() => { if (s?.proc.exitCode == null) s?.proc.kill(); if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
 
 // the login of the page (the read cookie), then the start form with a runbook and an intake
 async function form(page) {
@@ -59,6 +62,7 @@ async function form(page) {
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   await expect.poll(() => page.locator('#st-runbook option').count()).toBeGreaterThan(0);
   await page.locator('#st-runbook').selectOption('sdc');
+  await page.locator('#st-confinement').selectOption('linux');
   await page.locator('#st-intake').fill('an invented intake for the daemon with a token');
   await expect(page.locator('#st-token')).toBeVisible();
 }
@@ -79,12 +83,14 @@ test('a token the browser cannot put into a header is forgotten, and the form as
   expect(sent.length, 'nothing left the browser').toBe(0);
   expect.soft(said, 'the message echoes the typed token').not.toContain(WRONG);
   expect.soft(said, 'the form says the daemon could not be reached, and no request was made').not.toContain('could not be reached');
+  expect(said, 'the message says that the token cannot be sent').toContain('cannot be sent');
+  expect((await inputs(page)).filter((v) => v.includes(WRONG)), 'an input of the page still holds the typed token').toEqual([]);
   // the person has to be able to give the right token: the field is back, as after a 401
   await expect.soft(page.locator('#st-token'), 'the token field is gone and the typed value is kept in memory: the right token cannot be given without a reload').toBeVisible({timeout: 3000});
   // pressing Start again must not run into the same kept value
   await page.click('#st-start');
   await expect.soft(page.locator('#st-msg'), 'the second press uses the kept value again').toContainText('needs its token', {timeout: 3000});
-  expect((await runs()).length).toBe(0);
+  expect(await added()).toBe(0);
 });
 
 for (const [how, close] of [['Close', (page) => page.click('#st-close')], ['Escape', (page) => page.keyboard.press('Escape')]]) {
@@ -171,7 +177,7 @@ test('the token field is a password field outside any form, Enter sends nothing,
   expect(s.log(), 'a log line of the daemon carries a token').not.toContain(TOKEN);
   expect(s.log()).not.toContain(WRONG);
   expect(pageErrors).toEqual([]);
-  expect((await runs()).length).toBe(1);
+  expect(await added()).toBe(1);
 });
 
 test('the cookie of the login starts no run: a start from the page without the bearer is 401, whatever the cookie', async ({page}) => {
@@ -189,5 +195,5 @@ test('the cookie of the login starts no run: a start from the page without the b
   expect(answers.slice(0, 3).map((a) => a[1])).toEqual([401, 401, 401]);
   expect(new Set(answers.slice(0, 3).map((a) => a[2])).size, 'the refusals differ by the cookie').toBe(1);
   expect(answers[3][1]).toBe(200);
-  expect((await runs()).length).toBe(0);
+  expect(await added()).toBe(0);
 });
