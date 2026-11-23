@@ -229,10 +229,10 @@ test('a parser of the view says what a change of its record means; a kind with n
 test('without a decision rule in the view, nothing is read from the questions of a run', () => {
   registerRun(path.join(root, 'run'));
   setView(null);
-  expect(scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}})).toBeNull();
+  expect(scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}}, path.join(root, 'run'))).toBeNull();
   test.skip(!hasYq, 'yq is not on the PATH');
   setView(SECOND_VIEW);
-  const q = scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}});
+  const q = scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}}, path.join(root, 'run'));
   expect(q).toMatchObject({path: SECOND.ask.file, questions: [{id: 'a1', question: SECOND.ask.text, status: 'pending', awaiting: true, default: SECOND.ask.options[0]}]});
   setView(null);
 });
