@@ -141,7 +141,8 @@ tasks:
         set -u
         log=target/nextest-runbook.log
         code=0
-        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
+        trap_dir=$(cd ../scripts/host-tool-traps && pwd)
+        PATH="$trap_dir:$PATH" cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
         cat "$log"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10

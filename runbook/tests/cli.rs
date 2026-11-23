@@ -8,6 +8,7 @@ mod linked_canon;
 mod build_commit;
 mod canon_cmd;
 mod ess_digest;
+mod exit_classes;
 mod loom_run;
 mod install;
 mod reply_lib;
@@ -672,6 +673,28 @@ fn check_fails_a_view_with_another_format_id() {
     assert_finding(&check(&w, &co), "views/sdc.view.json", &["not a JSON object"]);
     std::fs::write(co.join("views/other.view.json"), "{\"phases\": {}}").unwrap();
     assert_finding(&check(&w, &co), "views/other.view.json", &["no \"format\" member"]);
+}
+
+#[test]
+fn check_accepts_a_view_product_and_refuses_one_that_is_not_a_path_inside_the_run() {
+    let w = World::new("check-view-product");
+    let co = text_copy(&w);
+    let view = |product: &str| format!("{{\"format\": \"runbook.view/1\", \"product\": {product}}}");
+    std::fs::write(co.join("views/other.view.json"), view("\"work/example/example.md\"")).unwrap();
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    for (product, says) in [
+        ("5", "must be a string"),
+        ("[\"work/a.md\"]", "must be a string"),
+        ("\"\"", "is empty"),
+        ("\"/etc/hostname\"", "is absolute"),
+        ("\"../outside.md\"", "leaves the run"),
+        ("\"work/../../outside.md\"", "leaves the run"),
+        ("\"work/.cache/token.md\"", "starts with a dot"),
+    ] {
+        std::fs::write(co.join("views/other.view.json"), view(product)).unwrap();
+        assert_finding(&check(&w, &co), "views/other.view.json", &["product", says]);
+    }
 }
 
 #[test]

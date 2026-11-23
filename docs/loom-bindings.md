@@ -103,7 +103,7 @@ proposed order of Loom's open stories, 2026-11-21).
 - A `person`'s record produced by the approving principal, not the literal `person:owner`: `story:tree-run-command`, wave 2.
 - `budget.max_runs`, counted since the case's last arrival as the driver does (D24): `story:run-caps-per-arrival`, wave 6.
 
-`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`db2726ff`) runs
+`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`c9b4c177`) runs
 them. On a step with retry records it sets `LOOM_RETRY_FEEDBACK` on the bound program's child to the
 path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 (`crates/loom-bindings/src/retry.rs:14-17`, `:34`, `:36` of Loom).
@@ -112,20 +112,44 @@ path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 
 | Loom work | Wave | What it brings |
 |---|---|---|
-| G1 bound program contract | 2 | argv relative to the bindings file's directory (D13), program-error exits 75, 126, 127 per binding (D36), not-called runs (D37) |
+| G1 bound program contract | 2 | argv relative to the bindings file's directory (D13); program-error exits (D36), not-called runs (D37) and the pool-wait exits are stated in the bindings, see "The exit lists" |
 | G2 person actions | 3 | done at Loom `70b0e6e0`: a program on a person binding with the principal as argument (D11, D15; `scope.answer` in `bindings/sdc-intake.yaml`), `rejected` with reasons (D12); a subject with no evidence (D38) needs no member: the binding names none |
 | `story:bound-agent-node` | 4 | `agent` executors for the 14 agent nodes: adapter, model, `max_turns`, `max_budget_micro_usd`, `tools.allow` (D18-D20, D22) |
 | N8 | 4 | `{work}` in `handoff` (D14) |
 | N3 fixture adapter | 5 | the stub of each agent node (D21) |
 | G4 | 10 | initial child revisions (D30), only if step 3 shows `sdc.epic` needs them |
 
-The exit lists: every program binding states program-error exits `[75, 126, 127]` (the former driver's
-`program_error`), and each of the 14 agent nodes a not-called exit,
-which `sdc-node` takes in step 2 in place of the `SDC_NOT_CALLED` file. Loom ships no default
-list (Loom story G1a); until the loader has the member, the lists stay in `bindings/PENDING.md`.
-The bindings that wait for the build pool (story `tests.run`, release `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) add exit 69 (no
-slot within `--pool-wait`, nothing ran) to their list: `[69, 70, 75, 126, 127]` (70: the pool ended a started job at its run limit, "ran over its time"). Until then Loom maps 69 and 70
-by the binding's `*` result to `failed`; the tool exits 69 and 70 in both modes.
+The exit lists (Loom `70b0e6e0`, `exits: {error: [...], not_called: [...]}`; Loom ships no default
+list): each of the 50 program bindings of `bindings/*.yaml` states `exits.error`, `[75, 126, 127]`
+(the former driver's `program_error`), and each of the 14 model-node bindings
+(the `sdc-node` actions) also `exits.not_called: [79]`. An exit in `error` ends the run
+`ProgramError`, the run log holds no result for the node, and the run is not counted against
+`budget.max_runs`; an exit in `not_called` records nothing, the step is performed, and the run is
+not counted either. `scripts/check-bindings.sh` refuses by name an `exits` class other than these two, a class that is not a list and an `exits` that is not a mapping, as Loom's decoder does. `sdc-node` ends 79 where it prints "not called" and writes nothing
+(`questions.write` with an interview, a stage agent while a finding waits for a person); the one
+"not called" that stays exit 0 is a derived tree that is only renewed (`derived_skip`): its
+renewed `.derived-from` is what moves the case, and a run that records nothing leaves the case at
+its revision (`spec-own-default` of `cycles/tree-suite.yaml` ended Stuck with 79 there). That
+renewal of `spec.author` exits 0 and so counts as one of its `budget.max_runs`. A node
+that is not called while it stays due (`retry_when`) was taken again at once at Loom `db2726ff`
+(Loom counts no run of it); at `c9b4c177` (`story:writer-not-called-leaves-the-due-set`) it leaves
+the due set after its not-called exit until the case is evaluated again for a reason other than its
+own moves, so it starts once per evaluation and the run goes on to the next useful action or to the
+handoff check; a not-called writer that moves an artifact, and a writer of evidence on that artifact,
+still alternate until the step or the cycle's time bound. The test of the state of run 1 of record
+`parity-loom-strong-4` is `runbook/tests/test_suite/notcalled.rs`; see `spec-person-wait` and
+`cite-fault-sent-back` in `docs/cycles-suite.md`. The bindings that wait for the build pool (story `tests.run`, release
+`acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) list `[69, 70, 75, 126, 127]`: 69 is
+no slot within `--pool-wait` (nothing ran), 70 the pool ended a started job at its run limit ("ran
+over its time"). The tool exits 69 and 70 in both modes; under Loom neither maps to `failed` any
+more.
+
+The not-called code is 79. It is the one code that collides with no result-table key (the tables
+name only 0, 1, 3, 5 and 8, the exits of the check tools) and
+with no `exits.error` code of any binding (75, 126, 127, 69, 70); Loom refuses a code that is in
+both classes or in a class and a `from: exit` table key, and `scripts/check-bindings.sh` checks the
+same three things before Loom does. 79 also stays clear of the codes `sdc-node` passes through from
+its adapters (64 bad arguments, 75 the model's API ended) and of the shell's 124, 126, 127, 128+n.
 
 ## Checks
 
@@ -139,7 +163,10 @@ by the binding's `*` result to `failed`; the tool exits 69 and 70 in both modes.
   (the id with `.` and `_` as `-`, then `@<revision>`), the `from:` of every `copy` executor is the
   registration of a protocol file in `protocol/`, and a file that binds a program has
   `program_root: bindings`; a failure names the file and the value. A new revision of a protocol
-  file moves its registration here and in every `copy` `from:`. Plain text with `jq` and `yq`.
+  file moves its registration here and in every `copy` `from:`. Also the exits (see "The exit
+  lists"): `exits.error` is `[75, 126, 127]` (`[69, 70, 75, 126, 127]` where the argv names
+  `--pool-wait`), a `sdc-node` action has `exits.not_called: [79]`, and no code is in both classes
+  or a key of the action's `from: exit` table. Plain text with `jq` and `yq`.
 - The tools' Loom mode: `driver/tests/questions_check.rs`, module `loom_mode`, runs a check
   (`check-questions`, `check-requirements`), `list-stories`, an agent node on the stub and on dry
   (`idea.dissect`, `spec.author`) and a retried writer (`questions.write` with
@@ -204,7 +231,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `SDC_LLM_NODE` | `SDC_LLM_NODE` (the binding's `llm` object) | `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>` | done, until the `agent` executor (`story:bound-agent-node`) |
 | `SDC_REPLY` | `SDC_REPLY` | `sdc-reply` on `PATH`, else relative to the tool | done |
 | `SDC_FEEDBACK`, `LOOM_RETRY_FEEDBACK` | `SDC_FEEDBACK` (failing records and their logs) | `LOOM_RETRY_FEEDBACK`, written in the driver's form to `work/.sdc/loom-feedback/<digest>/`: each record's kind, result, subject and log tail | done; the records name no action and no exit, so `in/feedback.md` reads `(from ?, exit ?)` |
-| `not_called()` | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 0, as in the driver | pending: G1 (`exits.not_called`) |
+| `not_called()` | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 79 (`exits.not_called: [79]` of every model-node binding), no evidence | done |
 | `SDC_PRINCIPAL` | `SDC_PRINCIPAL` | `--principal` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` or G2 |
 | `SDC_LLM_ADAPTER` | `SDC_LLM_ADAPTER` | `--adapter` is taken; the YAML names none, so the stub runs | pending: N3, N9 |
 | `SDC_CLAUDE_CREDENTIALS` | `SDC_CLAUDE_CREDENTIALS` (the login file of `llm-adapter-claude-cli.sh` and of `llm-adapter-metaharness.sh`; else `CLAUDE_CONFIG_DIR`, else `HOME`) | `--claude-credentials <file>`; with none of the four (`ANTHROPIC_API_KEY` too) the claude-cli adapter exits 127 and names them | done; the runner writes it into every model node (`docs/loom-run.md`, "How each adapter gets the login under Loom") |
@@ -217,7 +244,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | the default `work/.sdc/llm/` | pending: `story:agent-node-run-records` |
 | `epic=$(cut`, `story=$(cut` | `SDC_CASE` (epic and story ids) | `LOOM_PARENT_CASE_NAME` (epic) and `LOOM_CASE_NAME` (story) when Loom sets them, else the cut of `LOOM_CASE` | done |
 | `SDC_CASE_DIR`, `case_dir=` | `SDC_CASE_DIR` (implement request mode) | the directory above the workspace | pending: `story:bound-agent-node` |
-| `case_dir=`, `sdc-reply review-inputs`, `schema --type review`, `check-review`, `rejections` | `case.json` (the revisions), `events.jsonl`, `evidence/`, `blobs/` (the conformance run on the change revision, the gate run on the spec revision, the earlier rejections of `change.review`) | record files of the workspace under `.sdc/records/`, one small file per fact, written by the tool that owns it: `conformance_run/<digest>.log` (`sdc-tool.sh story-tests`, tests.run) and `ess_gate/<digest>.log` (`sdc-tool.sh ess-gate`, spec.gate), each the step's log about the tree (`impl`, `spec`) whose content has that digest (`sdc-reply record`; the digest leaves out `target`, `.sdc` and `.derived-from`, like the review's diff), and `rejections/change.review/<n>.json` (`sdc-reply check-review`, on a rejection). `sdc-reply` takes both sources behind one type (`Facts`: the driver's case directory, or the workspace when `LOOM_CASE` is set); the request record's `case_dir` stays empty under Loom, and the fixture adapter, which runs in the workspace, names `<workspace>/..` to count the rejections the same way | done |
+| `case_dir=`, `sdc-reply review-inputs`, `schema --type review`, `check-review`, `rejections` | `case.json` (the revisions), `events.jsonl`, `evidence/`, `blobs/` (the conformance run on the change revision, the gate run on the spec revision, the earlier rejections of `change.review`) | record files of the workspace under `.sdc/records/`, one small file per fact, written by the tool that owns it: `conformance_run/<digest>.log` (`sdc-tool.sh story-tests`, tests.run) and `ess_gate/<digest>.log` (`sdc-tool.sh ess-gate`, spec.gate), each the step's log about the tree (`impl`, `spec`) whose content has that digest (`sdc-reply record`; the digest leaves out `target`, `.sdc` and `.derived-from`, like the review's diff), and `rejections/change.review/<n>.json` (`sdc-reply check-review`, on a rejection). `sdc-reply` takes both sources behind one type (`Facts`: the driver's case directory, or the workspace when `LOOM_CASE` is set); the request record's `case_dir` stays empty under Loom, and the fixture adapter, which runs in the workspace, names `$PWD` to count the rejections the same way; under `LOOM_CASE` `sdc_tools::reply::records::case_work` is the one place that decides where the workspace is: the directory the program was started in (Loom `c9b4c177` gives a bound program `PATH`, `LOOM_CASE`, `LOOM_TIMEOUT_SECONDS`, `LOOM_CASE_NAME`, `LOOM_PARENT_CASE_NAME` and that start directory, no case directory and no store), and the case directory a caller names is not read, so a `work/` that a model made in the workspace decides nothing | done |
 | `SDC_RUN_SETTINGS` | `SDC_RUN_SETTINGS` | the default: no rework limit | pending: N9 |
 | `SDC_LLM_MODEL`, `SDC_LLM_EFFORT` | `SDC_LLM_MODEL[_<CLASS>]`, `SDC_LLM_EFFORT[_<CLASS>]` | the binding's `--model`; `--effort <level>` (`efforts.<role>.effort` of the run's settings, written by the bindings copy), else the class's default effort | the effort is done; the model of one variable for all classes stays pending: N9 |
 | `SDC_REVIEW_RETRIES` | `SDC_REVIEW_RETRIES` | the default 2 | pending: N9 |

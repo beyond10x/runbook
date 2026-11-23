@@ -6,6 +6,9 @@
 //   good_outcomes [outcome]: the outcomes of its protocols that are a good end of a run. A closed run whose outcome is
 //                listed is good and one whose outcome is not listed is bad; without the member a closed run is neutral
 //                ("ended: <outcome>"), unless the runner's own status.json says delivered: true
+//   product      the file that is the main product of a run of the runbook: one string, a path relative to the run
+//                directory (`work/<runbook>/<runbook>.md`). The page links it from the run's first screen. Not absolute,
+//                not empty, never leaving the run, no component that starts with a dot (a tool's cache or login)
 //   phases       {stages: [name], items: [{id, stage, label, short?, protocol, claims, doc?, has_source?,
 //                root_outcome?}], absent?: [{stage, steps, protocol_pattern, note}]}
 //   file_kinds   {rules: [{match, flags?, class, kind}], artifacts: {artifact name: class},
@@ -43,6 +46,7 @@ export const VIEW_SCHEMA = T.obj({
   runbook: T.str,
   protocols: T.strs,
   good_outcomes: T.strs,
+  product: T.str,
   phases: T.obj({
     stages: T.strs,
     items: T.arr(T.obj({id: T.str, stage: T.str, label: T.str, short: T.str, protocol: T.str, claims: T.strs, doc: T.str, has_source: T.bool, root_outcome: T.str})),
@@ -88,6 +92,20 @@ function check(v, s, path, out) {
   if (s.re && !s.re.test(v)) out.push(`${path}: "${v}" is not ${s.what}`);
 }
 
+// What is wrong with the `product` of a view: it is a path relative to the run directory that stays in the run and
+// names nothing the inspector never serves (a component that starts with a dot).
+export function productProblems(p) {
+  const at = `product: ${JSON.stringify(p)}`;
+  if (p === '') return ['product: is empty'];
+  if (/[\0\\]/.test(p)) return [`${at} holds a character that no path of a run holds (NUL or a backslash)`];
+  if (p.startsWith('/')) return [`${at} is absolute: the product is a path relative to the run directory`];
+  const parts = p.split('/').filter((n) => n !== '' && n !== '.');
+  if (!parts.length) return ['product: is empty'];
+  if (parts.includes('..')) return [`${at} leaves the run`];
+  if (parts.some((n) => n.startsWith('.'))) return [`${at} has a component that starts with a dot: a tool's cache or login is never listed or served`];
+  return [];
+}
+
 // What is wrong with a view, one line each: a member this inspector does not know (the line names it and
 // where it stands), a member of the wrong type, a regular expression that does not compile. [] when none.
 export function checkView(v) {
@@ -95,6 +113,7 @@ export function checkView(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return ['the view is not an object'];
   if (v.format !== VIEW_FORMAT) return [`format is ${JSON.stringify(v.format)}, not ${VIEW_FORMAT}`];
   check(v, VIEW_SCHEMA, '', out);
+  if (typeof v.product === 'string') out.push(...productProblems(v.product));
   const re = (p, s, flags) => { try { new RegExp(s, flags); } catch (e) { out.push(`${p}: not a regular expression (${e.message})`); } };
   (Array.isArray(v.file_kinds?.rules) ? v.file_kinds.rules : []).forEach((r, i) => typeof r?.match === 'string' && re(`file_kinds.rules[${i}].match`, r.match, r.flags));
   (Array.isArray(v.phases?.absent) ? v.phases.absent : []).forEach((r, i) => typeof r?.protocol_pattern === 'string' && re(`phases.absent[${i}].protocol_pattern`, r.protocol_pattern));

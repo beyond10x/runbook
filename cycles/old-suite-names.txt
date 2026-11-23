@@ -52,6 +52,7 @@ rework-not-called
 rework-pending-rejection
 review-no-rework-prompt
 decider-later-obligation
+spec-person-wait
 replay-sibling
 writer-not-called
 cite-dark-spot
