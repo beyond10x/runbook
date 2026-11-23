@@ -14,7 +14,7 @@
 //! token the CLI refreshes lands in the real file.
 
 use sdc_tools::gateway::Gateway;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// The directory and, when the settings name a login file, the link in it, or, when they name a
@@ -72,13 +72,13 @@ impl PrivateDir {
         }
         owned_directory(&base, "XDG_RUNTIME_DIR")?;
         let parent = base.join("runbook");
-        match std::fs::create_dir(&parent) {
+        match std::fs::DirBuilder::new().mode(0o700).create(&parent) {
             Ok(()) => std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).map_err(|e| format!("{}: {}", parent.display(), e.kind()))?,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => owned_directory(&parent, "the runtime directory")?,
             Err(e) => return Err(format!("{}: {}", parent.display(), e.kind())),
         }
         let dir = parent.join(run);
-        match std::fs::create_dir(&dir) {
+        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 return Err(format!("{}: exists (left by a run that was killed? remove it when no run of this name is on)", dir.display()));

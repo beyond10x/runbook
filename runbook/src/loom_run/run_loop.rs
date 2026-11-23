@@ -38,7 +38,7 @@ impl Clock for SystemClock {
     }
 }
 
-/// Set by the SIGTERM and SIGINT handlers.
+/// Set by the SIGTERM, SIGINT and SIGHUP handlers.
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_signal(_: libc::c_int) {
@@ -51,6 +51,7 @@ fn install_signal_handlers() {
     unsafe {
         libc::signal(libc::SIGTERM, handler);
         libc::signal(libc::SIGINT, handler);
+        libc::signal(libc::SIGHUP, handler);
     }
 }
 

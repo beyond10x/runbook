@@ -16,6 +16,9 @@ pub const FILE_VARIABLE: &str = "SDC_GATEWAY_FILE";
 pub const OPTION: &str = "--gateway-file";
 /// The most a token has, in bytes.
 pub const TOKEN_LIMIT: usize = 8192;
+/// The fewest bytes a token has: the adapters replace every occurrence of the token in what a model program
+/// prints, so a token short enough to be a common string is refused.
+pub const TOKEN_MINIMUM: usize = 8;
 
 /// An address and a token. The token is private to the value: it is read through [`Gateway::token`]
 /// and is never in `Debug`.
@@ -70,7 +73,7 @@ pub fn check_base_url(url: &str) -> Result<(), &'static str> {
 }
 
 /// Why `token` is no token: `Err` says what is wrong, never the value. A token is one line of visible
-/// ASCII, 1 to [`TOKEN_LIMIT`] bytes.
+/// ASCII, [`TOKEN_MINIMUM`] to [`TOKEN_LIMIT`] bytes.
 pub fn check_token(token: &str) -> Result<(), &'static str> {
     if token.trim().is_empty() {
         return Err("is empty");
@@ -80,6 +83,9 @@ pub fn check_token(token: &str) -> Result<(), &'static str> {
     }
     if !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err("is not one line of visible text");
+    }
+    if token.len() < TOKEN_MINIMUM {
+        return Err("is shorter than 8 bytes");
     }
     Ok(())
 }
@@ -168,7 +174,8 @@ mod tests {
     #[test]
     fn a_token_is_one_line_of_visible_text() {
         assert_eq!(check_token(TOKEN), Ok(()));
-        for bad in ["", " ", "a\nb", "a\rb", "a\u{0}b", "a\tb", "a\u{7f}b", &"x".repeat(TOKEN_LIMIT + 1)] {
+        assert_eq!(check_token("12345678"), Ok(()), "8 bytes is the fewest");
+        for bad in ["", " ", "1234567", "a\nb", "a\rb", "a\u{0}b", "a\tb", "a\u{7f}b", &"x".repeat(TOKEN_LIMIT + 1)] {
             assert!(check_token(bad).is_err(), "{bad:?} was accepted");
         }
     }

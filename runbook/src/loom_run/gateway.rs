@@ -15,6 +15,7 @@ pub use sdc_tools::gateway::{FILE_VARIABLE, OPTION};
 use sdc_tools::gateway::{self, Gateway};
 use serde_json::Value;
 use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// The key of the table.
@@ -53,11 +54,13 @@ pub fn check_shape(settings: &Value) -> Result<(), String> {
     }
 }
 
-/// The token of the file `path`: one line, an end of line after it allowed. The file is opened once and
-/// read up to a limit; an error names the member and what is wrong, never the path or the content.
+/// The token of the file `path`: one line, an end of line after it allowed. The file is opened once, without
+/// following a link and without blocking (a FIFO opens at once and is no regular file), the kind is asked of the
+/// open descriptor, and it is read up to a limit; an error names the member and what is wrong, never the path or
+/// the content.
 fn token_of_file(path: &str) -> Result<String, String> {
     let unreadable = || "gateway.token_file: not a readable file".to_owned();
-    let file = std::fs::File::open(path).map_err(|_| unreadable())?;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC).open(path).map_err(|_| unreadable())?;
     if !file.metadata().map_err(|_| unreadable())?.is_file() {
         return Err(unreadable());
     }
@@ -93,8 +96,8 @@ pub fn take(args: &Args, mut settings: Value) -> Result<(Value, Option<Gateway>)
     if args.ports.dry {
         return Ok((settings, None));
     }
-    if args.confinement == Confinement::Substrate {
-        return Err("gateway: not available at --confinement substrate: a bound program there has no network, not even loopback; use --confinement local (docs/loom-run-settings.md, \"[gateway]\")".to_owned());
+    if args.confinement != Confinement::Local {
+        return Err(format!("gateway: not available at --confinement {}: a gateway works at --confinement local only (docs/loom-run-settings.md, \"[gateway]\")", args.confinement.as_arg()));
     }
     if settings.get("adapter").and_then(Value::as_str) == Some("metaharness") {
         return Err("gateway and adapter: the adapter metaharness cannot take a gateway (it removes ANTHROPIC_* and starts its own proxy); name adapter = \"claude-cli\"".to_owned());
