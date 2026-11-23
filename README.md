@@ -156,11 +156,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.7.0`; nothing is published to crates.io. The latest is 0.7.0 (2026-11-23).
+`0.8.0`; nothing is published to crates.io. The latest is 0.8.0 (2026-11-23).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.7.0 over 0.6.0 (nothing is unreleased): the old driver runtime is deleted (`sdc-drive`
+- New in 0.8.0 over 0.7.0 (nothing is unreleased): the run inspector has a Products tab that lists the
+  files a step left under `work/` and shows one as text, Loom `c9b4c177` is linked (a model node that
+  was not called no longer counts against `budget.max_runs`), the bindings state their exits
+  (`exits.error`, `exits.not_called`; `sdc-node` exits 79 where it prints "not called"), and `runbook
+  test` takes `--cycle-timeout` and `--list`. No evaluation run was made on this code
+  ([docs/releases/0.8.0.md](docs/releases/0.8.0.md)).
+- New in 0.7.0 over 0.6.0: the old driver runtime is deleted (`sdc-drive`
   and the trial, cycle and watch scripts are gone; a run is `runbook run`, the package `sdc-drive`
   is `sdc-tools`), a refusal of Loom ends a run `refused` with exit 12 and a named `cause`, and
   `runbook test` takes `--workers` and `--only` through Loom's selection, and the daemon refuses a

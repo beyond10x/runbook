@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:runbook-loom-run-command
 kind: story
-status: draft
+status: archived
 title: 'runbook loom-run: one case tree through b10x-loom with a spend ledger and caps'
 summary: The runner that drives one Runbook case tree through the b10x-loom binary as a child process, with caps and a shared spend ledger
 relations:
@@ -24,7 +24,9 @@ scope:
   path: runbook/tests/cli.rs
 - confidence: cited
   path: runbook/tests/loom_run
-revision: 6
+revision: 7
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-23T05:23:36Z", actor: "human:operator", revision: 7, executor: "agent:runbook", correlation: "coordinator-2026-11-23-superseded-by-runbook-run"}
 ---
 # Story: runbook-loom-run-command
 
