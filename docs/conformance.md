@@ -246,7 +246,9 @@ a product that answers 404 for a removed or finished entity fails that scenario.
 tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
 record: `result`, `k`, `f`, `p` (of f, refused for a precondition the specification does not
 model), `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
-`summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
+`summary`, `cause`, `why`, `table_cost_usd` (all slots; a session that left no cost record counts 0 in it),
+`cost_unknown_sessions` (how many node sessions ended with no cost record: `runbook run` books the reservation
+of a spend cap for an observation where it is above 0), `tables` (per slot: source, model,
 effort, attempts, `cost_usd`, `retried_after_run`, `one_more_session`, `evidence`, `counted`, `cause`, `why`, the
 final run's `k`, `f`, `u`, `e` (errors), `unverified` (checks), `n`, `conformance_status`, `declared_missing`, `build`,
 `precondition_not_in_spec` and `refused_after_run` when that rule counted the slot,

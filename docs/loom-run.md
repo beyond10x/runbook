@@ -653,15 +653,33 @@ copy holds is outside it (see the limit of the rule under "A run without a model
   ends `stopped: llm calls`, exit 6).
 - After a run closed, the conformance observation (`--conformance observe`, a model writes the
   tables, 1 to 3 USD per product) is started only when something is left. It reserves from the cap
-  what the cap has left and books what its record names (the reservation when the record names
-  none, or cannot be written). With nothing left it is not started: the end of the run says
-  `conformance: not observed (spend cap: <spent> of <cap> micro USD spent, nothing left)` and the run
-  keeps the exit it had, 0 for a run that closed, because the observation decides nothing
+  what the cap has left and books what its record names
+  (`an_observation_books_the_cost_its_record_names`), the reservation when the record names none, or
+  cannot be written (`an_observation_of_unknown_cost_books_its_reservation`), or when a model session
+  ended without a cost record, as a step's call of unknown cost does
+  (`an_observation_whose_sessions_ended_without_a_cost_books_its_reservation`). With nothing left it is
+  not started: the end of the run says
+  `conformance: not observed (spend cap: <spent> of <cap> micro USD spent, nothing left)`, and
+  `events.jsonl` has one line `conformance_not_observed` with the fixed reason `spend cap: nothing left`
+  (`a_skipped_observation_is_one_line_of_the_event_log_with_a_fixed_reason`). The run keeps the exit it
+  had, 0 for a run that closed, because the observation decides nothing
   (`a_run_that_closes_with_nothing_left_starts_no_conformance_observation`,
-  `a_run_that_closes_with_room_left_observes_and_books_what_its_record_names`,
-  `an_observation_of_unknown_cost_books_its_reservation`). With no cap named it is started as it
-  always was (`with_no_cap_named_the_observation_after_a_close_is_started`). The reservation is the
-  amount the cap has left; the observation's own tool does not stop at it.
+  `a_run_that_closes_with_room_left_observes_and_books_what_its_record_names`). With no cap named it is
+  started as it always was (`with_no_cap_named_the_observation_after_a_close_is_started`) and its
+  sessions keep their own limit (`with_no_cap_named_the_sessions_of_the_observation_keep_their_own_limit`).
+- The reservation bounds the observation. Its model sessions are given the reservation as their one
+  budget: no session starts once what the sessions before it cost has reached it (a session that left
+  no cost record counts at its own limit), and no session's own limit is more than what is left of it
+  (`the_sessions_of_an_observation_are_given_the_reservation_as_their_one_budget`). What the
+  observation books is never more than the reservation, so the ledger never holds more than the cap
+  because of it (`an_observation_does_not_book_more_than_the_cap_had_left`). The limit: a model program
+  that spends more than the budget it was given is outside the cap; the ledger holds the reservation
+  for it, and the line `the record names <n> micro USD, more than the <m> reserved: <m> booked` says
+  so (`a_record_that_names_more_than_the_reservation_is_booked_at_the_reservation_and_says_so`). What
+  was booked is in the records of the run: the line `conformance_booked` of `events.jsonl` (reserved,
+  named by the record, booked, the run's total) and `outcome.json`, whose `spent_micro_usd` includes it
+  and which has `observation_micro_usd`, also when the run names no ledger
+  (`what_an_observation_booked_is_in_the_outcome_of_a_run_without_a_ledger`).
 - With no spend cap named the same step books past what would have been a cap and its decision is
   answered (`with_no_cap_named_a_decision_after_a_costly_step_is_answered`).
 
