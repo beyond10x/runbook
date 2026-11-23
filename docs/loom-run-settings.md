@@ -166,9 +166,9 @@ token = "placeholder"
 
 | Key | Type | Meaning |
 |---|---|---|
-| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's. With an `http://` address at a host that is not loopback the token travels in clear text; no refusal stands in the way |
+| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); at most 2048 bytes; no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's. With an `http://` address at a host that is not loopback the token travels in clear text; no refusal stands in the way |
 | `token` | text | the token itself: one line of visible text, 8 to 8192 bytes (the adapter replaces every occurrence of the token in what a model program prints, so a shorter token is refused) |
-| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists. It is opened without following a link and without blocking: a link, a FIFO, a socket, a device and a directory are refused |
+| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists. It is opened without blocking and without following a link in the last component of the path (a link in a directory of the path is followed): a link as the last component, a FIFO, a socket, a device and a directory are refused |
 
 Exactly one of `token` and `token_file`. A token in a settings file lies where the file lies: use
 `token_file` and keep that file readable by its owner alone.
@@ -176,10 +176,11 @@ Exactly one of `token` and `token_file`. A token in a settings file lies where t
 Refusals (exit 2, nothing written, no run directory, no private directory, no call of Loom). Each names the
 member, as `gateway.base_url`, and never a value, a part of a value or the path of a file:
 
-- the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host
+- the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host, or longer than
+  2048 bytes
 - both `token` and `token_file`, or neither
-- a `token_file` that is not absolute, not a readable file (a link, a FIFO, a socket, a device and a directory
-  are none), empty, or more than one line
+- a `token_file` that is not absolute, not a readable file (a link as the last component, a FIFO, a socket, a
+  device and a directory are none), empty, or more than one line
 - a `token` that is empty, shorter than 8 bytes or not one line of visible text (also as the content of a
   `token_file`)
 - a member that is none of the three
@@ -213,10 +214,13 @@ What a run does with it:
    its adapter has the variable of the process that started it) and the conformance
    observation (`--conformance observe`, whose adapter is started while the private directory exists).
 5. The private directory and the file go with the run: after a normal end, after an error and after
-   SIGTERM, SIGINT and SIGHUP. A SIGKILL leaves the directory; the next run of that name refuses to start over it, by its
-   path, and the user removes it.
-6. The token is in no argv, no environment of a program Loom starts, no log line, no event, no file of the
-   run directory and not in the copy. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
+   SIGTERM, SIGINT and SIGHUP that the caller did not ignore. A SIGHUP that the caller ignored (a run under
+   `nohup`) stays ignored and does not end the run. A SIGKILL leaves the directory; the next run of that name
+   refuses to start over it, by its path, and the user removes it.
+6. The token is in no argv, no environment of a program Loom starts, no log line, no event, no file that the
+   runner or an adapter writes into the run directory and not in the copy. The filter of item 3 covers what
+   `claude` prints to its two streams and the files made from it; a file that `claude` writes by its own tools
+   is not covered. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
 
 Where a gateway works:
 

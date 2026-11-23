@@ -250,13 +250,13 @@ A settings file that names `[gateway]` (`docs/loom-run-settings.md`, "`[gateway]
 an address and a token and no login: with it no login file is named, linked, copied or required, and a
 file that names both is refused. The runner writes one file, `gateway` (mode 0600, two lines
 `base_url=` and `token=`), into the same private directory (mode 0700, same removal on a normal end, an
-error, SIGTERM, SIGINT and SIGHUP), and writes `--gateway-file <that file>` into the argv of every model node of
+error, SIGTERM, SIGINT and a SIGHUP that the caller did not ignore), and writes `--gateway-file <that file>` into the argv of every model node of
 the copy, where a login would have `--claude-credentials <link>`. `sdc-node` hands the path to the adapter as
 `SDC_GATEWAY_FILE`; `llm-adapter-claude-cli.sh` reads it with `sdc_gateway_read` (`bindings/tools/gateway.sh`)
 and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
 start, no other `ANTHROPIC_*` or `CLAUDE_CODE_*` variable of the caller (`ANTHROPIC_API_KEY` among them), and a fresh config home that holds no `.credentials.json`. The token is in no
-argv, no environment of a program Loom starts, no log line, no event, no file of the run directory and not in
-the copy; what `claude` prints is filtered for the token before it is kept (`docs/loom-run-settings.md`).
+argv, no environment of a program Loom starts, no log line, no event, no file that the runner or an adapter
+writes into the run directory and not in the copy; what `claude` prints is filtered for the token before it is kept (`docs/loom-run-settings.md`).
 
 Every start of a model process that belongs to a run takes it the same way: the nodes (the review step is
 one of them), the model decider (the runner puts `SDC_GATEWAY_FILE` into the environment it builds for the
