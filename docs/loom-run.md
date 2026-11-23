@@ -218,6 +218,11 @@ copy: no second copy of the credential is written to disk, and a token the model
 in the real file. The run directory records only that a file was named (`settings.json` holds
 `login_file: named`).
 
+- The link and its directory are made only in a run that has a model node (a run opened without one,
+  "A run without a model node" above, makes neither), after the opening decided; the checks below are
+  made at the start in every run, so a login file that cannot be used refuses a run without a model
+  node too, and nothing is written. The test is
+  `the_link_to_the_login_file_is_made_in_a_run_with_a_model_node_and_in_no_other`.
 - The run is refused (exit 2, nothing written) when a login file is named and `XDG_RUNTIME_DIR` is
   unset, not absolute, or not a directory owned by the user running the command, when the login file
   is not an absolute path of a file that exists, and when the private directory of that run name
@@ -330,9 +335,42 @@ the rule does not know, is "has a model node" and the caps apply.
   writes the tables of the observation after the run).
 
 The settings `adapter`, `models`, `efforts`, `review` and `login_file` only change the `argv` of a
-model node the bindings hold, so they decide nothing alone. Not seen by the rule: a bound program that
-starts a model, or calls a network service, by a name it does not read (a script that does it by
-itself); that is not covered by a cap either, with or without this rule.
+model node the bindings hold, so they decide nothing alone.
+
+Where the rule applies: `runbook run`, the loop of `runbook/src/loom_run/`. `runbook test` and the
+daemon's Loom runtime do not go through that loop; they decide nothing about a model node, and no cap
+or refusal of this section holds for them.
+
+The limit of the rule. The scan reads the names in the copy of the bindings. A bound program that
+starts a model program by a name no text of the copy holds (a script of `tools/` that builds the name
+from two parts, a shell word of an `argv` that builds it, a copy of the model tool under another file
+name) is not seen: the caps guard stops spend by declared model nodes; a bound program the runbook's
+author wrote is trusted like any program the author runs under `--confinement local`. A model node
+that is not declared is therefore not stopped before it starts. What holds for such a program in a run
+without a model node, each sentence held by a case of
+`runbook/tests/loom_run/no_model_node_guards.rs`
+(`documented_limit_a_model_program_reached_by_a_name_the_rule_does_not_read_starts_without_a_login_and_a_recorded_call_ends_the_run`
+for the first four):
+
+- it is started, and it gets no login from the runner: the runner makes no link to the login file in a
+  run without a model node (the private directory of the run is not made), and passes `PATH` and
+  `LOOM_*` to a bound program, so no token and no path of the login is in its environment;
+- a call it records, by writing the cost record of the model tool, ends the run after that step by
+  exit 13 (`stopped: model call`, cause `model_call_without_model_node`), with the call and its cost
+  stated in `outcome.json` (`llm_calls`, `spent_micro_usd`, never 0 for a recorded call) and nothing
+  booked in a ledger;
+- a call it does not record is not seen by the runner: the run ends as any run does, with `llm_calls` 0;
+- with a model node, a model tool that a wrapper starts, and that writes cost records, is reserved for
+  and booked like any call: the runner reads the records, not the process
+  (`with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted`).
+
+What the network of such a program is depends on the confinement level, which this repository's
+pages state like this: `--confinement local` is not confined (`unconfined and declared insecure`,
+above), so the program has the network and the host as the user running the command has them;
+`--confinement substrate` is Substrate's linux adapter, and the Substrate profile gives agent nodes and
+the decider no egress (`docs/autonomy-levels.md`, section 2.5; the egress apertures are
+`profile.network`, `docs/layers.md`). The pages here do not say more about the network of a bound
+program under `substrate`, and no case here makes a network request.
 
 Without a model node: a `tree run` is not counted as a call, nothing is reserved, no ledger is opened
 (a `--spend-ledger` that is named is not created), `--max-llm-calls 0` and `--cap-micro-usd 0` are
@@ -350,13 +388,35 @@ with cap `model_node`, `run-stopped.json`) before the program starts:
 
 | Path | Check |
 |---|---|
-| a `tree run` (the model node of the tree) | before it, the copy is read again with the rule above; a model node in it ends the run, the decision of the opening is not changed |
+| a `tree run` (the model node of the tree) | before it, the tree manifest is checked (below) and the copy is read again with the rule above; a model node in it, or a manifest that fails the check, ends the run, the decision of the opening is not changed |
 | the printed command of a handoff (a `tree run`) | the same, before the command runs |
 | the answer to a decision (`tree approve`, which runs the program a person action binds) | the same, before the answer is sent to Loom |
+| a `tree status` (after each step; it starts no program but reads the manifest) | the same: a changed manifest ends the run by this cause and not by an error of Loom |
 | a model call recorded by a step | after each `tree run` the cost records of the workspace are read; a call, or a record that cannot be read, ends the run |
 | the model decider, the requester and the router | before the decider is asked for a decision |
 | the decider's answers to the questions and findings of the answers file | before the decider is asked |
 | `--conformance observe` | before the observation, which would start a model |
+
+Which bindings Loom reads is not the copy's directory but the file the tree manifest
+(`store/tree.json`, member `bindings`) names: Loom reads the manifest at every call. The check of a
+run without a model node therefore holds the manifest to what the opening wrote, and it is the same
+check at every path above:
+
+- `tree.json` is a regular file (a link, a directory or a removed file ends the run) and a JSON object;
+- its `bindings` member is an absolute path of a file that is not a link and that resolves to the
+  root file of the copy the opening made, which is itself not a link. A path that names the same file
+  by another spelling (`.` or `..` inside the path) is accepted: it is the same file, and the scan
+  runs over that file and the files below it. A relative path, a link to the root file, another file
+  of the copy, a file that does not exist: refused;
+- the other members of the manifest, the program files the bindings name, the protocol catalog, the
+  case files and the run logs of the store are read by Loom too. None of them can add a program to
+  the bindings the scan covers: the manifest's `root` and `workspace` choose a case and a directory,
+  the catalog and the case files hold protocols and state, and the programs are named by the bindings
+  files below the root file (which the scan reads) and run from `tools/` (the limit below).
+
+The closing `tree status` and `tree verify` of a run that ended this way read the store as it is: if
+Loom refuses them (a manifest that is a link, for one), the run keeps its end `stopped: model call`,
+exit 13 (the cases of the manifest in `no_model_node_guards.rs` hold it).
 
 A model node that a file adds after the opening never turns a run that was opened with one into a run
 without one: the caps of the opening hold for the whole run, and a bindings file edited in the copy
