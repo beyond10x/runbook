@@ -14,6 +14,8 @@ const runs = () => fetch(`${s.base}/daemon/views/runs`).then((r) => r.json()).th
 const added = async () => (await runs()).length - n0;
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 const answered = (page) => page.waitForResponse((r) => isStart(r.request()));
+// a route held on a promise the test opens itself, where a fixed delay kept a window open
+const held = () => { let open; const wait = new Promise((r) => { open = r; }); return {wait, open}; };
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
 test.beforeAll(async ({}, info) => {
@@ -141,11 +143,13 @@ test('an answer whose body ends after the form was closed and opened again: one 
   await page.locator('#st-intake').fill(first);
   let cut = false;
   let n = 0;
+  // the answer is held until the test has done what the case needs to happen before it (the gate), not for a fixed time
+  let gate = held();
   await page.route(SUBMIT, async (route) => {
     if (n++ > 0) return route.continue();
     const taken = await route.fetch();
     expect(taken.status()).toBe(202);
-    await new Promise((r) => setTimeout(r, 3500));
+    await gate.wait;
     const text = await taken.text();
     return route.fulfill({status: 202, contentType: 'application/json', body: cut ? text.slice(0, 25) : text});
   });
@@ -160,6 +164,8 @@ test('an answer whose body ends after the form was closed and opened again: one 
   await expect(page.locator('#st-start'), 'a second command can leave while the first is on its way').toBeDisabled();
   await page.locator('#st-start').evaluate((b) => b.click());
   await page.locator('#st-intake').fill('typed into the form that was opened again');
+  // the whole answer arrives late: after the form was closed, opened again and typed into
+  gate.open();
   // the late answer is the answer of the first opening: the form opened again stays open and keeps what was typed
   await expect(page.locator('#st-start')).toBeEnabled();
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
@@ -172,6 +178,7 @@ test('an answer whose body ends after the form was closed and opened again: one 
   // the late answer is cut: the form that was opened again keeps the key for the same content
   n = 0;
   cut = true;
+  gate = held();
   await form(page);
   const second = 'a second invented intake whose answer is slow and cut';
   await page.locator('#st-intake').fill(second);
@@ -180,6 +187,8 @@ test('an answer whose body ends after the form was closed and opened again: one 
   await page.click('#st-close');
   await page.click('#startbtn');
   await expect(page.locator('#st-intake')).toBeFocused();
+  // the cut answer arrives once the form was opened again
+  gate.open();
   await expect(page.locator('#st-msg')).toContainText('could not be read');
   await expect(page.locator('#st-intake')).toHaveValue(second);
   await page.locator('#st-confinement').selectOption('linux');
@@ -237,12 +246,13 @@ test('the late answer of a press belongs to the opening that sent it: the form o
   await page.locator('#st-intake').fill('an invented intake whose answer is slow');
   let run = null;
   let n = 0;
+  const gate = held();
   await page.route(SUBMIT, async (route) => {
     if (n++ > 0) return route.continue();
     const taken = await route.fetch();
     const text = await taken.text();
     run = JSON.parse(text).published[0].payload.run_id;
-    await new Promise((r) => setTimeout(r, 2500));
+    await gate.wait;
     return route.fulfill({status: 202, contentType: 'application/json', body: text});
   });
   await page.click('#st-start');
@@ -252,6 +262,8 @@ test('the late answer of a press belongs to the opening that sent it: the form o
   await expect(page.locator('#st-intake')).toBeFocused();
   await page.locator('#st-confinement').selectOption('linux');
   await page.locator('#st-intake').fill('typed into the form that was opened again');
+  // the whole answer arrives late: after the form was closed, opened again and typed into
+  gate.open();
   await expect.poll(() => run).not.toBeNull();
   await expect(page.locator('#runpick')).toContainText(run.slice(-8));
   await expect(page.locator('#st-start')).toBeEnabled();

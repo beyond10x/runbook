@@ -17,6 +17,10 @@ const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/d
 const CONFIGURATION = '**/daemon/views/configuration';
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 const later = (ms) => new Promise((r) => setTimeout(r, ms));
+// a route held on a promise the test opens itself, where a fixed delay kept a window open
+const held = () => { let open; const wait = new Promise((r) => { open = r; }); return {wait, open}; };
+// the form has read the floor of the daemon (linux): only linux is offered from then on
+const readEnd = (page) => expect.poll(() => page.locator('#st-confinement option').evaluateAll((els) => els.map((e) => e.value))).toEqual(['linux']).then(() => null);
 let dir = null;
 const procs = [];
 
@@ -71,8 +75,10 @@ test('the daemon comes back with a higher floor under an open page: a start pres
   expect((await rowsOf(second.base, 'configuration'))[0].confinement_floor).toBe('linux');
   const n0 = (await rowsOf(second.base, 'runs')).length;
 
-  // the form is opened again on the page that was not loaded again; the daemon's own answer about its floor takes 2.5 s
-  await page.route(CONFIGURATION, async (route) => { await later(2500); return route.continue(); });
+  // the form is opened again on the page that was not loaded again; the daemon's own answer about its floor is held
+  // until the test has made its press (the gate), so the window stays open as long as the steps take
+  const gate = held();
+  await page.route(CONFIGURATION, async (route) => { await gate.wait; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   const offered = await page.locator('#st-confinement option').evaluateAll((els) => els.map((e) => e.value));
@@ -84,7 +90,9 @@ test('the daemon comes back with a higher floor under an open page: a start pres
     await page.locator('#st-confinement').selectOption('local');
     const answer = page.waitForResponse((r) => isStart(r.request()), {timeout: 8000}).catch(() => null);
     await page.locator('#st-start').click({timeout: 2000}).catch(() => {});
-    const response = await answer;
+    // the press is done: the read of the floor ends, and a start that left the page has been answered by then or is not coming
+    gate.open();
+    const response = await Promise.race([answer, readEnd(page)]);
     const line = response ? `a start left the page with ${sent[0]?.confinement} and the daemon answered ${response.status()} ${(await response.json()).outcome}` : 'no start left the page';
     info.annotations.push({type: 'measured', description: line});
     console.log(`[security-start-floor-reread] ${line}`);

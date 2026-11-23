@@ -16,6 +16,10 @@ const added = async () => (await runs()).length - n0;
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 const floorRow = (floor) => ({json: {rows: [{daemon_id: 'd', confinement_floor: floor, principal: 'agent:x', started_at: '2026-01-01T00:00:00Z'}]}});
 const later = (ms) => new Promise((r) => setTimeout(r, ms));
+// a route held on a promise the test opens itself, where a fixed delay kept a window open
+const held = () => { let open; const wait = new Promise((r) => { open = r; }); return {wait, open}; };
+// the form has read the floor of the daemon (linux): only linux is offered from then on
+const readEnd = (page) => expect.poll(() => page.locator('#st-confinement option').evaluateAll((els) => els.map((e) => e.value))).toEqual(['linux']).then(() => null);
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
 test.beforeAll(async ({}, info) => {
@@ -56,14 +60,16 @@ test('the floor rises between the two paints: the level picked below it is dropp
   await opened(page);
   expect(await offered(page)).toEqual(['local', 'linux']);
   await page.click('#st-close');
-  // the second opening: the floor is the daemon's own (linux) and its answer takes 2.5 s
+  // the second opening: the floor is the daemon's own (linux) and its answer is held until the picks and the intake are in
   await page.unroute(CONFIGURATION);
-  await page.route(CONFIGURATION, async (route) => { await later(2500); return route.continue(); });
+  const gate = held();
+  await page.route(CONFIGURATION, async (route) => { await gate.wait; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   await page.locator('#st-runbook').selectOption('sdc');
   await page.locator('#st-confinement').selectOption('local');
   await page.locator('#st-intake').fill('an invented intake under a floor that rises');
+  gate.open();
   await expect(page.locator('#st-intake')).toBeFocused();
   await expect.poll(() => offered(page)).toEqual(['linux']);
   expect(await level(page)).toEqual([-1, '']);
@@ -83,7 +89,8 @@ test('a start pressed between the two paints, with a level the earlier floor off
   await opened(page);
   await page.click('#st-close');
   await page.unroute(CONFIGURATION);
-  await page.route(CONFIGURATION, async (route) => { await later(2500); return route.continue(); });
+  const gate = held();
+  await page.route(CONFIGURATION, async (route) => { await gate.wait; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   await page.locator('#st-runbook').selectOption('sdc');
@@ -91,7 +98,9 @@ test('a start pressed between the two paints, with a level the earlier floor off
   await page.locator('#st-confinement').selectOption('local');
   const answer = page.waitForResponse((r) => isStart(r.request()), {timeout: 10000}).catch(() => null);
   await page.locator('#st-start').click({timeout: 2000}).catch(() => {});
-  const response = await answer;
+  // the press is done: the read of the floor ends, and a start that left the page has been answered by then or is not coming
+  gate.open();
+  const response = await Promise.race([answer, readEnd(page)]);
   expect(Boolean(response), 'a start left the page and its answer was not seen').toBe(sent.length > 0);
   const line = response ? `the start left the page with ${sent[0].confinement} and the daemon answered ${response.status()} ${(await response.json()).outcome}` : 'no start left the page';
   info.annotations.push({type: 'measured', description: line});
@@ -112,11 +121,14 @@ test('the list changes between the two paints: a runbook that is still listed st
   await page.click('#st-close');
 
   // still listed: the pick made during the read stays
-  await page.route(RUNBOOKS, async (route) => { await later(2500); return route.continue(); });
+  const stays = held();
+  await page.route(RUNBOOKS, async (route) => { await stays.wait; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   await page.locator('#st-runbook').selectOption('sdc-bugfix');
   await page.locator('#st-confinement').selectOption('linux');
+  // the list is held until the runbook and the level are picked
+  stays.open();
   await expect(page.locator('#st-intake')).toBeFocused();
   await page.waitForTimeout(200);
   await expect(page.locator('#st-runbook')).toHaveValue('sdc-bugfix');
@@ -125,10 +137,11 @@ test('the list changes between the two paints: a runbook that is still listed st
 
   // gone: the list that arrives has no sdc-bugfix
   await page.unroute(RUNBOOKS);
+  const goes = held();
   await page.route(RUNBOOKS, async (route) => {
     const answer = await route.fetch();
     const body = await answer.json();
-    await later(2500);
+    await goes.wait;
     return route.fulfill({json: {...body, rows: body.rows.filter((r) => r.runbook_id !== 'sdc-bugfix')}});
   });
   await page.click('#startbtn');
@@ -136,6 +149,8 @@ test('the list changes between the two paints: a runbook that is still listed st
   await page.locator('#st-runbook').selectOption('sdc-bugfix');
   await page.locator('#st-confinement').selectOption('linux');
   await page.locator('#st-intake').fill('an invented intake for a runbook that went away');
+  // the list without the runbook arrives once the picks and the intake are in
+  goes.open();
   await expect(page.locator('#st-intake')).toBeFocused();
   await expect.poll(() => page.locator('#st-runbook option').evaluateAll((els) => els.map((e) => e.value))).not.toContain('sdc-bugfix');
   const now = await page.locator('#st-runbook').evaluate((el) => [el.selectedIndex, el.value]);
@@ -160,14 +175,19 @@ test('the form closed between the two paints stays closed, and the late paint pr
   await enter(page);
   await opened(page);
   await page.click('#st-close');
-  await page.route(RUNBOOKS, async (route) => { await later(1200); return route.continue(); });
+  const late = held();
+  await page.route(RUNBOOKS, async (route) => { await late.wait; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
   await page.locator('#st-confinement').selectOption('linux');
   await page.locator('#st-intake').fill('an invented intake of a form that is closed while it reads');
   await page.keyboard.press('Escape');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', false);
-  await page.waitForTimeout(1800);
+  // the list arrives after the form was closed, and the late paint has run when the answer is read
+  const listed = page.waitForResponse((r) => new URL(r.url()).pathname === '/daemon/views/runbooks');
+  late.open();
+  await (await listed).finished();
+  await page.waitForTimeout(300);
   await expect(page.locator('#startdlg'), 'the late paint opened the form again').toHaveJSProperty('open', false);
   expect(await page.evaluate(() => document.activeElement?.id || ''), 'the late paint moved the focus into the closed form').not.toBe('st-intake');
   await page.unroute(RUNBOOKS);
