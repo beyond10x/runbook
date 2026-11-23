@@ -236,8 +236,9 @@ pub fn fill_decider(settings: &mut Value, path: Option<&std::ffi::OsStr>) -> Res
 /// The redacted settings with what the command was given added, as `RunStarted` carries them (the
 /// members `sdc-experiment check --runs-dir` compares): `loom` (`sha256` of the binary, or
 /// `in_process` and the pinned `commit` of the library; `confinement`, `cap_micro_usd`),
-/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`. The options win over a member of
-/// the same name in the file. The path of the binary is not in them.
+/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`, and `config` when a `runbook.toml` gave a
+/// value (its name and how it was found, never its path). The options win over a member of the same name
+/// in the file. The path of the binary is not in them.
 pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::loom_run::host::Identity) -> Value {
     use crate::loom_run::host::Identity;
     let mut v = redacted.clone();
@@ -255,6 +256,9 @@ pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::lo
         o.insert("max_wall_seconds".to_owned(), Value::from(args.max_wall_seconds));
         o.insert("case".to_owned(), Value::from(args.case.clone()));
         o.insert("root_protocol".to_owned(), Value::from(args.root_protocol.clone()));
+        if let Some(config) = &args.config {
+            o.insert("config".to_owned(), Value::from(config.clone()));
+        }
     }
     v
 }
@@ -306,6 +310,7 @@ mod tests {
             max_llm_calls: 100,
             max_wall_seconds: 3600,
             ports: Default::default(),
+            config: None,
         }
     }
 

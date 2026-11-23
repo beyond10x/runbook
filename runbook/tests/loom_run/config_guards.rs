@@ -53,7 +53,9 @@ fn one_dry_run_names_its_file_and_keeps_its_environment_its_autonomy_and_its_log
     let rig = Rig::new("dry-run-guards");
     rig.fixture();
     let tool = rig.p("fx/bindings/tools/draft-write.sh");
-    std::fs::write(&tool, "#!/bin/sh\nenv > \"$PWD/env-dump.txt\"\necho draft >> draft.txt\n").unwrap();
+    // the program writes a `runbook.toml` into its own work directory (what a model may do) and runs `runbook config` there
+    let script = format!("#!/bin/sh\nenv > \"$PWD/env-dump.txt\"\nprintf 'max_wall_seconds = 1\\n' > \"$PWD/runbook.toml\"\n\"{}\" config > \"$PWD/config-dump.txt\" 2>&1\necho draft >> draft.txt\n", super::core::BIN);
+    std::fs::write(&tool, script).unwrap();
     std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
     let login = rig.put("secret-place/login-MARKERPATH.json", "{\"marker\": \"LOGINCONTENT-MARKER\"}\n");
     let file = rig.put("runbook.toml", &format!("{FOUR}autonomy = \"A5\"\nlogin_file = \"{}\"\n[decider]\nkind = \"rule\"\nverdict = \"approve\"\n", login.display()));
@@ -63,15 +65,27 @@ fn one_dry_run_names_its_file_and_keeps_its_environment_its_autonomy_and_its_log
     let mut c = rig.command(&rig.root, &["run", "engine-demo", "--intake", "idea.txt", "--dry", "--run", "envrun", "--settings", &settings.display().to_string()]);
     c.env("XDG_RUNTIME_DIR", rig.p("xdg-run"));
     let o = c.output().unwrap();
-    assert_eq!(code(&o), 0, "{}", err(&o));
+    // autonomy A2 (the settings file's) stops the run at the first approval: exit 8, the stop is the held guard
+    assert_eq!(code(&o), 8, "{}", err(&o));
+    assert!(err(&o).contains("autonomy A2"), "the run did not take the autonomy of the settings file: {}", err(&o));
     // the file is named on standard error, before the run says anything else
     let said = err(&o);
     let named = said.lines().position(|l| l.contains(&file.display().to_string()));
     assert!(named.is_some(), "the run took confinement, wall time and caps from a file it found by itself and does not say which one:\n{said}");
     assert_eq!(named, Some(0), "the file is named after the run said something else:\n{said}");
-    // a bound program is told what the documents say it is told
+    // a bound program gets what the documents say it gets: `PATH` and `LOOM_*` (Loom's program contract), not
+    // `RUNBOOK_NO_CONFIG` (the runner gives that to the programs it starts itself). A `runbook` it starts in the
+    // run's tree is kept from the file by the run-tree rule: the `runbook.toml` it wrote there is not read, the
+    // file of the project above `runs/` is, and `runbook config` says which file it skipped.
     let dump = std::fs::read_to_string(rig.p("runs/envrun/work/env-dump.txt")).unwrap();
-    assert!(dump.lines().any(|l| l == "RUNBOOK_NO_CONFIG=1"), "a bound program is not told to read no runbook.toml; its environment:\n{dump}");
+    let names: Vec<&str> = dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).collect();
+    assert!(names.contains(&"PATH") && names.iter().any(|k| k.starts_with("LOOM_")), "a bound program lacks PATH or LOOM_*; its environment:\n{dump}");
+    let others: Vec<&&str> = names.iter().filter(|k| !(k.starts_with("LOOM_") || matches!(**k, "PATH" | "PWD" | "SHLVL" | "_" | "OLDPWD"))).collect();
+    assert!(others.is_empty(), "a bound program gets more than PATH and LOOM_*: {others:?}\n{dump}");
+    let nested = std::fs::read_to_string(rig.p("runs/envrun/work/config-dump.txt")).unwrap();
+    assert!(nested.lines().next().is_some_and(|l| l.contains(&file.display().to_string())), "a runbook started inside the run read another file than the project's:\n{nested}");
+    assert!(nested.lines().any(|l| l.starts_with("max_wall_seconds = 120")), "the file a program wrote into its work directory set a value:\n{nested}");
+    assert!(nested.lines().any(|l| l.contains("work/runbook.toml") && l.contains("not read")), "the file skipped inside the run is not named:\n{nested}");
     // the record: the settings file wins the autonomy, and the file is named by name and origin, not by path
     let written = std::fs::read_to_string(rig.p("runs/envrun/settings.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&written).unwrap();
@@ -79,8 +93,10 @@ fn one_dry_run_names_its_file_and_keeps_its_environment_its_autonomy_and_its_log
     let note = v["config"].as_str().unwrap_or_else(|| panic!("the start record of the run does not name the file it took values from:\n{written}"));
     assert!(note.contains("runbook.toml") && note.contains("working directory") && !note.contains(&rig.root.display().to_string()), "{note}");
     // the login path is in no file of the run and no line of its output
+    // (not the dumps the bound program itself wrote: `runbook config` prints a login path as a path, by design)
     let mut text = String::new();
     all_text(&rig.p("runs/envrun"), &mut text);
+    let text: String = text.split("\n--- ").filter(|section| !section.starts_with(&rig.p("runs/envrun/work/").display().to_string()) || !section.lines().next().is_some_and(|h| h.ends_with("-dump.txt"))).collect::<Vec<_>>().join("\n--- ");
     assert!(!text.contains("LOGINCONTENT-MARKER"), "login content reached a record");
     assert!(!text.contains("MARKERPATH"), "the login path reached a record of the run: {}", text.lines().filter(|l| l.contains("MARKERPATH")).take(3).collect::<Vec<_>>().join("\n"));
     assert!(!said.contains("MARKERPATH") && !said.contains("LOGINCONTENT"), "{said}");
@@ -121,6 +137,7 @@ fn the_walk_never_reads_a_file_in_the_directory_of_runs_it_is_started_in() {
     let o = rig.run(&rig.p("runs"), &["config"]);
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert!(!first_line(&o).contains(&planted.display().to_string()), "the file in the directory of runs was read: {}", first_line(&o));
+    assert!(out(&o).lines().any(|l| l.contains(&planted.display().to_string()) && l.contains("not read") && l.contains("directory of runs")), "the file skipped in the directory of runs is not named with its reason:\n{}", out(&o));
 }
 
 #[test]
@@ -136,19 +153,41 @@ fn a_file_that_the_walk_skips_as_inside_a_run_says_so() {
     assert_eq!(code(&o), 0, "{}", err(&o));
     let said = format!("{}{}", out(&o), err(&o));
     assert!(said.contains(&file.display().to_string()), "the file of the directory was skipped and the user is not told which file or why:\n{said}");
+    assert!(said.lines().any(|l| l.contains(&file.display().to_string()) && l.contains("not read") && l.contains("inside a run directory")), "{said}");
 }
 
 // ---- what `runbook config` prints ----
 
 #[test]
-fn config_prints_no_value_of_the_form_of_a_token_that_a_settings_file_holds() {
+fn config_prints_no_value_of_the_form_of_a_token_from_any_source() {
     const FORM: [&str; 2] = ["sk-", "ant-api03-aaaaaaaaaaaaaaaaaaaaaaaa"];
     let form = FORM.concat();
-    let rig = Rig::new("guards-config-settings");
+    let rig = Rig::new("guards-config-sources");
     let settings = rig.put("settings.toml", &format!("login_file = \"{form}\"\n"));
-    let o = rig.run(&rig.root, &["config", "--settings", &settings.display().to_string()]);
-    let all = format!("{}{}", out(&o), err(&o));
-    assert!(!all.contains(&form[..8]), "a login named by content in the settings file reached the output of `runbook config`:\n{all}");
+    let settings = settings.display().to_string();
+    let named = rig.put(&format!("{form}.toml"), "max_wall_seconds = 5\n").display().to_string();
+    let runs = [
+        ("a member of --settings", rig.command(&rig.root, &["config", "--settings", &settings])),
+        ("--run", rig.command(&rig.root, &["config", "--run", &form])),
+        ("--runs-dir", rig.command(&rig.root, &["config", "--runs-dir", &form])),
+        ("--spend-ledger", rig.command(&rig.root, &["config", "--spend-ledger", &form])),
+        ("--config", rig.command(&rig.root, &["config", "--config", &named])),
+        ("RUNBOOK_CONFIG", {
+            let mut c = rig.command(&rig.root, &["config"]);
+            c.env("RUNBOOK_CONFIG", &named);
+            c
+        }),
+    ];
+    for (source, mut c) in runs {
+        let o = c.output().unwrap();
+        assert_eq!(code(&o), 0, "{source}: {}", err(&o));
+        let all = format!("{}{}", out(&o), err(&o));
+        assert!(!all.contains(&form[..8]), "a value of the form of a key from {source} reached the output of `runbook config`:\n{all}");
+    }
+    // the key and its origin are printed, the value is a fixed word
+    let o = rig.run(&rig.root, &["config", "--settings", &settings]);
+    let line = out(&o).lines().find(|l| l.starts_with("login_file = ")).unwrap_or_else(|| panic!("{}", out(&o))).to_owned();
+    assert!(line.contains("<a key or token>") && line.contains(&settings), "{line}");
 }
 
 // ---- a configured directory and the built-in set ----
@@ -199,6 +238,32 @@ fn a_directory_that_changes_after_the_daemon_started_never_shadows_a_built_in_na
     assert!(runbook::runbooks::load(&[rig.p("books")], Some(&rig.p("home"))).is_err(), "`list` refuses this set");
     let rows: Vec<(String, Option<String>)> = engine.runbooks().into_iter().map(|r| (r.name, r.version)).collect();
     assert_eq!(rows, [("alpha".to_string(), Some("3".to_string()))], "the daemon's lookup let a directory shadow the built-in name: {rows:?}");
+}
+
+#[test]
+fn a_name_a_directory_gained_after_the_start_is_refused_at_the_submit_by_name_and_names_no_path() {
+    use runbook::runtime::Runtime;
+    let rig = Rig::new("guards-daemon-refuse");
+    let put = |rel: &str, text: &str| {
+        let path = rig.p(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    for (home, id) in [("home", "alpha"), ("books", "gamma")] {
+        put(&format!("{home}/protocol/{id}.protocol.yaml"), &format!("format: protocol/1\nprotocol:\n  id: {id}\n  revision: 3\n"));
+        put(&format!("{home}/bindings/{id}.yaml"), "format: loom.bindings/1\n");
+    }
+    let homes = vec![rig.p("books"), rig.p("home")];
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books")]);
+    assert!(runbook::engine::layout::resolve_in(&homes, "alpha", None).is_ok() && engine.knows_runbook("alpha", None));
+    assert!(runbook::engine::layout::resolve_in(&homes, "gamma", None).is_ok(), "a name only a configured directory has is refused");
+    // the directory gains the built-in name after the start
+    put("books/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 9\n");
+    put("books/bindings/alpha.yaml", "format: loom.bindings/1\n");
+    let refused = runbook::engine::layout::resolve_in(&homes, "alpha", None).unwrap_err();
+    assert!(refused.contains("alpha") && !refused.contains(&rig.root.display().to_string()) && !refused.contains("books"), "the refusal does not name the runbook, or names a path: {refused}");
+    assert!(!engine.knows_runbook("alpha", None), "the daemon accepts a submit of a name that two directories have");
+    assert!(engine.knows_runbook("gamma", None), "the other runbooks of the directory are refused too");
 }
 
 // ---- guards that hold ----

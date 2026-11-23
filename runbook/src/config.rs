@@ -170,14 +170,79 @@ pub fn is_run_dir(dir: &Path) -> bool {
     dir.join("events.jsonl").is_file() && dir.join("work").is_dir() && dir.join("bindings").is_dir()
 }
 
+/// The most entries of a directory that are looked at for a run directory.
+const RUNS_SCANNED: usize = 4096;
+
 /// Whether the directory holds a run directory.
 fn holds_run(dir: &Path) -> bool {
-    dir.read_dir().is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| is_run_dir(&e.path()))))
+    dir.read_dir().is_ok_and(|entries| entries.take(RUNS_SCANNED).any(|e| e.is_ok_and(|e| is_run_dir(&e.path()))))
 }
 
-/// Whether `path` lies in a run's tree, or in a directory of runs.
+/// The daemon's state directory: the two files it writes there (`State::open`, `state.rs`).
+fn is_daemon_state(dir: &Path) -> bool {
+    dir.join("daemon.lock").is_file() && dir.join("journal.jsonl").is_file()
+}
+
+/// Why the walk does not read a directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Skip {
+    /// The directory is a run directory or lies inside one.
+    InRun,
+    /// The directory holds the run directory the working directory is in.
+    RunsAbove,
+    /// The directory holds a run directory and is the working directory.
+    RunsHere,
+    /// The directory is a workspace or a run of the daemon, or lies inside one.
+    Daemon,
+}
+
+impl Skip {
+    pub fn describe(self) -> &'static str {
+        match self {
+            Skip::InRun => "inside a run directory (it holds events.jsonl, work/ and bindings/)",
+            Skip::RunsAbove => "the directory of runs that holds the run directory it is in",
+            Skip::RunsHere => "the directory of runs it is started in (it holds a run directory)",
+            Skip::Daemon => "inside a workspace or a run of the daemon (its state directory holds daemon.lock and journal.jsonl)",
+        }
+    }
+}
+
+/// The directories, from the first of `dirs` (the working directory) up, that the walk does not read,
+/// each with why: the topmost run directory among them and the directory of runs above it; the working
+/// directory when it holds a run; the topmost `<state>/workspaces/<id>` or `<state>/runs/<id>` of a daemon's
+/// state directory and its `workspaces` or `runs` directory.
+fn blocks(dirs: &[&Path]) -> Vec<Skip> {
+    let run = dirs.iter().rposition(|d| is_run_dir(d)).map_or(0, |i| i + 2);
+    let daemon = (0..dirs.len().saturating_sub(2))
+        .rev()
+        .find(|&i| dirs[i + 1].file_name().is_some_and(|n| n == "workspaces" || n == "runs") && is_daemon_state(dirs[i + 2]))
+        .map_or(0, |i| i + 2);
+    let here = usize::from(dirs.first().is_some_and(|d| holds_run(d)));
+    (0..run.max(daemon).max(here).min(dirs.len()))
+        .map(|i| {
+            if i < daemon {
+                Skip::Daemon
+            } else if i + 1 == run {
+                Skip::RunsAbove
+            } else if i < run {
+                Skip::InRun
+            } else {
+                Skip::RunsHere
+            }
+        })
+        .collect()
+}
+
+/// Why the directory of `path` is not read, when it lies in a run's tree, in a directory of runs or in a
+/// tree of the daemon.
+fn tree_skip(path: &Path) -> Option<Skip> {
+    let dirs: Vec<&Path> = path.parent().into_iter().flat_map(Path::ancestors).collect();
+    blocks(&dirs).first().copied()
+}
+
+/// Whether `path` lies in a tree the walk never reads.
 fn in_run_tree(path: &Path) -> bool {
-    path.ancestors().skip(1).any(is_run_dir) || path.parent().is_some_and(holds_run)
+    tree_skip(path).is_some()
 }
 
 /// The file at `path`, or `None` when a file found by the walk or in the user's directory is not
@@ -229,12 +294,6 @@ pub fn user_file(l: &Lookup) -> Option<PathBuf> {
     }
 }
 
-/// The number of directories, from the working directory up, that the walk does not read: the
-/// topmost run directory among them and the directory of runs above it.
-fn blocked(dirs: &[&Path]) -> usize {
-    dirs.iter().rposition(|d| is_run_dir(d)).map_or(0, |i| i + 2)
-}
-
 /// The file to read, or `None`.
 pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
     if l.option.is_some() && l.no_config {
@@ -254,7 +313,7 @@ pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
     }
     if let Some(cwd) = &l.cwd {
         let dirs: Vec<&Path> = cwd.ancestors().collect();
-        for dir in dirs.iter().skip(blocked(&dirs)) {
+        for dir in dirs.iter().skip(blocks(&dirs).len()) {
             if let Some(found) = read_file(&dir.join(FILE_NAME), Via::Walk, l.uid)? {
                 return Ok(Some(found));
             }
@@ -266,10 +325,27 @@ pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
     }
 }
 
+/// The files the walk found and did not read, each as a line with why (`runbook config` prints them): a
+/// file in a run's tree, in a directory of runs or in a tree of the daemon.
+pub fn skipped(l: &Lookup) -> Vec<String> {
+    if l.option.is_some() || l.no_config || l.env_file.is_some() || l.env_no_config {
+        return Vec::new();
+    }
+    let line = |file: PathBuf, why: Skip| std::fs::symlink_metadata(&file).ok().map(|_| format!("{}: not read: {}", file.display(), why.describe()));
+    let walked: Vec<String> = l.cwd.iter().flat_map(|cwd| {
+        let dirs: Vec<&Path> = cwd.ancestors().collect();
+        blocks(&dirs).into_iter().zip(dirs.iter()).filter_map(|(why, dir)| line(dir.join(FILE_NAME), why)).collect::<Vec<_>>()
+    }).collect();
+    let user = user_file(l).and_then(|path| tree_skip(&path).and_then(|why| line(path, why)));
+    walked.into_iter().chain(user).collect()
+}
+
 /// A file that is read, as the run reads it.
 #[derive(Clone, Debug)]
 pub struct File {
     pub path: PathBuf,
+    /// How the file was found.
+    pub via: Via,
     pub runs_dir: Option<PathBuf>,
     pub spend_ledger: Option<PathBuf>,
     pub confinement: Option<Confinement>,
@@ -280,6 +356,32 @@ pub struct File {
     pub runbooks: Vec<PathBuf>,
     /// The run settings members, in file order, as `loom_run/settings.rs` reads them.
     pub members: Map<String, Value>,
+}
+
+impl File {
+    /// Whether the file states no key: it took no value for a run, so a run does not name it.
+    pub fn states_nothing(&self) -> bool {
+        self.runs_dir.is_none()
+            && self.spend_ledger.is_none()
+            && self.confinement.is_none()
+            && self.cap_micro_usd.is_none()
+            && self.max_llm_calls.is_none()
+            && self.max_wall_seconds.is_none()
+            && self.runbooks.is_empty()
+            && self.members.is_empty()
+    }
+
+    /// What `runbook run` says on standard error before anything starts: the file and how it was found.
+    /// The path of a file and nothing of its content; `None` for a file that took no value.
+    pub fn said(&self) -> Option<String> {
+        (!self.states_nothing()).then(|| format!("values from runbook.toml {} ({})", self.path.display(), self.via.describe()))
+    }
+
+    /// The same for the start record of a run: name and origin, never the path (a record leaves the
+    /// machine with the run).
+    pub fn noted(&self) -> Option<String> {
+        (!self.states_nothing()).then(|| format!("{FILE_NAME} ({})", self.via.describe()))
+    }
 }
 
 /// Locates and reads the file the process names or finds.
@@ -324,10 +426,13 @@ fn scan(v: &Value, at: &str) -> Result<(), String> {
     }
 }
 
+/// What is printed in place of a word or a value that has the form of a key or a token.
+const HIDDEN: &str = "<a key or token>";
+
 /// The message with every word that has the form of a key or a token replaced: a key of the file can
 /// be one, and the reader names the key it stops at.
 fn mask(message: &str) -> String {
-    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '/' | '=');
+    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=');
     let mut out = String::new();
     let mut current = String::new();
     for c in message.chars().chain(std::iter::once(' ')) {
@@ -335,7 +440,7 @@ fn mask(message: &str) -> String {
             current.push(c);
             continue;
         }
-        out.push_str(&if token_form(&current) { "<a key or token>".to_owned() } else { std::mem::take(&mut current) });
+        out.push_str(&if token_form(&current) { HIDDEN.to_owned() } else { std::mem::take(&mut current) });
         current.clear();
         out.push(c);
     }
@@ -434,7 +539,7 @@ pub fn parse(found: &Found) -> Result<File, String> {
     }
     let runbooks = runbook_dirs(&mut top, &dir).map_err(fail)?;
     check_members(&top).map_err(fail)?;
-    Ok(File { path: found.path.clone(), runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, members: top })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, members: top })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -542,8 +647,19 @@ pub fn generated_run_name(runbook: &str) -> String {
     format!("{plain}-{}-{}", &id[..12], &id[20..])
 }
 
+/// The text a value has in `runbook config`. The one place a value is printed: a string that has the form
+/// of a key or a token, wherever it is in the value and whichever source it comes from, is replaced by
+/// `HIDDEN`; the key and the origin stay.
 fn shown(v: &Value) -> String {
-    v.to_string()
+    fn hide(v: &Value) -> Value {
+        match v {
+            Value::String(s) if token_form(s) => Value::String(HIDDEN.to_owned()),
+            Value::Array(items) => Value::Array(items.iter().map(hide).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(k, x)| (k.clone(), hide(x))).collect()),
+            other => other.clone(),
+        }
+    }
+    hide(v).to_string()
 }
 
 fn leaves(prefix: &str, v: &Value, origin: &Origin, out: &mut Vec<String>) {
@@ -555,13 +671,14 @@ fn leaves(prefix: &str, v: &Value, origin: &Origin, out: &mut Vec<String>) {
 }
 
 /// The text `runbook config` prints: the file and how it was found, then every value with its origin.
-pub fn text(found: Option<(&Path, Via)>, source: &Source, values: &Values, merged: &Value, settings_origin: &dyn Fn(&str) -> Origin) -> String {
+pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, values: &Values, merged: &Value, settings_origin: &dyn Fn(&str) -> Origin) -> String {
     let mut out = Vec::new();
     out.push(match (found, source.no_config) {
         (Some((path, via)), _) => format!("runbook.toml: {} ({})", path.display(), via.describe()),
         (None, true) => "runbook.toml: none read (--no-config)".to_owned(),
         (None, false) => "runbook.toml: none found (the working directory and its parents, the user's configuration directory; `runbook init` writes one)".to_owned(),
     });
+    out.extend(skipped.iter().map(|s| format!("runbook.toml skipped: {s}")));
     let item = |key: &str, flag: &str, what: &str, v: Option<(String, &Origin)>| match v {
         Some((value, origin)) => format!("{key} = {value}  ({})", origin.text()),
         None => format!("{key} = not stated  ({what}: {flag}, or `{key}` in runbook.toml)"),
@@ -585,7 +702,8 @@ pub fn text(found: Option<(&Path, Via)>, source: &Source, values: &Values, merge
             leaves(key, v, &settings_origin(key), &mut out);
         }
     }
-    out.join("\n") + "\n"
+    // a key of a settings file and a path of an option are no values and can have the form too
+    out.iter().map(|line| mask(line)).collect::<Vec<_>>().join("\n") + "\n"
 }
 
 /// `runbook config`: the effective values and where each comes from. Never opens a login file.
@@ -605,7 +723,7 @@ pub fn show(source: &Source, options: &ValueOptions) -> Result<String, String> {
         (_, _, Some(f)) => Origin::File(f.clone()),
         _ => Origin::BuiltIn("none"),
     };
-    Ok(text(found.as_ref().map(|f| (f.path.as_path(), f.via)), source, &values, &merged, &origin))
+    Ok(text(found.as_ref().map(|f| (f.path.as_path(), f.via)), &skipped(&lookup), source, &values, &merged, &origin))
 }
 
 /// `runbook init`: writes the starter, mode 600, and refuses to overwrite.

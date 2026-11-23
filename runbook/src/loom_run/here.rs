@@ -234,6 +234,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
             max_llm_calls,
             max_wall_seconds,
             ports,
+            config: file.and_then(config::File::noted),
         },
         generated,
     ))
@@ -248,6 +249,10 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
             return ExitCode::from(EXIT_REFUSED);
         }
     };
+    // Before anything starts, and before a refusal that names the file: where the values come from.
+    if let Some(said) = file.as_ref().and_then(config::File::said) {
+        eprintln!("runbook run: {said}");
+    }
     let (args, generated) = match args_of(&base, here, file.as_ref()) {
         Ok(a) => a,
         Err((code, line)) => {

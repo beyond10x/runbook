@@ -790,6 +790,7 @@ mod tests {
             max_llm_calls: 100,
             max_wall_seconds: wall,
             ports: Default::default(),
+            config: None,
         }
     }
 
