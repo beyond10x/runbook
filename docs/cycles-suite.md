@@ -159,7 +159,7 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 37 converted, 17 pending, 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
+131 entries: 37 converted, 18 pending, 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
 `scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending); the split of
 the remaining pending entries into those that wait for a story and those that run and still fail was not
 measured again.
@@ -235,6 +235,7 @@ is held by the tests named):
 | spec-own-default | converted | the one model call is a line of `.sdc/llm/calls.jsonl`; the absent `writer_spent` is no `Stopped` event of the case |
 | plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
 | spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
+| spec-person-wait | pending | the state of run 1 of record `parity-loom-strong-4`, no model call (a stub spec case, a `needs_person` finding, `spec.author` not called). It runs and still fails: `sdc-node` exits 79 (`exits.not_called`), Loom records no result and counts no run, and `spec.author` is taken again at once, about twice a second, until the runner's 60 s bound (exit 5): the writer stays `due` through its `retry_when` records, which overrule "performed at this revision" (`crates/loom-tree/src/history.rs:25-55`), and only an action with a refusal leaves the due set (`crates/loom-tree/src/run.rs:978-991`, Loom `70b0e6e0`). The pending `cite-fault-sent-back` shows the same loop on `requirements.normalise` (97 runs of exit 79 in 60 s). Waits for Loom's `story:action-dated-by-revisions-its-step-left`; the person's decision is also out of reach of the suite until a step writes a workspace file |
 | replay-sibling | pending | needs the `replay` step (story:tree-replay-command); its scripted replies are seeds now, the replay is not there |
 | pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
 
