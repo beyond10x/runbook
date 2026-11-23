@@ -64,6 +64,9 @@ pub struct Setup {
     /// The program that answers the product's requests for ess (`sdc-conform-adapter`); none:
     /// `SDC_CONFORM_ADAPTER_BIN`, else beside the running program.
     pub adapter: Option<PathBuf>,
+    /// The gateway file of the run (`runbook run` with a `[gateway]`): handed to the model adapter of the
+    /// table node as `SDC_GATEWAY_FILE`, the path only. None: the adapter gets the environment it always got.
+    pub gateway_file: Option<PathBuf>,
 }
 
 /// An ess that is run through a tool program: `<tool> ess <arguments>` (`bindings/tools/sdc-tool.sh`,
@@ -379,7 +382,12 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
             "max_budget_usd": env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()).unwrap_or(2.0)});
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let limit = Duration::from_secs(env("SDC_CONFORMANCE_NODE_TIMEOUT").and_then(|x| x.parse().ok()).unwrap_or(1800));
-        let (code, tail) = run_bounded(Command::new(&node.adapter).arg(rec.join("request.json")), limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
+        let mut adapter = Command::new(&node.adapter);
+        adapter.arg(rec.join("request.json"));
+        if let Some(file) = &node.setup.gateway_file {
+            adapter.env(crate::gateway::FILE_VARIABLE, file);
+        }
+        let (code, tail) = run_bounded(&mut adapter, limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
         let resp = read_json(&rec.join("response.json")).unwrap_or(J::Null);
         *cost += resp["cost_usd"].as_f64().unwrap_or(0.0);
         let reply = fs::read_to_string(rec.join("structured-output.json")).ok();
