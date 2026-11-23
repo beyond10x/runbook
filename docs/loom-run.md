@@ -389,7 +389,7 @@ or refusal of this section holds for them.
 The limit of the rule. The scan reads the names in the copy of the bindings. A bound program that
 starts a model program by a name no text of the copy holds (a script of `tools/` that builds the name
 from two parts, a shell word of an `argv` that builds it, a copy of the model tool under another file
-name) is not seen: the caps guard stops spend by declared model nodes; a bound program the runbook's
+name) is not seen: the caps guard stops spend by declared model nodes; a bound program the runbook
 author wrote is trusted like any program the author runs under `--confinement local`. A model node
 that is not declared is therefore not stopped before it starts. Each sentence below is held by a case
 of `runbook/tests/loom_run/no_model_node_limit.rs`.

@@ -253,3 +253,15 @@ fn the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_
     let ledger: Value = serde_json::from_str(&std::fs::read_to_string(root.join("ledger.json")).unwrap()).unwrap();
     assert_eq!(ledger["spent_micro_usd"].as_u64(), Some(0), "{ledger}");
 }
+
+/// The sentence of the page that states the limit is the decided one, word for word (a line break of the
+/// page counts as a space): the caps guard stops spend by declared model nodes, and a bound program the
+/// runbook author wrote is trusted like any program the author runs under `--confinement local`.
+#[test]
+fn the_page_states_the_limit_of_the_rule_in_the_decided_words() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("docs/loom-run.md");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("docs/loom-run.md: {e}"));
+    let page = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let sentence = "the caps guard stops spend by declared model nodes; a bound program the runbook author wrote is trusted like any program the author runs under `--confinement local`";
+    assert!(page.contains(sentence), "docs/loom-run.md does not hold the sentence: {sentence}");
+}
