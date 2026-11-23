@@ -217,12 +217,16 @@ fn no_form_of_no_caps_starts_a_bound_program_under_local() {
 
 /// Under `local` with caps, the caps end a run without a model node at the same line as a run with
 /// one: the same options and the same recorded calls give the same exit, the same outcome and the
-/// same count of calls. What each run spent is printed (an undeclared program has no budget option
-/// the runner can lower, so the amount may differ).
+/// same count of calls. The amount booked is the same while the caps are not reached (100000 for one
+/// recorded call of 0.1 USD, 200000 for two). At a cap it differs by one call: the runner lowers the
+/// `--max-budget-usd` of a declared model tool to what the cap has left, and an undeclared program has
+/// no such option, so its last recorded call is booked whole and the run ends after it (cap 150000:
+/// 150000 with a model node, 200000 without; cap 50000: 50000 and 100000). `docs/loom-run.md` says this.
 #[test]
 fn under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one() {
     let mut wrong = Vec::new();
-    for (n, (cap, calls)) in [(10_000_000u64, 1u64), (10_000_000, 2), (150_000, 100), (50_000, 100)].iter().enumerate() {
+    // (cap, calls, booked by the run with a model node, booked by the run without one)
+    for (n, (cap, calls, booked_with, booked_without)) in [(10_000_000u64, 1u64, 100_000u64, 100_000u64), (10_000_000, 2, 200_000, 200_000), (150_000, 100, 150_000, 200_000), (50_000, 100, 50_000, 100_000)].iter().enumerate() {
         let mut seen = Vec::new();
         for with_node in [true, false] {
             let w = World::new(&format!("zc-parity-{n}-{with_node}"));
@@ -251,6 +255,10 @@ fn under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_on
                 wrong.push(format!("cap {cap}, calls {calls}, model node {with_node}: the outcome states {} and the ledger holds {booked:?}", outcome["spent_micro_usd"]));
             }
             seen.push((code(&o), outcome["outcome"].clone(), outcome["llm_calls"].clone(), w.fake.calls_of(&["tree", "run"]).len()));
+            let want = if with_node { *booked_with } else { *booked_without };
+            if booked != Some(want) {
+                wrong.push(format!("cap {cap}, calls {calls}, model node {with_node}: the ledger holds {booked:?}, {want} expected"));
+            }
         }
         if seen[0] != seen[1] {
             wrong.push(format!("cap {cap}, calls {calls}: with a model node {:?}, without one {:?}", seen[0], seen[1]));

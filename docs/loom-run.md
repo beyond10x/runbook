@@ -342,7 +342,14 @@ above 0. With them the same run starts, as a run with caps always did:
 
 - the records state `has_model_node` false and why (`because` names the level); the ledger is opened,
   a step reserves and books what it records, and `--max-llm-calls` and `--cap-micro-usd` stop the run
-  as they stop any run; a run that records no model call counts 0 calls and 0 micro USD;
+  as they stop any run (the same exit, outcome and count of calls as a run with a model node); a run that
+  records no model call counts 0 calls and 0 micro USD. The amount booked is the same until a cap is
+  reached and differs at the cap: the runner lowers the `--max-budget-usd` of a declared model tool to
+  what the cap has left, and a program the bindings do not declare as a model node has no such option, so
+  its last recorded call is booked whole and the run ends after it. With a cap of 150000 and calls of 0.1
+  USD a run with a model node books 150000 and a run without one books 200000; with 50000, 50000 and
+  100000 (`under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one` of
+  `no_model_node_levels_and_caps.rs`);
 - the exit-13 rule of this section does not apply to it: a model call recorded in such a run is booked
   in the ledger and counted against the caps, and it does not end the run (it ends it only at a cap).
   The checks of the table below (the tree manifest, the copy read again, a recorded call, the model
