@@ -118,3 +118,21 @@ fn the_port_options_belong_to_a_run_in_process_not_to_detach() {
         assert!(!String::from_utf8_lossy(&o.stderr).contains("not built yet"), "{extra:?}");
     }
 }
+
+/// A `--live-cap` that is named and is no whole number of at least 0 is refused by its name before the
+/// next check, and a long value is shown at most 40 bytes of; 0 is a value that was given.
+#[test]
+fn a_live_cap_that_cannot_be_read_is_refused_by_name_and_cut_at_40_bytes() {
+    let root = scratch("live-cap-bad");
+    refused(&root, &["--live-cap", "0"], "--live-cap needs --recorded <source>");
+    let source = root.join("no-such-recording").display().to_string();
+    for bad in ["-1", "1.5", ""] {
+        refused(&root, &["--recorded", &source, "--live-cap", bad], &format!("--live-cap takes a whole number of at least 0, got {bad:?}"));
+    }
+    let long = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let o = run(&root, &["--recorded", &source, "--live-cap", &long]);
+    let err = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_eq!(o.status.code(), Some(64), "{err}");
+    assert!(err.contains("--live-cap"), "{err}");
+    assert!(!err.contains(&long[..41]), "more than 40 bytes of the value reach the console: {err}");
+}

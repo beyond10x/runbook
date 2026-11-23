@@ -80,8 +80,8 @@ pub struct HereOptions {
     #[arg(long, value_name = "ADAPTER", conflicts_with = "detach")]
     pub live_adapter: Option<String>,
     /// With `--recorded`, the most live calls (no default: none named means no limit; a spent cap stops the run).
-    #[arg(long, value_name = "N", conflicts_with = "detach")]
-    pub live_cap: Option<u64>,
+    #[arg(long, value_name = "N", conflicts_with = "detach", allow_hyphen_values = true)]
+    pub live_cap: Option<String>,
     /// With `--recorded`, a fault to inject (`reject@<action>#<try>=<reason>`, `timeout@<node>#<try>`, `check-fail@<action>#<try>`); repeatable.
     #[arg(long, value_name = "FAULT", conflicts_with = "detach")]
     pub inject: Vec<String>,
@@ -138,13 +138,15 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
     if let Some(flag) = detach_only(base) {
         return Err((USAGE, format!("{flag} belongs to --detach: a run in this process takes no daemon and no context")));
     }
+    // A cap that is named and cannot be read is refused by name, in our words: never read as none.
+    let live_cap = here.live_cap.as_deref().map(|c| sdc_tools::named::whole("--live-cap", c)).transpose().map_err(|m| (USAGE, m))?;
     let ports = Ports {
         dry: here.dry,
         replay: Replay {
             recorded: here.recorded,
             on_divergence: here.on_divergence,
             live_adapter: here.live_adapter,
-            live_cap: here.live_cap,
+            live_cap,
             inject: here.inject,
             set: base.set.clone(),
             take_recorded: here.take_recorded,

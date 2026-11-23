@@ -831,3 +831,16 @@ fn without_a_readable_cap_no_live_call_starts() {
         assert_eq!(r.starts(), 0, "{tag}");
     }
 }
+
+/// A plan whose `live` object names the cap twice (a plan edited by hand) cannot be read: no live
+/// program starts, and the later (here larger) cap is not the one that stays.
+#[test]
+fn a_plan_whose_live_object_names_the_cap_twice_starts_no_live_call() {
+    let r = CapRig::new("dup", json!("@@CAP@@"), "0");
+    let path = r.root.join("run/replay/plan.json");
+    let text = std::fs::read_to_string(&path).unwrap().replace("\"cap\":\"@@CAP@@\"", "\"cap\":1,\"cap\":100");
+    assert!(text.contains("\"cap\":100"), "{text}");
+    put(&path, &text);
+    let codes: Vec<i32> = (0..3).map(|_| r.call()).collect();
+    assert_eq!(r.starts(), 0, "two caps named, 1 and 100: {} live starts, exit codes {codes:?}", r.starts());
+}
