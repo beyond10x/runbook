@@ -5,6 +5,7 @@
 pub mod calls;
 mod decision;
 pub mod layout;
+pub mod refusal;
 mod tail;
 
 pub use decision::Parsed;
@@ -217,7 +218,12 @@ impl Engine {
                     };
                 }
                 TreeStop::Cancelled => return Ok(Finish::Cancelled),
-                TreeStop::Stuck => return Err(failure(format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case))),
+                TreeStop::Stuck => {
+                    return Err(failure(match refusal::program_signalled(&store) {
+                        Some(signalled) => format!("the tree is stuck at case {}: {signalled}", ran.case),
+                        None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                    }));
+                }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
                     if !self.round(&ran.decisions, request, &store, &catalog, &settings.runner, sink, cancel, slot, &mut tail)? {
                         return Ok(Finish::Cancelled);

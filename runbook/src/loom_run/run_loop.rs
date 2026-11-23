@@ -328,7 +328,13 @@ impl Runner<'_> {
                     let tree_outcome = tree.get("detail").and_then(Value::as_str).map(str::to_owned);
                     return Ok(Outcome::Ended { tree_outcome });
                 }
-                4 => return Ok(Outcome::Stuck),
+                4 => {
+                    // A program ended by a signal leaves its action undone and the tree stuck: the run names the signal, not only the stuck tree.
+                    return Ok(match runbook::engine::refusal::program_signalled(&self.store) {
+                        Some(reason) => Outcome::Refused { cause: runbook::engine::refusal::PROGRAM_SIGNALLED, reason, loom_exit: None, stderr_tail: None },
+                        None => Outcome::Stuck,
+                    });
+                }
                 5 if steps > 0 => {}
                 5 => return Err(Halt::Failed("tree run ended its budget without a step".to_owned())),
                 3 => self.answer_decisions(&tree)?,
@@ -656,7 +662,7 @@ impl Runner<'_> {
                     if let Err(e) = run_files::write_tree_files(&self.run_dir, (se == 0).then_some(s.stdout.as_slice()), ve, &v.stdout, &v.stderr) {
                         outcome = Outcome::Error { reason: e };
                     }
-                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
+                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
                         let child = format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label());
                         let library = format!("Loom refused the tree status after the run ended as {}: {}", outcome.label(), tail_of(&s.stderr));
                         outcome = match self.loom_halt(child, library, &s) {
@@ -665,7 +671,7 @@ impl Runner<'_> {
                             Halt::Done(done) => done,
                         };
                     }
-                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
+                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
                         outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };
                     }
                     (se, ve)
@@ -682,12 +688,15 @@ impl Runner<'_> {
         let ended = Event::Ended {
             outcome: outcome.label().to_owned(),
             reason: outcome.reason().map(str::to_owned),
+            cause: outcome.cause().map(str::to_owned),
             loom_exit: match &outcome {
                 Outcome::LoomFailed { exit, .. } => *exit,
+                Outcome::Refused { loom_exit, .. } => *loom_exit,
                 _ => None,
             },
             stderr_tail: match &outcome {
                 Outcome::LoomFailed { stderr_tail, .. } => Some(stderr_tail.clone()),
+                Outcome::Refused { stderr_tail, .. } => stderr_tail.clone(),
                 _ => None,
             },
             exit_code: outcome.exit_code(),
@@ -710,6 +719,9 @@ fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
         return Err(Halt::Loom { reason: "b10x-loom tree run was ended by a signal it did not get from the runner".to_owned(), exit: None, stderr_tail: tail_of(&r.stderr) });
     };
     if !matches!(code, 0 | 3 | 4 | 5) {
+        if let Some(refusal) = runbook::engine::refusal::in_stderr(&String::from_utf8_lossy(&r.stderr)) {
+            return Err(Halt::Done(Outcome::Refused { cause: refusal.cause(), reason: format!("b10x-loom tree run refused: {refusal}"), loom_exit: Some(code), stderr_tail: Some(tail_of(&r.stderr)) }));
+        }
         return Err(Halt::Loom { reason: format!("b10x-loom tree run exited {code}, an exit code the runner does not know"), exit: Some(code), stderr_tail: tail_of(&r.stderr) });
     }
     let v: Value = serde_json::from_slice(&r.stdout).map_err(|e| format!("tree run printed no JSON: {e}"))?;

@@ -1,0 +1,42 @@
+format: protocol/1
+protocol:
+  id: suite.amend
+  revision: 1
+  description: >-
+    The state of run 2 of record parity-loom-strong-4, in small. A requirements list is normalised and checked; a check that finds something opens the amend step, which writes the questions; the questions moving invalidates the check, and the list is normalised and checked again. The case is passed once a check says valid.
+artifacts:
+  questions: {}
+  requirements: {}
+evidence_kinds:
+  requirements_shape: {}
+claims:
+  requirements.valid:
+    true_when:
+      evidence: {kind: requirements_shape, subject: requirements, result: valid}
+  requirements.checked:
+    true_when:
+      evidence: {kind: requirements_shape, subject: requirements}
+actions:
+  requirements.normalise:
+    effect: write
+    precondition:
+      any:
+        - {claim: requirements.valid, is: "false"}
+        - {claim: requirements.valid, is: unknown}
+  requirements.check:
+    effect: read
+    precondition: {claim: requirements.checked, is: unknown}
+    may_produce:
+      - evidence: requirements_shape
+  amend.upstream:
+    effect: write
+    precondition: {claim: requirements.valid, is: "false"}
+outcomes:
+  passed:
+    requires: {claim: requirements.valid}
+invalidation:
+  questions.revised:
+    upstream: questions
+    invalidates:
+      - requirements.valid
+      - requirements.checked

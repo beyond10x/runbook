@@ -801,6 +801,19 @@ fn the_outcome_table_is_the_domain_file() {
     assert_eq!(have, want, "an outcome added to or removed from ess/domains/daemon.yaml must be handled in runbook/src/commands.rs");
 }
 
+#[test]
+fn the_outcome_table_lists_every_command_in_the_order_of_the_domain_file() {
+    let mut want: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (command, outcome, _) in declared() {
+        want.entry(command).or_default().push(outcome);
+    }
+    let mut have: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for s in OUTCOMES {
+        have.entry(s.command.to_string()).or_default().push(s.outcome.to_string());
+    }
+    assert_eq!(have, want, "the outcomes of each command in runbook/src/commands.rs OUTCOMES are in the order of ess/domains/daemon.yaml");
+}
+
 const CLIENT_COMMANDS: [&str; 5] = ["open-session", "close-session", "submit-run", "cancel-run", "answer-decision"];
 
 /// A way to make each refusal of a client command happen through the command layer.

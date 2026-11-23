@@ -34,9 +34,9 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 |---|---|
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
-| `submit-run` | `NoSuchRunbook`, `IntakeTooLarge` (over 1,048,576 bytes), `ContextOutsideRoots`, `NoSuchDaemon`, `BelowConfinementFloor`, `NoSuchSession`, `SessionClosedToRuns` |
+| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
-| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `NoSuchRun`, `RunNotWaiting`, `DecisionAlreadyAnswered` |
+| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting` |
 
 Notes for a caller:
 
@@ -49,7 +49,8 @@ Notes for a caller:
   outcome is `already-submitted`, status 202 (not a refusal: a retry after a lost answer gets the
   answer it lost). The first run's id is data in the body, the `run_id` of the event it publishes
   (`published[0].payload.run_id`, event `SubmitReplayed`), and the `Location` header names the run
-  too (`/daemon/views/run?run_id=<id>`, the same header a first submit has).
+  too (`/daemon/views/run?run_id=<id>`, the same header a first submit has). A key over the limit is
+  not an outcome of `submit-run`: it is refused `400` before every outcome, `IntakeTooLarge` included.
 - The intake limit is 1,048,576 bytes of UTF-8, counted by the daemon's handler. The specification
   counts characters (`intake.count`), which is the weaker bound: a text of at most 1,048,576
   characters can still be over the limit in bytes, and the handler refuses it `IntakeTooLarge`.
@@ -382,7 +383,7 @@ for tests only: no option, environment variable or request sets it.
 
 The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
 may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
-failure cannot hide behind them. Now: 13 scenarios of the daemon (3 more are of `sdc.decision`, out of
+failure cannot hide behind them. Now: 13 scenarios of the daemon (10 more are of `sdc.decision`, out of
 the daemon's domain), 13 executed, 13 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
 (before the clock: 10 executed, 10 passed, 2 skipped for an exact instant each). Before part C4 it was
 4 passed and 6 failed: two differences between the
@@ -390,7 +391,7 @@ specification and the daemon, which the specification now states (the daemon's f
 and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrphanedRun`; see
 "Client commands"). The same suite passes on the interpreted target of ESS
 (`ess verify conform run --target interpreted --path ess --suite ess/generated/conformance/authored.json
---report-format 2`): 15 of 15 scenarios, as before.
+--report-format 2`): 23 of 23 scenarios (13 of `sdc.daemon`, 10 of `sdc.decision`).
 
 The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is committed as
 `ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.97.3 makes it in about 30 s (0.97.1 took 1048 s and did not finish in 1800 s).
