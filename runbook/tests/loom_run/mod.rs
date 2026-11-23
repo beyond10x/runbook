@@ -18,6 +18,7 @@ mod no_model_node_guards;
 mod pages;
 mod replay;
 mod replay_boundaries;
+mod no_model_node_pass2;
 mod run_dir;
 mod settings;
 mod slow;
