@@ -9,10 +9,12 @@ relations:
 - informed_by: story:mcp-reads-a-run-product
 scope:
 - confidence: cited
+  path: runbook/src/loom_run/run_loop.rs
+- confidence: cited
   path: ui/server.mjs
 - confidence: cited
   path: ui/web/products.js
-revision: 5
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T11:57:29Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
 - {from: "proposed", to: "active", at: "2026-11-23T11:57:29Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
@@ -50,19 +52,34 @@ step that wrote them, newest step first.
 The same meaning holds for the daemon's `list_products` (`story:mcp-reads-a-run-product`): a follow-up
 brings it there once that unit is on the default branch.
 
+## How an input is told from a product
+
+Found while building: the run's change record alone cannot tell them apart. The watcher starts before the
+work directory is seeded, so every seeded file is recorded as created by the first step.
+
+The runner therefore writes a seed record into the run directory, once, right after it seeded the work
+directory and before the first action: for each top-level entry its kind and file count, and for each
+seeded file its path and the sha256 of its bytes. Past 20 000 files the record says it is not complete
+and the panel falls back to the note of point 1.
+
+The panel's rule, by hash and never by time: a path in the seed record whose bytes still have the seeded
+hash is an input; a path in it whose bytes differ is a changed product; a path the change record names
+that the seed record does not hold is an added product; a seeded path that is gone is listed as removed.
+
 ## What a guard must hold
 
 Unchanged from the panel today: every read through the run-path check and the one checked open, `work/`
 only, regular files with one name, no dot-directory component, content shown as text, no library from a
-network address. The record of what an action revised names paths: a path in it that leaves `work/` or the
-run directory is not listed and not opened.
+network address. The record of what an action revised and the seed record name paths: a path in either
+that leaves `work/` or the run directory is not listed and not opened. The seed record holds paths, counts
+and hashes, never a byte of a file's content.
 
 ## Acceptance
 
 A fixture run with a seeded tree of 200 files, three steps and five written files lists five products in
-three groups, one "Inputs" line with the count, and opens the last written file; a record that names a path
-outside the run lists nothing for it; an older fixture without the record shows the note and today's list.
-Both sizes pass the UI gate's layout checks.
+three groups, one "Inputs" line with the count, and opens the last written file; a seeded file an action
+changed is listed as changed; a record that names a path outside the run lists nothing for it; an older
+fixture without the records shows the note and today's list. Both sizes pass the UI gate's layout checks.
 
 ## Origin
 
