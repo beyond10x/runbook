@@ -218,10 +218,13 @@ fn no_form_of_no_caps_starts_a_bound_program_under_local() {
 /// Under `local` with caps, the caps end a run without a model node at the same line as a run with
 /// one: the same options and the same recorded calls give the same exit, the same outcome and the
 /// same count of calls. The amount booked is the same while the caps are not reached (100000 for one
-/// recorded call of 0.1 USD, 200000 for two). At a cap it differs by one call: the runner lowers the
+/// recorded call of 0.1 USD, 200000 for two). At a cap it can differ: the runner lowers the
 /// `--max-budget-usd` of a declared model tool to what the cap has left, and an undeclared program has
-/// no such option, so its last recorded call is booked whole and the run ends after it (cap 150000:
-/// 150000 with a model node, 200000 without; cap 50000: 50000 and 100000). `docs/loom-run.md` says this.
+/// no such option. What one step records is booked whole, and the runner bounds neither the amount nor
+/// the count of what one step records. Here each step records one call, so the figures differ by one
+/// call (cap 150000: 150000 with a model node, 200000 without; cap 50000: 50000 and 100000). The case
+/// `under_local_what_one_step_records_is_booked_whole_and_no_tree_run_follows_the_cap` of
+/// `no_model_node_refusals_and_booking.rs` holds the whole booking. `docs/loom-run.md` says this.
 #[test]
 fn under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one() {
     let mut wrong = Vec::new();

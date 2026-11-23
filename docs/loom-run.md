@@ -120,6 +120,11 @@ child".
    path is missing, or `<runs-dir>/<name>` exists.
    A run that has a model node (below) is also refused when `--spend-ledger` is missing, with exit 64 and nothing written:
    `--spend-ledger is required: the run has a model node (<why>); a run without one needs none`.
+   Exit 64 is given when that is the only refusal of the run: another refusal that also applies (the way
+   to Loom, the run name, the settings, the protocols, the intake, the bindings) gives its own exit code
+   first, and nothing is written either way
+   (`the_usage_refusal_of_a_run_with_a_model_node_writes_nothing_beside_another_refusal` of
+   `no_model_node_refusals_and_booking.rs`).
    A run without a model node under `--confinement local` is refused too, by name, when `--spend-ledger`
    is missing or `--cap-micro-usd` or `--max-llm-calls` is 0 ("Where caps of 0 are accepted").
 2. Creates the run directory, writes `settings.json` (the login file's path replaced by `named`),
@@ -344,12 +349,19 @@ above 0. With them the same run starts, as a run with caps always did:
   a step reserves and books what it records, and `--max-llm-calls` and `--cap-micro-usd` stop the run
   as they stop any run (the same exit, outcome and count of calls as a run with a model node); a run that
   records no model call counts 0 calls and 0 micro USD. The amount booked is the same until a cap is
-  reached and differs at the cap: the runner lowers the `--max-budget-usd` of a declared model tool to
-  what the cap has left, and a program the bindings do not declare as a model node has no such option, so
-  its last recorded call is booked whole and the run ends after it. With a cap of 150000 and calls of 0.1
-  USD a run with a model node books 150000 and a run without one books 200000; with 50000, 50000 and
-  100000 (`under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one` of
-  `no_model_node_levels_and_caps.rs`);
+  reached and can differ at the cap: the runner lowers the `--max-budget-usd` of a declared model tool to
+  what the cap has left, and a program the bindings do not declare as a model node has no such option.
+  What one step records is booked whole: the runner bounds neither the amount nor the count of what one
+  step records, and no `tree run` follows once the booked amount has reached the cap (a decision the
+  same step printed can still be answered by one `tree approve`; backlog story
+  `spend-cap-with-nothing-left-starts-nothing`). With one call of 0.1 USD per step and a cap of 150000 a
+  run with a model node books 150000 and a run without one books 200000; with 50000, 50000 and 100000
+  (`under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one` of
+  `no_model_node_levels_and_caps.rs`). One step that records one call of 1000 USD books 1000000000
+  micro USD, and one that records three calls of 0.1 USD books 300000, at a cap of 150000, with a model
+  node and without one, each ending exit 4 after one `tree run`
+  (`under_local_what_one_step_records_is_booked_whole_and_no_tree_run_follows_the_cap` of
+  `no_model_node_refusals_and_booking.rs`);
 - the exit-13 rule of this section does not apply to it: a model call recorded in such a run is booked
   in the ledger and counted against the caps, and it does not end the run (it ends it only at a cap).
   The checks of the table below (the tree manifest, the copy read again, a recorded call, the model
@@ -448,7 +460,8 @@ reserved, no ledger is opened (a `--spend-ledger` that is named is not created),
 and `--cap-micro-usd 0` are accepted and the run does not end `stopped: llm calls`, `--spend-ledger`
 may be left out, and the records state `llm_calls` 0 and `spent_micro_usd` 0. `--max-wall-seconds`
 stays, and so do the other options. With a model node nothing changes: a cap of 0 stops the run before
-its first `tree run`, a missing `--spend-ledger` is a usage error before anything is written (exit 64, as it was when the parser required it; each of the three options missing alone gives 64: `a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone` of `no_model_node.rs`), and an
+its first `tree run` when the bindings name a `--max-budget-usd` above 0 (the limit under "What the
+spend cap does not promise" says what happens otherwise), a missing `--spend-ledger` is a usage error before anything is written (exit 64 when it is the only refusal of the run, as it was when the parser required it, and another refusal that also applies gives its own exit code first, step 1 of "What it does"; each of the three options missing alone gives 64: `a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone` of `no_model_node.rs`), and an
 unreadable or invalid ledger fails the run closed.
 
 A model program in a run that was opened without a model node and without caps (a run under `substrate`) is
@@ -696,6 +709,19 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
   leaves 0.30 of 1.00; a stale 1.00 leaves none and the run stops before its first call) and
   `after_a_sigkill_the_next_run_on_the_same_ledger_finds_less_left_not_more` (a real SIGKILL on a
   running call, then a second run on the same ledger).
+- A cap of 0 stops a run with a model node before its first `tree run` only when the bindings copy
+  names a `--max-budget-usd` above 0. A step is stopped for lack of money only when the amount it
+  wants is above 0, and that amount is the largest `--max-budget-usd` the copy names, or the cap
+  itself when it names none (an option of 0 wants 0 as well). With a cap of 0 and no such option
+  (a model tool declared without it, or a form the scan cannot read) the amount wanted is 0: the step
+  starts, what it records is booked above the cap, and the call cap (`--max-llm-calls`, exit 6) ends
+  the run. Every `sdc-node` binding under `bindings/` names the option, so the committed bindings do
+  not reach this. A decision that the step which passed the cap printed is answered by one
+  `tree approve` when the decider costs nothing, after which the run ends (exit 4). The behaviour is
+  backlog: story `spend-cap-with-nothing-left-starts-nothing`. The measurements are ignored cases
+  that fail until it is built, `measured_a_spend_cap_of_0_stops_a_run_whose_model_tool_names_no_budget_before_the_first_tree_run`
+  (the "otherwise" part) and `measured_after_the_cap_is_passed_no_tree_approve_is_made`, both of
+  `no_model_node_refusals_and_booking.rs`.
 
 ## The run directory
 
