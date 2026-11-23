@@ -298,6 +298,7 @@ impl Runner<'_> {
         if let Some(goals) = &self.args.ports.goals {
             super::goals::copy(goals, &self.workspace)?;
         }
+        super::seeded::write(&self.run_dir, &self.workspace, self.clock.now_secs())?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {

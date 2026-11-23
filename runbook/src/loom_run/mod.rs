@@ -36,6 +36,7 @@ pub mod replay;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;
+pub mod seeded;
 pub mod settings;
 pub mod watch;
 

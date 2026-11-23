@@ -19,6 +19,8 @@ run, what a Loom run does not record, and which quality measures of
       loom/status.json   the status without absolute paths (written at the end)
       loom/verify.json   the verify result without absolute paths
       run-settings.jsonl llm-calls.jsonl decisions.jsonl rounds.jsonl   append-only records
+      seeded.json        what the run was seeded with: the top-level entries of work/ with a file count (written once, after the seed)
+      seeded-files.jsonl each seeded file: its path relative to work/ and the SHA-256 of its content
       run-stopped.json   the stop record, when the run did not close
       dry-commands.txt   the commands a --dry run printed, one per line (only with --dry)
       status.json        the close record, when the tree ended
@@ -48,6 +50,18 @@ to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`
 name holds `login`, `credential`, `secret`, `password`, `api_key`, `authorization` or `bearer`, or is
 `token` or ends in `_token`, is written as `named` whatever it held. No file reads a login file, the
 environment of the runner or the `command` of a decision (it names the store path).
+
+## What the run was seeded with
+
+The runner lists `work/` once, right after the seed ends (the intake file, the bug-fix seed, the goals copy), and
+writes `seeded.json` (`runbook.seeded/1`: `at` in seconds since the Unix epoch, `complete`, `files`, and `entries`, one per
+top-level entry of `work/` with its `kind`, `dir`, `file`, `link` or `other`, and the number of regular files below it) and
+`seeded-files.jsonl` (one line per regular file: `{"path": <relative to work/>, "sha256": <hex>}`, sorted by path; the hash
+is the form of `after` in `fs/changes.jsonl`). Regular files only, links are not followed, an entry whose name starts with a
+dot is skipped, and the listing stops at 20 000 files and says `complete: false`. The record holds no environment, no
+argument, no absolute path and no file content. A run that was given no seed still lists what the runner wrote itself (the
+intake as `work/idea.yaml`). The inspector reads the two files to tell an input from a product (`ui/README.md`, "What a
+step produced"); the writer is `runbook/src/loom_run/seeded.rs`.
 
 ## Where each member comes from
 
