@@ -29,9 +29,12 @@ test.beforeAll(async ({}, info) => {
   writeProductsRun(path.join(root, 'b', 'missing'), {product: 'missing'});
   writeProductsRun(path.join(root, 'c', 'convention'), {product: 'convention'});
   writeProductsRun(path.join(root, 'c', 'newest'), {product: 'newest'});
-  servers.a = await startServer(['--view', view('a', viewWith('work/example/example.md')), '--runs', path.join(root, 'a')]);
-  servers.b = await startServer(['--view', view('b', viewWith('work/example/not-written.md')), '--runs', path.join(root, 'b')]);
-  servers.c = await startServer(['--no-view', '--runs', path.join(root, 'c')]);
+  const [a, b, c] = await Promise.all([
+    startServer(['--view', view('a', viewWith('work/example/example.md')), '--runs', path.join(root, 'a')]),
+    startServer(['--view', view('b', viewWith('work/example/not-written.md')), '--runs', path.join(root, 'b')]),
+    startServer(['--no-view', '--runs', path.join(root, 'c')]),
+  ]);
+  Object.assign(servers, {a, b, c});
 });
 
 const get = async (name, p) => {
