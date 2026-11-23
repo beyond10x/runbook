@@ -352,4 +352,27 @@ mod tests {
         let given = normalise(&v, &args()).unwrap();
         assert_eq!(given[LOGIN_KEY], "/opt/we\"ird\\dir/ünï/login.json");
     }
+
+    #[test]
+    fn a_syntax_error_names_the_line_the_column_and_the_parsers_words_and_none_of_the_text() {
+        let e = parse("a = 1\nb = 2\nsecret_member = SECRET-VALUE-77 more\n").unwrap_err();
+        assert!(e.starts_with("not TOML at line 3, column 17"), "{e}");
+        assert!(!e.contains("SECRET-VALUE-77") && !e.contains("secret_member"), "{e}");
+        let e = parse("\u{fc}n\u{ef} = oops\n").unwrap_err();
+        assert!(e.starts_with("not TOML at line 1, column 7"), "{e}");
+        let e = parse("a = 1\na = 2\n").unwrap_err();
+        assert!(e.contains("line 2") && e.contains("duplicate key"), "{e}");
+        let e = parse(&format!("a = {}\n", "x".repeat(1 << 20))).unwrap_err();
+        assert!(e.len() < 1024, "{} bytes", e.len());
+    }
+
+    #[test]
+    fn a_json_text_after_a_mark_blank_lines_or_comment_lines_is_still_json() {
+        for text in ["\u{feff}{}", "\u{feff}\n\n{}", "# c\n{}", "\u{feff}# c\n\n# d\n  {\"a\": 1}", "# c\n[1, 2]", "#c\r\n{\"a\": 1}"] {
+            let e = parse(text).unwrap_err();
+            assert!(e.contains("JSON") && e.contains("docs/loom-run-settings.md"), "{text:?}: {e}");
+        }
+        assert!(parse("# only a comment\n").is_ok());
+        assert!(parse("# a comment\n[decider]\nkind = \"rule\"\nverdict = \"approve\"\n").is_ok());
+    }
 }

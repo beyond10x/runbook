@@ -396,3 +396,36 @@ fn a_login_path_with_a_quote_a_backslash_and_a_letter_outside_ascii_reaches_no_r
     let recorded: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/settings.json")).unwrap()).unwrap();
     assert_eq!(recorded["login_file"], "named");
 }
+
+#[test]
+fn a_json_file_after_a_byte_order_mark_or_comment_lines_is_refused_as_json_with_the_page_named() {
+    let w = World::new(&tag("jsonmark"));
+    let json = serde_json::to_string_pretty(&fixture_settings(&w, 5_000_000)).unwrap();
+    for (what, text) in [
+        ("a byte order mark", format!("\u{feff}{json}")),
+        ("a mark and blank lines", format!("\u{feff}\n\n{json}")),
+        ("a comment line", format!("# the settings\n{json}")),
+        ("comment and blank lines", format!("# one\n\n   # two\n\n{json}")),
+        ("a mark and a comment line", format!("\u{feff}# the settings\n{json}")),
+        ("compact after a comment line", format!("# the settings\n{}", json.replace(['\n', ' '], ""))),
+    ] {
+        let o = run_text(&w, &text);
+        assert_refused(&w, &o, what, &["JSON", "docs/loom-run-settings.md"]);
+        assert!(!stderr(&o).contains("TOML parse error"), "{what}: a syntax error stands in for the refusal: {}", stderr(&o));
+    }
+}
+
+#[test]
+fn a_bad_line_of_one_mebibyte_gives_a_refusal_of_less_than_one_kibibyte() {
+    for (what, line) in [
+        ("an unquoted value", format!("login_file = {}", "a".repeat(1 << 20))),
+        ("an unterminated string", format!("login_file = \"{}", "a".repeat(1 << 20))),
+        ("junk after a string", format!("login_file = \"x\" {}", "a".repeat(1 << 20))),
+        ("a long key", format!("{} = 1\nlogin_file", "k".repeat(1 << 20))),
+    ] {
+        let w = World::new(&tag("big"));
+        let o = run_text(&w, &top_with(&base_text(&w), &[], &line));
+        assert_eq!(code(&o), 2, "{what}: {}", stderr(&o).chars().take(300).collect::<String>());
+        assert!(stderr(&o).len() < 1024, "{what}: the refusal is {} bytes", stderr(&o).len());
+    }
+}
