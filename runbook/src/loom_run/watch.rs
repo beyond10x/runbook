@@ -23,7 +23,7 @@ const END_WITHIN: Duration = Duration::from_secs(30);
 /// The record of the pid the runner started, in the watcher's output directory.
 pub const PID_RECORD: &str = "fs/watcher.json";
 
-/// The helper binary, found as the other helpers are (`runbook doctor`): `libexec` and the
+/// The helper binary, found as the other helpers are (`runbook doctor`): `libexec/runbook` and the
 /// directory of the executable, the checkout's `target/` directories, `PATH`.
 fn locate() -> Option<PathBuf> {
     let lookup = crate::assets::Lookup::from_process();

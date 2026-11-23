@@ -1,0 +1,26 @@
+format: protocol/1
+protocol:
+  id: example
+  revision: 1
+  description: >-
+    A note that a writer program writes and a check program reads. The case is done once the note is valid.
+artifacts:
+  idea: {}
+  note: {}
+evidence_kinds:
+  note_check: {}
+claims:
+  note.valid:
+    true_when:
+      evidence: {kind: note_check, subject: note, result: valid}
+actions:
+  note.write:
+    effect: write
+    precondition: {claim: note.valid, is: false}
+  note.check:
+    effect: read
+    may_produce:
+      - evidence: note_check
+outcomes:
+  done:
+    requires: {claim: note.valid}
