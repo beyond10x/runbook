@@ -146,8 +146,13 @@ more.
 
 `scripts/check-bindings.sh --exits <root>` runs the exits check alone over `<root>/bindings/*.yaml`.
 The list of the five pool bindings is this repository's: it applies when `<root>/bindings/` holds one of
-the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`), and by nothing else; where
-the script lies does not count, another repository may hold a copy of it. For any other root,
+the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`; a link of one of these names
+that points at nothing counts), and by nothing else; where the script lies does not count, another
+repository may hold a copy of it. A runbook of another repository that happens to hold a file with one of
+these names sees the five lines `bindings/<file>:<action>: a binding that waits for the build pool is not in
+bindings/` (`sdc-story.yaml:tests.run`, `sdc-release.yaml:acceptance.run`, `sdc-bugfix.yaml:repro.run`,
+`tests.run`, `gate.run`), pinned by the test
+`a_runbook_of_another_repository_with_a_file_named_sdc_story_yaml_gets_the_five_pool_lines`. For any other root,
 the runbook of another repository, the option asks nothing about the build pool and checks the root's own
 files by the binding itself: every `program` binding states `exits.error`: `[69, 70, 75, 126, 127]` when
 its argv holds `--pool-wait` as an element, else `[75, 126, 127]` or `[69, 70, 75, 126, 127]` (the tool
@@ -156,11 +161,15 @@ exits 69 and 70 for the environment variable `SDC_POOL_WAIT` too, which wins ove
 and `exits` is on no other executor. A binding that lacks it gets one named line
 (`bindings/<file> <action>: exits.error is [], want [75,126,127] or [69,70,75,126,127]`); the line a user adds to its program
 binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
-the root. A file of no bytes (`the file is empty`), a file that is no mapping with an `actions` list, an
-entry of `actions` that is no mapping or has no `action` name, and an `executor` that is no mapping or an
-`executor.argv` that is no list are each refused by one line that names the file (and the action where
-there is one), exit 1; the other files are still checked. Text that is no YAML ends the check with the
-message of `yq`, which names the file. A copy of
+the root. A file of no bytes (`the file is empty`), a link named `*.yaml` that points at nothing, a file
+that is no mapping with an `actions` list, an entry of `actions` that is no mapping or has no `action` name,
+an `executor` that is present and no mapping (`executor:` with no value too), an `executor.argv` that is no
+list, and `evidence` that is no list of mappings, a `results` that is no mapping or a result key read from
+the exit that is no exit code are each refused by one line that names the file (and the action where there
+is one), exit 1; the other files are still checked. The full `scripts/check-bindings.sh` refuses the same
+shapes in the bindings file of a protocol under `FAIL <name>`, and its registrations step fails the script
+when it cannot read a file. Text that is no YAML ends the check with the message of `yq`, which names the
+file. A root given as a relative path may start with a dash. A copy of
 this repository's bindings elsewhere is this repository only while it holds one of the three named files.
 That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
