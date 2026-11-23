@@ -31,9 +31,10 @@ fn mode(p: &Path) -> u32 {
 
 // ---- red ----
 
-/// `Lookup::path_with_libexec` with no `PATH` (or an empty one) joins `libexec` with one empty entry: the programs
-/// of the run get `PATH=<prefix>/libexec:`. An empty entry is the working directory, and the directories a shell
-/// searches without a `PATH` are gone, so the same run behaves otherwise than from the checkout build.
+/// An installed `runbook` started with no `PATH` (or an empty one) gives the programs of the run a `PATH` with no empty
+/// entry (an empty entry is the working directory) and with the system directories after `<prefix>/libexec`, so a
+/// file of the working directory is not started by its bare name and `ls` is found, as in the run from the checkout
+/// build.
 #[test]
 fn an_installed_run_started_without_path_gives_its_programs_no_working_directory_in_path_and_the_system_directories() {
     let prefix = shared_prefix();
@@ -68,10 +69,10 @@ fn an_installed_run_started_without_path_gives_its_programs_no_working_directory
     );
 }
 
-/// `clean_path` splits the path with `set -- ${rel%/*}` while pathname expansion is on: a directory name of the old
-/// MANIFEST that is a pattern (`[p]rotocol`) is replaced by the name it matches in the working directory
-/// (`protocol`, a directory of every checkout), the link check looks at that other name, and the file behind the
-/// link is removed. The script is started from the checkout, as `README.md` prints the command.
+/// A directory name of the old MANIFEST that is a pattern (`[p]rotocol`) is taken as that name and not as the name it
+/// matches in the working directory (`protocol`, a directory of every checkout): the link of that name in the prefix
+/// is looked at, and the file behind the link is not removed. The script is started from the checkout, as `README.md`
+/// prints the command.
 #[test]
 fn a_manifest_path_through_a_link_whose_name_is_a_pattern_removes_nothing_outside_the_prefix() {
     let (root, sandbox, prefix) = subject("guard-pattern");
@@ -100,9 +101,8 @@ fn a_manifest_path_through_a_link_whose_name_is_a_pattern_removes_nothing_outsid
     assert!(outside.join("a.txt").is_file(), "a file outside the prefix was removed through a link:\n{}", err(&o));
 }
 
-/// The script's comment: the copy leaves out "any login or settings file". Its filter is `.env*`, `*credential*`
-/// and `settings.local.json`; the committed case asserts no name that starts with `settings`, on a tree that holds
-/// none.
+/// The copy leaves out a login or settings file of the checkout: `.npmrc` below `ui/web`, `.netrc` below `tools` and
+/// `settings.json` below `bindings` are not in the prefix, and the plain file beside them is.
 #[test]
 fn a_login_file_and_a_settings_file_of_the_checkout_are_not_copied_into_the_prefix() {
     let (root, _sandbox, prefix) = subject("guard-login");
@@ -129,8 +129,8 @@ fn a_login_file_and_a_settings_file_of_the_checkout_are_not_copied_into_the_pref
     assert_eq!(copied, Vec::<&str>::new(), "login and settings files of the checkout are in the prefix");
 }
 
-/// `cp -p` carries the mode of the source over: a checkout made under umask 002 (664 files, 775 programs) gives a
-/// prefix whose helpers on `PATH` and whose bound tools are group-writable, whatever the umask of the install.
+/// The mode of a source is not carried over: a checkout made under umask 002 (664 files, 775 programs) gives a prefix
+/// whose helpers on `PATH` and whose bound tools are not group-writable, whatever the umask of the install.
 #[test]
 fn a_group_writable_file_of_the_checkout_is_not_group_writable_in_the_prefix() {
     let (root, _sandbox, prefix) = subject("guard-modes");
@@ -179,8 +179,9 @@ fn a_group_writable_file_of_the_checkout_is_not_group_writable_in_the_prefix() {
     );
 }
 
-/// The three lines the script prints are what `README.md` tells the reader to add to a profile. The bash and zsh
-/// lines quote the directory; the fish line does not, and fish splits an unquoted argument at a space.
+/// The three lines the script prints are what `README.md` tells the reader to add to a profile. For a prefix with a
+/// space in its name the bash line quotes the directory, and so does the fish line, so that fish takes it as one
+/// argument.
 #[test]
 fn the_fish_line_of_a_prefix_with_a_space_names_one_quoted_directory() {
     let (root, sandbox, _) = subject("guard-fish");

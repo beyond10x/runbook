@@ -86,7 +86,7 @@ scripts/install.sh --prefix <dir>
 It writes `<dir>/bin/runbook`, `<dir>/libexec/runbook/` (the helper programs), and `<dir>/share/runbook/` (the
 protocols, bindings, instructions, views and the files of the page, `VERSION` and `MANIFEST`, the list of every
 file it wrote). In a git work tree it copies the bytes of the work tree of the files git tracks (`VERSION` names
-HEAD and ends in ` dirty` when any tracked file of the checkout differs from it, index or work tree); a checkout whose git cannot be asked is refused
+HEAD and ends in ` dirty` when `git status` reports a change of a tracked file, index or work tree); a checkout whose git cannot be asked is refused
 and nothing is written; from a source archive (no `.git`), the regular files that are not dot-files. Nothing is written elsewhere and no shell profile is changed; run again over the same prefix to
 update it (a file the old `MANIFEST` lists that the new one does not is removed, nothing else). While it runs,
 `<dir>/share/runbook/INSTALLING` is there: a prefix that keeps it is half installed (`runbook doctor` says

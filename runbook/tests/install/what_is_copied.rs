@@ -5,11 +5,12 @@ use super::*;
 
 // ---- only tracked files ----
 
-/// A checkout with a `.git` whose git cannot be asked is taken for a source archive: every regular file that is no
-/// dot-file is copied, tracked or not. Two ways there: the checkout belongs to another user than the one who installs
-/// (a root shell without `SUDO_UID`, `doas`, a container with a mounted checkout: git refuses a repository of another owner;
-/// `GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own switch for that state), and `git` is not on `PATH`. The built files
-/// print the commit `unknown`, as a build under the same condition does (`build_commit.rs` asks the same git).
+/// A checkout with a `.git` whose git cannot be asked gives no untracked file to the prefix (a settings file, a key, a
+/// note of a run): the install stops or copies none of them. Two ways there: the checkout belongs to another user than
+/// the one who installs (a root shell without `SUDO_UID`, `doas`, a container with a mounted checkout: git refuses a
+/// repository of another owner; `GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own switch for that state), and `git` is not
+/// on `PATH`. The built files print the commit `unknown`, as a build under the same condition does (`build_commit.rs`
+/// asks the same git).
 #[test]
 fn a_git_checkout_whose_git_cannot_be_asked_never_gives_its_untracked_files_to_the_prefix() {
     let mut broken = Vec::new();
@@ -43,9 +44,9 @@ fn a_git_checkout_whose_git_cannot_be_asked_never_gives_its_untracked_files_to_t
     assert!(broken.is_empty(), "{}", broken.join("\n"));
 }
 
-/// The check of a tracked link's target walks the path under a made-up root `/r/` and accepts what stays below it. `..`
-/// above that root is dropped, so a target that climbs out and names a directory `r` on its way back passes, and the
-/// link is installed as it is: in the prefix it points outside the prefix.
+/// A tracked link whose target climbs out of the checkout and names a directory `r` on its way back
+/// (`../../../../r/x`) is not installed as a link that points outside the prefix: the install stops, or the link in the
+/// prefix does not read a file of `<prefix>/../r`.
 #[test]
 fn a_tracked_link_whose_target_passes_a_directory_named_r_is_not_installed_pointing_out_of_the_prefix() {
     let root = fake_checkout("fix2-link-r", None);
@@ -353,7 +354,7 @@ fn a_tracked_directory_that_is_a_link_in_the_work_tree_is_refused_by_name_and_no
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
 
-/// A tracked name with a newline is refused by name, as a tab is, and nothing is written.
+/// A tracked name with a newline is refused by name (as a control character), as a tab is, and nothing is written.
 #[test]
 fn a_tracked_name_with_a_newline_is_refused_by_name_and_nothing_is_written() {
     let root = fake_checkout("newline-named", None);
@@ -364,7 +365,24 @@ fn a_tracked_name_with_a_newline_is_refused_by_name_and_nothing_is_written() {
     stubs(&root, None, &stub_version(&head12(&root)));
     let o = from_built(&root, &prefix);
     assert_eq!(code(&o), 1, "{}", err(&o));
-    assert!(err(&o).contains("has a newline in its name"), "{}", err(&o));
+    assert!(err(&o).contains("has a control character in its name"), "{}", err(&o));
+    assert!(err(&o).contains("protocol/notes"), "the name is given: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// A tracked name with the byte 0x01 (the byte the list uses for a newline) is refused by name with the same word as a
+/// newline, a control character, and nothing is written.
+#[test]
+fn a_tracked_name_with_the_byte_0x01_is_refused_as_a_control_character_and_nothing_is_written() {
+    let root = fake_checkout("soh-named", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("protocol/notes\u{1}of-a-run.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a name with the byte 0x01"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("has a control character in its name"), "{}", err(&o));
     assert!(err(&o).contains("protocol/notes"), "the name is given: {}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
@@ -382,4 +400,139 @@ fn a_sparse_checkout_is_refused_by_the_name_of_a_missing_file_and_says_sparse() 
     assert!(err(&o).contains("tools/file.txt"), "{}", err(&o));
     assert!(err(&o).contains("sparse"), "{}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+// ---- links, names and refusals of the list ----
+
+/// A directory above a tracked file that is a link in the work tree is refused at every depth: the directory right
+/// above the file, two and three above it, the copied directory itself, and a directory above a copied directory
+/// (`driver`). Nothing is written.
+#[test]
+fn a_link_at_any_depth_above_a_tracked_file_is_refused_by_the_name_of_the_link_and_nothing_is_written() {
+    for (case, link, file) in [
+        ("right-above", "protocol/a/b/c", "protocol/a/b/c/x.txt"),
+        ("two-above", "protocol/a/b", "protocol/a/b/c/x.txt"),
+        ("three-above", "protocol/a", "protocol/a/b/c/x.txt"),
+        ("the-copied-directory", "protocol", "protocol/"),
+        ("above-a-copied-directory", "driver", "driver/examples/sdc/file.txt"),
+    ] {
+        let root = fake_checkout(&format!("depth-link-{case}"), None);
+        let (sandbox, prefix) = sandbox_of(&root);
+        fs::create_dir_all(root.join("protocol/a/b/c")).unwrap();
+        fs::write(root.join("protocol/a/b/c/x.txt"), "tracked\n").unwrap();
+        git_in(&root, &["add", "-A", "protocol"]);
+        git_in(&root, &["commit", "-q", "-m", "a deep directory"]);
+        stubs(&root, None, &stub_version(&head12(&root)));
+        let moved = sandbox.join("moved-outside");
+        fs::rename(root.join(link), &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, root.join(link)).unwrap();
+        // the stubs of driver/ went with it: the link answers for them, as it would for a person
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 1, "{case}: {}", err(&o));
+        assert!(
+            err(&o).contains(&format!("is tracked below {link}, which is a link")) && err(&o).contains(file),
+            "{case}: the link and a file below it are named: {}",
+            err(&o)
+        );
+        assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
+    }
+}
+
+/// A tracked file that is deleted by hand in a checkout that is not sparse is refused by name, and the message does not
+/// call the checkout sparse. A built `runbook` of another commit is refused with the two commits and the file to touch
+/// (after a branch was moved from another work tree cargo compiles nothing until an input of the build changes).
+#[test]
+fn a_missing_file_of_a_full_checkout_is_not_called_sparse_and_a_binary_of_another_commit_is_told_what_to_touch() {
+    let root = fake_checkout("missing-not-sparse", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    fs::remove_file(root.join("protocol/file.txt")).unwrap();
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("protocol/file.txt is tracked and is not in the work tree as a file"), "{}", err(&o));
+    assert!(!err(&o).contains("sparse"), "{}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+
+    let root = fake_checkout("binary-of-other-commit", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    stubs(&root, None, &stub_version("0123456789ab"));
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("says commit 0123456789ab") && err(&o).contains(&head12(&root)), "{}", err(&o));
+    assert!(err(&o).contains("touch runbook/build.rs"), "{}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// Names a shell loop mishandles are copied under their own names, and a second install over the prefix removes none
+/// of them: a leading dash, `-n`, `-e`, a space at either end, a pattern, a backslash, quotes, a command substitution,
+/// a byte that is not UTF-8, and directories of such names.
+#[test]
+fn names_a_shell_loop_mishandles_are_installed_under_their_own_names_and_kept_by_a_second_install() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let root = fake_checkout("odd-names", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    let names: Vec<Vec<u8>> = [
+        "-rf", "--help", "-n", "-e", "a b", " lead", "trail ", "glob*", "[x]", "?", "back\\slash", "back\\n", "quote\"q", "single'q",
+        "$(touch pwned)", "`touch pwned`", ";semi", "&amp", "a|b", "#hash", "~", "!bang", "%s", "...", "..x", "x..",
+        "-d/in", "a dir/in", "*/in", "[y]/in", "dir\\back/in", " lead dir/in", "trail dir /in",
+    ]
+    .iter()
+    .map(|n| n.as_bytes().to_vec())
+    .chain([b"latin\xe4".to_vec(), b"bel\x07".to_vec()])
+    .collect();
+    for n in &names {
+        let p = root.join("protocol").join(std::ffi::OsStr::from_bytes(n));
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, n).unwrap();
+    }
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "odd names"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    for round in ["first", "second"] {
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 0, "{round}: {}", err(&o));
+        assert!(!err(&o).contains("removed "), "{round}: {}", err(&o));
+        for n in &names {
+            let p = prefix.join("share/runbook/protocol").join(std::ffi::OsString::from_vec(n.clone()));
+            assert_eq!(fs::read(&p).ok().as_deref(), Some(n.as_slice()), "{round}: {:?}", String::from_utf8_lossy(n));
+        }
+    }
+    assert!(!root.join("pwned").exists() && !prefix.join("pwned").exists() && !Path::new("pwned").exists(), "no name was run as a command");
+}
+
+/// A tracked link is written with `ln -s -- "$target" <place>`. A target that begins with a dash (a tracked file of that
+/// name lies beside the link, so the target passes every check) is a name, not an option: the link is in the prefix
+/// with that target, and nothing is left in the working directory of the caller. Started from an empty directory of
+/// its own.
+#[test]
+fn a_tracked_link_whose_target_begins_with_a_dash_is_installed_with_that_target_and_leaves_nothing_in_the_working_directory() {
+    let root = fake_checkout("dash-target", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("protocol/-n"), "the file the link names\n").unwrap();
+    std::os::unix::fs::symlink("-n", root.join("protocol/lnk")).unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a link to a name with a dash"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let cwd = sandbox.join("cwd");
+    fs::create_dir_all(&cwd).unwrap();
+    let o = Command::new("sh")
+        .arg(root.join("scripts/install.sh"))
+        .arg("--prefix")
+        .arg(&prefix)
+        .args(["--from-built", "debug"])
+        .env_clear()
+        .env("PATH", SYSTEM_PATH)
+        .env("HOME", sandbox.join("home"))
+        .current_dir(&cwd)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let left = listing(&cwd);
+    let at = prefix.join("share/runbook/protocol/lnk");
+    let installed = fs::read_link(&at).map(|t| t.display().to_string()).unwrap_or_else(|_| "nothing".to_owned());
+    let listed = fs::read_to_string(prefix.join("share/runbook/MANIFEST")).unwrap_or_default().lines().any(|l| l == "share/runbook/protocol/lnk");
+    assert!(
+        left.is_empty() && (code(&o) != 0 || installed == "-n"),
+        "exit {}; at share/runbook/protocol/lnk: {installed}; MANIFEST lists it: {listed}; left in the working directory: {left:?}",
+        code(&o)
+    );
 }

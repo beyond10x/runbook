@@ -6,9 +6,8 @@ use super::*;
 
 // ---- nothing outside the prefix ----
 
-/// The script clears a link at the place of every file it writes (`clear_name`, `rm -f` before `VERSION.new` and
-/// `MANIFEST.new`), but not at the place of its marker: `printf ... > "$share/INSTALLING"` follows a link that
-/// lies there. A file outside the prefix is overwritten, and a link to a path that does not exist makes that file.
+/// A link at the place of the marker (`share/runbook/INSTALLING`), to a file outside the prefix or to a path that does
+/// not exist, is not written through: the file outside keeps its bytes and no file is made outside the prefix.
 #[test]
 fn the_marker_is_not_written_through_a_link_at_its_place_into_a_file_outside_the_prefix() {
     let root = fake_checkout("fix2-marker-link", None);
@@ -239,4 +238,31 @@ fn an_old_manifest_line_that_is_not_in_the_form_the_script_writes_removes_nothin
     assert!(err(&o).contains("removed share/runbook/protocol/dropped.txt"), "a line in the form is still removed: {}", err(&o));
     assert!(!prefix.join("share/runbook/protocol/dropped.txt").exists());
     assert!(!prefix.join("share/runbook/INSTALLING").exists(), "the install finished");
+}
+
+// ---- lines of an old MANIFEST ----
+
+/// Lines of an old MANIFEST in the form the script writes that name no file of the prefix remove nothing: a space or a
+/// carriage return after the marker's name, a pattern, a tab, a directory. The install then stops (a stub `cp` fails)
+/// and the marker, `VERSION` and a file beside them that a pattern would match are still there.
+#[test]
+fn lines_of_an_old_manifest_that_only_look_like_the_markers_name_or_a_pattern_remove_nothing() {
+    let root = fake_checkout("manifest-lines", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    assert_eq!(code(&from_built(&root, &prefix)), 0);
+    fs::write(prefix.join("share/runbook/kept.txt"), "kept\n").unwrap();
+    let manifest = prefix.join("share/runbook/MANIFEST");
+    let mut text = fs::read_to_string(&manifest).unwrap();
+    for line in ["share/runbook/INSTALLING ", " share/runbook/INSTALLING", "share/runbook/INSTALLING\r", "share/runbook/*", "share/runbook/?ERSION", "share/runbook/a\tb", "share/runbook/protocol", "bin", "libexec/runbook", "-rf", "bin/-rf"] {
+        text.push_str(line);
+        text.push('\n');
+    }
+    fs::write(&manifest, text).unwrap();
+    executable(&sandbox.join("stub-bin/cp"), "#!/bin/sh\necho 'cp: no space left on device' >&2\nexit 1\n");
+    let o = from_built_with(&root, &prefix, &format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()), &[]);
+    assert_ne!(code(&o), 0);
+    assert!(!err(&o).contains("removed "), "{}", err(&o));
+    for kept in ["share/runbook/INSTALLING", "share/runbook/VERSION", "share/runbook/kept.txt", "share/runbook/protocol/file.txt", "bin/runbook"] {
+        assert!(prefix.join(kept).is_file(), "{kept}: {}", err(&o));
+    }
 }

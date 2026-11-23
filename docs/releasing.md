@@ -19,7 +19,7 @@ background) runs the real release build into `runbook/target/install-slow` and s
 debug builds (`--from-built debug`).
 
 The commit `runbook --version` prints, and `share/runbook/VERSION` with it, is HEAD of the build; `VERSION` ends
-in ` dirty` when any tracked file of the checkout differs from HEAD (index or work tree), not only a copied one (the bytes installed are those of the
+in ` dirty` when `git status` reports a change of a tracked file (index or work tree), not only of a copied one (the bytes installed are those of the
 work tree), so a prefix whose `VERSION` has the word is not the release commit as it stands. The script reads HEAD
 before it lists the files and again after its own build and stops when it moved, checks the commit of the built
 `runbook` against it, and stops for a target triple, whose build it does not take.

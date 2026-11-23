@@ -67,3 +67,74 @@ fn version_has_a_dirty_mark_when_a_tracked_source_of_the_binary_differs_from_hea
         version.trim()
     );
 }
+
+fn version(prefix: &Path) -> String {
+    fs::read_to_string(prefix.join("share/runbook/VERSION")).unwrap_or_default().trim().to_owned()
+}
+
+/// What `git status` calls a difference gives the mark, wherever the file is: a staged change, a mode and a deleted
+/// file outside the copied directories. A clean checkout gets none, also when every file was touched since the index
+/// was written and when the caller's git configuration asks `git status` for more lines, and an install over a prefix
+/// that has the mark takes it away when the checkout is clean again. One checkout, five installs.
+#[test]
+fn every_difference_git_status_prints_gives_the_mark_and_a_clean_checkout_gets_none() {
+    let root = fake_checkout("status-mark", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::write(root.join("docs/page.md"), "a page\n").unwrap();
+    git_in(&root, &["add", "docs/page.md"]);
+    git_in(&root, &["commit", "-q", "-m", "a page"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    for key in ["status.branch", "status.short", "status.showStash", "status.relativePaths"] {
+        git_in(&root, &["config", key, "true"]);
+    }
+    type Change<'a> = (&'a str, &'a dyn Fn(&Path), bool);
+    let cases: [Change; 5] = [
+        ("clean, touched, configured", &|r| {
+            let touched = Command::new("find").args([".", "-path", "./.git", "-prune", "-o", "-type", "f", "-exec", "touch", "{}", "+"]).current_dir(r).output().unwrap();
+            assert!(touched.status.success());
+        }, false),
+        ("staged outside", &|r| {
+            fs::write(r.join("docs/page.md"), "changed\n").unwrap();
+            git_in(r, &["add", "docs/page.md"]);
+        }, true),
+        ("mode outside", &|r| fs::set_permissions(r.join("docs/page.md"), fs::Permissions::from_mode(0o755)).unwrap(), true),
+        ("deleted outside", &|r| fs::remove_file(r.join("docs/page.md")).unwrap(), true),
+        ("clean again", &|_| {}, false),
+    ];
+    for (case, change, dirty) in cases {
+        git_in(&root, &["reset", "-q", "--hard"]);
+        change(&root);
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 0, "{case}: {}", err(&o));
+        assert_eq!(version(&prefix).ends_with(" dirty"), dirty, "{case}: VERSION is {:?}", version(&prefix));
+    }
+}
+
+/// A file that git is told to leave out of `git status` (`--assume-unchanged`, `--skip-worktree`) and that differs from
+/// HEAD in the work tree is installed with the bytes of the work tree, and `VERSION` names HEAD without the mark: the
+/// mark is what `git status` prints, and git prints nothing for such a file.
+#[test]
+#[ignore = "story:install-marks-a-difference-git-status-hides"]
+fn measurement_a_copied_file_marked_assume_unchanged_or_skip_worktree_that_differs_from_head_leaves_no_dirty_mark() {
+    let mut broken = Vec::new();
+    for flag in ["--assume-unchanged", "--skip-worktree"] {
+        let root = fake_checkout(&format!("hidden{flag}"), None);
+        let (_sandbox, prefix) = sandbox_of(&root);
+        git_in(&root, &["update-index", flag, "bindings/file.txt"]);
+        fs::write(root.join("bindings/file.txt"), "changed and not committed\n").unwrap();
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 0, "{flag}: {}", err(&o));
+        let installed = fs::read_to_string(prefix.join("share/runbook/bindings/file.txt")).unwrap();
+        let of_head = git_in(&root, &["cat-file", "-p", "HEAD:bindings/file.txt"]);
+        if installed.trim() != of_head.trim() && !version(&prefix).ends_with(" dirty") {
+            broken.push(format!(
+                "{flag}: share/runbook/bindings/file.txt holds {:?}, HEAD holds {:?}, and VERSION is {:?}",
+                installed.trim(),
+                of_head.trim(),
+                version(&prefix)
+            ));
+        }
+    }
+    assert!(broken.is_empty(), "{}", broken.join("\n"));
+}

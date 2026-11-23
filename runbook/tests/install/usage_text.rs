@@ -28,10 +28,11 @@ fn the_help_names_what_an_archive_install_lacks_a_branch_moved_elsewhere_and_a_r
     assert!(text.contains("reftable checkout cannot be installed"), "{text}");
 }
 
-/// The mark covers the checkout, and a sparse checkout is named as such.
+/// The mark is what `git status` reports for a tracked file anywhere in the checkout. The refusal of a copied file that
+/// the checkout does not have names a sparse checkout as one way for it to be missing, and not as the only one.
 #[test]
-fn the_help_says_dirty_covers_every_tracked_file_of_the_checkout_and_names_a_sparse_checkout() {
+fn the_help_says_dirty_is_what_git_status_reports_for_a_tracked_file_and_names_a_sparse_checkout() {
     let text = help();
-    assert!(text.contains("VERSION ends in \" dirty\" when any tracked file of the checkout differs from HEAD (index or work tree)"), "{text}");
-    assert!(text.contains("a sparse checkout"), "{text}");
+    assert!(text.contains("VERSION ends in \" dirty\" when git status reports a change of a tracked file (index or work tree)"), "{text}");
+    assert!(text.contains("a copied file that the checkout does not have (a tracked file left out of the work tree, as a sparse checkout does, or deleted by hand) is refused"), "{text}");
 }

@@ -22,6 +22,7 @@ mod stale_build;
 mod usage_text;
 mod version_file;
 mod what_is_copied;
+mod while_the_files_are_copied;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -76,10 +77,28 @@ fn code(o: &Output) -> i32 {
     o.status.code().unwrap_or(-1)
 }
 
+/// A directory of a case that is removed when the case ends (the test thread drops it). `RUNBOOK_INSTALL_KEEP_SCRATCH`
+/// set to anything keeps every directory, to look at what a case left.
+struct ScratchDir(PathBuf);
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        if std::env::var_os("RUNBOOK_INSTALL_KEEP_SCRATCH").is_none() {
+            let _ = Command::new("chmod").arg("-R").arg("u+rwx").arg(&self.0).output();
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+}
+
+thread_local! {
+    static SCRATCH_DIRS: std::cell::RefCell<Vec<ScratchDir>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 fn scratch(tag: &str) -> PathBuf {
     let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("install-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&d);
     fs::create_dir_all(&d).unwrap();
+    SCRATCH_DIRS.with(|dirs| dirs.borrow_mut().push(ScratchDir(d.clone())));
     d
 }
 

@@ -53,9 +53,10 @@ cargo configuration file) the script stops and says so, and installs no cross bu
 
 What is copied below share/runbook/: when the checkout has a .git, the files git tracks in those directories (the
 bytes of the work tree: VERSION names HEAD, the commit the binary was built from, and VERSION ends in " dirty"
-when any tracked file of the checkout differs from HEAD (index or work tree), not only a copied one); when git
-cannot be asked about a checkout that has a .git, the script stops and copies nothing, and a sparse checkout, which
-leaves tracked files out of the work tree, is refused with the name of the first file that is missing. Without a
+when git status reports a change of a tracked file (index or work tree), not only of a copied one); when git
+cannot be asked about a checkout that has a .git, the script stops and copies nothing, and a copied file that the
+checkout does not have (a tracked file left out of the work tree, as a sparse checkout does, or deleted by hand) is
+refused with the name of the first file that is missing. Without a
 .git (a source archive): the regular files that are not dot-files. A link is copied only when its target stays
 inside the checkout and is copied too; no part of the path of a copied file is a link. HEAD is read once, before
 the list of files is taken, and again after the build: when it moved, the script stops and writes nothing. Modes
@@ -295,7 +296,7 @@ collect() {
     if [ -n "$in_git" ]; then
         # shellcheck disable=SC2046
         # A newline in a name would split it into two lines: it is turned into a byte (SOH) that a name does not
-        # hold in practice, and the name that has it is refused as `newline`.
+        # hold in practice, and a name that has a newline or that byte is refused (labelled `newline` below).
         git -C "$root" ls-files -s -z -- $(list "$ASSET_DIRS") ui | tr '\n\0' '\001\n' | awk '
             { t = index($0, "\t"); path = substr($0, t + 1); split(substr($0, 1, t - 1), m, " ")
               if (index(path, "\001") > 0) { print "newline\t" path; next }
@@ -388,10 +389,11 @@ check_link() {
     esac
 }
 
-# Why a tracked file is not in the work tree as a file: a sparse checkout leaves tracked files out of it.
+# A tracked file that is not in the work tree as a file is refused by name; when core.sparseCheckout is true the
+# message names that setting, which can leave tracked files out of the work tree.
 not_a_file() {
     if [ -n "$in_git" ] && [ "$(git -C "$root" config --get core.sparseCheckout 2>/dev/null || true)" = true ]; then
-        die "$1 is tracked and is not in the work tree as a file: this is a sparse checkout, which leaves tracked files out of the work tree; check them all out first (git sparse-checkout disable)"
+        die "$1 is tracked and is not in the work tree as a file: core.sparseCheckout is true here, which can leave tracked files out of the work tree; check them all out first (git sparse-checkout disable)"
     fi
     die "$1 is tracked and is not in the work tree as a file"
 }
@@ -404,7 +406,7 @@ while IFS="$tab" read -r e_mode e_path; do
     case $e_mode in
     newline)
         e_shown=$(printf '%s' "$e_path" | sed "s/$(printf '\001')/\\\\n/g")
-        die "$e_shown has a newline in its name: the list of files cannot hold it"
+        die "$e_shown has a control character in its name (a newline, or the byte 0x01): the list of files cannot hold it"
         ;;
     esac
     case $e_path in
@@ -511,9 +513,10 @@ if [ -n "$in_git" ]; then
 fi
 [ "$built_commit" = "$head_commit" ] || die "$(built_path runbook "$profile") says commit ${built_commit:-none} ($built_said) and HEAD of $root is $head_commit: build it again (when the branch was moved from another work tree cargo compiles nothing: touch runbook/build.rs first)"
 
-# VERSION is what the binary prints, and ` dirty` after it when any tracked file of the checkout differs from HEAD
-# (index or work tree), not only a file of a copied directory: the binary is built from the whole checkout, and the
-# bytes installed are those of the work tree.
+# VERSION is what the binary prints, and ` dirty` after it when `git status` reports a change of a tracked file
+# (index or work tree), not only of a file of a copied directory: the binary is built from the whole checkout, and the
+# bytes installed are those of the work tree. `git status` says nothing of a file marked assume-unchanged or
+# skip-worktree.
 version_mark=
 if [ -n "$in_git" ]; then
     changed=$(GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain --untracked-files=no) || die "git status of $root failed"
@@ -675,7 +678,7 @@ put_link() {
     make_dir "$2"
     clear_name "$2" "$3"
     rm -f "$prefix/$2/$3"
-    ln -s "$pl_target" "$prefix/$2/$3"
+    ln -s -- "$pl_target" "$prefix/$2/$3"
 }
 
 mkdir -p "$prefix/bin" "$prefix/libexec/runbook"
