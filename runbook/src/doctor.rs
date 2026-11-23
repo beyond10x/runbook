@@ -149,6 +149,15 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
         None => vec![S, B, U],
     };
     let assets = l.locate().ok();
+    // A binary of an installed prefix reports that prefix's install line whether or not its assets can be read:
+    // an install that stopped has no protocol/ and must not look like a checkout's doctor.
+    let own_prefix = match l.home {
+        Some(_) => None,
+        None => l.own_share().map(|root| Assets {
+            root,
+            source: crate::assets::Source::Installed,
+        }),
+    };
     let mut checks = Vec::new();
     for spec in SPECS {
         let levels: Vec<Level> = spec.needs.iter().filter(|(s, _)| scopes.contains(s)).map(|(_, v)| *v).collect();
@@ -159,7 +168,7 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
         let (found, detail, path) = probe(spec, l, var, assets.as_ref());
         checks.push(Check { name: spec.name, found, required, detail, path, by: spec.by, hint: spec.hint });
         if matches!(spec.kind, Kind::Assets) {
-            checks.extend(assets.as_ref().and_then(install_check));
+            checks.extend(own_prefix.as_ref().and_then(install_check));
             checks.extend(
                 LAYOUT
                     .iter()
@@ -548,6 +557,55 @@ mod tests {
         assert!(
             d.contains("5 of") && d.contains("bin/a") && !d.contains("bin/d") && d.ends_with("..."),
             "at most three are named: {d}"
+        );
+    }
+
+    /// A binary of a prefix whose install stopped before `protocol/` was copied: started in a checkout, its doctor
+    /// still reports that prefix, says `incomplete install` and fails, and its assets are not the checkout's.
+    #[test]
+    fn doctor_of_a_prefix_that_stopped_before_protocol_says_incomplete_install_in_a_checkout() {
+        let t = crate::assets::testdir::Dir::new("doctor-stopped");
+        let checkout = t.dir("co");
+        std::fs::create_dir_all(checkout.join("protocol")).unwrap();
+        std::fs::create_dir_all(checkout.join("driver/examples/sdc")).unwrap();
+        t.dir("prefix/share/runbook");
+        std::fs::write(
+            t.path().join("prefix/share/runbook/INSTALLING"),
+            "started\n",
+        )
+        .unwrap();
+        let l = Lookup {
+            home: None,
+            exe: Some(t.dir("prefix/bin").join("runbook")),
+            cwd: Some(checkout),
+            path: None,
+            ceiling: Some(t.path().to_path_buf()),
+        };
+        let r = run(&l, &|_| None, None);
+        assert!(!r.ok(), "the doctor of a stopped install fails");
+        assert!(r.assets.is_none(), "{:?}", r.assets);
+        let install = r.checks.iter().find(|c| c.name == "install").unwrap();
+        assert!(
+            !install.found
+                && install.required
+                && install.detail.starts_with("incomplete install: ")
+                && install.detail.contains("INSTALLING"),
+            "{}",
+            install.detail
+        );
+        let assets = r.checks.iter().find(|c| c.name == "assets").unwrap();
+        assert!(
+            !assets.found && assets.detail.contains("incomplete install"),
+            "{}",
+            assets.detail
+        );
+        std::fs::remove_file(t.path().join("prefix/share/runbook/INSTALLING")).unwrap();
+        let r = run(&l, &|_| None, None);
+        let install = r.checks.iter().find(|c| c.name == "install").unwrap();
+        assert!(
+            !install.found && install.detail.contains("VERSION"),
+            "no marker, no protocol/, no VERSION: still an incomplete install ({})",
+            install.detail
         );
     }
 
