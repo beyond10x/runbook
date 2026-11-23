@@ -9,6 +9,7 @@ mod check_bindings_exits;
 mod check_bindings_exits_inputs;
 mod check_bindings_exits_links_and_shapes;
 mod check_bindings_exits_roots;
+mod check_bindings_exits_value_table;
 mod check_bindings_exits_values_and_registrations;
 mod conformance;
 mod decision_contract_mutants;
