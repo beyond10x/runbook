@@ -7,6 +7,7 @@ title: A spend cap with nothing left starts nothing
 summary: 'Two findings of security pass 4 of run-without-model-node-needs-no-caps in code on main: the stop before a tree run depends on an option the model tool names, and a decision printed by the step that passed the cap is still answered.'
 relations:
 - informed_by: story:run-without-model-node-needs-no-caps
+- depends_on: story:caps-are-optional
 scope:
 - confidence: cited
   path: runbook/src/loom_run/budget.rs

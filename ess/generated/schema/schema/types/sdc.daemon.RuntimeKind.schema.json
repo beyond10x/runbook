@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RuntimeKind.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RuntimeKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:3469576805d917ab8b91724ef987a3b0858c91af0b066de83646a7aed2e6e5aa",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RuntimeKind": {
+      "title": "RuntimeKind",
+      "description": "The runtime that runs the daemon's runs (runbook serve --runtime): stub is scripted and executes nothing; loom runs the runbook through Loom's library entry in the daemon's process.",
+      "x-ess-name": "sdc.daemon.RuntimeKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "stub",
+        "loom"
+      ]
+    }
+  }
+}

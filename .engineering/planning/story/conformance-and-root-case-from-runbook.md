@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:conformance-and-root-case-from-runbook
 kind: story
-status: draft
+status: proposed
 title: 'runbook run loses --conformance and its fixed root case id: a runbook declares both'
 summary: A runbook declares programs after a close, switched on with --step <name>[=<mode>], and its default root case id; conformance.rs and the constants IDEA-1 and BUG-1 leave the runner.
 tags:
@@ -49,7 +49,9 @@ scope:
   path: runbook/tests/source_names/known/runbook/src/loom_run/run_loop.rs.txt
 - confidence: inferred
   path: scripts
-revision: 12
+revision: 13
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-23T09:57:21Z", actor: "human:operator", revision: 13, executor: "agent:runbook"}
 ---
 ## Outcome
 
