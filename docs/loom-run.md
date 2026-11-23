@@ -425,9 +425,16 @@ the cases apart it still starts the model tool, by a name the scan does not read
 What the network of such a program is depends on the confinement level. Under `--confinement local`
 the program has the network and the host as the user running the command has them (`unconfined and
 declared insecure`, above). Under `--confinement substrate` it has none beyond loopback (the section
-"Where caps of 0 are accepted"); no case here makes a network request, and the host this was written
-on cannot run `substrate` (no delegated cgroup), so no case runs a bound program under it: the cases
-above stand a fake `b10x-loom` in for the level.
+"Where caps of 0 are accepted"). Measured inside a job of the build pool, where the cgroup is
+delegated, the level `substrate` runs and a bound program sees only `lo`: no route, no resolver file, no
+socket, nothing of the host's `/etc`, `/run` or `/var`, a workspace that is read-only except `target/`,
+and no way to write the run's copy of the bindings or a path outside the run. Outside a delegated
+cgroup the level is refused with exit 2 and nothing is written (the words of the first bullet of
+"What each path does"). Both are held by one case that decides by what the host gives: on a host with no
+delegated cgroup it asserts the refusal and passes
+(`real_loom_under_substrate_without_caps_a_bound_program_has_no_network` of
+`no_model_node_real_level.rs`, Loom as a library). The other cases above stand a fake `b10x-loom` in for the level, and no case
+makes a network request.
 
 Without a model node and without caps (`substrate`): a `tree run` is not counted as a call, nothing is
 reserved, no ledger is opened (a `--spend-ledger` that is named is not created), `--max-llm-calls 0`
@@ -438,7 +445,11 @@ its first `tree run`, a missing `--spend-ledger` is refused before anything is w
 unreadable or invalid ledger fails the run closed.
 
 A model program in a run that was opened without a model node and without caps (a run under `substrate`) is
-refused. A bound program can write the copy of the bindings after the opening, so every path by which the runner starts a model program,
+refused. Under `local` a bound program can write the copy of the bindings after the opening (a copy
+rewritten to name the model tool starts it:
+`real_loom_under_local_with_caps_a_copy_rewritten_to_name_the_model_tool_starts_it_and_the_call_is_booked`
+of `no_model_node_guards.rs`); under `substrate` the copy and the manifest are out of the program's reach
+(the real-level case above). The runner rests on neither: every path by which it starts a model program,
 or reserves an amount for one, reads the decision of the opening; when it is "no model node" the run
 ends `stopped: model call` (exit 13, cause `model_call_without_model_node`, the event `cap_reached`
 with cap `model_node`, `run-stopped.json`) before the program starts:

@@ -212,6 +212,12 @@ fn real_loom_under_substrate_without_caps_a_bound_program_has_no_network() {
     assert_eq!(get("etc"), "0", "the host's /etc is in the view of a bound program under substrate");
     assert_eq!(get("var"), "0", "the host's /var is in the view of a bound program under substrate");
     assert_eq!(get("manifestabs"), "unread", "a bound program under substrate read the tree manifest");
+    // the workspace is read-only except `target/`: the probe cannot write into it, and the fixture's
+    // writer cannot write its draft, so the run ends stuck
+    let writable: Vec<&str> = get("rw").split(',').filter(|m| m.starts_with("/workspace")).collect();
+    assert_eq!(get("work"), "refused", "a bound program under substrate wrote into the workspace");
+    assert_eq!(writable, ["/workspace/target"], "the writable mounts of the workspace under substrate");
+    assert_eq!(code(&o), 3, "the fixture's writer cannot write its draft under substrate, so the run ends stuck: {}", stderr(&o));
     // the root of the sandbox is its own: a write to a host path lands there and not on the host
     let copy = std::fs::read_to_string(rig.root.join("runs/r1/bindings/engine-draft.yaml")).unwrap();
     assert!(!copy.contains("# rewritten"), "a bound program under substrate wrote the copy of the bindings");

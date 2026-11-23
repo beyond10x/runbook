@@ -2,8 +2,9 @@
 //! "The limit of the rule"): a bound program that starts a model program by a name the scan does not
 //! read is not seen. One case per sentence of the page. Programs are sh scripts with invented text; a
 //! "model program" is a stand-in that writes a marker file, and "workspace code" is a hand-written
-//! script. A fake `b10x-loom` stands in for `substrate`, which this host cannot run (no delegated
-//! cgroup); the real library Loom runs the `local` cases. No model call, no network request.
+//! script. A fake `b10x-loom` stands in for `substrate`, which a host without a delegated cgroup cannot
+//! run (`no_model_node_real_level.rs` runs it where it can); the real library Loom runs the `local`
+//! cases. No model call, no network request.
 
 use super::core::{code, model_call_hook, spent, stderr, World};
 use super::fake::tree_run_json;
