@@ -7,6 +7,17 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-23
+
+The settings file of a run is TOML, the daemon's page starts a run and the ESS pin is 0.98.0. The page of
+`runbook serve --ui` has a form (runbook, intake, a confinement level the person picks, none preset) that sends
+`submit-run`, and its header names the mode, "watch" under the inspector and "operate" under the daemon; the
+daemon has a view `runbooks` that lists what it can start. `scripts/check-bindings.sh --exits <root>` checks the
+bindings of a runbook in another repository. The ESS pins move from 0.97.4 to 0.98.0 (the synthesized suite has
+118 scenarios). The driver's test step pays each expensive step once. Breaking: the file `--settings` names is
+TOML, a JSON file is refused (exit 2) and each member that lived under `loom` is at the top level. No evaluation
+run was made on this code. The longer note is `docs/releases/0.9.0.md`.
+
 ### Added
 
 - Model programs reach a gateway (story `model-programs-reach-a-gateway`). The settings of `runbook run` take a `[gateway]` table: a required `base_url` (`http://` or `https://` with a host; a host that is not loopback is accepted) and exactly one of `token` and `token_file`, never with a `login_file`. The runner writes one file (the address and the token, mode 0600) into its private directory (mode 0700), writes `--gateway-file <that file>` into every `sdc-node` node of its copy of the bindings, and removes the directory when the run ends. `sdc-node` hands the path to the adapter (`SDC_GATEWAY_FILE`), and `llm-adapter-claude-cli.sh` starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one start, `ANTHROPIC_API_KEY` unset and a config home with no login. The decider and the conformance observation take it the same way; one reader for the file per language (`bindings/tools/gateway.sh`, `sdc_tools::gateway`). The token is in no argv, no environment of a program Loom starts, no log line, no event, no file of the run directory and not in the bindings copy. A gateway works at `--confinement local`; `substrate` is refused by the name `gateway`, and so is `metaharness` as the adapter of a node or of the decider (it removes every `ANTHROPIC_*` variable and starts its own proxy). `--dry` checks the shape and uses nothing. See `docs/loom-run-settings.md`.
