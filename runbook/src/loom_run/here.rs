@@ -79,7 +79,7 @@ pub struct HereOptions {
     /// With `--recorded`, the adapter of a live call: `dry`, `metaharness`, `claude-cli` or a path.
     #[arg(long, value_name = "ADAPTER", conflicts_with = "detach")]
     pub live_adapter: Option<String>,
-    /// With `--recorded`, the most live calls (default 5; a spent cap stops the run).
+    /// With `--recorded`, the most live calls (no default: none named means no limit; a spent cap stops the run).
     #[arg(long, value_name = "N", conflicts_with = "detach")]
     pub live_cap: Option<u64>,
     /// With `--recorded`, a fault to inject (`reject@<action>#<try>=<reason>`, `timeout@<node>#<try>`, `check-fail@<action>#<try>`); repeatable.

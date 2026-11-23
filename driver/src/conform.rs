@@ -372,11 +372,14 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
         let rec = dir.join("node").join(format!("{attempt:03}"));
         fs::create_dir_all(&rec).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         fs::write(rec.join("prompt.md"), prompt(&node.setup, attempt, &feedback).map_err(|e| ("table_missing", e, vec![]))?).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
-        let req = json!({"model": node.model, "effort": node.effort, "prompt_file": rec.join("prompt.md"), "cwd": node.cwd, "record_dir": rec,
+        let mut req = json!({"model": node.model, "effort": node.effort, "prompt_file": rec.join("prompt.md"), "cwd": node.cwd, "record_dir": rec,
             "node": "conformance.table", "slot": slot, "attempt": attempt, "json_schema": node.schema,
             "operations": ["dir.list", "file.read", "search"],
-            "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40),
-            "max_budget_usd": env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()).unwrap_or(2.0)});
+            "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40)});
+        // A money budget is named by the environment alone: with none set the request names none.
+        if let Some(budget) = env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()) {
+            req["max_budget_usd"] = json!(budget);
+        }
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let limit = Duration::from_secs(env("SDC_CONFORMANCE_NODE_TIMEOUT").and_then(|x| x.parse().ok()).unwrap_or(1800));
         let (code, tail) = run_bounded(Command::new(&node.adapter).arg(rec.join("request.json")), limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));

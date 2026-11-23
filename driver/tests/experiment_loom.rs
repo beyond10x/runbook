@@ -153,8 +153,8 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     write_record(&d, &example("null"));
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 0, "a planned loom record without runs is accepted: {out}");
-    // Every required setting, taken out, is named; an optional one, taken out, is not missed.
-    let optional = ["decider.escalate", "decider.max_decider_calls", "decider.adapter", "adapter", "review.adapter"];
+    // Every required setting, taken out, is named; an optional one, taken out, is not missed (the money cap among them).
+    let optional = ["decider.escalate", "decider.max_decider_calls", "decider.adapter", "adapter", "review.adapter", "loom.cap_micro_usd"];
     for (k, _) in fixed().iter().filter(|(k, _)| k != "max_llm_calls") {
         let f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != k && x != "max_llm_calls").collect();
         write_record(&d, &record_with(&f, "null", "planned", ("", "")));
@@ -216,7 +216,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     for (k, v, want) in [("bogus.key", "1", "bogus.key is no loom launch setting"),
         ("loom.confinement", "none", "loom.confinement must be local or substrate"),
         ("loom.sha256", "abc", "loom.sha256 must be the 64 hex digits"),
-        ("loom.cap_micro_usd", "0", "loom.cap_micro_usd must be a whole number of at least 1"),
+        ("loom.cap_micro_usd", "x", "loom.cap_micro_usd must be a whole number"),
         ("loom.bin", "b10x-loom", "loom.bin must be an absolute path or start with ~/"),
         ("max_wall_seconds", "soon", "max_wall_seconds must be a whole number of at least 1")] {
         let mut f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != k && x != "max_llm_calls").collect();
@@ -226,11 +226,10 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(want), "{k}: {out}");
     }
-    // A variant sets the call cap itself or inherits it.
+    // A variant sets the call cap itself, inherits it, or names none (no limit).
     write_record(&d, &example("null").replace("{max_llm_calls: 200}", "{}"));
     let (code, out) = experiment(&["check", "lx"], &d);
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("variant \"high\": the settings do not set max_llm_calls"), "{out}");
+    assert_eq!(code, 0, "a variant with no call cap is accepted: {out}");
     // The runner name is accepted beside sdc and free-agent and nothing else is.
     write_record(&d, &example("null").replace("runner: loom, settings: {max_llm_calls: 100}", "runner: other, settings: {max_llm_calls: 100}"));
     let (code, out) = experiment(&["check", "lx"], &d);
@@ -1041,4 +1040,156 @@ fn stop_signals_the_unit_of_the_run_and_calls_no_script() {
     let log = fs::read_to_string(&calls).unwrap();
     assert!(log.lines().any(|l| l == "--user stop sdc-exp-lx-low-1"), "the unit of the run is stopped: {log}");
     assert!(!out.contains(OLD_LAUNCHER), "{out}");
+}
+
+/// The example record with the caps a user may leave out taken out: `loom.cap_micro_usd` from the
+/// shared settings and `max_llm_calls` from the variants.
+fn without_caps(commit: &str) -> String {
+    let f: Vec<(String, String)> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "loom.cap_micro_usd").collect();
+    record_with(&f, commit, "planned", ("", "")).replace("settings: {max_llm_calls: 100}", "settings: {}").replace("settings: {max_llm_calls: 200}", "settings: {}")
+}
+
+/// The command lines of `run --print`, one per run.
+fn printed_commands(out: &str) -> Vec<String> {
+    out.lines().filter(|l| l.contains(" run sdc --run ")).map(str::to_string).collect()
+}
+
+/// A money cap is optional: a record that names no `loom.cap_micro_usd` and no `max_llm_calls` is
+/// accepted, and the command of its runs names neither option and no spend ledger. The wall-time
+/// ceiling is not money and stays required.
+#[test]
+fn a_loom_record_that_names_no_cap_is_accepted_and_its_command_names_no_cap_and_no_ledger() {
+    let d = scratch("no-caps");
+    let builds = fake_build(&d, 11, true);
+    write_record(&d, &without_caps("null"));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "a record with no cap is accepted: {out}");
+    write_record(&d, &without_caps(COMMIT));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let lines = printed_commands(&out);
+    assert_eq!(lines.len(), 2, "{out}");
+    for l in &lines {
+        for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+            assert!(!l.contains(flag), "{flag} is in {l}");
+        }
+        assert!(l.ends_with("--max-wall-seconds 3600"), "{l}");
+    }
+    let printed = printed_settings(&out);
+    assert!(!printed.contains("cap_micro_usd") && !printed.contains("max_llm_calls"), "the settings file names no cap: {printed}");
+    assert!(printed.contains("max_wall_seconds = 3600\n"), "{printed}");
+    // The time ceiling still has to be named.
+    let f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "max_wall_seconds").collect();
+    write_record(&d, &record_with(&f, "null", "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("the settings do not set max_wall_seconds"), "{out}");
+}
+
+/// A cap a record names is held to: a whole number, 0 allowed (it spends nothing), and the ledger
+/// goes with it. Naming one of the two does not name the other.
+#[test]
+fn a_cap_a_record_names_is_a_whole_number_zero_allowed_and_comes_with_the_ledger() {
+    let d = scratch("named-caps");
+    let builds = fake_build(&d, 11, true);
+    let ledger = d.join("runs/lx.loom-spend.json").display().to_string();
+    let record = |extra: &[(&str, &str)], commit: &str| {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "loom.cap_micro_usd").collect();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        record_with(&f, commit, "planned", ("", "")).replace("settings: {max_llm_calls: 100}", "settings: {}").replace("settings: {max_llm_calls: 200}", "settings: {}")
+    };
+    for (extra, want) in [
+        (vec![("loom.cap_micro_usd", "0")], format!("--spend-ledger {ledger} --cap-micro-usd 0 --max-wall-seconds 3600")),
+        (vec![("max_llm_calls", "0")], format!("--spend-ledger {ledger} --max-llm-calls 0 --max-wall-seconds 3600")),
+        (
+            vec![("loom.cap_micro_usd", "5000000"), ("max_llm_calls", "7")],
+            format!("--spend-ledger {ledger} --cap-micro-usd 5000000 --max-llm-calls 7 --max-wall-seconds 3600"),
+        ),
+    ] {
+        write_record(&d, &record(&extra, "null"));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 0, "{extra:?}: {out}");
+        write_record(&d, &record(&extra, COMMIT));
+        let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+        assert_eq!(code, 0, "{extra:?}: {out}");
+        let lines = printed_commands(&out);
+        assert_eq!(lines.len(), 2, "{out}");
+        for l in lines {
+            assert!(l.ends_with(&want), "{want}\n{l}");
+        }
+    }
+    for k in ["loom.cap_micro_usd", "max_llm_calls"] {
+        for bad in ["-1", "1.5", "x"] {
+            write_record(&d, &record(&[(k, &format!("'{bad}'"))], "null"));
+            let (code, out) = experiment(&["check", "lx"], &d);
+            assert_eq!(code, 1, "{k} {bad:?}: {out}");
+            assert!(out.contains(&format!("{k} must be a whole number")), "{k} {bad:?}: {out}");
+        }
+    }
+}
+
+/// The record of a free-running agent names its model, effort, adapter and time and turn bounds; its
+/// money cap `free.max_usd` is optional, and `--max-usd` goes into the command only when it is named.
+#[test]
+fn a_free_agent_record_without_free_max_usd_is_accepted_and_its_command_has_no_max_usd() {
+    let d = scratch("free-no-usd");
+    let builds = fake_build(&d, 11, true);
+    let record = |max_usd: Option<&str>, commit: &str| {
+        let usd = max_usd.map(|u| format!("  free.max_usd: {u}\n")).unwrap_or_default();
+        format!(
+            r#"format: sdc.experiment/1
+id: lx
+kind: prospective
+status: planned
+created: 2026-11-22
+title: A free agent
+purpose: Whether a record without a money cap starts a free agent.
+inputs:
+- {{name: invoices, kind: idea, text: {IDEA}, sha256: {}}}
+tree_commit: {commit}
+fixed:
+  free.model: claude-sonnet-5-5
+  free.effort: high
+  free.adapter: claude-cli
+{usd}  free.max_wall_s: 600
+  free.max_turns: 40
+variants:
+- {{id: free, runner: free-agent, settings: {{}}, runs: []}}
+runs_per_variant: 1
+pass_rule: clean-delivery
+decision_rule: {{rule: descriptive, text: the record describes its runs and decides nothing}}
+"#,
+            sha(IDEA)
+        )
+    };
+    for (usd, named) in [(None, false), (Some("3"), true)] {
+        write_record(&d, &record(usd, "null"));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 0, "{usd:?}: {out}");
+        write_record(&d, &record(usd, COMMIT));
+        let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+        assert_eq!(code, 0, "{usd:?}: {out}");
+        assert_eq!(out.contains("--max-usd 3"), named, "{usd:?}: {out}");
+        assert_eq!(out.contains("--max-usd"), named, "{usd:?}: {out}");
+        assert!(out.contains("--max-wall-s 600") && out.contains("--max-turns 40"), "the time and turn bounds stay: {out}");
+    }
+    // The bounds that are not money stay required.
+    for k in ["free.max_wall_s", "free.max_turns"] {
+        let text = record(None, "null").lines().filter(|l| !l.contains(k)).collect::<Vec<_>>().join("\n") + "\n";
+        write_record(&d, &text);
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{k}: {out}");
+        assert!(out.contains(&format!("the settings do not set {k}")), "{k}: {out}");
+    }
+}
+
+/// A launch of the old driver's settings names its call cap or not: `max_llm_calls` is optional there
+/// too (the launch is refused at `run` all the same, but `check` reads the record).
+#[test]
+fn a_record_of_the_old_driver_without_max_llm_calls_is_checked() {
+    let d = scratch("old-no-calls");
+    let text = old_driver_record("planned").replace("  max_llm_calls: 150\n", "");
+    write_record(&d, &text);
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
 }

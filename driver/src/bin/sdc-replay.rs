@@ -19,6 +19,9 @@
 //!   sdc-replay pack <run> <dir> [--source-tree <commit>]   a recording that can be committed
 //!   sdc-replay index <run or recording>   the recorded calls with their keys
 //!
+//! `--live-cap` has no default: with none named the live calls of `--on-divergence live` have no limit; a
+//! cap that is named stops at it (a spent cap diverges), and one that cannot be read starts no live call.
+//!
 //! Key of a call: case, node or decision, arrival and try (and the review's attempt). A work call's
 //! arrival is counted as the driver counts it for `max_runs` (a `revised` event no agent action of
 //! the case wrote), its try is the node's runs since that arrival, plus one. A decider call's
@@ -71,8 +74,8 @@ enum Cmd {
         on_divergence: String,
         #[arg(long, default_value = "metaharness")]
         live_adapter: String,
-        #[arg(long, default_value_t = 5)]
-        live_cap: u64,
+        #[arg(long)]
+        live_cap: Option<u64>,
         #[arg(long)]
         inject: Vec<String>,
         #[arg(long = "set")]
@@ -900,7 +903,7 @@ fn prepare(
     source_tree: Option<String>,
     policy: &str,
     live_adapter: &str,
-    live_cap: u64,
+    live_cap: Option<u64>,
     inject: &[String],
     sets: &[String],
     take_recorded: &str,
@@ -1321,8 +1324,12 @@ fn adapter(req_path: &Path) -> R<i32> {
         None => difference.push(format!("the source made no call at {}", key_str(&key))),
     }
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
-    // Fails closed: a cap that cannot be read is no cap to spend, so no live call starts.
-    let live_cap = c.plan["live"]["cap"].as_u64();
+    // No cap named (a null `live.cap`, or none) is no limit on live calls. A cap that is named and cannot
+    // be read (text, negative, fractional) fails closed: it is no cap to spend, so no live call starts.
+    let live_cap: Result<Option<u64>, ()> = match &c.plan["live"]["cap"] {
+        Value::Null => Ok(None),
+        named => named.as_u64().map(Some).ok_or(()),
+    };
     let mut diverged: Option<String> = None;
     // Held from the count of the live calls to the append of the started line of this one.
     let mut live_lock: Option<fs::File> = None;
@@ -1336,7 +1343,12 @@ fn adapter(req_path: &Path) -> R<i32> {
                 None => diverged = Some("nothing to reuse: the source has no call of this node or decision in this case".into()),
             },
             "live" => match live_cap {
-                Some(cap) => {
+                Ok(None) => {
+                    // No limit: nothing is counted; the lock is still held to the append of the started line.
+                    live_lock = Some(lock_calls(&c.out)?);
+                    mode = "live";
+                }
+                Ok(Some(cap)) => {
                     let lock = lock_calls(&c.out)?;
                     // Fails closed: a line that cannot be read counts as one started live call.
                     let (log, unreadable) = parse_log(&fs::read(c.out.join("replay/calls.jsonl")).map_err(|e| format!("replay/calls.jsonl: {e}"))?);
@@ -1347,7 +1359,7 @@ fn adapter(req_path: &Path) -> R<i32> {
                         diverged = Some(format!("the live call cap is spent ({cap} live calls, --live-cap)"));
                     }
                 }
-                None => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
+                Err(()) => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
             },
             _ => diverged = Some(String::new()),
         }

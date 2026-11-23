@@ -212,6 +212,27 @@ fn a_refused_table_is_asked_again_twice_then_unknown() {
     assert!(!run.join("conformance/table-1/node/004").exists());
 }
 
+/// A money budget of the table node is optional: with `SDC_CONFORMANCE_MAX_BUDGET_USD` not set the
+/// request of the node carries no `max_budget_usd`; one that is set is in the request as it is. The
+/// turn bound is not money and is always there.
+#[test]
+fn the_table_node_is_asked_with_a_money_budget_only_when_one_is_named() {
+    installed();
+    for (tag, named, want) in [("none", None, None), ("named", Some("0.5"), Some(0.5))] {
+        let run = run_dir(&format!("budget-{tag}"), "spec");
+        let mut t = table();
+        t["views"] = json!([]);
+        let t = write_table(run.parent().unwrap(), "t.json", &t);
+        let extra: Vec<(&str, &str)> = named.map(|n| ("SDC_CONFORMANCE_MAX_BUDGET_USD", n)).into_iter().collect();
+        let (o, _) = observe(&run, &t, &extra);
+        assert!(o.status.success(), "{tag}: {}", says(&o));
+        let request: J = serde_json::from_str(&fs::read_to_string(run.join("conformance/table-1/node/001/request.json")).unwrap()).unwrap();
+        assert_eq!(request.get("max_budget_usd").and_then(J::as_f64), want, "{tag}: {request:#}");
+        assert_eq!(request.get("max_budget_usd").is_some(), want.is_some(), "{tag}: {request:#}");
+        assert_eq!(request["max_turns"], 40, "{tag}: {request:#}");
+    }
+}
+
 #[test]
 fn a_table_fixed_on_the_retry_is_used() {
     installed();

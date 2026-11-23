@@ -144,7 +144,7 @@ no new obligation. Model `SDC_LLM_MODEL_CONFORMANCE` (default `claude-sonnet-5-5
 `SDC_LLM_EFFORT_CONFORMANCE`, else `SDC_LLM_EFFORT_OTHER`, else `SDC_LLM_EFFORT`, else the class
 default in `tools/node-classes.json`; both and their sources are recorded in `oracle.json`
 (`conformance.table`). Limits: `SDC_CONFORMANCE_MAX_TURNS` (40), `SDC_CONFORMANCE_MAX_BUDGET_USD`
-(2.00), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
+(no default: none set means the node's request names no money budget), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
 
 The reply is constrained by a response schema and then checked by the program; a refused reply is
 asked again with the check's reasons at most twice, then the slot is uncounted (`table_refused`).

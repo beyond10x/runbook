@@ -20,7 +20,7 @@ pub struct Cfg {
     /// The turn cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<NumLit>,
-    /// The budget cap.
+    /// The money budget of one call; none named means the request carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_budget_usd: Option<NumLit>,
     /// The operations the model may use.

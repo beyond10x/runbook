@@ -417,23 +417,25 @@ const LAUNCH: [(&str, &str); 33] = [
     ("free.max_wall_s", ""),
     ("free.max_turns", ""),
 ];
-/// What a launched variant with `runner: free-agent` sets (sdc-free-agent run).
-const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
+/// What a launched variant with `runner: free-agent` sets (sdc-free-agent run). Its money cap `free.max_usd`
+/// is optional: none named means no money cap.
+const REQUIRED_FREE: [&str; 5] = ["free.model", "free.effort", "free.adapter", "free.max_wall_s", "free.max_turns"];
 /// What a launched variant with `runner: loom` sets (`runbook run`): the confinement (no
-/// default), the spend cap over every run of the record, the models of the four node classes, the
-/// kind of the decider, the autonomy level and the two ceilings. A `model` decider also sets
+/// default), the models of the four node classes, the
+/// kind of the decider, the autonomy level and the wall-time ceiling. The money caps (`loom.cap_micro_usd`,
+/// `max_llm_calls`) are optional (`OPTIONAL_LOOM`): none named means no limit. A `model` decider also sets
 /// `decider.model`, a `rule` decider `decider.verdict`. The way to Loom is one of two (see
 /// `LOOM_CHILD`).
-const REQUIRED_LOOM: [&str; 10] = ["loom.confinement", "loom.cap_micro_usd", "models.writer.model",
-    "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_llm_calls", "max_wall_seconds"];
+const REQUIRED_LOOM: [&str; 8] = ["loom.confinement", "models.writer.model",
+    "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_wall_seconds"];
 /// The way to Loom is the binary as a child process (`loom.bin` with its digest `loom.sha256`),
 /// or, with `loom.in_process: 'true'`, Loom as a library of the build (`runbook run
 /// --in-process`): then neither of these is set.
 const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
-/// `loom` settings that are optional: the path of the login file the model adapter reads, the way
+/// `loom` settings that are optional: the money caps (a record names one or leaves it out), the path of the login file the model adapter reads, the way
 /// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
 /// deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 16] = ["conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+const OPTIONAL_LOOM: [&str; 18] = ["loom.cap_micro_usd", "max_llm_calls", "conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
     "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
@@ -441,8 +443,8 @@ const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decide
 /// `PATH`; the decider of `runbook run` starts none of them.
 const LOOM_TOOLS: [&str; 2] = ["jq", "yq"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
-const REQUIRED_LAUNCH: [&str; 11] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
-    "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "max_llm_calls", "autonomy"];
+const REQUIRED_LAUNCH: [&str; 10] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
+    "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "autonomy"];
 /// Launch settings that `run-settings.jsonl` does not record, so no run can be checked against them.
 const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry", "flags.recorded", "loom.bin", "loom.login_file"];
 
@@ -485,7 +487,7 @@ fn loom_runbook(input: &Y) -> &'static str {
 fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     for k in REQUIRED_LOOM {
         if !v.settings.contains_key(k) {
-            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the way to Loom, the confinement, the spend cap, every class's model, the decider's kind, the autonomy level and both ceilings)", v.id));
+            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the way to Loom, the confinement, every class's model, the decider's kind, the autonomy level and the wall-time ceiling; a money cap is optional)", v.id));
         }
     }
     match v.settings.get("loom.in_process").map(String::as_str) {
@@ -556,9 +558,15 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
             None => p.push(format!("variant {:?}: {k} is no loom launch setting", v.id)),
         }
     }
-    let whole = |k: &str| v.settings.get(k).is_none_or(|x| x.parse::<u64>().is_ok_and(|n| n >= 1));
-    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds", "decider.max_decider_calls", "flags.live_cap"] {
-        if !whole(k) {
+    let whole = |k: &str, least: u64| v.settings.get(k).is_none_or(|x| x.parse::<u64>().is_ok_and(|n| n >= least));
+    // A money cap a record names is a whole number; 0 is allowed and spends nothing.
+    for k in ["loom.cap_micro_usd", "max_llm_calls"] {
+        if !whole(k, 0) {
+            p.push(format!("variant {:?}: {k} must be a whole number (0 allows nothing)", v.id));
+        }
+    }
+    for k in ["max_wall_seconds", "decider.max_decider_calls", "flags.live_cap"] {
+        if !whole(k, 1) {
             p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
         }
     }
@@ -793,7 +801,7 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
         if prospective && v.from.is_none() && v.runner == "free-agent" {
             for k in REQUIRED_FREE {
                 if !v.settings.contains_key(k) {
-                    p.push(format!("variant {:?}: the settings do not set {k} (a free-agent launch needs the model, effort, adapter and caps)", v.id));
+                    p.push(format!("variant {:?}: the settings do not set {k} (a free-agent launch needs the model, effort, adapter and the time and turn bounds; a money cap is optional)", v.id));
                 }
             }
             for k in v.settings.keys().filter(|k| !k.starts_with("free.")) {
@@ -809,7 +817,7 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
         } else if prospective {
             for k in REQUIRED_LAUNCH {
                 if !v.settings.contains_key(k) {
-                    p.push(format!("variant {:?}: the settings do not set {k} (a launch needs every class's model, the decider, the adapter, the call cap and the autonomy)", v.id));
+                    p.push(format!("variant {:?}: the settings do not set {k} (a launch needs every class's model, the decider, the adapter and the autonomy; a call cap is optional)", v.id));
                 }
             }
             for k in v.settings.keys() {
@@ -2050,7 +2058,10 @@ fn loom_settings_toml(name: &str, settings: &BTreeMap<String, String>, redact: b
     if let Some(x) = settings.get("adapter") {
         top.insert("adapter".into(), T::String(x.clone()));
     }
-    top.insert("max_llm_calls".into(), num("max_llm_calls")?);
+    // The money caps are written only when the record names them: none named is no limit.
+    if settings.contains_key("max_llm_calls") {
+        top.insert("max_llm_calls".into(), num("max_llm_calls")?);
+    }
     top.insert("max_wall_seconds".into(), num("max_wall_seconds")?);
     if loom_in_process(settings) {
         top.insert("in_process".into(), T::Boolean(true));
@@ -2058,7 +2069,9 @@ fn loom_settings_toml(name: &str, settings: &BTreeMap<String, String>, redact: b
         top.insert("loom_sha256".into(), text("loom.sha256"));
     }
     top.insert("confinement".into(), text("loom.confinement"));
-    top.insert("cap_micro_usd".into(), num("loom.cap_micro_usd")?);
+    if settings.contains_key("loom.cap_micro_usd") {
+        top.insert("cap_micro_usd".into(), num("loom.cap_micro_usd")?);
+    }
     if let Some(l) = settings.get("loom.login_file") {
         let v = if redact { "<loom.login_file>".to_string() } else { expand_home(l, base)? };
         top.insert("login_file".into(), T::String(v));
@@ -2143,9 +2156,18 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     add("--intake", files.join("idea.yaml").display().to_string());
     add("--confinement", g("loom.confinement"));
     add("--settings", files.join("settings.toml").display().to_string());
-    add("--spend-ledger", runs_dir.join(format!("{id}.loom-spend.json")).display().to_string());
-    add("--cap-micro-usd", g("loom.cap_micro_usd"));
-    add("--max-llm-calls", g("max_llm_calls"));
+    // A money cap is passed only when the record names it, and the ledger the runs share with it:
+    // a record that names none starts a run with no money limit.
+    let (cap, calls) = (settings.get("loom.cap_micro_usd"), settings.get("max_llm_calls"));
+    if cap.is_some() || calls.is_some() {
+        add("--spend-ledger", runs_dir.join(format!("{id}.loom-spend.json")).display().to_string());
+    }
+    if let Some(cap) = cap {
+        add("--cap-micro-usd", cap.clone());
+    }
+    if let Some(calls) = calls {
+        add("--max-llm-calls", calls.clone());
+    }
     add("--max-wall-seconds", g("max_wall_seconds"));
     if let Some(c) = settings.get("conformance") {
         add("--conformance", c.clone());
@@ -2227,6 +2249,10 @@ fn free_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, St
         "--example-spec".into(), build.join("driver/examples/sdc/fixtures/billing-spec").display().to_string()];
     for (flag, key) in [("--model", "free.model"), ("--effort", "free.effort"), ("--max-usd", "free.max_usd"),
         ("--max-wall-s", "free.max_wall_s"), ("--max-turns", "free.max_turns")] {
+        // The money cap is optional: `--max-usd` is passed only when the record names it.
+        if key == "free.max_usd" && !settings.contains_key(key) {
+            continue;
+        }
         v.push(flag.into());
         v.push(g(key));
     }
@@ -3072,6 +3098,46 @@ targets:
             let e = loom_settings_toml("r1", &s, false, &base).unwrap_err();
             assert!(e.contains("loom.cap_micro_usd"), "{bad:?}: {e}");
         }
+    }
+
+    #[test]
+    fn a_money_cap_is_in_the_settings_file_and_the_command_only_when_the_record_names_it() {
+        let base = |_: &str| None;
+        let words = |s: &BTreeMap<String, String>| {
+            let input: Y = serde_yaml::from_str("{kind: idea, text: x}").unwrap();
+            loom_argv(Path::new("/b"), "lx", "lx.low.1", s, Path::new("/r"), "sdc@1", Path::new("/f"), &input, &base).unwrap().join(" ")
+        };
+        let mut s = every_member("x", false, "model");
+        s.insert("loom.bin".into(), "/opt/b".into());
+        let text = loom_settings_toml("r1", &s, false, &base).unwrap();
+        assert!(text.contains("cap_micro_usd = 7") && text.contains("max_llm_calls = 9"), "{text}");
+        let w = words(&s);
+        assert!(w.contains("--spend-ledger /r/lx.loom-spend.json --cap-micro-usd 7 --max-llm-calls 9 --max-wall-seconds 60"), "{w}");
+        for (drop, ledger) in [(vec!["loom.cap_micro_usd", "max_llm_calls"], false), (vec!["max_llm_calls"], true), (vec!["loom.cap_micro_usd"], true)] {
+            let mut s = s.clone();
+            for k in &drop {
+                s.remove(*k);
+            }
+            let text = loom_settings_toml("r1", &s, false, &base).unwrap();
+            let w = words(&s);
+            assert_eq!(w.contains("--spend-ledger"), ledger, "{drop:?}: {w}");
+            for (k, option, member) in [("loom.cap_micro_usd", "--cap-micro-usd", "cap_micro_usd"), ("max_llm_calls", "--max-llm-calls", "max_llm_calls")] {
+                let named = !drop.contains(&k);
+                assert_eq!(w.contains(option), named, "{drop:?}: {w}");
+                assert_eq!(text.contains(&format!("{member} = ")), named, "{drop:?}: {text}");
+            }
+            assert!(w.contains("--max-wall-seconds 60") && text.contains("max_wall_seconds = 60"), "{drop:?}: {w}\n{text}");
+        }
+    }
+
+    #[test]
+    fn a_money_cap_of_zero_is_a_cap_that_the_record_names() {
+        let base = |_: &str| None;
+        let mut s = every_member("x", false, "model");
+        s.insert("loom.cap_micro_usd".into(), "0".into());
+        s.insert("max_llm_calls".into(), "0".into());
+        let text = loom_settings_toml("r1", &s, false, &base).unwrap();
+        assert!(text.contains("cap_micro_usd = 0") && text.contains("max_llm_calls = 0"), "{text}");
     }
 
     #[test]

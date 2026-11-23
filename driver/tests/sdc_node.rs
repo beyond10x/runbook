@@ -472,6 +472,53 @@ fn an_effort_option_is_on_the_dry_command_and_in_the_request_of_a_node_of_every_
     }
 }
 
+/// One start of `node` on the adapter `dry` with the options of its binding less `--max-budget-usd`
+/// and its value, and `extra`, in a fresh root.
+fn dry_start_without_budget(name: &str, node: &str, extra: &[&str]) -> Run {
+    let root = fresh(name);
+    base_work(&root.join("work"), node);
+    let mut argv = vec!["--adapter".to_string(), "dry".to_string()];
+    let mut rest = binding(node).into_iter();
+    while let Some(a) = rest.next() {
+        if a == "--max-budget-usd" {
+            rest.next();
+        } else {
+            argv.push(a);
+        }
+    }
+    let at = argv.iter().position(|a| a == "--stub").unwrap_or(argv.len());
+    argv.splice(at..at, extra.iter().map(|s| s.to_string()));
+    let mut s = start(node);
+    s.binding = false;
+    s.extra = argv;
+    exec(&root, &s, "IDEA-1.x")
+}
+
+/// A money budget of a call is optional: with none named by the binding, the request of the adapter
+/// and the record of the call carry no `max_budget_usd`, so the adapter passes no cap of its own; one
+/// the binding names is in the request as it is.
+#[test]
+fn a_node_whose_binding_names_no_budget_writes_a_request_without_max_budget_usd() {
+    for node in ["idea.dissect", "change.fix", "spec.author"] {
+        let r = dry_start_without_budget(&format!("budget-none-{node}"), node, &[]);
+        assert_eq!(r.code, Some(0), "{node}: {r:#?}");
+        let request = &r.files[&format!(".sdc/llm/001-{node}/request.json")];
+        assert!(!request.contains("max_budget_usd") && request.contains("\"max_turns\""), "{node}: {request}");
+        let call = &r.files[".sdc/llm/calls.jsonl"];
+        assert!(!call.contains("max_budget_usd") && call.contains("\"max_turns\""), "{node}: {call}");
+        assert!(!r.stderr.contains("max-budget-usd"), "{node}: the dry command names no budget: {r:#?}");
+        let argv = &r.files[&format!(".sdc/llm/001-{node}/argv.json")];
+        assert!(!argv.contains("max-budget-usd") && argv.contains("--max-turns"), "{node}: {argv}");
+    }
+    let r = dry_start_without_budget("budget-named", "change.fix", &["--max-budget-usd", "0.75"]);
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files[".sdc/llm/001-change.fix/request.json"].contains("\"max_budget_usd\": 0.75"), "{r:#?}");
+    assert!(r.files[".sdc/llm/calls.jsonl"].contains("\"max_budget_usd\":0.75"), "{r:#?}");
+    // 0 is a budget a user may name: it is passed as it is.
+    let r = dry_start_without_budget("budget-zero", "change.fix", &["--max-budget-usd", "0"]);
+    assert!(r.files[".sdc/llm/001-change.fix/request.json"].contains("\"max_budget_usd\": 0"), "{r:#?}");
+}
+
 #[test]
 fn a_level_outside_the_set_is_refused_before_the_node_makes_a_call() {
     let r = dry_start("effort-bogus", "change.fix", &["--effort", "bogus"]);

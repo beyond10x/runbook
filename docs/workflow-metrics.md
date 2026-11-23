@@ -259,8 +259,8 @@ removed driver and `run` refuses it) starts a model run through Loom: the unit r
 of the record's tree (the `runbook` crate, built from `tree_commit` beside the driver's crates),
 which makes one run of the case tree and writes a run directory. A `loom` unit is given no `SDC_`
 variable.
-
 **Settings.** A prospective `loom` variant sets exactly these (a missing one is refused by its
+name, `check` and `run` both, except the ones marked optional, among them both money caps); a setting of the old driver is refused for it by name with the reason,
 name, `check` and `run` both); a setting of the old driver is refused for it by name with the reason,
 none is ignored silently, and a name that is no setting at all is refused too.
 
@@ -270,7 +270,7 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | `loom.sha256` | 64 hex digits; `runbook run` refuses another binary | `--loom-sha256`, `loom_sha256` of the settings file (`settings.json` of the run records `loom.sha256`) |
 | `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook run` with no `--loom`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | no `--loom` option; `in_process = true` in the settings file; `settings.json` of the run records `in_process: true` and the pinned `commit` of the library |
 | `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given, and `confinement` of the settings file |
-| `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `cap_micro_usd` of the settings file; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
+| `loom.cap_micro_usd` | optional: the spend cap over every run of the record, a whole number (0 spends nothing); none named means no limit | `--cap-micro-usd`, `cap_micro_usd` of the settings file, and the ledger `--spend-ledger <runs-dir>/<record id>.loom-spend.json` that the runs share; none of the three when the record names no cap |
 | `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `models.<class>.model` of the settings file |
 | `decider.kind` | `model` (one model call per decision) or `rule` (`decider.verdict` answers every decision); a scripted decider is a test double of the runner and no setting of a record | `decider.kind` of the settings file; the principal of the answers is `decider:model` or `decider:<verdict>`, derived by the runner and never written |
 | `decider.model` | the model of a `model` decider | `decider.model` of the settings file; with a model decider the file also holds `decider.without_claims = true` (Loom's output holds no claims) |
@@ -278,8 +278,8 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | `decider.escalate`, `decider.max_decider_calls`, `decider.adapter` | optional, of a `model` decider: what an `escalate` reply does (`final` or `stop`), the most decider calls, its adapter | the same keys of the settings file |
 | `autonomy` | `A0` to `A5`; the decider answers only at `A5` | `autonomy` of the settings file |
 | `adapter`, `review.adapter` | optional: `metaharness` or `claude-cli` for the model nodes, `claude-cli` for the review | the same keys of the settings file |
-| `max_llm_calls` | cap on model calls of one run (as for `sdc`) | `--max-llm-calls` |
-| `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here) | `--max-wall-seconds` |
+| `max_llm_calls` | optional: cap on model calls of one run (as for `sdc`), a whole number (0 allows none); none named means no limit | `--max-llm-calls`, `max_llm_calls` of the settings file, and the shared ledger (as for `loom.cap_micro_usd`) |
+| `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here: it bounds time, not money) | `--max-wall-seconds` |
 | `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `login_file` of the settings file only; see below |
 
 The file is TOML (`settings.toml`), `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
@@ -310,9 +310,13 @@ command, one line:
 ```
 <build>/runbook/target/debug/runbook run sdc --run <name> --runs-dir <dir> [--loom <bin> --loom-sha256 <hex>]
   --bindings <build>/bindings --protocols <build>/protocol --root-protocol <id>@<revision> --case IDEA-1
-  --intake <file> --confinement <setting> --settings <file> --spend-ledger <runs-dir>/<record id>.loom-spend.json
-  --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+  --intake <file> --confinement <setting> --settings <file> [--spend-ledger <runs-dir>/<record id>.loom-spend.json]
+  [--cap-micro-usd <n>] [--max-llm-calls <n>] --max-wall-seconds <n>
 ```
+
+The bracketed options are in the command only when the record names a money cap: `--cap-micro-usd` and
+`--max-llm-calls` each when its setting is named, the ledger when either is. A record that names none
+starts a run with no money limit; a cap it names stops the run when reached, and 0 is a cap that spends nothing.
 
 The root protocol is read from `protocol/sdc.protocol.yaml` of the tree (`protocol.id`,
 `protocol.revision`, a `.` in the id written `-`): from the build directory when it exists, else with

@@ -290,6 +290,23 @@ fn replay_index_lists_every_recorded_call_under_its_own_key() {
     assert!(index.iter().any(|c| c["kind"] == "work") && index.iter().any(|c| c["kind"] == "decider"));
 }
 
+/// `--live-cap` has no default: a plan made without it names no cap (`live.cap` is null, no limit on
+/// live calls), a plan made with it names that value, and `settings` says which. No run.
+#[test]
+fn replay_prepare_names_no_live_cap_unless_one_is_given() {
+    let source = recording();
+    for (tag, extra, want) in [("none", vec![], Value::Null), ("three", vec!["--live-cap", "3"], serde_json::json!(3)), ("zero", vec!["--live-cap", "0"], serde_json::json!(0))] {
+        let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("replay-live-cap-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        let tree = repo();
+        let mut args = vec!["prepare", "--source", source.to_str().unwrap(), "--out", out.to_str().unwrap(), "--tree", tree.to_str().unwrap(), "--on-divergence", "live"];
+        args.extend(extra);
+        replay_helper(&args);
+        assert_eq!(read_json(&out.join("replay/plan.json"))["live"]["cap"], want, "{tag}");
+        assert_eq!(replay_helper(&["settings", "--out", out.to_str().unwrap()])["live_cap"], want, "{tag}");
+    }
+}
+
 /// The settings of a re-drive come from the plan alone: the plan of the committed recording names
 /// its autonomy, its decider on the adapter of the re-drive and the model nodes it called, and
 /// `--plan-only` writes nothing. No run.
