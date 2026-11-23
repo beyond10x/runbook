@@ -22,7 +22,7 @@ fn run(root: &Path, extra: &[&str]) -> Output {
         .map(|s| (*s).to_owned())
         .collect();
     args.extend(["--bindings", &p("bindings"), "--protocols", &p("protocols"), "--root-protocol", "sdc@8", "--confinement", "local"].map(String::from));
-    args.extend(["--settings", &p("settings.json"), "--spend-ledger", &p("ledger.json")].map(String::from));
+    args.extend(["--settings", &p("settings.toml"), "--spend-ledger", &p("ledger.json")].map(String::from));
     args.extend(["--cap-micro-usd", "1", "--max-llm-calls", "1", "--max-wall-seconds", "1"].map(String::from));
     args.extend(extra.iter().map(|s| (*s).to_owned()));
     Command::new(BIN).args(&args).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap()

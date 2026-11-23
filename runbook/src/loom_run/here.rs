@@ -30,7 +30,7 @@ pub struct HereOptions {
     /// The confinement of every bound program: `local` or `substrate`. No default.
     #[arg(long, value_enum, value_name = "LEVEL", required_unless_present = "detach", conflicts_with = "detach")]
     pub confinement: Option<Confinement>,
-    /// The run settings (JSON): principals, models, budgets, the decider, the login file's path.
+    /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
     #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
     pub settings: Option<PathBuf>,
     /// The spend ledger shared by every run that counts against the same cap.

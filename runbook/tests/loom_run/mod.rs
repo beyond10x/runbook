@@ -18,6 +18,8 @@ mod replay;
 mod replay_boundaries;
 mod run_dir;
 mod settings;
+mod settings_guards;
+mod settings_refusals_print_no_value;
 mod slow;
 mod spend;
 mod watch;
