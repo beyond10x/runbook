@@ -1326,9 +1326,16 @@ fn adapter(req_path: &Path) -> R<i32> {
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
     // No cap named (a null `live.cap`, or none) is no limit on live calls. A cap that is named and cannot
     // be read (text, negative, fractional) fails closed: it is no cap to spend, so no live call starts.
-    let live_cap: Result<Option<u64>, ()> = match &c.plan["live"]["cap"] {
-        Value::Null => Ok(None),
-        named => named.as_u64().map(Some).ok_or(()),
+    // A plan whose `live` member is missing or is no object was not written by `prepare`: it is refused
+    // the same way, never read as "no cap named".
+    // A plan whose `live` member is missing or is no object was not written by `prepare`: it is refused
+    // the same way, never read as "no cap named".
+    let live_cap: Result<Option<u64>, ()> = match &c.plan["live"] {
+        Value::Object(live) => match live.get("cap") {
+            None | Some(Value::Null) => Ok(None),
+            Some(named) => named.as_u64().map(Some).ok_or(()),
+        },
+        _ => Err(()),
     };
     let mut diverged: Option<String> = None;
     // Held from the count of the live calls to the append of the started line of this one.

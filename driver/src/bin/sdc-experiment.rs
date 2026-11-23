@@ -565,10 +565,14 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
             p.push(format!("variant {:?}: {k} must be a whole number (0 allows nothing)", v.id));
         }
     }
-    for k in ["max_wall_seconds", "decider.max_decider_calls", "flags.live_cap"] {
+    for k in ["max_wall_seconds", "decider.max_decider_calls"] {
         if !whole(k, 1) {
             p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
         }
+    }
+    // A cap on live calls is named or not; 0 is a cap that lets no live call start.
+    if !whole("flags.live_cap", 0) {
+        p.push(format!("variant {:?}: flags.live_cap must be a whole number (0 allows no live call)", v.id));
     }
     if v.settings.get("conformance").is_some_and(|c| c != "off" && c != "observe") {
         p.push(format!("variant {:?}: conformance must be off or observe", v.id));
@@ -803,6 +807,10 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
                 if !v.settings.contains_key(k) {
                     p.push(format!("variant {:?}: the settings do not set {k} (a free-agent launch needs the model, effort, adapter and the time and turn bounds; a money cap is optional)", v.id));
                 }
+            }
+            // A money cap a record names is a finite number of at least 0; 0 spends nothing.
+            if v.settings.get("free.max_usd").is_some_and(|x| !x.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.0)) {
+                p.push(format!("variant {:?}: free.max_usd must be a finite number of at least 0 (0 allows nothing)", v.id));
             }
             for k in v.settings.keys().filter(|k| !k.starts_with("free.")) {
                 p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));

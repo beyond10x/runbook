@@ -259,9 +259,9 @@ removed driver and `run` refuses it) starts a model run through Loom: the unit r
 of the record's tree (the `runbook` crate, built from `tree_commit` beside the driver's crates),
 which makes one run of the case tree and writes a run directory. A `loom` unit is given no `SDC_`
 variable.
+
 **Settings.** A prospective `loom` variant sets exactly these (a missing one is refused by its
 name, `check` and `run` both, except the ones marked optional, among them both money caps); a setting of the old driver is refused for it by name with the reason,
-name, `check` and `run` both); a setting of the old driver is refused for it by name with the reason,
 none is ignored silently, and a name that is no setting at all is refused too.
 
 | setting | meaning | becomes |
@@ -294,7 +294,9 @@ Refused for a `loom` variant, each with its reason in the message: `implement_mo
 efforts, but the record format does not carry them to it yet, so the class defaults of
 `tools/node-classes.json` apply), `free.*`. `flags.recorded` is not refused: it is passed on as
 `runbook run --recorded`, with `flags.on_divergence`, `flags.live_adapter`, `flags.live_cap` and
-`flags.source_tree` as the options that go with it. A `loom` input is an `idea` (the case is `IDEA-1`) or a
+`flags.source_tree` as the options that go with it. `flags.live_cap` is optional: none named means no limit on live calls,
+a whole number is a cap and 0 is accepted and lets no live call start (as `--live-cap 0` does); text, a negative number and a fraction are refused by name.
+A `free-agent` variant's `free.max_usd` is optional in the same way: when it is named it is a finite number of at least 0 (0 spends nothing), and `check` refuses any other value by name. A `loom` input is an `idea` (the case is `IDEA-1`) or a
 `seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.

@@ -134,6 +134,30 @@ fn a_live_cap_that_cannot_be_read_or_is_spent_starts_no_live_call() {
     assert!(rig.marker.exists() && code == 0, "a cap of 1 and no live call yet: {code} {said}");
 }
 
+/// A plan that `prepare` did not write has no readable `live` member (missing, null, text, a number, a
+/// list): it names no adapter and no cap, and it is refused like an unreadable cap, never read as "no
+/// cap named". No live call starts and the call ends 75.
+#[test]
+fn a_plan_whose_live_member_is_missing_or_no_object_starts_no_live_call() {
+    for (what, live) in [("missing", None), ("null", Some(json!(null))), ("text", Some(json!("x"))), ("number", Some(json!(5))), ("list", Some(json!([])))] {
+        let rig = Rig::new("live-member");
+        let run = rig.root.join("run");
+        rig.plan(&run, "live", json!(null));
+        let mut plan: Value = serde_json::from_str(&std::fs::read_to_string(run.join("replay/plan.json")).unwrap()).unwrap();
+        match live {
+            Some(v) => plan["live"] = v,
+            None => {
+                plan.as_object_mut().unwrap().remove("live");
+            }
+        }
+        put(&run.join("replay/plan.json"), &plan.to_string());
+        let (code, said) = rig.call(Some(&rig.run_plan()));
+        assert!(!rig.marker.exists(), "{what}: a live call started: {said}");
+        assert_eq!(code, 75, "{what}: {said}");
+        assert!(said.contains("live"), "{what}: the refusal says what is wrong: {said}");
+    }
+}
+
 /// `docs/cycles-suite.md` quotes `#[ignore = "..."]` attributes of the Rust tests it names; a quoted
 /// attribute that no test source holds any more is a row that says a test waits for something
 /// that was built (unit 6 built `--dry`'s prompt and level and changed the attribute).
