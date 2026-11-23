@@ -16,7 +16,7 @@
 //!    `instructions/golden/` (rendered prompts kept as test data) is left out of both.
 //! 4. `views`: each `views/*.view.json` parses, is an object and has `"format": "runbook.view/1"`.
 //! 5. `cycles`: `cycles/tree-suite.yaml` parses, has `loom.tree-suite/1`, unique cycle names and
-//!    the seeds each cycle names; each name is one of the 130 entries of the old suite, listed in
+//!    the seeds each cycle names; each name is one of the entries of the old suite, listed in
 //!    `cycles/old-suite-names.txt`; and, while `docs/cycles-suite.md` exists, its table has one row
 //!    per listed entry, and a row that says converted or pending is a cycle of the suite file.
 
@@ -394,6 +394,33 @@ fn instructions(root: &Path, r: &mut Report, seen: &mut Seen) {
 
 // ---------------------------------------------------------------------------------------- views
 
+/// What is wrong with the `product` member of a view (the main file of a run, which the inspector links
+/// from its first screen): it is one string, a path relative to the run directory that stays inside the
+/// run and has no component that starts with a dot (a tool's cache or login, never listed or served).
+/// The inspector refuses the same views (ui/web/view.js `productProblems`).
+fn product_problem(v: &Value) -> Option<String> {
+    let Some(p) = v.as_str() else {
+        return Some("must be a string: one path relative to the run directory".to_string());
+    };
+    if p.contains(['\0', '\\']) {
+        return Some(format!("{p:?} holds a character that no path of a run holds (NUL or a backslash)"));
+    }
+    if p.starts_with('/') {
+        return Some(format!("{p:?} is absolute: the product is a path relative to the run directory"));
+    }
+    let parts: Vec<&str> = p.split('/').filter(|n| !n.is_empty() && *n != ".").collect();
+    if parts.is_empty() {
+        return Some("is empty".to_string());
+    }
+    if parts.contains(&"..") {
+        return Some(format!("{p:?} leaves the run"));
+    }
+    if parts.iter().any(|n| n.starts_with('.')) {
+        return Some(format!("{p:?} has a component that starts with a dot: a tool's cache or login is never listed or served"));
+    }
+    None
+}
+
 fn views(root: &Path, r: &mut Report, seen: &mut Seen) {
     let files = files_ending(&root.join("views"), ".view.json");
     seen.views = files.len();
@@ -401,11 +428,18 @@ fn views(root: &Path, r: &mut Report, seen: &mut Seen) {
         let f = rel(root, &p);
         match read_json(&p) {
             Err(e) => r.add("views", &f, format!("does not parse: {e}"), "fix the JSON"),
-            Ok(Value::Object(o)) => match o.get("format").and_then(Value::as_str) {
-                Some(VIEW_FORMAT) => {}
-                Some(other) => r.add("views", &f, format!("format is \"{other}\", not \"{VIEW_FORMAT}\""), format!("set \"format\": \"{VIEW_FORMAT}\" or convert the file to it")),
-                None => r.add("views", &f, "has no \"format\" member", format!("add \"format\": \"{VIEW_FORMAT}\"")),
-            },
+            Ok(Value::Object(o)) => {
+                match o.get("format").and_then(Value::as_str) {
+                    Some(VIEW_FORMAT) => {}
+                    Some(other) => r.add("views", &f, format!("format is \"{other}\", not \"{VIEW_FORMAT}\""), format!("set \"format\": \"{VIEW_FORMAT}\" or convert the file to it")),
+                    None => r.add("views", &f, "has no \"format\" member", format!("add \"format\": \"{VIEW_FORMAT}\"")),
+                }
+                if let Some(product) = o.get("product") {
+                    if let Some(problem) = product_problem(product) {
+                        r.add("views", &f, format!("product {problem}"), "name one file as a path relative to the run directory, for example \"work/<runbook>/<runbook>.md\"");
+                    }
+                }
+            }
             Ok(_) => r.add("views", &f, "is not a JSON object", "make the top level an object with a \"format\" member"),
         }
     }
@@ -510,7 +544,7 @@ fn cycles(root: &Path, r: &mut Report, seen: &mut Seen) {
     let names = match std::fs::read_to_string(&names_path) {
         Ok(t) => names_of(&t),
         Err(_) => {
-            r.add("cycles", CYCLES_NAMES, "is missing or unreadable", "restore the committed list of the 130 entries of the old suite, one name per line");
+            r.add("cycles", CYCLES_NAMES, "is missing or unreadable", "restore the committed list of the entries of the old suite, one name per line");
             return;
         }
     };

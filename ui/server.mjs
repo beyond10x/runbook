@@ -15,12 +15,13 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {inbox, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
-import {runFacts, applyFacts} from './runfacts.mjs';
+import {runFacts, applyFacts, openedProtocol} from './runfacts.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
-import {registerRun, runPath, leavesRun, readText, readJson, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -95,31 +96,10 @@ function readEvents(dir) {
   return out;
 }
 
-// The protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of events.jsonl
-// (a run of `runbook run` writes no case.json, docs/loom-run-directory.md). Only the head of the log is read
-// (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
-const HEAD_BYTES = 65536;
-function openedProtocol(dir) {
-  const file = runPath(path.join(dir, 'events.jsonl'));
-  if (!file) return null;
-  let fd;
-  try {
-    fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    const lines = buf.toString('utf8', 0, n).split('\n');
-    if (n === HEAD_BYTES) lines.pop();
-    for (const line of lines) {
-      let e;
-      try { e = JSON.parse(line); } catch { continue; }
-      if (e?.event !== 'opened') continue;
-      const p = e.protocol?.id ?? e.protocol;
-      return typeof p === 'string' && p ? p : null;
-    }
-  } catch { /* no log */ } finally { if (fd != null) fs.closeSync(fd); }
-  return null;
-}
+// the protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of its events.jsonl (runfacts.mjs)
 const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
+// the most of a blob of fs/blobs/ that the page diffs or parses for its meaning, and of a blob it shows
+const DIFF_BLOB_LIMIT = 8 * 1048576, BLOB_SHOWN = 200000;
 
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };
@@ -568,17 +548,20 @@ function recordProgress(r, runDir) {
 // field but `diff`, which /api/fschange reads back from the line's byte offset. A late
 // `sdc.fs-attribution/1` line (no seq) replaces the attribution of the change it names.
 const fsCache = new Map();
+const FS_CHUNK = 32 * 1048576;
 function fsChanges(runDir) {
-  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
-  let size;
-  try { size = fs.statSync(file).size; } catch { fsCache.delete(runDir); return {present: false, list: []}; }
+  const file = path.join(runDir, 'fs', 'changes.jsonl');
   let c = fsCache.get(runDir);
-  if (!c || size < c.offset) { c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()}; fsCache.set(runDir, c); }
-  if (size > c.offset) {
-    const fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(size - c.offset);
-    fs.readSync(fd, buf, 0, buf.length, c.offset);
-    fs.closeSync(fd);
+  // read through the checked open of runfiles.mjs (one name, regular, under the run), a chunk at a time from the offset
+  for (;;) {
+    const r = readRegular(file, {root: runDir, at: c ? c.offset : 0, limit: FS_CHUNK});
+    if (r.state !== 'ok') { fsCache.delete(runDir); return {present: false, list: []}; }
+    if (!c || r.size < c.offset) {
+      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()};
+      fsCache.set(runDir, c);
+      if (r.from !== 0) continue; // the file is shorter than what was read: read it again from its start
+    }
+    const buf = r.bytes;
     let start = 0;
     for (let i = 0; i < buf.length; i++) {
       if (buf[i] !== 10) continue;
@@ -606,6 +589,7 @@ function fsChanges(runDir) {
       } catch { /* not JSON: skipped */ }
     }
     c.offset += start; // a line without its newline yet is read on the next call
+    if (start === 0 || c.offset >= r.size) break;
   }
   return {present: true, list: c.list};
 }
@@ -614,16 +598,12 @@ function fsChange(runDir, seq) {
   const c = fsCache.get(runDir);
   const loc = c?.at.get(seq);
   if (!loc) return null;
-  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
-  if (!file) return null;
-  const fd = fs.openSync(file, 'r');
-  const buf = Buffer.alloc(loc.len);
-  fs.readSync(fd, buf, 0, loc.len, loc.off);
-  fs.closeSync(fd);
-  const r = JSON.parse(buf.toString('utf8'));
+  const got = readRegular(path.join(runDir, 'fs', 'changes.jsonl'), {root: runDir, at: loc.off, limit: loc.len});
+  if (got.state !== 'ok' || got.bytes.length !== loc.len) return null;
+  const r = JSON.parse(got.bytes.toString('utf8'));
   if (c.late.has(seq)) r.attribution = c.late.get(seq);
   if (!r.diff && !r.binary && !r.too_large && !(r.op === 'rename' && r.before === r.after)) {
-    const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h)) : null);
+    const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h), undefined, DIFF_BLOB_LIMIT) : null);
     const a = blob(r.before), b = blob(r.after);
     if (a != null || b != null) { r.diff = unifiedDiff(a, b, r.from_path || r.path, r.path); r.diff_source = 'computed by the inspector from fs/blobs'; }
   }
@@ -635,7 +615,7 @@ function fsChange(runDir, seq) {
 // before and after from fs/blobs; code is classified by its path alone.
 function changeMeaning(runDir, r) {
   if (classify(r.path).cls === 'code') return meaningOf(r, null, null);
-  const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h)) : null);
+  const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h), undefined, DIFF_BLOB_LIMIT) : null);
   const m = meaningOf(r, blob(r.before), blob(r.after));
   return m;
 }
@@ -650,11 +630,32 @@ function workFacts(src) {
       const st = statOf(p);
       if (!st) continue;
       if (st.isDirectory()) walkMd(p, `${rel}/${n}`, depth + 1);
-      else if (n.endsWith('.md') && st.size < 65536) files.push({path: `${rel}/${n}`.replace(/^\//, ''), text: readText(p) || ''});
+      else if (n.endsWith('.md') && st.size < 65536) files.push({path: `${rel}/${n}`.replace(/^\//, ''), text: readText(p, undefined, 65536) || ''});
     }
   };
   for (const r of rootsOf(src)) for (const sub of ['aep', '.engineering/planning']) walkMd(path.join(r, 'work', sub), `${path.relative(src.path, r) || '.'}/work/${sub}`, 0);
   return {files};
+}
+
+// The files of a run and its product (products.mjs): the run's work/ and the work/ of each case, the artifacts the
+// bindings place, and the rule that named the product.
+const posix = (p) => p.split(path.sep).join('/');
+// the directories of a run whose files are served and listed: its work/ and the work/ of each of its cases
+const workRoots = (src) => [...new Set([path.join(runDirOf(src), 'work'), ...Array.from(src.cases.values()).map((e) => path.join(e.dir, 'work'))])];
+function productsOf(src) {
+  const runDir = runDirOf(src);
+  const entries = Array.from(src.cases.values());
+  const roots = workRoots(src);
+  const artifacts = new Map();
+  for (const e of entries) {
+    for (const [name, f] of Object.entries(loadCase(src, e).bindings?.$artifacts || {})) {
+      if (typeof f === 'string') for (const base of [path.join(runDir, 'work'), path.join(e.dir, 'work')]) artifacts.set(posix(path.relative(runDir, path.join(base, f))), name);
+    }
+  }
+  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
+  const {view, runbook, protocols} = viewOf(src);
+  const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
+  return {served: true, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
 }
 
 function liveInfo(src) {
@@ -669,7 +670,7 @@ function loadCase(src, entry) {
   const d = entry.dir;
   const evidence = {};
   for (const f of listDir(path.join(d, 'evidence'))) if (f.endsWith('.json')) {
-    const r = readJson(path.join(d, 'evidence', f));
+    const r = limitDepth(readJson(path.join(d, 'evidence', f)));
     if (r) evidence[r.id || f.replace(/\.json$/, '')] = r;
   }
   const evaluations = {};
@@ -711,7 +712,7 @@ function loadCase(src, entry) {
     tree: path.relative(src.path, root) || '.',
     observed: observed != null,
     timeSource,
-    scope: waitsOnScope(events) ? scopeQuestions({dir: d, bindings, events}) : null,
+    scope: waitsOnScope(events) ? scopeQuestions({dir: d, bindings, events}, runDirOf(src)) : null,
     stall: amendStall({dir: d, bindings, events, id: caseJson.id || path.basename(d)}, runDirOf(src)),
     id: caseJson.id || path.basename(d),
     dir: d,
@@ -787,7 +788,7 @@ function runInfo(src) {
     for (const n of listDir(path.join(runDir, 'traces'))) if (n.endsWith('.jsonl')) parseJsonBlocks(readText(path.join(runDir, 'traces', n)) || '', 'traces/' + n, llm);
   }
   const expected = readText(path.join(runDir, 'expected-llm-calls.txt'));
-  const decisions = jsonl(path.join(runDir, 'decisions.jsonl')).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'none'}));
+  const decisions = jsonl(path.join(runDir, 'decisions.jsonl'), runDir).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'none'}));
   return {runDir, hasLog: !!log, commands, llm: llm.slice(0, 2000), expected, decisions, console: readText(path.join(runDir, 'console.txt')), stopped: stoppedOf(runDir), settings: settingsOf(runDir)};
 }
 
@@ -855,9 +856,16 @@ function tick() {
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};
 const send = (res, code, body, type = 'application/json; charset=utf-8') => {
-  res.writeHead(code, {'content-type': type, 'cache-control': 'no-store'});
+  res.writeHead(code, {'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff'});
   if (Buffer.isBuffer(body) && !/^(text|image\/svg)/.test(type)) return res.end(body);
   res.end(shownPaths(typeof body === 'string' ? body : Buffer.isBuffer(body) ? body.toString('utf8') : JSON.stringify(body)));
+};
+// What a run holds (a file's text, the output of an action) leaves as JSON, never as a file with a type of its own
+// that a browser would render or run, and byte for byte: `send` rewrites home paths for the screenshots of the page,
+// and a file of a run is not rewritten.
+const sendRun = (res, code, body) => {
+  res.writeHead(code, {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff'});
+  res.end(JSON.stringify(body));
 };
 
 // A request is for this server when its Host is a loopback name with the port the server listens on (the
@@ -919,6 +927,17 @@ function handle(req, res, url) {
   if (p === '/api/run') return send(res, 200, runInfo(src));
   if (p === '/api/live') return send(res, 200, liveInfo(src));
   if (p === '/api/workfacts') return send(res, 200, workFacts(src));
+  // what a step produced: reads only, through the run-path check (products.mjs)
+  if (p === '/api/products') return sendRun(res, 200, productsOf(src));
+  if (p === '/api/file') { const r = fileAnswer(runDirOf(src), url.searchParams.get('path'), workRoots(src)); return sendRun(res, r.status, r.body); }
+  if (p === '/api/output') {
+    const rel = url.searchParams.get('case') ?? '.';
+    const seq = Number(url.searchParams.get('seq'));
+    const entry = Array.from(src.cases.values()).find((e) => (path.relative(src.path, e.dir) || '.') === rel);
+    const c = entry && Number.isInteger(seq) ? loadCase(src, entry) : null;
+    const r = c ? outputOf({runDir: runDirOf(src), caseDir: entry.dir, storeDir: path.dirname(treeRootOf(entry.dir)), caseId: c.id, events: c.events, seq}) : null;
+    return sendRun(res, r ? 200 : 404, r ?? {error: 'no such action finish'});
+  }
   if (p === '/api/fschange') {
     const r = fsChange(runDirOf(src), Number(url.searchParams.get('seq')));
     return send(res, r ? 200 : 404, r || {error: 'no such change'});
@@ -931,8 +950,11 @@ function handle(req, res, url) {
     const rel = url.searchParams.get('case') || '.';
     const hash = url.searchParams.get('hash') || '';
     if (!/^[0-9a-f]{64}$/.test(hash) || rel.includes('..')) return send(res, 400, {error: 'bad request'});
-    const t = readText(path.join(src.path, rel, 'blobs', hash), runDirOf(src));
-    return send(res, t == null ? 404 : 200, t == null ? 'not found' : t.slice(0, 200000), 'text/plain; charset=utf-8');
+    // the one check of the other routes: the blob is a regular file with one link, directly in a blobs/ of the run, by the real
+    // path of the open file, under no dot-directory; at most BLOB_SHOWN bytes of it are read
+    const dir = path.join(src.path, rel, 'blobs');
+    const r = readRegular(path.join(dir, hash), {root: runDirOf(src), limit: BLOB_SHOWN, accept: inDirectory(runDirOf(src), dir)});
+    return send(res, r.state === 'ok' ? 200 : 404, r.state === 'ok' ? r.bytes.toString('utf8') : 'not found', 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);
   const abs = path.join(here, 'web', file);

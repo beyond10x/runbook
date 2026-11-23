@@ -12,6 +12,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, bug.dissect, --model, claude-haiku-5-5, --max-turns, "20", --max-budget-usd, "1", --instructions, '{"task":"instructions/bug.dissect.md"}', --stub, stub-file, bugfix-pager/stub-dissection.json, bug-dissection.json]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 600
     retry_when:
@@ -26,6 +27,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, dissection-check, --action, dissection.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: dissection_check
         subject: dissection
@@ -36,6 +38,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, test.reproduce, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --instructions, '{"task":"instructions/test.reproduce.md"}', --stub, stub-repro, bugfix-pager/stub-repro]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -50,6 +53,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, repro-run, --action, repro.run, --pool-wait, "1200"]
+    exits: {error: [69, 70, 75, 126, 127]}
     timeout_seconds: 3000
     evidence:
       - kind: repro_run
@@ -62,6 +66,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, change.fix, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.fix.md","stdlib":"instructions/change.fix.stdlib.md","no_gate":"instructions/change.fix.no-gate.md"}', --stub, stub-tree, bugfix-pager/stub-fix, impl]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 1500
     retry_when:
@@ -78,6 +83,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, tests-run, --action, tests.run, --pool-wait, "1200"]
+    exits: {error: [69, 70, 75, 126, 127]}
     timeout_seconds: 3000
     evidence:
       - kind: test_run
@@ -90,6 +96,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, story-update, --action, story.update]
+    exits: {error: [75, 126, 127]}
     budget: {max_runs: 2}
     evidence:
       - kind: story_record
@@ -101,6 +108,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, gate-run, --action, gate.run, --pool-wait, "1200"]
+    exits: {error: [69, 70, 75, 126, 127]}
     timeout_seconds: 3600
     evidence:
       - kind: gate_run

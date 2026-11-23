@@ -237,11 +237,14 @@ pub fn story_arg(story: Option<String>) -> Result<String, String> {
         .filter(|s| !s.is_empty()).ok_or("no --story and no story in SDC_CASE".into())
 }
 
-/// The case's `work/`: `--work` (`sdc-node` passes its own), else `<case dir>/work`.
+/// The case's `work/`: `--work` (`sdc-node` passes its own), else the workspace Loom started the program in, else `<case dir>/work`.
 pub fn work_arg(work: Option<PathBuf>, case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     match work {
         Some(w) => Ok(w),
-        None => case_dir_arg(case_dir).map(|d| d.join("work")),
+        None => match crate::reply::records::loom_workspace() {
+            Some(w) => Ok(w),
+            None => case_dir_arg(case_dir).map(|d| d.join("work")),
+        },
     }
 }
 
