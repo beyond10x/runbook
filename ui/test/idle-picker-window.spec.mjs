@@ -87,6 +87,20 @@ test('a page that opens its stream on a list that is current is sent no sources 
   pageA.close(); pageC.close();
 });
 
+test('a run that stops right after a page opened its stream on a current list is announced to that page', async () => {
+  test.setTimeout(60000);
+  const list = await get('/api/sources');
+  expect(list[0].run.state).toBe('unknown');
+  const page = watch(0);
+  for (let t = Date.now(); Date.now() - t < 10000 && !page.seen.length; ) await sleep(10);
+  expect(page.seen.map((e) => e.event), 'the stream is open').toContain('hello');
+  expect(page.seen.filter((e) => e.event === 'sources').length, 'a current list is sent no sources event').toBe(0);
+  stopRun(0, 'after connect');
+  for (let t = Date.now(); Date.now() - t < 8000 && !page.seen.some((e) => e.event === 'sources'); ) await sleep(25);
+  expect(page.seen.filter((e) => e.event === 'sources').length, 'the page holds a list that says "unknown" for a run that is now stopped').toBeGreaterThan(0);
+  page.close();
+});
+
 test('when one of two pages leaves, the other still hears of its run', async () => {
   test.setTimeout(60000);
   const a = watch(0), b = watch(1);
