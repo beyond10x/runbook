@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:prebuilt-release-binary
 kind: story
-status: proposed
+status: active
 title: Prebuilt release binary
 summary: One Linux x86_64 runbook binary per release, built in CI and attached to the release by the operator's word.
 tags:
@@ -24,9 +24,10 @@ scope:
   path: plugin/README.md
 - confidence: cited
   path: runbook/Cargo.toml
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:36Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
+- {from: "proposed", to: "active", at: "2026-11-23T13:48:40Z", actor: "human:operator", revision: 4, executor: "agent:runbook"}
 ---
 # Story: prebuilt-release-binary
 
