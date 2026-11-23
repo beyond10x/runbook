@@ -159,14 +159,45 @@ test('guard: a runner.json whose size changes between the size check of the read
   const toggler = spawn(process.execPath, ['-e', `const fs = require('node:fs'); const fd = fs.openSync(${JSON.stringify(file)}, 'r+'); console.log('ready'); const end = Date.now() + 20000; while (Date.now() < end) { fs.ftruncateSync(fd, 100); fs.ftruncateSync(fd, 16 * 1048576); }`], {stdio: ['ignore', 'pipe', 'ignore']});
   try {
     await new Promise((resolve) => toggler.stdout.once('data', resolve));
-    let over = 0, longest = 0;
-    for (let i = 0; i < 1500; i++) {
-      const t = readText(file, dir, Live.RECORD_LIMIT);
-      if (t != null && t.length > Live.RECORD_LIMIT) { over++; longest = Math.max(longest, t.length); }
+    let over = 0, longest = 0, taken = 0, most = 0;
+    const realRead = fs.readSync;
+    fs.readSync = (...args) => { const n = realRead(...args); taken += n; return n; };
+    try {
+      for (let i = 0; i < 1500; i++) {
+        taken = 0;
+        const t = readText(file, dir, Live.RECORD_LIMIT);
+        if (t != null && t.length > Live.RECORD_LIMIT) { over++; longest = Math.max(longest, t.length); }
+        most = Math.max(most, taken);
+      }
+    } finally {
+      fs.readSync = realRead;
     }
     expect({over, longest}, 'reads that returned more than RECORD_LIMIT bytes').toEqual({over: 0, longest: 0});
+    expect(most, 'the most bytes one read took from the file').toBeLessThanOrEqual(Live.RECORD_LIMIT + 1);
   } finally {
     toggler.kill();
+  }
+});
+
+test('guard: a file that is longer than its limit at the time of the read is answered as too large, whatever size the check saw, and no more than the limit plus one byte is taken from it', () => {
+  const dir = path.join(root, 'grown');
+  fs.mkdirSync(dir, {recursive: true});
+  const file = path.join(dir, 'runner.json');
+  fs.writeFileSync(file, 'x'.repeat(2 * 1048576));
+  const realStat = fs.fstatSync, realRead = fs.readSync;
+  let taken = 0;
+  // the size of the check is the one of a file that was small a moment ago
+  fs.fstatSync = (...args) => { const st = realStat(...args); return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {size: 100}); };
+  fs.readSync = (...args) => { const n = realRead(...args); taken += n; return n; };
+  try {
+    expect(readText(file, dir, Live.RECORD_LIMIT)).toBeNull();
+    expect(taken, 'bytes taken from the file').toBeLessThanOrEqual(Live.RECORD_LIMIT + 1);
+    taken = 0;
+    expect(readText(file, dir, 1000)).toBeNull();
+    expect(taken, 'bytes taken from the file with a limit of 1000').toBeLessThanOrEqual(1001);
+  } finally {
+    fs.fstatSync = realStat;
+    fs.readSync = realRead;
   }
 });
 
