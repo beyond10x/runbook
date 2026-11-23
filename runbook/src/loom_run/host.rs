@@ -122,6 +122,13 @@ pub trait LoomHost {
     /// `tree run` it printed; the library goes on with the next step).
     fn runs_handoff(&self) -> bool;
 
+    /// Whether the host's runner writes the `action_started` event of each bound program itself, just before the program
+    /// starts (the library does: it is the one point before a program that Loom gives). A host that cannot (a child
+    /// runs whole steps) has the loop write one event before each step it calls.
+    fn announces_starts(&self) -> bool {
+        false
+    }
+
     /// The call a handoff is; only asked when [`LoomHost::runs_handoff`].
     fn handoff(&mut self, answer: &Answer<'_>) -> Result<Call, Halt>;
 
