@@ -635,3 +635,172 @@ fn a_recorded_run_with_a_live_part_under_a_cap_of_0_starts_no_tree_run() {
     let outcome: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("runs/r1/outcome.json")).unwrap_or_else(|e| panic!("no outcome: {e}: {}", String::from_utf8_lossy(&o.stderr)))).unwrap();
     assert_eq!((code(&o), outcome["outcome"].as_str(), outcome["steps"].as_u64(), outcome["has_model_node"].as_bool()), (4, Some("stopped: spend cap"), Some(0), Some(true)), "{outcome} {}", stderr(&o));
 }
+
+// ---- the observation after a close: its sessions, its cost, its records ----
+
+fn exe(path: &std::path::Path, body: &str) {
+    std::fs::write(path, body).unwrap();
+    std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+}
+
+/// A world whose one step leaves a product, books 0.2 USD and ends the tree; `ess_extra` runs inside the stand-in for ess
+/// (that is: during the observation, after it was started).
+fn observed_world_with_ess(tag: &str, ess_extra: &str) -> World {
+    let w = World::new(tag);
+    std::fs::write(w.root.join("bindings/sdc.yaml"), MODEL_BUDGET).unwrap();
+    let tool = format!("#!/bin/sh\n[ \"$1\" = ess ] || exit 64\nshift\ncase \"$1\" in\n  --version) echo 'ess 0.0.0-stand-in' ;;\n  compile|verify) {ess_extra}\n kind=$1; while [ $# -gt 0 ]; do [ \"$1\" = --out ] && out=$2; shift; done; if [ \"$kind\" = compile ]; then echo '{{}}' > \"$out\"; else echo '{{\"scenarios\": {{\"tea/pour\": {{\"steps\": []}}}}}}' > \"$out\"; fi ;;\n  *) exit 64 ;;\nesac\n");
+    std::fs::create_dir_all(w.root.join("bindings/tools")).unwrap();
+    exe(&w.root.join("bindings/tools/sdc-tool.sh"), &tool);
+    let writer = "mkdir -p work/spec work/published; echo 'name: tea' > work/spec/system.yaml; echo x > work/published/README.md\n";
+    w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    w.fake.hook("tree_run", "1", &format!("{writer}{}", super::core::model_call_hook("0.2")));
+    w
+}
+
+/// Runs r1 with `--conformance observe`, a stand-in adapter `adapter_body` (a program that is given `request.json`), one table slot.
+fn observe_with_adapter(w: &World, cap: Option<u64>, adapter_body: &str, more: &[&str]) -> std::process::Output {
+    let adapter = w.root.join("conform-adapter.sh");
+    exe(&adapter, &format!("#!/bin/sh\necho called >> {}/adapter-calls.txt\n{adapter_body}\n", w.root.display()));
+    let mut a = w.args("r1", cap.unwrap_or(0));
+    if cap.is_none() {
+        for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+            without(&mut a, flag);
+        }
+    }
+    a.extend(more.iter().map(|s| (*s).to_owned()));
+    a.extend(["--conformance".to_owned(), "observe".to_owned()]);
+    let mut c = w.command(&a);
+    c.env("SDC_CONFORMANCE_ADAPTER", &adapter).env("SDC_CONFORMANCE_TABLES", "1").env("SDC_LLM_EFFORT_CONFORMANCE", "low");
+    c.output().unwrap()
+}
+
+fn calls_of_adapter(w: &World) -> usize {
+    std::fs::read_to_string(w.root.join("adapter-calls.txt")).map(|t| t.lines().count()).unwrap_or(0)
+}
+
+fn oracle(w: &World) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1").join("oracle.json")).unwrap_or_else(|e| panic!("no oracle.json: {e}"))).unwrap()
+}
+
+/// S16: node sessions that ended with no cost record (the adapter was killed or crashed) are sessions that may have spent:
+/// the same as a step's call of unknown cost, which books the reservation.
+#[test]
+fn an_observation_whose_sessions_ended_without_a_cost_books_its_reservation() {
+    let w = observed_world_with_ess("obs-unknown", "");
+    let o = observe_with_adapter(&w, Some(1_000_000), "exit 1", &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let doc = oracle(&w);
+    assert!(calls_of_adapter(&w) > 0, "the stand-in adapter (the model) was not started, the case proves nothing: {doc}");
+    assert!(doc["conformance"]["node_sessions"].as_u64().unwrap_or(0) > 0, "{doc}");
+    assert_eq!(spent(&w), 1_000_000, "{} model sessions ended with no cost record and the observation booked {} micro USD (a step books its reservation): oracle table_cost_usd {}", calls_of_adapter(&w), spent(&w), doc["conformance"]["table_cost_usd"]);
+}
+
+/// A cap with room for the whole observation: what its record names (3 sessions of 0.5 USD) is booked, and nothing stays reserved.
+#[test]
+fn an_observation_books_the_cost_its_record_names() {
+    let w = observed_world_with_ess("obs-named", "");
+    let o = observe_with_adapter(&w, Some(5_000_000), "echo '{\"cost_usd\":0.5}'\nexit 1", &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let doc = oracle(&w);
+    assert_eq!(calls_of_adapter(&w), 3, "{doc}");
+    let ledger: Value = serde_json::from_str(&std::fs::read_to_string(w.ledger()).unwrap()).unwrap();
+    assert_eq!(ledger["spent_micro_usd"], 200_000 + 1_500_000, "{ledger}");
+    assert!(ledger["reserved"].as_object().unwrap().is_empty(), "{ledger}");
+}
+
+/// S15: what the observation spends is bounded by the cap: the sessions it starts after the reservation is passed are the
+/// spend the cap should have stopped.
+#[test]
+fn an_observation_does_not_book_more_than_the_cap_had_left() {
+    let w = observed_world_with_ess("obs-over", "");
+    let o = observe_with_adapter(&w, Some(1_000_000), "echo '{\"cost_usd\":0.5}'\nexit 1", &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let doc = oracle(&w);
+    assert!(calls_of_adapter(&w) > 0, "{doc}");
+    assert!(spent(&w) <= 1_000_000, "the cap is 1000000 micro USD, the step booked 200000, the observation started {} sessions of 500000 and the ledger holds {} micro USD", calls_of_adapter(&w), spent(&w));
+}
+
+/// S7: a ledger that is garbage when the observation ends is never echoed, and the exit of the run stays.
+#[test]
+fn a_ledger_that_turns_to_garbage_during_the_observation_is_not_echoed_and_the_exit_stays() {
+    let w = observed_world_with_ess("obs-garbage", &format!("printf 'LEDGER-GARBAGE-MARKER {{' > {}\n", w_ledger_path("obs-garbage")));
+    let o = observe_with_adapter(&w, Some(1_000_000), "exit 1", &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let line = stderr(&o);
+    assert!(!line.contains("LEDGER-GARBAGE-MARKER"), "a byte of the ledger file is in the line: {line}");
+    assert!(line.contains("could not be booked"), "the failure of the booking is not said: {line}");
+}
+
+fn w_ledger_path(tag: &str) -> String {
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("loomrun-{tag}-{}", std::process::id()));
+    root.join("ledger.json").display().to_string()
+}
+
+
+/// S9 (answers file): the decider's own call reaches the call cap: no `apply`, no `then`, no approve.
+#[test]
+fn a_call_cap_reached_by_the_deciders_own_call_starts_no_program_of_an_answers_file() {
+    let w = answers_world("obs-callcap-answers");
+    let mut settings = fixture_settings(&w, 5_000_000);
+    settings["max_llm_calls"] = json!(1);
+    write_settings(&w, &settings);
+    let mut a = w.args("r1", 5_000_000);
+    set_value(&mut a, "--max-llm-calls", "1");
+    let o = w.run(&a);
+    let questions = std::fs::read_to_string(w.run_dir("r1/work/questions.yaml")).unwrap_or_default();
+    assert_eq!(code(&o), 6, "the decider's call did not reach the call cap (the case proves nothing): {}", stderr(&o));
+    assert!(!questions.contains("answered_by"), "the `apply` program was started after the call cap was reached: {questions}");
+    assert!(!w.run_dir("r1/work/then.log").exists(), "the `then` program was started after the call cap was reached");
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "a tree approve was made after the call cap was reached");
+}
+
+/// S9 (decider path): a model decider whose call reaches the call cap is followed by no approve.
+#[test]
+fn a_call_cap_reached_by_the_decider_starts_no_tree_approve() {
+    let w = World::new("obs-callcap-decider");
+    std::fs::write(w.root.join("bindings/sdc.yaml"), NO_MODEL).unwrap();
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 1, None, &format!("[{}]", decision_json("owner.approve", "ApproveAction", "person:owner"))), 3);
+    w.fake.answer("tree_approve", "default", "{\"decision\":\"Allow\"}\n", 0);
+    w.fake.answer("tree_run", "default", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    w.settings(&json!({"decider": {"kind": "scripted", "max_call_micro_usd": 1000, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 1000, "model_calls": 1}]}}));
+    let mut a = w.args("r1", 5_000_000);
+    set_value(&mut a, "--max-llm-calls", "1");
+    let o = w.run(&a);
+    assert_eq!((code(&o), w.fake.calls_of(&["tree", "approve"]).len()), (6, 0), "{}", stderr(&o));
+}
+
+/// S8, mutant 13: another run on the ledger takes what is left while `apply` runs: `then` is not started. The check before `then`
+/// is not redundant when a ledger is shared.
+#[test]
+fn a_second_run_that_takes_the_rest_of_the_cap_during_apply_stops_the_then_program() {
+    let w = answers_world("obs-then");
+    write_settings(&w, &fixture_settings(&w, 5_000_000));
+    let take = format!(
+        "#!/bin/sh\nprintf '{{\"format\":\"runbook.spend-ledger/1\",\"spent_micro_usd\":5000000,\"reserved\":{{}},\"entries\":[]}}' > {}\n",
+        w.ledger().display()
+    );
+    exe(&w.root.join("bindings/tools/q-apply.sh"), &take);
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 4, "{}", stderr(&o));
+    assert!(!w.run_dir("r1/work/then.log").exists(), "the `then` program was started with nothing left");
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty());
+}
+
+/// S17 (note): a run that names a cap and no ledger counts its spend in the run itself; what the observation booked is in
+/// no record of the run directory but `oracle.json` (`outcome.json` is written before it).
+#[test]
+fn what_an_observation_booked_is_in_the_outcome_of_a_run_without_a_ledger() {
+    let w = observed_world_with_ess("obs-noledger", "");
+    let mut a = w.args("r1", 5_000_000);
+    without(&mut a, "--spend-ledger");
+    a.extend(["--conformance".to_owned(), "observe".to_owned()]);
+    let adapter = w.root.join("conform-adapter.sh");
+    exe(&adapter, "#!/bin/sh\necho '{\"cost_usd\":0.5}'\nexit 1\n");
+    let mut c = w.command(&a);
+    c.env("SDC_CONFORMANCE_ADAPTER", &adapter).env("SDC_CONFORMANCE_TABLES", "1").env("SDC_LLM_EFFORT_CONFORMANCE", "low");
+    let o = c.output().unwrap();
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let doc = oracle(&w);
+    let outcome = w.outcome("r1");
+    assert_eq!(outcome["spent_micro_usd"].as_u64(), Some(200_000 + 1_500_000), "the observation cost {} USD (oracle.json) and outcome.json says {}", doc["conformance"]["table_cost_usd"], outcome["spent_micro_usd"]);
+}
