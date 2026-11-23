@@ -3,8 +3,8 @@
 //! modes and bounds of the copy, and a run the runtime fails on while clients answer.
 
 use super::state::scratch;
-use runbook::commands::{AnswerDecision, Config, Daemon, SubmitRun};
-use runbook::engine::copy::{copy_dirs, digest, Links};
+use runbook::commands::{AnswerDecision, CancelRun, Config, Daemon, SubmitRun};
+use runbook::engine::copy::{copy_dirs, digest, Links, MAX_BYTES, MAX_ENTRIES};
 use runbook::engine::pin::{Pin, COPY_DIR};
 use runbook::engine::Engine;
 use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest, EventSink, Finish, Recovery, Runtime, RuntimeFailure, RunbookInfo, StartRequest};
@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const PIN_FILE: &str = "runbook-pin.json";
@@ -271,6 +271,131 @@ fn pin_load_refuses_a_malformed_pin_and_a_digest_the_copy_does_not_have() {
     assert!(Pin::load(&run).unwrap_err().starts_with("RunbookCopyChanged"));
 }
 
+fn load(run: &Path) -> Result<Option<Pin>, String> {
+    let dir = run.to_path_buf();
+    bounded(5, move || Pin::load(&dir)).expect("Pin::load did not return within 5 s")
+}
+
+fn must_end_as_changed(run: &Path, what: &str, bad: &mut Vec<String>) {
+    match load(run) {
+        Err(e) if e.starts_with("RunbookCopyChanged") && !e.contains(run.to_str().unwrap()) => {}
+        other => bad.push(format!("{what}: {:?}", other.map(|p| p.map(|p| p.runbook)))),
+    }
+}
+
+fn variant(n: &mut u32, what: &str, bad: &mut Vec<String>, edit: impl FnOnce(&Path, &Pin, &str)) {
+    *n += 1;
+    let (_home, run, pin) = taken(&format!("pm{n}"));
+    let good = std::fs::read_to_string(run.join(PIN_FILE)).unwrap();
+    edit(&run, &pin, &good);
+    must_end_as_changed(&run, what, bad);
+}
+
+#[test]
+fn pin_load_ends_every_run_whose_pin_is_not_what_the_submit_wrote() {
+    let mut bad = Vec::new();
+    let mut n = 0u32;
+    let b = &mut bad;
+    variant(&mut n, "pin file stands, the copy is gone", b, |_, pin, _| std::fs::remove_dir_all(&pin.copy).unwrap());
+    variant(&mut n, "pin file stands, the copy is a regular file", b, |_, pin, _| {
+        std::fs::remove_dir_all(&pin.copy).unwrap();
+        std::fs::write(&pin.copy, "x").unwrap();
+    });
+    variant(&mut n, "pin file stands, the copy is a dangling link", b, |_, pin, _| {
+        std::fs::remove_dir_all(&pin.copy).unwrap();
+        std::os::unix::fs::symlink("nowhere", &pin.copy).unwrap();
+    });
+    variant(&mut n, "pin file gone, the copy is a dangling link", b, |run, pin, _| {
+        std::fs::remove_file(run.join(PIN_FILE)).unwrap();
+        std::fs::remove_dir_all(&pin.copy).unwrap();
+        std::os::unix::fs::symlink("nowhere", &pin.copy).unwrap();
+    });
+    variant(&mut n, "no copy, the pin file is a dangling link", b, |run, pin, _| {
+        std::fs::remove_dir_all(&pin.copy).unwrap();
+        std::fs::remove_file(run.join(PIN_FILE)).unwrap();
+        std::os::unix::fs::symlink("nowhere", run.join(PIN_FILE)).unwrap();
+    });
+    variant(&mut n, "the pin file is a link to a regular file in the run", b, |run, _, _| {
+        std::fs::rename(run.join(PIN_FILE), run.join("real.json")).unwrap();
+        std::os::unix::fs::symlink("real.json", run.join(PIN_FILE)).unwrap();
+    });
+    variant(&mut n, "the pin file cannot be read (mode 000)", b, |run, _, _| {
+        std::fs::set_permissions(run.join(PIN_FILE), std::fs::Permissions::from_mode(0o000)).unwrap();
+    });
+    variant(&mut n, "an empty pin file", b, |run, _, _| std::fs::write(run.join(PIN_FILE), "").unwrap());
+    variant(&mut n, "a pin file cut in half", b, |run, _, good| std::fs::write(run.join(PIN_FILE), &good[..good.len() / 2]).unwrap());
+    variant(&mut n, "a pin file of exactly 64 KiB of garbage", b, |run, _, _| std::fs::write(run.join(PIN_FILE), vec![b'x'; 65536]).unwrap());
+    variant(&mut n, "a pin file of 64 KiB and one byte of garbage", b, |run, _, _| std::fs::write(run.join(PIN_FILE), vec![b'x'; 65537]).unwrap());
+    variant(&mut n, "a valid pin file padded to 64 KiB and one byte", b, |run, _, good| {
+        let mut text = good.to_string();
+        while text.len() < 65537 {
+            text.push(' ');
+        }
+        std::fs::write(run.join(PIN_FILE), text).unwrap();
+    });
+    variant(&mut n, "a valid pin file with a NUL after it", b, |run, _, good| std::fs::write(run.join(PIN_FILE), format!("{good}\0")).unwrap());
+    for shape in ["[]", "null", "\"x\"", "123", "{}", "true", "[{\"runbook\":\"demo\"}]"] {
+        variant(&mut n, &format!("valid JSON of the wrong shape {shape}"), b, |run, _, _| std::fs::write(run.join(PIN_FILE), shape).unwrap());
+    }
+    for key in ["runbook", "protocol", "revision", "bindings_sha256", "copy_sha256"] {
+        variant(&mut n, &format!("member {key} removed"), b, |run, _, good| {
+            let mut doc: Value = serde_json::from_str(good).unwrap();
+            doc.as_object_mut().unwrap().remove(key);
+            std::fs::write(run.join(PIN_FILE), doc.to_string()).unwrap();
+        });
+    }
+    for (key, value) in [
+        ("runbook", Value::from(1)),
+        ("protocol", Value::Null),
+        ("revision", Value::from("3")),
+        ("revision", Value::from(3.5)),
+        ("bindings_sha256", Value::from(7)),
+        ("copy_sha256", Value::from(1)),
+        ("copy_sha256", Value::from(vec!["x"])),
+    ] {
+        variant(&mut n, &format!("member {key} of the wrong type {value}"), b, |run, _, good| {
+            let mut doc: Value = serde_json::from_str(good).unwrap();
+            doc[key] = value;
+            std::fs::write(run.join(PIN_FILE), doc.to_string()).unwrap();
+        });
+    }
+    variant(&mut n, "the digest in upper case", b, |run, pin, good| {
+        let upper = pin.copy_sha256.to_uppercase();
+        assert_ne!(upper, pin.copy_sha256, "the digest has no letter");
+        std::fs::write(run.join(PIN_FILE), good.replace(&pin.copy_sha256, &upper)).unwrap();
+    });
+    variant(&mut n, "the digest with a space after it", b, |run, pin, good| {
+        std::fs::write(run.join(PIN_FILE), good.replace(&pin.copy_sha256, &format!("{} ", pin.copy_sha256))).unwrap();
+    });
+    variant(&mut n, "the digest of the bindings given for the copy", b, |run, pin, good| {
+        std::fs::write(run.join(PIN_FILE), good.replace(&pin.copy_sha256, &pin.bindings_sha256)).unwrap();
+    });
+    assert!(bad.is_empty(), "{} variants went on or were not refused as a changed copy:\n{}", bad.len(), bad.join("\n"));
+}
+
+#[test]
+fn pin_load_runs_before_the_unit_and_a_missing_directory_are_no_pin_and_the_size_bound_is_exact() {
+    let run = fresh("pm-before");
+    assert_eq!(Pin::load(&run), Ok(None));
+    assert_eq!(Pin::load(&run.join("not-there")), Ok(None));
+    std::fs::create_dir(run.join("tree")).unwrap();
+    std::fs::write(run.join("tree/manifest"), "x").unwrap();
+    assert_eq!(Pin::load(&run), Ok(None));
+    // A valid pin file padded to exactly 64 KiB is read; one byte more is refused (the bound is the
+    // length, inclusive).
+    let (_home, run, _pin) = taken("pm-size");
+    let good = std::fs::read_to_string(run.join(PIN_FILE)).unwrap();
+    let mut text = good.clone();
+    while text.len() < 65536 {
+        text.push(' ');
+    }
+    std::fs::write(run.join(PIN_FILE), &text).unwrap();
+    assert!(load(&run).is_ok_and(|p| p.is_some()), "a valid pin file of exactly 65536 bytes was refused");
+    text.push(' ');
+    std::fs::write(run.join(PIN_FILE), &text).unwrap();
+    assert!(load(&run).is_err(), "a pin file of 65537 bytes was read");
+}
+
 // ---- invariant 5: the digest's members ----
 
 #[test]
@@ -517,6 +642,192 @@ fn copy_takes_nothing_from_outside_when_a_link_is_put_in_after_the_check() {
     assert!(leaked.is_empty(), "a file outside the home is in the copy (trials {leaked:?}): the link was put in after the check and the copy followed it");
 }
 
+#[test]
+fn a_job_directory_that_is_itself_a_link_out_of_the_home_is_refused_and_nothing_is_written() {
+    for (n, via_dir_link) in [false, true].into_iter().enumerate() {
+        let home = demo_home(&format!("toplink-{n}"));
+        let outside = fresh(&format!("toplink-{n}-outside"));
+        std::fs::create_dir_all(outside.join("d")).unwrap();
+        std::fs::write(outside.join("d/victim.txt"), SECRET).unwrap();
+        std::fs::remove_dir_all(home.join("bindings")).unwrap();
+        let target = if via_dir_link { outside.join("d") } else { outside.clone() };
+        std::os::unix::fs::symlink(&target, home.join("bindings")).unwrap();
+        let out = fresh(&format!("toplink-{n}-out"));
+        let (h, src, dst) = (home.clone(), home.join("bindings"), out.join("bindings"));
+        let d2 = dst.clone();
+        let made = bounded(20, move || copy_dirs(&[(&src, &d2)], Links::Within(&h))).expect("copy_dirs did not return");
+        let reason = made.expect_err("a job directory that links out of the home was copied");
+        assert!(!dst.exists(), "variant {n}: a destination was written for a refused job");
+        assert!(!reason.contains(SECRET), "variant {n}: {reason}");
+    }
+}
+
+fn job(home: &Path, name: &str, files: usize, size: u64) -> PathBuf {
+    let dir = home.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    for n in 0..files {
+        let f = std::fs::File::create(dir.join(format!("f{n:05}"))).unwrap();
+        if size > 0 {
+            f.set_len(size).unwrap();
+        }
+    }
+    dir
+}
+
+fn copy_two(home: &Path, tag: &str) -> (Result<(), String>, PathBuf, PathBuf) {
+    let out = fresh(&format!("{tag}-out"));
+    let (da, db) = (out.join("a"), out.join("b"));
+    let (h, a, b, x, y) = (home.to_path_buf(), home.join("a"), home.join("b"), da.clone(), db.clone());
+    let made = bounded(30, move || copy_dirs(&[(&a, &x), (&b, &y)], Links::Within(&h))).expect("the copy did not return within 30 s");
+    (made, da, db)
+}
+
+#[test]
+fn the_bounds_count_across_all_jobs_and_a_home_at_a_bound_exactly_is_accepted() {
+    let per_job = MAX_ENTRIES / 2 - 1;
+    // Entries: two jobs of a directory and `per_job` files are exactly MAX_ENTRIES.
+    let home = fresh("bound-entries");
+    job(&home, "a", per_job, 0);
+    job(&home, "b", per_job, 0);
+    let (made, da, db) = copy_two(&home, "bound-entries-at");
+    made.unwrap();
+    assert!(da.is_dir() && db.is_dir());
+    job(&home, "b", per_job + 1, 0);
+    let (made, da, db) = copy_two(&home, "bound-entries-over");
+    let reason = made.expect_err("MAX_ENTRIES + 1 entries over two jobs were copied");
+    assert!(!da.exists() && !db.exists(), "a refused copy wrote a destination");
+    assert!(!reason.contains(home.to_str().unwrap()) && !reason.contains("f0"), "the refusal names a path: {reason}");
+    // Bytes: the lengths over two jobs, at the bound and one byte over.
+    let home = fresh("bound-bytes");
+    job(&home, "a", 1, MAX_BYTES / 2);
+    job(&home, "b", 1, MAX_BYTES / 2);
+    let (made, _, _) = copy_two(&home, "bound-bytes-at");
+    made.unwrap();
+    std::fs::File::create(home.join("b/f00000")).unwrap().set_len(MAX_BYTES / 2 + 1).unwrap();
+    let (made, da, db) = copy_two(&home, "bound-bytes-over");
+    let reason = made.expect_err("MAX_BYTES + 1 bytes over two jobs were copied");
+    assert!(!da.exists() && !db.exists(), "a refused copy wrote a destination");
+    assert!(!reason.contains(home.to_str().unwrap()) && !reason.contains("f0"), "the refusal names a path: {reason}");
+    // One file of exactly MAX_BYTES.
+    let home = fresh("bound-bytes-one");
+    job(&home, "a", 1, MAX_BYTES);
+    job(&home, "b", 0, 0);
+    let (made, _, _) = copy_two(&home, "bound-bytes-one-at");
+    made.unwrap();
+}
+
+#[test]
+fn a_directory_nested_exactly_24_levels_is_copied_and_25_is_refused_naming_no_outside_path() {
+    let nest = |levels: usize, tag: &str| {
+        let home = demo_home(tag);
+        let mut deep = home.join("bindings");
+        for _ in 0..levels {
+            deep = deep.join("d");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("f.txt"), "x\n").unwrap();
+        let dst = fresh(&format!("{tag}-dst")).join("bindings");
+        let (h, d) = (home.clone(), dst.clone());
+        let made = bounded(30, move || copy_dirs(&[(&h.join("bindings"), &d)], Links::Within(&h))).unwrap();
+        (made, dst)
+    };
+    let (made, _) = nest(23, "depth-23");
+    made.unwrap();
+    let (made, _) = nest(24, "depth-24");
+    assert!(made.is_ok(), "a directory nested 24 levels below bindings/ was refused: {made:?}");
+    let (made25, dst25) = nest(25, "depth-25");
+    assert!(made25.is_err() && !dst25.exists(), "a directory nested 25 levels was copied");
+    let reason = made25.unwrap_err();
+    assert!(!reason.contains("depth-25"), "the refusal names a path of the home: {reason}");
+}
+
+fn swap_attempt(variant: &str, attempt: u32) -> (Result<(), String>, bool, PathBuf, PathBuf) {
+    let tag = format!("swap-{variant}-{attempt}");
+    let home = fresh(&tag);
+    let outside = fresh(&format!("{tag}-outside"));
+    std::fs::write(outside.join("secret.txt"), SECRET).unwrap();
+    let a = home.join("a");
+    std::fs::create_dir_all(&a).unwrap();
+    for n in 0..3000 {
+        std::fs::write(a.join(format!("f{n:04}.txt")), "x\n").unwrap();
+    }
+    let b = home.join("b");
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(b.join("victim.txt"), "inside\n").unwrap();
+    let out = fresh(&format!("{tag}-out"));
+    let (da, db) = (out.join("a"), out.join("b"));
+    let done = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let (da, home, outside, done, variant) = (da.clone(), home.clone(), outside.clone(), done.clone(), variant.to_string());
+        std::thread::spawn(move || {
+            let limit = Instant::now() + Duration::from_secs(20);
+            while !da.exists() && !done.load(std::sync::atomic::Ordering::SeqCst) && Instant::now() < limit {
+                std::hint::spin_loop();
+            }
+            let victim = home.join("b/victim.txt");
+            let replace = |text: &str| {
+                std::fs::write(home.join("b/new.tmp"), text).unwrap();
+                std::fs::rename(home.join("b/new.tmp"), &victim).unwrap();
+            };
+            match variant.as_str() {
+                "link" => {
+                    std::fs::remove_file(&victim).unwrap();
+                    std::os::unix::fs::symlink(outside.join("secret.txt"), &victim).unwrap();
+                }
+                "longer" => replace("inside, and longer\n"),
+                "shorter" => replace("in\n"),
+                "same-length" => replace("INSIDE\n"),
+                "append" => {
+                    use std::io::Write;
+                    std::fs::OpenOptions::new().append(true).open(&victim).unwrap().write_all(b"more\n").unwrap();
+                }
+                "truncate" => std::fs::write(&victim, "").unwrap(),
+                "dirlink" => {
+                    std::fs::create_dir_all(outside.join("dir")).unwrap();
+                    std::fs::write(outside.join("dir/victim.txt"), SECRET).unwrap();
+                    std::fs::rename(home.join("b"), home.join("b.orig")).unwrap();
+                    std::os::unix::fs::symlink(outside.join("dir"), home.join("b")).unwrap();
+                }
+                other => panic!("{other}"),
+            }
+        })
+    };
+    let (h, x, y, a2, b2) = (home.clone(), da.clone(), db.clone(), a.clone(), b.clone());
+    let made = bounded(60, move || copy_dirs(&[(&a2, &x), (&b2, &y)], Links::Within(&h))).expect("the copy did not return within 60 s");
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    writer.join().unwrap();
+    let leaked = std::fs::read_to_string(db.join("victim.txt")).is_ok_and(|t| t.contains(SECRET));
+    (made, leaked, da, db)
+}
+
+#[test]
+fn a_source_that_is_not_the_file_the_plan_saw_refuses_the_whole_copy_and_leaves_nothing() {
+    let mut bad = Vec::new();
+    for variant in ["link", "longer", "shorter", "same-length", "append", "truncate", "dirlink"] {
+        let mut landed = None;
+        for attempt in 0..8 {
+            let (made, leaked, da, db) = swap_attempt(variant, attempt);
+            if leaked {
+                bad.push(format!("{variant}: a file outside the home is in the copy (attempt {attempt})"));
+                landed = Some(attempt);
+                break;
+            }
+            if made.is_err() {
+                if da.exists() || db.exists() {
+                    bad.push(format!("{variant}: the copy refused and left a destination (attempt {attempt})"));
+                }
+                landed = Some(attempt);
+                break;
+            }
+        }
+        match landed {
+            Some(_) => {}
+            None => bad.push(format!("{variant}: the swap never landed in 8 attempts (inconclusive)")),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:?}");
+}
+
 // ---- invariant 9: `runbook run`'s copy (Links::Keep) as the base made it ----
 
 /// The routine `runbook run` copied its bindings with before the unit (`loom_run/bindings_copy.rs` at 914dffc2), verbatim.
@@ -586,6 +897,22 @@ fn keep_copies_a_directory_nested_deeper_than_24_levels_as_the_base_did() {
     assert!(copied.is_ok(), "`runbook run` copied this directory before the unit and now: {copied:?}");
 }
 
+#[test]
+fn keep_copies_more_entries_and_more_bytes_than_the_daemons_copy_takes_as_the_base_did() {
+    // `docs/engine.md`: `runbook run` has no bound of entries, of bytes or of depth. One entry over the
+    // bound of entries and a sparse file one byte over the bound of bytes are copied as they are.
+    let src = fresh("keep-bounds-src");
+    for n in 0..=MAX_ENTRIES {
+        std::fs::write(src.join(format!("f{n:05}.txt")), "x\n").unwrap();
+    }
+    std::fs::File::create(src.join("big.bin")).unwrap().set_len(MAX_BYTES + 1).unwrap();
+    let head = fresh("keep-bounds-head").join("x");
+    let copied = copy_dirs(&[(&src, &head)], Links::Keep);
+    assert!(copied.is_ok(), "`runbook run` copied this directory before the unit and now: {copied:?}");
+    assert_eq!(count_files(&head), MAX_ENTRIES + 2);
+    assert_eq!(std::fs::metadata(head.join("big.bin")).unwrap().len(), MAX_BYTES + 1);
+}
+
 // ---- the real engine ----
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -636,12 +963,28 @@ impl Real {
         self.d.submit_run(SubmitRun { runbook_id: id.into(), runbook_version: version.map(String::from), intake: "a note on tea".into(), confinement: Some(level), ..SubmitRun::default() }).unwrap()
     }
 
+    fn submit_intake(&self, intake: &str) -> runbook::commands::Outcome {
+        self.d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: intake.into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap()
+    }
+
+    fn submit_demo(&self) -> runbook::commands::Outcome {
+        self.submit_intake("a note on tea")
+    }
+
     fn state_of(&self, run: &str) -> String {
         self.d.run_detail(run)[0]["state"].as_str().unwrap().to_string()
     }
 
     fn row(&self, run: &str) -> Value {
         self.d.run_detail(run)[0].clone()
+    }
+
+    fn over(&self, run: &str) -> bool {
+        matches!(self.state_of(run).as_str(), "Ended" | "Cancelled" | "FailedToStart")
+    }
+
+    fn seen(&self, run: &str) -> String {
+        format!("{} {:?} {:?}", self.row(run), self.d.events_after(run, 0), self.d.decisions_of_run(run))
     }
 
     fn runs_made(&self) -> usize {
@@ -780,6 +1123,109 @@ fn a_refusal_of_the_copy_names_no_path_and_no_byte_from_outside_the_home() {
 }
 
 #[test]
+fn a_refused_submit_leaves_an_empty_run_directory_and_touches_nothing_else() {
+    let rig = Real::new("refused-submit", Confinement::Local);
+    let first = rig.submit_demo().run_id.unwrap();
+    let first_dir = rig.state().join("runs").join(&first);
+    rig.until("the first run's pin file", 40, |_| first_dir.join(PIN_FILE).is_file());
+    let pin_before = std::fs::read(first_dir.join(PIN_FILE)).unwrap();
+    std::fs::write(rig.state().join("runs/decoy.txt"), "decoy").unwrap();
+    let mut bad = Vec::new();
+    let tools = rig.home.join("bindings/tools");
+    // A file the plan sees and the write cannot open: the refusal comes in the write phase, after the
+    // first directory is made.
+    std::fs::write(tools.join("locked.sh"), "x").unwrap();
+    std::fs::set_permissions(tools.join("locked.sh"), std::fs::Permissions::from_mode(0o000)).unwrap();
+    let locked = rig.submit_demo().run_id.unwrap();
+    rig.until("the locked run to be over", 40, |me| me.over(&locked));
+    std::fs::remove_file(tools.join("locked.sh")).unwrap();
+    // A home over the bound of entries.
+    for n in 0..(MAX_ENTRIES + 10) {
+        std::fs::write(tools.join(format!("f{n:05}.txt")), "x\n").unwrap();
+    }
+    let over = rig.submit_demo().run_id.unwrap();
+    rig.until("the over-bound run to be over", 40, |me| me.over(&over));
+    for (what, run) in [("write phase", &locked), ("bound", &over)] {
+        let state = rig.state_of(run);
+        if state != "FailedToStart" {
+            bad.push(format!("{what}: the run is {state}"));
+        }
+        let dir = rig.state().join("runs").join(run);
+        let left: Vec<String> = std::fs::read_dir(&dir).map(|d| d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        if !left.is_empty() {
+            bad.push(format!("{what}: the run directory holds {left:?}"));
+        }
+        let seen = rig.seen(run);
+        if seen.contains(rig.state().to_str().unwrap()) || seen.contains(rig.home.to_str().unwrap()) || seen.contains("locked.sh") || seen.contains("f0000") {
+            bad.push(format!("{what}: the record names a path: {seen}"));
+        }
+    }
+    // The first run's copy, its pin file and the decoy are as they were.
+    assert_eq!(std::fs::read(first_dir.join(PIN_FILE)).unwrap(), pin_before);
+    assert!(first_dir.join(COPY_DIR).join("bindings/engine-demo.yaml").is_file());
+    assert_eq!(std::fs::read_to_string(rig.state().join("runs/decoy.txt")).unwrap(), "decoy");
+    let _ = rig.d.cancel_run(CancelRun { run_id: first.clone() });
+    rig.until("the first run to end", 40, |me| me.over(&first));
+    assert!(bad.is_empty(), "{bad:?}");
+}
+
+#[test]
+fn a_refusal_or_a_failure_at_the_start_names_no_path_of_the_state_directory_or_the_home() {
+    let kinds = ["link-out", "root-bindings-not-yaml", "root-bindings-not-yaml-no-intake", "protocol-not-yaml", "unreadable-tool", "over-the-bound", "too-deep", "child-bindings-missing"];
+    let mut bad = Vec::new();
+    for (n, kind) in kinds.iter().enumerate() {
+        let rig = Real::new(&format!("names-{n}"), Confinement::Local);
+        let outside = fresh(&format!("names-{n}-outside"));
+        std::fs::write(outside.join("secret.txt"), SECRET).unwrap();
+        let tools = rig.home.join("bindings/tools");
+        let mut intake = "a note on tea";
+        match *kind {
+            "link-out" => std::os::unix::fs::symlink(outside.join("secret.txt"), tools.join("leak.sh")).unwrap(),
+            "root-bindings-not-yaml" => std::fs::write(rig.home.join("bindings/engine-demo.yaml"), "a: [unclosed\n").unwrap(),
+            "root-bindings-not-yaml-no-intake" => {
+                std::fs::write(rig.home.join("bindings/engine-demo.yaml"), "a: [unclosed\n").unwrap();
+                intake = "";
+            }
+            "protocol-not-yaml" => std::fs::write(rig.home.join("protocol/zz.protocol.yaml"), "protocol: [unclosed\n").unwrap(),
+            "unreadable-tool" => {
+                std::fs::write(tools.join("locked.sh"), "x").unwrap();
+                std::fs::set_permissions(tools.join("locked.sh"), std::fs::Permissions::from_mode(0o000)).unwrap();
+            }
+            "over-the-bound" => {
+                for i in 0..(MAX_ENTRIES + 10) {
+                    std::fs::write(tools.join(format!("f{i:05}.txt")), "x\n").unwrap();
+                }
+            }
+            "too-deep" => {
+                let mut deep = tools.clone();
+                for _ in 0..30 {
+                    deep = deep.join("d");
+                }
+                std::fs::create_dir_all(&deep).unwrap();
+            }
+            "child-bindings-missing" => std::fs::remove_file(rig.home.join("bindings/engine-draft.yaml")).unwrap(),
+            other => panic!("{other}"),
+        }
+        let o = rig.submit_intake(intake);
+        let seen = if o.is_refusal() {
+            format!("{o:?}")
+        } else {
+            let run = o.run_id.clone().unwrap();
+            rig.until("the run to be over", 40, |me| me.over(&run));
+            rig.seen(&run)
+        };
+        let reason = seen.find("reason").map(|i| seen[i..(i + 260).min(seen.len())].to_string()).unwrap_or_else(|| seen.chars().take(260).collect());
+        if seen.contains(rig.state().to_str().unwrap()) {
+            bad.push(format!("{kind}: names a path of the state directory: {reason}"));
+        } else if seen.contains(rig.home.to_str().unwrap()) {
+            bad.push(format!("{kind}: names a path of the home: {reason}"));
+        }
+        assert!(!seen.contains(SECRET) && !seen.contains(outside.to_str().unwrap()), "{kind}: names something outside: {seen}");
+    }
+    assert!(bad.is_empty(), "{} of {} refusals name a path:\n{}", bad.len(), kinds.len(), bad.join("\n"));
+}
+
+#[test]
 fn below_the_floor_nothing_starts_and_nothing_is_written() {
     let rig = Real::new("floor", Confinement::Linux);
     let o = rig.submit(RUNBOOK, None, Confinement::Local);
@@ -864,10 +1310,12 @@ fn the_pinned_event_is_one_record_of_five_members_before_every_line_of_loom() {
 
 /// A runtime of one run with two open requests. The first answer makes it fail; with `held` it
 /// keeps the failure to itself until `release`, so that a client can answer after the runtime failed
-/// and before the daemon heard of it.
+/// and before the daemon heard of it. A healthy one takes both answers and delivers; `delivered` lists
+/// the requests whose answer the runtime took.
 struct Dying {
     state: Mutex<DyingState>,
     held: bool,
+    fails: bool,
 }
 
 #[derive(Default)]
@@ -875,11 +1323,20 @@ struct DyingState {
     dead: bool,
     first_answered: bool,
     release: bool,
+    delivered: Vec<String>,
 }
 
 impl Dying {
     fn new(held: bool) -> Arc<Dying> {
-        Arc::new(Dying { state: Mutex::new(DyingState::default()), held })
+        Arc::new(Dying { state: Mutex::new(DyingState::default()), held, fails: true })
+    }
+
+    fn healthy() -> Arc<Dying> {
+        Arc::new(Dying { state: Mutex::new(DyingState::default()), held: false, fails: false })
+    }
+
+    fn delivered(&self) -> Vec<String> {
+        self.state.lock().unwrap().delivered.clone()
     }
 
     fn wait_for(&self, what: &str, f: impl Fn(&DyingState) -> bool) {
@@ -917,6 +1374,11 @@ impl Runtime for Dying {
                 options: vec![],
             });
         }
+        if !self.fails {
+            self.wait_for("both answers", |s| s.delivered.len() >= 2);
+            sink.resumed();
+            return Ok(Finish::Outcome("delivered".into()));
+        }
         self.wait_for("the first answer", |s| s.first_answered);
         // The runtime found its copy changed on the first answer: it fails.
         self.state.lock().unwrap().dead = true;
@@ -930,6 +1392,7 @@ impl Runtime for Dying {
         if st.dead {
             return Err(AnswerFailure::UnknownRun);
         }
+        st.delivered.push(request_id.to_string());
         if request_id.ends_with("-a") {
             st.first_answered = true;
         }
@@ -1039,6 +1502,152 @@ fn an_answer_after_the_runtime_has_failed_is_refused_and_leaves_no_record_of_an_
     d.stop();
 }
 
+fn answer_by(d: &Daemon, run: &str, which: &str, who: &str) -> runbook::commands::Outcome {
+    d.answer_decision(AnswerDecision { run_id: run.into(), request_id: format!("{run}-{which}"), answer: "approve".into(), answered_by: who.into() }).unwrap()
+}
+
+fn ended(d: &Daemon, run: &str) {
+    let limit = Instant::now() + Duration::from_secs(10);
+    while d.run_detail(run)[0]["state"] != "Ended" && Instant::now() < limit {
+        std::thread::yield_now();
+    }
+}
+
+fn decision(d: &Daemon, run: &str, which: &str) -> Value {
+    d.decisions_of_run(run).into_iter().find(|x| x["request_id"] == format!("{run}-{which}")).unwrap()
+}
+
+#[test]
+fn a_late_answer_is_refused_whoever_sends_it_and_leaves_no_acceptance_and_no_record() {
+    let runtime = Dying::new(true);
+    let d = dying_daemon("late", &runtime);
+    let run = submit_waiting(&d);
+    assert_eq!(answer_by(&d, &run, "a", "alice").name, "answered");
+    runtime.wait_for("the runtime to fail", |s| s.dead);
+    for who in ["bob", "alice", "agent:test-daemon"] {
+        let late = answer_by(&d, &run, "b", who);
+        assert!(late.is_refusal() && late.name == "run-not-waiting", "{who}: {late:?}");
+    }
+    let again_a = answer_by(&d, &run, "a", "bob");
+    assert!(again_a.is_refusal() && again_a.name == "already-answered", "{again_a:?}");
+    let unknown = d.answer_decision(AnswerDecision { run_id: run.clone(), request_id: "nope".into(), answer: "approve".into(), answered_by: "x".into() }).unwrap();
+    assert!(unknown.is_refusal() && unknown.name == "no-request", "{unknown:?}");
+    let b = decision(&d, &run, "b");
+    assert_eq!(b["state"], "Open", "{b}");
+    assert!(b.get("answer").is_none() && b.get("answered_by").is_none() && b.get("principal").is_none(), "an acceptance is on the record: {b}");
+    runtime.state.lock().unwrap().release = true;
+    ended(&d, &run);
+    assert_eq!(d.run_detail(&run)[0]["outcome"], "runtime-failure");
+    let b = decision(&d, &run, "b");
+    assert_eq!(b["state"], "Withdrawn", "{b}");
+    assert!(b.get("answer").is_none() && b.get("principal").is_none(), "an acceptance is on the record: {b}");
+    let kinds: Vec<String> = d.events_after(&run, 0).iter().map(|e| e["kind"].as_str().unwrap().to_string()).collect();
+    assert_eq!(kinds.iter().filter(|k| *k == "runbook.runtime-failed").count(), 1, "{kinds:?}");
+    assert_eq!(kinds.iter().filter(|k| *k == "runbook.answer-undeliverable").count(), 0, "{kinds:?}");
+    assert!(d.open_decisions_of_run(&run).is_empty());
+    assert_eq!(runtime.delivered(), vec![format!("{run}-a")]);
+    let after = answer_by(&d, &run, "b", "bob");
+    assert!(after.is_refusal() && after.name == "withdrawn", "an answer after the end: {after:?}");
+    let after_a = answer_by(&d, &run, "a", "bob");
+    assert!(after_a.is_refusal() && after_a.name == "already-answered", "{after_a:?}");
+    d.stop();
+}
+
+#[test]
+fn a_healthy_waiting_run_takes_both_answers_and_a_second_answer_is_refused() {
+    let runtime = Dying::healthy();
+    let d = dying_daemon("healthy", &runtime);
+    let run = submit_waiting(&d);
+    let a = answer_by(&d, &run, "a", "alice");
+    let again = answer_by(&d, &run, "a", "bob");
+    let b = answer_by(&d, &run, "b", "carol");
+    assert_eq!((a.name, b.name), ("answered", "answered"), "{a:?} {b:?}");
+    assert!(again.is_refusal() && again.name == "already-answered", "{again:?}");
+    ended(&d, &run);
+    assert_eq!(d.run_detail(&run)[0]["outcome"], "delivered");
+    for which in ["a", "b"] {
+        let x = decision(&d, &run, which);
+        assert_eq!(x["state"], "Answered", "{x}");
+        assert_eq!(x["principal"], super::PRINCIPAL, "{x}");
+    }
+    assert_eq!(runtime.delivered().len(), 2);
+    d.stop();
+}
+
+#[test]
+fn two_hundred_races_accept_no_answer_the_runtime_did_not_take() {
+    let runtime = Dying::new(false);
+    let d = dying_daemon("race-200", &runtime);
+    let mut problems = Vec::new();
+    for i in 0..200u64 {
+        let run = submit_waiting(&d);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let second = {
+            let (d, run, barrier) = (d.clone(), run.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                barrier.wait();
+                let until = Instant::now() + Duration::from_micros(i * 10);
+                while Instant::now() < until {
+                    std::hint::spin_loop();
+                }
+                answer_by(&d, &run, "b", "bob")
+            })
+        };
+        barrier.wait();
+        let first = answer_by(&d, &run, "a", "alice");
+        let second = second.join().unwrap();
+        ended(&d, &run);
+        let row = d.run_detail(&run)[0].clone();
+        if row["state"] != "Ended" || row["outcome"] != "runtime-failure" {
+            problems.push(format!("run {i}: {row}"));
+        }
+        let events = d.events_after(&run, 0);
+        let count = |kind: &str| events.iter().filter(|e| e["kind"] == kind).count();
+        if count("runbook.runtime-failed") != 1 || count("runbook.answer-undeliverable") != 0 {
+            problems.push(format!("run {i}: {} runtime-failed, {} answer-undeliverable", count("runbook.runtime-failed"), count("runbook.answer-undeliverable")));
+        }
+        if !d.open_decisions_of_run(&run).is_empty() {
+            problems.push(format!("run {i}: a request is still open"));
+        }
+        for (which, o) in [("a", &first), ("b", &second)] {
+            let accepted = o.name == "answered";
+            if !accepted && !o.is_refusal() {
+                problems.push(format!("run {i}: answer {which}: {o:?}"));
+            }
+            let state = decision(&d, &run, which)["state"].clone();
+            if accepted != (state == "Answered") {
+                problems.push(format!("run {i}: answer {which} {} but the decision is {state}", o.name));
+            }
+        }
+    }
+    d.stop();
+    assert!(problems.is_empty(), "{} problems: {:?}", problems.len(), &problems[..problems.len().min(8)]);
+}
+
+#[test]
+fn an_answer_the_daemon_cannot_record_is_not_delivered_to_the_run() {
+    let runtime = Dying::healthy();
+    let dir = fresh("unrecordable");
+    let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![], runbook_dir: None, principal: super::PRINCIPAL.into() };
+    let d = Daemon::start(cfg, runtime.clone()).unwrap();
+    let run = submit_waiting(&d);
+    let size = std::fs::metadata(dir.join("state/journal.jsonl")).unwrap().len();
+    // The journal cannot grow by a line: the file-size limit of the process is a few bytes above it.
+    unsafe {
+        libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+        let limit = libc::rlimit { rlim_cur: size + 5, rlim_max: libc::RLIM_INFINITY };
+        assert_eq!(libc::setrlimit(libc::RLIMIT_FSIZE, &limit), 0);
+    }
+    let answered = d.answer_decision(AnswerDecision { run_id: run.clone(), request_id: format!("{run}-a"), answer: "approve".into(), answered_by: "alice".into() });
+    unsafe {
+        let limit = libc::rlimit { rlim_cur: libc::RLIM_INFINITY, rlim_max: libc::RLIM_INFINITY };
+        assert_eq!(libc::setrlimit(libc::RLIMIT_FSIZE, &limit), 0);
+    }
+    assert!(answered.is_err(), "the answer was recorded although the journal could not grow: {answered:?}");
+    assert!(runtime.delivered().is_empty(), "the client was told the answer failed, and the run took it: delivered {:?}", runtime.delivered());
+    d.stop();
+}
+
 // ---- the run's directory ----
 
 #[test]
@@ -1059,6 +1668,86 @@ fn a_run_directory_and_its_copy_are_private_to_the_daemons_user() {
     }
     rig.settle(&run);
     assert_eq!(rig.row(&run)["outcome"], "delivered", "{}", rig.row(&run));
+}
+
+struct Umask(libc::mode_t);
+
+impl Umask {
+    fn set(mask: libc::mode_t) -> Umask {
+        Umask(unsafe { libc::umask(mask) })
+    }
+}
+
+impl Drop for Umask {
+    fn drop(&mut self) {
+        unsafe { libc::umask(self.0) };
+    }
+}
+
+fn modes_of(dir: &Path, out: &mut Vec<(String, bool, u32)>, base: &Path) {
+    for e in std::fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        let m = std::fs::symlink_metadata(&p).unwrap();
+        let rel = p.strip_prefix(base).unwrap().display().to_string();
+        assert!(!m.file_type().is_symlink(), "{rel} is a link");
+        out.push((rel, m.is_dir(), m.permissions().mode() & 0o7777));
+        if m.is_dir() {
+            modes_of(&p, out, base);
+        }
+    }
+}
+
+#[test]
+fn the_copy_and_the_run_directory_are_private_under_every_umask_and_no_special_bit_survives() {
+    let mut bad = Vec::new();
+    for (n, mask) in [0o000u32, 0o022, 0o077].into_iter().enumerate() {
+        let _umask = Umask::set(mask);
+        let rig = Real::new(&format!("umask-{n}"), Confinement::Local);
+        let tools = rig.home.join("bindings/tools");
+        let sources: [(&str, u32, u32); 6] = [("a.yaml", 0o666, 0o600), ("b.sh", 0o777, 0o700), ("c.sh", 0o2755, 0o700), ("d.yaml", 0o1644, 0o600), ("e.sh", 0o4711, 0o700), ("f.yaml", 0o444, 0o600)];
+        for (name, mode, _) in sources {
+            std::fs::write(tools.join(name), "x\n").unwrap();
+            std::fs::set_permissions(tools.join(name), std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        for (name, mode) in [("sub1", 0o2777u32), ("sub2", 0o1777), ("sub3", 0o777)] {
+            std::fs::create_dir_all(rig.home.join("bindings").join(name)).unwrap();
+            std::fs::set_permissions(rig.home.join("bindings").join(name), std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        let run = rig.submit_demo().run_id.unwrap();
+        let run_dir = rig.state().join("runs").join(&run);
+        rig.until("the pin file", 40, |_| run_dir.join(PIN_FILE).is_file());
+        assert!(run_dir.is_dir() && run_dir.join(PIN_FILE).is_file(), "umask {mask:o}: run dir {} pin {}; record: {}", run_dir.is_dir(), run_dir.join(PIN_FILE).is_file(), rig.seen(&run));
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+        if mode(&run_dir) != 0o700 {
+            bad.push(format!("umask {mask:o}: runs/<run> is {:o}", mode(&run_dir)));
+        }
+        if mode(&run_dir.join(PIN_FILE)) != 0o600 {
+            bad.push(format!("umask {mask:o}: the pin file is {:o}", mode(&run_dir.join(PIN_FILE))));
+        }
+        let copy = run_dir.join(COPY_DIR);
+        assert!(copy.is_dir(), "umask {mask:o}: no copy; record: {}", rig.seen(&run));
+        let mut all = vec![(String::new(), true, mode(&copy))];
+        modes_of(&copy, &mut all, &copy);
+        for (rel, is_dir, m) in &all {
+            if *is_dir && *m != 0o700 {
+                bad.push(format!("umask {mask:o}: directory {rel:?} is {m:o}"));
+            }
+            if !*is_dir && *m != 0o600 && *m != 0o700 {
+                bad.push(format!("umask {mask:o}: file {rel:?} is {m:o}"));
+            }
+        }
+        for (name, _, want) in sources {
+            let at = copy.join("bindings/tools").join(name);
+            assert!(at.exists(), "umask {mask:o}: {name} missing from the copy; tools holds {:?}; home tools holds {:?}; record: {}", std::fs::read_dir(copy.join("bindings/tools")).map(|r| r.map(|e| e.unwrap().file_name()).collect::<Vec<_>>()), std::fs::read_dir(&tools).map(|r| r.map(|e| e.unwrap().file_name()).collect::<Vec<_>>()), rig.seen(&run));
+            let got = mode(&at);
+            if got != want {
+                bad.push(format!("umask {mask:o}: {name} is {got:o}, not {want:o}"));
+            }
+        }
+        let _ = rig.d.cancel_run(CancelRun { run_id: run.clone() });
+        rig.until("the run to end", 40, |me| me.over(&run));
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
 }
 
 /// The engine as the daemon's runtime, with a hook on the run's log lines: when the root case of the run
@@ -1125,4 +1814,121 @@ fn a_copy_changed_after_the_last_round_ends_the_run_and_is_not_delivered() {
     let failed: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").collect();
     assert_eq!(failed.len(), 1, "{failed:?}");
     assert!(failed[0]["record"]["reason"].as_str().is_some_and(|r| r.starts_with("RunbookCopyChanged")), "{failed:?}");
+}
+
+struct AnswersAtTheEnd {
+    engine: Arc<Engine>,
+    daemon: Arc<OnceLock<Daemon>>,
+    tried: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+struct AnsweringSink<'a> {
+    inner: &'a dyn EventSink,
+    copy: PathBuf,
+    run: String,
+    daemon: Arc<OnceLock<Daemon>>,
+    tried: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl EventSink for AnsweringSink<'_> {
+    fn started(&self) {
+        self.inner.started()
+    }
+    fn record(&self, kind: &str, record: Value) {
+        let last = kind == "Terminated" && record["reason"] == "delivered";
+        self.inner.record(kind, record);
+        if last {
+            std::fs::write(self.copy.join("bindings/tools/added-after-the-last-round.txt"), "x\n").unwrap();
+            let d = self.daemon.get().unwrap();
+            for x in d.decisions_of_run(&self.run) {
+                let id = x["request_id"].as_str().unwrap().to_string();
+                let o = d.answer_decision(AnswerDecision { run_id: self.run.clone(), request_id: id.clone(), answer: "approve".into(), answered_by: "late".into() }).unwrap();
+                self.tried.lock().unwrap().push((id, if o.is_refusal() { o.name.to_string() } else { format!("ACCEPTED {}", o.name) }));
+            }
+        }
+    }
+    fn decision_requested(&self, request: DecisionRequest) {
+        self.inner.decision_requested(request)
+    }
+    fn resumed(&self) {
+        self.inner.resumed()
+    }
+}
+
+impl Runtime for AnswersAtTheEnd {
+    fn recover(&self, run_id: &str) -> Recovery {
+        self.engine.recover(run_id)
+    }
+    fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
+        self.engine.knows_runbook(runbook, version)
+    }
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        self.engine.runbooks()
+    }
+    fn kind(&self) -> &'static str {
+        self.engine.kind()
+    }
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        let hooked = AnsweringSink { inner: sink, copy: request.state_dir.join(COPY_DIR), run: request.run_id.clone(), daemon: self.daemon.clone(), tried: self.tried.clone() };
+        self.engine.start(request, &hooked, cancel)
+    }
+    fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {
+        self.engine.answer(run_id, request_id, answer, principal)
+    }
+    fn cancel(&self, run_id: &str) {
+        self.engine.cancel(run_id)
+    }
+}
+
+#[test]
+fn an_answer_while_the_last_check_runs_is_refused_and_the_copy_changed_at_the_end_is_not_delivered() {
+    let (cell, tried) = (Arc::new(OnceLock::new()), Arc::new(Mutex::new(Vec::new())));
+    let (c2, t2) = (cell.clone(), tried.clone());
+    let rig = Real::with("last-check", Confinement::Local, move |engine| Arc::new(AnswersAtTheEnd { engine, daemon: c2, tried: t2 }));
+    cell.set(rig.d.clone()).ok();
+    let run = rig.submit_demo().run_id.unwrap();
+    rig.settle(&run);
+    let row = rig.row(&run);
+    assert_eq!(row["outcome"], "runtime-failure", "{row}");
+    let tried = tried.lock().unwrap().clone();
+    assert!(!tried.is_empty(), "the hook made no attempt");
+    assert!(tried.iter().all(|(_, name)| !name.starts_with("ACCEPTED")), "an answer was accepted while the last check ran: {tried:?}");
+    let failed: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+}
+
+#[test]
+fn no_hook_that_changes_a_copy_or_a_run_is_reachable_from_the_product() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut hits = Vec::new();
+    fn walk(dir: &Path, hits: &mut Vec<String>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, hits);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                let text = std::fs::read_to_string(&p).unwrap();
+                for (n, line) in text.lines().enumerate() {
+                    let low = line.to_lowercase();
+                    if (low.contains("hook") || low.contains("added-after") || low.contains("env::var(\"runbook_test") || low.contains("cfg(feature")) && !line.trim_start().starts_with("//") {
+                        hits.push(format!("{}:{}: {}", p.display(), n + 1, line.trim()));
+                    }
+                }
+            }
+        }
+    }
+    walk(&src, &mut hits);
+    assert!(hits.is_empty(), "{hits:#?}");
+}
+
+#[test]
+fn no_record_of_a_run_names_a_path_into_the_runs_directory() {
+    let rig = Real::new("records", Confinement::Local);
+    let run = rig.submit_demo().run_id.unwrap();
+    rig.settle(&run);
+    assert_eq!(rig.row(&run)["outcome"], "delivered", "{}", rig.row(&run));
+    let seen = rig.seen(&run);
+    let runs = rig.state().join("runs");
+    assert!(!seen.contains(runs.to_str().unwrap()), "a record names a path under the runs directory");
+    assert!(!seen.contains(rig.home.to_str().unwrap()), "a record names a path of the home");
 }
