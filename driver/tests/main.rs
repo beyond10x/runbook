@@ -22,4 +22,5 @@ mod run_metrics;
 mod run_timeline;
 mod runtime_block;
 mod sdc_node;
+mod settings_record_text;
 mod unreferenced;
