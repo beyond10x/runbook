@@ -155,7 +155,11 @@ files by the binding itself: every `program` binding states `exits.error`, `[75,
 and `exits` is on no other executor. A binding that lacks it gets one named line
 (`bindings/<file> <action>: exits.error is [], want [75,126,127]`); the line a user adds to its program
 binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
-the root, and a file that is no mapping with an `actions` list by one line that names the file. A copy of
+the root. A file of no bytes (`the file is empty`), a file that is no mapping with an `actions` list, an
+entry of `actions` that is no mapping or has no `action` name, and an `executor` that is no mapping or an
+`executor.argv` that is no list are each refused by one line that names the file (and the action where
+there is one), exit 1; the other files are still checked. Text that is no YAML ends the check with the
+message of `yq`, which names the file. A copy of
 this repository's bindings elsewhere is this repository only while it holds one of the three named files.
 That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.

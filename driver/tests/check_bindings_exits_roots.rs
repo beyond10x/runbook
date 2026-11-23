@@ -48,13 +48,14 @@ fn a_copy_of_this_repositorys_bindings_without_the_three_named_files_is_another_
 }
 
 #[test]
-fn a_copy_of_this_repositorys_bindings_with_the_three_named_files_empty_is_another_runbook() {
+fn a_copy_of_this_repositorys_bindings_with_the_three_named_files_empty_is_another_runbook_with_three_empty_files() {
     let root = own_bindings("own-three-empty", |f| POOL_FILES.contains(&f));
     for f in POOL_FILES {
         fs::write(root.join("bindings").join(f), "").unwrap();
     }
     let (code, out, err) = run(&root);
-    assert_eq!((code, out.as_str()), (Some(0), "pass exits\n"), "{err}");
+    let want: String = ["sdc-bugfix.yaml", "sdc-release.yaml", "sdc-story.yaml"].iter().map(|f| format!("  bindings/{f}: the file is empty\n")).collect();
+    assert_eq!((code, out.as_str()), (Some(1), format!("FAIL exits\n{want}").as_str()), "{err}");
     assert!(!out.contains("build pool"), "{out}\n{err}");
 }
 

@@ -39,15 +39,35 @@ done
 if [[ ${#binding_files[@]} -eq 0 ]]; then
   exit_findings="$sdc: no bindings/*.yaml"
 else
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actions? // null)}' bindings/*.yaml | jq -rn '
+# A file of no bytes (or with no yq output) is told as {"empty": true}. Text
+# that is no YAML ends the script with yq's message, which names the file.
+exit_findings=$(cd "$sdc" && {
+  for f in "${binding_files[@]}"; do
+    rel=bindings/${f##*/}
+    doc=
+    if [[ -s $f ]]; then doc=$(yq -o=json -I=0 '{"actions": (.actions? // null)}' "$rel") || exit 1; fi
+    [[ -n $doc ]] || doc='{"empty": true}'
+    printf "%s\n" "$doc" | jq -c --arg f "$rel" '.f = $f'
+  done
+} | jq -rn '
+  def xe: (.executor // {});
+  def okaction: type == "object" and ((.action | type) == "string") and ((xe | type) == "object") and (((xe.argv // []) | type) == "array");
+  def badaction($f):
+    if type != "object" then "\($f): an entry of actions is not a mapping"
+    elif (.action | type) != "string" then "\($f): an entry of actions has no action name"
+    elif (xe | type) != "object" then "\($f) \(.action): executor is not a mapping"
+    elif ((xe.argv // []) | type) != "array" then "\($f) \(.action): executor.argv is not a list"
+    else empty end;
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
   | [inputs] as $all
-  | ([$all[] | select((.actions | type) == "array")]) as $docs
+  | ([$all[] | select((.actions | type) == "array") | .actions |= map(select(okaction))]) as $docs
   | ([$pools[] | split(":")[0]] | unique) as $poolfiles
   | ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null)) as $own
   | (if $own then $pools else [] end) as $pools
-  | ($all[] | select((.actions | type) != "array") | "\(.f): not a bindings file, it is no mapping with an actions list"),
+  | ($all[] | select(.empty == true) | "\(.f): the file is empty"),
+  ($all[] | select(.empty != true and (.actions | type) != "array") | "\(.f): not a bindings file, it is no mapping with an actions list"),
+  ($all[] | select((.actions | type) == "array") | .f as $f | .actions[] | badaction($f)),
   ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
      | "\(.): a binding that waits for the build pool is not in bindings/"),
   ($docs[]

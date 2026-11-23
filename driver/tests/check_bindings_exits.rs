@@ -185,6 +185,41 @@ fn a_root_with_a_space_or_a_glob_character_in_its_path_is_read() {
     }
 }
 
+const GOOD: &str = "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n";
+
+#[test]
+fn an_empty_file_is_refused_by_one_line_naming_it_alone_and_beside_others() {
+    for (name, beside) in [("empty-alone", false), ("empty-beside", true)] {
+        let root = root_in(name);
+        fs::write(root.join("bindings/empty.yaml"), "").unwrap();
+        if beside {
+            fs::write(root.join("bindings/good.yaml"), GOOD).unwrap();
+        }
+        let o = run_exits(&root);
+        let (out, err) = said(&o);
+        assert_eq!((o.status.code(), out.as_str()), (Some(1), "FAIL exits\n  bindings/empty.yaml: the file is empty\n"), "{name}: {err}");
+    }
+}
+
+#[test]
+fn an_entry_or_a_member_of_the_wrong_type_is_refused_by_one_line_naming_the_file_and_the_action() {
+    let shapes = [
+        ("number", "  - 1\n", "bindings/bad.yaml: an entry of actions is not a mapping"),
+        ("null", "  - null\n", "bindings/bad.yaml: an entry of actions is not a mapping"),
+        ("no-name", "  - {executor: {kind: program}}\n", "bindings/bad.yaml: an entry of actions has no action name"),
+        ("executor-string", "  - action: b.two\n    executor: nope\n", "bindings/bad.yaml b.two: executor is not a mapping"),
+        ("argv-string", "  - action: b.two\n    executor: {kind: program, argv: nope}\n", "bindings/bad.yaml b.two: executor.argv is not a list"),
+    ];
+    for (name, bad, line) in shapes {
+        let root = root_in(&format!("shape-{name}"));
+        fs::write(root.join("bindings/good.yaml"), GOOD).unwrap();
+        fs::write(root.join("bindings/bad.yaml"), format!("format: loom.bindings/1\nactions:\n{bad}")).unwrap();
+        let o = run_exits(&root);
+        let (out, err) = said(&o);
+        assert_eq!((o.status.code(), out.as_str()), (Some(1), format!("FAIL exits\n  {line}\n").as_str()), "{name}: {err}");
+    }
+}
+
 const POOL_FILES: [&str; 3] = ["sdc-story.yaml", "sdc-release.yaml", "sdc-bugfix.yaml"];
 
 #[test]
@@ -224,10 +259,11 @@ fn a_tree_that_holds_a_copy_of_the_script_and_none_of_the_named_files_is_another
 }
 
 #[test]
-fn a_tree_that_holds_a_copy_of_the_script_and_the_named_files_emptied_is_another_runbook() {
+fn a_tree_that_holds_a_copy_of_the_script_and_the_named_files_emptied_is_another_runbook_with_three_empty_files() {
     let o = script_tree("script-tree-emptied", |dir, f| fs::write(dir.join(f), "").unwrap());
     let (out, err) = said(&o);
-    assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{err}");
+    let want: String = ["sdc-bugfix.yaml", "sdc-release.yaml", "sdc-story.yaml"].iter().map(|f| format!("  bindings/{f}: the file is empty\n")).collect();
+    assert_eq!((o.status.code(), out.as_str()), (Some(1), format!("FAIL exits\n{want}").as_str()), "{err}");
 }
 
 /// The full check, cut before its cargo steps (at the registrations), over a tree that has the compiled protocol and
