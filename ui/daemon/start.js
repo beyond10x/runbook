@@ -12,6 +12,8 @@
 // This file is served by the daemon only: the inspector (ui/server.mjs) has no such file and no start form.
 
 const PATH = '/daemon/commands/submit-run';
+const RUNBOOKS = '/daemon/views/runbooks';
+const CONFIGURATION = '/daemon/views/configuration';
 const LEVELS = ['local', 'linux'];
 // T.needs: does the daemon want a token (null: not asked yet). T.token: the token the person gave, in memory.
 const T = {needs: null, token: null, busy: false, floor: null, rows: [], msg: null};
@@ -48,16 +50,16 @@ function freshKey() {
   return `page-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
-async function rowsOf(view, init) {
-  const r = await fetch(`/daemon/views/${view}`, init);
-  if (!r.ok) throw new Error(`${view}: ${r.status}`);
+async function rowsOf(path, init) {
+  const r = await fetch(path, init);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return (await r.json()).rows;
 }
 
 // Whether the daemon wants a token: a read without credentials is answered 401 by a daemon that has one.
 async function probe() {
   if (T.needs !== null) return;
-  try { T.needs = (await fetch('/daemon/views/configuration', {credentials: 'omit'})).status === 401; } catch { T.needs = false; }
+  try { T.needs = (await fetch(CONFIGURATION, {credentials: 'omit'})).status === 401; } catch { T.needs = false; }
 }
 
 const say = (ok, text) => { T.msg = text ? {ok, text} : null; paint(); };
@@ -75,7 +77,7 @@ function note() {
 }
 
 // Called whenever the form's data changed: it rewrites what the data decides and leaves what the person typed.
-function paint() {
+function paint(preset = false) {
   if (!dlg) return;
   const pick = $('st-runbook');
   const had = pick.value;
@@ -85,7 +87,7 @@ function paint() {
   const was = level.value;
   const offered = levels();
   level.replaceChildren(...offered.map((l) => h('option', {value: l, text: l})));
-  level.value = offered.includes(was) ? was : offered[0];
+  level.value = !preset && offered.includes(was) ? was : offered[0];
   $('st-tokenrow').hidden = !(T.needs && T.token === null);
   $('st-note').textContent = note();
   const msg = $('st-msg');
@@ -149,9 +151,9 @@ async function open() {
   dlg.showModal();
   paint();
   await probe();
-  try { T.floor = (await rowsOf('configuration'))[0]?.confinement_floor ?? null; } catch { T.floor = null; }
-  try { T.rows = await rowsOf('runbooks'); } catch (e) { T.rows = []; T.msg = {ok: false, text: `The list of runbooks could not be read: ${e.message}`}; }
-  paint();
+  try { T.floor = (await rowsOf(CONFIGURATION))[0]?.confinement_floor ?? null; } catch { T.floor = null; }
+  try { T.rows = await rowsOf(RUNBOOKS); } catch (e) { T.rows = []; T.msg = {ok: false, text: `The list of runbooks could not be read: ${e.message}`}; }
+  paint(true);
   $('st-intake').focus();
 }
 

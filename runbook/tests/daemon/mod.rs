@@ -20,3 +20,4 @@ mod ui_decide;
 mod ui_decide_review;
 mod principal;
 mod runbooks_view;
+mod ui_start;

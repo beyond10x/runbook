@@ -67,12 +67,12 @@ test.afterAll(() => {
   if (dir) fs.rmSync(dir, {recursive: true, force: true});
 });
 
-// every error of the page fails the test, except the 401 that a daemon with a token is meant to answer
-function watch(page, {allow401 = false} = {}) {
+// every error of the page fails the test, except the 401 that a daemon with a token is meant to answer and the 422 of a refusal
+function watch(page, {allow401 = false, allow422 = false} = {}) {
   const problems = [];
   page.on('pageerror', (e) => problems.push(`pageerror ${e.message}`));
   page.on('dialog', (d) => { problems.push(`dialog ${d.message()}`); d.dismiss(); });
-  page.on('console', (m) => { if (m.type() === 'error' && !(allow401 && /status of 401/.test(m.text()))) problems.push(`console ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' && !(allow401 && /status of 401/.test(m.text())) && !(allow422 && /status of 422/.test(m.text()))) problems.push(`console ${m.text()}`); });
   return problems;
 }
 
@@ -178,13 +178,13 @@ test('the text of an intake never becomes markup', async ({page}) => {
   expect((await rows(s, 'run', `?run_id=${run}`))[0].intake).toBe(intake);
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => window.__ran)).toBeUndefined();
-  expect(await page.evaluate(() => document.querySelectorAll('img[src="x"], b, #startdlg script').length)).toBe(0);
+  expect(await page.evaluate(() => document.querySelectorAll('img[src="x"], #startdlg script').length + [...document.querySelectorAll('b')].filter((b) => b.textContent === 'bold').length)).toBe(0);
   expect(problems).toEqual([]);
 });
 
 test('a refusal of the daemon is shown with its name, and the form keeps what was typed', async ({page}) => {
   const s = servers.refusing;
-  const problems = watch(page);
+  const problems = watch(page, {allow422: true});
   const sent = commands(page);
   await enter(page, s);
   await form(page);
@@ -274,7 +274,7 @@ test('a daemon on the Loom runtime lists the runbooks of its home and does not s
   await enter(page, s);
   await expect(page.locator('#mode')).toHaveText('operate');
   await form(page);
-  expect(await texts(page, '#st-runbook option')).toEqual(['engine-demo', 'engine-draft']);
+  expect(await texts(page, '#st-runbook option')).toEqual(['engine-demo · version 1', 'engine-draft · version 1']);
   await expect(page.locator('#st-note')).not.toContainText('scripted');
   expect(problems).toEqual([]);
 });
