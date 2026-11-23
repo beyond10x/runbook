@@ -98,12 +98,17 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()));
     }
-    // A run with a model node needs the ledger: refused here, before anything is written. The
-    // opening decides again on the run's copy and that decision is the one that counts.
-    if args.spend_ledger.is_none() {
-        if let ModelNode::With { because } = model_node::decide(args, &settings_value, &*decider, &args.bindings) {
-            return Err(ledger_required(&because));
+    // A run with a model node needs the ledger, and a run without one needs its caps where a bound
+    // program has a network: refused here, before anything is written. The opening decides again on
+    // the run's copy and that decision is the one that counts.
+    match model_node::decide(args, &settings_value, &*decider, &args.bindings) {
+        ModelNode::With { because } if args.spend_ledger.is_none() => return Err(ledger_required(&because)),
+        ModelNode::Capped { level } => {
+            if let Some(missing) = caps_missing(args) {
+                return Err(caps_required(&level, &missing));
+            }
         }
+        _ => {}
     }
     if run_dir.exists() {
         return Err(format!("the run directory {} exists", run_dir.display()));
@@ -176,6 +181,31 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::replay::seal(args, &run_dir);
     crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &runner.node);
     Ok(outcome)
+}
+
+/// What a run that needs its caps lacks: `None` when it has all three.
+fn caps_missing(args: &Args) -> Option<String> {
+    let mut missing: Vec<&str> = Vec::new();
+    if args.spend_ledger.is_none() {
+        missing.push("--spend-ledger");
+    }
+    if args.cap_micro_usd == 0 {
+        missing.push("--cap-micro-usd above 0");
+    }
+    if args.max_llm_calls == 0 {
+        missing.push("--max-llm-calls above 0");
+    }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(missing.join(", "))
+    }
+}
+
+/// The refusal of a run without a model node, under a level that leaves a bound program the network,
+/// that lacks a cap.
+fn caps_required(level: &str, missing: &str) -> String {
+    format!("--confinement {level} gives a bound program the network: a run without a model node needs caps under it, and this run lacks {missing}; give --cap-micro-usd, --max-llm-calls (both above 0) and --spend-ledger, or run under a confinement that takes the network from bound programs (substrate)")
 }
 
 /// The refusal of a run that has a model node and names no `--spend-ledger`.
@@ -326,9 +356,11 @@ impl Runner<'_> {
         // holds; without one nothing is counted, reserved or opened.
         self.node = model_node::decide(self.args, &self.settings, &*self.decider, &self.bindings_dir);
         self.emit(Event::ModelNodeDecided { has_model_node: self.node.has_model_node(), because: self.node.because() })?;
-        if self.node.is_with() {
+        if self.node.caps_apply() {
             let path = self.args.spend_ledger.as_deref().ok_or_else(|| ledger_required(&self.node.because()))?;
             self.ledger = Some(Ledger::open(path)?);
+        }
+        if self.node.has_model_node() {
             // the link to the login file is for the model nodes of a run that has one
             self.private = PrivateDir::create(&self.args.run, self.login_file.as_deref())?;
             self.login_link = self.private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf);
@@ -352,7 +384,7 @@ impl Runner<'_> {
         let mut index = 0u64;
         loop {
             self.check_stop()?;
-            if self.node.is_with() && self.llm_calls >= self.args.max_llm_calls {
+            if self.node.caps_apply() && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Ok(Outcome::StoppedLlmCalls);
             }
@@ -395,7 +427,7 @@ impl Runner<'_> {
     /// through [`Runner::uncosted`], which refuses to start a model program and ends the run when a
     /// model call turns up in the records.
     fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
-        if !self.node.is_with() {
+        if self.node.is_without() {
             return self.uncosted(handoff);
         }
         let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
@@ -403,7 +435,7 @@ impl Runner<'_> {
         budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
         let result = match handoff {
             None => self.host.step(),
-            Some(answer) => self.host.handoff(answer),
+            Some(answer) => self.host.handoff(answer, !self.node.has_model_node()),
         };
         let cost_halt = self.book_step(&reservation);
         let result = result?;
@@ -420,7 +452,7 @@ impl Runner<'_> {
         self.refuse_model_path(path)?;
         let result = match handoff {
             None => self.host.step(),
-            Some(answer) => self.host.handoff(answer),
+            Some(answer) => self.host.handoff(answer, true),
         };
         let seen = self.refuse_recorded_call(path);
         let result = result?;
@@ -432,7 +464,7 @@ impl Runner<'_> {
     /// opened without a model node. Reads the bindings copy as it is now: it can only make this
     /// refuse, never lift a cap.
     fn refuse_model_path(&mut self, path: &'static str) -> Result<(), Halt> {
-        if self.node.is_with() {
+        if !self.node.is_without() {
             return Ok(());
         }
         if let Some(why) = self.manifest_problem() {
@@ -497,7 +529,7 @@ impl Runner<'_> {
     /// Ends the run, naming the cause, when the decider could start a model program in a run opened
     /// without a model node.
     fn refuse_decider_path(&mut self, path: &'static str) -> Result<(), Halt> {
-        if self.node.is_with() || !(self.decider.may_call_model() || self.decider.max_call_micro_usd() > 0) {
+        if !self.node.is_without() || !(self.decider.may_call_model() || self.decider.max_call_micro_usd() > 0) {
             return Ok(());
         }
         self.stop_model_call(path, format!("the decider was about to start a model program ({path}) in a run opened without a model node"))
@@ -564,7 +596,7 @@ impl Runner<'_> {
 
     /// Books `micro_usd` for `reservation` under `what`; nothing in a run without a model node.
     fn commit(&mut self, reservation: &Reservation, what: &str, micro_usd: u64) -> Result<(), Halt> {
-        if !self.node.is_with() {
+        if self.node.is_without() {
             return Ok(());
         }
         self.ledger()?.commit(reservation, &self.args.run, what, micro_usd)?;
@@ -573,7 +605,7 @@ impl Runner<'_> {
 
     /// Gives `reservation` back; nothing in a run without a model node.
     fn release(&mut self, reservation: &Reservation) -> Result<(), Halt> {
-        if !self.node.is_with() {
+        if self.node.is_without() {
             return Ok(());
         }
         self.ledger()?.release(reservation)?;
@@ -581,7 +613,7 @@ impl Runner<'_> {
     }
 
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
-        if !self.node.is_with() {
+        if self.node.is_without() {
             return Ok(Reservation { id: String::new(), micro_usd: 0 });
         }
         let r = self.ledger()?.reserve(&self.args.run, self.args.cap_micro_usd, want)?;
@@ -662,7 +694,7 @@ impl Runner<'_> {
             }
             self.refuse_decider_path("decider")?;
             let want = self.decider.max_call_micro_usd();
-            if self.node.is_with() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if self.node.caps_apply() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -690,7 +722,7 @@ impl Runner<'_> {
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
-            if !self.node.is_with() && (cost > 0 || calls > 0) {
+            if self.node.is_without() && (cost > 0 || calls > 0) {
                 // A decider that said it calls no model answered with a call: nothing can book it.
                 self.spent += cost;
                 self.llm_calls += calls;
@@ -736,7 +768,7 @@ impl Runner<'_> {
     /// A handoff's printed command is `tree run`: it runs as printed, through the ledger like every
     /// call that may start a model program, and what it printed is read like any `tree run`.
     fn run_handoff(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        if self.node.is_with() && self.llm_calls >= self.args.max_llm_calls {
+        if self.node.caps_apply() && self.llm_calls >= self.args.max_llm_calls {
             self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
             return Err(Halt::Done(Outcome::StoppedLlmCalls));
         }

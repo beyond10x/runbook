@@ -48,7 +48,7 @@ impl Runner<'_> {
             }
             self.refuse_decider_path("decider answering the answers file")?;
             let want = self.decider.max_call_micro_usd();
-            if self.node.is_with() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if self.node.caps_apply() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -68,7 +68,7 @@ impl Runner<'_> {
             for line in &asked.lines {
                 self.emit(Event::AnswerRecorded { line: line.clone() })?;
             }
-            if !self.node.is_with() && (asked.cost_micro_usd > 0 || asked.model_calls > 0) {
+            if self.node.is_without() && (asked.cost_micro_usd > 0 || asked.model_calls > 0) {
                 self.spent += asked.cost_micro_usd;
                 self.llm_calls += asked.model_calls;
                 return self.stop_model_call("decider answering the answers file", format!("the decider reported {} model call(s) and {} micro USD in a run opened without a model node; no ledger was open", asked.model_calls, asked.cost_micro_usd));

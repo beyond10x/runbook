@@ -24,30 +24,51 @@ use std::path::Path;
 /// without a model node (`run-stopped.json`, `outcome.json`, `docs/loom-run.md`).
 pub const CAUSE: &str = crate::loom_run::events::MODEL_CALL_CAUSE;
 
+/// The levels of `--confinement` at which a bound program has no network (the one list; a level it
+/// does not name is not trusted with it). Under `substrate` Loom's linux adapter runs a bound
+/// program with `NetworkMode::None`: no address but loopback. `local` is not in the list: the
+/// program has the network of the user running the command.
+pub const NO_NETWORK_LEVELS: &[&str] = &["substrate"];
+
+/// Whether a bound program has no network under `level` (the value of `--confinement`).
+pub fn level_denies_network(level: &str) -> bool {
+    NO_NETWORK_LEVELS.contains(&level)
+}
+
 /// The decision of the opening.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelNode {
     /// The run has a model node (or it is unclear); `because` names the first form that counted.
     With { because: String },
-    /// The run has none.
+    /// The bindings name none, and a bound program has a network under `level`: the caps apply as
+    /// they do for any run, and the run needs them to start.
+    Capped { level: String },
+    /// The run has none, and no bound program has a network: no cap, no ledger.
     Without,
 }
 
 impl ModelNode {
-    /// Whether the caps apply.
-    pub fn is_with(&self) -> bool {
-        matches!(self, ModelNode::With { .. })
+    /// Whether the caps apply: counting, reserving, the ledger and the cap checks.
+    pub fn caps_apply(&self) -> bool {
+        !self.is_without()
     }
 
-    /// The value the records carry as `has_model_node`.
+    /// Whether the run was opened with no caps: a model program is refused.
+    pub fn is_without(&self) -> bool {
+        matches!(self, ModelNode::Without)
+    }
+
+    /// The value the records carry as `has_model_node`: a form of the bindings, the decider or the
+    /// options names a model node.
     pub fn has_model_node(&self) -> bool {
-        self.is_with()
+        matches!(self, ModelNode::With { .. })
     }
 
     /// Why, for the opening event.
     pub fn because(&self) -> String {
         match self {
             ModelNode::With { because } => because.clone(),
+            ModelNode::Capped { level } => format!("no model node, but --confinement {level} gives a bound program the network: the caps apply"),
             ModelNode::Without => "no model node: no binding, decider or option of the run starts a model program".to_owned(),
         }
     }
@@ -92,6 +113,7 @@ pub fn decide(args: &Args, settings: &Value, decider: &dyn Decider, bindings: &P
     }
     match bindings_copy::model_node_in(bindings) {
         Some(why) => ModelNode::With { because: format!("the bindings name or may name the model tool {}: {why}", bindings_copy::MODEL_TOOL) },
-        None => ModelNode::Without,
+        None if level_denies_network(args.confinement.as_arg()) => ModelNode::Without,
+        None => ModelNode::Capped { level: args.confinement.as_arg().to_owned() },
     }
 }

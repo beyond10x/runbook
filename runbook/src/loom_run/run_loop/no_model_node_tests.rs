@@ -13,7 +13,8 @@ use crate::loom_run::model_node::{ModelNode, FORCED};
 use std::collections::VecDeque;
 use std::os::unix::fs::PermissionsExt;
 
-/// Sets the decisions the next calls of `model_node::decide` return, in order; dropped, it clears them.
+/// Sets the decisions the next calls of `model_node::decide` return, in order; dropped, it clears
+/// them. A run asks twice: the refusal before the run directory (the first), the opening (the second).
 struct Forced;
 
 fn force(decisions: &[ModelNode]) -> Forced {
@@ -84,7 +85,7 @@ fn the_model_decider_is_not_asked_in_a_run_opened_without_a_model_node() {
     let (root, f, marker) = decider_world("p-decider");
     person_bindings(&root, "scope.approve");
     f.answer("tree_run", "1", &fake::tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", approval("scope.approve", "ApproveAction"))), 3);
-    let _forced = force(&[ModelNode::Without]);
+    let _forced = force(&[ModelNode::Without, ModelNode::Without]);
     let outcome = run(&root, &f);
     assert_eq!(path_of(&outcome), "decider", "{outcome:?}");
     assert!(!marker.exists(), "the model program started");
@@ -106,7 +107,7 @@ fn the_model_decider_answering_the_answers_file_is_not_asked_in_a_run_opened_wit
     )
     .unwrap();
     f.answer("tree_run", "1", &fake::tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", approval("scope.answer", "ApproveAction"))), 3);
-    let _forced = force(&[ModelNode::Without]);
+    let _forced = force(&[ModelNode::Without, ModelNode::Without]);
     let outcome = run(&root, &f);
     assert_eq!(path_of(&outcome), "decider answering the answers file", "{outcome:?}");
     assert!(!marker.exists(), "the model program started");
@@ -122,7 +123,7 @@ fn a_decider_that_reports_a_cost_in_a_run_opened_without_a_model_node_ends_the_r
     let settings = serde_json::json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 7, "model_calls": 1}]}});
     std::fs::write(root.join("settings.json"), settings.to_string()).unwrap();
     f.answer("tree_run", "1", &fake::tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", approval("scope.approve", "ApproveAction"))), 3);
-    let _forced = force(&[ModelNode::Without]);
+    let _forced = force(&[ModelNode::Without, ModelNode::Without]);
     let outcome = run(&root, &f);
     assert_eq!(path_of(&outcome), "decider", "{outcome:?}");
     assert!(!root.join("ledger.json").exists());
@@ -151,18 +152,36 @@ fn a_re_drive_a_replay_setting_conformance_and_a_decider_that_may_call_a_model_c
     use crate::loom_run::model_node::decide;
     let (root, f) = world("p-decide");
     let bindings = root.join("bindings");
-    let plain = args(&root, &f, 600);
-    assert_eq!(decide(&plain, &serde_json::json!({}), &RefusingDecider, &bindings), ModelNode::Without, "nothing in this run names a model");
+    let mut plain = args(&root, &f, 600);
+    plain.confinement = crate::loom_run::Confinement::Substrate;
+    assert_eq!(decide(&plain, &serde_json::json!({}), &RefusingDecider, &bindings), ModelNode::Without, "nothing in this run names a model, and a bound program has no network under substrate");
+    let mut local = args(&root, &f, 600);
+    local.confinement = crate::loom_run::Confinement::Local;
+    assert_eq!(decide(&local, &serde_json::json!({}), &RefusingDecider, &bindings), ModelNode::Capped { level: "local".into() }, "nothing names a model, but a bound program has the network under local: the caps apply");
     let mut redrive = args(&root, &f, 600);
     redrive.ports.replay.recorded = Some(root.join("recording"));
-    assert!(decide(&redrive, &serde_json::json!({}), &RefusingDecider, &bindings).is_with(), "a re-drive can go live");
-    assert!(decide(&plain, &serde_json::json!({"replay": {"live_adapter": "x"}}), &RefusingDecider, &bindings).is_with(), "a replay setting can go live");
+    assert!(decide(&redrive, &serde_json::json!({}), &RefusingDecider, &bindings).has_model_node(), "a re-drive can go live");
+    assert!(decide(&plain, &serde_json::json!({"replay": {"live_adapter": "x"}}), &RefusingDecider, &bindings).has_model_node(), "a replay setting can go live");
     let mut observe = args(&root, &f, 600);
     observe.ports.conformance = crate::loom_run::ports::Conformance::Observe;
-    assert!(decide(&observe, &serde_json::json!({}), &RefusingDecider, &bindings).is_with(), "the observation starts a model");
+    assert!(decide(&observe, &serde_json::json!({}), &RefusingDecider, &bindings).has_model_node(), "the observation starts a model");
     let reserving = ScriptedDecider::new(vec![], 5);
-    assert!(decide(&plain, &serde_json::json!({}), &reserving, &bindings).is_with(), "a decider that reserves an amount");
-    assert!(decide(&plain, &serde_json::json!({}), &RefusingDecider, &root.join("absent")).is_with(), "bindings that cannot be read");
+    assert!(decide(&plain, &serde_json::json!({}), &reserving, &bindings).has_model_node(), "a decider that reserves an amount");
+    assert!(decide(&plain, &serde_json::json!({}), &RefusingDecider, &root.join("absent")).has_model_node(), "bindings that cannot be read");
+}
+
+#[test]
+fn only_the_levels_the_list_names_take_the_network_from_a_bound_program() {
+    use crate::loom_run::model_node::{level_denies_network, NO_NETWORK_LEVELS};
+    assert_eq!(NO_NETWORK_LEVELS, ["substrate"]);
+    assert!(level_denies_network("substrate"));
+    for other in ["local", "linux", "docker", "Substrate", " substrate", "substrate ", "", "none", "substrate2"] {
+        assert!(!level_denies_network(other), "{other:?} is not a level the list names, so it is refused like local");
+    }
+    // every level the options can name is decided by the list: the one it names needs no caps, the other does
+    for (level, denies) in [(crate::loom_run::Confinement::Substrate, true), (crate::loom_run::Confinement::Local, false)] {
+        assert_eq!(level_denies_network(level.as_arg()), denies, "{}", level.as_arg());
+    }
 }
 
 #[test]

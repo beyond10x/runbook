@@ -122,8 +122,10 @@ pub trait LoomHost {
     /// `tree run` it printed; the library goes on with the next step).
     fn runs_handoff(&self) -> bool;
 
-    /// The call a handoff is; only asked when [`LoomHost::runs_handoff`].
-    fn handoff(&mut self, answer: &Answer<'_>) -> Result<Call, Halt>;
+    /// The call a handoff is; only asked when [`LoomHost::runs_handoff`]. `one_step`: the printed
+    /// `tree run` takes one step (a run without a model node reads its copy again between two steps);
+    /// a printed command that is no `tree run` is then not run.
+    fn handoff(&mut self, answer: &Answer<'_>, one_step: bool) -> Result<Call, Halt>;
 
     /// `tree status` and `tree verify` at the end of the run, not ended by a signal.
     fn conclude(&mut self) -> (Result<Call, String>, Result<Call, String>);

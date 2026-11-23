@@ -39,11 +39,13 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-/// The options of run `r1` with every cap at 0 and no ledger.
+/// The options of run `r1` with every cap at 0 and no ledger, under `substrate`: the one level where
+/// such a run starts (the fake `b10x-loom` takes the level as an argument and does not enforce it).
 fn zero(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
     set(&mut a, "--max-llm-calls", "0");
     without(&mut a, "--spend-ledger");
+    set(&mut a, "--confinement", "substrate");
     a
 }
 
@@ -112,6 +114,7 @@ fn a_run_without_a_model_node_given_a_ledger_does_not_open_it() {
     tree_of_two_steps(&w);
     let mut a = w.args("r1", 0);
     set(&mut a, "--max-llm-calls", "0");
+    set(&mut a, "--confinement", "substrate");
     let o = w.run(&a);
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(!w.ledger().exists(), "a ledger that is named and not needed is not created");
@@ -126,6 +129,7 @@ fn without_a_model_node_a_tree_run_is_not_a_call_and_the_run_does_not_end_on_the
     w.fake.answer("tree_run", "4", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
     let mut a = w.args("r1", 1_000_000);
     set(&mut a, "--max-llm-calls", "1");
+    set(&mut a, "--confinement", "substrate");
     let o = w.run(&a);
     assert_eq!(code(&o), 0, "four tree runs against a cap of 1 call: {}", stderr(&o));
     assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 4);
@@ -363,6 +367,54 @@ fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_handoff_com
     assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
 }
 
+/// The printed command of a handoff is a `tree run` with no step bound of its own (Loom prints it
+/// so). In a run without a model node it takes one step, like every other `tree run` of the run, so
+/// the runner reads the copy again between two steps.
+#[test]
+fn the_printed_command_of_a_handoff_takes_one_step_in_a_run_without_a_model_node() {
+    for (n, printed) in [
+        r#""b10x-loom","tree","run","--store","@STORE@","--confinement","substrate""#,
+        r#""b10x-loom","tree","run","--store","@STORE@","--confinement","substrate","--max-steps","50""#,
+        r#""b10x-loom","tree","run","--max-steps","9","--store","@STORE@","--confinement","substrate""#,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let w = World::new(&format!("handoff-one-step-{n}"));
+        bindings(&w, NO_MODEL);
+        let handoff = format!("{{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[{printed}],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}}");
+        w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
+        w.fake.answer("tree_run", "2", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+        w.fake.answer("tree_run", "3", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+        w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
+        let o = w.run(&zero(&w));
+        assert_eq!(code(&o), 0, "{n}: {}", stderr(&o));
+        let runs = w.fake.calls_of(&["tree", "run"]);
+        assert!(runs.len() >= 2, "{n}: the printed command was not run: {:?}", runs.iter().map(|c| c.argv.clone()).collect::<Vec<_>>());
+        let argv = &runs[1].argv;
+        assert_eq!(argv.iter().filter(|a| *a == "--max-steps").count(), 1, "{n}: {argv:?}");
+        let at = argv.iter().position(|a| a == "--max-steps").unwrap();
+        assert_eq!(argv[at + 1], "1", "{n}: {argv:?}");
+        let store = w.run_dir("r1/store").display().to_string();
+        let at = argv.iter().position(|a| a == "--store").unwrap();
+        assert_eq!(argv[at + 1], store, "{n}: the rest of the printed command is as printed: {argv:?}");
+    }
+}
+
+#[test]
+fn a_printed_command_of_a_handoff_that_is_no_tree_run_is_not_run_in_a_run_without_a_model_node() {
+    let w = World::new("handoff-not-a-tree-run");
+    bindings(&w, NO_MODEL);
+    let handoff = "{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[\"b10x-loom\",\"tree\",\"frobnicate\",\"--store\",\"@STORE@\"],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}";
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
+    w.fake.answer("tree_frobnicate", "default", "{}\n", 0);
+    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
+    let o = w.run(&zero(&w));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert!(w.fake.calls_of(&["tree", "frobnicate"]).is_empty(), "the command was run");
+    assert!(w.outcome("r1")["reason"].as_str().unwrap().contains("tree run"), "{}", w.outcome("r1"));
+}
+
 #[test]
 fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() {
     let w = World::new("rewrite-after-status-approve");
@@ -378,6 +430,25 @@ fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() 
     assert!(!marker.exists(), "the model program started");
     assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was not sent to Loom");
     assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
+}
+
+/// The tree manifest, not the copy, is rewritten while Loom answers the `tree status` of a step (the
+/// runner's check of the status ran before it); the next path is the approval. It is refused for the
+/// manifest, and the approval is not sent to Loom: the manifest check holds before an approval too.
+#[test]
+fn a_manifest_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() {
+    let w = World::new("manifest-after-status-approve");
+    bindings(&w, NO_MODEL);
+    let approval = super::fake::decision_json("scope.approve", "ApproveAction", "person:owner");
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{approval}]")), 3);
+    w.fake.hook("tree_status", "1", "printf '{\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" > \"$store/tree.json\"\n");
+    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
+    let o = w.run(&zero(&w));
+    let outcome = w.outcome("r1");
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was sent to Loom: exit {}, {outcome}", code(&o));
+    assert_eq!(code(&o), 13, "{}", stderr(&o));
+    let reason = outcome["reason"].as_str().unwrap_or("");
+    assert!(reason.contains("tree manifest") && reason.contains("tree approve"), "{outcome}");
 }
 
 #[test]

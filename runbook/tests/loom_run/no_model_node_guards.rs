@@ -36,11 +36,13 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-/// The options of run `r1` with every cap at 0 and no ledger.
+/// The options of run `r1` with every cap at 0 and no ledger, under `substrate`: the one level where
+/// such a run starts (the fake `b10x-loom` takes the level as an argument and does not enforce it).
 fn zero(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
     set(&mut a, "--max-llm-calls", "0");
     without(&mut a, "--spend-ledger");
+    set(&mut a, "--confinement", "substrate");
     a
 }
 
@@ -130,6 +132,7 @@ fn a_ledger_of_other_runs_is_left_as_it_is_by_a_run_without_a_model_node() {
     std::fs::set_permissions(w.ledger(), std::fs::Permissions::from_mode(0o400)).unwrap();
     let mut a = w.args("r1", 0);
     set(&mut a, "--max-llm-calls", "0");
+    set(&mut a, "--confinement", "substrate");
     let o = w.run(&a);
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(std::fs::read_to_string(w.ledger()).unwrap(), before);
@@ -176,6 +179,8 @@ fn cost_records_that_cannot_be_read_end_a_run_without_a_model_node() {
 
 struct Lib {
     root: PathBuf,
+    /// The Loom binary of a run through the child process; `None`: Loom as a library.
+    loom: Option<PathBuf>,
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -201,6 +206,10 @@ const LOGIN_TEXT: &str = "STAND-IN-LOGIN-TEXT-7731";
 
 impl Lib {
     fn new(tag: &str) -> Lib {
+        Lib::with_loom(tag, None)
+    }
+
+    fn with_loom(tag: &str, loom: Option<PathBuf>) -> Lib {
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("review1-lib-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["runs", "xdg", "bin", "login"] {
@@ -213,7 +222,7 @@ impl Lib {
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
         std::fs::write(root.join("login/credentials.json"), LOGIN_TEXT).unwrap();
         super::decider::install_routing_table_at(&root.join("fx"));
-        let lib = Lib { root };
+        let lib = Lib { root, loom };
         lib.settings(&json!({}));
         lib
     }
@@ -221,7 +230,8 @@ impl Lib {
     /// A scripted decider that approves and reserves nothing, so it is no model node.
     fn settings(&self, extra: &Value) {
         let approve = json!({"approve": true, "cost_micro_usd": 0});
-        let mut v = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+        let loom = if self.loom.is_some() { json!({"confinement": "local"}) } else { json!({"in_process": true, "confinement": "local"}) };
+        let mut v = json!({"loom": loom, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
         for (k, x) in extra.as_object().unwrap() {
             v[k] = x.clone();
         }
@@ -268,14 +278,20 @@ impl Lib {
         self.run_dir().join("work")
     }
 
-    /// Run `r1`, the library way, with caps of 0 and no ledger.
+    /// Run `r1`, the library way, under `local` with caps: a ledger and both caps above 0. A run without
+    /// a model node starts with caps of 0 only under `substrate`, which this host cannot run.
     fn run(&self) -> Output {
         let r = |p: &str| self.root.join(p).display().to_string();
-        let args = [
+        let mut args = vec![
             "run".to_owned(), "sdc".into(), "--run".into(), "r1".into(), "--runs-dir".into(), r("runs"), "--bindings".into(), r("fx/bindings"), "--protocols".into(), r("fx/protocol"),
             "--root-protocol".into(), "engine-draft@1".into(), "--case".into(), "DRAFT-1".into(), "--intake".into(), r("idea.yaml"), "--confinement".into(), "local".into(),
-            "--settings".into(), r("settings.json"), "--cap-micro-usd".into(), "0".into(), "--max-llm-calls".into(), "0".into(), "--max-wall-seconds".into(), "50".into(),
+            "--settings".into(), r("settings.json"), "--spend-ledger".into(), r("ledger.json"), "--cap-micro-usd".into(), "5000000".into(), "--max-llm-calls".into(), "100".into(), "--max-wall-seconds".into(), "50".into(),
         ];
+        if let Some(loom) = &self.loom {
+            let digest = Command::new("sha256sum").arg(loom).output().unwrap();
+            let digest = String::from_utf8_lossy(&digest.stdout).split_whitespace().next().unwrap().to_owned();
+            args.extend(["--loom".into(), loom.display().to_string(), "--loom-sha256".into(), digest]);
+        }
         Command::new(BIN)
             .args(args)
             .env_clear()
@@ -312,8 +328,10 @@ impl Lib {
 
 const NAME_THE_TOOL: &str = "s#\\[tools/draft-check.sh\\]#[sdc-node, draft.check]#";
 
+/// The real library Loom, under `local`, with caps: a run whose bindings name no model node starts,
+/// counts nothing and states `has_model_node` false; the ledger is opened and holds 0.
 #[test]
-fn real_loom_a_run_without_a_model_node_ends_with_caps_of_0_and_no_ledger() {
+fn real_loom_under_local_a_run_without_a_model_node_with_caps_counts_nothing() {
     let lib = Lib::new("plain");
     lib.stand_in(true);
     let o = lib.run();
@@ -321,62 +339,41 @@ fn real_loom_a_run_without_a_model_node_ends_with_caps_of_0_and_no_ledger() {
     let outcome = lib.outcome();
     assert_eq!((outcome["outcome"].as_str(), outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some("ended"), Some(false), Some(0), Some(0)), "{outcome}");
     assert!(!lib.marker().exists());
-    assert!(!lib.root.join("ledger.json").exists());
     assert_eq!(std::fs::read_to_string(lib.work().join("draft.txt")).unwrap(), "draft\n");
+    let ledger: Value = serde_json::from_str(&std::fs::read_to_string(lib.root.join("ledger.json")).unwrap()).unwrap();
+    assert_eq!(ledger["spent_micro_usd"].as_u64(), Some(0), "{ledger}");
 }
 
-/// The line of the unit with Loom itself, not the fake: the writer of the first step rewrites the
-/// run's copy of the bindings so that the next step is the model tool. Loom reads that file at
-/// every `tree run`, so only the runner's check before the call keeps the program from starting.
+/// The real library Loom, under `local`, with caps: the writer of the first step rewrites the run's
+/// copy of the bindings so that the next step is the model tool. Loom reads that file at every `tree
+/// run` and the program starts; the caps count its recorded call (a run opened without caps would end
+/// before the program starts: `no_model_node.rs`, with the fake, under `substrate`).
 #[test]
-fn real_loom_a_copy_rewritten_by_a_bound_program_to_name_the_model_tool_is_refused_before_the_program_starts() {
+fn real_loom_under_local_with_caps_a_copy_rewritten_to_name_the_model_tool_starts_it_and_the_call_is_booked() {
     let lib = Lib::new("rewrite-copy");
     lib.stand_in(true);
     lib.tool("draft-write.sh", &format!("#!/bin/sh\nsed -i '{NAME_THE_TOOL}' ../bindings/engine-draft.yaml\necho draft >> draft.txt\n"));
     let o = lib.run();
     let copy = std::fs::read_to_string(lib.run_dir().join("bindings/engine-draft.yaml")).unwrap();
     assert!(copy.contains("sdc-node"), "the writer did not rewrite the copy: {copy}");
-    assert!(!lib.marker().exists(), "the model program started: {}", lib.seen(&o));
-    assert_eq!(code(&o), 13, "{}", lib.seen(&o));
+    assert!(lib.marker().exists(), "the model program did not start: {}", lib.seen(&o));
     let outcome = lib.outcome();
-    assert_eq!((outcome["cause"].as_str(), outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some("model_call_without_model_node"), Some(false), Some(0), Some(0)), "{outcome}");
-    assert!(!lib.root.join("ledger.json").exists());
+    assert_ne!(outcome["cause"].as_str(), Some("model_call_without_model_node"), "{outcome}");
+    assert_eq!((outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(false), Some(1), Some(250_000)), "{outcome}");
+    let ledger: Value = serde_json::from_str(&std::fs::read_to_string(lib.root.join("ledger.json")).unwrap()).unwrap();
+    assert_eq!(ledger["spent_micro_usd"].as_u64(), Some(250_000), "{ledger}");
 }
 
-/// The same bound program, one file further: it leaves the copy as it is and makes the tree's
-/// manifest (`store/tree.json`, member `bindings`) name a bindings file elsewhere in the run
-/// directory, in which the next step is the model tool. The check before a `tree run` has to hold
-/// for the bindings Loom reads, whichever file that is.
+/// The documented limit (`docs/loom-run.md`, "The limit of the rule"), under `local` with caps. The
+/// forms the rule does not read, present at the opening: the model tool reached by a name that is in
+/// no YAML text. The runner cannot see a name that a program of the runbook's author builds when it
+/// runs, so the program starts. This case asserts what holds then, for each form: it is started; no
+/// login of the runner reaches it (not in its environment, not through a file of the run's private
+/// directory); a call it records is booked in the ledger and counted, and does not end the run; a
+/// call it does not record is counted by no cap. (With caps of 0, under `substrate`, a recorded call
+/// ends the run: `no_model_node_limit.rs`.)
 #[test]
-fn real_loom_a_manifest_rewritten_to_name_other_bindings_does_not_start_a_model_program() {
-    let lib = Lib::new("rewrite-manifest");
-    lib.stand_in(true);
-    lib.tool(
-        "draft-write.sh",
-        &format!(
-            "#!/bin/sh\nif [ ! -d ../alt ]; then\n  cp -r ../bindings ../alt\n  sed -i '{NAME_THE_TOOL}' ../alt/engine-draft.yaml\n  alt=$(cd ../alt && pwd)\n  sed -i \"s#\\\"bindings\\\": *\\\"[^\\\"]*\\\"#\\\"bindings\\\":\\\"$alt/engine-draft.yaml\\\"#\" ../store/tree.json\nfi\necho draft >> draft.txt\n"
-        ),
-    );
-    let o = lib.run();
-    let manifest = std::fs::read_to_string(lib.run_dir().join("store/tree.json")).unwrap();
-    assert!(manifest.contains("/alt/engine-draft.yaml"), "the writer did not rewrite the manifest: {manifest}");
-    assert!(!std::fs::read_to_string(lib.run_dir().join("bindings/engine-draft.yaml")).unwrap().contains("sdc-node"), "the copy is as it was");
-    assert!(!lib.marker().exists(), "the model program started by a tree run of a run opened without a model node: {}", lib.seen(&o));
-}
-
-/// The documented limit (`docs/loom-run.md`, "A run without a model node"). The forms the rule
-/// does not read, present at the opening: the model tool reached by a name that is in no YAML
-/// text. The runner cannot see a name that a program of the runbook's author builds when it runs, so
-/// the program starts. This case asserts what holds then, for each form: it is started; no login of
-/// the runner reaches it (not in its environment, not through a file of the run's private
-/// directory); a call it records ends the run by exit 13 after that step with the call and the
-/// cost in the records and nothing in a ledger; a call it does not record is not seen (exit 0, no
-/// call counted).
-///
-/// The first version of this case, the review's, asserted that no such program starts, and was red
-/// by design. That assertion is replaced by these: the limit is documented, not closed here.
-#[test]
-fn documented_limit_a_model_program_reached_by_a_name_the_rule_does_not_read_starts_without_a_login_and_a_recorded_call_ends_the_run() {
+fn documented_limit_under_local_with_caps_a_model_program_reached_by_a_name_the_rule_does_not_read_starts_without_a_login_and_a_recorded_call_is_booked() {
     type Setup = Box<dyn Fn(&Lib)>;
     let forms: Vec<(&str, bool, Setup)> = vec![
         ("a script of tools/ that builds the name from two parts", true, Box::new(|lib: &Lib| lib.tool("draft-check.sh", "#!/bin/sh\np=sdc-\n\"${p}node\" draft.check\n"))),
@@ -403,9 +400,12 @@ fn documented_limit_a_model_program_reached_by_a_name_the_rule_does_not_read_sta
             continue;
         }
         let outcome = lib.outcome();
-        let want = if *records { (13, Some("model_call_without_model_node"), Some(1), Some(250_000)) } else { (0, None, Some(0), Some(0)) };
+        // every start of the program that records is booked once: calls and cost follow the starts
+        let starts = std::fs::read_to_string(lib.marker()).unwrap_or_default().lines().count() as u64;
+        let want = if *records { (0, None, Some(starts), Some(250_000 * starts)) } else { (0, None, Some(0), Some(0)) };
         let got = (code(&o), outcome["cause"].as_str(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64());
-        if got != want || outcome["has_model_node"] != false || lib.root.join("ledger.json").exists() {
+        let booked = std::fs::read_to_string(lib.root.join("ledger.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["spent_micro_usd"].as_u64());
+        if got != want || outcome["has_model_node"] != false || booked != want.3 {
             wrong.push(format!("{what}: {seen}"));
         }
         let env = std::fs::read_to_string(lib.work().join("env-model.txt")).unwrap_or_default();
@@ -422,27 +422,11 @@ fn documented_limit_a_model_program_reached_by_a_name_the_rule_does_not_read_sta
     assert!(wrong.is_empty(), "the documented limit does not hold as documented:\n{}", wrong.join("\n"));
 }
 
-/// What the runner does for the forms above when the program is the model tool (it writes the
-/// cost record of its call): the run ends after that step by the named cause, and its records
-/// state the call and the cost.
+/// What a bound program of a run without a model node can reach of the login, under `local` with
+/// caps: the settings name a login file (a stand-in with invented text), as one settings file shared
+/// by every runbook does. No model node of this run reads it, so nothing of the run holds a way to it.
 #[test]
-fn real_loom_a_call_recorded_by_a_model_program_the_rule_did_not_read_ends_the_run_after_the_step() {
-    let lib = Lib::new("unread-recorded");
-    lib.stand_in(true);
-    lib.tool("draft-check.sh", "#!/bin/sh\np=sdc-\n\"${p}node\" draft.check\n");
-    let o = lib.run();
-    assert_eq!(code(&o), 13, "{}", lib.seen(&o));
-    let outcome = lib.outcome();
-    assert_eq!((outcome["cause"].as_str(), outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some("model_call_without_model_node"), Some(false), Some(1), Some(250_000)), "{outcome}");
-    assert_eq!(std::fs::read_to_string(lib.marker()).unwrap().lines().count(), 1, "one call, then the run ended");
-    assert!(!lib.root.join("ledger.json").exists());
-}
-
-/// What a bound program of a run without a model node can reach of the login: the settings name a
-/// login file (a stand-in with invented text), as one settings file shared by every runbook does.
-/// No model node of this run reads it, so nothing of the run should hold a way to it.
-#[test]
-fn real_loom_a_run_without_a_model_node_gives_its_bound_programs_no_way_to_the_login_file() {
+fn real_loom_under_local_with_caps_a_run_without_a_model_node_gives_its_bound_programs_no_way_to_the_login_file() {
     let lib = Lib::new("login");
     lib.stand_in(true);
     lib.settings(&json!({"login_file": lib.root.join("login/credentials.json").display().to_string()}));
@@ -461,82 +445,6 @@ fn real_loom_a_run_without_a_model_node_gives_its_bound_programs_no_way_to_the_l
     let reached = std::fs::read_to_string(lib.work().join("reach-login.txt")).unwrap_or_default();
     assert!(!reached.contains(LOGIN_TEXT), "a bound program of a run without a model node read the login file through the link of the run's private directory");
     assert!(!lib.root.join("xdg/runbook").join("r1").exists(), "the private directory is left");
-}
-
-// ---- the tree manifest: what Loom reads to decide which bindings apply ----
-
-/// The first step's writer, run once: it leaves the copy as it is and changes only the tree
-/// manifest (`$change` is a shell snippet run in the work directory, the run directory is `..`).
-/// `alt` is a copy of the bindings that names the model tool for the step after it, so a manifest
-/// that names it starts the stand-in unless the runner's check refuses first.
-fn manifest_writer(change: &str) -> String {
-    format!(
-        "#!/bin/sh\nif [ ! -e ../done ]; then\n  touch ../done\n  cp -r ../bindings ../alt\n  sed -i '{NAME_THE_TOOL}' ../alt/engine-draft.yaml\n  alt=$(cd ../alt && pwd)\n  run=$(cd .. && pwd)\n  {change}\nfi\necho draft >> draft.txt\n"
-    )
-}
-
-const POINT_AT_ALT: &str = "sed \"s#\\\"bindings\\\": *\\\"[^\\\"]*\\\"#\\\"bindings\\\":\\\"$alt/engine-draft.yaml\\\"#\" ../store/tree.json";
-
-/// What every refused form of the manifest must show: exit 13 by the named cause, no model
-/// program started, no ledger, and the records of a run that did not change its opening decision.
-fn assert_refused_for_the_manifest(lib: &Lib, o: &Output) {
-    assert!(!lib.marker().exists(), "the model program started: {}", lib.seen(o));
-    assert_eq!(code(o), 13, "{}", lib.seen(o));
-    let outcome = lib.outcome();
-    assert_eq!((outcome["cause"].as_str(), outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some("model_call_without_model_node"), Some(false), Some(0), Some(0)), "{outcome}");
-    assert!(outcome["reason"].as_str().unwrap_or("").contains("tree manifest"), "the reason does not name the manifest: {outcome}");
-    assert!(!lib.root.join("ledger.json").exists());
-}
-
-#[test]
-fn real_loom_a_manifest_replaced_by_a_link_is_refused_before_a_program_starts() {
-    let lib = Lib::new("manifest-link");
-    lib.stand_in(true);
-    lib.tool("draft-write.sh", &manifest_writer(&format!("{POINT_AT_ALT} > ../tree-alt.json\n  rm ../store/tree.json\n  ln -s ../tree-alt.json ../store/tree.json")));
-    let o = lib.run();
-    assert!(std::fs::symlink_metadata(lib.run_dir().join("store/tree.json")).unwrap().file_type().is_symlink(), "the writer did not replace the manifest by a link");
-    assert_refused_for_the_manifest(&lib, &o);
-}
-
-#[test]
-fn real_loom_a_manifest_that_is_removed_is_refused_before_a_program_starts() {
-    let lib = Lib::new("manifest-removed");
-    lib.stand_in(true);
-    lib.tool("draft-write.sh", &manifest_writer("rm ../store/tree.json"));
-    let o = lib.run();
-    assert!(!lib.run_dir().join("store/tree.json").exists(), "the writer did not remove the manifest");
-    assert_refused_for_the_manifest(&lib, &o);
-}
-
-/// A manifest member that names the root file of the copy by a path that is not the one the
-/// runner wrote is accepted when it resolves to that file (`.` and `..` inside the path), and the
-/// run goes on as it would have.
-#[test]
-fn real_loom_a_manifest_that_names_the_root_file_by_another_spelling_is_accepted() {
-    let lib = Lib::new("manifest-spelling");
-    lib.stand_in(true);
-    lib.tool(
-        "draft-write.sh",
-        &manifest_writer("sed -i \"s#/engine-draft.yaml\\\"#/../bindings/./engine-draft.yaml\\\"#\" ../store/tree.json"),
-    );
-    let o = lib.run();
-    let manifest = std::fs::read_to_string(lib.run_dir().join("store/tree.json")).unwrap();
-    assert!(manifest.contains("/../bindings/./engine-draft.yaml"), "the writer did not change the spelling: {manifest}");
-    assert_eq!(code(&o), 0, "{}", lib.seen(&o));
-    assert!(!lib.marker().exists(), "{}", lib.seen(&o));
-    assert_eq!(lib.outcome()["outcome"], "ended");
-}
-
-/// A manifest member that names the root file through a link is refused although it resolves to
-/// the same file: what the manifest names must be the file the runner wrote, not a way to it.
-#[test]
-fn real_loom_a_manifest_that_names_the_root_file_through_a_link_is_refused() {
-    let lib = Lib::new("manifest-named-link");
-    lib.stand_in(true);
-    lib.tool("draft-write.sh", &manifest_writer("ln -s \"$run/bindings/engine-draft.yaml\" \"$run/same.yaml\"\n  sed -i \"s#\\\"bindings\\\": *\\\"[^\\\"]*\\\"#\\\"bindings\\\":\\\"$run/same.yaml\\\"#\" ../store/tree.json"));
-    let o = lib.run();
-    assert!(std::fs::read_to_string(lib.run_dir().join("store/tree.json")).unwrap().contains("/same.yaml"), "the writer did not rewrite the manifest");
-    assert_refused_for_the_manifest(&lib, &o);
 }
 
 // ---- the same refusals against the fake: forms the library cannot make cheaply ----
@@ -559,6 +467,9 @@ fn a_manifest_that_does_not_name_the_root_file_of_the_copy_ends_a_run_without_a_
         ("a file that does not exist", "printf '{\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
         ("a link to the root file", "ln -s \"$PWD/bindings/sdc.yaml\" \"$PWD/same.yaml\" && printf '{\"bindings\":\"%s/same.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
         ("a directory instead of the file", "rm \"$store/tree.json\" && mkdir \"$store/tree.json\""),
+        ("two bindings members, the last names other bindings", "printf '{\"bindings\":\"%s/bindings/sdc.yaml\",\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" \"$PWD\" > \"$store/tree.json\""),
+        ("a bindings member that is a list holding the path", "printf '{\"bindings\":[\"%s/bindings/sdc.yaml\"]}' \"$PWD\" > \"$store/tree.json\""),
+        ("a hard link to the root file", "ln bindings/sdc.yaml bindings/hard.yaml && printf '{\"bindings\":\"%s/bindings/hard.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
     ];
     let mut wrong: Vec<String> = Vec::new();
     for (what, hook) in &forms {
@@ -581,7 +492,12 @@ fn a_manifest_that_does_not_name_the_root_file_of_the_copy_ends_a_run_without_a_
 /// to it, does not stop a run; with a model node the manifest is not looked at.
 #[test]
 fn a_manifest_that_names_the_root_file_of_the_copy_does_not_stop_a_run_without_a_model_node() {
-    for (what, hook) in [("as written", ":"), ("with dots in the path", "printf '{\"bindings\":\"%s/bindings/../bindings/./sdc.yaml\"}' \"$PWD\" > \"$store/tree.json\"")] {
+    for (what, hook) in [
+        ("as written", ":"),
+        ("with dots in the path", "printf '{\"bindings\":\"%s/bindings/../bindings/./sdc.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
+        ("two bindings members, the first names other bindings and the last the root file", "printf '{\"bindings\":\"%s/bindings/none.yaml\",\"bindings\":\"%s/bindings/sdc.yaml\"}' \"$PWD\" \"$PWD\" > \"$store/tree.json\""),
+        ("a path through a directory link that resolves to the root file", "ln -s bindings lnk && printf '{\"bindings\":\"%s/lnk/sdc.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
+    ] {
         let w = World::new("manifest-ok");
         file(&w, "bindings/sdc.yaml", NO_MODEL);
         w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
@@ -657,4 +573,39 @@ fn with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted()
     assert_eq!(super::core::spent(&w), 400_000);
     let outcome = w.outcome("r1");
     assert_eq!((outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(true), Some(1), Some(400_000)), "{outcome}");
+}
+
+// ---- the slow lane: the child `b10x-loom` of the pinned revision ----
+
+fn pinned_loom_binary() -> PathBuf {
+    PathBuf::from(std::env::var("RUNBOOK_LOOM_BIN").expect("RUNBOOK_LOOM_BIN names the b10x-loom binary of the pinned Loom revision"))
+}
+
+/// A handoff's printed command is `tree run` with no bound on its steps, and Loom reads the bindings
+/// again before every step of one call. The runner bounds it to one step in a run without a model node
+/// (`child_host.rs`, `one_step_argv`), so it reads its copy again between two steps. With the real
+/// `b10x-loom` of the pinned revision, behind a wrapper that logs every call, under `local` with caps:
+/// the run takes a handoff, and every `tree run` call of the run, the handoff's included, carries
+/// `--max-steps 1`.
+#[test]
+#[ignore = "slow lane: set RUNBOOK_LOOM_BIN to the b10x-loom of the pinned Loom revision"]
+fn child_loom_the_printed_command_of_a_handoff_takes_one_step_in_a_run_without_a_model_node() {
+    let real = pinned_loom_binary();
+    let wrapper = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("review1-lib-handoff-wrapper-{}", std::process::id()));
+    let lib = Lib::with_loom("child-handoff", Some(wrapper.clone()));
+    let log = lib.root.join("loom-calls.log");
+    write_exe(&wrapper, &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{}' \"$@\"\n", log.display(), real.display()));
+    lib.stand_in(false);
+    lib.bindings(|t| t.replace("      argv: [tools/draft-write.sh]\n", "      argv: [tools/draft-write.sh]\n    handoff: \"decide, then run again\"\n    handoff_when: [tools/draft-wait.sh]\n"));
+    lib.tool("draft-wait.sh", "#!/bin/sh\n[ -e ../waited ] && exit 1\ntouch ../waited\nexit 0\n");
+    let o = lib.run();
+    let events = std::fs::read_to_string(lib.run_dir().join("events.jsonl")).unwrap_or_default();
+    assert!(events.contains("Handoff"), "the run took no handoff: {}\n{events}", lib.seen(&o));
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    let runs: Vec<&str> = calls.lines().filter(|l| l.starts_with("tree run ")).collect();
+    assert!(runs.len() >= 2, "too few calls of tree run to hold a handoff: {calls}");
+    for call in &runs {
+        assert!(call.ends_with(" --max-steps 1"), "a tree run call of the run takes more than one step: {call}");
+    }
+    let _ = std::fs::remove_file(&wrapper);
 }

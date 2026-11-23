@@ -23,7 +23,7 @@ pub fn conformance_not_built(_ports: &Ports) -> Result<(), Refusal> {
 /// node does not observe (cause `model_call_without_model_node`). `--conformance observe` makes the
 /// opening decide "with" (`model_node::decide`), so this refuses only a decision that was forced.
 pub fn permitted(node: &ModelNode) -> Result<(), String> {
-    if node.is_with() {
+    if node.caps_apply() {
         Ok(())
     } else {
         Err(format!("conformance: not observed (the run was opened without a model node and the observation starts a model; cause {})", model_node::CAUSE))
