@@ -125,7 +125,7 @@ test('a line of the change record longer than what the server reads is said, wit
   expect(names).toContain('work/before.txt');
   expect(r.json.truncated, JSON.stringify({names})).toBe(true);
   expect(r.json.cut).toBe('records');
-  expect(r.json.recordsStopped).toMatchObject({cause: 'line', read: 1});
+  expect(r.json.recordsStopped).toMatchObject({cause: 'line', read: 202}); // the 201 records of the seed and before.txt
   expect(r.json.recordsStopped.why).toContain('after it are not read');
   // asked again, with the file as it was: the same answer, and the reader does not read the 32 MiB again
   const again = await products('longline');
