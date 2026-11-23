@@ -103,10 +103,14 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 37 converted, 17 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
-`scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending); the split of
-the remaining pending entries into those that wait for a story and those that run and still fail was not
-measured again.
+130 entries: 40 converted, 14 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
+`scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending).
+At Loom `db2726ff` every `pending` entry was run once. `run-stop`, `replay-sibling` and `decider-rework` run as expected and lost
+`pending` (`story:tree-suite-stop-resume-reopen-steps`, `story:tree-replay-command`). `decider-rework-spent` and
+`rework-fresh-allowance` run to their end and still fail on `RunsSpent` (the rows below give the difference). The other pending entries
+keep their difference; no entry changed from expected to another state. All 37 entries that were not pending were run again at a quiet
+host (one-minute load under 50) and are as expected. Run together at a load of 100 to 177, 11 entries ended on Loom's 60 s wall bound
+(exit 5), so the counts above are of single runs at a quiet host.
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
 50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
@@ -119,7 +123,7 @@ beside other work of the host, not as part of a whole run) took 14.1 s to 25.3 s
 file were not measured again. The time is
 the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
 programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
-test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
+test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's (`CYCLE_WALL_SECONDS`, a constant; no setting changes it). At Loom `db2726ff` the slowest cycle took 50.9 s at a quiet host and 54.0 s at a higher load, and the cycles run under load of the host end on the bound.
 A later full run (with tests of the gate running beside it, so slower per cycle) ended `14 of 14 as
 expected, 25 pending`; its slowest were `stub-cycle` 40.3 s, `spec-duplicate` 40.2 s and
 `superseded-answer` 36.4 s. The four bugfix cycles took 1.3 to 3.5 s each once the cargo cache was
@@ -170,7 +174,7 @@ is held by the tests named):
 | trace-gap-drop | pending | same (gap) |
 | trace-constraint-decided | pending | same (gap) |
 | scope-answer | converted | `scope.answer` is a person step with a program (`argv: [tools/sdc-tool.sh, scope-answer, "{principal}", --action, scope.answer]`, Loom `70b0e6e0`): the approval of `decide:` as `person:owner` runs it; 49.5 s |
-| scope-changed | pending | now runs to the end of the cycle but stays `accepted` at q2 with its default: the changed answer in the old cycle is a text of the decider or a person's edit of `questions.yaml`, which the suite cannot give (no step writes a workspace file, gap, no Loom story yet); the cycle takes 46.6 s to 60.6 s on a loaded host (once it ended at Loom's 60 s wall bound, exit 5) |
+| scope-changed | pending | runs to the end of the cycle (29.7 s at Loom `db2726ff`, load 35) and fails on its check, `q2-changed (equals, CheckFailed): expected changed, found 8 bytes`: q2 stays `accepted` with its default. The changed answer in the old cycle is a text of the decider or a person's edit of `questions.yaml`, which the suite cannot give (no step writes a workspace file, gap, no Loom story yet); on a loaded host the cycle took 46.6 s to 60.6 s (once it ended at Loom's 60 s wall bound, exit 5) |
 | intake-decision | pending | `scope.answer` runs; the run then stops `Stuck` (exit 4) at `amend.upstream`: the intake finding waits for a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
 | review-reject-once | converted | the scripted reviews are seeds (`.stub/`); the inputs of `change.review` are read from record files of the workspace (`.sdc/records/`, `docs/loom-bindings.md`); the producer `llm-review` is read from the case file of the store (`doc` in `store`), since a `records` item carries no producer |
 | review-minimal-input | converted | with `review_mode: facts` |
@@ -179,7 +183,7 @@ is held by the tests named):
 | spec-own-default | converted | the one model call is a line of `.sdc/llm/calls.jsonl`; the absent `writer_spent` is no `Stopped` event of the case |
 | plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
 | spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
-| replay-sibling | pending | needs the `replay` step (story:tree-replay-command); its scripted replies are seeds now, the replay is not there |
+| replay-sibling | converted | the `replay` step (Loom `db2726ff`, `story:tree-replay-command`, merged): the scripted replies are seeds, and every case of the replay matches its log (`state_matches_log`, `decision_matches_log`); 43.3 s at a one-minute load of 62 |
 | pool-wait | dropped with the driver | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
 
 ### Re-drive entries (9)
@@ -244,7 +248,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-finding | held by a Rust test | `runbook/tests/loom_run/answers.rs` `a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on` |
 | decider-finding-final | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_finding_that_escalates_under_final_takes_the_best_answer_else_its_default` |
 | decider-finding-refused | dropped with the driver | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| run-stop | pending | the `stop`, `resume` and `reopen` steps: waits for story:tree-stop-record-and-labels |
+| run-stop | converted | the steps `stop`, `resume` (refused `TreeStopped`) and `reopen`, and the check that the case log holds `StopRecorded` (Loom `db2726ff`); the cycle runs 44.3 s at a host load of 125 to 177 |
 | autopilot | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | trace-reraised | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-budget-reason | held by a Rust test | `runbook/tests/loom_run/answers.rs` `the_decider_call_cap_ends_the_run_when_the_answers_would_exceed_it`: the stop reason names the step, the case and the cap (cause `decider_cannot_decide`, the runner's name for it) |
@@ -258,8 +262,8 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-reject | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `a_rejection_where_the_action_has_no_rejected_result_stops_the_run_naming_step_and_case_and_sends_nothing` (exit 10, outcome `stopped: rejected`, nothing sent to Loom); `a_rejection_without_a_result_to_record_it_names_the_case_and_no_person` (cause `rejected_without_rework_path`, reason `<step> in <case>: …`; the driver's exit 6 is taken by the runner's model-call cap, so the runner's exit is 10) |
 | decider-rework-context | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework-model | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-rework | pending | the scripted rejection and approval of `merge.approve` need `approve` with `result` and `reasons`: waits for story:tree-stop-record-and-labels |
-| decider-rework-spent | pending | three scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
+| decider-rework | converted | the scripted rejection and approval of `merge.approve` (`approve` with `result` and `reasons`, Loom `db2726ff`, `story:tree-suite-stop-resume-reopen-steps`): the writer is sent back once and the case ends well; 24.7 s at a one-minute load of 34 (the same cycle ended on Loom's 60 s wall bound, exit 5, in three runs at a load of 100 to 177) |
+| decider-rework-spent | pending | three scripted rejections of `merge.approve` (Loom `db2726ff`, `story:tree-suite-stop-resume-reopen-steps`): the cycle runs to its end in 17.8 s and fails on its check, `three-rejections (count, CheckFailed): expected 3, found 2`. After the second rejection `change.implement` runs a third time and leaves no revision (`revisions: []`), so `tests.run` and the review are not offered again, and the writer is offered a fourth run: `RunsSpent: action change.implement: change.implement has run 3 times in case root.billing.invoices, its budget.max_runs is 3` (`bindings/sdc-story.yaml:27`). The tree ends `Stuck` (exit 4, as the entry expects). The gap: `budget.max_runs` counts every run of an action in a case; a rejection gives no new allowance. No Loom story yet (the budget is the binding's) |
 | rework-cap | dropped with the driver | class: Runbook's decider answers the stops (`MAX_REJECTIONS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-not-called | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-no-rework-prompt | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
@@ -288,7 +292,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | requester-no-ground | held by a Rust test | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
 | models | held by a Rust test | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
 | decider-question-reject | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered` |
-| rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
+| rework-fresh-allowance | pending | two scripted rejections of `merge.approve` (Loom `db2726ff`): the cycle runs to its end in 18.9 s and fails on `steps[1].exit (exit, ExitDiffers): expected 0, found 4`. The writer runs three times before the second rejection (the first run, the run after the failing test that the fixture starts with, the run after the first rejection); after the second rejection `change.implement` is offered a fourth time and refused, `RunsSpent: ... has run 3 times in case root.billing.invoices, its budget.max_runs is 3` (`bindings/sdc-story.yaml:27`), and the tree ends `Stuck`. The entry expects four writer runs, a fresh allowance for the rework after a rejection (the name of the entry); The gap: `budget.max_runs` counts every run of an action in a case; a rejection gives no new allowance. No Loom story yet |
 | scope-unattributed-reject | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | finding-refused-reask | held by a Rust test | In part: `runbook/tests/loom_run/answers.rs` `a_request_that_comes_back_a_fourth_time_ends_the_run_naming_it` holds the stop; the refusal text is not put to the decider again (the refusal is the findings tool's) |
 | rework-spent-dropped | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |

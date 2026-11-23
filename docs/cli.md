@@ -98,10 +98,10 @@ exit 66 (`no such run`).
 ## `runbook test`
 
 ```
-runbook test <suite file> [--scratch <dir>] [--only <name>[,<name>...]] --confinement <local|substrate>
+runbook test <suite file> [--scratch <dir>] [--only <name>[,<name>...]] [--workers <N>] --confinement <local|substrate>
 ```
 
-Runs the cycles of a `loom.tree-suite/1` file one after another through Loom's suite runner
+Runs the cycles of a `loom.tree-suite/1` file (one after another, or `--workers` beside each other) through Loom's suite runner
 (`b10x_loom_tree::suite::run_suite`), in this process (`runbook/src/test_suite.rs`). It is not a
 client of a daemon. No `b10x-loom` or `canon` process is started; the process tree of a
 run holds `runbook` and the bound programs, and a bound program gets `PATH` and `LOOM_*` from Loom
@@ -129,12 +129,22 @@ sources are paths below the suite file's own directory (Loom's rule).
   `~/.local/state/runbook/`), never under `/tmp`. It is removed when the exit code is 0; otherwise
   it is kept and the last line, `scratch kept: <dir>`, names it. Cycle `n` works in `<dir>/<n>/`
   (`store/`, `work/`).
-- `--only` runs the named cycles in suite order, nothing else. Loom's runner takes a file, not a
-  list, so the command writes the selected cycles to `.runbook-test-only-<pid>.suite.yaml` beside
-  the suite (its seeds are paths relative to that directory) and removes it when the run ends.
+- `--only` runs the named cycles in suite order, nothing else: it is Loom's own selection
+  (`SuiteSettings.only`), so no file is written beside the suite. A name that is no cycle of the
+  file is refused before any cycle (`CycleUnknown`, exit 2). A cycle keeps the directory of its
+  position in the suite (`<dir>/<n>/`, `n` the position in the whole file), so a selected run and a
+  whole run name a cycle's directory alike. With `--only` the closing lines start with `selected S
+  of C cycles`.
+- `--workers <N>` runs up to N cycles beside each other (Loom's `SuiteSettings.workers`), 1 to 64,
+  default 1: one after another. Each cycle has its own directory and its own 60 s bound, and the
+  lines are printed in suite order. Under `local` nothing is confined, so a program can read the
+  other cycles' workspaces; the cycles of a suite must not depend on that. More than 1 under
+  `--confinement substrate` is refused with Loom's `SubstrateWorkersUnserved` (exit 2, before
+  anything is written; `story:suite-runs-cycles-under-one-cgroup-root`). A value outside 1 to 64 is
+  a usage error (exit 64).
 
-Tests: `runbook/tests/test_suite/mod.rs` over `runbook/tests/fixtures/test-suite/` (POSIX sh
-programs).
+Tests: `runbook/tests/test_suite/` over `runbook/tests/fixtures/test-suite/` (POSIX sh programs):
+`mod.rs` (the options), `workers.rs` (`--workers` and its refusal), `amend.rs` (the state of run 2).
 
 ## Open
 

@@ -1,0 +1,12 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-amend@1
+  bindings: bindings/suite-amend.yaml
+cycles:
+  - name: amend-again-after-a-later-write
+    seed: [{from: seeds/amended.txt, to: questions.txt}]
+    expect:
+      exit: 0
+      outcome: passed
+      checks:
+        - {check: count, name: amend-ran-twice, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: amend.upstream}}], is: 2}
