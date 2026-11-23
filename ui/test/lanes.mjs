@@ -137,7 +137,7 @@ export const SIZE_EXCEPTIONS = {
 // The one form of a spec file that the lists above know: `<this directory>/<name>.spec.mjs`, directly under test/ (the pattern
 // starts at this directory and Playwright matches it against the absolute path, so a spec below a subdirectory, also one
 // below a directory that is itself named `test`, is not a test). The Playwright config matches test files by it, and
-// budget.spec.mjs fails a file anywhere below test/ that Playwright's default match would take and this form does not, so a
+// budget.spec.mjs fails a file anywhere below test/ (but fixtures/ and recorded/) that Playwright's default match would take and this form does not, so a
 // misnamed or misplaced spec is told, not left out.
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const SPEC_FORM = new RegExp(`^${TEST_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[^/]+\\.spec\\.mjs$`);
