@@ -390,22 +390,96 @@ fn a_bound_program_that_exits_the_not_called_code_records_nothing_and_no_run_is_
     assert_eq!(counted, 0, "max_runs (3 for bug.dissect) is not reduced: the runs without a class are the counted ones");
 }
 
-/// `spec.gate` of the epic runs before the spec exists and has to fail, not end the run: its
-/// `exits.error` lists 126, which `sdc-tool.sh` used to answer when it could not keep the gate's log
-/// of a tree that is not there.
-#[test]
-fn the_gate_on_a_missing_spec_fails_and_is_no_program_error() {
+/// A directory of its own under `CARGO_TARGET_TMPDIR`, empty, with a `.sdc` inside: the case's work
+/// directory of `sdc-tool.sh`, which has no spec in it.
+fn gate_dir(tag: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("exit-classes-gate-{}", std::process::id()));
+        .join(format!("exit-classes-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join(".sdc")).unwrap();
-    let o = Command::new(repo().join("bindings/tools/sdc-tool.sh"))
+    dir
+}
+
+/// A POSIX sh program of the given name in `dir`.
+fn stand_in(dir: &Path, name: &str, body: &str) {
+    let path = dir.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The stand-ins of what `sdc-tool.sh` asks for before its `ess-gate` reaches `ess`: `yq` and `jq`
+/// are only looked up (`need yq jq`) and never run on a tree without a spec; they end 1 with a line
+/// if they are run. `ess` is the one the caller adds.
+fn gate_tools(dir: &Path) {
+    for name in ["yq", "jq"] {
+        stand_in(
+            dir,
+            name,
+            &format!("echo 'stand-in {name}: the gate on a missing spec does not run it' >&2\nexit 1"),
+        );
+    }
+}
+
+/// `sdc-tool.sh ess-gate --action spec.gate` in `work` as Loom starts it (`LOOM_CASE`), with a
+/// `PATH` of `bin` and the system directories alone: the host's own tools are not reachable.
+fn run_gate(work: &Path, bin: &Path) -> Output {
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    Command::new(repo().join("bindings/tools/sdc-tool.sh"))
         .args(["ess-gate", "--action", "spec.gate"])
-        .current_dir(&dir)
+        .current_dir(work)
+        .env("PATH", path)
         .env("LOOM_CASE", "root.billing")
         .stdin(Stdio::null())
         .output()
-        .unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(o.status.code(), Some(1), "{}", text(&o));
+        .unwrap()
+}
+
+/// `spec.gate` of the epic runs before the spec exists and has to fail, not end the run: its
+/// `exits.error` lists 126, which `sdc-tool.sh` used to answer when it could not keep the gate's log
+/// of a tree that is not there. The `ess` is a stand-in that answers as the pinned `ess` does for a
+/// path that is not there (`ess specify validate --path spec`: "error: resolving spec: No such file
+/// or directory (os error 2)", exit 1), first on a `PATH` of its own.
+#[test]
+fn the_gate_on_a_missing_spec_fails_and_is_no_program_error() {
+    let work = gate_dir("gate");
+    let bin = gate_dir("gate-bin");
+    gate_tools(&bin);
+    stand_in(
+        &bin,
+        "ess",
+        "echo 'error: resolving spec: No such file or directory (os error 2)' >&2\nexit 1",
+    );
+    let o = run_gate(&work, &bin);
+    let said = text(&o);
+    let _ = std::fs::remove_dir_all(&work);
+    let _ = std::fs::remove_dir_all(&bin);
+    assert_eq!(o.status.code(), Some(1), "{said}");
+    assert!(said.contains("error: resolving spec"), "the failure line of ess: {said}");
+    assert!(!said.contains("is not on PATH"), "{said}");
+}
+
+/// What the forge showed: with no `ess` on the `PATH` the gate is a program error, exit 127 with the
+/// line "ess is not on PATH", and 127 is in `exits.error` of the binding of `spec.gate`.
+#[test]
+fn the_gate_with_no_ess_on_the_path_ends_127_and_127_is_a_program_error() {
+    for dir in ["/usr/bin", "/bin"] {
+        assert!(
+            !Path::new(dir).join("ess").exists(),
+            "{dir}/ess exists: the system directories of this test's PATH must not hold an ess"
+        );
+    }
+    let work = gate_dir("gate-no-ess");
+    let bin = gate_dir("gate-no-ess-bin");
+    gate_tools(&bin);
+    let o = run_gate(&work, &bin);
+    let said = text(&o);
+    let _ = std::fs::remove_dir_all(&work);
+    let _ = std::fs::remove_dir_all(&bin);
+    assert_eq!(o.status.code(), Some(127), "{said}");
+    assert!(said.contains("ess is not on PATH"), "{said}");
+    let gate = programs()
+        .into_iter()
+        .find(|p| p.file == "sdc-epic" && p.action == "spec.gate")
+        .expect("spec.gate in bindings/sdc-epic.yaml");
+    assert!(gate.error.contains(&127), "exits.error of spec.gate: {:?}", gate.error);
 }
