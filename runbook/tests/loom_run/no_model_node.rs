@@ -326,6 +326,60 @@ fn a_binding_rewritten_to_something_unreadable_is_refused_too() {
     assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1);
 }
 
+/// The check before each call stands by itself: the copy is rewritten by the `tree status` that
+/// follows a step (a process left behind, say), after the check that follows the step has passed.
+/// Only the check before the next `tree run`, the handoff command or the approval can refuse then.
+#[test]
+fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_next_tree_run() {
+    let w = World::new("rewrite-after-status-run");
+    let marker = stand_in_model_tool(&w);
+    bindings(&w, NO_MODEL);
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
+    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
+    let o = w.run(&zero(&w));
+    assert_eq!(code(&o), 13, "{}", stderr(&o));
+    assert!(!marker.exists(), "the model program started");
+    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the second tree run was not started");
+    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
+}
+
+#[test]
+fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_handoff_command() {
+    let w = World::new("rewrite-after-status-handoff");
+    let marker = stand_in_model_tool(&w);
+    bindings(&w, NO_MODEL);
+    let handoff = "{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[\"b10x-loom\",\"tree\",\"run\",\"--store\",\"@STORE@\",\"--confinement\",\"local\"],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}";
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
+    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
+    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
+    let o = w.run(&zero(&w));
+    assert_eq!(code(&o), 13, "{}", stderr(&o));
+    assert!(!marker.exists(), "the model program started");
+    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the printed command was not run");
+    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
+}
+
+#[test]
+fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() {
+    let w = World::new("rewrite-after-status-approve");
+    let marker = stand_in_model_tool(&w);
+    bindings(&w, NO_MODEL);
+    let approval = super::fake::decision_json("scope.approve", "ApproveAction", "person:owner");
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{approval}]")), 3);
+    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
+    w.fake.hook("tree_approve", "default", "sdc-node node.write\n");
+    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
+    let o = w.run(&zero(&w));
+    assert_eq!(code(&o), 13, "{}", stderr(&o));
+    assert!(!marker.exists(), "the model program started");
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was not sent to Loom");
+    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
+}
+
 #[test]
 fn a_handoff_command_is_refused_when_the_copy_was_rewritten_to_name_the_model_tool() {
     let w = World::new("rewrite-handoff");
