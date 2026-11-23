@@ -611,6 +611,11 @@ struct Real {
 
 impl Real {
     fn new(tag: &str, floor: Confinement) -> Real {
+        Real::with(tag, floor, |engine| engine)
+    }
+
+    /// The daemon runs `wrap(engine)` as its runtime.
+    fn with(tag: &str, floor: Confinement, wrap: impl FnOnce(Arc<Engine>) -> Arc<dyn Runtime>) -> Real {
         let dir = fresh(tag);
         let home = dir.join("home");
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
@@ -620,7 +625,7 @@ impl Real {
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
         let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), &[Confinement::Local, Confinement::Linux]));
         let cfg = Config { state_dir: dir.join("state"), confinement_floor: floor, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() };
-        Real { dir, home, d: Daemon::start(cfg, engine).unwrap() }
+        Real { dir, home, d: Daemon::start(cfg, wrap(engine)).unwrap() }
     }
 
     fn state(&self) -> PathBuf {
@@ -1054,4 +1059,70 @@ fn a_run_directory_and_its_copy_are_private_to_the_daemons_user() {
     }
     rig.settle(&run);
     assert_eq!(rig.row(&run)["outcome"], "delivered", "{}", rig.row(&run));
+}
+
+/// The engine as the daemon's runtime, with a hook on the run's log lines: when the root case of the run
+/// logs that it terminated (the last line of the last round, read before the final check of the copy),
+/// the hook changes the run's copy.
+struct ChangesTheCopyAtTheEnd(Arc<Engine>);
+
+struct HookedSink<'a> {
+    inner: &'a dyn EventSink,
+    copy: PathBuf,
+}
+
+impl EventSink for HookedSink<'_> {
+    fn started(&self) {
+        self.inner.started()
+    }
+    fn record(&self, kind: &str, record: Value) {
+        let last = kind == "Terminated" && record["reason"] == "delivered";
+        self.inner.record(kind, record);
+        if last {
+            std::fs::write(self.copy.join("bindings/tools/added-after-the-last-round.txt"), "x\n").unwrap();
+        }
+    }
+    fn decision_requested(&self, request: DecisionRequest) {
+        self.inner.decision_requested(request)
+    }
+    fn resumed(&self) {
+        self.inner.resumed()
+    }
+}
+
+impl Runtime for ChangesTheCopyAtTheEnd {
+    fn recover(&self, run_id: &str) -> Recovery {
+        self.0.recover(run_id)
+    }
+    fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
+        self.0.knows_runbook(runbook, version)
+    }
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        self.0.runbooks()
+    }
+    fn kind(&self) -> &'static str {
+        self.0.kind()
+    }
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        let hooked = HookedSink { inner: sink, copy: request.state_dir.join(COPY_DIR) };
+        self.0.start(request, &hooked, cancel)
+    }
+    fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {
+        self.0.answer(run_id, request_id, answer, principal)
+    }
+    fn cancel(&self, run_id: &str) {
+        self.0.cancel(run_id)
+    }
+}
+
+#[test]
+fn a_copy_changed_after_the_last_round_ends_the_run_and_is_not_delivered() {
+    let rig = Real::with("after-last-round", Confinement::Local, |engine| Arc::new(ChangesTheCopyAtTheEnd(engine)));
+    let run = rig.submit(RUNBOOK, None, Confinement::Local).run_id.unwrap();
+    rig.settle(&run);
+    let row = rig.row(&run);
+    assert_eq!(row["outcome"], "runtime-failure", "a run whose copy changed after its last round was delivered: {row}");
+    let failed: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert!(failed[0]["record"]["reason"].as_str().is_some_and(|r| r.starts_with("RunbookCopyChanged")), "{failed:?}");
 }
