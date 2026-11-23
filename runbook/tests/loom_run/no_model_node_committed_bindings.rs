@@ -236,3 +236,89 @@ fn the_committed_release_bindings_alone_start_with_caps_and_have_no_code_tree_to
     assert!(c.called("cargo").is_empty(), "{seen}");
     assert!(!c.called("slot").contains("task"), "{seen}");
 }
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+    String::from_utf8_lossy(&o.stdout).trim().to_owned()
+}
+
+/// A measurement, not a guard: the committed bug-fix cycle (`bindings/`, `protocol/`, the helpers
+/// of `driver/`, the stub adapter, the invented ticket of the committed fixture) on a repository
+/// that holds one more test, which writes a marker with its working directory and the names of
+/// its environment. With caps and a ledger, as the committed slow-lane case runs it: the whole
+/// committed directory, with caps, runs the code of a ticket's repository. No model call.
+#[test]
+#[ignore = "measurement: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the stub adapter, no model call"]
+fn with_caps_the_whole_committed_directory_runs_the_code_of_a_ticket_repository() {
+    let root = repo();
+    assert!(root.join("driver/target/debug/sdc-bugfix").is_file(), "driver/ is not built");
+    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("committed-with-caps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let input = scratch.join("input");
+    let fixture = root.join("driver/examples/sdc/fixtures/bugfix-pager");
+    copy_tree(&fixture.join("crate"), &input.join("repo"));
+    let marker = scratch.join("marker-workspace-code");
+    std::fs::create_dir_all(input.join("repo/tests")).unwrap();
+    let test = format!(
+        "use std::io::Write;\n\n#[test]\nfn marker() {{\n    let mut names: Vec<String> = std::env::vars_os()\n        .map(|(k, _)| k.to_string_lossy().into_owned())\n        .collect();\n    names.sort();\n    let cwd = std::env::current_dir().unwrap();\n    let mut f = std::fs::OpenOptions::new()\n        .create(true)\n        .append(true)\n        .open(\"{}\")\n        .unwrap();\n    writeln!(f, \"cwd {{}} env {{}}\", cwd.display(), names.join(\" \")).unwrap();\n}}\n",
+        marker.display()
+    );
+    std::fs::write(input.join("repo/tests/zz_marker.rs"), test).unwrap();
+    git(&input.join("repo"), &["init", "-q"]);
+    git(&input.join("repo"), &["add", "."]);
+    git(&input.join("repo"), &["commit", "-q", "-m", "fixture"]);
+    let head = git(&input.join("repo"), &["rev-parse", "HEAD"]);
+    let ticket = std::fs::read_to_string(fixture.join("ticket.yaml")).unwrap().replace("0000000000000000000000000000000000000000", &head);
+    std::fs::write(input.join("ticket.yaml"), ticket).unwrap();
+    std::fs::write(scratch.join("idea.yaml"), "text: a ticket stands in for the report\n").unwrap();
+    let answers: Vec<Value> = (0..3).map(|_| json!({"approve": true, "cost_micro_usd": 0})).collect();
+    let settings = json!({"decider": {"kind": "scripted", "principal": "person:owner", "max_call_micro_usd": 0, "answers": answers}});
+    std::fs::write(scratch.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    let p = |rel: &str| scratch.join(rel).display().to_string();
+    let mut args: Vec<String> = ["run", "sdc-bugfix", "--run", "r1", "--runs-dir"].map(String::from).to_vec();
+    args.push(p("runs"));
+    args.extend(["--bindings".into(), root.join("bindings").display().to_string(), "--protocols".into(), root.join("protocol").display().to_string()]);
+    args.extend(["--intake".into(), p("idea.yaml"), "--confinement".into(), "local".into(), "--settings".into(), p("settings.json"), "--spend-ledger".into(), p("ledger.json")]);
+    args.extend(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "50"].map(String::from));
+    args.extend(["--bugfix-ticket".into(), p("input/ticket.yaml")]);
+    let started = std::time::Instant::now();
+    let o = Command::new(BIN)
+        .args(&args)
+        .env_clear()
+        .env("PATH", format!("{}:{}", root.join("driver/target/debug").display(), std::env::var("PATH").unwrap_or_default()))
+        .env("HOME", std::env::var_os("HOME").unwrap_or_default())
+        .env("RUNBOOK_HOME", &root)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let run = scratch.join("runs/r1");
+    let outcome: Value = std::fs::read_to_string(run.join("outcome.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let records = std::fs::read_to_string(run.join("work/.sdc/llm/calls.jsonl")).unwrap_or_default();
+    let ledger = std::fs::read_to_string(scratch.join("ledger.json")).unwrap_or_default();
+    let written = std::fs::read_to_string(&marker).unwrap_or_default();
+    println!(
+        "the whole committed directory, --bugfix-ticket, caps 1000000 micro-USD and 100 calls, a ledger, the stub adapter: {:?}\n  exit {}; stderr: {}\n  outcome {}, reason {}, has_model_node {}, because {}, llm_calls {}, spent_micro_usd {}, steps {}\n  cost records of the workspace: {} lines\n  ledger: {}\n  the marker of the repository's own test, one line a run of it:\n{}",
+        started.elapsed(),
+        code(&o),
+        stderr(&o).lines().last().unwrap_or(""),
+        outcome["outcome"],
+        outcome["reason"],
+        outcome["has_model_node"],
+        outcome["because"],
+        outcome["llm_calls"],
+        outcome["spent_micro_usd"],
+        outcome["steps"],
+        records.lines().count(),
+        ledger.replace('\n', " "),
+        written.replace(&scratch.display().to_string(), "<root>")
+    );
+    assert_eq!(outcome["has_model_node"], true, "{outcome}");
+    assert!(!written.is_empty(), "the test of the ticket's repository did not run: exit {}, {outcome}", code(&o));
+}
