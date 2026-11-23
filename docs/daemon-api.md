@@ -417,7 +417,7 @@ and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrph
 --report-format 2`): 23 of 23 scenarios (13 of `sdc.daemon`, 10 of `sdc.decision`).
 
 The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is committed as
-`ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.97.3 makes it in about 30 s (0.97.1 took 1048 s and did not finish in 1800 s).
+`ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.98.0 makes it in under a minute (0.97.1 took 1048 s and did not finish in 1800 s).
 `CONFORMANCE_SUITE=<file> CONFORMANCE_ONLY=sdc.daemon cargo test conformance` runs any suite document, the synthesized one included, and prints its counts.
 
 ## Outside the language
