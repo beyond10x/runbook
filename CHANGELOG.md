@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Added
+
+- A run without a model node needs no caps and no ledger (`story:run-without-model-node-needs-no-caps`). `runbook run` decides once, after the bindings copy is made and before the first `tree run`, whether the run has a model node: a binding that names `sdc-node` (any form, a wrapper included), a decider that calls a model, `--recorded` or `--conformance observe`; a form it cannot read counts as one. The decision is the event `model_node_decided` and `has_model_node` in `outcome.json`. Without a model node a `tree run` is no call, nothing is reserved, no ledger is opened, `--cap-micro-usd 0` and `--max-llm-calls 0` are accepted, `--spend-ledger` may be left out and the records state 0 calls and 0 spent; with one nothing changes (a cap of 0 stops the run before its first `tree run`, a missing `--spend-ledger` is refused with exit 2). A model program started in a run that was opened without a model node (a binding the copy gained, a handoff command, a model decider, a recorded model call) ends the run before it starts: `stopped: model call`, exit 13, cause `model_call_without_model_node` (`docs/loom-run.md`, "A run without a model node").
+
 ### Changed
 
 - The package `sdc-drive` is renamed `sdc-tools` (`driver/Cargo.toml`; the library is still `sdc_tools`, `runbook` depends on it as `sdc-tools`); its lock files change by the package name only. The helper programs keep their names (`sdc-node`, `sdc-reply`, `sdc-findings`, `sdc-bugfix` and the rest).
