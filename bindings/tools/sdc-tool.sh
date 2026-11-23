@@ -221,6 +221,10 @@ recorded() {
   local kind=$1 tree=$2 log rc b
   shift 2
   [[ -n ${LOOM_CASE:-} ]] || { "$@"; return; }
+  # No tree directory, no record: the command's own result stands (the epic's first spec.gate runs
+  # before the spec exists and fails; a 126 here would end the run as a program error, `exits.error`).
+  # `sdc-reply record` takes a directory: a tree that is a file has no record either.
+  [[ -d $tree ]] || { "$@"; return; }
   b=$(sibling sdc-reply)
   [[ -x $b ]] || { echo "sdc-tool: sdc-reply not found (looked at PATH, then $root/driver/target/debug/sdc-reply): $* could not run" >&2; exit 127; }
   log=$(mktemp .sdc/record-log.XXXXXX) || exit 126

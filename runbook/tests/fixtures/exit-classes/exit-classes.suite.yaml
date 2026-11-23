@@ -1,0 +1,25 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: sdc-bugfix@1
+  bindings: bindings/sdc-bugfix.yaml
+cycles:
+  - name: exits-error
+    seed:
+      - {from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}
+      - {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}
+      - {from: seeds/bugfix-pager/impl, to: impl}
+      - {from: seeds/bugfix-pager/mainline, to: mainline}
+      - {from: seeds/bugfix-pager/aep, to: aep}
+      - {from: seeds/code-error.txt, to: exit-code.txt}
+    expect:
+      exit: 4
+  - name: exits-not-called
+    seed:
+      - {from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}
+      - {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}
+      - {from: seeds/bugfix-pager/impl, to: impl}
+      - {from: seeds/bugfix-pager/mainline, to: mainline}
+      - {from: seeds/bugfix-pager/aep, to: aep}
+      - {from: seeds/code-not-called.txt, to: exit-code.txt}
+    expect:
+      exit: 4

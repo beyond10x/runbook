@@ -214,6 +214,11 @@ fn exec(root: &Path, s: &Start, case: &str) -> Run {
 
 /// One start of the program in the run's `work` directory, nothing recorded.
 fn spawn(root: &Path, s: &Start, case: &str) -> std::process::Output {
+    spawn_at(root, s, case, &root.join("work"))
+}
+
+/// The same in the directory `work`, which is the workspace.
+fn spawn_at(root: &Path, s: &Start, case: &str, work: &Path) -> std::process::Output {
     let sub = |t: &str| t.replace("{root}", &root.display().to_string());
     let rest = if s.binding { binding(s.node) } else { vec![] };
     let at = rest.iter().position(|a| a == "--stub").unwrap_or(rest.len());
@@ -221,10 +226,9 @@ fn spawn(root: &Path, s: &Start, case: &str) -> std::process::Output {
     argv.extend_from_slice(&rest[..at]);
     argv.extend(s.extra.iter().map(|a| sub(a)));
     argv.extend_from_slice(&rest[at..]);
-    let work = root.join("work");
     let mut c = Command::new(env!("CARGO_BIN_EXE_sdc-node"));
     c.arg(&argv[0]).arg("--tools-dir").arg(repo().join("bindings/tools")).args(&argv[1..]);
-    c.current_dir(&work).env_clear().env("PATH", path()).env("LOOM_CASE", case);
+    c.current_dir(work).env_clear().env("PATH", path()).env("LOOM_CASE", case);
     for (k, v) in &s.env {
         c.env(k, sub(v));
     }
@@ -620,10 +624,43 @@ fn derived_by_default(root: &Path) {
     put(&w, "findings.yaml", DERIVED_FINDINGS);
 }
 
+/// The exit code of a node that is not called: the one `exits.not_called` of every model-node
+/// binding lists (`bindings/*.yaml`).
+const NOT_CALLED: i32 = 79;
+
+#[test]
+fn every_model_node_binding_lists_the_one_exit_the_program_ends_not_called_with() {
+    let mut nodes = Vec::new();
+    for e in fs::read_dir(repo().join("bindings")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_none_or(|x| x != "yaml") {
+            continue;
+        }
+        let doc: serde_yaml::Value = serde_yaml::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        for a in doc.get("actions").and_then(|a| a.as_sequence()).into_iter().flatten() {
+            let argv0 = a.get("executor").and_then(|x| x.get("argv")).and_then(|x| x.as_sequence()).and_then(|s| s.first()).and_then(|v| v.as_str());
+            if argv0 != Some("sdc-node") {
+                continue;
+            }
+            let name = a["action"].as_str().unwrap().to_string();
+            let listed: Vec<i64> = a
+                .get("exits")
+                .and_then(|x| x.get("not_called"))
+                .and_then(|x| x.as_sequence())
+                .map(|s| s.iter().filter_map(|v| v.as_i64()).collect())
+                .unwrap_or_default();
+            assert_eq!(listed, vec![i64::from(NOT_CALLED)], "{name} in {}", p.display());
+            nodes.push(name);
+        }
+    }
+    nodes.sort();
+    assert_eq!(nodes.len(), 14, "the fourteen model nodes: {nodes:?}");
+}
+
 #[test]
 fn a_finding_that_waits_for_a_person_stops_the_node() {
     let (_, r) = pair("findings-wait", &start("spec.author"), &|root| put(&root.join("work"), "findings.yaml", FINDING));
-    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert_eq!(r.code, Some(NOT_CALLED), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: spec.author not called: findings wait for a person (f1 f2)\n");
 }
 
@@ -636,6 +673,7 @@ fn a_decided_finding_does_not_stop_the_node() {
 #[test]
 fn a_derived_tree_is_renewed_when_every_decision_is_a_default_the_node_raised() {
     let (_, r) = pair("findings-derived", &start("spec.author").with(&["--adapter", "dry"]), &derived_by_default);
+    assert_eq!(r.code, Some(0), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: spec.author not called: the decisions since spec/ was written are the defaults it raised and follows (f1); spec/ marked as derived from the amended requirements\n");
     assert!(!r.files.keys().any(|k| k.starts_with(".sdc/llm/")), "{r:#?}");
 }
@@ -679,6 +717,7 @@ fn have_questions(root: &Path) {
 #[test]
 fn questions_write_is_not_called_while_questions_exist() {
     let (_, r) = pair("questions-guard", &start("questions.write"), &have_questions);
+    assert_eq!(r.code, Some(NOT_CALLED), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: questions.write not called: questions.yaml exists and no check found it invalid\n");
 }
 
@@ -1826,4 +1865,93 @@ fn every_node_a_class_names_is_a_node_some_binding_runs() {
         }
     }
     assert!(dead.is_empty(), "node-classes.json names nodes that no binding in bindings/*.yaml has: {dead:?}");
+}
+
+// ---- the workspace is where Loom starts the program ------------------------------------------------
+//
+// Loom (c9b4c177) starts a bound program in the workspace root with PATH, LOOM_CASE, LOOM_TIMEOUT_SECONDS and
+// (for an opened case) LOOM_CASE_NAME, LOOM_PARENT_CASE_NAME; it names no case directory and no store. A suite
+// keeps the workspace in `<scratch>/work/<n>` and the store in `<scratch>/store/<n>`. A workspace is written by
+// a model, so a `work/` directory in it, with a `case.json` look-alike, is ordinary.
+
+/// What a model may leave in the workspace: nothing, an empty `work/`, or a `work/` that looks like the
+/// driver's case directory and carries other facts than the real ones.
+#[derive(Clone, Copy, Debug)]
+enum Decoy {
+    None,
+    EmptyWork,
+    CaseLookAlike,
+}
+
+fn plant(work: &Path, decoy: Decoy) {
+    match decoy {
+        Decoy::None => {}
+        Decoy::EmptyWork => fs::create_dir_all(work.join("work")).unwrap(),
+        Decoy::CaseLookAlike => {
+            put(work, "work/case.json", r#"{"id":"decoy.case","artifacts":{"impl":{"revision":"decoy"},"spec":{"revision":"decoy"}}}"#);
+            put(work, "work/bindings.json", "{}");
+            put(work, "work/events.jsonl", "");
+            put(work, "work/aep/story/other.md", "---\nid: story:other\nsummary: covers nothing.here\n---\n# Other\n");
+            put(work, "work/.sdc/records/rejections/change.review/900.json", r#"{"format":"sdc.rejection/1","decoy":true}"#);
+        }
+    }
+}
+
+/// One run in the layout of a suite: the workspace `<root>/layout/work/1`, its store beside it.
+fn in_suite_layout(name: &str, s: &Start, decoy: Decoy, setup: &dyn Fn(&Path)) -> (PathBuf, std::process::Output) {
+    let root = fresh(name);
+    base_work(&root.join("work"), s.node);
+    setup(&root);
+    let work = root.join("layout/work/1");
+    fs::create_dir_all(work.parent().unwrap()).unwrap();
+    fs::create_dir_all(root.join("layout/store/1")).unwrap();
+    fs::rename(root.join("work"), &work).unwrap();
+    plant(&work, decoy);
+    let o = spawn_at(&root, s, s.case, &work);
+    (work, o)
+}
+
+fn said(o: &std::process::Output) -> String {
+    format!("{}\n{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
+}
+
+#[test]
+fn change_review_in_the_layout_of_a_suite_reads_the_workspace_whatever_work_holds() {
+    for decoy in [Decoy::None, Decoy::EmptyWork, Decoy::CaseLookAlike] {
+        let s = start("change.review").case("sdc.billing.list");
+        let (work, o) = in_suite_layout(&format!("layout-review-{decoy:?}"), &s, decoy, &|root| {
+            review_story(root);
+            review_adapters(root);
+            put(&root.join("work"), ".stub/settings.yaml", REVIEW_SETTINGS);
+            put(&root.join("work"), ".stub/replies/review.yaml", REVIEW_REJECTED);
+        });
+        assert_eq!(o.status.code(), Some(1), "{decoy:?}: {}", said(&o));
+        assert!(work.join(".sdc/records/rejections/change.review/001.json").is_file(), "{decoy:?}: the rejection is kept in the workspace: {}", said(&o));
+        assert!(!work.join("work/.sdc/records/rejections/change.review/001.json").exists(), "{decoy:?}: nothing is written below work/");
+    }
+}
+
+#[test]
+fn a_second_review_in_the_layout_of_a_suite_counts_the_rejection_of_the_workspace_not_the_decoy() {
+    let s = start("change.review").case("sdc.billing.list");
+    let (work, o) = in_suite_layout("layout-review-second", &s, Decoy::CaseLookAlike, &|root| {
+        review_story(root);
+        review_adapters(root);
+        put(&root.join("work"), ".stub/settings.yaml", REVIEW_SETTINGS);
+        put(&root.join("work"), ".stub/replies/review.yaml", REVIEW_REJECTED);
+        put(&root.join("work"), ".sdc/records/rejections/change.review/001.json", r#"{"format":"sdc.rejection/1","real":true}"#);
+    });
+    assert_eq!(o.status.code(), Some(1), "{}", said(&o));
+    assert!(work.join(".sdc/records/rejections/change.review/002.json").is_file(), "the second rejection of the workspace is 002: {}", said(&o));
+}
+
+#[test]
+fn change_implement_in_request_mode_in_the_layout_of_a_suite_finds_its_story_whatever_work_holds() {
+    for decoy in [Decoy::None, Decoy::EmptyWork, Decoy::CaseLookAlike] {
+        let s = start("change.implement").case("sdc.billing.list").with(&["--adapter", "dry"]).env(&REQUEST_ON);
+        let (work, o) = in_suite_layout(&format!("layout-implement-{decoy:?}"), &s, decoy, &|root| implement_story(root));
+        assert_eq!(o.status.code(), Some(0), "{decoy:?}: {}", said(&o));
+        let prompt = fs::read_to_string(work.join(IMPL).join("prompt.md")).unwrap_or_default();
+        assert!(prompt.contains("you have no tools, nothing to read"), "{decoy:?}: {}", said(&o));
+    }
 }
