@@ -30,6 +30,16 @@ test.beforeAll(async ({}, info) => {
   make('good-run', [EVENT(1), EVENT(2, 'terminated')]);
   for (const [name, line] of Object.entries(NOT_EVENTS)) make(name, [EVENT(1), line, EVENT(2, 'terminated')]);
   make('only-null', ['null']);
+  make('hold-and-reopen', [
+    EVENT(1),
+    JSON.stringify({seq: 2, at: '2026-01-01T00:00:01Z', event: 'stop_recorded', principal: 'operator', reason: 'under review'}),
+    JSON.stringify({seq: 3, at: '2026-01-01T00:00:02Z', event: 'stop_lifted', principal: 'operator', stop: 2}),
+    EVENT(4, 'terminated'),
+  ]);
+  fs.writeFileSync(path.join(runs, 'hold-and-reopen', 'store', 'runlog-case-4331.jsonl'), [
+    JSON.stringify({seq: 1, at: '2026-01-01T00:00:01Z', kind: 'StopRecorded', principal: 'operator', reason: 'under review'}),
+    JSON.stringify({seq: 2, at: '2026-01-01T00:00:02Z', kind: 'StopLifted', principal: 'operator', stop: 1}),
+  ].join('\n') + '\n');
   ({url: base, proc: srv} = await startServer(['--no-view', '--runs', runs]));
   srv.stderr.on('data', (d) => { stderr += d; });
   // a run that cannot be read appears while the server runs: more event lines than one call can take
@@ -53,6 +63,16 @@ test('the events around a line that is no event are read, the line is skipped', 
   }
   const only = await (await tree(request, rows, 'only-null')).json();
   expect(only.cases[0].events).toEqual([]);
+});
+
+test('the run-log lines of a hold and of its reopen (StopRecorded, StopLifted of Loom db2726ff) are read without error and change no other event', async ({request}) => {
+  const rows = await sources(request);
+  const res = await tree(request, rows, 'hold-and-reopen');
+  expect(res.status()).toBe(200);
+  const events = (await res.json()).cases[0].events;
+  expect(events.map((e) => [e.seq, e.event])).toEqual([[1, 'opened'], [2, 'stop_recorded'], [3, 'stop_lifted'], [4, 'terminated']]);
+  expect((await request.get(`${base}/api/sources`)).status()).toBe(200);
+  expect(stderr).not.toContain('hold-and-reopen');
 });
 
 test('a run that cannot be read does not stop the server: it is listed, and the other run is served', async ({request}) => {

@@ -8,6 +8,7 @@ mod dry;
 mod fake;
 mod flags;
 mod goals;
+mod held;
 mod inproc;
 mod login;
 mod model_call;

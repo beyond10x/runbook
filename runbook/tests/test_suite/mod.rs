@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+mod amend;
+mod workers;
+
 const MARKER: &str = "RUNBOOK_TEST_MARKER";
 const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", concat!("sdc-dr", "ive")];
 
@@ -106,11 +109,12 @@ fn a_suite_prints_a_line_per_cycle_then_the_slowest_and_the_count() {
     assert!(l[0].ends_with(" s)"), "{l:?}");
     assert!(l[1].starts_with("reads-a-seed: as expected ("), "{l:?}");
     assert!(l[2].starts_with("later: pending, still failing: not-yet (contains"), "{l:?}");
-    assert_eq!(l[3], "ten slowest:", "{l:?}");
-    let slowest: Vec<f64> = l[4..7].iter().map(|x| x.trim_start().split(' ').next().unwrap().parse().unwrap()).collect();
+    assert_eq!(l[3], "selected 3 of 4 cycles", "with --only the report says how many of the suite's cycles were chosen: {l:?}");
+    assert_eq!(l[4], "ten slowest:", "{l:?}");
+    let slowest: Vec<f64> = l[5..8].iter().map(|x| x.trim_start().split(' ').next().unwrap().parse().unwrap()).collect();
     assert!(slowest.windows(2).all(|w| w[0] >= w[1]), "slowest first: {l:?}");
-    assert_eq!(l.len(), 8, "{l:?}");
-    assert_eq!(l[7], "2 of 2 as expected, 1 pending", "{l:?}");
+    assert_eq!(l.len(), 9, "{l:?}");
+    assert_eq!(l[8], "2 of 2 as expected, 1 pending", "{l:?}");
     assert_eq!(std::fs::read_to_string(scratch.join("2/work/note.txt")).unwrap(), "good day\n", "a scratch named by --scratch is kept");
 }
 
@@ -181,9 +185,9 @@ fn only_runs_the_named_cycles_and_names_that_do_not_exist_are_refused() {
     assert!(!out(&o).contains("reads-a-seed"), "{l:?}");
     let o = rig.run(&[suite.to_str().unwrap(), "--only", "no-such-cycle", "--confinement", "local"]);
     assert_eq!(o.status.code(), Some(2), "{}", err(&o));
-    assert!(err(&o).contains("no-such-cycle"), "{}", err(&o));
+    assert!(err(&o).contains("CycleUnknown") && err(&o).contains("no-such-cycle"), "Loom refuses the name: {}", err(&o));
     let left: Vec<_> = std::fs::read_dir(rig.home().join("suites")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('.')).collect();
-    assert!(left.is_empty(), "the filtered copy of the suite is removed: {left:?}");
+    assert!(left.is_empty(), "nothing is written beside the suite: {left:?}");
 }
 
 #[test]
@@ -211,7 +215,7 @@ fn the_process_tree_holds_runbook_and_the_bound_programs_only_and_they_get_path_
     for name in FORBIDDEN {
         assert!(!seen.contains(name), "a process of the old runtime ran: {seen:?}");
     }
-    let dump = std::fs::read_to_string(scratch.join("1/work/envdump.txt")).unwrap();
+    let dump = std::fs::read_to_string(scratch.join("3/work/envdump.txt")).unwrap();
     let names: BTreeSet<&str> = dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).collect();
     assert!(names.contains("PATH") && names.contains("LOOM_CASE"), "{names:?}");
     let others: Vec<&&str> = names.iter().filter(|k| **k != "PATH" && !k.starts_with("LOOM_") && !matches!(**k, "PWD" | "SHLVL" | "_" | "OLDPWD")).collect();

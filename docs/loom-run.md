@@ -30,7 +30,8 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every `tree run` (`local` is
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
 1 error, 2 refused before anything was written, 3 stuck, 4 to 11 stopped (spend cap, wall time, model
-calls, signal, decider, denied, rejected, recording diverged), 64 usage. The subcommand was called `loom-run` before; this is the
+calls, signal, decider, denied, rejected, recording diverged), 12 refused by Loom during the run
+(`refused`, the reason is the cause), 64 usage. The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
 A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
@@ -264,9 +265,24 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 | model calls | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
-An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `error` (exit 1) with Loom's text, as every refusal of an answer does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
+An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `refused` (exit 12, see below) with Loom's text, as every refusal of Loom by a named reason does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
 
-Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 64 usage.
+#### A refusal of Loom by a named reason (Loom `db2726ff`)
+
+A call of the run that Loom refuses by a reason of `TreeRefusalReason` (`runbook/src/engine/refusal.rs`) ends the run `refused`, exit 12. The reason's name in snake case is the `cause` in `outcome.json` (key `cause`, present only for this outcome), in the `ended` line of `events.jsonl`, and in `run-stopped.json`; `reason` holds Loom's text, which leads with the reason's own name (`TreeStopped: ...`). `cause` is one name per reason, 29 of them (`runbook/src/engine/refusal.rs` matches every reason with no catch-all, so a reason a later Loom adds stops the build). The ones this pin brought, and what they are in a run:
+
+| Loom's reason | cause | when |
+|---|---|---|
+| `TreeStopped` | `tree_stopped` | `tree hold` is in force: `run_tree` writes nothing and refuses. The run's store keeps the hold; `tree reopen` lifts it |
+| `ConfinementRefused` | `confinement_refused` | no runner is admitted for the bound programs, the cgroup root is held by another run of the process, or the cgroup root cannot be used |
+| `PersonProgramFailed` | `person_program_failed` | the program of a person action ended badly (see above) |
+| `TreeAlreadyStopped`, `TreeNotStopped`, `StopUnusable` | `tree_already_stopped`, `tree_not_stopped`, `stop_unusable` | refusals of `hold` and `reopen`, which no `runbook` command calls; named all the same |
+
+A refusal before the run starts (the confinement level cannot be given) is exit 2 and its text leads with `ConfinementRefused:`. A child `b10x-loom` that refuses prints `b10x-loom: tree refused: <Reason>: ...`; the runner reads that line, so the same cause and exit 12 arise with `--loom`, with the child's exit code and the tail of its standard error in `outcome.json`. A refusal that is no reason of a tree call (a failure of the runner's own files, a document that does not parse) stays exit 1 `error`. `ProgramSignalled` (a program ended by a signal; exit 137 gives it) is not a reason of a tree call: Loom writes it into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled`, with Loom's text as the reason, instead of `stuck` (exit 3). A signalled program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on.
+
+The run log has two new kinds, `StopRecorded` (the principal and the reason of a hold) and `StopLifted` (the principal and the `seq` of the hold it lifts). The run directory's reader (`run_dir.rs`), the inspector's server (it reads the run directory's files, not the log), the daemon's tail (`engine/tail.rs`, through Loom's reader) and the driver tools (`sdc-replay`) take both without error and show nothing for them.
+
+Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 12 `refused` (Loom refused a call by a named reason; cause the reason), 64 usage.
 
 ### The spend ledger
 
@@ -514,7 +530,11 @@ environment of a bound program, and the usage errors. The slow lane `task test:l
 `~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
-compare --product-digests`, which has to end `parity: identical`.
+compare --product-digests`, which has to end `parity: identical`. The lane is not moved with the pin
+to `db2726ff`: its child binary and the sha256 it is pinned to (`CHILD_LOOM_SHA256` in
+`runbook/tests/loom_run/slow.rs`) are those of `70b0e6e0`, and no `b10x-loom` of `db2726ff` was built
+for this change, so the lane still compares a library of `db2726ff` with a child of `70b0e6e0`. A
+later change builds the child at `db2726ff`, names its sha256 and moves the three places together.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
 (`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts), and nothing else.

@@ -1,14 +1,14 @@
-//! `runbook test <suite>`: the cycles of a `loom.tree-suite/1` file, run one after another through
+//! `runbook test <suite>`: the cycles of a `loom.tree-suite/1` file, run one after another (or `--workers` beside each other) through
 //! Loom's suite runner (`b10x_loom_tree::suite::run_suite`) in this process (`docs/cli.md`). It
 //! starts no `b10x-loom` or `canon` process; only the bound programs run, started by
 //! Loom's runner, with `PATH` and `LOOM_*` and nothing else of this process's environment.
 
 use b10x_loom_tree::model::{CycleResult, SuiteReport, SuiteRefusalReason};
-use b10x_loom_tree::suite::{cycle_line, read_suite, run_suite, SuiteRefused, SuiteSettings};
+use b10x_loom_tree::suite::{cycle_line, read_suite, run_suite, workers_served, SuiteRefused, SuiteSettings};
 use b10x_loom_tree::{ConfinementAdapter, EngineConfinement, EngineRunner, TestRunner, TreeTime, UNCONFINED_FLAG_REASON};
 use clap::{Args as ClapArgs, ValueEnum};
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -44,9 +44,12 @@ pub struct Args {
     /// The directory the cycles work in: absent or empty. Default: a new directory under `$XDG_RUNTIME_DIR/runbook/`, else under the state directory, removed when every cycle is as expected and kept, named, otherwise. A directory named here is never removed.
     #[arg(long, value_name = "DIR")]
     pub scratch: Option<PathBuf>,
-    /// Run only these cycles, by name (comma-separated; may be repeated).
+    /// Run only these cycles, by name (comma-separated; may be repeated), in suite order. A name that is no cycle of the suite is refused (CycleUnknown) before any cycle.
     #[arg(long, value_name = "NAME[,NAME...]", value_delimiter = ',')]
     pub only: Vec<String>,
+    /// How many cycles run beside each other, 1 to 64 (Loom's `workers`). Default 1: one after another. Each cycle has its own directory in the scratch directory and its own 60 s bound; under `local` nothing is confined, so a program can read the other cycles' workspaces. More than 1 under `--confinement substrate` is refused (SubstrateWorkersUnserved).
+    #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=64))]
+    pub workers: u8,
     /// The confinement every bound program starts under: local or substrate. No default; passed on unchanged.
     #[arg(long, value_enum, required = true, value_name = "LEVEL")]
     pub confinement: Option<Level>,
@@ -107,32 +110,6 @@ pub fn default_scratch(env: &dyn Fn(&str) -> Option<PathBuf>, pid: u32) -> Resul
     Ok(base.join(format!("test-{seconds}-{pid}")))
 }
 
-/// `only` as a copy of the suite next to the original, holding only the named cycles, removed when dropped. Loom's runner reads a seed, a binding and a suite source relative to the suite file's own directory, so the copy has to lie there.
-struct Filtered {
-    path: PathBuf,
-}
-
-impl Filtered {
-    fn make(suite: &Path, only: &BTreeSet<String>, pid: u32) -> Result<Filtered, String> {
-        let text = std::fs::read_to_string(suite).map_err(|e| format!("{}: {e}", suite.display()))?;
-        let mut document: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", suite.display()))?;
-        let cycles = document.get_mut("cycles").and_then(|c| c.as_sequence_mut()).ok_or_else(|| format!("{}: no list of cycles", suite.display()))?;
-        cycles.retain(|c| c.get("name").and_then(|n| n.as_str()).is_some_and(|n| only.contains(n)));
-        let dir = suite.parent().unwrap_or(Path::new("."));
-        let path = dir.join(format!(".runbook-test-only-{pid}.suite.yaml"));
-        let body = serde_yaml::to_string(&document).map_err(|e| e.to_string())?;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        std::io::Write::write_all(&mut file, body.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(Filtered { path })
-    }
-}
-
-impl Drop for Filtered {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
 fn seconds(result: &CycleResult) -> f64 {
     result.seconds.0.parse::<f64>().unwrap_or(0.0)
 }
@@ -141,7 +118,11 @@ fn seconds(result: &CycleResult) -> f64 {
 pub fn closing_lines(report: &SuiteReport) -> Vec<String> {
     let mut ran: Vec<&CycleResult> = report.cycles.iter().filter(|c| c.run).collect();
     ran.sort_by(|a, b| seconds(b).partial_cmp(&seconds(a)).unwrap_or(std::cmp::Ordering::Equal));
-    let mut lines = vec!["ten slowest:".to_owned()];
+    let mut lines = Vec::new();
+    if let Some(only) = &report.only {
+        lines.push(format!("selected {} of {} cycles", only.len(), report.suite_cycles));
+    }
+    lines.push("ten slowest:".to_owned());
     lines.extend(ran.iter().take(10).map(|c| format!("  {:>7.1} s  {}", seconds(c), c.name)));
     lines.push(format!("{} of {} as expected, {} pending", report.as_expected, report.expected, report.pending));
     if !report.failed.is_empty() {
@@ -161,14 +142,12 @@ pub fn command(args: Args, protocols: Result<PathBuf, String>) -> ExitCode {
         Ok(p) => p,
         Err(e) => return refuse(e),
     };
-    let decoded = match read_suite(&suite) {
-        Ok(d) => d,
-        Err(refused) => return refused_suite(&refused),
-    };
-    let only: BTreeSet<String> = args.only.iter().cloned().collect();
-    let names: BTreeSet<&str> = decoded.cycles.iter().map(|c| c.name.as_str()).collect();
-    if let Some(unknown) = only.iter().find(|n| !names.contains(n.as_str())) {
-        return refuse(format!("--only names no cycle {unknown:?} in {}", suite.display()));
+    let workers = NonZeroUsize::new(usize::from(args.workers)).unwrap_or(NonZeroUsize::MIN);
+    if let Err(refused) = workers_served(Some(level.name()), workers) {
+        return refused_suite(&refused);
+    }
+    if let Err(refused) = read_suite(&suite) {
+        return refused_suite(&refused);
     }
     let runner = match runner(level) {
         Ok(r) => r,
@@ -185,20 +164,12 @@ pub fn command(args: Args, protocols: Result<PathBuf, String>) -> ExitCode {
             Err(e) => return refuse(e),
         },
     };
-    let filtered = if only.is_empty() {
-        None
-    } else {
-        match Filtered::make(&suite, &only, pid) {
-            Ok(f) => Some(f),
-            Err(e) => return refuse(e),
-        }
-    };
-    let to_run = filtered.as_ref().map_or(suite.as_path(), |f| f.path.as_path());
-    let settings = SuiteSettings::new(protocols, scratch.clone(), TreeTime::Host, runner, Some(level.name().to_owned()));
+    let mut settings = SuiteSettings::new(protocols, scratch.clone(), TreeTime::Host, runner, Some(level.name().to_owned()));
+    settings.workers = workers;
+    settings.only = args.only.clone();
     catch_signals();
     let mut print = |result: &CycleResult| println!("{}", clean(&cycle_line(result)));
-    let ran = run_suite(to_run, &settings, Some(&mut print), Some(&CANCEL));
-    drop(filtered);
+    let ran = run_suite(&suite, &settings, Some(&mut print), Some(&CANCEL));
     let report = match ran {
         Ok(r) => r,
         Err(refused) => {
@@ -224,4 +195,55 @@ pub fn command(args: Args, protocols: Result<PathBuf, String>) -> ExitCode {
         }
     }
     ExitCode::from(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    fn parse(extra: &[&str]) -> Result<Args, clap::Error> {
+        let mut argv = vec!["runbook-test", "suite.yaml", "--confinement", "local"];
+        argv.extend_from_slice(extra);
+        Cli::try_parse_from(argv).map(|c| c.args)
+    }
+
+    #[test]
+    fn cycles_run_one_after_another_unless_workers_says_otherwise() {
+        assert_eq!(parse(&[]).unwrap().workers, 1);
+        assert_eq!(parse(&["--workers", "4"]).unwrap().workers, 4);
+        assert_eq!(parse(&["--workers", "64"]).unwrap().workers, 64);
+    }
+
+    #[test]
+    fn a_worker_count_outside_one_to_sixty_four_is_refused_by_the_parser() {
+        for bad in ["0", "65", "256", "-1", "x"] {
+            assert!(parse(&["--workers", bad]).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_selection_line_names_the_chosen_cycles_of_the_suite_only_with_only() {
+        let mut report = SuiteReport {
+            cycles: Vec::new(),
+            expected: 0,
+            as_expected: 0,
+            failed: Vec::new(),
+            pending: 0,
+            pending_passing: Vec::new(),
+            waiting: Vec::new(),
+            not_run: Vec::new(),
+            only: None,
+            suite_cycles: 54,
+        };
+        assert!(!closing_lines(&report).iter().any(|l| l.starts_with("selected")));
+        report.only = Some(vec!["run-stop".to_owned(), "decider-rework".to_owned()]);
+        assert_eq!(closing_lines(&report)[0], "selected 2 of 54 cycles");
+    }
 }
