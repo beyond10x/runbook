@@ -278,7 +278,24 @@ code, and the files of the run with their content. It reads and acts on nothing.
 - Every read goes through the run-path check of `runfiles.mjs`: the real path lies under the run. The type
   is read before the file is opened and only a regular file is read: a directory, a named pipe, a socket
   and a device are refused (415, with the type) and never opened; a link that leaves the run is refused
-  (403). A path that is absolute or climbs out (`..`) is 400.
+  (403). A path that is absolute or climbs out (`..`) is 400. After the open, the descriptor must still be
+  the file that was checked (its real path from the kernel is the checked path): a directory on the way
+  that is swapped for a link between the check and the open does not make another file read. A regular file
+  with more than one link (a hard link may be a file outside the run, and only its link count tells) is
+  refused (403) and not listed.
+- The file route and the listing serve only what lies under a `work/` directory of the run, by name and by
+  real path: the run's `work/` and the `work/` of each of its cases. A path outside them (`settings.json`,
+  `store/...`, `llm-calls.jsonl`) is 404, as a link in `work/` that points at one is. Evidence records and
+  the output of an action have their own routes.
+- The listing is bounded in every direction: it lists a file by `lstat`, does not descend a link to a
+  directory, visits each real directory once, and stops at 500 files, 2000 directories or 20000 entries
+  of any kind; the answer says it was cut (`truncated`, `cut`: `files`, `directories` or `entries`) and the
+  page says by what.
+- The run log of a case is read through the same type check, in pieces from its end, at most 8 MiB of it.
+  An action finish that is not in that part answers "not found within the last 8 MiB of the run log". The
+  blob must be a file of the run's `store/blobs/` by its real path, under no dot-directory.
+- An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
+  page draws at most 24 levels of it (`cut at depth 24`).
 - A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
   for the file route, also through a link and an encoded dot; the listing says how many entries it left out.
   There is no switch to show them.
@@ -288,7 +305,9 @@ code, and the files of the run with their content. It reads and acts on nothing.
 - The Markdown renderer (`web/markdown.js`) is code of this repository with no dependency. It builds
   elements from text and never assigns markup; raw HTML in a file stays text; an image is a link with its alt
   text and loads nothing; a link opens only when it is an http or https address (a new tab, no opener) or a
-  path inside the run (opened in the panel); any other address is shown as text with its address.
+  path inside the run (opened in the panel); any other address is shown as text with its address. Its cost is
+  bounded: a line of white space costs one pass, a document makes at most 30000 elements (the rest is shown
+  as plain text with a line that says so), and a table has at most 50 columns, 500 rows and 5000 cells.
 - An action's exit code is shown as recorded. Its output is the one blob the run keeps (standard output
   followed by standard error), tail of 4096 bytes. `runbook run` records no start, end or duration of an
   action, only a whole-second span for its step (`observed.jsonl`): the page says "not recorded by this
@@ -300,7 +319,8 @@ code, and the files of the run with their content. It reads and acts on nothing.
   view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
-`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`.
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
 ## Where "now" comes from
 

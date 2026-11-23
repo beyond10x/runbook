@@ -10,8 +10,29 @@
 //     dir   the directory of the file inside the run ('work/example'): relative links resolve against it
 //     open  called with the path inside the run (relative to the run) when a link to a file of the run is clicked
 
-const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+// A document makes at most MAX_NODES elements: a few KB of table rows or emphasis must not make a million nodes.
+// Past it the rest of the document is shown as plain text with a line that says so. The count is of the document
+// being rendered (renderMarkdown resets it); a table has its own bounds below.
+const MAX_NODES = 30000;
+const MAX_COLS = 50, MAX_ROWS = 500, MAX_CELLS = 5000; // of one table
+let made = 0;
+const over = () => made > MAX_NODES;
+const el = (tag, cls) => { made++; const e = document.createElement(tag); if (cls) e.className = cls; return e; };
 const txt = (s) => document.createTextNode(s);
+
+// the rest of some lines as plain text, with the line that says why
+function plain(parent, lines, why) {
+  const pre = el('pre', 'md-cut-text');
+  pre.textContent = lines.join('\n');
+  if (why) { const note = el('p', 'md-cut'); note.textContent = why; parent.append(note); }
+  parent.append(pre);
+}
+// the same for the rest of a document: the line that says so is written once, whatever the nesting
+function cut(parent, ctx, lines, why) { plain(parent, lines, ctx.noted ? '' : why); ctx.noted = true; }
+const isWs = (ch) => ch.trim() === '';
+const isBlank = (ch) => ch === ' ' || ch === '\t';
+// the end of `s` once trailing white space is dropped, found by one scan from the end
+const trimmedEnd = (s, test = isWs) => { let e = s.length; while (e > 0 && test(s[e - 1])) e--; return e; };
 
 // ---- links -------------------------------------------------------------------------------------------
 // {kind: 'external', href} | {kind: 'file', path} | {kind: 'none'}
@@ -113,6 +134,7 @@ export function inline(s, parent, ctx, inLink = false) {
   const flush = () => { if (buf) { parent.append(txt(buf)); buf = ''; } };
   let i = 0;
   while (i < s.length) {
+    if (over()) { buf += s.slice(i); i = s.length; break; }
     const c = s[i];
     if (c === '\\' && i + 1 < s.length) {
       if (s[i + 1] === '\n') { flush(); parent.append(el('br')); i += 2; continue; }
@@ -184,8 +206,9 @@ export function inline(s, parent, ctx, inLink = false) {
     }
     if (c === '\n') {
       // two spaces before a line break make a break; a single break is a space
-      const hard = / {2,}$/.test(buf);
-      buf = buf.replace(/ +$/, '');
+      const keep = trimmedEnd(buf, (ch) => ch === ' ');
+      const hard = buf.length - keep >= 2;
+      buf = buf.slice(0, keep);
       if (hard) { flush(); parent.append(el('br')); } else buf += ' ';
       i++; continue;
     }
@@ -195,12 +218,10 @@ export function inline(s, parent, ctx, inLink = false) {
 }
 
 // ---- blocks ------------------------------------------------------------------------------------------
-const FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*([^`]*)$/;
-const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+const FENCE = /^ {0,3}(`{3,}|~{3,})[^`]*$/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const QUOTE = /^ {0,3}>/;
 const ITEM = /^( *)([-+*]|\d{1,9}[.)])([ \t]+|$)(.*)$/;
-const SEP = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 const blank = (l) => l.trim() === '';
 const indentOf = (l) => /^ */.exec(l.replace(/\t/g, '    '))[0].length;
 
@@ -216,12 +237,38 @@ const cells = (line) => {
   out.push(cur.trim());
   return out;
 };
-const startsTable = (lines, i) => i + 1 < lines.length && lines[i].includes('|') && SEP.test(lines[i + 1]) && lines[i + 1].includes('-') && (lines[i + 1].includes('|') || cells(lines[i]).length === 1) && cells(lines[i]).length === cells(lines[i + 1]).length;
+// An ATX heading `# text`, with an optional closing run of `#`, as {level, text}, or null. Found by scans along
+// the line, never by a pattern that backtracks over white space: a line of 131072 spaces costs one pass.
+function headingOf(l) {
+  let k = 0;
+  while (k < 3 && l[k] === ' ') k++;
+  let n = 0;
+  while (l[k + n] === '#') n++;
+  if (n < 1 || n > 6) return null;
+  k += n;
+  if (k < l.length && !isBlank(l[k])) return null;
+  while (k < l.length && isBlank(l[k])) k++;
+  const end = trimmedEnd(l, isBlank);
+  if (end <= k) return {level: n, text: ''};
+  let e = end;
+  while (e > k && l[e - 1] === '#') e--;
+  if (e === k) return {level: n, text: ''};
+  if (e < end && isBlank(l[e - 1])) return {level: n, text: l.slice(k, trimmedEnd(l.slice(0, e), isBlank))};
+  return {level: n, text: l.slice(k, end)};
+}
+// a table's delimiter row: cells of `---`, `:--`, `--:` or `:-:` between pipes
+function isSep(l) {
+  let t = l.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  if (t === '') return false;
+  return t.split('|').every((c) => /^:?-+:?$/.test(c.trim()));
+}
+const startsTable = (lines, i) => i + 1 < lines.length && lines[i].includes('|') && isSep(lines[i + 1]) && lines[i + 1].includes('-') && (lines[i + 1].includes('|') || cells(lines[i]).length === 1) && cells(lines[i]).length === cells(lines[i + 1]).length;
 const interrupts = (lines, i) => {
   const l = lines[i];
   if (FENCE.test(l) || HR.test(l) || QUOTE.test(l)) return true;
-  const h = HEADING.exec(l);
-  if (h) return true;
+  if (headingOf(l)) return true;
   const m = ITEM.exec(l);
   if (m && m[4] !== '' && (/^[-+*]$/.test(m[2]) || /^1[.)]$/.test(m[2]))) return true;
   return startsTable(lines, i);
@@ -273,6 +320,7 @@ function blocks(lines, parent, ctx, depth = 0) {
   while (i < lines.length) {
     const l = lines[i];
     if (blank(l)) { i++; continue; }
+    if (over()) { cut(parent, ctx, lines.slice(i), 'The rest of this document is shown as plain text: it makes more than ' + MAX_NODES + ' elements.'); return; }
     let m;
     if ((m = FENCE.exec(l))) {
       const mark = m[1];
@@ -287,9 +335,10 @@ function blocks(lines, parent, ctx, depth = 0) {
       continue;
     }
     if (HR.test(l)) { parent.append(el('hr')); i++; continue; }
-    if ((m = HEADING.exec(l))) {
-      const h = el(`h${m[1].length}`);
-      inline(m[2] ?? '', h, ctx);
+    const hd = headingOf(l);
+    if (hd) {
+      const h = el(`h${hd.level}`);
+      inline(hd.text, h, ctx);
       parent.append(h);
       i++;
       continue;
@@ -304,21 +353,31 @@ function blocks(lines, parent, ctx, depth = 0) {
     }
     if (startsTable(lines, i)) {
       const head = cells(lines[i]);
+      let end = i + 2;
+      while (end < lines.length && !blank(lines[end]) && lines[end].includes('|')) end++;
+      if (head.length > MAX_COLS) {
+        plain(parent, lines.slice(i, end), `This table is shown as plain text: it has ${head.length} columns and the page shows at most ${MAX_COLS}.`);
+        i = end;
+        continue;
+      }
       const align = cells(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : ''));
-      i += 2;
       const wrap = el('div', 'md-table'), table = el('table'), thead = el('thead'), tr = el('tr');
       head.forEach((h, k) => { const th = el('th', align[k] ? `al-${align[k]}` : ''); inline(h, th, ctx); tr.append(th); });
       thead.append(tr);
       const tbody = el('tbody');
-      while (i < lines.length && !blank(lines[i]) && lines[i].includes('|')) {
+      let r = i + 2, rows = 0, count = head.length;
+      while (r < end && rows < MAX_ROWS && count + head.length <= MAX_CELLS && !over()) {
         const row = el('tr');
-        const cs = cells(lines[i++]);
+        const cs = cells(lines[r++]);
         head.forEach((_, k) => { const td = el('td', align[k] ? `al-${align[k]}` : ''); inline(cs[k] ?? '', td, ctx); row.append(td); });
         tbody.append(row);
+        rows++; count += head.length;
       }
       table.append(thead, tbody);
       wrap.append(table);
       parent.append(wrap);
+      if (r < end) plain(parent, lines.slice(r, end), `The rest of this table is shown as plain text: the page shows at most ${MAX_ROWS} rows and ${MAX_CELLS} cells of a table.`);
+      i = end;
       continue;
     }
     if (ITEM.test(l) && ITEM.exec(l)[4] !== '' || (ITEM.test(l) && /^[-+*]$/.test(ITEM.exec(l)[2]))) { i = list(lines, i, parent, ctx, depth); continue; }
@@ -326,13 +385,14 @@ function blocks(lines, parent, ctx, depth = 0) {
     i++;
     while (i < lines.length && !blank(lines[i]) && !interrupts(lines, i)) body.push(lines[i++]);
     const p = el('p');
-    inline(body.map((x, k) => (k < body.length - 1 ? x.replace(/\s+$/, (sp) => (sp.length >= 2 ? '  ' : '')) : x.replace(/\s+$/, ''))).map((x) => x.replace(/^\s+/, '')).join('\n'), p, ctx);
+    inline(body.map((x, k) => { const e = trimmedEnd(x); return k < body.length - 1 && x.length - e >= 2 ? `${x.slice(0, e)}  ` : x.slice(0, e); }).map((x) => x.replace(/^\s+/, '')).join('\n'), p, ctx);
     parent.append(p);
   }
 }
 
 export function renderMarkdown(text, {dir = '', open = null} = {}, host) {
   host.replaceChildren();
+  made = 0;
   const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
   blocks(lines, host, {dir, open, steps: 0});
   return host;

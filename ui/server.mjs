@@ -21,7 +21,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
 import {registerRun, runPath, leavesRun, readText, readJson, statOf, exists, statSig, listDir} from './runfiles.mjs';
-import {fileAnswer, listFiles, productOf, outputOf} from './products.mjs';
+import {fileAnswer, listFiles, productOf, outputOf, limitDepth} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -661,10 +661,12 @@ function workFacts(src) {
 // The files of a run and its product (products.mjs): the run's work/ and the work/ of each case, the artifacts the
 // bindings place, and the rule that named the product.
 const posix = (p) => p.split(path.sep).join('/');
+// the directories of a run whose files are served and listed: its work/ and the work/ of each of its cases
+const workRoots = (src) => [...new Set([path.join(runDirOf(src), 'work'), ...Array.from(src.cases.values()).map((e) => path.join(e.dir, 'work'))])];
 function productsOf(src) {
   const runDir = runDirOf(src);
   const entries = Array.from(src.cases.values());
-  const roots = [path.join(runDir, 'work'), ...entries.map((e) => path.join(e.dir, 'work'))];
+  const roots = workRoots(src);
   const artifacts = new Map();
   for (const e of entries) {
     for (const [name, f] of Object.entries(loadCase(src, e).bindings?.$artifacts || {})) {
@@ -689,7 +691,7 @@ function loadCase(src, entry) {
   const d = entry.dir;
   const evidence = {};
   for (const f of listDir(path.join(d, 'evidence'))) if (f.endsWith('.json')) {
-    const r = readJson(path.join(d, 'evidence', f));
+    const r = limitDepth(readJson(path.join(d, 'evidence', f)));
     if (r) evidence[r.id || f.replace(/\.json$/, '')] = r;
   }
   const evaluations = {};
@@ -948,7 +950,7 @@ function handle(req, res, url) {
   if (p === '/api/workfacts') return send(res, 200, workFacts(src));
   // what a step produced: reads only, through the run-path check (products.mjs)
   if (p === '/api/products') return sendRun(res, 200, productsOf(src));
-  if (p === '/api/file') { const r = fileAnswer(runDirOf(src), url.searchParams.get('path')); return sendRun(res, r.status, r.body); }
+  if (p === '/api/file') { const r = fileAnswer(runDirOf(src), url.searchParams.get('path'), workRoots(src)); return sendRun(res, r.status, r.body); }
   if (p === '/api/output') {
     const rel = url.searchParams.get('case') ?? '.';
     const seq = Number(url.searchParams.get('seq'));

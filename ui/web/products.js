@@ -80,8 +80,11 @@ function row(name, value, extra = {}) {
   return r;
 }
 const scalar = (v) => (typeof v === 'string' ? v : v === null ? 'null' : String(v));
+// a value nested deeper than this is not drawn: the line says where it was cut
+const MAX_NEST = 24;
 function nested(key, value, path, depth) {
   const here = path ? `${path}.${key}` : key;
+  if (value !== null && typeof value === 'object' && depth >= MAX_NEST) return leaf(key, `cut at depth ${MAX_NEST}`, here);
   if (value !== null && typeof value === 'object') {
     const entries = Array.isArray(value) ? value.map((x, i) => [String(i), x]) : Object.entries(value);
     if (!entries.length) return leaf(key, Array.isArray(value) ? '[]' : '{}', here);
@@ -236,7 +239,7 @@ function lists(c, products, src) {
   if (!files.length) fl.append(h('p', 'prod-note', 'the run has written no file under work/ yet'));
   const hid = (products?.hiddenDirectories || 0) + (products?.hiddenFiles || 0);
   if (hid) fl.append(h('p', 'prod-hidden', `${hid} ${hid === 1 ? 'entry whose name starts with a dot is' : 'entries whose name starts with a dot are'} not listed (a tool's cache or login is neither listed nor served)`));
-  if (products?.truncated) fl.append(h('p', 'prod-note', 'the list is cut: the run holds more files than the page lists'));
+  if (products?.truncated) fl.append(h('p', 'prod-note', `the list is cut: ${{files: 'the run holds more files than the page lists', directories: 'the run holds more directories than the page walks', entries: 'the run holds more entries than the page walks'}[products.cut] || 'the run holds more than the page lists'}`));
   root.append(fl);
   return root;
 }

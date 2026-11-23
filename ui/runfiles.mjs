@@ -37,10 +37,39 @@ export function leavesRun(p, root) {
   return runPath(p, root) === null;
 }
 
+// ---- the opened file is the file that was checked ---------------------------------------------------
+// `runPath` checks a real path and the open that follows takes that path as a string again, so a directory on the
+// way that is swapped for a link between the two is followed (O_NOFOLLOW guards the last component only). After the
+// open, the kernel's own name for the descriptor must be the path that was checked: a file that is somewhere else,
+// inside the run or not, is not the file the check saw and is not read.
+const fdPath = (fd) => { try { return fs.realpathSync.native(`/proc/self/fd/${fd}`); } catch { return null; } };
+
+// {fd} for an open descriptor of `real`, or {why: 'leaves the run' | 'changed'}
+function openChecked(real, runReal, flags) {
+  const fd = fs.openSync(real, flags);
+  let now = fdPath(fd);
+  if (now == null) { try { now = fs.realpathSync.native(real); } catch { now = null; } }
+  if (now === real) return {fd};
+  fs.closeSync(fd);
+  return {why: now != null && !within(now, runReal) ? 'leaves the run' : 'changed'};
+}
+const runRealOf = (abs, root) => {
+  const run = root ? path.resolve(root) : ownerOf(abs);
+  if (!run) return null;
+  try { return fs.realpathSync.native(run); } catch { return null; }
+};
+
 export function readText(p, root) {
   const real = runPath(p, root);
   if (!real) return null;
-  try { return fs.readFileSync(real, 'utf8'); } catch { return null; }
+  let fd = null;
+  try {
+    const o = openChecked(real, runRealOf(path.resolve(p), root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    if (o.fd == null) return null;
+    fd = o.fd;
+    if (!fs.fstatSync(fd).isFile()) return null;
+    return fs.readFileSync(fd, 'utf8');
+  } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
 export const readJson = (p, fallback = null) => {
   const text = readText(p);
@@ -76,7 +105,12 @@ export const typeOf = (st) => TYPES.find(([m]) => st[m]())?.[1] ?? (st.isFile() 
 // then opened without blocking and its type read again from the descriptor, so a file swapped for a pipe between
 // the two is refused too. Answers {state: 'ok', size, mtimeMs, bytes, cut} | {state: 'missing'} |
 // {state: 'refused', why, type?}.
-export function readRegular(p, {root, limit = 1048576, tail = false} = {}) {
+// The window of the file that is read: its first `limit` bytes, its last `limit` with `tail`, or the `limit` bytes that
+// end at `end` (a position in the file). `from` and `to` say which bytes `bytes` are.
+// After the open the descriptor must still be the checked file (see openChecked), and a regular file with more than
+// one link is refused: a hard link to a file outside the run looks like a file of the run by its path, only its
+// link count tells.
+export function readRegular(p, {root, limit = 1048576, tail = false, end = null} = {}) {
   const abs = path.resolve(p);
   const real = runPath(abs, root);
   if (!real) {
@@ -86,22 +120,31 @@ export function readRegular(p, {root, limit = 1048576, tail = false} = {}) {
   let st;
   try { st = fs.statSync(real); } catch { return {state: 'missing'}; }
   if (!st.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(st)};
-  let fd;
+  let fd = null;
   try {
-    fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
+    const o = openChecked(real, runRealOf(abs, root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
+    if (o.fd == null) return o.why === 'leaves the run' ? {state: 'refused', why: 'leaves the run'} : {state: 'missing'};
+    fd = o.fd;
     const now = fs.fstatSync(fd);
     if (!now.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(now)};
-    const want = Math.min(now.size, limit);
+    if (now.nlink > 1) return {state: 'refused', why: 'more than one link', type: 'file'};
+    const to = end != null ? Math.min(end, now.size) : tail ? now.size : Math.min(now.size, limit);
+    const from = end != null || tail ? Math.max(0, to - limit) : 0;
+    const want = to - from;
     const buf = Buffer.alloc(want);
-    const from = tail ? Math.max(0, now.size - want) : 0;
     let got = 0;
     while (got < want) {
       const n = fs.readSync(fd, buf, got, want - got, from + got);
       if (n === 0) break;
       got += n;
     }
-    return {state: 'ok', size: now.size, mtimeMs: now.mtimeMs, bytes: buf.subarray(0, got), cut: now.size > got};
+    return {state: 'ok', size: now.size, mtimeMs: now.mtimeMs, bytes: buf.subarray(0, got), cut: from > 0 || from + got < now.size, from, to: from + got};
   } catch { return {state: 'missing'}; } finally { if (fd != null) fs.closeSync(fd); }
+}
+
+// true when `real` (a real path) lies under one of `roots`, directories of the run, by their real paths
+export function underAny(real, roots, runDir) {
+  return roots.some((r) => { const rr = runPath(r, runDir); return rr != null && within(real, rr); });
 }
 
 // the names in a directory of a run; an entry whose real path leaves the run is not listed
