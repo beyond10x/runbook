@@ -338,7 +338,8 @@ Without `--ui`, `GET /` is `404`.
   the command's whole answer (a network error, a reset, a body that is cut or is not JSON, an answer of the
   HTTP layer such as `401`, `403`, `400` or `415`, a `5xx`), so the daemon's replay rule (`already-submitted`)
   returns the first run and no second one starts; the key changes only when the daemon answered the command
-  with a named outcome (`submitted`, `already-submitted` or a refusal such as `no-runbook`), read whole, and
+  with a `2xx` or `4xx` status and a named outcome (`submitted`, `already-submitted` or a refusal such as
+  `no-runbook`), read whole (a `5xx` keeps the key whatever its body names), and
   when the runbook, the intake or the confinement changed (the page then says that the earlier press may have
   started a run: look in the list of runs). The levels offered start at the daemon's floor
   (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
@@ -348,7 +349,12 @@ Without `--ui`, `GET /` is `404`.
   (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
   the person picked while the form was still reading the floor and the list stays picked when the floor just
   read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
-  `below-floor`). A token that a header cannot carry (a character above U+00FF, a control character) is
+  `below-floor`). From the moment the form opens until it has read the floor of that opening, Start is
+  disabled and a press sends nothing, whatever level an earlier opening offered. A runbook the person
+  picked that the list just read no longer has is not replaced by another: none is selected, Start is
+  disabled and the form says that the picked runbook is no longer listed. The answer of a press belongs to
+  the opening that sent it: it shows the run and changes nothing that was typed into the form opened
+  again. A token that a header cannot carry (a character above U+00FF, a control character) is
   forgotten at once, the form asks for it again and says that the token cannot be sent; closing the form
   (Close, Escape, a successful start) empties the token field.
   The token follows the rules of the answer above and is held in its own variable of the page's memory (the
