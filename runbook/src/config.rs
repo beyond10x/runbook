@@ -32,7 +32,7 @@ pub const ENV_NO_CONFIG: &str = "RUNBOOK_NO_CONFIG";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 2] = ["runs_dir", "spend_ledger"];
+const OWN_KEYS: [&str; 3] = ["runs_dir", "spend_ledger", "runbooks"];
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
@@ -276,6 +276,8 @@ pub struct File {
     pub cap_micro_usd: Option<u64>,
     pub max_llm_calls: Option<u64>,
     pub max_wall_seconds: Option<u64>,
+    /// The runbook directories the file names, in its order, each made absolute against the file.
+    pub runbooks: Vec<PathBuf>,
     /// The run settings members, in file order, as `loom_run/settings.rs` reads them.
     pub members: Map<String, Value>,
 }
@@ -356,6 +358,26 @@ fn path_in(top: &mut Map<String, Value>, key: &str, dir: &Path) -> Result<Option
     }
 }
 
+/// The most runbook directories a file names.
+const MAX_RUNBOOK_DIRS: usize = 64;
+
+/// `runbooks = ["dir", ...]`: a list of paths as text, each absolute or relative to the file.
+fn runbook_dirs(top: &mut Map<String, Value>, dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let wrong = || "runbooks: a list of directories as text (a path, never content)".to_owned();
+    let Some(listed) = top.shift_remove("runbooks") else { return Ok(Vec::new()) };
+    let Value::Array(items) = listed else { return Err(wrong()) };
+    if items.len() > MAX_RUNBOOK_DIRS {
+        return Err(format!("runbooks: at most {MAX_RUNBOOK_DIRS} directories"));
+    }
+    items
+        .into_iter()
+        .map(|item| match item {
+            Value::String(s) if !s.is_empty() && !content_like(&s) => Ok(if Path::new(&s).is_absolute() { PathBuf::from(s) } else { dir.join(s) }),
+            _ => Err(wrong()),
+        })
+        .collect()
+}
+
 fn whole(top: &mut Map<String, Value>, key: &str) -> Result<Option<u64>, String> {
     match top.shift_remove(key) {
         None => Ok(None),
@@ -410,8 +432,9 @@ pub fn parse(found: &Found) -> Result<File, String> {
             _ => return Err(fail("decider.reply_bin: a path as text".to_owned())),
         }
     }
+    let runbooks = runbook_dirs(&mut top, &dir).map_err(fail)?;
     check_members(&top).map_err(fail)?;
-    Ok(File { path: found.path.clone(), runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, members: top })
+    Ok(File { path: found.path.clone(), runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, members: top })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -460,6 +483,8 @@ pub struct Values {
     pub cap_micro_usd: Item<u64>,
     pub max_llm_calls: Item<u64>,
     pub max_wall_seconds: Item<u64>,
+    /// The runbook directories of the file; the built-in set follows them.
+    pub runbooks: Vec<PathBuf>,
     pub settings: Option<PathBuf>,
     /// The members of the file, for the settings reader to merge under `--settings`.
     pub members: Map<String, Value>,
@@ -491,6 +516,7 @@ pub fn resolve(options: &ValueOptions, file: Option<&File>, cwd: &Path) -> Value
         cap_micro_usd: pick(options.cap_micro_usd, "--cap-micro-usd", file.and_then(|f| f.cap_micro_usd), path),
         max_llm_calls: pick(options.max_llm_calls, "--max-llm-calls", file.and_then(|f| f.max_llm_calls), path),
         max_wall_seconds: pick(options.max_wall_seconds, "--max-wall-seconds", file.and_then(|f| f.max_wall_seconds), path),
+        runbooks: file.map(|f| f.runbooks.clone()).unwrap_or_default(),
         settings: options.settings.clone(),
         members: file.map(|f| f.members.clone()).unwrap_or_default(),
     }
@@ -546,6 +572,10 @@ pub fn text(found: Option<(&Path, Via)>, source: &Source, values: &Values, merge
     });
     out.push(format!("runs_dir = {}  ({})", shown(&Value::from(values.runs_dir.0.display().to_string())), values.runs_dir.1.text()));
     out.push(format!("spend_ledger = {}  ({})", shown(&Value::from(values.spend_ledger.0.display().to_string())), values.spend_ledger.1.text()));
+    out.push(match (&values.file, values.runbooks.is_empty()) {
+        (Some(file), false) => format!("runbooks = {}  (file {})", shown(&Value::from(values.runbooks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>())), file.display()),
+        _ => "runbooks = []  (built-in: the built-in set only; `runbooks` in runbook.toml adds directories before it)".to_owned(),
+    });
     out.push(item("confinement", "--confinement", "no built-in default, a run is refused without it", values.confinement.as_ref().map(|(c, o)| (shown(&Value::from(c.as_arg())), o))));
     out.push(item("max_wall_seconds", "--max-wall-seconds", "no built-in default, a run is refused without it", values.max_wall_seconds.as_ref().map(|(n, o)| (n.to_string(), o))));
     out.push(item("cap_micro_usd", "--cap-micro-usd", "a run is refused without it", values.cap_micro_usd.as_ref().map(|(n, o)| (n.to_string(), o))));

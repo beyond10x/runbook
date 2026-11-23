@@ -104,6 +104,22 @@ fn a_runbook_home_lists_the_runbooks_that_have_a_protocol_and_bindings() {
 }
 
 #[test]
+fn the_runbook_directories_of_the_file_are_listed_before_the_runbook_home() {
+    let dir = scratch("runbooks-dirs");
+    let home = dir.join("home");
+    write(&home.join("protocol/alpha.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 3\n");
+    write(&home.join("bindings/alpha.yaml"), "format: loom.bindings/1\n");
+    let books = dir.join("books");
+    write(&books.join("protocol/delta.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: delta\n  revision: 7\n");
+    write(&books.join("bindings/delta.yaml"), "format: loom.bindings/1\n");
+    let engine = Arc::new(Engine::new(home, dir.join("state")).with_runbook_dirs(vec![books]));
+    let s = live("dirs", engine, None, None, dir);
+    let rows = s.rows();
+    rows.iter().for_each(|r| openapi::check_row("Runbooks", r));
+    assert_eq!(names(&rows), [("alpha".to_string(), Some("3".to_string())), ("delta".to_string(), Some("7".to_string()))], "{rows:?}");
+}
+
+#[test]
 fn every_runbook_the_view_lists_is_one_a_submit_accepts() {
     let dir = scratch("runbooks-submit");
     let stub = Arc::new(StubRuntime::new());

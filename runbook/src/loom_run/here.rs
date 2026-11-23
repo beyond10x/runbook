@@ -16,7 +16,8 @@ use super::{Args, EXIT_REFUSED};
 use crate::config::{self, ValueOptions};
 use clap::Args as ClapArgs;
 use runbook::client::RunArgs;
-use std::path::PathBuf;
+use runbook::runbooks::{self, Entry};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// The case id of the root case when `--case` is not given.
@@ -105,12 +106,62 @@ fn detach_only(base: &RunArgs) -> Option<&'static str> {
 }
 
 /// The root protocol of the runbook as the loop takes it: `<protocol id with . as ->@<revision>`.
-fn root_protocol_of(runbook: &str, protocols: &std::path::Path) -> Result<String, String> {
-    let entries = crate::list::read(protocols)?;
-    let entry = entries.iter().find(|e| e.id == runbook).ok_or_else(|| format!("no runbook {runbook} under {}", protocols.display()))?;
-    let revision = entry.revision.ok_or_else(|| format!("protocol/{runbook}.protocol.yaml has no protocol.revision"))?;
+fn root_protocol_of(entry: &Entry) -> Result<String, String> {
+    let revision = entry.revision.ok_or_else(|| format!("protocol/{}.protocol.yaml has no protocol.revision", entry.id))?;
     Ok(format!("{}@{revision}", entry.protocol_id.replace('.', "-")))
 }
+
+/// What the caller named of the three places a runbook's files and root are.
+struct Named<'a> {
+    protocols: Option<&'a Path>,
+    bindings: Option<&'a Path>,
+    root_protocol: Option<&'a str>,
+}
+
+/// The protocols, the bindings and the root protocol of a runbook; the root protocol is `None` when
+/// `--root-protocol` names it.
+struct Located {
+    protocols: PathBuf,
+    bindings: PathBuf,
+    root_protocol: Option<String>,
+}
+
+/// Resolves `runbook` through the one function `list` uses (`runbook::runbooks::load`): the directories
+/// of `runbook.toml`, then the built-in set. `--protocols` and `--bindings` name their directories
+/// themselves; the root protocol is that of the file named `runbook` in the protocols directory in use.
+fn locate(runbook: &str, named: Named<'_>, file: Option<&config::File>) -> Result<Located, Refusal> {
+    let refuse = |e: String| (EXIT_REFUSED, e);
+    let from_files = |protocols: &Path| -> Result<String, Refusal> {
+        let entries = runbooks::read_protocols(protocols).map_err(refuse)?;
+        let entry = entries.iter().find(|e| e.id == runbook).ok_or_else(|| refuse(format!("no runbook {runbook} under {}", protocols.display())))?;
+        root_protocol_of(entry).map_err(refuse)
+    };
+    if let (Some(protocols), Some(bindings)) = (named.protocols, named.bindings) {
+        let root_protocol = if named.root_protocol.is_some() { None } else { Some(from_files(protocols)?) };
+        return Ok(Located { protocols: protocols.to_path_buf(), bindings: bindings.to_path_buf(), root_protocol });
+    }
+    let world = crate::catalog::open_with(file.cloned(), &crate::assets::Lookup::from_process()).map_err(|(_, e)| refuse(e))?;
+    let found = runbooks::find(&world.entries, runbook);
+    let dir = match (found, world.assets.as_ref(), named.root_protocol) {
+        (Some(e), _, _) => e.dir.clone(),
+        (None, Some(a), Some(_)) => a.root.clone(),
+        (None, None, _) if world.configured.is_empty() => {
+            let why = world.missing.clone().unwrap_or_default();
+            return Err(refuse(format!("no asset root for the runbook's bindings and protocols ({why}): name --bindings and --protocols, or set RUNBOOK_HOME")));
+        }
+        (None, _, _) => return Err(refuse(format!("no runbook {runbook} in {}", world.searched()))),
+    };
+    let protocols = named.protocols.map(Path::to_path_buf).unwrap_or_else(|| dir.join("protocol"));
+    let bindings = named.bindings.map(Path::to_path_buf).unwrap_or_else(|| dir.join("bindings"));
+    let root_protocol = match (named.root_protocol, named.protocols, found) {
+        (Some(_), _, _) => None,
+        (None, Some(p), _) => Some(from_files(p)?),
+        (None, None, Some(e)) => Some(root_protocol_of(e).map_err(refuse)?),
+        (None, None, None) => return Err(refuse(format!("no runbook {runbook} in {}", world.searched()))),
+    };
+    Ok(Located { protocols, bindings, root_protocol })
+}
+
 
 /// The refusal of a value that is not stated: the option, the key and a line to add, and the file.
 fn not_stated(flag: &str, line: &str, no_default: bool, file: Option<&std::path::Path>) -> Refusal {
@@ -147,25 +198,9 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
         conformance: here.conformance,
     };
     let intake = runbook::client::read_intake(&base.intake).map_err(|f| (EXIT_REFUSED, f.message))?;
-    let assets = if here.bindings.is_none() || here.protocols.is_none() {
-        Some(crate::assets::Lookup::from_process().locate().map_err(|e| (EXIT_REFUSED, format!("no asset root for the runbook's bindings and protocols ({e}): name --bindings and --protocols, or set RUNBOOK_HOME")))?)
-    } else {
-        None
-    };
-    let protocols = match (&here.protocols, &assets) {
-        (Some(p), _) => p.clone(),
-        (None, Some(a)) => a.protocol_dir(),
-        (None, None) => unreachable!("the asset root is looked up when --protocols is not given"),
-    };
-    let bindings = match (&here.bindings, &assets) {
-        (Some(b), _) => b.clone(),
-        (None, Some(a)) => a.root.join("bindings"),
-        (None, None) => unreachable!("the asset root is looked up when --bindings is not given"),
-    };
-    let root_protocol = match here.root_protocol {
-        Some(r) => r,
-        None => root_protocol_of(super::bugfix::runbook_of(&ports, &base.runbook)?, &protocols).map_err(|e| (EXIT_REFUSED, e))?,
-    };
+    let named = Named { protocols: here.protocols.as_deref(), bindings: here.bindings.as_deref(), root_protocol: here.root_protocol.as_deref() };
+    let Located { protocols, bindings, root_protocol } = locate(super::bugfix::runbook_of(&ports, &base.runbook)?, named, file)?;
+    let root_protocol = root_protocol.or(here.root_protocol).ok_or_else(|| (EXIT_REFUSED, "no root protocol".to_owned()))?;
     let cwd = std::env::current_dir().map_err(|e| (EXIT_REFUSED, format!("the working directory: {e}")))?;
     let values = config::resolve(&here.values, file, &cwd);
     let at = values.file.as_deref();

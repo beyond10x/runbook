@@ -61,15 +61,29 @@ impl Report {
     }
 }
 
+/// The built-in set: every part of the layout and the cycles list.
 pub fn run(root: &Path) -> Report {
     let mut r = Report { root: root.to_path_buf(), ..Report::default() };
     let mut seen = Seen::default();
-    layout(root, &mut r);
+    layout(root, &mut r, |_| true);
     bindings(root, &mut r, &mut seen);
     instructions(root, &mut r, &mut seen);
     views(root, &mut r, &mut seen);
     cycles(root, &mut r, &mut seen);
     r.summary = seen.line();
+    r
+}
+
+/// A runbook directory of `runbook.toml`: its protocols, bindings, instruction files and views, read
+/// the same way as the built-in set's. It has no scripts, inspector or cycles list of its own.
+pub fn run_dir(root: &Path) -> Report {
+    let mut r = Report { root: root.to_path_buf(), ..Report::default() };
+    let mut seen = Seen::default();
+    layout(root, &mut r, |p| crate::assets::DIRECTORY_PARTS.contains(&p.name));
+    bindings(root, &mut r, &mut seen);
+    instructions(root, &mut r, &mut seen);
+    views(root, &mut r, &mut seen);
+    r.summary = format!("{} bindings files, {} instruction files, {} views", seen.yaml, seen.instructions, seen.views);
     r
 }
 
@@ -99,8 +113,8 @@ impl Seen {
 
 // ---------------------------------------------------------------------------------------- layout
 
-fn layout(root: &Path, r: &mut Report) {
-    for part in LAYOUT.iter().filter(|p| !p.present(root)) {
+fn layout(root: &Path, r: &mut Report, wanted: impl Fn(&crate::assets::Part) -> bool) {
+    for part in LAYOUT.iter().filter(|p| wanted(p) && !p.present(root)) {
         r.add("layout", part.name, format!("missing ({})", part.absent_reason()), LAYOUT_FIX);
     }
 }

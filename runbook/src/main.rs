@@ -3,6 +3,7 @@
 
 mod assets;
 mod canon_cmd;
+mod catalog;
 mod check;
 mod config;
 mod doctor;
@@ -28,21 +29,24 @@ struct Cli {
 enum Cmd {
     /// Check every program and helper binary a runbook needs; exit 1 when a required one is missing.
     Doctor {
-        /// Check only what this runbook needs (sdc, sdc-bugfix).
+        /// Check only what this runbook needs: a name `runbook list` prints as a runbook.
         #[arg(long = "for", value_name = "RUNBOOK")]
         for_runbook: Option<String>,
         /// Machine-readable output.
         #[arg(long)]
         json: bool,
     },
-    /// List the runbooks and child protocols under the asset root's protocol/ directory.
+    /// List the runbooks and child protocols of every runbook directory (`runbooks` of runbook.toml, then the built-in set): name, kind, version, directory, title.
     List {
         /// Machine-readable output.
         #[arg(long)]
         json: bool,
     },
-    /// Check the text of a runbook under the asset root (layout, bindings, instruction files, views, cycles list); exit 1 on any finding.
+    /// Check the text of every runbook directory (layout, bindings, instruction files, views; the cycles list of the built-in set); exit 1 on any finding.
     Check {
+        /// Check only the directory of this runbook: a name `runbook list` prints.
+        #[arg(long = "for", value_name = "RUNBOOK")]
+        for_runbook: Option<String>,
         /// Machine-readable output.
         #[arg(long)]
         json: bool,
@@ -147,9 +151,9 @@ fn main() -> ExitCode {
         }
     };
     match cli.cmd {
-        Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
-        Cmd::List { json } => list_cmd(json),
-        Cmd::Check { json } => check_cmd(json),
+        Cmd::Doctor { for_runbook, json } => doctor_cmd(&cli.source, for_runbook, json),
+        Cmd::List { json } => list_cmd(&cli.source, json),
+        Cmd::Check { for_runbook, json } => check_cmd(&cli.source, for_runbook, json),
         Cmd::Run(run) if run.common.detach => match run.here.values.first_given() {
             Some(flag) => {
                 eprintln!("runbook run: {flag} belongs to a run in this process and conflicts with --detach");
@@ -186,14 +190,23 @@ fn main() -> ExitCode {
         Cmd::Canon { .. } => canon_usage(),
         Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
-            let assets = assets::Lookup::from_process().locate().ok();
+            let world = match catalog::open(&cli.source) {
+                Ok(w) => w,
+                Err((code, e)) => {
+                    eprintln!("runbook serve: {e}");
+                    return ExitCode::from(code);
+                }
+            };
+            args.runbooks = world.configured.clone();
             if args.runbook_dir.is_none() {
-                args.runbook_dir = assets.as_ref().map(|a| a.protocol_dir());
+                args.runbook_dir = world.assets.as_ref().map(|a| a.protocol_dir());
             }
+            let presets: Vec<String> = world.startable().iter().map(|s| s.to_string()).collect();
             if args.runbook_home.is_none() {
-                args.runbook_home = assets.map(|a| a.root);
+                args.runbook_home = world.assets.map(|a| a.root);
             }
-            runbook::serve::run(args, &list::ROOT_RUNBOOKS)
+            let presets: Vec<&str> = presets.iter().map(String::as_str).collect();
+            runbook::serve::run(args, &presets)
         }
         Cmd::Test(args) => {
             let protocols = assets::Lookup::from_process().locate().map(|a| a.protocol_dir());
@@ -275,39 +288,78 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
     }
 }
 
-fn check_cmd(json: bool) -> ExitCode {
-    let assets = match assets::Lookup::from_process().locate() {
-        Ok(a) => a,
-        Err(e) => {
+fn check_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) -> ExitCode {
+    let world = match catalog::open(source).and_then(catalog::World::need_some) {
+        Ok(w) => w,
+        Err((code, e)) => {
             eprintln!("runbook check: {e}");
-            return ExitCode::from(1);
+            return ExitCode::from(code);
         }
     };
-    let report = check::run(&assets.root);
-    if json {
-        println!("{}", serde_json::to_string_pretty(&check::json(&report)).unwrap());
+    let built_in = world.assets.as_ref().map(|a| a.root.clone());
+    let reports: Vec<check::Report> = match &for_runbook {
+        None => {
+            let mut all: Vec<check::Report> = world.configured.iter().map(|d| check::run_dir(d)).collect();
+            all.extend(built_in.as_deref().map(check::run));
+            all
+        }
+        Some(id) => match runbook::runbooks::find(&world.entries, id) {
+            Some(e) if e.built_in => vec![check::run(&e.dir)],
+            Some(e) => vec![check::run_dir(&e.dir)],
+            None => {
+                eprintln!("runbook check: unknown runbook '{id}'; runbooks: {}", world.startable().join(", "));
+                return ExitCode::from(USAGE_ERROR);
+            }
+        },
+    };
+    let ok = reports.iter().all(check::Report::ok);
+    if json && reports.len() == 1 {
+        println!("{}", serde_json::to_string_pretty(&check::json(&reports[0])).unwrap());
+    } else if json {
+        let all: Vec<_> = reports.iter().map(check::json).collect();
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "ok": ok, "directories": all })).unwrap());
     } else {
-        print!("{}", check::text(&report));
+        for r in &reports {
+            if reports.len() > 1 {
+                println!("directory {}:", r.root.display());
+            }
+            print!("{}", check::text(r));
+        }
     }
-    if report.ok() {
+    if ok {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
     }
 }
 
-fn doctor_cmd(for_runbook: Option<String>, json: bool) -> ExitCode {
+fn doctor_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) -> ExitCode {
+    let mut directory = None;
     let only = match &for_runbook {
         None => None,
-        Some(id) => match doctor::Scope::runbook(id) {
-            Some(s) => Some((id.as_str(), s)),
-            None => {
-                eprintln!("runbook doctor: unknown runbook '{id}'; startable runbooks: {}", list::ROOT_RUNBOOKS.join(", "));
-                return ExitCode::from(USAGE_ERROR);
+        Some(id) => {
+            let world = match catalog::open(source).and_then(catalog::World::need_some) {
+                Ok(w) => w,
+                Err((code, e)) => {
+                    eprintln!("runbook doctor: {e}");
+                    return ExitCode::from(code);
+                }
+            };
+            match runbook::runbooks::find(&world.entries, id).filter(|e| e.startable) {
+                Some(e) => {
+                    if !e.built_in {
+                        directory = Some(assets::Assets { root: e.dir.clone(), source: assets::Source::Configured });
+                    }
+                    Some((id.as_str(), doctor::Scope::runbook(id)))
+                }
+                None => {
+                    eprintln!("runbook doctor: unknown runbook '{id}'; startable runbooks: {}", world.startable().join(", "));
+                    return ExitCode::from(USAGE_ERROR);
+                }
             }
-        },
+        }
     };
-    let report = doctor::run(&assets::Lookup::from_process(), &|k| std::env::var_os(k), only);
+    let report = doctor::run(&assets::Lookup::from_process(), &|k| std::env::var_os(k), only, directory);
     if json {
         println!("{}", serde_json::to_string_pretty(&doctor::json(&report)).unwrap());
     } else {
@@ -320,20 +372,19 @@ fn doctor_cmd(for_runbook: Option<String>, json: bool) -> ExitCode {
     }
 }
 
-fn list_cmd(json: bool) -> ExitCode {
-    let entries = assets::Lookup::from_process().locate().and_then(|a| list::read(&a.protocol_dir()));
-    match entries {
-        Ok(e) if json => {
-            println!("{}", serde_json::to_string_pretty(&list::json(&e)).unwrap());
+fn list_cmd(source: &config::Source, json: bool) -> ExitCode {
+    match catalog::open(source).and_then(catalog::World::need_some) {
+        Ok(w) if json => {
+            println!("{}", serde_json::to_string_pretty(&list::json(&w.entries)).unwrap());
             ExitCode::SUCCESS
         }
-        Ok(e) => {
-            print!("{}", list::text(&e));
+        Ok(w) => {
+            print!("{}", list::text(&w.entries));
             ExitCode::SUCCESS
         }
-        Err(e) => {
+        Err((code, e)) => {
             eprintln!("runbook list: {e}");
-            ExitCode::from(1)
+            ExitCode::from(code)
         }
     }
 }

@@ -59,6 +59,9 @@ impl World {
             std::fs::create_dir_all(root.join("assets").join(d)).unwrap();
         }
         std::fs::write(root.join("assets/bindings/sdc.yaml"), "").unwrap();
+        for id in ["sdc", "sdc-bugfix"] {
+            std::fs::write(root.join("assets/protocol").join(format!("{id}.protocol.yaml")), format!("format: protocol/1\n\nprotocol:\n  id: {id}\n  revision: 1\n  description: A runbook of the world.\n")).unwrap();
+        }
         for t in TOOLS {
             let p = root.join("assets").join(t);
             std::fs::write(&p, "#!/bin/sh\n").unwrap();
@@ -373,12 +376,13 @@ fn list_reads_the_fixture_protocols_without_starting_anything() {
     let o = w.run(&["list"], &[("RUNBOOK_HOME", fixture().to_str().unwrap())]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let rows: Vec<String> = stdout(&o).lines().map(|l| l.split_whitespace().collect::<Vec<_>>().join(" ")).collect();
+    let dir = fixture().display().to_string();
     assert_eq!(
         rows,
         [
-            "sdc runbook Fixture root runbook that starts child cases",
-            "sdc-bugfix runbook Fixture bugfix runbook",
-            "sdc-story child Fixture child protocol for one story",
+            format!("sdc runbook 2 {dir} Fixture root runbook that starts child cases"),
+            format!("sdc-bugfix runbook 1 {dir} Fixture bugfix runbook"),
+            format!("sdc-story child 4 {dir} Fixture child protocol for one story"),
         ]
     );
     let mut entries: Vec<String> = std::fs::read_dir(&w.root).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

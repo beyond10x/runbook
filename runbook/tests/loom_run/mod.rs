@@ -18,6 +18,7 @@ mod pages;
 mod replay;
 mod replay_boundaries;
 mod run_dir;
+mod runbook_dirs;
 mod settings;
 mod settings_guards;
 mod settings_refusals_print_no_value;

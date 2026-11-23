@@ -97,6 +97,7 @@ model = "claude-sonnet-5-5"
 | `max_wall_seconds` | whole number | none: refused | `--max-wall-seconds` |
 | `cap_micro_usd` | whole number | none: refused | `--cap-micro-usd` |
 | `max_llm_calls` | whole number | none: refused | `--max-llm-calls` |
+| `runbooks` | list of paths | none: the built-in set only | directories runbooks are loaded from, before the built-in set (below, "Runbook directories") |
 | `autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file` | as in `docs/loom-run-settings.md` | none | the run settings members |
 
 A relative path of the file is relative to the directory of the file. A run name that is not given is
@@ -116,6 +117,42 @@ link, a file with a second name and a writable file are refused by name (`--conf
 `RUNBOOK_CONFIG` get the same checks except the owner). The walk never reads a `runbook.toml` inside a
 run directory or in the directory of runs that holds it, so a file a model wrote into a run is no
 source; the runner resolves the file once, before the run directory exists.
+
+## Runbook directories
+
+`story:runbooks-load-from-configured-paths`. A `runbooks` list in the `runbook.toml` names directories
+runbooks are loaded from. `list`, `run`, `serve`, `check` and `doctor --for` resolve a name through one
+function (`runbook::runbooks::load`) over those directories in the order of the list, then the built-in
+set (the checkout or `share/runbook`, `RUNBOOK_HOME`), which is always last.
+
+```toml runbook.toml
+runbooks = ["runbooks/team", "/srv/runbooks/shared"]
+```
+
+A runbook directory holds `protocol/` and `bindings/` and may hold `views/` and `instructions/`, laid out
+as the built-in set is. A relative path is relative to the directory of the file that names it.
+
+- `runbook list` prints name, kind, version and directory of every protocol, then its title. A protocol
+  that no protocol of the set opens with `case_open` is a runbook (a person can start it); the others are
+  the children of one. No name is fixed in the program: a protocol says itself whether it can be started.
+- The same name in two directories is an error that names both directories (also a name that a
+  configured directory shares with the built-in set). Nothing is listed or started from such a set.
+- A directory that is missing, is no directory, or holds no `protocol/` or no `bindings/` is an error that
+  names it.
+- A configured directory goes through the checks of the built-in set: its files are regular files, a
+  link that leads out of the directory or nowhere is refused. Reading a directory only reads: nothing of
+  it is executed at `list`, `check` or `doctor`.
+- `runbook run <name>` takes `protocol/` and `bindings/` from the directory the name is found in;
+  `--bindings` and `--protocols` still name them themselves. `runbook serve` reads the same list at its
+  start and refuses a set that `list` refuses, before it listens; its engine looks a name up in the same
+  order.
+- `runbook check` reads every directory (layout `protocol/`, `bindings/`, the binding files, instruction
+  files and views; the cycles list is the built-in set's); `runbook check --for <name>` the directory
+  of one runbook. `runbook doctor --for <name>` asks the layout of that directory and the programs and
+  helpers every runbook needs; a runbook other than `sdc` and `sdc-bugfix` is asked what both need.
+- `runbook config` prints `runbooks` with the file it comes from.
+
+Tests: `runbook/tests/loom_run/runbook_dirs.rs`, `runbook/tests/daemon/runbooks_view.rs`.
 
 ## The two ways to Loom
 

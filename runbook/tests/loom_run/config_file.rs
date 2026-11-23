@@ -135,11 +135,19 @@ fn a_file_that_states_the_four_values_starts_a_dry_run_from_its_directory_and_fr
     assert_eq!(settings["models"]["writer"]["model"], "model-from-the-file", "{settings}");
     assert_eq!((settings["max_wall_seconds"].as_u64(), settings["loom"]["cap_micro_usd"].as_u64()), (Some(120), Some(1_000_000)), "{settings}");
 
+}
+
+#[test]
+fn a_file_is_found_from_a_subdirectory_and_the_runs_directory_is_the_one_beside_it() {
+    let rig = Rig::new("short-sub");
+    rig.fixture();
+    rig.put("runbook.toml", FOUR);
     let o = dry(&rig, &rig.p("work/sub"), "../../idea.txt");
     assert_eq!(code(&o), 0, "{}", err(&o));
-    let again = run_names(&runs);
-    assert_eq!(again.len(), 2, "the runs directory is the one beside the file: {again:?}");
-    assert_ne!(again[0], again[1], "every generated name is unique");
+    let names = run_names(&rig.p("runs"));
+    assert_eq!(names.len(), 1, "the runs directory is the one beside the file: {names:?}");
+    assert!(names[0].starts_with("engine-demo-"), "{names:?}");
+    assert!(!rig.p("work/sub/runs").exists() && !rig.p("work/runs").exists());
 }
 
 #[test]
@@ -163,23 +171,28 @@ fn a_value_that_has_no_default_is_refused_with_its_name_and_the_line_to_add() {
     assert!(err(&o).contains("--confinement") && err(&o).contains("runbook.toml"), "{}", err(&o));
 }
 
-#[test]
-fn the_caps_stay_required_as_they_are_and_the_file_may_state_them() {
-    let rig = Rig::new("caps");
+fn a_cap_stays_required(tag: &str, drop: &str, flag: &str, value: &str) {
+    let rig = Rig::new(tag);
     rig.fixture();
-    for (drop, flag) in [("cap_micro_usd", "--cap-micro-usd"), ("max_llm_calls", "--max-llm-calls")] {
-        let text: String = FOUR.lines().filter(|l| !l.starts_with(drop)).map(|l| format!("{l}\n")).collect();
-        rig.put("runbook.toml", &text);
-        let o = dry(&rig, &rig.root, "idea.txt");
-        assert_eq!(code(&o), 64, "{drop}: {}", err(&o));
-        assert!(err(&o).contains(flag) && err(&o).contains(&format!("{drop} = ")), "{drop}: {}", err(&o));
-        assert!(!rig.p("runs").exists());
-        // the option takes the place of the line
-        let value = if drop == "cap_micro_usd" { "1000000" } else { "100" };
-        let o = rig.run(&rig.root, &["run", "engine-demo", "--intake", "idea.txt", "--dry", flag, value]);
-        assert_eq!(code(&o), 0, "{drop} given as an option: {}", err(&o));
-        std::fs::remove_dir_all(rig.p("runs")).unwrap();
-    }
+    let text: String = FOUR.lines().filter(|l| !l.starts_with(drop)).map(|l| format!("{l}\n")).collect();
+    rig.put("runbook.toml", &text);
+    let o = dry(&rig, &rig.root, "idea.txt");
+    assert_eq!(code(&o), 64, "{drop}: {}", err(&o));
+    assert!(err(&o).contains(flag) && err(&o).contains(&format!("{drop} = ")), "{drop}: {}", err(&o));
+    assert!(!rig.p("runs").exists());
+    // the option takes the place of the line
+    let o = rig.run(&rig.root, &["run", "engine-demo", "--intake", "idea.txt", "--dry", flag, value]);
+    assert_eq!(code(&o), 0, "{drop} given as an option: {}", err(&o));
+}
+
+#[test]
+fn the_cap_in_micro_usd_stays_required_as_it_is_and_the_file_may_state_it() {
+    a_cap_stays_required("cap-usd", "cap_micro_usd", "--cap-micro-usd", "1000000");
+}
+
+#[test]
+fn the_cap_on_model_calls_stays_required_as_it_is_and_the_file_may_state_it() {
+    a_cap_stays_required("cap-calls", "max_llm_calls", "--max-llm-calls", "100");
 }
 
 // ---- where a value comes from ----

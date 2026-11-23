@@ -7,6 +7,7 @@ pub mod clock;
 pub mod commands;
 pub mod engine;
 pub mod mcp;
+pub mod runbooks;
 pub mod runtime;
 pub mod serve;
 pub mod state;

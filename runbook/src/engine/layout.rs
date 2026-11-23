@@ -48,6 +48,22 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
     Ok(Resolved { protocol_dir, bindings, protocol_id, revision })
 }
 
+/// The runbook `name` in the first of `homes` that has its protocol file (the order of
+/// `runbooks::load`: the configured directories, then the built-in home), or why the last one has not.
+pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Result<Resolved, String> {
+    if !plain(name) {
+        return Err(format!("{name:?} is not a runbook name"));
+    }
+    let home = crate::runbooks::locate(homes, name).or_else(|| homes.last().cloned()).ok_or_else(|| "no runbook home".to_owned())?;
+    resolve(&home, name, version)
+}
+
+/// The runbooks of every home, each name once, the first home's row winning.
+pub fn list_in(homes: &[PathBuf]) -> Vec<RunbookInfo> {
+    let mut seen = std::collections::BTreeSet::new();
+    homes.iter().flat_map(|h| list(h)).filter(|r| seen.insert(r.name.clone())).collect()
+}
+
 /// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the
 /// revision of its root protocol as the version. A file that does not resolve is not listed.
 pub fn list(home: &Path) -> Vec<RunbookInfo> {

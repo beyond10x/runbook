@@ -103,8 +103,10 @@ max_llm_calls = 200
 ```
 
 `runbook config` prints every value of a run and the file or option it comes from. The run's name is
-generated and printed; any option of `runbook run` still wins over the file. The options and the file's
-keys are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+generated and printed; any option of `runbook run` still wins over the file. A `runbooks = ["dir", ...]`
+list in the file adds directories runbooks are loaded from, before the built-in set; `runbook list` prints
+each runbook's name, version and directory. The options and the file's keys are in
+[docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 

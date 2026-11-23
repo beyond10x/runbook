@@ -109,7 +109,9 @@ Runs the cycles of a `loom.tree-suite/1` file (one after another, or `--workers`
 client of a daemon. No `b10x-loom` or `canon` process is started; the process tree of a
 run holds `runbook` and the bound programs, and a bound program gets `PATH` and `LOOM_*` from Loom
 and nothing of this process's environment. The protocols are the files of the asset root's
-`protocol/` directory (`RUNBOOK_HOME`, else the checkout). The suite's seeds, bindings and suite
+`protocol/` directory (`RUNBOOK_HOME`, else the checkout). The commands `list`, `check`, `doctor --for`,
+`run` and `serve` also read the `runbooks` directories of `runbook.toml` (`docs/loom-run.md`, "Runbook
+directories"); `check --for <name>` checks the directory of one runbook. The suite's seeds, bindings and suite
 sources are paths below the suite file's own directory (Loom's rule).
 
 - `--confinement` is required (except with `--list`), has no default and is passed on unchanged. Loom's

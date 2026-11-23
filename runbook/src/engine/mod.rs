@@ -64,7 +64,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 pub struct Engine {
-    home: PathBuf,
+    /// The directories a runbook name is looked up in, in order: the configured ones, then the home.
+    homes: Vec<PathBuf>,
     state_dir: PathBuf,
     levels: Vec<Confinement>,
     runs: Mutex<HashMap<String, Arc<Slot>>>,
@@ -102,7 +103,15 @@ impl Engine {
     /// An engine that offers exactly these levels.
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement]) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Engine { home, state_dir, levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        Engine { homes: vec![home], state_dir, levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+    }
+
+    /// The runbook directories of `runbook.toml` (`runbooks.rs`), looked up before the home, in
+    /// the order given. The set was accepted by `runbooks::load` when the daemon started.
+    pub fn with_runbook_dirs(mut self, dirs: Vec<PathBuf>) -> Engine {
+        let home = self.homes.pop().into_iter().collect::<Vec<_>>();
+        self.homes = dirs.into_iter().chain(home).collect();
+        self
     }
 
     pub fn levels(&self) -> &[Confinement] {
@@ -146,7 +155,7 @@ impl Engine {
                 self.levels.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", ")
             )));
         }
-        let resolved = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
+        let resolved = layout::resolve_in(&self.homes, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
@@ -333,11 +342,11 @@ impl Runtime for Engine {
     }
 
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
-        layout::resolve(&self.home, runbook, version).is_ok()
+        layout::resolve_in(&self.homes, runbook, version).is_ok()
     }
 
     fn runbooks(&self) -> Vec<RunbookInfo> {
-        layout::list(&self.home)
+        layout::list_in(&self.homes)
     }
 
     fn kind(&self) -> &'static str {
