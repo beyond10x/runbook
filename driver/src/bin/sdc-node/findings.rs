@@ -30,7 +30,7 @@ impl Ctx {
     }
 
     /// While a finding waits for a person's decision, a stage agent is not called: whatever it
-    /// wrote would be re-derived once the decision amends the requirements. `Some(0)` ends the run.
+    /// wrote would be re-derived once the decision amends the requirements. `Some(NOT_CALLED)` ends the program.
     pub fn wait_for_person(&self) -> R<Option<i32>> {
         let path = self.work.join("findings.yaml");
         if !self.raises() || !path.is_file() {
@@ -50,7 +50,7 @@ impl Ctx {
         let ids: Vec<String> = all.iter().filter(needs).map(|f| yaml::text(yaml::get(f, "id"))).collect();
         let msg = self.render("instructions/shared/node.not-called.findings.md", &[("node", &self.node), ("ids", &ids.join(" "))])?;
         crate::util::Out::inherit().line(msg.as_bytes());
-        Ok(Some(0))
+        Ok(Some(crate::util::NOT_CALLED))
     }
 
     /// After the node's output is applied: its raised findings go through the program check into
@@ -123,7 +123,9 @@ impl Ctx {
     /// A derived tree is not re-derived by the model when every decision taken since this node
     /// last wrote it is the default of a finding this node raised: only the requirements digest in
     /// `.derived-from` is renewed (a new revision, so the checks run again). Not on a retry and not
-    /// for a rejection. `Some(0)` ends the run.
+    /// for a rejection. `Some(0)` ends the program, with the exit of a counted run: the renewed marker is
+    /// what moves the case (an exit of `exits.not_called` records nothing, the case would not move: the
+    /// run of `spec-own-default` of `cycles/tree-suite.yaml` ends Stuck).
     pub fn derived_skip(&self) -> R<Option<i32>> {
         let Some(t) = self.derived() else { return Ok(None) };
         let marker = self.work.join(t).join(".derived-from");

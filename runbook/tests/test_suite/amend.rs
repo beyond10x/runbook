@@ -43,7 +43,7 @@ fn a_check_that_fails_after_a_later_write_takes_the_amend_step_again_and_the_run
         "{l:?}"
     );
     assert_eq!(l.last().unwrap(), "1 of 1 as expected, 0 pending", "{l:?}");
-    let order = std::fs::read_to_string(scratch.join("1/work/order.log")).unwrap();
+    let order = std::fs::read_to_string(scratch.join("work/1/order.log")).unwrap();
     let steps: Vec<&str> = order.lines().collect();
     let first_amend = steps
         .iter()

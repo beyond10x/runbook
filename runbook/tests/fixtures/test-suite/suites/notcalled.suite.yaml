@@ -1,0 +1,11 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-notcalled@1
+  bindings: bindings/suite-notcalled.yaml
+cycles:
+  - name: not-called-while-a-finding-waits
+    seed:
+      - {from: seeds/spec-v1.txt, to: spec.txt}
+      - {from: seeds/finding-waits.txt, to: findings.txt}
+    expect:
+      exit: 3
