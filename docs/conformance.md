@@ -207,8 +207,13 @@ at tag `0.97.0`). Each scenario gets a fresh product process from `start.argv`, 
 copy, on a free port on 127.0.0.1, with an empty data directory and no environment but `PATH`,
 `LANG`, `HOST`, `PORT`, and `HOME` and `TMPDIR` set to the scenario's directory; `end_scenario`
 kills its process group. The product's stdout and stderr go to the scenario's `product.log`; each
-capture is read from them within its `timeout_s` of the start, and one that does not appear answers
-`begin_scenario` `unavailable` (the scenario ends `error`, logged as `capture`). Start waits up to
+capture is read from them within its `timeout_s` of the start. When its stream ended without the
+value, what the product does within the same `timeout_s` decides: it exits (the run is `product_not_started`),
+it answers `start.ready` (the capture is the table's fault: "the product closed <stream> without printing it" when
+the adapter took the whole stream, and "did not appear on <stream> in the part the adapter read" when its buffer, the
+first 1 MiB of a stream, left lines out; `product.log` has every line), and one that neither exits nor answers
+fails the capture at `timeout_s`. A capture that does not appear answers `begin_scenario` `unavailable` (the scenario ends
+`error`, logged as `capture`). Start waits up to
 20 s for `start.ready`; each request waits at most
 `min(SDC_CONFORMANCE_TARGET_TIMEOUT, 20)` s, and ess waits `SDC_CONFORMANCE_TARGET_TIMEOUT` (30) s
 per answer. A status the table does not map is answered as no declared outcome. Every request a command or
