@@ -45,6 +45,7 @@ impl Ctx {
     /// a YAML or Markdown file the same lines as a comment.
     pub fn stub_rework(&self, code: i32) -> crate::util::R<()> {
         let (mut approval, mut subject, mut lines) = (String::new(), String::new(), String::new());
+        let mut seen: (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
         let file_ok = self.set.feedback.as_ref().is_some_and(|p| p.is_file());
         if self.rejection.is_none() && file_ok {
             // A person's rejection: the record names the person's action and the subject, and its
@@ -61,8 +62,12 @@ impl Ctx {
             if !approval.is_empty() && PathBuf::from(&log).is_file() {
                 let reasons = dashed(&String::from_utf8_lossy(&fs::read(&log).unwrap_or_default()));
                 // The nth rejection of the approval says so, so a rework that addresses the same
-                // reasons again is still a new revision of the artifact.
-                let n = recs.iter().filter(|r| r.str_of("result") == Some("rejected") && r.field("action").map(Ov::raw).as_deref() == Some(approval.as_str())).count();
+                // reasons again is still a new revision of the artifact. Loom gives a program only
+                // the records about the subject's current revision, so one document never holds
+                // the earlier rejections: they are counted from the ledger of the evidence ids this
+                // workspace numbered before, with the ones this document holds.
+                seen = self.rejections_of(&approval);
+                let n = seen.0.iter().chain(seen.1.iter()).collect::<std::collections::BTreeSet<_>>().len();
                 let nth = if n > 1 { format!(" {n}") } else { String::new() };
                 let text = self.render("instructions/shared/rework.stub.person.md", &[("nth", &nth), ("action", &approval), ("reasons", &reasons)])?;
                 lines = chomp(&text).to_string();
@@ -124,6 +129,40 @@ impl Ctx {
         if target.is_dir() {
             let _ = fs::write(target.join(".rework"), format!("{lines}\n"));
         }
+        self.keep_numbered(&approval, &seen.1);
         Ok(())
+    }
+
+    /// The evidence ids of the person's rejections of `approval` this workspace numbered before
+    /// (the ledger `.sdc/rework-seen`, one `<approval> <id>` per line), and those of the retry
+    /// feedback document Loom gave this run (`LOOM_RETRY_FEEDBACK`): the records of the result
+    /// `rejected` whose action is `approval`.
+    fn rejections_of(&self, approval: &str) -> (Vec<String>, Vec<String>) {
+        let ledger = fs::read_to_string(self.work.join(".sdc/rework-seen")).unwrap_or_default();
+        let before = ledger.lines().filter_map(|l| l.split_once(' ')).filter(|(a, _)| *a == approval).map(|(_, id)| id.to_string()).collect();
+        let doc = crate::util::env_set("LOOM_RETRY_FEEDBACK").and_then(|p| fs::read_to_string(p).ok()).and_then(|t| Ov::parse(&t).ok());
+        let now = doc
+            .as_ref()
+            .and_then(|d| d.get("records"))
+            .map(|rs| rs.items())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| r.str_of("result") == Some("rejected") && r.field("action").map(Ov::raw).as_deref() == Some(approval))
+            .filter_map(|r| r.str_of("evidence_id").map(str::to_string))
+            .collect();
+        (before, now)
+    }
+
+    /// Adds the ids of this rework to the ledger, so the next one counts them.
+    fn keep_numbered(&self, approval: &str, ids: &[String]) {
+        let known = fs::read_to_string(self.work.join(".sdc/rework-seen")).unwrap_or_default();
+        let new: String = ids.iter().map(|id| format!("{approval} {id}\n")).filter(|l| !known.lines().any(|k| k == l.trim_end())).collect();
+        if new.is_empty() {
+            return;
+        }
+        let _ = fs::create_dir_all(self.work.join(".sdc"));
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(self.work.join(".sdc/rework-seen")) {
+            let _ = f.write_all(new.as_bytes());
+        }
     }
 }

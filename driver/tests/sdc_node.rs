@@ -534,16 +534,31 @@ fn a_persons_rejection_reaches_the_stub() {
     assert!(r.files["requirements.yaml"].ends_with("# rework of the rejection of requirements.check:\n# - The requirements lack the named risks.\n# - Name the failure modes of a missing connection.\n"), "{r:#?}");
 }
 
-/// The second rejection of an approval by a person with the same reasons: the note says so, so the
-/// rework is not the artifact the first rejection left (a stub that wrote the same lines twice made
-/// no new revision and left the tree without a step to take).
+/// The second rejection of an approval by a person with the same reasons, as Loom hands it over: the
+/// first rework made a new revision, so the document of the second holds only the second record
+/// (`retry_records` skips a record about an earlier revision), in the workspace the first rework
+/// ran in. The note says it is the second, so the rework is not the artifact the first rejection
+/// left (a stub that wrote the same lines twice made no new revision and left the tree without a
+/// step to take).
 #[test]
 fn the_second_rejection_of_an_approval_by_a_person_is_numbered_in_the_note() {
     let reasons = "The requirements lack the named risks.\n";
     let blob = "5e".repeat(32);
-    let one = |id: &str| json!({"evidence_id": id, "kind": "requirements_approval", "subject": "requirements", "subject_revision": "r2", "result": "rejected", "blob_sha256": blob, "action": "requirements.check", "exit": null});
-    let doc = retry_doc(json!([one("e1"), one("e2")]), json!([{"blob_sha256": blob, "tail": reasons}]));
-    let (_, r) = pair("retry-person-twice", &start("requirements.normalise").env(&RETRY_ENV), &|root| put(root, "feedback-doc.json", &doc));
+    let one = |id: &str, revision: &str| json!({"evidence_id": id, "kind": "requirements_approval", "subject": "requirements", "subject_revision": revision, "result": "rejected", "blob_sha256": blob, "action": "requirements.check", "exit": null});
+    let doc = |id: &str, revision: &str| retry_doc(json!([one(id, revision)]), json!([{"blob_sha256": blob, "tail": reasons}]));
+    let on = |file: &str| [("LOOM_RETRY_FEEDBACK", format!("{{root}}/{file}"))];
+    let root = fresh("retry-person-twice");
+    base_work(&root.join("work"), "requirements.normalise");
+    put(&root, "feedback-doc-1.json", &doc("e1", "r1"));
+    put(&root, "feedback-doc-2.json", &doc("e2", "r2"));
+    let first = on("feedback-doc-1.json");
+    let first = start("requirements.normalise").env(&[(first[0].0, first[0].1.as_str())]);
+    let o = spawn(&root, &first, first.case);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let second = on("feedback-doc-2.json");
+    let second = start("requirements.normalise").env(&[(second[0].0, second[0].1.as_str())]);
+    let r = exec(&root, &second, second.case);
+    expect("retry-person-twice", &r);
     assert_eq!(r.code, Some(0), "{r:#?}");
     assert!(r.files["requirements.yaml"].ends_with("# rework 2 of the rejection of requirements.check:\n# - The requirements lack the named risks.\n"), "{r:#?}");
 }

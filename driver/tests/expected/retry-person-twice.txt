@@ -2,9 +2,9 @@ exit 0
 stdout:
 stderr:
 written:
-71f20eb8850458da  .sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e
+71f20eb8850458da  .sdc/loom-feedback/35418fbd8fa3369d/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e
     | The requirements lack the named risks.
-d064be68a028fea9  .sdc/loom-feedback/9cca45474f6752f1/feedback.json
+6fc0a6dc6939a1a7  .sdc/loom-feedback/35418fbd8fa3369d/feedback.json
     | [
     |   {
     |     "kind": "requirements_approval",
@@ -12,17 +12,12 @@ d064be68a028fea9  .sdc/loom-feedback/9cca45474f6752f1/feedback.json
     |     "subject": "requirements",
     |     "action": "requirements.check",
     |     "exit": null,
-    |     "log": "<root>/work/.sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
-    |   },
-    |   {
-    |     "kind": "requirements_approval",
-    |     "result": "rejected",
-    |     "subject": "requirements",
-    |     "action": "requirements.check",
-    |     "exit": null,
-    |     "log": "<root>/work/.sdc/loom-feedback/9cca45474f6752f1/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+    |     "log": "<root>/work/.sdc/loom-feedback/35418fbd8fa3369d/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
     |   }
     | ]
+7f936a91ea75e18c  .sdc/rework-seen
+    | requirements.check e1
+    | requirements.check e2
 e65e8733be0fb850  requirements.yaml
     | requirements:
     |   - id: r1

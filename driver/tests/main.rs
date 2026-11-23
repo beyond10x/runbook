@@ -22,6 +22,7 @@ mod producer_ids;
 mod progress;
 mod questions_check;
 mod reply_bytes;
+mod rework_numbering;
 mod capture_buffer_bound;
 mod bounds_and_digest;
 mod capture_fate;
