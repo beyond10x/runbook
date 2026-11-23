@@ -12,7 +12,6 @@ use serde_json::{json, Value as J};
 use sha2::{Digest, Sha256};
 
 const BIN: &str = env!("CARGO_BIN_EXE_sdc-conform");
-const ADAPTER: &str = env!("CARGO_BIN_EXE_sdc-conform-adapter");
 
 pub(crate) fn tmp(name: &str) -> PathBuf {
     let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join("ess-pin-guard").join(name);
@@ -72,13 +71,14 @@ fn entry_by_hand(cache: &Path, path: &Path, sha: &str) -> PathBuf {
 const PINNED: &str = "#!/bin/sh\necho 'ess 9.9.9'\n";
 const OTHER: &str = "#!/bin/sh\necho 'ess 9.9.9' # not the pinned bytes\n";
 
-// ---- the digest cache in front of the pin ------------------------------------------------------
+// ---- no file stands in for the hash of the binary ----------------------------------------------
 
-/// The invariant of the pin: a binary whose bytes differ from the pin is never accepted. Without a
-/// cache entry the binary below is refused; with an entry anyone who can write the cache directory
-/// can write (the stamp is what `stat` prints) it must be refused too.
+/// The invariant of the pin: a binary whose bytes differ from the pin is never accepted. The binary
+/// below is refused with no file beside it; a record of its digest, written by hand in the format a
+/// digest cache once used and in the directory a variable names (the stamp is what `stat` prints),
+/// must not change that. Nothing reads the variable any more: the case fails when something does.
 #[test]
-fn an_entry_written_by_hand_does_not_make_another_binary_the_pinned_one() {
+fn a_record_written_by_hand_in_a_named_directory_does_not_make_another_binary_the_pinned_one() {
     let dir = tmp("entry-by-hand");
     let (bin, cache) = (dir.join("ess"), dir.join("cache"));
     executable(&bin, OTHER);
@@ -100,7 +100,7 @@ fn an_entry_written_by_hand_does_not_make_another_binary_the_pinned_one() {
 
 /// The same entry in the default place: no `SDC_ESS_DIGEST_CACHE`, `$HOME/.cache/sdc/ess-digest`.
 #[test]
-fn an_entry_written_by_hand_below_home_does_not_make_another_binary_the_pinned_one() {
+fn a_record_written_by_hand_below_home_does_not_make_another_binary_the_pinned_one() {
     let dir = tmp("entry-by-hand-home");
     let bin = dir.join("ess");
     executable(&bin, OTHER);
@@ -121,71 +121,11 @@ fn an_entry_written_by_hand_below_home_does_not_make_another_binary_the_pinned_o
     assert!(!o.status.success(), "another binary was accepted as the pin from an entry below $HOME/.cache/sdc/ess-digest: {}", says(&o));
 }
 
-/// "The ctime moves with every write and cannot be set, so a swapped file never matches": a write
-/// through a shared mapping whose page is already writable moves neither mtime nor ctime (Linux:
-/// the times move at the write fault, not at the write). The entry is the one `sdc-conform` wrote
-/// itself; nobody writes the cache directory by hand here. The case fails when the bytes changed,
-/// the stamp did not, and the binary is accepted. Should the kernel write the page back between
-/// the two writes (it did not in the reviewer's runs), the stamp moves and the case passes.
-#[cfg(target_os = "linux")]
+/// A FIFO where a record of the binary's digest was once kept: `sdc-conform ess-path` reads no
+/// such file, so it answers (here: refuses the binary, which is not the pin) and does not wait on
+/// it. The case takes 5 s when it fails.
 #[test]
-fn bytes_changed_through_a_mapping_after_the_digest_are_not_accepted_from_the_cache() {
-    use std::os::fd::AsRawFd;
-    extern "C" {
-        fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: i64) -> *mut u8;
-        fn munmap(addr: *mut u8, len: usize) -> i32;
-    }
-    const PROT_READ_WRITE: i32 = 1 | 2;
-    const MAP_SHARED: i32 = 1;
-
-    // the last byte before the newline is changed below: a comment, so the program still says its version
-    const MAPPED: &str = "#!/bin/sh\necho 'ess 9.9.9' #a\n";
-    let dir = tmp("mapping");
-    let (bin, cache) = (dir.join("ess"), dir.join("cache"));
-    executable(&bin, MAPPED);
-    let want = sha_hex(MAPPED.as_bytes());
-    let pin = pin_of(&dir, &want);
-    let len = MAPPED.len();
-
-    let file = fs::File::options().read(true).write(true).open(&bin).unwrap();
-    // SAFETY: a shared mapping of `len` bytes of a file this test owns; it is unmapped below and
-    // only written inside its bounds.
-    let map = unsafe { mmap(std::ptr::null_mut(), len, PROT_READ_WRITE, MAP_SHARED, file.as_raw_fd(), 0) };
-    assert!(!map.is_null() && map as isize != -1, "mmap failed");
-    // the same bytes again: the write fault makes the page writable and moves the times now
-    unsafe { std::ptr::copy_nonoverlapping(MAPPED.as_ptr(), map, len) };
-    std::thread::sleep(Duration::from_millis(300));
-
-    // `sdc-conform` digests the pinned bytes and writes its entry (it then cannot start the file,
-    // which is open for writing: that refusal is not what this case is about)
-    let _ = ess_path(&pin, &bin, &cache).output().unwrap();
-    let entries: Vec<PathBuf> = fs::read_dir(&cache).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
-    assert_eq!(entries.len(), 1, "sdc-conform wrote no entry for the pinned bytes: {entries:?}");
-    assert!(fs::read_to_string(&entries[0]).unwrap().contains(&want));
-    let before = stamp(&bin);
-
-    // one byte, same size, no call that sets a time
-    unsafe { *map.add(len - 2) = b'b' };
-    unsafe { munmap(map, len) };
-    drop(file);
-
-    let now = sha_hex(&fs::read(&bin).unwrap());
-    assert_ne!(now, want, "the bytes did not change");
-    let o = ess_path(&pin, &bin, &cache).output().unwrap();
-    assert!(
-        !o.status.success(),
-        "the binary now has sha256 {now}, the pin is {want}, and it was accepted from the entry sdc-conform wrote before the bytes changed (stamp before {before:?}, now {:?}): {}",
-        stamp(&bin),
-        says(&o)
-    );
-    assert!(String::from_utf8_lossy(&o.stderr).contains("ess_pin_mismatch"), "refused for another reason, the case measured nothing: {}", says(&o));
-}
-
-/// "Anything else, a cache that cannot be read or written included, digests the file again": an
-/// entry that is a FIFO is such a cache. `sdc-conform ess-path` has to answer (here: refuse the
-/// binary, which is not the pin) and not wait on it. The case takes 5 s when it fails.
-#[test]
-fn a_cache_entry_that_is_a_fifo_does_not_stop_the_check() {
+fn a_fifo_where_a_record_was_once_kept_does_not_stop_the_pin_check() {
     use std::os::unix::ffi::OsStrExt;
     let dir = tmp("fifo-entry");
     let (bin, cache) = (dir.join("ess"), dir.join("cache"));
@@ -212,7 +152,62 @@ fn a_cache_entry_that_is_a_fifo_does_not_stop_the_check() {
     assert_eq!(ended.unwrap().code(), Some(1), "the binary is not the pin");
 }
 
-// ---- what reaches the cache: the build step of an observed product -----------------------------
+/// The bytes decide, every time: the pin's binary is accepted; a binary of another size at the same
+/// path is refused; one of the same size and the old mtime put back is refused; the pin's binary put
+/// back is accepted. The refusal names the digest of the bytes the file has now.
+#[test]
+fn a_changed_binary_is_refused_and_the_pin_binary_put_back_is_accepted() {
+    let dir = tmp("swap");
+    let (bin, nowhere) = (dir.join("ess"), dir.join("nowhere"));
+    let good = "#!/bin/sh\necho 'ess 9.9.9'\n";
+    let want = sha_hex(good.as_bytes());
+    let pin = pin_of(&dir, &want);
+    executable(&bin, good);
+    let good_mtime = fs::metadata(&bin).unwrap().modified().unwrap();
+    std::thread::sleep(Duration::from_millis(250));
+
+    let o = ess_path(&pin, &bin, &nowhere).output().unwrap();
+    assert!(o.status.success(), "{}", says(&o));
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), bin.to_str().unwrap());
+
+    let longer = "#!/bin/sh\necho 'ess 9.9.9'\n# swapped\n";
+    executable(&bin, longer);
+    let o = ess_path(&pin, &bin, &nowhere).output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_hex(longer.as_bytes())), "{}", says(&o));
+
+    let same_size = "#!/bin/sh\necho 'ess 9.9.8'\n";
+    assert_eq!(same_size.len(), good.len());
+    executable(&bin, same_size);
+    fs::File::options().write(true).open(&bin).unwrap().set_modified(good_mtime).unwrap();
+    let o = ess_path(&pin, &bin, &nowhere).output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_hex(same_size.as_bytes())), "{}", says(&o));
+
+    executable(&bin, good);
+    let o = ess_path(&pin, &bin, &nowhere).output().unwrap();
+    assert!(o.status.success(), "{}", says(&o));
+}
+
+/// `sdc-conform ess-path` writes nothing below the home directory: the home directory below is
+/// empty afterwards (the step stays inside the tree and its scratch).
+#[test]
+fn the_pin_check_writes_nothing_below_the_home_directory() {
+    let dir = tmp("writes-nothing");
+    let (bin, home) = (dir.join("ess"), dir.join("home"));
+    executable(&bin, PINNED);
+    let pin = pin_of(&dir, &sha_hex(PINNED.as_bytes()));
+    fs::create_dir_all(&home).unwrap();
+    std::thread::sleep(Duration::from_millis(250));
+    for _ in 0..2 {
+        let o = Command::new(BIN).arg("ess-path").arg("--pin").arg(&pin).env("ESS_BIN", &bin).env("HOME", &home).env_remove("XDG_CACHE_HOME").output().unwrap();
+        assert!(o.status.success(), "{}", says(&o));
+    }
+    let left: Vec<PathBuf> = fs::read_dir(&home).unwrap().flatten().map(|e| e.path()).collect();
+    assert!(left.is_empty(), "the check wrote below the home directory: {left:?}");
+}
+
+// ---- what a model-written build step can reach: the files `sdc-conform` reads -----------------
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/conformance")
@@ -242,7 +237,7 @@ pub(crate) fn table() -> J {
 
 /// The installed pinned ess, found as `resolve_ess` finds it (`ESS_BIN`, else the cache path), with
 /// no digest taken here: `sdc-conform observe` below takes it.
-fn installed_ess(pin: &J) -> PathBuf {
+pub(crate) fn installed_ess(pin: &J) -> PathBuf {
     let var = |n: &str| std::env::var_os(n).filter(|v| !v.is_empty()).map(PathBuf::from);
     var("ESS_BIN").unwrap_or_else(|| {
         var("SDC_ESS_CACHE")

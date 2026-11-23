@@ -36,6 +36,16 @@ fn ess() -> PathBuf {
     .clone()
 }
 
+/// The precondition of a test that runs the pinned ess through `sdc-conform`: the binary is
+/// installed where `sdc-conform` looks (`ESS_BIN`, else the cache path). `sdc-conform` checks the
+/// pin against the binary's bytes at each start; a test that does not need the path asks only this
+/// and does not start `sdc-conform` for it.
+fn installed() {
+    let pin: J = serde_json::from_str(&fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("ess-pin.json")).unwrap()).unwrap();
+    let path = crate::ess_pin_guard::installed_ess(&pin);
+    assert!(path.is_file(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", path.display());
+}
+
 fn copy(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for e in fs::read_dir(from).unwrap().flatten() {
@@ -107,7 +117,7 @@ fn says(o: &Output) -> String {
 
 #[test]
 fn every_scenario_passes_and_the_check_holds() {
-    ess();
+    installed();
     let run = run_dir("all-pass", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &t, &[]);
@@ -132,7 +142,7 @@ fn every_scenario_passes_and_the_check_holds() {
 
 #[test]
 fn one_deviation_is_contradicted_with_its_expected_and_observed() {
-    ess();
+    installed();
     let run = run_dir("deviation", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &with_mode("gone"));
     let (o, d) = observe(&run, &t, &[("SDC_LLM_MODEL_CONFORMANCE", "claude-opus-5-5"), ("SDC_LLM_EFFORT_CONFORMANCE", "medium")]);
@@ -154,7 +164,7 @@ fn one_deviation_is_contradicted_with_its_expected_and_observed() {
 
 #[test]
 fn an_empty_suite_is_unknown_never_a_pass() {
-    ess();
+    installed();
     let run = run_dir("empty", "spec-empty");
     let t = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &t, &[]);
@@ -167,7 +177,7 @@ fn an_empty_suite_is_unknown_never_a_pass() {
 
 #[test]
 fn a_product_that_does_not_start_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nostart", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &with_mode("nostart"));
     let (o, d) = observe(&run, &t, &[]);
@@ -185,7 +195,7 @@ fn s(v: &J) -> &str {
 
 #[test]
 fn a_refused_table_is_asked_again_twice_then_unknown() {
-    ess();
+    installed();
     let run = run_dir("refused", "spec");
     let mut t = table();
     t["views"] = json!([]);
@@ -204,7 +214,7 @@ fn a_refused_table_is_asked_again_twice_then_unknown() {
 
 #[test]
 fn a_table_fixed_on_the_retry_is_used() {
-    ess();
+    installed();
     let run = run_dir("retry", "spec");
     let mut bad = table();
     bad["commands"][1]["outcomes"][2]["status"] = json!(200);
@@ -220,7 +230,7 @@ fn a_table_fixed_on_the_retry_is_used() {
 
 #[test]
 fn a_product_that_does_not_build_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nobuild", "spec");
     let mut t = table();
     t["build"] = json!({"argv": ["bin/stub-product", "0", "x", "failbuild"]});
@@ -233,7 +243,7 @@ fn a_product_that_does_not_build_is_unknown() {
 
 #[test]
 fn a_missing_table_and_a_model_less_adapter_are_unknown() {
-    ess();
+    installed();
     let run = run_dir("notable", "spec");
     let (o, d) = observe(&run, "-", &[]);
     assert!(o.status.success(), "{}", says(&o));
@@ -267,85 +277,11 @@ fn an_ess_binary_that_is_not_the_pinned_one_is_refused() {
 
 #[test]
 fn a_run_without_a_delivered_tree_is_unknown() {
-    ess();
+    installed();
     let run = run_dir("nodelivery", "spec");
     fs::remove_dir_all(run.join("store/IDEA-1/work/published")).unwrap();
     let (_, d) = observe(&run, "-", &[]);
     assert_eq!(d["conformance"]["cause"], "no_delivered_tree", "{:#}", d["conformance"]);
-}
-
-fn sha_of(text: &str) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// `sdc-conform ess-path` for a stand-in binary at `bin` and a pin that names `want` for it. The
-/// digest cache is `cache`, so no test reads or writes the host's.
-fn ess_path_of(dir: &Path, bin: &Path, want: &str, cache: &Path) -> Output {
-    let arch = std::env::consts::ARCH;
-    let triple = if cfg!(target_os = "macos") { format!("{arch}-apple-darwin") } else { format!("{arch}-unknown-linux-gnu") };
-    let pin = dir.join("pin.json");
-    fs::write(&pin, json!({"format": "sdc.ess-pin/1", "version": "9.9.9", "platforms": {triple: {"binary_sha256": want}}}).to_string()).unwrap();
-    Command::new(BIN).arg("ess-path").arg("--pin").arg(&pin).env("ESS_BIN", bin).env("SDC_ESS_DIGEST_CACHE", cache).output().unwrap()
-}
-
-/// `resolve_ess` takes the SHA-256 of the 113 MB pinned binary once and keeps it in a cache file
-/// keyed by the binary's path, size, mtime, ctime and inode. The cache never lets a wrong binary
-/// pass: a binary that changed in any of those is digested again and refused when it is not the pin.
-#[test]
-fn the_digest_of_the_pinned_binary_is_cached_and_a_changed_binary_is_still_refused() {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = tmp("ess-digest");
-    let (bin, cache) = (dir.join("ess"), dir.join("cache"));
-    let write_bin = |body: &str| {
-        fs::write(&bin, body).unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
-    };
-    let good = "#!/bin/sh\necho 'ess 9.9.9'\n";
-    let want = sha_of(good);
-    write_bin(good);
-    let good_mtime = fs::metadata(&bin).unwrap().modified().unwrap();
-    // a file changed within the last 100 ms may change again unseen: it is not cached
-    std::thread::sleep(std::time::Duration::from_millis(250));
-
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    assert!(o.status.success(), "{}", says(&o));
-    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), bin.to_str().unwrap());
-    assert!(cache.is_dir(), "the digest was taken and no cache entry was written");
-    let entries: Vec<PathBuf> = fs::read_dir(&cache).unwrap().flatten().map(|e| e.path()).collect();
-    assert_eq!(entries.len(), 1, "one cache entry for one binary: {entries:?}");
-    let entry = fs::read_to_string(&entries[0]).unwrap();
-    assert!(entry.contains(&want), "{entry}");
-
-    // the second run reads the digest from the entry: an entry that holds another digest is believed
-    fs::write(&entries[0], entry.replacen(&want, &"0".repeat(64), 1)).unwrap();
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains(&"0".repeat(64)), "{}", says(&o));
-    fs::write(&entries[0], &entry).unwrap();
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    assert!(o.status.success(), "{}", says(&o));
-
-    // a binary of another size at the same path is digested again and refused
-    let longer = "#!/bin/sh\necho 'ess 9.9.9'\n# swapped\n";
-    write_bin(longer);
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    let err = String::from_utf8_lossy(&o.stderr).to_string();
-    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_of(longer)), "{}", says(&o));
-
-    // the same size, other content and the old mtime put back: the ctime still moved
-    fs::write(&entries[0], &entry).unwrap();
-    let same_size = "#!/bin/sh\necho 'ess 9.9.8'\n";
-    assert_eq!(same_size.len(), good.len());
-    write_bin(same_size);
-    fs::File::options().write(true).open(&bin).unwrap().set_modified(good_mtime).unwrap();
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    let err = String::from_utf8_lossy(&o.stderr).to_string();
-    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_of(same_size)), "{}", says(&o));
-
-    // the pin's binary put back: digested again and accepted
-    write_bin(good);
-    let o = ess_path_of(&dir, &bin, &want, &cache);
-    assert!(o.status.success(), "{}", says(&o));
 }
 
 /// Runs of `ess compile` per output file in this process (the test of `ir_of` reads them).
@@ -457,7 +393,7 @@ fn token_table(mode: &str, bind: bool) -> J {
 
 #[test]
 fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value() {
-    ess();
+    installed();
     let run = run_dir("capture", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &token_table("token", true));
     let (o, d) = observe(&run, &t, &[]);
@@ -528,7 +464,7 @@ fn a_capture_that_does_not_appear_on_an_open_stream_waits_its_timeout() {
 
 #[test]
 fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
-    ess();
+    installed();
     let run = run_dir("capture-missing", "spec");
     let mut silent = token_table("token-silent", true);
     // the product never prints the token and closes its output: each scenario of the 3 runs ends
@@ -548,7 +484,7 @@ fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
 
 #[test]
 fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
-    ess();
+    installed();
     let mut t = table();
     t["commands"][1]["forced"] = json!([]);
     t["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable",
@@ -572,7 +508,7 @@ fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
 
 #[test]
 fn a_scenario_with_a_failed_check_fails_even_when_it_also_needs_what_cannot_be_reached() {
-    ess();
+    installed();
     let mut t = table();
     t["views"][0] = json!({"view": "chores.list.OpenChores",
         "none": {"kind": "not_reachable_over_the_interface", "why": "the open list is drawn only in the browser"}});
@@ -644,7 +580,7 @@ fn scenario<'a>(c: &'a J, id: &str) -> &'a J {
 
 #[test]
 fn three_tables_are_run_and_a_scenario_passes_when_every_table_that_reaches_it_passes_it() {
-    ess();
+    installed();
     let run = run_dir("three-tables", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let a = write_table(&dir, "a.json", &with_mode("gone"));
@@ -676,7 +612,7 @@ fn three_tables_are_run_and_a_scenario_passes_when_every_table_that_reaches_it_p
 
 #[test]
 fn a_table_that_never_signs_in_is_refused_after_its_run_and_asked_again_once() {
-    ess();
+    installed();
     let run = run_dir("unsigned", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let plain = write_table(&dir, "plain.json", &with_mode("token"));
@@ -701,7 +637,7 @@ fn a_table_that_never_signs_in_is_refused_after_its_run_and_asked_again_once() {
 
 #[test]
 fn a_request_naming_an_input_the_scenario_leaves_out_is_the_tables_fault() {
-    ess();
+    installed();
     let run = run_dir("optional", "spec-optional");
     let dir = run.parent().unwrap().to_path_buf();
     let mut bad = optional_table();
@@ -719,7 +655,7 @@ fn a_request_naming_an_input_the_scenario_leaves_out_is_the_tables_fault() {
 
 #[test]
 fn several_statuses_may_mean_one_outcome() {
-    ess();
+    installed();
     let dir = tmp("check-many");
     let mut many = table();
     many["commands"][1]["outcomes"][0]["status"] = json!([200, 202]);
@@ -738,7 +674,7 @@ fn several_statuses_may_mean_one_outcome() {
 
 #[test]
 fn an_id_the_scenario_never_created_is_refused_wrong_state_by_the_adapter() {
-    ess();
+    installed();
     let dir = tmp("check-absent");
     let mut t = with_mode("deviate");
     t["commands"][1]["outcomes"][2]["status"] = json!([409, 404]);
@@ -756,7 +692,7 @@ fn an_id_the_scenario_never_created_is_refused_wrong_state_by_the_adapter() {
 
 #[test]
 fn a_404_for_an_entity_the_scenario_created_is_never_wrong_state() {
-    ess();
+    installed();
     let run = run_dir("gone", "spec");
     let tp = write_table(run.parent().unwrap(), "t.json", &with_mode("gone"));
     let (o, d) = observe(&run, &tp, &[]);
@@ -769,7 +705,7 @@ fn a_404_for_an_entity_the_scenario_created_is_never_wrong_state() {
 
 #[test]
 fn a_scenario_the_tables_disagree_on_is_disputed_and_the_figure_unknown() {
-    ess();
+    installed();
     let run = run_dir("disputed", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let a = write_table(&dir, "a.json", &table());
@@ -800,7 +736,7 @@ fn partner_table() -> J {
 
 #[test]
 fn a_start_value_the_readme_leaves_to_the_operator_is_taken_from_the_scenario() {
-    ess();
+    installed();
     let dir = tmp("check-start-args");
     let readme = format!("{README}{PARTNER}");
     assert!(check_in(&dir, "spec", &partner_table(), &readme).0, "{}", check_in(&dir, "spec", &partner_table(), &readme).1);
@@ -834,7 +770,7 @@ fn a_start_value_the_readme_leaves_to_the_operator_is_taken_from_the_scenario() 
 
 #[test]
 fn a_slot_refused_after_its_retry_gets_one_more_session_and_at_most_five() {
-    ess();
+    installed();
     let run = run_dir("one-more", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let plain = write_table(&dir, "plain.json", &with_mode("token"));
@@ -870,7 +806,7 @@ fn the_check_refuses_a_literal_in_an_event_payload_or_an_error_field() {
 
 #[test]
 fn a_check_of_a_field_filled_from_the_request_input_is_unverified() {
-    ess();
+    installed();
     let run = run_dir("unverified", "spec");
     let tp = write_table(run.parent().unwrap(), "t.json", &table());
     let (o, d) = observe(&run, &tp, &[]);
@@ -885,7 +821,7 @@ fn a_check_of_a_field_filled_from_the_request_input_is_unverified() {
 
 #[test]
 fn a_scenario_one_table_saw_fail_is_failed_though_the_others_declare_it_unreachable() {
-    ess();
+    installed();
     let run = run_dir("failed-over-unreachable", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let mut a = table();
@@ -907,7 +843,7 @@ fn a_scenario_one_table_saw_fail_is_failed_though_the_others_declare_it_unreacha
 
 #[test]
 fn a_sign_in_the_specification_does_not_model_fails_the_refused_scenarios_as_a_precondition() {
-    ess();
+    installed();
     let run = run_dir("precondition", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let (o, d) = observe(&run, &write_table(&dir, "t.json", &with_mode("session")), &[]);
@@ -929,7 +865,7 @@ fn a_sign_in_the_specification_does_not_model_fails_the_refused_scenarios_as_a_p
 
 #[test]
 fn a_stored_observation_is_recomputed_without_a_node_and_summarized_without_product_text() {
-    ess();
+    installed();
     let run = run_dir("recompute", "spec");
     let dir = run.parent().unwrap().to_path_buf();
     let (o, d) = observe(&run, &write_table(&dir, "t.json", &with_mode("session")), &[]);

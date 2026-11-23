@@ -3,7 +3,6 @@
 //! with one `begin_scenario` and a product that is a small shell script.
 
 use std::fs;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -94,27 +93,28 @@ fn a_capture_printed_as_the_stream_closes_is_read() {
     }
 }
 
-/// A product that exits without printing is reported `unavailable` and never with a (fabricated)
-/// capture value: this holds every time. It is the robust half of invariant 3.
-///
-/// The other half of invariant 3 — "a product that exits is still reported *did not start*" — does
-/// NOT hold under load: the capture loop reads `stream_ended` (the pump sets it on EOF of stdout)
-/// and, after a single 20 ms re-check of `try_wait`, returns `Fail::Capture("... closed stdout
-/// without printing it")` for a product that has in fact exited, instead of `Fail::Start("the
-/// product did not start")`. The reviewer's suite run at load 155 hit this on round 3 of 12
-/// (`<review-1>/suite.log`). The measured outcome is the same either way (`unavailable`), so this
-/// is a diagnostic-label race, recorded as a judgement finding, not asserted here (it is not
-/// reliably reproducible). This case asserts only what always holds.
+/// A product that exits without printing the value is reported as one that did not start, never
+/// as a capture on a closed stream and never with a value: the end of its streams comes a moment
+/// before it can be waited for, and under load that moment is long. 20 rounds.
 #[test]
-fn a_product_that_exits_is_reported_unavailable_and_never_with_a_capture_value() {
-    for round in 0..12 {
+fn a_product_that_exits_is_reported_as_not_started_and_never_with_a_capture_value() {
+    for round in 0..20 {
         let (reply, took) = begin_scenario("exits", "echo 'refusing to start' >&2\nexit 3", 20);
         assert_eq!(reply["target_error"]["kind"], "unavailable", "round {round}, after {took:?}: {reply:#}");
         assert!(reply["ok"].is_null(), "a figure was reported for a product that never started: round {round}: {reply:#}");
         let d = detail(&reply);
-        assert!(
-            d.contains("the product did not start") || d.contains("closed stdout"),
-            "round {round}, after {took:?}: unexpected detail {d:?}"
-        );
+        assert!(d.contains("the product did not start") && !d.contains("closed stdout"), "round {round}, after {took:?}: {d:?}");
     }
 }
+
+/// The same with the moment made long: the streams end and the product is waited for only 100 ms
+/// later (a loaded host does this by itself). The product has exited by the time it is asked
+/// for: it did not start.
+#[test]
+fn a_product_whose_streams_end_a_moment_before_it_exits_is_reported_as_not_started() {
+    let (reply, took) = begin_scenario("exits-late", "exec 1>&- 2>&-\nsleep 0.1\nexit 3", 20);
+    assert_eq!(reply["target_error"]["kind"], "unavailable", "after {took:?}: {reply:#}");
+    let d = detail(&reply);
+    assert!(d.contains("the product did not start") && !d.contains("closed stdout"), "after {took:?}: {d:?}");
+}
+

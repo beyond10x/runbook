@@ -44,6 +44,9 @@ use conformance::{at, fill, fill_path, fill_text, http, none_of, read_json, s, s
 
 const SPEAKS: &str = "ess-conformance-target/1";
 
+/// How long a product whose stdout and stderr both ended is waited for before it counts as living.
+const EXIT_AFTER_STREAMS: Duration = Duration::from_millis(250);
+
 struct Product {
     child: Child,
     port: u16,
@@ -276,11 +279,16 @@ impl Adapter {
                 }
                 if stream_ended {
                     // A product that closed the stream prints nothing more on it: waiting out
-                    // `timeout_s` cannot change the answer. The stream also ends when the product
-                    // exits, a moment before it can be waited for: ask once more.
-                    std::thread::sleep(Duration::from_millis(20));
-                    if let Some(why) = exited(&mut product) {
-                        return Err(Fail::Start(why));
+                    // `timeout_s` cannot change the answer. The streams also end when the product
+                    // exits, a moment before it can be waited for (long on a loaded host, and the
+                    // other stream's pump may not have seen its end yet): wait for the child
+                    // within a bound before it is called a living product that closed a stream.
+                    let until = Instant::now() + EXIT_AFTER_STREAMS;
+                    while Instant::now() < until {
+                        if let Some(why) = exited(&mut product) {
+                            return Err(Fail::Start(why));
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
                     }
                     return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")));
                 }
