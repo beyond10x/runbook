@@ -1,14 +1,81 @@
 # The settings file of `runbook run`: `runbook.loom-run-settings/1`
 
-One JSON object, named by `--settings`. One format serves the loop (`docs/loom-run.md`), the decider
-and the bindings copy (`docs/loom-run-decisions.md`) and the run directory writer
-(`docs/loom-run-directory.md`). `sdc-experiment run` writes this file for a launched run
-(`docs/workflow-metrics.md` section 7.1); the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`normalise`, `fill_decider`),
-`decider.rs` (`from_settings`) and `bindings_copy.rs` (`materialise`).
+One TOML file, named by `--settings`. A file that is JSON is refused before anything starts, by its
+content and not by its name, with a message that names the TOML form and this page (exit 2, nothing
+written). One format serves the loop (`docs/loom-run.md`), the decider and the bindings copy
+(`docs/loom-run-decisions.md`) and the run directory writer (`docs/loom-run-directory.md`).
+`sdc-experiment run` writes this file for a launched run (`docs/workflow-metrics.md` section 7.1);
+the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`read`,
+`normalise`, `fill_decider`), `decider.rs` (`from_settings`) and `bindings_copy.rs` (`materialise`).
+
+Each setting has one place. A table exists only where it groups: `[decider]`, `[models.<role>]`,
+`[efforts.<role>]` and `[review]`. There is no `[loom]` table: what lived under `loom` in the JSON form
+is at the top level (the table at the end of this section lists the old and the new place).
 
 An unknown key is refused by name, at any level, before the run does anything that costs money. A
 key that repeats an option must agree with it; the option decides and a different value is a refusal
-(exit 2, nothing written), never a silent override.
+(exit 2, nothing written), never a silent override. A key in an old place is refused with its new
+place named.
+
+Types are TOML's, and a member takes the one type it names. A whole number is written as an integer
+(`100`): `100.0`, `1e2`, `"100"`, a negative number and an integer that does not fit 64 bits are
+refused, as are a date, a date and time and a time, which no setting takes. A path is text.
+
+## Example
+
+One complete file for a run of a model decider on a child Loom binary (`run` is what `--run`
+names, `loom_sha256` what `--loom-sha256` names). `runbook/src/loom_run/settings.rs` reads this block
+in a test, so it is the form the runner reads.
+
+```toml
+format = "runbook.loom-run-settings/1"
+run = "lx.low.1"
+autonomy = "A5"
+adapter = "metaharness"
+max_llm_calls = 100
+max_wall_seconds = 3600
+loom_sha256 = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567"
+confinement = "local"
+cap_micro_usd = 5000000
+login_file = "/path/to/the/login-file"
+
+[decider]
+kind = "model"
+model = "claude-opus-5-5"
+without_claims = true
+escalate = "final"
+adapter = "claude-cli"
+effort = "high"
+max_turns = 8
+max_budget_usd = 0.25
+max_decider_calls = 40
+retries = 2
+timeout_seconds = 900
+requester = false
+
+[review]
+adapter = "claude-cli"
+
+[models.writer]
+model = "claude-sonnet-5-5"
+max_turns = 30
+max_budget_usd = 2.5
+
+[models.implement]
+model = "claude-sonnet-5-5"
+
+[models.review]
+model = "claude-sonnet-5-5"
+
+[models.other]
+model = "claude-sonnet-5-5"
+
+[efforts.review]
+effort = "max"
+
+[efforts.other]
+effort = "low"
+```
 
 ## Top level
 
@@ -16,23 +83,40 @@ key that repeats an option must agree with it; the option decides and a differen
 |---|---|---|---|---|
 | `format` | text | none | `normalise` | when present, `runbook.loom-run-settings/1` |
 | `run` | text | none | `normalise` | when present, equal to `--run` |
-| `loom` | object | none | `normalise` | `sha256` (equal to `--loom-sha256`; refused when Loom is a library (no `--loom`)), `in_process` (`true`, only when Loom is a library), `confinement`, `cap_micro_usd` (each equal to its option `--confinement`, `--cap-micro-usd`), `login_file` (see below). `loom.bin` and any other member are refused: the binary is the option `--loom` |
-| `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists. `loom.login_file` is the same setting; give one of them. It is replaced by `named` in every file the runner writes |
-| `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; null or text is refused |
+| `loom_sha256` | text | none | `normalise` | when present, equal to `--loom-sha256`; refused when Loom is a library (no `--loom`) |
+| `in_process` | `true` | none | `normalise` | `true` only when Loom is a library (no `--loom`); `false` and any other value are refused |
+| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
+| `cap_micro_usd` | whole number | none | `normalise` | when present, equal to `--cap-micro-usd` |
+| `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
+| `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; text, a float and a date are refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |
 | `autonomy` | `A0` to `A5` | none | decider, `materialise` | the decider answers only at `A5`; with no level every decision stops the run for a person |
-| `decider` | object | none | `from_settings` | see below; no `decider` key: every decision ends the run as `stopped: decider` |
-| `models` | object | none | `materialise` | `models.<role>` for `writer`, `implement`, `review`, `other`; members `model` (text), `max_turns` (whole number, 1 or more), `max_budget_usd` (number above 0); written into the model nodes of the copy |
-| `efforts` | object | none | `efforts` (`bindings_copy.rs`), `materialise` | `efforts.<role>` for `writer`, `implement`, `review`, `other`; the one member is `effort`: `low`, `medium`, `high`, `xhigh` or `max`. Written as `--effort <level>` into the model nodes of the role in the copy; a role with none keeps the class default of `node-classes.json`. Another role, another member or another level is refused by name (`settings.efforts.writer.effort`) before the run directory is made. The decider's effort is `decider.effort` |
+| `decider` | table | none | `from_settings` | see below; no `decider` table: every decision ends the run as `stopped: decider` |
+| `models` | tables | none | `materialise` | `[models.<role>]` for `writer`, `implement`, `review`, `other`; members `model` (text), `max_turns` (whole number, 1 or more), `max_budget_usd` (number above 0, an integer or a float); written into the model nodes of the copy |
+| `efforts` | tables | none | `efforts` (`bindings_copy.rs`), `materialise` | `[efforts.<role>]` for `writer`, `implement`, `review`, `other`; the one member is `effort`: `low`, `medium`, `high`, `xhigh` or `max`. Written as `--effort <level>` into the model nodes of the role in the copy; a role with none keeps the class default of `node-classes.json`. Another role, another member or another level is refused by name (`settings.efforts.writer.effort`) before the run directory is made. The decider's effort is `decider.effort` |
 | `adapter` | `metaharness` or `claude-cli` | none | `materialise` | `--adapter` of every model node of the copy |
-| `review` | object | none | `materialise` | only `review.adapter: claude-cli` |
+| `review` | table | none | `materialise` | only `adapter = "claude-cli"` |
+| `replay` | | | | not a setting: `--recorded` makes it (the plan of a re-drive); a file that holds it is refused |
 
-The recorded copy of the settings (`settings.json`, the `RunStarted` event) is this file with
-`login_file` replaced by `named`, `format` and `run` taken out, and `loom`, `max_llm_calls`,
-`max_wall_seconds`, `case` and `root_protocol` set from the options. It never holds the path of the
-binary.
+The members of the old JSON form that lived under `loom`, and where they are now:
 
-## `decider`
+| Old place | New place |
+|---|---|
+| `loom.sha256` | `loom_sha256` |
+| `loom.in_process` | `in_process` |
+| `loom.confinement` | `confinement` |
+| `loom.cap_micro_usd` | `cap_micro_usd` |
+| `loom.login_file` | `login_file` |
+| `loom.bin` | none: the binary is the option `--loom`, not a setting |
+
+The recorded copy of the settings (`settings.json`, the `RunStarted` event) stays JSON and keeps its
+form: it is the settings with `login_file` replaced by `named`, `format` and `run` taken out, and
+`loom` (an object, as before: `sha256` or `in_process` and `commit`, `confinement`, `cap_micro_usd`),
+`max_llm_calls`, `max_wall_seconds`, `case` and `root_protocol` set from the options. It never holds
+the path of the binary. The same holds for `run-settings.jsonl` (`sdc.run-settings/1`). The input is
+TOML, the records are not.
+
+## `[decider]`
 
 | Key | Type | Default | Kinds | Meaning |
 |---|---|---|---|---|
@@ -52,24 +136,32 @@ binary.
 | `retries` | whole number | 2 | model | asks again after an invalid reply |
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |
 | `principal` | text | none | all | model, rule: accepted when it is what the kind gives (`decider:model`, `decider:approve`, `decider:reject`) and then taken out; another value is refused. scripted: the principal of every answer that names none (an answer's own `principal` wins); none given: the principal Loom printed is kept |
-| `answers`, `max_call_micro_usd` | list, whole number | none | scripted | the double's answers and its reservation |
+| `answers`, `max_call_micro_usd` | list of tables, whole number | none | scripted | the double's answers and its reservation |
 
 ## What `sdc-experiment run` writes, and what a run does with it
 
-Both sides use this format. The writer is `loom_settings_json` in `driver/src/bin/sdc-experiment.rs`
-(`runner: loom` records). It writes `format`, `run`, `autonomy`, `decider.kind`, `decider.model` (or
+Both sides use this format. The writer is `loom_settings_toml` in `driver/src/bin/sdc-experiment.rs`
+(`runner: loom` records); it writes `settings.toml` in the run's launch directory, outside the run
+directory. It writes `format`, `run`, `autonomy`, `decider.kind`, `decider.model` (or
 `decider.verdict` for `rule`), `models.<role>.model` for the four roles, `max_llm_calls`,
-`max_wall_seconds`, `loom.sha256` (`loom.in_process: true` in its place for a record that sets it), `loom.confinement`, `loom.cap_micro_usd` and `loom.login_file`
-(only when the record names one), and, when the record sets them:
+`max_wall_seconds`, `loom_sha256` (`in_process = true` in its place for a record that sets it),
+`confinement`, `cap_micro_usd` and `login_file` (only when the record names one), and, when the
+record sets them:
 
 | Record key | File key |
 |---|---|
-| `decider.kind` is not `rule` | `decider.without_claims: true` (a model decider acknowledges that Loom's output holds no claims) |
+| `decider.kind` is not `rule` | `decider.without_claims = true` (a model decider acknowledges that Loom's output holds no claims) |
 | `decider.escalate` | `decider.escalate` |
 | `decider.max_decider_calls` | `decider.max_decider_calls` (the decider call limit) |
 | `decider.adapter` | `decider.adapter` |
 | `adapter` | `adapter` |
 | `review.adapter` | `review.adapter` |
+
+The record keeps its own names (`loom.confinement`, `loom.sha256`, `loom.cap_micro_usd`,
+`loom.login_file`, `loom.in_process`: `experiments/*.yaml` are records of past runs and are not
+rewritten); the writer maps them to the places above. A value is written so that the reader reads
+back the same value: a text is quoted and escaped by the TOML library, and a number that is not a
+whole number of 64 bits is refused by the writer, never written as something else.
 
 It does not write `decider.principal`: the runner gives a model or rule decider the principal of its
 kind (`decider:model`, `decider:<verdict>`). A `scripted` decider (the stub-cycle comparison) names
@@ -96,7 +188,10 @@ but the record format does not carry them to it yet. `flags.recorded` is passed 
 it. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
-file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`
-(one equality check; the fixture holds the print form with the login path redacted). The runner's
-`runbook/tests/loom_run/settings.rs` reads that same fixture, fills in the login path and the
-sha256 of the fake binary, and runs it to the end; neither test builds the other crate.
+file for the strong record and compares it byte for byte with `runbook/tests/fixtures/loom-run-settings.toml`
+(the fixture holds the print form with the login path redacted as `<loom.login_file>`). The
+runner's `runbook/tests/loom_run/settings.rs` reads that same fixture, fills in the login path and the
+sha256 of the fake binary, and runs it to the end; neither test builds the other crate. The path with a
+quote, a backslash and a letter outside ASCII has its own fixture,
+`runbook/tests/fixtures/loom-run-settings-odd-path.toml`, which the writer's test compares byte for byte
+and the runner's reader reads back to the same path.

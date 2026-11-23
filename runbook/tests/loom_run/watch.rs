@@ -44,8 +44,8 @@ impl Rig {
         std::fs::create_dir_all(root.join("runs")).unwrap();
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &root.join("fx"));
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
-        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
-        std::fs::write(root.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+        let settings = json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
+        std::fs::write(root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
         Rig { root }
     }
 
@@ -63,7 +63,7 @@ impl Rig {
         let mut a: Vec<String> = ["run", "sdc", "--run", "r1", "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         a.extend([r("runs"), "--bindings".into(), r("fx/bindings"), "--protocols".into(), r("fx/protocol")]);
         a.extend(["--root-protocol", "engine-demo@1", "--case", "ROOT-1", "--confinement", "local"].map(String::from));
-        a.extend(["--intake".into(), r("idea.yaml"), "--settings".into(), r("settings.json"), "--spend-ledger".into(), r("ledger.json")]);
+        a.extend(["--intake".into(), r("idea.yaml"), "--settings".into(), r("settings.toml"), "--spend-ledger".into(), r("ledger.json")]);
         a.extend(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"].map(String::from));
         a.extend(extra.iter().map(|s| (*s).to_owned()));
         a

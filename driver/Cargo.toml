@@ -95,6 +95,7 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
+toml = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 
 [profile.dev.package.sha2]
