@@ -172,14 +172,20 @@ fn build_cfg(node: &str, opt: &BTreeMap<&str, String>, stub: Option<Vec<String>>
     let mut bad = String::new();
     let mut numbers = Vec::new();
     for k in ["--max-turns", "--max-budget-usd"] {
-        // A budget that is named with an empty value is a non-number, never "none": an unset option is the only none.
-        let named = if k == "--max-budget-usd" { opt.get(k) } else { given(k) };
-        match named.map(|v| NumLit::parse(v).ok_or(v)) {
+        // A bound that is named with an empty value is a non-number, never "none": an unset option is the only none.
+        // A budget is a finite number of at least 0; the turn bound is a whole number of at least 1.
+        let (range, ok): (&str, fn(&str) -> bool) = if k == "--max-budget-usd" {
+            ("a number of at least 0", |n| sdc_tools::named::money("", n).is_ok())
+        } else {
+            ("a whole number of at least 1", |n| n.parse::<f64>().is_ok_and(|t| t.is_finite() && t.fract() == 0.0 && t >= 1.0))
+        };
+        match opt.get(k).map(|v| (v, NumLit::parse(v))) {
             None => numbers.push(None),
-            Some(Ok(n)) => numbers.push(Some(n)),
-            Some(Err(v)) => {
+            Some((_, Some(n))) if ok(&n.0) => numbers.push(Some(n)),
+            Some((v, parsed)) => {
                 if bad.is_empty() {
-                    bad = format!("{k} takes a number, got {v}");
+                    let shown = sdc_tools::named::cut(v);
+                    bad = if parsed.is_none() { format!("{k} takes a number, got {shown}") } else { format!("{k} takes {range}, got {shown}") };
                 }
                 numbers.push(None);
             }

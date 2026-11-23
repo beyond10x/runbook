@@ -848,6 +848,58 @@ fn a_max_budget_that_is_named_empty_is_refused_not_read_as_none() {
     refused("budget-empty", &["--max-budget-usd", ""], 64, "--max-budget-usd takes a number");
 }
 
+/// What `request.json` of the one call a start of `change.fix` made says of `member`; `None` when the
+/// start was refused and made no call record.
+fn requested(r: &Run, member: &str) -> Option<serde_json::Value> {
+    let text = r.files.get(".sdc/llm/001-change.fix/request.json")?;
+    Some(serde_json::from_str::<serde_json::Value>(text).unwrap().get(member).cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// `--max-budget-usd V`: a named value is the request's budget as named (a finite number of at least 0),
+/// or it is refused with exit 64 before a call record exists; below 0 is no budget. 6 starts.
+#[test]
+fn a_max_budget_that_is_named_is_a_finite_number_of_at_least_0_or_refused() {
+    let mut bad = vec![];
+    for (tag, value, equals) in [("zero", "0", Some(0.0)), ("plus", "+2", Some(2.0)), ("neg", "-1", None), ("negfrac", "-0.5", None), ("over", "1e400", None), ("hex", "0x10", None)] {
+        let r = dry_start_without_budget(&format!("budget-named-{tag}"), "change.fix", &["--max-budget-usd", value]);
+        let got = requested(&r, "max_budget_usd");
+        match (r.code, &got, equals) {
+            (Some(0), Some(g), Some(n)) if g.as_f64() == Some(n) => {}
+            (Some(64), None, None) => {}
+            _ => bad.push(format!("{value:?}: exit {:?}, request max_budget_usd {got:?}, named {equals:?}", r.code)),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// `--max-turns V`: a whole number of at least 1 is the request's bound; an empty value (not the node's
+/// default), below 1 and a fraction are refused with exit 64 before a call record exists. 5 starts.
+#[test]
+fn a_max_turns_that_is_named_is_a_whole_number_of_at_least_1_or_refused() {
+    let mut bad = vec![];
+    for (tag, value, equals) in [("seven", "7", Some(7.0)), ("empty", "", None), ("zero", "0", None), ("neg", "-1", None), ("frac", "1.5", None)] {
+        let r = dry_start_without_budget(&format!("turns-named-{tag}"), "change.fix", &["--max-turns", value]);
+        let got = requested(&r, "max_turns");
+        match (r.code, &got, equals) {
+            (Some(0), Some(g), Some(n)) if g.as_f64() == Some(n) => {}
+            (Some(64), None, None) => {}
+            _ => bad.push(format!("--max-turns {value:?}: exit {:?}, request max_turns {got:?}, named {equals:?}", r.code)),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// A refusal of a money option names it and prints at most 40 bytes of the value.
+#[test]
+fn a_max_budget_refusal_cuts_a_long_value_at_40_bytes() {
+    let value = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let r = dry_start_without_budget("budget-long", "change.fix", &["--max-budget-usd", &value]);
+    assert_eq!(r.code, Some(64), "{r:#?}");
+    let seen = format!("{}{}", r.stdout, r.stderr);
+    assert!(seen.contains("--max-budget-usd"), "{seen}");
+    assert!(!seen.contains(&value[..41]), "more than 40 bytes of the value reach the console: {seen}");
+}
+
 #[test]
 fn instructions_that_are_no_json_object_are_refused() {
     refused("json", &["--instructions", "{not json"], 64, "--instructions takes a JSON object");

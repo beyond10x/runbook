@@ -1050,3 +1050,80 @@ fn conformance_budget_set_to_inf_is_not_no_budget() {
 fn conformance_budget_set_beyond_f64_is_not_no_budget() {
     budget_set_but_unreadable("overflow", "1e400");
 }
+
+/// `observe` with the budget variable given as raw bytes (an environment value need not be UTF-8).
+fn observe_budget_bytes(tag: &str, value: &std::ffi::OsStr) -> (Output, PathBuf) {
+    installed();
+    let run = run_dir(&format!("budget-set-{tag}"), "spec");
+    let mut t = table();
+    t["views"] = json!([]);
+    let t = write_table(run.parent().unwrap(), "t.json", &t);
+    let mut c = Command::new(BIN);
+    c.arg("observe").arg(&run)
+        .env("SDC_CONFORMANCE_ADAPTER", stub())
+        .env("SDC_STUB_TABLE_NODE", &t)
+        .env("SDC_CONFORMANCE_TARGET_TIMEOUT", "10")
+        .env("SDC_CONFORMANCE_TABLES", "1")
+        .env_remove("SDC_LLM_MODEL_CONFORMANCE")
+        .env_remove("SDC_LLM_EFFORT_CONFORMANCE")
+        .env_remove("SDC_LLM_EFFORT_OTHER")
+        .env_remove("SDC_LLM_EFFORT")
+        .env("SDC_CONFORMANCE_MAX_BUDGET_USD", value);
+    (c.output().unwrap(), run)
+}
+
+/// The `max_budget_usd` of the table node's request, `None` when the observation wrote no request.
+fn requested_budget(run: &Path) -> Option<J> {
+    let text = fs::read_to_string(run.join("conformance/table-1/node/001/request.json")).ok()?;
+    let request: J = serde_json::from_str(&text).unwrap();
+    Some(request.get("max_budget_usd").cloned().unwrap_or(J::Null))
+}
+
+/// A named budget whose bytes are no UTF-8 text cannot be read as a number: it is refused, never
+/// read as unset, and no byte of it is shown.
+#[test]
+fn conformance_budget_set_to_bytes_that_are_no_text_is_refused_by_name() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let (o, run) = observe_budget_bytes("bytes", std::ffi::OsStr::from_bytes(b"2\xff"));
+    assert_eq!(requested_budget(&run), None, "the node was started: {}", says(&o));
+    let oracle = fs::read_to_string(run.join("oracle.json")).unwrap();
+    assert!(oracle.contains("SDC_CONFORMANCE_MAX_BUDGET_USD") && oracle.contains("table_missing"), "{oracle}");
+}
+
+/// A named value is the node's budget as named, or the observation is refused with no request written:
+/// 0 is a budget of 0, below 0 is refused (the lower bound), and so is a hex number.
+/// One start per row: 3 rows, one of them a started node.
+#[test]
+fn conformance_budget_set_is_the_named_number_or_refused() {
+    let mut bad = vec![];
+    for (tag, value, equals) in [("zero", "0", Some(0.0)), ("neg", "-1", None), ("hex", "0x10", None)] {
+        let (o, run) = observe_budget_bytes(&format!("t-{tag}"), std::ffi::OsStr::new(value));
+        match (requested_budget(&run), equals) {
+            (None, None) => {}
+            (Some(g), Some(n)) if g.as_f64() == Some(n) => {}
+            (got, _) => bad.push(format!("{value:?}: request max_budget_usd {got:?}, named {equals:?}; {}", says(&o))),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// A refusal of the variable's value cuts the value at 40 bytes: no output and nothing under the run
+/// holds more of a long value (a pasted secret) than that, and the variable is named.
+#[test]
+fn conformance_budget_refusal_cuts_the_value_at_40_bytes() {
+    let value = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let (o, run) = observe_budget_bytes("cut", std::ffi::OsStr::new(&value));
+    let mut seen = says(&o);
+    let mut files = vec![run];
+    while let Some(d) = files.pop() {
+        for e in fs::read_dir(&d).into_iter().flatten().flatten() {
+            if e.path().is_dir() {
+                files.push(e.path());
+            } else {
+                seen.push_str(&String::from_utf8_lossy(&fs::read(e.path()).unwrap_or_default()));
+            }
+        }
+    }
+    assert!(seen.contains("SDC_CONFORMANCE_MAX_BUDGET_USD"), "the refusal names the variable: {seen}");
+    assert!(!seen.contains(&value[..41]), "more than 40 bytes of the value are in the output or the run");
+}

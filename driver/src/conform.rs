@@ -332,22 +332,19 @@ struct Node {
 }
 
 /// `SDC_CONFORMANCE_MAX_BUDGET_USD`: unset or empty names no budget; a value that is set must be a
-/// finite number of at least 0, or the observation is refused (a named cap never becomes none).
+/// finite number of at least 0, or the observation is refused (a named cap never becomes none). A
+/// value that is no text is named and cannot be read: refused, no byte of it shown.
 fn budget_named() -> Result<Option<f64>, String> {
-    let Some(raw) = env("SDC_CONFORMANCE_MAX_BUDGET_USD") else { return Ok(None) };
-    match raw.parse::<f64>() {
-        Ok(v) if v.is_finite() && v >= 0.0 => Ok(Some(v.abs())),
-        _ => {
-            let mut end = raw.len().min(40);
-            while !raw.is_char_boundary(end) {
-                end -= 1;
-            }
-            Err(format!("SDC_CONFORMANCE_MAX_BUDGET_USD must be a finite number of at least 0 (got {:?})", &raw[..end]))
-        }
+    const NAME: &str = "SDC_CONFORMANCE_MAX_BUDGET_USD";
+    match std::env::var_os(NAME).map(std::ffi::OsString::into_string) {
+        None => Ok(None),
+        Some(Err(_)) => Err(format!("{NAME} is set to bytes that are no text: it must be a finite number of at least 0")),
+        Some(Ok(raw)) if raw.is_empty() => Ok(None),
+        Some(Ok(raw)) => crate::named::money(NAME, &raw).map(Some),
     }
 }
 
-fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (&'static str, String)> {
+fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path, budget: Option<f64>) -> Result<Node, (&'static str, String)> {
     let adapter_name = first_env(&["SDC_CONFORMANCE_ADAPTER", "SDC_LLM_ADAPTER"]).map(|x| x.0).unwrap_or_else(|| "claude-cli".into());
     let adapter = match adapter_name.as_str() {
         "stub" | "dry" | "fixture" => return Err(("table_missing", format!("the LLM adapter {adapter_name} has no model, so no table was written"))),
@@ -358,7 +355,6 @@ fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) ->
         p => PathBuf::from(p),
     };
     let (model, model_source) = env("SDC_LLM_MODEL_CONFORMANCE").map(|m| (m, "SDC_LLM_MODEL_CONFORMANCE")).unwrap_or((DEFAULT_MODEL.into(), "default"));
-    let budget = budget_named().map_err(|e| ("table_missing", e))?;
     let (effort, effort_source) = effort(setup);
     if !EFFORTS.contains(&effort.as_str()) {
         return Err(("table_missing", format!("effort {effort:?} ({effort_source}) is not one of {}", EFFORTS.join(", "))));
@@ -784,6 +780,14 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
         let why = format!("{} has no spec/", o.rel(&work));
         return o.finish("unknown", Some("suite_failed"), Some(why));
     }
+    // A budget the environment names is read before `ess` runs: a refusal costs nothing.
+    let budget = match table_file {
+        Some(_) => None,
+        None => match budget_named() {
+            Ok(b) => b,
+            Err(why) => return o.finish("unknown", Some("table_missing"), Some(why)),
+        },
+    };
     let ir = out.join("ir.json");
     let (code, tail) = run_bounded(ess_cmd(&ess).args(["compile", "--path"]).arg(&spec).arg("--out").arg(&ir), Duration::from_secs(120), None, &out.join("compile.stderr"));
     if code != Some(0) {
@@ -811,7 +815,7 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
 
     let node = match &table_file {
         Some(_) => None,
-        None => match node_setup(setup, &out, &tree, &spec, &ir) {
+        None => match node_setup(setup, &out, &tree, &spec, &ir, budget) {
             Ok(nd) => Some(nd),
             Err((cause, why)) => return o.finish("unknown", Some(cause), Some(why)),
         },
