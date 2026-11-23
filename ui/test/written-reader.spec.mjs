@@ -39,6 +39,7 @@ const products = (name) => get(name, '/api/products?source=0');
 const rows = (rs) => rs.map((r) => (typeof r === 'string' ? r : JSON.stringify(r))).join('\n') + '\n';
 const append = (dir, rs) => fs.appendFileSync(path.join(dir, 'fs', 'changes.jsonl'), rows(rs));
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), {recursive: true}); fs.writeFileSync(file, text); };
+const late = (change_, action, note = '') => ({format: 'sdc.fs-attribution/1', change: change_, at: '2026-11-23T09:30:00Z', attribution: {case: null, action, record: null, tool: null, basis: 'late', step: 2, note}});
 const readBytes = (name) => Number(fs.readFileSync(`/proc/${servers[name].proc.childPid}/io`, 'utf8').match(/rchar:\s+(\d+)/)[1]);
 
 // ---- every answer built from the kept list says when the list is not the whole record ------------------------------------
@@ -95,6 +96,19 @@ test('a value of SDC_UI_MAX_RECORDS or SDC_UI_MAX_RECORD_BYTES that is 0, negati
   for (const key of ['SDC_UI_MAX_RECORDS', 'SDC_UI_MAX_RECORD_BYTES']) {
     for (const v of ['0', '-5', 'abc', '', '  ', 'NaN', '0.5']) expect(await envCase(key, v, small)).toEqual({v, basis: 'records', stopped: null, read: null});
   }
+});
+
+test('a value of SDC_UI_MAX_RECORDS that is a whole number a number cannot hold exactly (1e300) is the default bound, not a bound that is off', async () => {
+  test.setTimeout(60000);
+  const N = 100001;
+  await make('raised', {written: [], extra: []}, (d) => {
+    const lines = [];
+    for (let i = 0; i < N; i++) lines.push(JSON.stringify(change(2000 + i, `bulk/dir${i % 50}/file${i}.txt`, {text: 'x\n', step: 5})));
+    fs.appendFileSync(path.join(d, 'fs/changes.jsonl'), lines.join('\n') + '\n');
+  }, {...process.env, SDC_UI_MAX_RECORDS: '1e300'});
+  const p = await products('raised');
+  expect(p.json.basis).toBe('records');
+  expect(p.json.recordsStopped, `a bound of 1e300 records keeps ${p.json.total} products and says nothing`).toMatchObject({cause: 'records', read: 100000});
 });
 
 test('what the server keeps for one run is bounded in bytes as well as in count, and the answer says the bytes bound stopped the reader', async () => {
@@ -203,6 +217,20 @@ test('500 names of 500 link components each cost one answer a bounded time', asy
   expect(first.json.leftOut).toBe(500);
   expect(second.ms).toBeLessThan(1500);
   expect((await get('deeplinks', '/api/sources')).status).toBe(200);
+});
+
+test('500 names of 8 link components that are chains of 37 links each are all listed, in one answer of bounded time', async () => {
+  test.setTimeout(60000);
+  const names = Array.from({length: 500}, (_, i) => `f${i}`);
+  await make('chains', {written: [], extra: []}, (d) => {
+    for (let i = 0; i < 37; i++) fs.symlinkSync(i === 36 ? '.' : `c${i + 1}`, path.join(d, `work/c${i}`));
+    append(d, names.map((n, i) => { put(path.join(d, `work/${n}.txt`), `${i}\n`); return change(900 + i, `${'c0/'.repeat(8)}${n}.txt`, {text: `${i}\n`, step: 3}); }));
+  });
+  const first = await products('chains');
+  const second = await products('chains');
+  expect(first.json.files.length, JSON.stringify([first.json.leftOut, first.json.linkCut, first.json.gone])).toBe(500);
+  expect(Math.max(first.ms, second.ms), 'one answer').toBeLessThan(3000);
+  expect((await get('chains', '/api/sources')).status).toBe(200);
 });
 
 test('a name behind a link out of the run is answered alike whether the far file exists, the far directory exists or neither', async () => {
@@ -374,6 +402,23 @@ test('attribution lines count in the bytes the server keeps for one run: more of
   expect(p.json.truncated).toBe(true);
 });
 
+test('a late attribution line that replaces one already kept counts its growth in the bytes bound: the answer holds no more than the bound or says it stopped', async () => {
+  test.setTimeout(60000);
+  const BOUND = 150000;
+  const names = Array.from({length: 10}, (_, i) => `f${i}`);
+  await make('latereplace', {written: [], extra: []}, (d) => {
+    for (const n of names) put(path.join(d, `work/${n}.txt`), 'x\n');
+    append(d, names.map((n, i) => change(900 + i, `${n}.txt`, {text: 'x\n', step: 3})));
+    append(d, names.map((n, i) => late(900 + i, `first.${i}`)));
+    for (let round = 0; round < 3; round++) append(d, names.map((n, i) => late(900 + i, `second.${i}`, 'N'.repeat(15000))));
+  }, {...process.env, SDC_UI_MAX_RECORD_BYTES: String(BOUND)});
+  const live = await get('latereplace', '/api/live?source=0');
+  expect(live.status).toBe(200);
+  const held = JSON.stringify(live.json.fs.changes).length;
+  expect(live.json.fs.changes.length, 'the records the answer holds').toBeGreaterThanOrEqual(211);
+  expect(held <= BOUND || live.json.fs.recordsStopped != null, `the answer holds ${held} bytes of records under a bytes bound of ${BOUND} and says nothing (recordsStopped ${JSON.stringify(live.json.fs.recordsStopped)})`).toBe(true);
+});
+
 test('a late attribution line for a change that was read is shown at its step on the next answer', async () => {
   test.setTimeout(60000);
   const dir = await make('lateshown', {written: []}, (d) => {
@@ -420,6 +465,23 @@ test('the Products tab says in text that a name passed more links than the bound
   await expect(page.locator('#product')).toBeVisible({timeout: 20000});
   await page.locator('#tabs button[data-tab=products]').click();
   await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(1);
+});
+
+test('the File changes tab of a run whose reader stopped before the first record says the list was not read, as the feed does', async ({page}) => {
+  test.setTimeout(60000);
+  await make('emptystop', {written: []}, (d) => { fs.writeFileSync(path.join(d, 'fs/changes.jsonl'), Buffer.alloc(33 << 20, 'x')); });
+  const live = await get('emptystop', '/api/live?source=0');
+  expect(live.json.fs.present).toBe(true);
+  expect(live.json.fs.changes).toEqual([]);
+  expect(live.json.fs.recordsStopped, JSON.stringify(live.json.fs)).toMatchObject({cause: 'line', read: 0});
+  await page.setViewportSize({width: 1600, height: 1000});
+  await page.goto(`${servers.emptystop.url}/?run=run`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  await expect(page.locator('#feed .fd-cut')).toHaveCount(1);
+  await page.locator('#tabs button[data-tab=changes]').click();
+  await expect(page.locator('#panel .sect').first()).toContainText('File changes');
+  const panel = await page.locator('#panel').innerText();
+  expect(panel, 'the tab of a run whose list of changes was not read at all').toMatch(/not read|read to record 0/);
 });
 
 test('an action name that is markup and is cut inside it is shown as text, with the note', async ({page}) => {
