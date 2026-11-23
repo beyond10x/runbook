@@ -9,6 +9,7 @@ mod dry;
 mod fake;
 mod flags;
 mod gateway;
+mod gateway_dispositions_bound_and_kinds;
 mod gateway_hardening;
 mod gateway_signals_and_files;
 mod goals;

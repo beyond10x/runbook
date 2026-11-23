@@ -22,6 +22,7 @@ mod experiment_loom;
 mod finding_kpis;
 mod gateway;
 mod gateway_hardening;
+mod gateway_descriptors_bound_and_kinds;
 mod gateway_readers_and_filter;
 mod impl_gate;
 mod not_called_writes;
