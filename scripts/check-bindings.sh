@@ -25,12 +25,18 @@ check_exits() {
 # a `from: exit` result table of the action, and `exits` is on no other action. Loom refuses an
 # overlap itself; this fails before a run does. Loom reads two classes, `error` and `not_called`, each
 # a list of exit codes: another class, a class that is not a list and an `exits` that is not a
-# mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
-# <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs).
+# # mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
+# <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs). The pool list is this repository's:
+# it applies when <root>/bindings/ holds one of the files it names (sdc-story.yaml, sdc-release.yaml,
+# sdc-bugfix.yaml); a root with none of them is the runbook of another repository, whose programs
+# are checked for `exits.error` [75, 126, 127] and no `--pool-wait` alone.
 exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
   | [inputs] as $docs
+  | ([$pools[] | split(":")[0]] | unique) as $poolfiles
+  | ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null)) as $own
+  | (if $own then $pools else [] end) as $pools
   | ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
      | "\(.): a binding that waits for the build pool is not in bindings/"),
   ($docs[]
