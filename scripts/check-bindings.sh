@@ -32,7 +32,11 @@ check_exits() {
 # a copy of it); a root with none of them is the runbook of another repository, whose programs are
 # checked by the binding itself: an argv with `--pool-wait` wants `exits.error`
 # [69, 70, 75, 126, 127], one without it [75, 126, 127].
-if ! compgen -G "$sdc/bindings/*.yaml" > /dev/null; then
+binding_files=()
+for f in "$sdc"/bindings/*.yaml; do
+  if [[ -e $f ]]; then binding_files+=("$f"); fi
+done
+if [[ ${#binding_files[@]} -eq 0 ]]; then
   exit_findings="$sdc: no bindings/*.yaml"
 else
 exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actions? // null)}' bindings/*.yaml | jq -rn '

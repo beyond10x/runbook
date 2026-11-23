@@ -176,6 +176,15 @@ fn a_root_without_bindings_files_is_refused_by_one_line_naming_the_root() {
     }
 }
 
+#[test]
+fn a_root_with_a_space_or_a_glob_character_in_its_path_is_read() {
+    for name in ["with space", "star*", "question?", "brace{a,b}", "tilde~"] {
+        let o = outside_root(name, "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n");
+        let (out, err) = said(&o);
+        assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{name}: {err}");
+    }
+}
+
 const POOL_FILES: [&str; 3] = ["sdc-story.yaml", "sdc-release.yaml", "sdc-bugfix.yaml"];
 
 #[test]
