@@ -673,11 +673,29 @@
   ],
   "release": {
     "date": "2026-11-23",
-    "notes": "docs/releases/0.6.0.md",
-    "tag": "0.6.0",
-    "version": "0.6.0"
+    "notes": "docs/releases/0.7.0.md",
+    "tag": "0.7.0",
+    "version": "0.7.0"
   },
   "releases": [
+    {
+      "date": "2026-11-23",
+      "limits": [
+        "**No evaluation run was made on this code.** The three runs of record `experiments/parity-loom-strong-4.yaml` ran on the code of 0.6.0 and delivered 0 of 3; all stopped `stuck`. Two of the causes the record names are not fixed in this release. A model node that is not called (a finding waits for a person, or the decisions it would follow are the defaults) exits 0 and still counts against `budget.max_runs` at Loom `db2726ff` (run 1 stopped at `spec.author`, run 3 at `change.implement`; `bindings/PENDING.md` names the missing not-called exit of the bindings). And a rejection gives the writer no new allowance of runs: the cycles `decider-rework-spent` and `rework-fresh-allowance` still fail on `RunsSpent` (`docs/cycles-suite.md`). The cause of run 2 (an action dated by the next `evaluated` line) is what `db2726ff` changes; a no-model test (`runbook/tests/test_suite/amend.rs`) holds that state and a run of it ends `passed`, but no evaluation run has used it.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** The release claims no measured change over 0.6.0 or over the old driver; a figure in these notes is one that a record of `experiments/` carries or a count read from the tree.",
+        "**The old driver's records keep its names.** Records of past runs (`cases/**/evidence`, `experiments/`, the recorded run of `ui/test/recorded/`) keep the producer id `sdc-drive`, and the record `parity-loom-strong-4` names files that are deleted now.",
+        "**The cycles are not all converted.** Of the 130 entries of the old suite 40 are converted, 14 are pending, 39 are held by Rust tests and 37 are dropped. The whole file is a slow lane, `task test:cycles-loom`; it was not run on this tree for this note, and `docs/cycles-suite.md` says that cycles run at a one-minute load of 100 to 177 ended on Loom's 60 s wall bound (11 entries). The replay entries are Rust tests of the slow lane `task test:replay`, not run for this note either.",
+        "**`sdc-experiment` does not carry an effort.** It refuses `efforts.*` in a `loom` variant: the record format does not carry an effort to the runner yet, so the class defaults apply to a run it starts. `sdc-node --effort` and the settings file of `runbook run` do carry one.",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime, in which nothing is executed, unless `--runtime loom` is given (`runbook/src/serve.rs`, `docs/engine.md`); the daemon's default confinement floor is `linux` and `local` must be asked for by name (`docs/daemon-api.md`). The Loom runtime is run through the slow lane `task test:engine-real`, not by the gate.",
+        "**`--confinement local` is unconfined.** `local` is \"unconfined and declared insecure\" (`docs/loom-run.md`): a bound program can write the whole run directory, including the copy of the routing table (the runner reads it once, so a rewrite changes no routing), the decider's instruction files and adapter, and the replay plan and call log. Under `--confinement substrate` the run directory is out of a bound program's reach (`docs/loom-run-decisions.md`).",
+        "The rule approver (`SDC_RULE_APPROVALS`, claims of the position), the rework cap of the old driver and the end by rule `withhold` are not in the runner: Loom's output holds no claim values and Loom has no such steps (`docs/loom-run-decisions.md`).",
+        "`task check:ess-suite:slow`, the byte comparison of a new synthesis with the committed suite, and `task docs:test` were not run for this release; the fast digest check is part of `task check:ess-generated`."
+      ],
+      "notes": "docs/releases/0.7.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.7.0/docs/releases/0.7.0.md",
+      "summary": "A minor release of 0.6.0, the same day. The old driver runtime is deleted: a run is `runbook run`, and the runtime is Loom's. A refusal of Loom ends a run with the outcome `refused`, exit 12 and a named `cause`. `runbook test` takes `--workers` and `--only` through Loom's own selection. Loom `db2726ff` is linked. A source release at tag `0.7.0`; nothing is published to crates.io, there is no binary asset and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.6.0.md` for the release this one follows.",
+      "version": "0.7.0"
+    },
     {
       "date": "2026-11-23",
       "limits": [
@@ -890,7 +908,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "f25095e9e94bc04bc50546099285e6c5edff963550cc4c1ffcdb7f1ac418e185"
+      "sha256": "1fc54147689e101e74d5db6555542b04c0374654e40326d44ca9e3fa03c27efc"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -951,6 +969,10 @@
     {
       "path": "docs/releases/0.6.0.md",
       "sha256": "fe5415b28e829dd6cd42bb4c4ea7d890660b15afc6538a0e36a1c424a5675e00"
+    },
+    {
+      "path": "docs/releases/0.7.0.md",
+      "sha256": "9eb25a1edb25c2e301291565001cb674ea34139b9f019cbc30f2d539aa8afb00"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
