@@ -1,6 +1,7 @@
 //! Where a runbook's text is, under the runbook home: `protocol/<name>.protocol.yaml` and
 //! `bindings/<name>.yaml` (the layout `runbook check` and `runbook doctor` know).
 
+use crate::runtime::RunbookInfo;
 use std::path::{Path, PathBuf};
 
 /// A runbook found under the home.
@@ -45,6 +46,21 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
         }
     }
     Ok(Resolved { protocol_dir, bindings, protocol_id, revision })
+}
+
+/// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the
+/// revision of its root protocol as the version. A file that does not resolve is not listed.
+pub fn list(home: &Path) -> Vec<RunbookInfo> {
+    let Ok(entries) = std::fs::read_dir(home.join("protocol")) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let file = e.file_name().into_string().ok()?;
+            let name = file.strip_suffix(".protocol.yaml")?;
+            let found = resolve(home, name, None).ok()?;
+            Some(RunbookInfo { name: name.to_string(), version: Some(found.revision.to_string()) })
+        })
+        .collect()
 }
 
 /// The path, in the workspace, the root bindings place the artifact `idea` at.

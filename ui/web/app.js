@@ -16,6 +16,8 @@ import {renderProducts, renderProductBar, bindProducts, showProduct} from './pro
 // the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
 // has no such file, and a page the daemon served loads it only because the daemon named itself
 const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
+// the same for the start form (ui/daemon/start.js): it names the mode "operate" and hands the run it started to openRun
+const initStart = daemon ? (await import('./start.js')).initStart : null;
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -197,6 +199,13 @@ async function selectSource(i) {
   showProduct({kind: 'list'});
   await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
+// a run the page started: read the run list again and show that run
+async function openRun(id) {
+  S.sources = await api('/api/sources');
+  const s = S.sources.find((x) => x.path === id);
+  if (s) await selectSource(s.index);
+}
+if (initStart) initStart(openRun);
 document.addEventListener('click', (ev) => {
   const t = ev.target;
   if (t.closest('#runpick')) { if (PK.open) closePicker(); else openPicker(); return; }
