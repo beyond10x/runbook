@@ -260,94 +260,61 @@ fn copy_dir(from: &Path, to: &Path) {
 
 /// The output's `request` against the `sdc.decision` entity schema `ess` generates from
 /// `ess/domains/decision.yaml`. `ess generate schema validate` picks a schema by an instance's
-/// `schema` property, so the generated closed schema is given that one property.
+/// `schema` property, so the closed schema is given that one property.
 const SCHEMA_ID: &str = "https://sdc.invalid/entities/sdc.decision.DecisionRequest.schema.json";
+const SCHEMA_FILE: &str = "sdc.decision.DecisionRequest.schema.json";
 
-fn hash_tree(dir: &Path, h: &mut Sha256) {
-    let mut entries: Vec<_> = fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        h.update(p.file_name().unwrap().to_string_lossy().as_bytes());
-        if p.is_dir() {
-            hash_tree(&p, h);
-        } else {
-            h.update(fs::read(&p).unwrap());
-        }
-    }
-}
-
-/// The schemas of `ess/domains/decision.yaml`, generated once per test run: a cache on disk under
-/// `target/`, keyed by the digest of the specification's files and the `ess` version. Each test
-/// is its own process under cargo-nextest, so the build goes to a private directory and is
-/// renamed into place; the process that loses the rename uses the winner's directory.
-fn schemas() -> PathBuf {
+/// The schema directory the check validates against: the committed generated schema of
+/// `DecisionRequest` (`ess/generated/schema`, built with the same arguments `ess generate` is given
+/// here before and held current by `task check:ess-generated`) with the `schema` property added,
+/// in a cache on disk under `target/` keyed by the digest of the committed file and the patch. The
+/// schema holds all its references inside the file, so it serves alone. No generator and no
+/// `ess --version` runs: the copy is made once per test run (each test is its own process under
+/// cargo-nextest, so it is written to a private directory and renamed into place; the process
+/// that loses the rename uses the winner's directory).
+fn schemas_with(cache: &Path) -> PathBuf {
+    let committed = manifest().join("../ess/generated/schema/schema/entities").join(SCHEMA_FILE);
+    let bytes = fs::read(&committed).unwrap_or_else(|e| panic!("{}: {e}", committed.display()));
     let mut h = Sha256::new();
-    hash_tree(&manifest().join("../ess"), &mut h);
-    let version = Command::new("ess").arg("--version").current_dir(manifest().join("../ess")).output().expect("ess is on PATH");
-    h.update(&version.stdout);
+    h.update(&bytes);
+    h.update(SCHEMA_ID);
     let key: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let cache = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("decision-request-schemas");
     let ready = cache.join(&key);
-    if ready.join("schema").is_dir() {
-        return ready.join("schema");
+    if ready.join(SCHEMA_FILE).is_file() {
+        return ready;
     }
-    // Under plain `cargo test` the tests are threads of one process: one builds, the others wait
-    // for it and find the schemas in place (the build directory is named by the process).
-    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one_at_a_time = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
-    if ready.join("schema").is_dir() {
-        return ready.join("schema");
-    }
-    fs::create_dir_all(&cache).unwrap();
+    fs::create_dir_all(cache).unwrap();
     let build = cache.join(format!("{key}.build-{}", std::process::id()));
     let _ = fs::remove_dir_all(&build);
     fs::create_dir_all(&build).unwrap();
-    build_schemas(&build);
+    let mut schema: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(schema["$id"], SCHEMA_ID);
+    assert_eq!(schema["additionalProperties"], false);
+    schema["properties"]["schema"] = json!({"const": SCHEMA_ID});
+    fs::write(build.join(SCHEMA_FILE), serde_json::to_vec_pretty(&schema).unwrap()).unwrap();
     if fs::rename(&build, &ready).is_err() {
         let _ = fs::remove_dir_all(&build);
     }
-    assert!(ready.join("schema").is_dir(), "{} was not built", ready.display());
-    ready.join("schema")
-}
-
-fn build_schemas(dir: &Path) {
-    {
-        let generated = Command::new("ess")
-            .current_dir(manifest().join("../ess"))
-            .args(["generate", "--path"])
-            .arg(manifest().join("../ess"))
-            .args([
-                "--kind",
-                "schema",
-                "--schema-id-base",
-                "https://sdc.invalid/",
-                "--out",
-            ])
-            .arg(dir)
-            .output()
-            .expect("ess is on PATH");
-        assert!(
-            generated.status.success(),
-            "{}",
-            String::from_utf8_lossy(&generated.stderr)
-        );
-        let schema_file = dir.join("schema/entities/sdc.decision.DecisionRequest.schema.json");
-        let mut schema: Value = serde_json::from_slice(&fs::read(&schema_file).unwrap()).unwrap();
-        assert_eq!(schema["$id"], SCHEMA_ID);
-        assert_eq!(schema["additionalProperties"], false);
-        schema["properties"]["schema"] = json!({"const": SCHEMA_ID});
-        fs::write(&schema_file, serde_json::to_vec_pretty(&schema).unwrap()).unwrap();
-    }
+    assert!(ready.join(SCHEMA_FILE).is_file(), "{} was not built", ready.display());
+    ready
 }
 
 fn validate(instance: &Value, name: &str) -> (i32, String) {
+    validate_with(Path::new("ess"), &default_cache(), instance, name)
+}
+
+fn default_cache() -> PathBuf {
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("decision-request-schemas")
+}
+
+fn validate_with(ess: &Path, cache: &Path, instance: &Value, name: &str) -> (i32, String) {
     let mut inst = instance.clone();
     inst["schema"] = json!(SCHEMA_ID);
     let inst_file = scratch(name).join("instance.json");
     fs::write(&inst_file, serde_json::to_vec(&inst).unwrap()).unwrap();
-    let out = Command::new("ess")
+    let out = Command::new(ess)
         .args(["generate", "schema", "validate", "--schemas"])
-        .arg(schemas())
+        .arg(schemas_with(cache))
         .arg(&inst_file)
         .output()
         .unwrap();
@@ -382,4 +349,42 @@ fn the_shape_check_refuses_a_request_that_is_not_in_the_shape() {
     broken.as_object_mut().unwrap().remove("options");
     let (code, report) = validate(&broken, "shape-negative");
     assert_eq!(code, 1, "{report}");
+}
+
+/// An `ess` that logs each call's arguments and runs the real one: `(program, log)`.
+fn counting_ess(dir: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let (program, log) = (dir.join("ess"), dir.join("calls.log"));
+    fs::write(&program, format!("#!/bin/sh\necho \"$*\" >> '{}'\nexec ess \"$@\"\n", log.display())).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    (program, log)
+}
+
+/// The schema the check reads is the committed one (`ess/generated/schema`, held current by
+/// `task check:ess-generated`) with the one property the lookup needs; no `ess generate` and no
+/// `ess --version` runs for it, in this or in any later test process.
+#[test]
+fn the_shape_check_reads_the_committed_schemas_and_runs_no_generator() {
+    let dir = scratch("shape-no-generator");
+    let (ess, log) = counting_ess(&dir);
+    let cache = dir.join("cache");
+    let (_, out) = request_for("q1");
+    for round in ["first", "second"] {
+        let (code, report) = validate_with(&ess, &cache, &out["request"], &format!("shape-no-generator-{round}"));
+        assert_eq!(code, 0, "{round}: {report}");
+        assert!(report.contains("1 instance(s): valid"), "{round}: {report}");
+    }
+    let calls = fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = calls.lines().collect();
+    assert_eq!(lines.len(), 2, "two validations, two ess starts and no more: {calls}");
+    assert!(lines.iter().all(|l| l.starts_with("generate schema validate --schemas ")), "{calls}");
+
+    let committed = manifest().join("../ess/generated/schema/schema/entities/sdc.decision.DecisionRequest.schema.json");
+    let mut want: Value = serde_json::from_slice(&fs::read(committed).unwrap()).unwrap();
+    want["properties"]["schema"] = json!({"const": SCHEMA_ID});
+    let served: Vec<PathBuf> = fs::read_dir(&cache).unwrap().flatten().map(|e| e.path()).collect();
+    assert_eq!(served.len(), 1, "one cache entry: {served:?}");
+    let file = served[0].join("sdc.decision.DecisionRequest.schema.json");
+    let got: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(got, want, "the cache holds the committed schema with the lookup property");
 }

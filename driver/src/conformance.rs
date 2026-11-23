@@ -28,8 +28,21 @@ pub fn sha256_bytes(b: &[u8]) -> String {
     Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// The digest of every byte of the file, read in chunks of a fixed size.
 pub fn sha256_file(p: &Path) -> Result<String, String> {
-    fs::read(p).map(|b| sha256_bytes(&b)).map_err(|e| format!("{}: {e}", p.display()))
+    let fail = |e: std::io::Error| format!("{}: {e}", p.display());
+    let mut file = fs::File::open(p).map_err(fail)?;
+    let mut hash = Sha256::new();
+    let mut chunk = vec![0u8; 1 << 16];
+    loop {
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => hash.update(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(fail(e)),
+        }
+    }
+    Ok(hash.finalize().iter().map(|x| format!("{x:02x}")).collect())
 }
 
 pub fn read_json(p: &Path) -> Result<J, String> {
