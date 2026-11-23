@@ -780,7 +780,7 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
         let why = format!("{} has no spec/", o.rel(&work));
         return o.finish("unknown", Some("suite_failed"), Some(why));
     }
-    // A budget the environment names is read before `ess` runs: a refusal costs nothing.
+    // A budget the environment names is read after the pin check and before `ess compile`: a refusal costs nothing.
     let budget = match table_file {
         Some(_) => None,
         None => match budget_named() {

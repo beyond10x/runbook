@@ -1127,3 +1127,69 @@ fn conformance_budget_refusal_cuts_the_value_at_40_bytes() {
     assert!(seen.contains("SDC_CONFORMANCE_MAX_BUDGET_USD"), "the refusal names the variable: {seen}");
     assert!(!seen.contains(&value[..41]), "more than 40 bytes of the value are in the output or the run");
 }
+
+/// An empty variable names no budget: the request has no `max_budget_usd`. `-0` is a budget of 0 with a
+/// positive sign: the request's number is `+0`, never `-0.0` (an adapter passes the text on as written).
+/// One start per row: 2 rows.
+#[test]
+fn conformance_budget_empty_is_no_budget_and_minus_zero_is_a_request_of_plus_zero() {
+    let mut bad = vec![];
+    for (tag, value, want) in [("empty", "", None), ("negzero", "-0", Some(0.0))] {
+        let (o, run) = observe_budget_bytes(&format!("e-{tag}"), std::ffi::OsStr::new(value));
+        let ok = match (requested_budget(&run), want) {
+            (Some(g), None) => g.is_null(),
+            (Some(g), Some(n)) => g.as_f64() == Some(n) && g.as_f64().is_some_and(f64::is_sign_positive),
+            (None, _) => false,
+        };
+        if !ok {
+            bad.push(format!("{value:?}: request max_budget_usd {:?}, want {want:?}; {}", requested_budget(&run), says(&o)));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// The order of the observation: the pin check runs first (it starts the pinned binary with `--version`),
+/// then the budget variable is read, then `ess compile` runs. A refused variable starts no command of
+/// `ess` but the pin check; a good one is followed by `compile`.
+#[test]
+fn conformance_budget_refused_starts_no_ess_command_but_the_pin_check() {
+    installed();
+    let mut bad = vec![];
+    for (tag, value, compiles) in [("neg", "-1", false), ("text", "abc", false), ("good", "2", true)] {
+        let run = run_dir(&format!("order-{tag}"), "spec");
+        let dir = run.parent().unwrap().to_path_buf();
+        let log = dir.join("ess-calls.txt");
+        let body = format!("#!/bin/sh\necho \"$@\" >> {}\n[ \"$1\" = \"--version\" ] && echo 'ess 9.9.9'\nexit 1\n", log.display());
+        let ess = dir.join("ess");
+        crate::ess_pin_guard::executable(&ess, &body);
+        let want = sdc_tools::conformance::sha256_bytes(body.as_bytes());
+        let pin = dir.join("pin.json");
+        fs::write(&pin, json!({"format": "sdc.ess-pin/1", "version": "9.9.9", "platforms": {sdc_tools::conformance::target_triple(): {"binary_sha256": want}}}).to_string()).unwrap();
+        let mut t = table();
+        t["views"] = json!([]);
+        let t = write_table(&dir, "t.json", &t);
+        let o = Command::new(BIN)
+            .arg("observe")
+            .arg(&run)
+            .arg("--pin")
+            .arg(&pin)
+            .env("ESS_BIN", &ess)
+            .env("SDC_CONFORMANCE_ADAPTER", stub())
+            .env("SDC_STUB_TABLE_NODE", &t)
+            .env("SDC_CONFORMANCE_TARGET_TIMEOUT", "10")
+            .env("SDC_CONFORMANCE_TABLES", "1")
+            .env("SDC_CONFORMANCE_MAX_BUDGET_USD", value)
+            .output()
+            .unwrap();
+        let calls = fs::read_to_string(&log).unwrap_or_default();
+        let lines: Vec<&str> = calls.lines().collect();
+        if lines.first() != Some(&"--version") {
+            bad.push(format!("{tag}: the pin check did not run first: {lines:?}; {}", says(&o)));
+        }
+        let compiled = lines.iter().any(|l| l.starts_with("compile"));
+        if compiled != compiles {
+            bad.push(format!("{tag} {value}: ess compile ran {compiled}, want {compiles}: {lines:?}"));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
