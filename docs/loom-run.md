@@ -18,7 +18,8 @@ runbook run <runbook> --intake <file|-> --run <name> --runs-dir <dir> --confinem
 code of `runbook list`). Required, with no default: `<runbook>`, `--intake`, `--run`, `--runs-dir`,
 `--confinement`, `--settings`, `--cap-micro-usd`, `--max-llm-calls` and
 `--max-wall-seconds`; a missing one is a usage error (exit 64) that names it. `--spend-ledger` is
-required when the run has a model node and may be left out when it has none ("A run without a model
+required when the run has a model node and when it has none under `--confinement local`; it may be
+left out only under `--confinement substrate` in a run with no model node ("A run without a model
 node" below). Optional:
 `--bindings` and `--protocols` default to `bindings/` and `protocol/` of the asset root
 (`RUNBOOK_HOME`, the installed share directory or the checkout the executable lies in; the lookup
@@ -119,6 +120,8 @@ child".
    path is missing, or `<runs-dir>/<name>` exists.
    A run that has a model node (below) is also refused when `--spend-ledger` is missing:
    `--spend-ledger is required: the run has a model node (<why>); a run without one needs none`.
+   A run without a model node under `--confinement local` is refused too, by name, when `--spend-ledger`
+   is missing or `--cap-micro-usd` or `--max-llm-calls` is 0 ("Where caps of 0 are accepted").
 2. Creates the run directory, writes `settings.json` (the login file's path replaced by `named`),
    copies `--bindings` into `bindings/` (the copy is what Loom reads; the checkout is never
    edited), decides once whether the run has a model node (the `model_node_decided` event, the
@@ -292,7 +295,7 @@ A call of the run that Loom refuses by a reason of `TreeRefusalReason` (`runbook
 | `PersonProgramFailed` | `person_program_failed` | the program of a person action ended badly (see above) |
 | `TreeAlreadyStopped`, `TreeNotStopped`, `StopUnusable` | `tree_already_stopped`, `tree_not_stopped`, `stop_unusable` | refusals of `hold` and `reopen`, which no `runbook` command calls; named all the same |
 
-Exit 2 and exit 12 are both a refusal and differ in when it happens. Exit 2 is a refusal before a run directory exists: nothing is written and there is no `outcome.json`. The refusals of `runbook run` that are exit 2 are: `--loom` without `--loom-sha256`, or the reverse (`--loom and --loom-sha256 go together`); a `--loom` binary whose sha256 is not the one named; a confinement level the library cannot give (below); a `--run` that is not a plain name; a `--root-protocol` that is not `name@revision` or that the protocol directory does not register; a settings file that cannot be read or that disagrees with the options; an intake that cannot be read or is empty; no asset root when `--bindings` or `--protocols` is not given and `RUNBOOK_HOME` is not set; a `--bindings` that is not a directory; a run directory that already exists; a run that has a model node and no `--spend-ledger`; `--watch` without the helper `sdc-watch`; a bug-fix option without the helper `sdc-bugfix`. A missing or invalid option is not exit 2: it is exit 64 (`--confinement`, `--run` and the other required options, and an option that needs another, such as `--recorded`'s). Exit 12 is Loom refusing a call of a run that has started: the run directory exists and `outcome.json` holds the cause.
+Exit 2 and exit 12 are both a refusal and differ in when it happens. Exit 2 is a refusal before a run directory exists: nothing is written and there is no `outcome.json`. The refusals of `runbook run` that are exit 2 are: `--loom` without `--loom-sha256`, or the reverse (`--loom and --loom-sha256 go together`); a `--loom` binary whose sha256 is not the one named; a confinement level the library cannot give (below); a `--run` that is not a plain name; a `--root-protocol` that is not `name@revision` or that the protocol directory does not register; a settings file that cannot be read or that disagrees with the options; an intake that cannot be read or is empty; no asset root when `--bindings` or `--protocols` is not given and `RUNBOOK_HOME` is not set; a `--bindings` that is not a directory; a run directory that already exists; a run that has a model node and no `--spend-ledger`; a run with no model node under `--confinement local` that lacks `--spend-ledger` or has `--cap-micro-usd` or `--max-llm-calls` at 0 (see "A run without a model node"); `--watch` without the helper `sdc-watch`; a bug-fix option without the helper `sdc-bugfix`. A missing or invalid option is not exit 2: it is exit 64 (`--confinement`, `--run` and the other required options, and an option that needs another, such as `--recorded`'s). Exit 12 is Loom refusing a call of a run that has started: the run directory exists and `outcome.json` holds the cause.
 
 What each path does:
 
@@ -309,13 +312,48 @@ Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 13 `stopped: model call` (a m
 
 ### A run without a model node
 
-The caps guard model calls. A run that has no model node makes none, so it needs none of them. The
-runner decides once, at the opening, whether the run has a model node: after the run's copy of the
-bindings is made and before the first `tree run`
-(`runbook/src/loom_run/model_node.rs`). The decision is a value of the run. It is written once, as the
-event `model_node_decided` (`has_model_node` and `because`, the second line of `events.jsonl`) and as
-`has_model_node` in `outcome.json`, and it is never made again, from a file a program can write or
-from anything else.
+The caps guard model calls. A run that has no model node makes none, so it needs none of them, but
+only where a bound program has no network (next section). The runner decides once, at the opening,
+whether the run has a model node: after the run's copy of the bindings is made and before the first
+`tree run` (`runbook/src/loom_run/model_node.rs`). The decision is a value of the run, one of three:
+`With` (a model node, or unclear), `Capped` (no model node, a confinement that leaves a bound program
+the network: the caps apply) and `Without` (no model node, no network for a bound program: no cap, no
+ledger). It is written once, as the event `model_node_decided` (`has_model_node` and `because`, the
+second line of `events.jsonl`) and as `has_model_node` in `outcome.json` (true only for `With`), and it
+is never made again, from a file a program can write or from anything else.
+
+#### Where caps of 0 are accepted
+
+A run without a model node starts with `--max-llm-calls 0`, `--cap-micro-usd 0` and no
+`--spend-ledger` only under a confinement that takes the network from bound programs. The levels that
+do are one constant, `NO_NETWORK_LEVELS` of `model_node.rs`: `substrate`. Under it the pinned Loom
+starts a bound program through the Substrate runner as a child that asks for no network: its
+environment is built by `bound_program_child` (`loom-intake-slice/src/bindings.rs`), which names no
+egress aperture, and a child with none gets `NetworkMode::None`
+(`loom-intake-slice/src/confinement.rs`, `ChildCommand::new`), no address but loopback. A level that
+the constant does not name is refused like `local` (a test holds a level name it does not hold).
+
+`--confinement local` is not in the list: the program runs unconfined on the host's network. A run
+whose bindings name no model node, under `local`, is refused by name before the opening, exit 2: no
+run directory, no ledger file, no private directory, no call of Loom, so no bound program started. The
+message names the level, says a run without a model node needs caps under it, and names
+`--cap-micro-usd`, `--max-llm-calls` and `--spend-ledger`. It needs all three: a ledger, and both caps
+above 0. With them the same run starts, as a run with caps always did:
+
+- the records state `has_model_node` false and why (`because` names the level); the ledger is opened,
+  a step reserves and books what it records, and `--max-llm-calls` and `--cap-micro-usd` stop the run
+  as they stop any run; a run that records no model call counts 0 calls and 0 micro USD;
+- the exit-13 rule of this section does not apply to it: a model call recorded in such a run is booked
+  in the ledger and counted against the caps, and it does not end the run (it ends it only at a cap).
+  The checks of the table below (the tree manifest, the copy read again, a recorded call, the model
+  decider) are the checks of a run opened without caps, that is, of `substrate`;
+- it makes no link to the login file: no declared node needs it;
+- the printed command of a handoff takes one step, as in a run without caps.
+
+What follows from this for `local`: the caps count the model calls the runner records. A program that a
+bound program starts by itself, that calls a model without the runner's adapter and writes no cost
+record, is counted by no cap, in a run with a model node too. The refusal of caps of 0 under `local`
+keeps a recorded call counted and changes nothing for a call that no record names.
 
 The run has a model node when any of these holds. Unclear counts: a reading that fails, or a form
 the rule does not know, is "has a model node" and the caps apply.
@@ -346,42 +384,61 @@ starts a model program by a name no text of the copy holds (a script of `tools/`
 from two parts, a shell word of an `argv` that builds it, a copy of the model tool under another file
 name) is not seen: the caps guard stops spend by declared model nodes; a bound program the runbook's
 author wrote is trusted like any program the author runs under `--confinement local`. A model node
-that is not declared is therefore not stopped before it starts. What holds for such a program in a run
-without a model node, each sentence held by a case of
-`runbook/tests/loom_run/no_model_node_guards.rs`
-(`documented_limit_a_model_program_reached_by_a_name_the_rule_does_not_read_starts_without_a_login_and_a_recorded_call_ends_the_run`
-for the first four):
+that is not declared is therefore not stopped before it starts. Each sentence below is held by a case
+of `runbook/tests/loom_run/no_model_node_limit.rs`.
+
+In a run opened without caps (`substrate`), for such a program:
 
 - it is started, and it gets no login from the runner: the runner makes no link to the login file in a
   run without a model node (the private directory of the run is not made), and passes `PATH` and
-  `LOOM_*` to a bound program, so no token and no path of the login is in its environment;
+  `LOOM_*` to a bound program, so no token and no path of the login is in its environment
+  (`an_unread_model_program_is_started_and_gets_no_login`);
 - a call it records, by writing the cost record of the model tool, ends the run after that step by
   exit 13 (`stopped: model call`, cause `model_call_without_model_node`), with the call and its cost
   stated in `outcome.json` (`llm_calls`, `spent_micro_usd`, never 0 for a recorded call) and nothing
-  booked in a ledger;
-- a call it does not record is not seen by the runner: the run ends as any run does, with `llm_calls` 0;
-- with a model node, a model tool that a wrapper starts, and that writes cost records, is reserved for
-  and booked like any call: the runner reads the records, not the process
-  (`with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted`).
+  booked in a ledger (`an_unread_model_program_that_records_a_call_ends_the_run_without_caps`);
+- a call it does not record is not seen by the runner: the run ends as any run does, with `llm_calls` 0
+  (`an_unread_model_program_that_records_nothing_is_not_seen`).
 
-What the network of such a program is depends on the confinement level, which this repository's
-pages state like this: `--confinement local` is not confined (`unconfined and declared insecure`,
-above), so the program has the network and the host as the user running the command has them;
-`--confinement substrate` is Substrate's linux adapter, and the Substrate profile gives agent nodes and
-the decider no egress (`docs/autonomy-levels.md`, section 2.5; the egress apertures are
-`profile.network`, `docs/layers.md`). The pages here do not say more about the network of a bound
-program under `substrate`, and no case here makes a network request.
+In a run that has caps, under `local` or with a model node, the same program:
 
-Without a model node: a `tree run` is not counted as a call, nothing is reserved, no ledger is opened
-(a `--spend-ledger` that is named is not created), `--max-llm-calls 0` and `--cap-micro-usd 0` are
-accepted and the run does not end `stopped: llm calls`, `--spend-ledger` may be left out, and the
-records state `llm_calls` 0 and `spent_micro_usd` 0. `--max-wall-seconds` stays, and so do the other
-options. With a model node nothing changes: a cap of 0 stops the run before its first `tree run`, a
-missing `--spend-ledger` is refused before anything is written (exit 2), and an unreadable or invalid
-ledger fails the run closed.
+- a call it records is booked in the ledger and counted against the caps, whatever started the program:
+  the runner reads the records, not the process; it ends the run only at a cap
+  (`under_local_with_caps_an_unread_model_program_that_records_a_call_is_booked_and_counted`, and for a
+  run with a model node `with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted`
+  of `no_model_node_guards.rs`);
+- a call it does not record is counted by no cap
+  (`under_local_with_caps_an_unread_model_program_that_records_nothing_is_counted_by_no_cap`).
 
-A model program in a run that was opened without a model node is refused. A bound program can write
-the copy of the bindings after the opening, so every path by which the runner starts a model program,
+The committed test steps of a ticket's repository (the Taskfile and the test command of a workspace
+that a bound program runs, as `bindings/sdc-bugfix.yaml` does) run the code of that repository with the
+same reach as any bound program under `local`: its working directory is the workspace of the run, it
+is given `PATH` and `LOOM_*`, and it can write outside the run directory as the user. The caps count
+nothing that code does by itself
+(`the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_the_caps_count_nothing_it_does_by_itself`).
+
+The scan reads a name as it is written. The tool's name in another letter case (`SDC-NODE`) is
+another program name: the scan does not count it as the model tool (on a file system that does not tell
+the cases apart it still starts the model tool, by a name the scan does not read)
+(`the_tool_name_in_another_letter_case_is_decided_by_the_scan_as_it_is_written`).
+
+What the network of such a program is depends on the confinement level. Under `--confinement local`
+the program has the network and the host as the user running the command has them (`unconfined and
+declared insecure`, above). Under `--confinement substrate` it has none beyond loopback (the section
+"Where caps of 0 are accepted"); no case here makes a network request, and the host this was written
+on cannot run `substrate` (no delegated cgroup), so no case runs a bound program under it: the cases
+above stand a fake `b10x-loom` in for the level.
+
+Without a model node and without caps (`substrate`): a `tree run` is not counted as a call, nothing is
+reserved, no ledger is opened (a `--spend-ledger` that is named is not created), `--max-llm-calls 0`
+and `--cap-micro-usd 0` are accepted and the run does not end `stopped: llm calls`, `--spend-ledger`
+may be left out, and the records state `llm_calls` 0 and `spent_micro_usd` 0. `--max-wall-seconds`
+stays, and so do the other options. With a model node nothing changes: a cap of 0 stops the run before
+its first `tree run`, a missing `--spend-ledger` is refused before anything is written (exit 2), and an
+unreadable or invalid ledger fails the run closed.
+
+A model program in a run that was opened without a model node and without caps (a run under `substrate`) is
+refused. A bound program can write the copy of the bindings after the opening, so every path by which the runner starts a model program,
 or reserves an amount for one, reads the decision of the opening; when it is "no model node" the run
 ends `stopped: model call` (exit 13, cause `model_call_without_model_node`, the event `cap_reached`
 with cap `model_node`, `run-stopped.json`) before the program starts:
@@ -389,7 +446,7 @@ with cap `model_node`, `run-stopped.json`) before the program starts:
 | Path | Check |
 |---|---|
 | a `tree run` (the model node of the tree) | before it, the tree manifest is checked (below) and the copy is read again with the rule above; a model node in it, or a manifest that fails the check, ends the run, the decision of the opening is not changed |
-| the printed command of a handoff (a `tree run`) | the same, before the command runs |
+| the printed command of a handoff (a `tree run`) | the same, before the command runs; the command runs with `--max-steps 1` (a bound the printed command may carry is replaced, a printed command that is no `tree run` is not run), so the copy is read again between two steps, as for every `tree run` of the run |
 | the answer to a decision (`tree approve`, which runs the program a person action binds) | the same, before the answer is sent to Loom |
 | a `tree status` (after each step; it starts no program but reads the manifest) | the same: a changed manifest ends the run by this cause and not by an error of Loom |
 | a model call recorded by a step | after each `tree run` the cost records of the workspace are read; a call, or a record that cannot be read, ends the run |
