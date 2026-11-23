@@ -166,9 +166,9 @@ token = "placeholder"
 
 | Key | Type | Meaning |
 |---|---|---|
-| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's |
-| `token` | text | the token itself: one line of visible text, 1 to 8192 bytes |
-| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists |
+| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's. With an `http://` address at a host that is not loopback the token travels in clear text; no refusal stands in the way |
+| `token` | text | the token itself: one line of visible text, 8 to 8192 bytes (the adapter replaces every occurrence of the token in what a model program prints, so a shorter token is refused) |
+| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists. It is opened without following a link and without blocking: a link, a FIFO, a socket, a device and a directory are refused |
 
 Exactly one of `token` and `token_file`. A token in a settings file lies where the file lies: use
 `token_file` and keep that file readable by its owner alone.
@@ -178,8 +178,10 @@ member, as `gateway.base_url`, and never a value, a part of a value or the path 
 
 - the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host
 - both `token` and `token_file`, or neither
-- a `token_file` that is not absolute, not a readable file, empty, or more than one line
-- a `token` that is empty or not one line of visible text
+- a `token_file` that is not absolute, not a readable file (a link, a FIFO, a socket, a device and a directory
+  are none), empty, or more than one line
+- a `token` that is empty, shorter than 8 bytes or not one line of visible text (also as the content of a
+  `token_file`)
 - a member that is none of the three
 - a `gateway` and a `login_file` (in the place `loom.login_file` of the old form too)
 - no `XDG_RUNTIME_DIR` of the user (the same rule as for the login file: the file lies in the private directory)
@@ -197,15 +199,21 @@ What a run does with it:
 3. `sdc-node` hands the path to the adapter in `SDC_GATEWAY_FILE`. The adapter reads the file with the sh
    function `sdc_gateway_read` (`bindings/tools/gateway.sh`; the Rust reader is `sdc_tools::gateway::read`),
    and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
-   start, a fresh `CLAUDE_CONFIG_DIR` that holds no login, and `ANTHROPIC_API_KEY` unset. The two values
-   are exported only inside the subshell of that start (the shell's own `export`) and are in no argv. Loom's contract is unchanged: a program Loom
-   starts has `PATH` and `LOOM_*` and nothing of the gateway.
+   start, a fresh `CLAUDE_CONFIG_DIR` that holds no login, and every other `ANTHROPIC_*` and `CLAUDE_CODE_*`
+   variable of the caller removed (that includes `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; the
+   adapter's own `CLAUDE_CODE_` settings stay; the names are read from the environment at the call). The two
+   values are exported only inside the subshell of that start (the shell's own `export`) and are in no argv
+   and in no environment but that of `claude`. What `claude` prints to its two streams passes a filter that
+   replaces every occurrence of the token, also its form inside JSON text, by `<gateway token>` before
+   `events.jsonl` and `stderr.txt` of the call are written; a filter that cannot run ends the call with exit
+   127 and keeps neither file. Loom's contract is unchanged: a program Loom starts has `PATH` and `LOOM_*` and
+   nothing of the gateway.
 4. The starts that are not a node take it the same way: the model decider (`SDC_GATEWAY_FILE` in the
    environment the runner builds for its adapter), the adapter calls of `sdc-reply` (it clears nothing, so
    its adapter has the variable of the process that started it) and the conformance
    observation (`--conformance observe`, whose adapter is started while the private directory exists).
 5. The private directory and the file go with the run: after a normal end, after an error and after
-   SIGTERM. A SIGKILL leaves the directory; the next run of that name refuses to start over it, by its
+   SIGTERM, SIGINT and SIGHUP. A SIGKILL leaves the directory; the next run of that name refuses to start over it, by its
    path, and the user removes it.
 6. The token is in no argv, no environment of a program Loom starts, no log line, no event, no file of the
    run directory and not in the copy. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
