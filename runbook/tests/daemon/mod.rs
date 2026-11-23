@@ -21,3 +21,4 @@ mod ui_decide_review;
 mod principal;
 mod runbooks_view;
 mod ui_start;
+mod security_start;
