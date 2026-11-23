@@ -23,7 +23,7 @@ fn daemon(dir: &std::path::Path, default: Option<Confinement>) -> Daemon {
     let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: PRINCIPAL.into() };
     let stub = StubRuntime::new();
     stub.script("quick", runbook::stub::Script::new(vec![runbook::stub::Step::Sleep(60_000)]));
-    Daemon::start_with(cfg, Policy { default_confinement: default }, Arc::new(stub)).unwrap()
+    Daemon::start_with(cfg, Policy { default_confinement: default, ..Policy::default() }, Arc::new(stub)).unwrap()
 }
 
 #[test]

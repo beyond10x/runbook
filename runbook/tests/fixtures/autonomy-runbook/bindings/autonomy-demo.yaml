@@ -1,0 +1,41 @@
+format: loom.bindings/1
+protocol: autonomy-demo@1
+program_root: bindings
+artifacts:
+  idea: idea.yaml
+  notes: notes.txt
+actions:
+  - action: notes.write
+    executor:
+      kind: program
+      argv: [tools/notes-write.sh]
+  - action: notes.check
+    executor:
+      kind: program
+      argv: [tools/notes-check.sh]
+    evidence:
+      - kind: notes_check
+        subject: notes
+        producer: notes-check
+        from: exit
+        results: {"0": valid, "*": invalid}
+  - action: notes.stage
+    executor:
+      kind: program
+      argv: [tools/notes-stage.sh]
+    evidence:
+      - kind: notes_stage
+        subject: notes
+        producer: notes-stage
+        from: exit
+        results: {"0": staged, "*": failed}
+  - action: notes.review
+    executor:
+      kind: person
+      principal: reviewer
+    evidence:
+      - kind: notes_review
+        subject: notes
+        producer: reviewer
+        from: effect
+        results: {performed: approved, rejected: rejected}

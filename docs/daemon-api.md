@@ -29,6 +29,15 @@ first event (`runbook.submitted`) carry `confinement_source`: `submit`, `daemon-
 `built-in`. The daemon's default floor is `linux`; `local` must be asked for by name or stated as
 the daemon's default, and is refused under a `linux` floor. The floor is never read as a default.
 
+A submit may also carry `autonomy` (`A0` to `A5`) and `decider` (a kind name among those the operator
+configured in `runbook.toml`); what it leaves out comes from `--autonomy` and `--decider`. A run with a
+level and a kind has its decisions answered by that decider where the level gives them to it, and the
+rest stay open for `answer-decision` (`docs/engine.md`, "Autonomy and a decider"). The run's row, the
+view `run` and the `runbook.submitted` event carry `autonomy` and `decider`; a kind that is not
+configured, an unknown level and a level with no kind are refused `400` before anything is written. An
+answer of a rule or a decider is recorded as `rule:<name>` or `decider:<kind>` in `answered_by` and
+`principal`; a client may not take a label that starts with either.
+
 ## Client commands
 
 Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
@@ -189,7 +198,7 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ```
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
-              [--default-confinement local|linux] [--token-file FILE] [--ui] [--mcp]
+              [--default-confinement local|linux] [--autonomy A0..A5] [--decider KIND] [--token-file FILE] [--ui] [--mcp]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -209,6 +218,8 @@ open event streams are closed then (see "Event streams").
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--default-confinement` | the `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` is `linux`), else none | The level of a submit that names none. The option wins over the file. It is never the floor: a default below `--min-confinement` stops the daemon at start, exit 1, with a message that names the two values and nothing else of the file. With none, a submit without a level runs at `linux`. |
+| `--autonomy` | none | The autonomy level (`A0` to `A5`) of a submit that names none. With none, such a run has no level and every decision of it waits for a client. It needs `--decider`, or the daemon does not start (exit 1). |
+| `--decider` | none | The decider kind of a submit that names none: a kind of `[deciders.<kind>]` in `runbook.toml` (`rule`, `model`). A name that is not configured stops the daemon at start. Both need `--runtime loom`: the stub has no decider. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
 

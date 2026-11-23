@@ -1,0 +1,11 @@
+{
+  "format": "sdc.autonomy-levels/1",
+  "levels": {
+    "A0": {"staging": "person", "review": "person", "close": "person"},
+    "A1": {"staging": "advised", "review": "advised", "close": "advised"},
+    "A2": {"staging": "decider", "review": "person", "close": "person"},
+    "A3": {"staging": "decider", "review": "person", "close": "person"},
+    "A4": {"staging": "decider", "review": "decider", "close": "person"},
+    "A5": {"staging": "decider_final", "review": "decider_final", "close": "rule"}
+  }
+}

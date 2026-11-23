@@ -56,6 +56,7 @@ pub fn request(run: &str, runbook: &str) -> StartRequest {
         context_dir: None,
         settings: BTreeMap::new(),
         confinement: Confinement::Linux,
+        terms: Default::default(),
         state_dir: "state".into(),
         workspace_dir: "workspace".into(),
     }

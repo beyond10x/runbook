@@ -199,7 +199,23 @@ fn main() -> ExitCode {
             };
             args.runbooks = world.configured.clone();
             match config::load(&cli.source) {
-                Ok(file) => args.file_confinement = file.and_then(|f| f.confinement).map(loom_run::library::level_of),
+                Ok(file) => {
+                    args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+                    if let Some(file) = file.filter(|f| !f.deciders.is_empty()) {
+                        let limits = loom_run::arbiter::Limits {
+                            login_file: file.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
+                            cap_micro_usd: file.cap_micro_usd,
+                            max_llm_calls: file.max_llm_calls,
+                        };
+                        match loom_run::arbiter::DaemonArbiter::new(file.deciders, limits) {
+                            Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
+                            Err(e) => {
+                                eprintln!("runbook serve: {e}");
+                                return ExitCode::from(2);
+                            }
+                        }
+                    }
+                }
                 Err(e) => {
                     eprintln!("runbook serve: {e}");
                     return ExitCode::from(2);

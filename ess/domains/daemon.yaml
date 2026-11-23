@@ -109,6 +109,15 @@ types:
     naming:
       summary: "Where a run's level came from: submit (the client named it), daemon-default (the daemon's default level) or built-in (linux, when the client named none and the daemon has no default)."
 
+  - name: sdc.daemon.DeciderKind
+    kind: newtype
+    of: String
+    invariants:
+      - value.count >= 1
+      - value.count <= 63
+    naming:
+      summary: "The name of a decider kind the operator configured (a table [deciders.<kind>] of runbook.toml): rule or model. A run names a kind, never a program or a path; a kind that is not configured is refused at the submit before anything is written."
+
   - name: sdc.daemon.RuntimeKind
     kind: enum
     variants: [stub, loom]
@@ -193,6 +202,8 @@ entities:
       - {name: settings, type: sdc.daemon.RunSettings}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>, summary: "Where the level came from: the submit, the daemon's default or the built-in linux. Absent for a run recorded before the daemon kept it."}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>, summary: "The level the run was submitted with, or took from the daemon's default; absent when none: every decision of the run waits for a client. Fixed at the submit and read from the record, never from the daemon's policy of the day."}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>, summary: "The kind of decider of the run, fixed like the level."}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>, summary: "The session the run was submitted into; absent for a run of no session."}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>, summary: "The key the submit carried, when it carried one; a later submit with the same key returns this run."}
       - {name: submitted_at, type: Timestamp}
@@ -244,8 +255,8 @@ entities:
       - {name: options, type: "List<sdc.decision.DecisionOption>"}
       - {name: opened_at, type: Timestamp}
       - {name: answer, type: Optional<String>, summary: "The option letter, or the free text for a question that takes one; present once Answered."}
-      - {name: answered_by, type: Optional<sdc.decision.Principal>, summary: "The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal."}
-      - {name: principal, type: Optional<sdc.decision.Principal>, summary: "The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one."}
+      - {name: answered_by, type: Optional<sdc.decision.Principal>, summary: "The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal. A rule or a decider of the run answers under its own name instead, `rule:<name>` or `decider:<kind>`, and a client cannot take a name that starts with either (400)."}
+      - {name: principal, type: Optional<sdc.decision.Principal>, summary: "The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one. For an answer of a rule or a decider it is that rule's or decider's own principal (`decider:<verdict>`, `rule:<name>`), never the daemon's, which may be a person's."}
       - {name: answered_at, type: Optional<Timestamp>}
     lifecycle:
       initial: Open
@@ -536,7 +547,7 @@ commands:
     naming:
       wire: submit-run
       display: Submit a run
-      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level, else linux), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level, else linux), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: runbook_id, type: sdc.daemon.RunbookId}
@@ -546,6 +557,8 @@ commands:
       - {name: settings, type: sdc.daemon.RunSettings}
       - {name: confinement, type: Optional<sdc.daemon.ConfinementLevel>, summary: "The level the client named; absent when it named none, and the run then takes the daemon's default level, else linux (the handler fills it and says which in confinement_source)."}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>, summary: "Where the level came from: the handler fills it. A client never sends it."}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>, summary: "The autonomy level of the run, A0 to A5: how much of its decisions a decider takes over from a person. Absent: the daemon's default level, and when it has none every decision of the run waits for a client."}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>, summary: "The kind of the decider that answers what the level gives it, a name among the kinds the operator configured. Absent: the daemon's default kind. A kind that is not configured, and a level with no kind to take it, are refused before anything is written (400)."}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
       - {name: runbook_known, type: Boolean}
@@ -606,6 +619,8 @@ commands:
           settings: input.settings
           confinement: input.confinement
           confinement_source: input.confinement_source
+          autonomy: input.autonomy
+          decider: input.decider
           session_id: input.session_id
           idempotency_key: input.idempotency_key
           submitted_at: input.at
@@ -1141,6 +1156,8 @@ views:
       - {name: state, type: sdc.daemon.Run.State}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1166,6 +1183,8 @@ views:
       - {name: state, type: sdc.daemon.Run.State}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1191,6 +1210,8 @@ views:
       - {name: state, type: sdc.daemon.Run.State}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1220,6 +1241,8 @@ views:
       - {name: state, type: sdc.daemon.Run.State}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1247,6 +1270,8 @@ views:
       - {name: state, type: sdc.daemon.Run.State}
       - {name: confinement, type: sdc.daemon.ConfinementLevel}
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
+      - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
+      - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}

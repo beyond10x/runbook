@@ -1,0 +1,8 @@
+{
+  "format": "sdc.decision-classes/1",
+  "classes": {
+    "staging": {"type": "approval", "side": "delivering", "actions": ["autonomy-demo/notes.stage"]},
+    "review": {"type": "review", "side": "delivering", "actions": ["autonomy-demo/notes.review"]},
+    "close": {"type": "close", "side": "requester", "actions": ["sdc/close:operating"]}
+  }
+}

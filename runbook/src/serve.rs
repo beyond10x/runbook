@@ -1,9 +1,10 @@
 //! `runbook serve`: the daemon in the foreground.
 
 use crate::api::{self, auth};
-use crate::commands::{check_default_confinement, check_principal, Config, Daemon, Policy};
+use crate::commands::{check_default_confinement, check_principal, check_terms, Config, Daemon, Policy};
+use crate::engine::arbiter::Arbiter;
 use crate::engine::Engine;
-use crate::runtime::{Confinement, Runtime};
+use crate::runtime::{Autonomy, Confinement, Runtime, Terms};
 use crate::stub::StubRuntime;
 use clap::Args;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -49,6 +50,18 @@ pub struct ServeArgs {
     /// The `confinement` of `runbook.toml`, as a level. Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub file_confinement: Option<Confinement>,
+    /// The autonomy level of a submit that names none: what the decider of the run takes over from a person.
+    /// None given: a submit that names none has no level and every decision of its run waits for a client.
+    /// It needs a decider kind (`--decider`), or the daemon does not start.
+    #[arg(long, value_name = "LEVEL", value_parser = ["A0", "A1", "A2", "A3", "A4", "A5"])]
+    pub autonomy: Option<String>,
+    /// The decider kind of a submit that names none: one of the kinds `[deciders.<kind>]` of `runbook.toml`
+    /// configures (`rule`, `model`); a name that is not one of them and the daemon does not start.
+    #[arg(long, value_name = "KIND")]
+    pub decider: Option<String>,
+    /// The deciders `runbook.toml` configures (`[deciders.<kind>]`). Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub arbiter: Option<Arc<dyn Arbiter>>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -122,6 +135,10 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     if let Some(default) = default_confinement {
         check_default_confinement(floor, default)?;
     }
+    // The deciders exist for the engine only: the stub runtime has none, so with it no level and no kind is configured.
+    let kinds = if args.runtime == "loom" { args.arbiter.as_ref().map(|a| a.kinds()).unwrap_or_default() } else { Vec::new() };
+    let autonomy = args.autonomy.as_deref().map(|a| Autonomy::parse(a).ok_or_else(|| format!("--autonomy {a}: not a level"))).transpose()?;
+    check_terms(&Terms { autonomy, decider: args.decider.clone() }, &kinds).map_err(|e| format!("the default decider of the daemon (--autonomy, --decider): {e}"))?;
     let state = state_dir(args, env)?;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
@@ -129,7 +146,11 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
             return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
         }
         crate::runbooks::load(&args.runbooks, Some(&home))?;
-        (Arc::new(Engine::new(home, state.clone()).with_runbook_dirs(args.runbooks.clone())), None)
+        let mut engine = Engine::new(home, state.clone()).with_runbook_dirs(args.runbooks.clone());
+        if let Some(arbiter) = &args.arbiter {
+            engine = engine.with_arbiter(arbiter.clone());
+        }
+        (Arc::new(engine), None)
     } else {
         let stub = StubRuntime::new();
         for name in presets {
@@ -139,7 +160,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let policy = Policy { default_confinement };
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon })
 }

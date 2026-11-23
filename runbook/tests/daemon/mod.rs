@@ -26,3 +26,5 @@ mod submit_order;
 mod answer_order;
 mod default_confinement;
 mod default_level;
+mod autonomy;
+mod autonomy_guards;

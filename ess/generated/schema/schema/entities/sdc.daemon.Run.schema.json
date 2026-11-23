@@ -34,6 +34,14 @@
       "$ref": "#/$defs/sdc.daemon.ConfinementSource",
       "description": "Where the level came from: the submit, the daemon's default or the built-in linux. Absent for a run recorded before the daemon kept it."
     },
+    "autonomy": {
+      "$ref": "#/$defs/sdc.decision.AutonomyLevel",
+      "description": "The level the run was submitted with, or took from the daemon's default; absent when none: every decision of the run waits for a client. Fixed at the submit and read from the record, never from the daemon's policy of the day."
+    },
+    "decider": {
+      "$ref": "#/$defs/sdc.daemon.DeciderKind",
+      "description": "The kind of decider of the run, fixed like the level."
+    },
     "session_id": {
       "$ref": "#/$defs/sdc.daemon.SessionId",
       "description": "The session the run was submitted into; absent for a run of no session.",
@@ -88,7 +96,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:fa5368694252cc23d67ec88aad8cc6d34e915653c0c3131726f2c98a8b7bc4b9",
+    "contract_digest": "slice-sha256/2:2302ab53a5bdd84367ad43b4078798c504639e60792b83fbc5ca5fe459d71193",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -121,6 +129,19 @@
       "x-ess-name": "sdc.daemon.ContextPath",
       "x-ess-kind": "newtype",
       "type": "string"
+    },
+    "sdc.daemon.DeciderKind": {
+      "title": "DeciderKind",
+      "description": "The name of a decider kind the operator configured (a table [deciders.<kind>] of runbook.toml): rule or model. A run names a kind, never a program or a path; a kind that is not configured is refused at the submit before anything is written.",
+      "x-ess-name": "sdc.daemon.DeciderKind",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "x-ess-invariants": [
+        "value.count >= 1",
+        "value.count <= 63"
+      ]
     },
     "sdc.daemon.IdempotencyKey": {
       "title": "IdempotencyKey",
@@ -192,6 +213,21 @@
       "x-ess-name": "sdc.daemon.SessionId",
       "x-ess-kind": "newtype",
       "type": "string"
+    },
+    "sdc.decision.AutonomyLevel": {
+      "title": "AutonomyLevel",
+      "description": "The run's autonomy level, docs/autonomy-levels.md:36-42 and :205-213: A0 Manual, A1 Advised, A2 Internal, A3 To merge, A4 To release, A5 Unattended (eval runs, :41-42). The level does not decide eligibility by itself: with the request's decision class it gives the holder (:241-256, overrides :297-320), and the guards read the holder.",
+      "x-ess-name": "sdc.decision.AutonomyLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ]
     }
   }
 }

@@ -50,6 +50,7 @@ fn submitted(id: &str) -> Run {
         settings: BTreeMap::new(),
         confinement: Confinement::Linux,
         confinement_source: None,
+        terms: Default::default(),
         session_id: None,
         idempotency_key: None,
         submitted_at: "t".into(),

@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "b478e26e4e5365f60c5460f482e36bf42c84424aaacbf993d9855d353d5df3a0",
-    "contract_digest": "961d0492091f886b56620a170c0acb1d6878de22aaaab9a1ec3ab63c55467105",
+    "spec_digest": "be3eafc33364adfa2d5c87783181750b71282b5197032bb10ed7ef69f38b9dcb",
+    "contract_digest": "6cd02a2990eed44121f0511dccc52f476c3cac73c3b094b2b27d5249d85ac9ba",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -346,6 +346,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -371,6 +375,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -1173,6 +1181,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -1218,6 +1230,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -1574,6 +1590,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -1603,6 +1623,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -2357,6 +2381,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -2394,6 +2422,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -3052,6 +3084,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -3085,6 +3121,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -3681,6 +3721,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -3726,6 +3770,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -4302,6 +4350,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -4335,6 +4387,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -4686,6 +4742,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -4715,6 +4775,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -5331,6 +5395,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -5372,6 +5440,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -5968,6 +6040,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.EventId"
         },
         {
@@ -5997,6 +6073,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -6440,6 +6520,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -6469,6 +6553,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -7086,6 +7174,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.EventId"
         },
         {
@@ -7123,6 +7215,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -7472,6 +7568,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -7501,6 +7601,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -8582,6 +8686,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.EventId"
         },
         {
@@ -8619,6 +8727,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",

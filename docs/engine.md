@@ -106,8 +106,54 @@ Gate lane: `runbook/tests/daemon/engine.rs` over the fixture runbook
 `runbook/tests/fixtures/engine-runbook/`. Slow lane: `task test:engine-real` (the `sdc` stub cycle
 through the engine on the repository's own runbook).
 
+## Autonomy and a decider
+
+A submit may carry `autonomy` (`A0` to `A5`) and `decider` (a kind name). The daemon fills what the
+submit leaves out from `runbook serve --autonomy <level> --decider <kind>`; the submit wins. Both are
+fixed when the run is submitted: the start event `runbook.submitted` records them, `get_run` and the
+page show them as text, and after a restart they are read from the run's record, never from the
+daemon's options of the day. A submit with neither, and a daemon with no default, is a run whose every
+decision waits for a client, as before. `A0` is the same.
+
+The kinds are the tables `[deciders.<kind>]` of `runbook.toml`: `rule` (`verdict = "approve"` or
+`"reject"`, answered by `loom_run::decider::rules`) and `model` (the model decider of `runbook run`,
+with its `model`, `adapter` and cap members). A kind that is not configured is refused at the submit,
+before a run directory or a record exists, with the status 400 and a message that names the kind asked
+for and the kinds configured, no others; so is a level with no kind to take it. A daemon whose own
+default names a kind that is not configured does not start. A kind names a table of the file and never
+a program or a path.
+
+At each wait the engine asks the run's judge, in the order Loom printed the decisions, before it asks
+a client. The judge is the decider of `runbook run`: `loom_run::arbiter::DaemonArbiter` implements
+`engine::arbiter::{Arbiter, RunArbiter}` over `NativeDecider::decide` (the level, the table of who
+decides in the runbook's `tools/autonomy-levels.json`, the rule or the model call) and
+`bindings_copy::materialise` (the run's copy of the bindings, in which the person steps the level gives
+to the decider name the decider's principal). The result a person action is answered with, and the
+text of a rejection, come from `engine::shape::{person_result, clean_reasons, declared_results}`,
+which `loom_run::run_loop` calls too. What differs is where the answer goes: `runbook run` hands it to
+its host, the engine applies it with `calls::apply`, the call a client's answer takes.
+
+A decision the level leaves to a person stays open for `answer_decision`: so does one the decider
+cannot decide (a model decider with no instructions or no claims, a cap that is spent), a table of who
+decides that cannot be read (fail closed: every decision waits), and a verdict Loom would refuse. At
+`A5` only a close by rule is taken; below it only a class the table gives to `decider`.
+
+Each answer records who gave it. A rule or the decider answers as `rule:<name>` or `decider:<kind>`,
+in `answered_by` and in `principal`, never as a person and never as the daemon's principal; a client's
+answer is under the label it typed and the daemon's principal. The daemon refuses a client label that
+starts with `rule:` or `decider:` (400), so a client cannot sign as a rule.
+
+The environment of a decider program is its own `PATH` and nothing of the daemon's. A `model` decider
+needs the login the model's adapter reads: `login_file` of `runbook.toml`, a path, never content. The
+private link `runbook run` makes to it in its own private directory is not made by the daemon: a model
+decider of the daemon runs only where the adapter needs no link, and the model call itself is not
+exercised by the tests (no model call here). `rule` works with nothing of the sort. Money: the
+caps are optional (`cap_micro_usd`, `max_llm_calls` of the file); a rule costs nothing and needs
+none; when a cap is named and spent, the decider stops and the decision stays open.
+
 ## Not built
 
 Resume of an orphaned run from its store; a stream of decisions to a person while `run_tree` runs
-(decisions are read at each wait); the `linux` level under test; the spend ledger and the decider
-(no model call here).
+(decisions are read at each wait); the `linux` level under test; the spend ledger of the daemon (the
+caps of one run are held in the run's judge, not shared between runs); a model decider's private link
+to the login and a model call under test.
