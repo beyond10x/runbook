@@ -44,24 +44,22 @@ fn own_bindings(name: &str, skip: impl Fn(&str) -> bool) -> PathBuf {
 const GOOD: &str = "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n";
 
 #[test]
-fn this_repository_without_the_three_named_files_is_still_reported() {
+fn a_copy_of_this_repositorys_bindings_without_the_three_named_files_is_another_runbook() {
     let root = own_bindings("own-without-three", |f| POOL_FILES.contains(&f));
     let (code, out, err) = run(&root);
-    assert_eq!(code, Some(1), "{out}\n{err}");
-    for p in ["sdc-story.yaml:tests.run", "sdc-release.yaml:acceptance.run", "sdc-bugfix.yaml:gate.run"] {
-        assert!(out.contains(&format!("bindings/{p}: a binding that waits for the build pool is not in bindings/")), "{out}\n{err}");
-    }
+    assert_eq!((code, out.as_str()), (Some(0), "pass exits\n"), "{err}");
+    assert!(!out.contains("build pool"), "{out}\n{err}");
 }
 
 #[test]
-fn this_repository_with_the_three_named_files_empty_is_still_reported() {
+fn a_copy_of_this_repositorys_bindings_with_the_three_named_files_empty_is_another_runbook() {
     let root = own_bindings("own-three-empty", |f| POOL_FILES.contains(&f));
     for f in POOL_FILES {
         fs::write(root.join("bindings").join(f), "").unwrap();
     }
     let (code, out, err) = run(&root);
-    assert_eq!(code, Some(1), "{out}\n{err}");
-    assert!(out.contains("a binding that waits for the build pool is not in bindings/"), "{out}\n{err}");
+    assert_eq!((code, out.as_str()), (Some(0), "pass exits\n"), "{err}");
+    assert!(!out.contains("build pool"), "{out}\n{err}");
 }
 
 #[test]

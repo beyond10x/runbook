@@ -155,7 +155,8 @@ files by the binding itself: every `program` binding states `exits.error`, `[75,
 and `exits` is on no other executor. A binding that lacks it gets one named line
 (`bindings/<file> <action>: exits.error is [], want [75,126,127]`); the line a user adds to its program
 binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
-the root, and a file that is no mapping with an `actions` list by one line that names the file.
+the root, and a file that is no mapping with an `actions` list by one line that names the file. A copy of
+this repository's bindings elsewhere is this repository only while it holds one of the three named files.
 
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5 and 8, the exits of the check tools) and
