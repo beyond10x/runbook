@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -505,7 +506,8 @@ impl Daemon {
         }
 
         let (run_dir, workspace) = (st.run_dir(&run_id), st.workspace_dir(&run_id));
-        std::fs::create_dir_all(&run_dir)?;
+        // The run's directory holds its copy of the runbook and its store: private to the daemon's user.
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&run_dir)?;
         std::fs::create_dir_all(&workspace)?;
         let run = Run {
             run_id: run_id.clone(),
@@ -593,8 +595,16 @@ impl Daemon {
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
         }
-        let now = st.now();
         let principal = self.inner.cfg.principal.clone();
+        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
+        // It takes the answer under the lock, before the answer is recorded: a runtime that has failed
+        // while its run's thread has not reported yet (the run is on its way to `runtime-failure`) answers
+        // `UnknownRun`, and then the answer is refused, not recorded as given.
+        let delivered = self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal);
+        if matches!(delivered, Err(AnswerFailure::UnknownRun)) && lock(&self.inner.cancels).contains_key(&run_id) {
+            return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id})));
+        }
+        let now = st.now();
         st.commit(Fact::DecisionAnswered {
             request_id: request_id.clone(),
             answer: input.answer.clone(),
@@ -602,17 +612,12 @@ impl Daemon {
             principal: Some(principal.clone()),
             at: now,
         })?;
+        if delivered.is_err() {
+            // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
+            let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
+        }
         drop(st);
         let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by, "principal": principal});
-        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
-        match self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal) {
-            Ok(()) => {}
-            Err(AnswerFailure::UnknownRun) | Err(AnswerFailure::Refused(_)) => {
-                // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
-                let mut st = self.st();
-                let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
-            }
-        }
         Ok(done("answer-decision", "answered", vec![("DecisionAnswered", published)]))
     }
 
