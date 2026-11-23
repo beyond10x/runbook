@@ -434,7 +434,10 @@ impl Runner<'_> {
     }
 
     /// Records an answer with Loom (`tree approve`, which runs the program a person action binds).
+    /// Once a named cap has nothing left no answer is made: the decision stays open and the run ends
+    /// at the cap.
     fn take_answer(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
+        self.stop_when_nothing_is_left()?;
         self.host.answer(answer)?;
         Ok(())
     }
@@ -493,23 +496,54 @@ impl Runner<'_> {
     /// grants at most what the cap has left: over all runs of the ledger when the run names one, over
     /// this run's own spend when it does not. With none named it grants `want` and holds nothing in
     /// the ledger (a run without a cap must not starve a run with one that shares the file). A named
-    /// cap with nothing left for a call that wants something ends the run (exit 4).
+    /// cap with nothing left ends the run (exit 4) when the call wants something or the run may
+    /// spend (see [`Runner::may_spend`]): a bound program of it is not started with nothing left,
+    /// whatever the bindings name, and a wanted amount of 0 (a model tool that names no budget
+    /// option, a decider that costs nothing) is no way round it.
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
         let cap = self.args.cap_micro_usd;
         let granted = match (&self.ledger, cap) {
             (Some(ledger), Some(cap)) => ledger.reserve(&self.args.run, cap, want)?,
-            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)) },
-            (_, None) => Reservation { id: String::new(), micro_usd: want },
+            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)), left: cap.saturating_sub(self.spent) },
+            (_, None) => Reservation { id: String::new(), micro_usd: want, left: u64::MAX },
         };
-        if let Some(cap) = cap.filter(|_| want > 0 && granted.micro_usd == 0) {
-            let spent = match &self.ledger {
-                Some(ledger) => ledger.spent()?,
-                None => self.spent,
-            };
-            self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {cap} micro USD spent") })?;
-            return Err(Halt::Done(Outcome::StoppedSpendCap));
+        if let Some(cap) = cap.filter(|_| granted.left == 0 && (want > 0 || self.may_spend())) {
+            return Err(self.end_at_spend_cap(cap)?);
         }
         Ok(granted)
+    }
+
+    /// Whether what the run starts next may spend: the opening decided it has a model node, or the
+    /// run has booked or counted something, or its copy of the bindings names a model tool now (a
+    /// bound program may have written one into it) or cannot be read. A run in which none of this
+    /// holds spends nothing, so a cap with nothing left has nothing to stop in it.
+    fn may_spend(&self) -> bool {
+        self.node.has_model_node() || self.spent > 0 || self.llm_calls > 0 || bindings_copy::model_node_in(&self.bindings_dir).is_some()
+    }
+
+    /// Ends the run at the spend cap: the event and the outcome of a reached cap.
+    fn end_at_spend_cap(&mut self, cap: u64) -> Result<Halt, Halt> {
+        let spent = match &self.ledger {
+            Some(ledger) => ledger.spent()?,
+            None => self.spent,
+        };
+        self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {cap} micro USD spent") })?;
+        Ok(Halt::Done(Outcome::StoppedSpendCap))
+    }
+
+    /// Ends the run when a named cap has nothing left and the run may spend. Asked before a call that
+    /// answers a decision (`tree approve` runs the program a person action binds, and so do the
+    /// programs of an answers file), where no amount is reserved.
+    fn stop_when_nothing_is_left(&mut self) -> Result<(), Halt> {
+        let Some(cap) = self.args.cap_micro_usd else { return Ok(()) };
+        let left = match &self.ledger {
+            Some(ledger) => ledger.left(cap)?,
+            None => cap.saturating_sub(self.spent),
+        };
+        if left == 0 && self.may_spend() {
+            return Err(self.end_at_spend_cap(cap)?);
+        }
+        Ok(())
     }
 
     /// Reads what the step spent and books it. A cost that cannot be read books the whole

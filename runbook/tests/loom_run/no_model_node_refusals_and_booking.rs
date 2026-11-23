@@ -1,8 +1,6 @@
 //! The refusal kinds of a run that stay (a value that is present and unusable) and what the caps book
-//! under `local` (`docs/loom-run.md`, "A run without a model node" and "What the spend cap does not
-//! promise"). A fake `b10x-loom`, no model call, no network request. Two cases are measurements,
-//! `#[ignore]`d: they assert what the backlog story `spend-cap-with-nothing-left-starts-nothing` is to
-//! build and fail until it is built.
+//! under `local` (`docs/loom-run.md`, "A run without a model node", "What the spend cap promises" and
+//! "What the spend cap does not promise"). A fake `b10x-loom`, no model call, no network request.
 
 use super::core::{code, World};
 use super::fake::{decision_json, tree_run_json};
@@ -129,13 +127,11 @@ fn under_local_what_one_step_records_is_booked_whole_and_no_tree_run_follows_the
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// A measurement, not a guard of this unit: what the runner does with a decision the
-/// step that passed the cap printed. The case asserts what "after the cap is passed no further
-/// bound program starts" would hold: no `tree approve` is made (it runs the program a person
-/// action binds) once the booked amount is at or above the cap.
+/// What the runner does with a decision the step that passed the cap printed: no `tree approve` is made
+/// (it runs the program a person action binds) once the booked amount is at or above the cap, with a
+/// model node and without one (the step booked a call, so the run may spend).
 #[test]
-#[ignore = "backlog story spend-cap-with-nothing-left-starts-nothing; measurement: fails until that story is built (a decision printed by the step that passed the cap is still answered by tree approve)"]
-fn measured_after_the_cap_is_passed_no_tree_approve_is_made() {
+fn after_the_cap_is_passed_no_tree_approve_is_made() {
     let mut wrong = Vec::new();
     for with_node in [true, false] {
         let w = World::new(&format!("nmrb-approve-{with_node}"));
@@ -161,14 +157,10 @@ fn measured_after_the_cap_is_passed_no_tree_approve_is_made() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// A measurement, on a path this unit did not change: a model tool the bindings declare without
-/// `--max-budget-usd`, run with a spend cap of 0. The page says the stop before the first `tree run`
-/// holds only when the bindings name `--max-budget-usd` ("What the spend cap does not promise"); the
-/// case asserts the stop the backlog story is to give in this case too, and shows the "otherwise" of
-/// the page: the step starts and the call cap ends the run.
+/// A model tool the bindings declare without `--max-budget-usd`, run with a spend cap of 0: the amount
+/// the step wants is 0, and the stop before the first `tree run` holds all the same.
 #[test]
-#[ignore = "backlog story spend-cap-with-nothing-left-starts-nothing; measurement: fails until that story is built (a spend cap of 0 and a declared model tool that names no budget option)"]
-fn measured_a_spend_cap_of_0_stops_a_run_whose_model_tool_names_no_budget_before_the_first_tree_run() {
+fn a_spend_cap_of_0_stops_a_run_whose_model_tool_names_no_budget_before_the_first_tree_run() {
     let w = World::new("nmrb-cap0-nobudget");
     std::fs::write(w.root.join("bindings/sdc.yaml"), MODEL_TOOL_WITHOUT_A_BUDGET).unwrap();
     w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);

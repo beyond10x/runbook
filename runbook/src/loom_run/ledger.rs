@@ -32,6 +32,9 @@ pub struct Reservation {
     pub id: String,
     /// The amount granted, micro USD.
     pub micro_usd: u64,
+    /// What the cap had left when the amount was asked for, before this grant (`u64::MAX` when no
+    /// cap is named): 0 means the cap is reached.
+    pub left: u64,
 }
 
 struct State {
@@ -117,7 +120,7 @@ impl Ledger {
             if grant > 0 {
                 s.reserved.insert(id.clone(), Value::from(grant));
             }
-            Ok(Reservation { id, micro_usd: grant })
+            Ok(Reservation { id, micro_usd: grant, left: remaining })
         })
     }
 
@@ -132,6 +135,12 @@ impl Ledger {
             }
             Ok(())
         })
+    }
+
+    /// Under the lock: what the cap has left, micro USD (`cap - spent - reserved` over all runs of
+    /// the ledger).
+    pub fn left(&self, cap_micro_usd: u64) -> Result<u64, String> {
+        self.with_state(|s| Ok(cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total())))
     }
 
     /// Under the lock: releases `reservation` without spending.

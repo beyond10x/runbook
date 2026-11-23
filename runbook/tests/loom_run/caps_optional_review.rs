@@ -1,8 +1,8 @@
 //! Cases of the review of the unit `caps-are-optional` (part 1, the runner) that hold the decision "no cap
 //! named is no limit and no refusal; a cap that is named stops the run" to its contract (`docs/loom-run.md`,
 //! "The money options"): what a run that names no cap books, the printed command of a handoff under a named
-//! cap, and the guards that stay. Two cases are `#[ignore]`d measurements of the next unit,
-//! `spend-cap-with-nothing-left-starts-nothing`. A fake `b10x-loom` and stand-ins for the model: no model call,
+//! cap, and the guards that stay. One case is an `#[ignore]`d measurement of the story
+//! `handoff-under-a-named-cap-runs-one-step-at-a-time`. A fake `b10x-loom` and stand-ins for the model: no model call,
 //! no network request, no login file read (the login file of the world is an invented text).
 
 use super::core::{code, model_call_hook, spent, stderr, World};
@@ -151,9 +151,8 @@ fn the_total_of_a_run_saturates_and_never_overflows() {
 }
 
 /// A cap of 0 spends nothing: the model node of the run names no per-call budget, so the amount the run
-/// wants for a call is the cap itself, 0, and 0 wanted is never refused.
+/// wants for a call is the cap itself, 0, and the cap with nothing left stops it all the same.
 #[test]
-#[ignore = "measurement: a cap of 0 with a model node that names no budget is the story spend-cap-with-nothing-left-starts-nothing"]
 fn a_cap_of_0_starts_no_call_of_a_model_node_that_names_no_budget() {
     let w = World::new("capsrev-zero-nobudget");
     bindings(&w, MODEL_NO_BUDGET);
@@ -169,9 +168,10 @@ fn a_cap_of_0_starts_no_call_of_a_model_node_that_names_no_budget() {
 }
 
 /// The run was opened without a model node and a cap of 0; the writer of its first step rewrites the run's
-/// copy of the bindings to name the model tool (no budget). A model call it would make is stopped by the cap.
+/// copy of the bindings to name the model tool (no budget). The first step spends nothing and runs; the
+/// step after it, which would run the model tool, is not started: the copy names one now and the cap has
+/// nothing left.
 #[test]
-#[ignore = "measurement: a cap of 0 and a model tool a program wrote into the copy is the story spend-cap-with-nothing-left-starts-nothing"]
 fn a_cap_of_0_stops_the_model_tool_that_a_program_wrote_into_the_copy_of_a_run_without_a_model_node() {
     let w = World::new("capsrev-zero-rewrite");
     bindings(&w, NO_MODEL);

@@ -24,6 +24,7 @@ impl Runner<'_> {
         if !self.decider.answers_requests() {
             return Ok(false);
         }
+        self.stop_when_nothing_is_left()?;
         let bindings = self.bindings_dir.clone();
         let workspace = self.workspace.clone();
         let path = self.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()).unwrap_or_default();

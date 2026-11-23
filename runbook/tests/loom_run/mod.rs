@@ -35,4 +35,5 @@ mod settings_guards;
 mod settings_refusals_print_no_value;
 mod slow;
 mod spend;
+mod spend_cap_nothing_left;
 mod watch;
