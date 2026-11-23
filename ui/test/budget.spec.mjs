@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import gate, {BUDGET} from '../playwright.config.mjs';
-import {slowFiles} from './lanes.mjs';
+import {slowFiles, bothFiles, wideOnlyFiles, WIDE_ONLY, BOTH, SIZE_EXCEPTIONS} from './lanes.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const specs = fs.readdirSync(here).filter((f) => f.endsWith('.spec.mjs'));
@@ -42,6 +42,40 @@ test('every slow-lane spec exists, and no spec of the gate lane needs runs/, a b
     if (/SDC_UI_(URL|WRITE_URL|LIVE_DIR)/.test(t)) bad.push(`${f}: needs a server somebody else started`);
   }
   expect(bad).toEqual([]);
+});
+
+const code = (f) => text(f).split('\n').filter((l) => !/^\s*\/\//.test(l) && !/test\.skip\(/.test(l)).join('\n').replace(/\s\/\/ .*$/gm, '');
+const SIZE = /setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(/;
+
+test('every spec file is in exactly one list of test/lanes.mjs: both viewports, wide only, or slow', () => {
+  const lists = {both: bothFiles, wide: wideOnlyFiles, slow: slowFiles};
+  const bad = [];
+  for (const f of specs) {
+    const in_ = Object.entries(lists).filter(([, l]) => l.includes(f)).map(([k]) => k);
+    if (in_.length !== 1) bad.push(`${f}: in ${in_.length ? in_.join(' and ') : 'no list'}`);
+  }
+  for (const [k, l] of Object.entries(lists)) for (const f of l) if (!specs.includes(f)) bad.push(`${f}: listed in ${k}, not a spec file under test/`);
+  expect(bad).toEqual([]);
+  for (const [name, why] of [...Object.entries(WIDE_ONLY), ...Object.entries(BOTH)]) {
+    expect(why.trim().split(/\s+/).length, `${name}: the reason in at most five words`).toBeLessThanOrEqual(5);
+  }
+});
+
+test('a spec that names a size or a position is listed wide only only with a reason in SIZE_EXCEPTIONS', () => {
+  const bad = [];
+  for (const f of wideOnlyFiles.filter((x) => specs.includes(x) && x !== 'budget.spec.mjs')) if (SIZE.test(code(f)) && !(f in SIZE_EXCEPTIONS)) bad.push(`${f}: names a size or a position and runs in wide only`);
+  for (const f of Object.keys(SIZE_EXCEPTIONS)) {
+    if (!wideOnlyFiles.includes(f)) bad.push(`${f}: an exception for a file that is not wide only`);
+    else if (!SIZE.test(code(f))) bad.push(`${f}: an exception for a file that names no size or position`);
+  }
+  expect(bad).toEqual([]);
+});
+
+test('the laptop project leaves out the wide-only and slow files, the wide project runs every gate file', () => {
+  const ignored = (name) => [gate.testIgnore ?? [], gate.projects.find((p) => p.name === name)?.testIgnore ?? []].flat().map((g) => g.replace(/^\*\*\//, ''));
+  const names = (name) => [...new Set(ignored(name))].sort();
+  expect(names('laptop')).toEqual([...new Set([...wideOnlyFiles, ...slowFiles])].sort());
+  expect(names('wide')).toEqual([...slowFiles].sort());
 });
 
 test('no file under test/ names a listening port: servers take one from the kernel (test/serve.mjs)', () => {
