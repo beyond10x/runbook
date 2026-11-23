@@ -44,6 +44,25 @@ pub struct Facts {
     workspace: bool,
 }
 
+/// The work directory (the workspace) of a case, the one place that decides it.
+///
+/// Under Loom (`LOOM_CASE` set) a bound program starts in the workspace root, and Loom (`c9b4c177`,
+/// `b10x_loom_bindings::bound_case_child`) states nothing else: its environment is `PATH`,
+/// `LOOM_CASE`, `LOOM_TIMEOUT_SECONDS` and, for an opened case, `LOOM_CASE_NAME` and
+/// `LOOM_PARENT_CASE_NAME`; it names no case directory and no store, and a suite's layout
+/// (`<scratch>/work/<n>`, `<scratch>/store/<n>`) is not something a program can see. So the workspace
+/// is the current directory, and `case_dir` is not read: nothing in the workspace, which a model
+/// writes, decides where it is. Without `LOOM_CASE` (the old driver) it is `<case_dir>/work`.
+pub fn case_work(case_dir: &Path) -> PathBuf {
+    loom_workspace().unwrap_or_else(|| case_dir.join("work"))
+}
+
+/// The workspace of a bound program: the directory it was started in, when `LOOM_CASE` is set.
+pub fn loom_workspace() -> Option<PathBuf> {
+    std::env::var_os("LOOM_CASE").filter(|v| !v.is_empty())?;
+    std::env::current_dir().ok()
+}
+
 /// The records directory below a workspace.
 pub const RECORDS: &str = ".sdc/records";
 
@@ -51,7 +70,7 @@ impl Facts {
     /// The source the environment names: the workspace's records when `LOOM_CASE` is set.
     pub fn open(case_dir: &Path) -> Facts {
         let loom = std::env::var_os("LOOM_CASE").is_some_and(|v| !v.is_empty());
-        Facts { dir: case_dir.to_path_buf(), work: case_dir.join("work"), workspace: loom }
+        Facts { dir: case_dir.to_path_buf(), work: case_work(case_dir), workspace: loom }
     }
 
     /// The driver mode of a case directory, whatever `LOOM_CASE` says (a caller that builds the

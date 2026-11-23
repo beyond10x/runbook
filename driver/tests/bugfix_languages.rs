@@ -498,17 +498,16 @@ fn the_bug_fix_bindings_name_the_wait_bound_and_a_limit_that_covers_it() {
     }
 }
 
-/// The Loom form of the exits is a line of bindings/PENDING.md per binding, as for story and release.
+/// The exits of the pool wait are in `exits.error` of the three bug-fix bindings that wait for the
+/// build pool, in the YAML Loom loads, as for story and release.
 #[test]
-fn the_pending_list_gives_exits_69_and_70_for_the_three_bug_fix_bindings() {
+fn the_bug_fix_yaml_lists_the_pool_wait_exits_69_and_70_as_a_program_error_for_its_three_bindings() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let pending = fs::read_to_string(root.join("bindings/PENDING.md")).unwrap();
+    let y: serde_yaml::Value = serde_yaml::from_str(&fs::read_to_string(root.join("bindings/sdc-bugfix.yaml")).unwrap()).unwrap();
     for action in ["repro.run", "tests.run", "gate.run"] {
-        let line = pending
-            .lines()
-            .find(|l| l.starts_with("- `sdc-bugfix.bindings.json:") && l.contains(&format!("`{action}`")) && l.contains("69"))
-            .unwrap_or_else(|| panic!("no line of PENDING.md for sdc-bugfix {action} naming exit 69"));
-        assert!(line.contains("[69, 70, 75, 126, 127]"), "{line}");
+        let ya = y["actions"].as_sequence().unwrap().iter().find(|a| a["action"] == action).unwrap();
+        let error: Vec<u64> = ya["exits"]["error"].as_sequence().unwrap_or_else(|| panic!("sdc-bugfix {action}: no exits.error")).iter().map(|c| c.as_u64().unwrap()).collect();
+        assert_eq!(error, [69, 70, 75, 126, 127], "sdc-bugfix {action}");
     }
 }
 }

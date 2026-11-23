@@ -542,10 +542,11 @@ environment of a bound program, and the usage errors. The slow lane `task test:l
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
 compare --product-digests`, which has to end `parity: identical`. The lane is not moved with the pin
-to `db2726ff`: its child binary and the sha256 it is pinned to (`CHILD_LOOM_SHA256` in
-`runbook/tests/loom_run/slow.rs`) are those of `70b0e6e0`, and no `b10x-loom` of `db2726ff` was built
-for this change, so the lane still compares a library of `db2726ff` with a child of `70b0e6e0`. A
-later change builds the child at `db2726ff`, names its sha256 and moves the three places together.
+to `c9b4c177` (nor was it to `db2726ff`): its child binary and the sha256 it is pinned to
+(`CHILD_LOOM_SHA256` in `runbook/tests/loom_run/slow.rs`) are those of `70b0e6e0`, and no `b10x-loom`
+of `c9b4c177` was built for this change, so the lane still compares a library of `c9b4c177` with a
+child of `70b0e6e0`. A later change builds the child at `c9b4c177`, names its sha256 and moves the
+three places together.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
 (`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts), and nothing else.

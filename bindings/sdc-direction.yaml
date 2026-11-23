@@ -14,6 +14,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, context.default, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/context.default.md"}', --stub, stub-file, context.yaml, context.yaml]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -23,6 +24,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, check-context, --action, context.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: context_defaults
         subject: context
@@ -44,6 +46,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, vision.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/vision.write.md"}', --stub, stub-vision]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -62,6 +65,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, roadmap.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/roadmap.write.md"}', --stub, stub-roadmap]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -71,6 +75,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, roadmap-validate, --action, roadmap.validate]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: roadmap_validation
         subject: roadmap
@@ -92,6 +97,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, amend, context, --action, amend.upstream]
+    exits: {error: [75, 126, 127]}
     budget: {max_runs: 12}
     timeout_seconds: 300
     retry_when:
