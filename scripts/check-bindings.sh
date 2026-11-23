@@ -15,7 +15,8 @@
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
 # experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
-sdc=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+sdc=$repo
 fail=0
 check_exits() {
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
@@ -27,15 +28,18 @@ check_exits() {
 # a list of exit codes: another class, a class that is not a list and an `exits` that is not a
 # # mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
 # <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs). The pool list is this repository's:
-# it applies when <root>/bindings/ holds one of the files it names (sdc-story.yaml, sdc-release.yaml,
-# sdc-bugfix.yaml); a root with none of them is the runbook of another repository, whose programs
-# are checked for `exits.error` [75, 126, 127] and no `--pool-wait` alone.
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
+# it applies when <root> is the repository this script lies in, or when <root>/bindings/ holds one of
+# the files it names (sdc-story.yaml, sdc-release.yaml, sdc-bugfix.yaml: a copy of this repository's
+# bindings); a root that is neither is the runbook of another repository, whose programs are checked
+# for `exits.error` [75, 126, 127] and no `--pool-wait` alone.
+own_repo=false
+[[ $sdc == "$repo" ]] && own_repo=true
+exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn --argjson own_repo "$own_repo" '
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
   | [inputs] as $docs
   | ([$pools[] | split(":")[0]] | unique) as $poolfiles
-  | ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null)) as $own
+  | ($own_repo or ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null))) as $own
   | (if $own then $pools else [] end) as $pools
   | ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
      | "\(.): a binding that waits for the build pool is not in bindings/"),
@@ -77,7 +81,7 @@ else
 fi
 }
 if [[ ${1:-} == --exits ]]; then
-  sdc=$(cd "${2:?usage: check-bindings.sh --exits <root>}" && pwd)
+  sdc=$(cd "${2:?usage: check-bindings.sh --exits <root>}" && pwd -P)
   check_exits
   exit "$fail"
 fi

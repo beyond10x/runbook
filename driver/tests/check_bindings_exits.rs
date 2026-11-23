@@ -132,6 +132,55 @@ fn this_repository_passes_and_a_removed_pool_binding_is_still_reported() {
     );
 }
 
+const POOL_FILES: [&str; 3] = ["sdc-story.yaml", "sdc-release.yaml", "sdc-bugfix.yaml"];
+
+#[test]
+fn the_three_files_the_pool_list_names_exist_in_this_repository() {
+    for f in POOL_FILES {
+        assert!(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings").join(f).is_file(), "{f}");
+    }
+}
+
+#[test]
+fn this_repository_itself_passes_the_exits_check() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let o = run_exits(&root);
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(0), "{out}\n{err}");
+    assert_eq!(out, "pass exits\n", "{err}");
+}
+
+/// A tree in which a copy of the script lies in `scripts/`: the repository the script lies in is that tree. Its
+/// `bindings/` is this repository's, less the three files the pool list names, which `leave` writes or omits.
+fn script_tree(name: &str, leave: impl Fn(&std::path::Path, &str)) -> Output {
+    let root = own_root(name);
+    for f in POOL_FILES {
+        fs::remove_file(root.join("bindings").join(f)).unwrap();
+        leave(&root.join("bindings"), f);
+    }
+    fs::create_dir_all(root.join("scripts")).unwrap();
+    fs::copy(script(), root.join("scripts/check-bindings.sh")).unwrap();
+    Command::new("bash").arg(root.join("scripts/check-bindings.sh")).arg("--exits").arg(&root).output().unwrap()
+}
+
+#[test]
+fn the_repository_the_script_lies_in_loses_no_pool_check_when_the_named_files_are_removed() {
+    let o = script_tree("script-tree-removed", |_, _| {});
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
+    for p in ["sdc-story.yaml:tests.run", "sdc-release.yaml:acceptance.run", "sdc-bugfix.yaml:gate.run"] {
+        assert!(out.contains(&format!("bindings/{p}: a binding that waits for the build pool is not in bindings/")), "{out}\n{err}");
+    }
+}
+
+#[test]
+fn the_repository_the_script_lies_in_loses_no_pool_check_when_the_named_files_are_emptied() {
+    let o = script_tree("script-tree-emptied", |dir, f| fs::write(dir.join(f), "").unwrap());
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
+    assert!(out.contains("a binding that waits for the build pool is not in bindings/"), "{out}\n{err}");
+}
+
 #[test]
 fn this_repository_reports_a_pool_binding_without_pool_wait() {
     let root = own_root("own-root-no-pool-wait");
