@@ -335,6 +335,25 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
   the adapter's stderr>`: the first non-empty line of `adapter-stderr.txt`, else `stderr.txt`, of the
   call directory, the home prefix replaced by `~`, cut at 300 characters, `(no stderr)` when empty.
 
+### The runs of an action are spent
+
+`RunsSpent` is not a reason of a tree call: Loom writes it into the `refusal` of an `ActionFinished`
+line of the case's run log (no `exit`), as it does `ProgramSignalled`, so `runbook/src/engine/refusal.rs`
+has no cause for it. The action stays undone, and when nothing else is due the tree is `Stuck`
+(`tree run` exit 4). `runbook run` ends such a run `stuck`, exit 3, cause `stuck`, and `outcome.reason`
+is null: the text is in the run log of the case only. Unlike `program_signalled` it never ends
+`refused`, exit 12. Two texts (Loom `d8944d49`), each held by a test with `sh` programs
+(`runbook/tests/loom_run/inproc.rs`):
+
+| Text | When | Test |
+|---|---|---|
+| `<action> was rejected <k> times in case <c>, the latest <evidence id> by <producer>; its budget.rework_limit is <n>` | the rejections of the action in the case are more than `rework_limit`; tested first | `a_rejection_past_the_rework_limit_ends_the_run_stuck_with_the_first_runs_spent_text`: three rejections against a limit of 2, `draft.txt` holds three lines, exit 3 |
+| `<action> has run <n> times in case <c> since the rejection <evidence id> by <producer>, its budget.max_runs is <m>` | the runs since the latest rejection are `max_runs` | `a_full_window_after_a_rejection_ends_the_run_stuck_with_the_second_runs_spent_text`: `max_runs: 2`, one rejection, a check that fails after the rework, exit 3 |
+
+A binding Loom refuses at load for the budget members (`InvalidBudget` naming the member,
+`MemberNotForExecutor` on an agent, open or copy action) ends the run `refused`, exit 12, cause
+`bindings_refused`, before any program runs (`the_rework_members_loom_refuses_end_the_run_refused_by_name_before_any_program_runs`).
+
 ### A dry run
 
 `--dry` is the old launcher's `--dry`: the stub cycle with every model command printed and none run.
@@ -535,17 +554,17 @@ summarized with `runbook parity summarize --loom-run` and compared with the comm
 `runbook/tests/loom_run/inproc.rs` runs `runbook run` with Loom as a library on the small `sh` fixture runbook of the
 engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and with no `b10x-loom`:
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
-cap, a sample of `/proc` that finds no `b10x-loom` or `canon` below the process, the
+cap, the runs of an action spent after rejections (both `RunsSpent` texts), the budget members Loom refuses, a sample of `/proc` that finds no `b10x-loom` or `canon` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
 (needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `70b0e6e0` from
 `~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
 compare --product-digests`, which has to end `parity: identical`. The lane is not moved with the pin
-to `c9b4c177` (nor was it to `db2726ff`): its child binary and the sha256 it is pinned to
+to `d8944d49` (nor was it to `c9b4c177` or `db2726ff`): its child binary and the sha256 it is pinned to
 (`CHILD_LOOM_SHA256` in `runbook/tests/loom_run/slow.rs`) are those of `70b0e6e0`, and no `b10x-loom`
-of `c9b4c177` was built for this change, so the lane still compares a library of `c9b4c177` with a
-child of `70b0e6e0`. A later change builds the child at `c9b4c177`, names its sha256 and moves the
+of `d8944d49` was built for this change, so the lane still compares a library of `d8944d49` with a
+child of `70b0e6e0`. A later change builds the child at `d8944d49`, names its sha256 and moves the
 three places together.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
