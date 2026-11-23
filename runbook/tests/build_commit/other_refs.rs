@@ -54,23 +54,66 @@ fn what_the_build_watches_changes_when_another_branch_moves_and_head_does_not() 
     assert!(moved.is_empty(), "HEAD did not move and the watched paths changed (cargo compiles the package again) after: {moved:?}");
 }
 
-/// In a repository with the reftable format `HEAD` is a fixed stub and `refs/heads` a fixed file: no watched path
-/// changes when HEAD moves, the build script is not run again, and `runbook --version` keeps the commit of the
-/// first build.
+/// A repository with the reftable format keeps `HEAD` as a fixed stub and its log inside the tables, so no file shows
+/// that HEAD moved. The commit there is never a stale one: it is `unknown` (and nothing is watched), or it is HEAD and a
+/// watched path changes when HEAD moves. `scripts/install.sh` refuses a binary that says `unknown` for a checkout
+/// whose HEAD is a commit.
 #[test]
-fn in_a_reftable_repository_a_commit_changes_nothing_the_build_watches() {
+fn a_reftable_repository_never_gives_a_stale_commit() {
     let Some(repo) = repository_with("fix2-reftable", &["init", "-q", "--ref-format=reftable"]) else {
         eprintln!("this git has no --ref-format=reftable: nothing checked");
         return;
     };
     let manifest = repo.join("runbook");
     let c = commit_source::commit(&manifest);
-    assert_eq!(c.value, head12(&repo));
     let before = newest(&c.watch);
     later();
     fs::write(repo.join("note.txt"), "x").unwrap();
     git(&repo, &["add", "note.txt"]);
     git(&repo, &["commit", "-q", "-m", "second"]);
-    assert_ne!(head12(&repo), c.value, "HEAD moved");
-    assert!(newest(&c.watch) > before, "HEAD moved from {} to {} and no watched path changed: {:?}", c.value, head12(&repo), c.watch);
+    let head = head12(&repo);
+    let after = commit_source::commit(&manifest);
+    assert_eq!(after.value, "unknown", "the commit of a reftable repository is unknown (it was {} and HEAD is {head})", c.value);
+    assert!(c.watch.is_empty() && after.watch.is_empty(), "nothing is watched: {:?} {:?}", c.watch, after.watch);
+    assert_eq!(newest(&after.watch), before);
+}
+
+/// What the build watches in an ordinary repository is `HEAD` and its reflog and nothing of `refs/`: a branch, a pack of
+/// refs or another work tree's commit cannot touch them.
+#[test]
+fn the_build_watches_head_and_its_log_and_no_ref() {
+    let repo = repository_with("fix2-watch-set", &["init", "-q"]).unwrap();
+    let c = commit_source::commit(&repo.join("runbook"));
+    let names: Vec<String> = c.watch.iter().map(|p| p.canonicalize().unwrap().strip_prefix(repo.join(".git").canonicalize().unwrap()).unwrap().display().to_string()).collect();
+    assert_eq!(names, ["HEAD", "logs/HEAD"]);
+}
+
+/// Without a reflog (`core.logAllRefUpdates=false`) the old set stands in: `refs/heads` (a commit writes its loose ref there, also
+/// after `git pack-refs` emptied it) and `packed-refs` once it exists. Every watched path exists after the pack.
+#[test]
+fn without_a_reflog_the_ref_directory_is_watched_and_after_pack_refs_the_packed_file_too() {
+    let repo = scratch("fix2-no-reflog");
+    fs::create_dir_all(repo.join("runbook")).unwrap();
+    fs::write(repo.join("runbook/Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "core.logAllRefUpdates", "false"]);
+    git(&repo, &["add", "runbook/Cargo.toml"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let manifest = repo.join("runbook");
+    let c = commit_source::commit(&manifest);
+    let names: Vec<String> = c.watch.iter().map(|p| p.canonicalize().unwrap().strip_prefix(repo.join(".git").canonicalize().unwrap()).unwrap().display().to_string()).collect();
+    assert_eq!(names, ["HEAD", "refs/heads"], "no logs/HEAD without a reflog");
+    let before = newest(&c.watch);
+    later();
+    commit_more(&repo, "b");
+    assert!(newest(&c.watch) > before, "a commit changes the ref directory");
+    git(&repo, &["pack-refs", "--all"]);
+    let packed = commit_source::commit(&manifest);
+    assert_eq!(packed.value, head12(&repo));
+    assert!(packed.watch.iter().all(|p| p.exists()), "{:?}", packed.watch);
+    assert!(packed.watch.iter().any(|p| p.ends_with("packed-refs")), "{:?}", packed.watch);
+    let before = newest(&packed.watch);
+    later();
+    commit_more(&repo, "c");
+    assert!(newest(&packed.watch) > before, "a commit on a packed branch writes its loose ref again");
 }

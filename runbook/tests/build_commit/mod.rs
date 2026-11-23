@@ -143,8 +143,8 @@ fn every_watched_path_exists_with_loose_refs_packed_refs_a_linked_worktree_and_a
     );
     let c = assert_watches_what_exists(&manifest, "packed refs");
     assert!(
-        c.watch.iter().any(|p| p.ends_with("packed-refs")),
-        "packed-refs is watched where it is there"
+        !c.watch.iter().any(|p| p.ends_with("packed-refs")),
+        "packed-refs is not watched while HEAD has a reflog: a pack changes no HEAD"
     );
 
     let linked = scratch("exists-linked").join("tree");
