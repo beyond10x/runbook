@@ -237,3 +237,46 @@ fn a_hex_octal_or_binary_limit_is_taken_up_to_i64_max_and_refused_past_it() {
         refused(&format!("refuse-{i}"), value);
     }
 }
+
+/// Loom's reader (`serde_yaml_ng`) refuses a document whose alias jumps pass 100 for each event of the
+/// document, whatever its values add up to: a tower of nine-fold aliases over one scalar is about 74700
+/// values (under the bound of 100000) and 66000 jumps for some 130 events. The script counts values
+/// only.
+#[test]
+fn a_tower_of_aliases_past_the_repetition_limit_of_loom_is_refused_by_its_file() {
+    let mut tower = String::from("x-s: &s x\n");
+    let mut prev = "s".to_string();
+    for l in 1..=5 {
+        tower += &format!("x-l{l}: &l{l} [{}]\n", vec![format!("*{prev}"); 9].join(", "));
+        prev = format!("l{l}");
+    }
+    let o = check("tower", &tower);
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(1), "the script took a document Loom refuses: {out}\n{err}");
+    assert!(out.contains("bindings/fixture.yaml: holds more than 100 alias jumps for each event of the document"), "{out}\n{err}");
+    assert!(!out.contains("l5") && !out.contains("*l"), "the refusal prints a line of the file: {out}");
+}
+
+/// The same tower has 66429 alias jumps (9, 90, 819, 7380 and 66429 for its five levels, each jump
+/// counted once) and the limit is 100 for each event: with 330 padding keys (two events each) the
+/// document has 664 events and is refused, with 331 it has 666 and is taken. Loom's reader gave the
+/// same two answers for these two documents when they were measured.
+#[test]
+fn the_repetition_limit_is_held_at_its_boundary() {
+    let tower = |pad: usize| {
+        let mut doc = String::from("x-s: &s x\n");
+        let mut prev = "s".to_string();
+        for l in 1..=5 {
+            doc += &format!("x-l{l}: &l{l} [{}]\n", vec![format!("*{prev}"); 9].join(", "));
+            prev = format!("l{l}");
+        }
+        for i in 0..pad {
+            doc += &format!("x-p{i}: 1\n");
+        }
+        doc
+    };
+    let o = check("tower-330", &tower(330));
+    assert_eq!(o.status.code(), Some(1), "664 events and 66429 jumps: {}", said(&o).0);
+    let o = check("tower-331", &tower(331));
+    assert_eq!(o.status.code(), Some(0), "666 events and 66429 jumps: {}", said(&o).0);
+}

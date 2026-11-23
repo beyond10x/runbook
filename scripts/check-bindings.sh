@@ -155,8 +155,11 @@ fi
 refused_document() {
 # Why Loom's reader refuses the bindings file $1 whole, whatever its budgets hold: a `<<` merge key
 # or a key that is a list or a mapping anywhere in it, or more than 100000 values once its aliases
-# are expanded (counted on the file as written, aliases not followed: a document that expands past
-# the bound is never expanded here). The reader's bound of 1 MiB of text is not checked.
+# are expanded, or more alias jumps than 100 for each event of the document (the repetition limit of
+# serde_yaml_ng 0.10, `de.rs` `jump`: one jump for each alias met in the expanded document, a key
+# included, against `events.len() * 100`; an event is a scalar, an alias, or the start or the end of
+# a collection). Both are counted on the file as written, aliases not followed: a document that
+# expands past a bound is never expanded here. The reader's bound of 1 MiB of text is not checked.
   local f=$1 counts values
   counts=$(yq -o=json -I=0 '[.. | select(tag == "!!map") | keys | .[] | select(tag == "!!seq" or tag == "!!map")] | length, ([.. | select(tag == "!!map") | keys | .[] | select(. == "<<")] | length)' "$f" | paste -sd' ')
   case $counts in
@@ -164,21 +167,30 @@ refused_document() {
     0\ *) echo "holds a merge key (<<), which is not supported"; return 0 ;;
     *) echo "holds a key that is not a scalar, which is not supported"; return 0 ;;
   esac
-  values=$(yq -o=json -I=0 '[[... | path], [... | tag], [... | anchor], [... | alias]]' "$f" | jq -r '
-    def put($s): if (.stack | length) > 0 then .stack[-1].sum += $s else .total += $s end;
+  read -r values jumps events <<< "$(yq -o=json -I=0 '[[... | path], [... | tag], [... | anchor], [... | alias]]' "$f" | jq -r '
+    def cap($x): if $x > 1000000000 then 1000000000 else $x end;
+    def put($s; $j): if (.stack | length) > 0
+      then .stack[-1].sum = cap(.stack[-1].sum + $s) | .stack[-1].jmp = cap(.stack[-1].jmp + $j)
+      else .total = cap(.total + $s) | .jumps = cap(.jumps + $j) end;
     def close: .stack[-1] as $f | .stack |= .[:-1] | ($f.sum + 1) as $s
-      | (if $f.a != "" then .anchors[$f.a] = $s else . end) | put($s);
+      | (if $f.a != "" then .anchors[$f.a] = {s: $s, j: $f.jmp} else . end) | put($s; $f.jmp);
     . as [$p, $t, $a, $l]
-    | [range(0; $p | length) | select(. + 1 >= ($p | length) or $p[. + 1] != $p[.])] as $values
-    | reduce $values[] as $i ({stack: [], anchors: {}, total: 0};
+    | ($p | length) as $n
+    | ($n + ([$t[] | select(. == "!!map" or . == "!!seq")] | length)) as $events
+    | reduce range(0; $n) as $i ({stack: [], anchors: {}, total: 0, jumps: 0};
         ($p[$i] | length) as $d
         | until((.stack | length) == 0 or .stack[-1].d < $d; close)
-        | if $t[$i] == "!!map" or $t[$i] == "!!seq" then .stack += [{d: $d, sum: 0, a: $a[$i]}]
-          elif $t[$i] == "" then put(.anchors[$l[$i]] // 1)
-          else put(1) | if $a[$i] != "" then .anchors[$a[$i]] = 1 else . end end)
-    | until((.stack | length) == 0; close) | if .total > 100000 then 100001 else .total end')
+        | if $i + 1 < $n and $p[$i + 1] == $p[$i] then
+            (if $t[$i] == "" then put(0; 1 + (.anchors[$l[$i]].j // 0)) else . end)
+          elif $t[$i] == "!!map" or $t[$i] == "!!seq" then .stack += [{d: $d, sum: 0, jmp: 0, a: $a[$i]}]
+          elif $t[$i] == "" then (.anchors[$l[$i]] // {s: 1, j: 0}) as $x | put($x.s; $x.j + 1)
+          else put(1; 0) | if $a[$i] != "" then .anchors[$a[$i]] = {s: 1, j: 0} else . end end)
+    | until((.stack | length) == 0; close)
+    | "\(.total) \(.jumps) \($events)"')"
   if [[ -n $values && $values -gt 100000 ]]; then
     echo "holds more than 100000 values, aliases expanded"
+  elif [[ -n $jumps && -n $events && $jumps -gt $((events * 100)) ]]; then
+    echo "holds more than 100 alias jumps for each event of the document, which is the repetition limit of Loom's reader"
   fi
 }
 check_budget() {
