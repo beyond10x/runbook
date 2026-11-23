@@ -672,12 +672,30 @@
     }
   ],
   "release": {
-    "date": "2026-11-22",
-    "notes": "docs/releases/0.5.0.md",
-    "tag": "0.5.0",
-    "version": "0.5.0"
+    "date": "2026-11-23",
+    "notes": "docs/releases/0.6.0.md",
+    "tag": "0.6.0",
+    "version": "0.6.0"
   },
   "releases": [
+    {
+      "date": "2026-11-23",
+      "limits": [
+        "**The evaluation did not deliver.** The three runs of `experiments/parity-loom-strong-4.yaml` on this code delivered 0 of 3; all stopped `stuck`. The record's facts give two causes. A model node that is not called (a finding waits for a person, or the decisions it would follow are the defaults) exits 0 and counts against `budget.max_runs`: run 1 reached `RunsSpent` at `spec.author` after one model call in four runs, and run 3 at `change.implement` (the draft `story:bindings-state-their-exits` holds the fix; it is not built). Run 2 stopped after `requirements.check` exited 5 and the handoff check of `amend.upstream` exited 1; the record infers, and does not prove, that this is Loom `70b0e6e0` dating a performed action by the next `evaluated` line (`ActionFinished.revisions` is written empty, so selection rejects the action as not useful). The record decides nothing: its verdict is `descriptive`, and no parity verdict between the old driver and Loom exists.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** The release claims no measured change over 0.5.0 or over the old driver; a figure in these notes is one that a record of `experiments/` carries or a count read from the tree.",
+        "**The old driver is still in the tree.** `sdc-drive`, `scripts/run-trial.sh`, `bindings/tools/llm-node.sh` and `bindings/tools/decider.sh` are there; `runbook run` starts none of them and `sdc-experiment run` starts a run only with `runbook run`. Their deletion is not in this release.",
+        "**The cycles are not all converted.** Of the 130 cycle entries 37 are converted to the tree suite and 17 are pending; 76 are not converted. The whole file is a slow lane, `task test:cycles-loom`; neither it nor `scripts/run-finding-cycles.sh` was run on this tree for this note. Nine of the ten replay entries are Rust tests that run in the slow lane `task test:replay`, which was not run for this note either (`docs/cycles-suite.md`).",
+        "**`sdc-experiment` does not carry an effort.** It refuses `efforts.*` in a `loom` variant: the record format does not carry an effort to the runner yet, so the class defaults apply to a run it starts. `sdc-node --effort` and the settings file of `runbook run` do carry one.",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime unless `--runtime loom` is given (`runbook/src/serve.rs`, `docs/engine.md`). The Loom runtime is run through the slow lane `task test:engine-real`, not by the gate.",
+        "**`--confinement local` is unconfined.** `local` is \"unconfined and declared insecure\" (`docs/loom-run.md`): a bound program can write the whole run directory, including the copy of the routing table (the runner reads it once, so a rewrite changes no routing), the decider's instruction files and adapter, and the replay plan and call log. Under `--confinement substrate` the run directory is out of a bound program's reach (`docs/loom-run-decisions.md`).",
+        "The rule approver (`SDC_RULE_APPROVALS`, claims of the position), the rework cap of the old driver and the end by rule `withhold` are not in the runner: Loom's output holds no claim values and Loom has no such steps (`docs/loom-run-decisions.md`).",
+        "`task check:ess-suite:slow`, the byte comparison of a new synthesis with the committed suite, and `task docs:test` were not run for this release; the fast digest check is part of `task check:ess-generated`."
+      ],
+      "notes": "docs/releases/0.6.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.6.0/docs/releases/0.6.0.md",
+      "summary": "A minor release of 0.5.0, the day after. `runbook run` routes decisions by autonomy level from a table it reads once before the first action, `runbook run --recorded <source>` re-drives a case tree from a recording, `runbook canon` runs the linked Canon library, and the run inspector is read-only. A source release at tag `0.6.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.5.0.md` for the release this one follows.",
+      "version": "0.6.0"
+    },
     {
       "date": "2026-11-22",
       "limits": [
@@ -872,11 +890,11 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "30e5976577df789b5d579d42e110a016de869a850d8bb37c71cb5b7d291b29b3"
+      "sha256": "edd825de39ad98a6f99a29783dc89ea4f9225420767330d35867a61e5caeaf7a"
     },
     {
       "path": "bindings/tools/node-classes.json",
-      "sha256": "3aecdd3a5918aede73c419f796ab8a03302b04ac3655cab93a5960a939fca0c6"
+      "sha256": "63602fb0316f91dccb6efa8d0870302ba24cfb142e661d50879731ee5d68545f"
     },
     {
       "path": "docs/check-output.txt",
@@ -931,44 +949,48 @@
       "sha256": "47ee7dfc0bd6a2ec5819040bf29e945704b78e94e5ec80a2f2a59e3e186b2b0e"
     },
     {
+      "path": "docs/releases/0.6.0.md",
+      "sha256": "fe5415b28e829dd6cd42bb4c4ea7d890660b15afc6538a0e36a1c424a5675e00"
+    },
+    {
       "path": "driver/examples/sdc/decision-classes.json",
       "sha256": "30cfda7df398cb3db30e595848bcee131867296af083dd503053dd8be5c10596"
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "d8d8820dcf72e13efe0eb4a1c1c9f23083e9db97fe76318d0023be97828bd97e"
+      "sha256": "2fd1abf9f1394b01c6188ec057746d9894096eeed8d832bd04a3ee6716f9d3bb"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
-      "sha256": "6496d06b3eb23f4d30a6704dc4435810f68e858c331db8229760225ff2bd6a51"
+      "sha256": "473e1f311bab1c25ebecb942ae26c7abf4eaeea9d6dea459afcaf3ec093071d5"
     },
     {
       "path": "driver/examples/sdc/sdc-epic.bindings.json",
-      "sha256": "704a81e6de4330e070ba98126605a1ac03252f53fabeb7452ae9b59621ca243e"
+      "sha256": "bfb85fa11598ecf3626306483a4ce3b9c5ffc0c26ed661debbabee14e6653950"
     },
     {
       "path": "driver/examples/sdc/sdc-intake.bindings.json",
-      "sha256": "5da8fd8d9b70741aceee9fcc74b2ebf0780a470a4f9ddcfb603744ade3f1bfab"
+      "sha256": "5ba45f21fe655d5ccd29267b7f5f50db97e6231d225ed44e9a011e9e237b39ed"
     },
     {
       "path": "driver/examples/sdc/sdc-plan.bindings.json",
-      "sha256": "9d89af64bf4922160897d445cbe6851829dfe5f96473dfc9e9b4653633e3b771"
+      "sha256": "fb42ea5ef208966bb4e55438c31e52c72eb431a16a5fb4444ab7e53c7e2e9001"
     },
     {
       "path": "driver/examples/sdc/sdc-release.bindings.json",
-      "sha256": "fa7c5bea314caeb6c66eb3a2c356306989f4ed3836a55c395f33cbc17dc81014"
+      "sha256": "8b1df1abbd41f7f3cf5a7f9ed712f6a08803ab9d8605d2ecaac12ee0253cb95a"
     },
     {
       "path": "driver/examples/sdc/sdc-spec.bindings.json",
-      "sha256": "46c774b3649d277a21612f7ffb37312c0c0b1f87f70414227710a2ae328c7232"
+      "sha256": "bed9e75d6b158320c4c155a68e3466cd1d31ab76e1af0c479adf7aed93c616bd"
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "e6ce22edca524db3a8f13dff85241739b80fae67ce37d2c58189f09d0629a9b2"
+      "sha256": "029b815adc647d0b802b33246ec1f5e948d328f017dc526c45fbbb8db497bbbe"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",
-      "sha256": "413636ff3aa0d4329aedb16e38048454ccb4ff4b0af55fb769363b91cecf47ee"
+      "sha256": "55c1892d0e5bee39780a994be3f14a1b3bd5d10786ef8c934d34bf15be5d23b5"
     },
     {
       "path": "protocol/sdc-bugfix.protocol.yaml",

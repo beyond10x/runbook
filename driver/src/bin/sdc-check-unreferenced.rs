@@ -21,7 +21,7 @@ const SCOPE: &[&str] = &[
     "eval/",
 ];
 
-const NOT_A_REFERRER: &[&str] = &[".engineering/", "CHANGELOG.md", "docs/releases/", "experiments/"];
+const NOT_A_REFERRER: &[&str] = &[".engineering/", "CHANGELOG.md", "docs/releases/", "docs/progress.md", "docs/progress.json", "experiments/"];
 
 const CONVENTION: &[&str] = &["Cargo.toml", "Cargo.lock", "package.json", "package-lock.json", ".gitignore"];
 
@@ -47,9 +47,10 @@ SCOPE (the files that can be reported)
   convention and are never reported.
 
 REFERRERS (the files whose text counts)
-  Every tracked text file except: .engineering/, experiments/, CHANGELOG.md, docs/releases/ (a
-  history of what was once true), the two data files below, binary files and files over 4 MB. A
-  file does not refer to itself.
+  Every tracked text file except: .engineering/, experiments/, CHANGELOG.md, docs/releases/,
+  docs/progress.md and docs/progress.json (a history of what was once true; the last two are written
+  by `sdc-experiment progress` from the experiment records), the two data files below, binary files and
+  files over 4 MB. A file does not refer to itself.
 
 WHEN A FILE IS REFERRED TO
   Text is cut into path tokens: runs of letters, digits and `_ . - / @ + ~`. A target file F is

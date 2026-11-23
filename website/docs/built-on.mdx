@@ -10,9 +10,11 @@ import {LayerDiagram, ComponentSections} from '@site/src/components/Layers';
 
 Runbook is an application. It owns data: the protocols, the bindings that name a tool for each
 action, and the tables that turn a tool's result into evidence. The semantics come from Canon, and
-the runtime is meant to come from Loom, with confinement and process start from Substrate below it
-([`docs/layers.md:47-52`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/layers.md#L47-L52)).
-Today the driver still holds a temporary copy of the runtime parts. A capability missing in one of
+the runtime is Loom's, with confinement and process start from Substrate below it
+([`docs/layers.md`](https://github.com/beyond10x/runbook/blob/main/docs/layers.md)).
+`runbook run` runs a case through Loom
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)); the
+temporary copy of the runtime parts that the driver held at release 0.1.1 is deleted. A capability missing in one of
 the layers is requested from that repository, not patched in Runbook
 ([`AGENTS.md:41-44`](https://github.com/beyond10x/runbook/blob/0.1.1/AGENTS.md#L41-L44)).
 

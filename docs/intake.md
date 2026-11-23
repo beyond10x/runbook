@@ -107,7 +107,7 @@ The mode is set by the word count of `idea.text`. A program counts it, not an LL
 - Evidence:
   - `questions_shape`: subject `questions`, result `valid|invalid`.
   - `questions_settled`: subject `questions`, result `settled|open|needs_human`.
-- The questions.yaml the driver example writes (`bindings/tools/llm-node.sh:167-204`) is
+- The questions.yaml that `sdc-node` writes for the `questions.write` action is
   flat: `id`, `item` (the dissection item), `question`, `options`, `default`, `scope_changing`,
   `status`, `answer`, `answered_by`. A scope-changing question also carries, so that a person can
   answer it without reading the run (`story:interview-question-context`):

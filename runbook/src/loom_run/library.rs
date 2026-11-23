@@ -1,5 +1,5 @@
 //! Loom as a library in this process: the calls of `runbook::engine::calls`, the same ones the
-//! daemon's engine makes. No `b10x-loom`, `loom`, `canon` or `sdc-drive` process is started; only
+//! daemon's engine makes. No `b10x-loom`, `loom` or `canon` process is started; only
 //! the bound programs run as processes, started by Loom's runner with the environment Loom itself
 //! gives them (`docs/loom-run.md`, "The environment of a bound program").
 //!

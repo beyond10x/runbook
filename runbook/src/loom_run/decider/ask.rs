@@ -1,6 +1,5 @@
 //! One request of the answers file (`answers.rs`) put to the program decider: a scope-changing
-//! question or a finding, asked as the driver asks it (`scripts/run-trial.sh`, `decide`, lines
-//! 804 to 905): the same request members for `decider.sh`, the same retries of an invalid reply,
+//! question or a finding, asked as the removed driver asked it: the same request members, the same retries of an invalid reply,
 //! the same `escalate` handling (`stop`: the run waits for a person; `final`: the default of a
 //! question, the `best` of a finding, else its default) and the same lines in `decisions.jsonl`.
 //!
@@ -229,8 +228,8 @@ fn class_name(kind: &str) -> &'static str {
     }
 }
 
-/// The request `decider.sh` reads for a question or a finding: the members the driver's request has
-/// (`scripts/run-trial.sh`, `answer_questions`, `decide_findings`, `decide`), then every other member
+/// The request the decider reads for a question or a finding: the members the removed driver's request had,
+/// then every other member
 /// of the request line, which may override them but never `type`, `case_dir` or `record_dir`.
 fn ask_body(r: &AskRequest<'_>, approval: &Approval, case_dir: &Path, record_dir: &Path, retry: Option<(u64, String)>) -> Value {
     let kind = r.request.kind.as_str();

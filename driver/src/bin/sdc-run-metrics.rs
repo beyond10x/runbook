@@ -4,7 +4,7 @@
 //! sdc-run-metrics <run dir> [--json <file>|-] [--text <file>|-]
 //! ```
 //!
-//! Reads the run directory `scripts/run-trial.sh` writes (the root case `store/IDEA-1/`, or the
+//! Reads the run directory the removed driver wrote (the root case `store/IDEA-1/`, or the
 //! one case directory under `store/` of a bug-fix run, with every case's `events.jsonl`,
 //! `observed.jsonl`, `evidence/`, `ir.json`, `bindings.json`; `llm-calls.jsonl`,
 //! `decisions.jsonl`, `rounds.jsonl`, `run-settings.jsonl`, `status.json`, `run-stopped*.json`,

@@ -91,16 +91,14 @@ impl Drop for World {
 
 const LAYOUT_DIRS: [&str; 9] =
     ["protocol", "scripts", "driver/examples/sdc", "bindings", "bindings/tools", "instructions", "views", "cycles", "ui"];
-const TOOLS: [&str; 3] = [
+const TOOLS: [&str; 2] = [
     "bindings/tools/sdc-tool.sh",
-    "bindings/tools/decider.sh",
     "bindings/tools/llm-adapter-claude-cli.sh",
 ];
 
 const PROGRAMS: [&str; 13] =
     ["bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
-const HELPERS: [&str; 10] = [
-    "sdc-drive",
+const HELPERS: [&str; 8] = [
     "sdc-node",
     "sdc-findings",
     "sdc-bugfix",
@@ -108,7 +106,6 @@ const HELPERS: [&str; 10] = [
     "sdc-reply",
     "sdc-replay",
     "sdc-check-routes",
-    "sdc-unstick",
     "sdc-conform",
 ];
 
@@ -325,13 +322,13 @@ fn doctor_checks_the_tools_at_bindings_tools_and_that_they_run() {
         let line = line_of(&w.run(&["doctor"], &[]), tool);
         assert!(line.starts_with("pass") && line.contains("required"), "{line}");
     }
-    let tool = w.root.join("assets/bindings/tools/decider.sh");
+    let tool = w.root.join("assets/bindings/tools/llm-adapter-claude-cli.sh");
     std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(failed(&w.run(&["doctor"], &[])), ["bindings/tools/decider.sh"]);
+    assert_eq!(failed(&w.run(&["doctor"], &[])), ["bindings/tools/llm-adapter-claude-cli.sh"]);
     std::fs::remove_file(&tool).unwrap();
     let o = w.run(&["doctor"], &[]);
-    assert_eq!(failed(&o), ["bindings/tools/decider.sh"]);
-    assert!(line_of(&o, "bindings/tools/decider.sh").contains("-- fix:"));
+    assert_eq!(failed(&o), ["bindings/tools/llm-adapter-claude-cli.sh"]);
+    assert!(line_of(&o, "bindings/tools/llm-adapter-claude-cli.sh").contains("-- fix:"));
 }
 
 #[test]
@@ -458,9 +455,11 @@ fn text_copy(w: &World) -> PathBuf {
     }
     copy_dir(&r.join("instructions"), &co.join("instructions"), &["golden"]);
     copy_dir(&r.join("driver/src"), &co.join("driver/src"), &[]);
+    copy_dir(&r.join("runbook/src"), &co.join("runbook/src"), &[]);
     std::fs::create_dir_all(co.join("ui")).unwrap();
     std::fs::create_dir_all(co.join("scripts")).unwrap();
-    std::fs::copy(r.join("scripts/run-finding-cycles.sh"), co.join("scripts/run-finding-cycles.sh")).unwrap();
+    std::fs::create_dir_all(co.join("docs")).unwrap();
+    std::fs::copy(r.join("docs/cycles-suite.md"), co.join("docs/cycles-suite.md")).unwrap();
     std::fs::create_dir_all(co.join("driver/examples/sdc")).unwrap();
     for e in std::fs::read_dir(r.join("driver/examples/sdc")).unwrap().flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
@@ -504,7 +503,7 @@ fn check_passes_on_this_checkout() {
     let o = w.run(&["check"], &[("RUNBOOK_HOME", repo().to_str().unwrap())]);
     assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
     assert!(stdout(&o).starts_with("check: ok ("), "{}", stdout(&o));
-    assert!(stdout(&o).contains("compared with scripts/run-finding-cycles.sh"), "{}", stdout(&o));
+    assert!(stdout(&o).contains("compared with docs/cycles-suite.md"), "{}", stdout(&o));
 }
 
 #[test]
@@ -546,10 +545,10 @@ fn check_names_a_part_of_the_layout_that_is_missing() {
     let w = World::new("check-layout");
     let co = text_copy(&w);
     std::fs::remove_dir_all(co.join("views")).unwrap();
-    std::fs::set_permissions(co.join("bindings/tools/decider.sh"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::set_permissions(co.join("bindings/tools/llm-adapter-claude-cli.sh"), std::fs::Permissions::from_mode(0o644)).unwrap();
     let o = check(&w, &co);
     assert_finding(&o, "views/", &["missing", "no such directory"]);
-    assert_finding(&o, "bindings/tools/decider.sh", &["missing", "not an executable file"]);
+    assert_finding(&o, "bindings/tools/llm-adapter-claude-cli.sh", &["missing", "not an executable file"]);
 }
 
 #[test]
@@ -665,69 +664,70 @@ fn check_fails_a_view_with_another_format_id() {
 }
 
 #[test]
-fn check_fails_a_duplicate_cycle_id() {
+fn check_fails_a_duplicate_cycle_name() {
     let w = World::new("check-dup");
     let co = text_copy(&w);
-    edit(&co, "cycles/suite.yaml", "- id: finding-agent\n", "- id: stub-cycle\n");
+    edit(&co, "cycles/tree-suite.yaml", "- name: finding-agent\n", "- name: stub-cycle\n");
     let o = check(&w, &co);
-    assert_finding(&o, "cycles/suite.yaml", &["cycle id stub-cycle appears more than once"]);
+    assert_finding(&o, "cycles/tree-suite.yaml", &["cycle name stub-cycle appears more than once"]);
 }
 
 #[test]
-fn check_fails_a_cycle_state_that_differs_from_the_script() {
+fn check_fails_a_row_whose_state_differs_from_the_suite_file() {
     let w = World::new("check-state");
     let co = text_copy(&w);
-    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: stub-cycle\n    state: pending");
+    edit(&co, "docs/cycles-suite.md", "| stub-cycle | converted |", "| stub-cycle | pending |");
     let o = check(&w, &co);
-    assert_finding(&o, "cycles/suite.yaml", &["stub-cycle is pending in the suite and expected in scripts/run-finding-cycles.sh"]);
+    assert_finding(&o, "docs/cycles-suite.md", &["stub-cycle is pending in the table and converted in cycles/tree-suite.yaml"]);
     assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+    edit(&co, "docs/cycles-suite.md", "| stub-cycle | pending |", "| stub-cycle | held by a Rust test |");
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["stub-cycle is a cycle of cycles/tree-suite.yaml and its row says held by a Rust test"]);
 }
 
 #[test]
-fn check_fails_a_cycle_the_suite_and_the_script_do_not_share() {
+fn check_fails_a_cycle_the_suite_file_the_list_and_the_table_do_not_share() {
     let w = World::new("check-ids");
     let co = text_copy(&w);
-    edit(&co, "scripts/run-finding-cycles.sh", "pending=(rework-spent-dropped rework-spent-abandoned)", "pending=(rework-spent-dropped rework-spent-abandoned brand-new-cycle)");
-    edit(&co, "cycles/suite.yaml", "- id: finding-agent\n", "- id: finding-agent-renamed\n");
+    let names = std::fs::read_to_string(co.join("cycles/old-suite-names.txt")).unwrap();
+    std::fs::write(co.join("cycles/old-suite-names.txt"), format!("{names}brand-new-cycle\n")).unwrap();
+    edit(&co, "cycles/tree-suite.yaml", "- name: finding-agent\n", "- name: finding-agent-renamed\n");
     let o = check(&w, &co);
-    assert_finding(&o, "cycles/suite.yaml", &["brand-new-cycle", "not in the suite"]);
-    assert_finding(&o, "cycles/suite.yaml", &["finding-agent-renamed", "not in the arrays"]);
-    assert_finding(&o, "cycles/suite.yaml", &["cycle finding-agent ", "not in the suite"]);
+    assert_finding(&o, "docs/cycles-suite.md", &["entry brand-new-cycle of cycles/old-suite-names.txt has no row"]);
+    assert_finding(&o, "cycles/tree-suite.yaml", &["cycle finding-agent-renamed is not an entry of cycles/old-suite-names.txt"]);
+    assert_finding(&o, "docs/cycles-suite.md", &["entry finding-agent is converted in the table and not there in cycles/tree-suite.yaml"]);
+    edit(&co, "docs/cycles-suite.md", "| stub-cycle | converted |", "| stub-cycle-twice | converted |");
+    assert_finding(&check(&w, &co), "docs/cycles-suite.md", &["entry stub-cycle-twice is not in cycles/old-suite-names.txt"]);
 }
 
 #[test]
-fn check_fails_a_missing_fixture_and_a_bad_suite_header() {
-    let w = World::new("check-fixture");
+fn check_fails_a_missing_seed_and_a_bad_suite_header() {
+    let w = World::new("check-seed");
     let co = text_copy(&w);
-    edit(&co, "cycles/suite.yaml", "fixtures: [driver/examples/sdc/fixtures/finding-spec-agent.yaml]", "fixtures: [driver/examples/sdc/fixtures/no-such-fixture.yaml]");
-    assert_finding(&check(&w, &co), "cycles/suite.yaml", &["cycle finding-agent", "driver/examples/sdc/fixtures/no-such-fixture.yaml", "does not exist"]);
-    edit(&co, "cycles/suite.yaml", "format: runbook.cycles/1", "format: runbook.cycles/2");
-    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: stub-cycle\n    state: done");
+    edit(&co, "cycles/tree-suite.yaml", "from: seeds/idea.yaml", "from: seeds/no-such-seed.yaml");
+    assert_finding(&check(&w, &co), "cycles/tree-suite.yaml", &["cycle defaults", "seeds/no-such-seed.yaml", "does not exist"]);
+    edit(&co, "cycles/tree-suite.yaml", "format: loom.tree-suite/1", "format: loom.tree-suite/2");
     let o = check(&w, &co);
-    assert_finding(&o, "cycles/suite.yaml", &["runbook.cycles/2"]);
-    assert_finding(&o, "cycles/suite.yaml", &["cycle stub-cycle has state \"done\""]);
+    assert_finding(&o, "cycles/tree-suite.yaml", &["loom.tree-suite/2"]);
 }
 
 #[test]
-fn check_skips_the_comparison_with_the_script_when_it_is_gone_and_says_so() {
-    let w = World::new("check-no-script");
+fn check_skips_the_comparison_with_the_table_when_it_is_gone_and_says_so() {
+    let w = World::new("check-no-table");
     let co = text_copy(&w);
-    std::fs::remove_file(co.join("scripts/run-finding-cycles.sh")).unwrap();
+    std::fs::remove_file(co.join("docs/cycles-suite.md")).unwrap();
     let o = check(&w, &co);
     assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
     let notes: Vec<String> = stdout(&o).lines().filter(|l| l.starts_with("note: ")).map(String::from).collect();
-    assert_eq!(notes, ["note: scripts/run-finding-cycles.sh does not exist: the ids and states of cycles/suite.yaml are not compared with it"]);
+    assert_eq!(notes, ["note: docs/cycles-suite.md does not exist: the entries of cycles/old-suite-names.txt are not compared with it"]);
 }
 
 #[test]
-fn check_does_not_compare_an_unlisted_cycle_with_the_script() {
-    let w = World::new("check-unlisted");
+fn check_fails_when_the_list_of_old_entries_is_gone() {
+    let w = World::new("check-no-names");
     let co = text_copy(&w);
-    edit(&co, "cycles/suite.yaml", "- id: stub-cycle\n    state: expected", "- id: ran-outside-the-arrays\n    state: unlisted");
-    let o = check(&w, &co);
-    assert_finding(&o, "cycles/suite.yaml", &["stub-cycle", "not in the suite"]);
-    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
-    assert!(stdout(&o).contains("note: 1 cycles of cycles/suite.yaml are unlisted"), "{}", stdout(&o));
+    std::fs::remove_file(co.join("cycles/old-suite-names.txt")).unwrap();
+    assert_finding(&check(&w, &co), "cycles/old-suite-names.txt", &["missing"]);
 }
 
 // ---- runbook parity: synthetic stores of the old driver, written by the test itself
@@ -1950,4 +1950,59 @@ fn parity_compare_still_tells_the_revision_of_another_record_apart() {
     let (code, lines) = compare_summaries("outcome-other", &a, &b);
     assert_eq!(code, 1, "{lines:?}");
     assert_eq!(lines, [r#"cases[0].evidence[2].subject_revision: a="r2" b="r1""#]);
+}
+
+/// `docs/cycles-suite.md` says every entry is in one of four states, each in exactly one spelling: a
+/// row with any other word, a free-text variant included, fails the check and the finding names it.
+#[test]
+fn check_fails_a_row_whose_state_is_none_of_the_four() {
+    let w = World::new("check-row-state-word");
+    let co = text_copy(&w);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | dropped with the driver |", "| pool-wait | banana |");
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "banana"]);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | banana |", "| pool-wait | held in part by a Rust test |");
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "held in part by a Rust test"]);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | held in part by a Rust test |", "| pool-wait | dropped with the driver |");
+    assert_eq!(check(&w, &co).status.code(), Some(0));
+}
+
+/// The near misses of a state word. Each is a finding, none passes.
+#[test]
+fn check_fails_every_near_miss_of_a_state_word() {
+    let w = World::new("adv-check-state-near-miss");
+    let co = text_copy(&w);
+    let mut cur = "| pool-wait | dropped with the driver |".to_string();
+    for bad in [
+        "Dropped with the driver",
+        "DROPPED WITH THE DRIVER",
+        "dropped with the driver.",
+        "dropped with the driver (all of it)",
+        "**dropped with the driver**",
+        "`dropped with the driver`",
+        "dropped  with the driver",
+        "dropped\u{a0}with the driver",
+        "",
+        "dropped with the driver, held by a Rust test",
+    ] {
+        let next = format!("| pool-wait | {bad} |");
+        edit(&co, "docs/cycles-suite.md", &cur, &next);
+        let o = check(&w, &co);
+        assert_eq!(o.status.code(), Some(1), "state {bad:?} passed:\n{}", stdout(&o));
+        cur = next;
+    }
+}
+
+/// A row cut to one cell has no state, so the entry has no row.
+#[test]
+fn check_fails_a_row_cut_to_one_cell() {
+    let w = World::new("adv-check-state-one-cell");
+    let co = text_copy(&w);
+    let p = co.join("docs/cycles-suite.md");
+    let t = std::fs::read_to_string(&p).unwrap();
+    let cut: Vec<String> = t.lines().map(|l| if l.starts_with("| pool-wait |") { "| pool-wait |".to_string() } else { l.to_string() }).collect();
+    std::fs::write(&p, cut.join("\n") + "\n").unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "no row"]);
 }

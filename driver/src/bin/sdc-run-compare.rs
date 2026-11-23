@@ -4,7 +4,7 @@
 //! sdc-run-compare --run <label>=<run dir> [--run <label>=<run dir> ...] --out <report.md> [--json <report.json>]
 //! ```
 //!
-//! A run directory is what `scripts/run-trial.sh` writes: `store/IDEA-1/` (the case tree: every
+//! A run directory is what the removed driver wrote: `store/IDEA-1/` (the case tree: every
 //! case's `events.jsonl` and `observed.jsonl`, `work/` with `findings.yaml`, `questions.yaml`,
 //! `context.yaml`), `rounds.jsonl`, `run-settings.jsonl`, `llm-calls.jsonl`, `decisions.jsonl`,
 //! and the records that only some runs have: `run-stopped.json`, `replay.json`, `oracle.json`.
@@ -251,7 +251,7 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
         _ => None,
     };
 
-    // The driver's rounds (scripts/run-trial.sh `rounds.jsonl`).
+    // The driver's rounds (`rounds.jsonl` of the removed driver).
     let rounds: Option<Vec<Round>> = jsonl_opt(&dir.join("rounds.jsonl"))?.map(|v| {
         v.iter().map(|r| Round {
             start_s: r["started_epoch"].as_i64().unwrap_or(0),

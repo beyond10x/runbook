@@ -84,7 +84,7 @@ actions:
     evidence:
       - kind: merge_record
         subject: change
-        producer: sdc-drive.merge
+        producer: runbook.merge
         from: exit
         results: {"0": null}
   - action: amend.upstream

@@ -2,8 +2,8 @@
 //! `questions.write`, `requirements.normalise`, `spec.author`, `test.reproduce`, `bug.dissect`,
 //! `change.fix`) and the nodes of the planning store (`vision.write`, `roadmap.write`,
 //! `plan.decompose`, `context.default`, `questions.answer`), of the review (`change.review`) and
-//! the implementer (`change.implement`, in session, coverage and request mode). It is the Loom
-//! mode of `bindings/tools/llm-node.sh` in Rust; the script hands these nodes to it.
+//! the implementer (`change.implement`, in session, coverage and request mode). It replaces
+//! the shell script that was the model step of the removed driver and of Loom.
 //!
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]

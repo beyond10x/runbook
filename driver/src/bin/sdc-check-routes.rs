@@ -1,6 +1,6 @@
 //! sdc-check-routes: the reject and cap routes of an unattended run, checked statically (D148,
 //! docs/reject-routes.md). Canon's `simulate` exhausts a protocol's states; what it cannot see
-//! lives in the bindings, the driver and scripts/run-trial.sh: which result of which action sends
+//! lives in the bindings and the runner: which result of which action sends
 //! which writer back, the caps, the reject limit and the ends by rule. This reads the compiled IR
 //! of every protocol, every bindings file, node-classes.json, decision-classes.json and the
 //! declared rule ends (driver/examples/sdc/rule-ends.json), and prints one line per state where
@@ -12,14 +12,16 @@
 //!   not-handed       a `retry_when` result whose producer's log does not reach the writer
 //!   own-failure      an LLM writer whose failed run's log does not reach its next run
 //!   shared-cap       one `max_runs` shared by different retry kinds, or by reworks
-//!   inert-cap        a `max_runs` on a node the driver does not cap
+//!   inert-cap        a `max_runs` on a node the runtime does not cap
 //!   unrecorded-exit  an LLM observation with exits its `results` do not map (no record: stuck)
 //!   rework-limit     an approval with no end after its last rework
 //!   no-reject-route  a decision class whose reject has no route
 //!
 //!   sdc-check-routes [--root <repository>] [--doc <markdown>]
 //!
-//! Exit 0 with no finding, 1 with findings. With `--doc`, the findings must equal the fenced
+//! Exit 0 with no finding, 1 with findings, 2 when a file is refused (the `runtime` block of the
+//! rule ends is unreadable: every reason is named on stderr, one line each, and nothing is
+//! printed on stdout). With `--doc`, the findings must equal the fenced
 //! block under the heading "## Check output" of that file, line by line: exit 0 when they do,
 //! 1 (with a diff) when they do not, so a fix that removes a finding must remove its line too.
 use serde_json::Value;
@@ -78,12 +80,12 @@ fn bound(p: &Protocol) -> impl Iterator<Item = (&String, &Value)> {
 }
 
 fn is_llm_node(b: &Value) -> bool {
-    b["argv"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|s| s.ends_with("/llm-node.sh"))))
+    sdc_tools::reply::rules::model_step_argv(b)
 }
 
 fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
     let mut f = Vec::new();
-    let drv = &ends["driver"];
+    let drv = &ends["runtime"];
     let capped: Vec<&str> = drv["capped_effects"].as_array().into_iter().flatten().filter_map(|e| e.as_str()).collect();
     for p in protocols {
         let ir = &p.ir;
@@ -166,7 +168,7 @@ fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
             }
             // inert-cap
             if b.get("max_runs").is_some() && !capped.contains(&effect(a).as_str()) {
-                f.push(format!("inert-cap {} {a}: max_runs {} on a node with effect {}, which the driver does not cap", p.name, b["max_runs"], effect(a)));
+                f.push(format!("inert-cap {} {a}: max_runs {} on a node with effect {}, which the runtime does not cap", p.name, b["max_runs"], effect(a)));
             }
             // unrecorded-exit
             if is_llm_node(b) && effect(a) != "write" && !kinds_of(b).is_empty() && b["results"].get("*").is_none() {
@@ -279,6 +281,131 @@ fn doc_block(doc: &str) -> Option<Vec<String>> {
     Some(body[..end].lines().map(String::from).filter(|l| !l.is_empty()).collect())
 }
 
+/// The members of the `runtime` block the check knows: `capped_effects` (a list of effect names)
+/// and four flags.
+const RUNTIME_MEMBERS: [&str; 5] = [
+    "capped_effects",
+    "cap_per_kind",
+    "rejection_is_arrival",
+    "own_failure_fed_back",
+    "rejection_logs_fed_back",
+];
+
+/// The effects an action of a protocol has: the names `capped_effects` may list.
+const EFFECTS: [&str; 3] = ["read", "write", "external"];
+
+/// The forms of a `provided_by` value: who holds the capability in a run of `runbook run`.
+const PROVIDED_BY_FORMS: [&str; 3] = ["loom: ", "runner: ", "absent: "];
+
+/// The file extensions of a cite: the source files the cites of the runtime block name.
+const CITE_EXTENSIONS: [&str; 7] = ["rs", "toml", "md", "yaml", "yml", "json", "sh"];
+
+/// True when `text` holds a `file:line` reference: a token `path:N` or `path:N-M` whose path is
+/// relative (it does not start with `/` and holds no `://`) and whose file name ends in one of
+/// `CITE_EXTENSIONS` (`crates/x/src/y.rs:740`, `retry.rs:4-8`). A web address or a host name with
+/// a port is none. This checks the form only: it does not open the file at the pinned commit.
+fn has_file_line(text: &str) -> bool {
+    let is_file = |f: &str| {
+        let name = f.rsplit('/').next().unwrap_or("");
+        !f.starts_with('/')
+            && !f.contains("://")
+            && name.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && CITE_EXTENSIONS.contains(&ext))
+    };
+    let is_line = |n: &str| n.split('-').count() <= 2 && n.split('-').all(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+    text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')')
+        .map(|t| t.trim_end_matches('.'))
+        .any(|t| t.rsplit_once(':').is_some_and(|(f, n)| is_file(f) && is_line(n)))
+}
+
+/// Every reason the `runtime` block cannot be read as a whole, one string each (empty when it can
+/// be). The check refuses (exit 2, nothing printed before it) on any of these:
+///
+/// - no block `runtime` (the old key `driver` gets the word that it was renamed), or no
+///   `provided_by` object in it;
+/// - a member the check does not know, or a member without a `provided_by` entry, or an entry for
+///   a member that is not there;
+/// - a member of the wrong type: `capped_effects` must be a list of the effects `read`, `write`,
+///   `external`; every other member must be a boolean;
+/// - a `provided_by` value that is not `loom: <what>, <file:line>`, `runner: <what>` or
+///   `absent: <what>`: an unknown prefix, nothing after the prefix, or a `loom:` value without
+///   a `file:line` (a relative path ending in `rs`, `toml`, `md`, `yaml`, `yml`, `json` or `sh`, a
+///   colon and a line or range of lines; a web address or a host name with a port is none; the form
+///   only, the file is not opened at the pinned commit);
+/// - a member that contradicts its entry. A flag is `true` when the runtime holds the capability
+///   (`loom:` or `runner:`) and `false` when it does not (`absent:`), and `capped_effects` is
+///   non-empty on the same terms. No member can rightly be `false` next to `loom:` or `runner:`:
+///   `false` says the run has not got it, and then the entry says `absent:` and names why.
+fn runtime_refusals(ends: &Value) -> Vec<String> {
+    let Some(rt) = ends["runtime"].as_object() else {
+        return vec![if ends.get("driver").is_some() {
+            "the block `driver` was renamed `runtime`: rename it and add `provided_by`".into()
+        } else {
+            "has no block `runtime` (members and `provided_by`, who holds each in a run of `runbook run`)".into()
+        }];
+    };
+    let mut errs = Vec::new();
+    let by = rt.get("provided_by").and_then(Value::as_object);
+    if by.is_none() {
+        errs.push("`runtime` has no `provided_by` object".to_string());
+    }
+    let empty = serde_json::Map::new();
+    let by = by.unwrap_or(&empty);
+    for (k, v) in rt.iter().filter(|(k, _)| k.as_str() != "provided_by") {
+        if !RUNTIME_MEMBERS.contains(&k.as_str()) {
+            errs.push(format!("`runtime` member {k} is not one the check knows ({})", RUNTIME_MEMBERS.join(", ")));
+            continue;
+        }
+        if !by.is_empty() && !by.contains_key(k) {
+            errs.push(format!("`runtime` member {k} has no entry in `provided_by`"));
+        }
+        // held: whether the member says the runtime holds the capability; None when mistyped
+        let held = if k == "capped_effects" {
+            match v.as_array().map(|a| a.iter().map(|e| e.as_str().filter(|e| EFFECTS.contains(e))).collect::<Option<Vec<_>>>()) {
+                Some(Some(list)) => Some(!list.is_empty()),
+                _ => {
+                    errs.push(format!("`runtime` member {k} is not a list of effects ({}): {v}", EFFECTS.join(", ")));
+                    None
+                }
+            }
+        } else {
+            let b = v.as_bool();
+            if b.is_none() {
+                errs.push(format!("`runtime` member {k} is not true or false: {v}"));
+            }
+            b
+        };
+        let Some(who) = by.get(k).and_then(Value::as_str) else { continue };
+        let Some(held) = held else { continue };
+        let says_absent = who.starts_with("absent: ");
+        if held && says_absent {
+            errs.push(format!("`runtime` member {k} says the runtime holds it ({v}) and `provided_by` says absent"));
+        }
+        if !held && PROVIDED_BY_FORMS[..2].iter().any(|f| who.starts_with(f)) {
+            errs.push(format!("`runtime` member {k} says the runtime lacks it ({v}) and `provided_by` says who holds it"));
+        }
+    }
+    for (k, who) in by {
+        if !rt.contains_key(k) {
+            errs.push(format!("`provided_by` names {k}, which is not a member of `runtime`"));
+        }
+        let Some(w) = who.as_str() else {
+            errs.push(format!("`provided_by` {k} is not a string: {who}"));
+            continue;
+        };
+        let Some(form) = PROVIDED_BY_FORMS.iter().find(|f| w.starts_with(**f)) else {
+            errs.push(format!("`provided_by` {k} is not `loom: ...`, `runner: ...` or `absent: ...`: {who}"));
+            continue;
+        };
+        let rest = &w[form.len()..];
+        if rest.trim().is_empty() {
+            errs.push(format!("`provided_by` {k} has nothing after `{}`: {who}", form.trim_end()));
+        } else if *form == "loom: " && !has_file_line(rest) {
+            errs.push(format!("`provided_by` {k} is `loom:` with no file:line (`loom: <what>, <file:line>`): {who}"));
+        }
+    }
+    errs
+}
+
 fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
     let ex = root.join("driver/examples/sdc");
     let mut protocols = Vec::new();
@@ -298,7 +425,29 @@ fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
         let name = ir["protocol"].as_str().map(String::from).unwrap_or_else(|| stem.replacen('-', ".", 1));
         protocols.push(Protocol { name, ir, bindings: read(&bp)? });
     }
-    Ok((protocols, read(&ex.join("decision-classes.json"))?, read(&ex.join("rule-ends.json"))?))
+    let ends = read(&ex.join("rule-ends.json"))?;
+    let refusals = runtime_refusals(&ends);
+    if !refusals.is_empty() {
+        return Err(refusals.iter().map(|e| format!("driver/examples/sdc/rule-ends.json: {e}")).collect::<Vec<_>>().join("\n"));
+    }
+    Ok((protocols, read(&ex.join("decision-classes.json"))?, ends))
+}
+
+/// One line per member of the `runtime` block of the rule ends, naming who holds it in a run of
+/// `runbook run` (the member of `provided_by`): a Loom member, `sdc-node` through a `LOOM_*`
+/// variable, or `pending` with the story or the line of docs/loom-bindings.md that says so. They
+/// state facts and are not findings: they change no exit code and are not in the doc's block.
+fn capability_lines(ends: &Value) -> Vec<String> {
+    ends["runtime"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, _)| k.as_str() != "provided_by")
+        .map(|(k, _)| match ends["runtime"]["provided_by"][k].as_str() {
+            Some(who) => format!("capability {k}: {who}"),
+            None => format!("capability {k}: undeclared (no provided_by)"),
+        })
+        .collect()
 }
 
 fn main() -> ExitCode {
@@ -308,13 +457,14 @@ fn main() -> ExitCode {
     let (protocols, classes, ends) = match load(&root) {
         Ok(x) => x,
         Err(e) => {
-            eprintln!("sdc-check-routes: {e}");
+            e.lines().for_each(|l| eprintln!("sdc-check-routes: {l}"));
             return ExitCode::from(2);
         }
     };
     let found = check(&protocols, &classes, &ends);
     let Some(doc) = opt("--doc") else {
         found.iter().for_each(|l| println!("{l}"));
+        capability_lines(&ends).iter().for_each(|l| println!("{l}"));
         return if found.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
     };
     let text = std::fs::read_to_string(&doc).unwrap_or_default();
@@ -330,12 +480,12 @@ fn main() -> ExitCode {
     for l in &gone {
         println!("- {l}  (in {doc}, no longer found: remove its line)");
     }
-    if extra.is_empty() && gone.is_empty() {
+    let ok = extra.is_empty() && gone.is_empty();
+    if ok {
         println!("routes: {} findings, all listed in {doc}", found.len());
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
     }
+    capability_lines(&ends).iter().for_each(|l| println!("{l}"));
+    if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
 }
 
 #[cfg(test)]
@@ -346,7 +496,7 @@ mod tests {
         vec![Protocol { name: "t.p".into(), ir, bindings }]
     }
     fn ends(extra: Value) -> Value {
-        let mut e = json!({"driver": {"capped_effects": ["write"], "cap_per_kind": true, "rejection_is_arrival": true,
+        let mut e = json!({"runtime": {"capped_effects": ["write"], "cap_per_kind": true, "rejection_is_arrival": true,
             "own_failure_fed_back": true, "rejection_logs_fed_back": true}, "rework_limit": 2,
             "questions": {"reject": "refused"}, "findings": {"refused_by_check": "retry"}, "close": {}, "approvals": {}, "checks": []});
         if let (Some(m), Some(x)) = (e.as_object_mut(), extra.as_object()) {
@@ -364,7 +514,7 @@ mod tests {
                         "doc.approve": {"effect": "write", "requires": [{"capability": "owner.approve"}]}},
             "outcomes": {"passed": {"requires": {"claim": {"id": "doc.ok", "is": "true"}}}}})
     }
-    const LLM: &str = "{dir}/../../../bindings/tools/llm-node.sh";
+    const LLM: &str = "sdc-node";
     fn no_classes() -> Value {
         json!({"classes": {}})
     }
@@ -395,7 +545,7 @@ mod tests {
                        "doc.review": {"argv": ["sdc-tool.sh", "review"], "produces": "doc_review", "results": {"0": "approved", "*": "rejected"}}});
         let mut i = ir();
         i["actions"]["doc.review"] = json!({"effect": "read"});
-        let e = ends(json!({"driver": {"capped_effects": ["write"], "cap_per_kind": false, "rejection_is_arrival": true,
+        let e = ends(json!({"runtime": {"capped_effects": ["write"], "cap_per_kind": false, "rejection_is_arrival": true,
             "own_failure_fed_back": false, "rejection_logs_fed_back": false}}));
         let f = check(&proto(i, b), &no_classes(), &e);
         let want = [
@@ -403,7 +553,7 @@ mod tests {
             "not-handed t.p doc.write: retry_when doc_review=rejected, but the log of doc.review does not reach it",
             "shared-cap t.p doc.write: 2 retry kinds share max_runs 3",
             "own-failure t.p doc.write: a failed run's log does not reach its next run",
-            "inert-cap t.p doc.check: max_runs 3 on a node with effect read, which the driver does not cap",
+            "inert-cap t.p doc.check: max_runs 3 on a node with effect read, which the runtime does not cap",
         ];
         for w in want {
             assert!(f.iter().any(|l| l == w), "missing {w} in {f:?}");
@@ -456,6 +606,21 @@ mod tests {
         let mut other = b.clone();
         other["doc.check"]["subject"] = json!("elsewhere");
         assert_eq!(run(&i, &other, &guard("doc.ok", "doc.check")).len(), 1);
+    }
+
+    #[test]
+    fn each_capability_of_the_runtime_prints_who_holds_it() {
+        let e = json!({"runtime": {"capped_effects": ["write"], "own_failure_fed_back": true, "cap_per_kind": true,
+            "provided_by": {"capped_effects": "loom: budget.max_runs", "own_failure_fed_back": "pending: docs/loom-bindings.md:103"}}});
+        assert_eq!(
+            capability_lines(&e),
+            [
+                "capability cap_per_kind: undeclared (no provided_by)",
+                "capability capped_effects: loom: budget.max_runs",
+                "capability own_failure_fed_back: pending: docs/loom-bindings.md:103",
+            ]
+        );
+        assert!(capability_lines(&json!({})).is_empty());
     }
 
     #[test]

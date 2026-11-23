@@ -74,7 +74,7 @@ Canon), not in a new repository.
 | Agent session that proposes an artifact and never writes it | exists | `SessionExecutor` (`loom-session-executor/src/lib.rs:1-5, 22-30`; `AGENTS.md:1376-1385`) |
 | Agent's model, budget, tools, egress, confinement as data | exists, per agent | `loom.agent/1` `session:` (`examples/agents/operator.yaml:13-23`; `AGENTS.md:705-715`) |
 | Bind an agent (or a program) to a protocol action | **missing** | one executor per run (`runtime.rs:30-37`); one judgement factory (`workflow.rs:938-954`) |
-| Deterministic, evidence-driven selector (useful actions first) | **missing** (test-only exists) | `selection.rs:139-142`; policy in `driver.md:54-63`; usefulness is a Canon request (`canon-requests.md:18-22`) |
+| Deterministic, evidence-driven selector (useful actions first) | **missing** (test-only exists) | `selection.rs:139-142`; policy in `driver.md:89-98`; usefulness is a Canon request (`canon-requests.md:18-22`) |
 | Child cases (`case_open`, `case_outcome`) | **missing**, and blocked by the Canon pin | Loom pins Canon `0.8.0` (`loom-governor/Cargo.toml:15`; `AGENTS.md:502-505`); `case_open`, `case_outcome` and `children` arrived in Canon 0.9.0 (`canon/CHANGELOG.md:3, 12, 27, 32`); the governor story defers child cases to "later stories" (`canon-governor.md:86-88`); no Loom source names `case_open` or `case_outcome` (grep) |
 | A command that runs a workflow or binding file | **missing** | source CLI: `run`, `protocols`, `evaluate`, `plugin`, `agent`, `approve`, `resume` (`loom-cli/src/lib.rs:222-242`); the installed `b10x-loom` is 0.4.0 with `run` and `protocols` only (`--help`) |
 | JavaScript / Python bindings | **missing** | grep above; Loom's surface is generic over borrowed ports (`Runtime<'p, G, E, A, F, R, C>`, `runtime.rs:30`), which does not cross a binding as is (*inferred*) |
@@ -87,7 +87,7 @@ Order, by value per cost (*inferred*):
    with result tables. This is the SDC driver's `bindings.json` moved into Loom. It also replaces
    the host's hand-written `EvidenceAdapter` for the common case.
 3. A deterministic selector: Canon usefulness, then reads before writes, then identifier order
-   (`driver.md:54-63`). It becomes the default for binding-driven runs.
+   (`driver.md:89-98`). It becomes the default for binding-driven runs.
 4. Child-case runtime (`boundary.md` top change 1).
 5. Canon: `Serialize` on the `protocol/1` model plus a builder that emits it. It belongs in Canon
    because the model is Canon's; Loom re-exports it.
@@ -116,7 +116,7 @@ The session executor is already the right shape for an agent node: the agent aut
 deterministic effect applies, and its summary and transcript digest are "never evidence"
 (`loom-session-executor/src/lib.rs:24-30`). Loom's rules already say "A trace is not evidence …
 never from what a model says happened" (`AGENTS.md:89-90`). The SDC driver reaches the same rule
-by binding the LLM as a tool with `revises` and no `produces` (`driver.md:122-131`).
+by binding the LLM as a tool with `revises` and no `produces` (`driver.md:157-166`).
 
 What Canon has today:
 
@@ -160,7 +160,7 @@ What `canon validate` / `canon check` could then prove (*inferred* designs; the 
 
 | Finding | Rule | Kind of check |
 |---|---|---|
-| `unchecked-judgement` | An outcome that reads evidence about an artifact some `judgement` action `revises` must positively read at least one `decided_by: program` match about that artifact. Revision binding already sets aside every record about an earlier revision (`driver.md:128-129`), so after the agent moves the artifact no outcome is legitimate until a program has observed the new revision. | static, over predicates: not affected by the 65,536-state bound |
+| `unchecked-judgement` | An outcome that reads evidence about an artifact some `judgement` action `revises` must positively read at least one `decided_by: program` match about that artifact. Revision binding already sets aside every record about an earlier revision (`driver.md:163-164`), so after the agent moves the artifact no outcome is legitimate until a program has observed the new revision. | static, over predicates: not affected by the 65,536-state bound |
 | `self-judged-evidence` | Every evidence match on a kind that is `decided_by: judgement` must carry `independent_on`. An LLM's verdict counts only from a producer the trusted context lists as independent. | static |
 | `judgement-bypass` | An outcome legitimate in a state where taking away one positively read judgement-decided dimension blocks it, and that dimension's match demands no independence. | state search, as `authority-bypass`; subject to the bound |
 | `revises` checks | Each id in `revises` is a declared artifact. A `judgement` action with neither `revises` nor a production does nothing. | validate |
@@ -178,7 +178,7 @@ stays Loom's trusted context, as independence already is (`loom-governor/src/lib
 | Executor class and agent (harness kind, model role, brief) | binding → `loom.agent/1` document | `session.kind`, `model.roles` (`operator.yaml:8-14`) |
 | Principal the agent acts as | binding | `submit_evidence` takes the producer from the trusted caller (`ports/evidence.rs:102-110`) |
 | Allowed inputs | binding: files copied into the scratch copy, plus earlier outputs as a data block | session executor named files (`AGENTS.md:1376-1380`); judgement `inputs` (`workflow.yaml:58-70`) |
-| Output artifact, path, revision rule | binding; artifact must be in Canon `revises` | proposal `{files}` (`loom-session-executor/src/lib.rs:24-26`); revision digest choice (`driver.md:232-233`) |
+| Output artifact, path, revision rule | binding; artifact must be in Canon `revises` | proposal `{files}` (`loom-session-executor/src/lib.rs:24-26`); revision digest choice (`driver.md:267-268`) |
 | Budget | binding → agent `session.budget`, run budget | `operator.yaml:15-16`; Commission run budget (`AGENTS.md:353-369`) |
 | Sandbox | binding → agent `session.confinement`, `tools.allow/deny`, `egress` | `operator.yaml:17-23` |
 | Deterministic checks | **protocol** (the program-decided matches about the artifact, proven by `unchecked-judgement`); binding gives each check's program and result table | driver `results` tables (`bindings.json:10-23`) |

@@ -111,7 +111,7 @@ A member with no source in a Loom run is absent (the file or the member), never 
 ## The two evaluation tools
 
 `sdc-finding-kpis <run dir> [--json]` (`docs/kpis.md` § 4) and `sdc-run-timeline <run dir>`
-(`docs/llm-is-not-the-runtime.md`) read this directory as they read the directory of `sdc-drive`,
+(`docs/llm-is-not-the-runtime.md`) read this directory as they read a run directory written by the former driver (below),
 with the same reader for the case store as `sdc-experiment report` (`driver/src/run_metrics.rs`
 `root_case_dir`, `case_dirs`). The kind is read from the files (`driver/src/run_kind.rs`), no flag:
 

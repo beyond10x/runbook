@@ -333,8 +333,8 @@ pub fn tail(text: &str) -> String {
     all[all.len().saturating_sub(3)..].join(" | ")
 }
 
-/// The decisions.jsonl line of a request answered or escalated: the members the driver's lines
-/// have (`scripts/run-trial.sh`, `line`), so `sdc-run-metrics` counts them by class.
+/// The decisions.jsonl line of a request answered or escalated: the members the removed driver's lines
+/// had, so `sdc-run-metrics` counts them by class.
 pub fn decision_line(decision: &Value, request: &Request, revision: &str, outcome: &str, reply: &Value, principal: &str, extra: Value) -> Value {
     let class = if request.kind == "question" { "scope_changing_answer" } else { "finding" };
     let mut line = json!({

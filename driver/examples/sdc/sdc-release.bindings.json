@@ -23,7 +23,7 @@
     ],
     "produces": "build_provenance",
     "subject": "release",
-    "producer": "sdc-drive.build",
+    "producer": "runbook.build",
     "results": {
       "0": null
     }
@@ -55,7 +55,7 @@
     ],
     "produces": "release_record",
     "subject": "release",
-    "producer": "sdc-drive.deploy",
+    "producer": "runbook.deploy",
     "results": {
       "0": null
     }
@@ -67,7 +67,7 @@
     ],
     "produces": "health_observation",
     "subject": "release",
-    "producer": "sdc-drive.monitor",
+    "producer": "runbook.monitor",
     "results": {
       "0": "healthy",
       "*": "unhealthy"

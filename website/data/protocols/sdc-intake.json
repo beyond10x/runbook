@@ -182,7 +182,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh idea.dissect",
+        "program": "sdc-node idea.dissect",
         "retry_when": [
           "dissection_shape"
         ],
@@ -235,7 +235,15 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh questions.answer",
+        "producer": "llm-node",
+        "program": "sdc-node questions.answer",
+        "results": {
+          "0": null,
+          "1": "refused"
+        },
+        "retry_when": [
+          "answer_applied"
+        ],
         "timeout_s": 900
       },
       "name": "questions.answer",
@@ -282,7 +290,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh questions.write",
+        "program": "sdc-node questions.write",
         "retry_when": [
           "questions_shape"
         ],
@@ -330,7 +338,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh requirements.normalise",
+        "program": "sdc-node requirements.normalise",
         "retry_when": [
           "requirements_shape"
         ],
@@ -1172,8 +1180,8 @@
   },
   "source": {
     "path": "protocol/sdc-intake.protocol.yaml",
-    "tag": "0.5.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.5.0/protocol/sdc-intake.protocol.yaml"
+    "tag": "0.6.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.6.0/protocol/sdc-intake.protocol.yaml"
   },
   "stem": "sdc-intake",
   "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3).",

@@ -25,7 +25,7 @@ actions:
     evidence:
       - kind: build_provenance
         subject: release
-        producer: sdc-drive.build
+        producer: runbook.build
         from: exit
         results: {"0": null}
   - action: acceptance.run
@@ -49,7 +49,7 @@ actions:
     evidence:
       - kind: release_record
         subject: release
-        producer: sdc-drive.deploy
+        producer: runbook.deploy
         from: exit
         results: {"0": null}
   - action: release.observe
@@ -60,6 +60,6 @@ actions:
     evidence:
       - kind: health_observation
         subject: release
-        producer: sdc-drive.monitor
+        producer: runbook.monitor
         from: exit
         results: {"0": healthy, "*": unhealthy}

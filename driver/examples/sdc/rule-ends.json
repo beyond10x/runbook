@@ -1,12 +1,18 @@
 {
   "format": "sdc.rule-ends/1",
-  "driver": {
-    "capped_effects": ["write"],
-    "cap_per_kind": true,
-    "backstop": 8,
-    "rejection_is_arrival": true,
-    "own_failure_fed_back": true,
-    "rejection_logs_fed_back": true
+  "runtime": {
+    "capped_effects": ["external", "read", "write"],
+    "cap_per_kind": false,
+    "rejection_is_arrival": false,
+    "own_failure_fed_back": false,
+    "rejection_logs_fed_back": true,
+    "provided_by": {
+      "capped_effects": "loom: budget.max_runs caps every program action, crates/loom-bindings/src/program.rs:740 (Loom 70b0e6e0)",
+      "cap_per_kind": "absent: max_runs counts the runs of an action in a case, not per kind of result, crates/loom-bindings/src/program.rs:956 (Loom 70b0e6e0)",
+      "rejection_is_arrival": "absent: max_runs counts every run of the action in the case and no arrival resets it, crates/loom-bindings/src/program.rs:956; the open story is docs/loom-bindings.md:106",
+      "own_failure_fed_back": "absent: the retry feedback holds only the records retry_when lists, so a writer's failed run with no such record sends nothing back, crates/loom-bindings/src/retry.rs:4-8 (Loom 70b0e6e0)",
+      "rejection_logs_fed_back": "loom: the retry feedback holds a person's reasons of a rejection, crates/loom-bindings/src/retry.rs:8-10 (Loom 70b0e6e0)"
+    }
   },
   "rework_limit": 2,
   "questions": {

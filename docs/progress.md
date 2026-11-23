@@ -26,6 +26,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 | [0.4.1](#041) | release | 2026-11-22 | `da86a8f` | no experiment yet | no run | - | - |
 | [0.5.0](#050) | release | 2026-11-22 | `44e05a3` | no experiment yet | no run | - | - |
+| [0.6.0](#060) | release | 2026-11-23 | `3c40ef2` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -495,6 +496,34 @@ Limits of this measurement:
 - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.
 - The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists.
 
+## 0.6.0
+
+Release, 2026-11-23. Tree: `3c40ef2` (tag 0.6.0 at main 3c40ef2: 0.5.0 (44e05a3) with the merges of the ESS 0.97.4 pins, the inspector fixes, line 2 of the Loom runner (routing by autonomy level, runbook run --recorded, runbook canon, the read-only inspector, Loom 70b0e6e0), the end of the record parity-loom-strong-4 and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `34f84cf` | the ESS pins move from 0.97.3 to 0.97.4; the committed suites are byte-identical | no run metric affected |
+| `199f311` | the inspector applies a view file to a run of runbook run, whose protocol is in the opened event | no run metric affected |
+| `17c00ab` | the inspector reads a good end from the view file and draws the graph of a run of runbook run from its copies | no run metric affected |
+| `81f2612` | runbook canon validate, compile, check, simulate and evaluate run the linked Canon library, and runbook doctor needs no canon binary | no run metric affected |
+| `658ecf4` | the run inspector reads a run and starts no driver; every read of a run file goes through one path check | no run metric affected |
+| `da85428` | runbook run routes decisions by autonomy level from a table it reads once before the first action | no run metric affected |
+| `8a56f36` | runbook run --recorded re-drives a case tree from a recording, with a live cap that counts a call from its start | no run metric affected |
+| `ff0579c` | Loom 70b0e6e0 is linked, and scope.answer is a person step with a program | no run metric affected |
+| `652c032` | the effort per node class reaches sdc-node | no run metric affected |
+| `56579cc` | the decision contract refuses a letter nobody offered, an escalation to a principal who is not eligible, a repeated option letter and an empty record id | no run metric affected |
+| `c68ca14` | the record parity-loom-strong-4 ended, 0 of 3 runs delivered, all three stopped stuck; its verdict is descriptive | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; no record of experiments/ names a run on it.
+- The record parity-loom-strong-4 ran on the head of line 2 (9be5098), not on this tree, and is not listed here; it is descriptive and decides nothing, and no parity verdict between the old driver and Loom exists.
+- The old driver is still in this tree; its deletion is not in this release.
+
 ## Experiments in no entry
 
 Records of other inputs, of settings across trees, and planned ones. Inconclusive and contradicted verdicts are listed like held ones.
@@ -515,7 +544,7 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`parity-loom-strong`](../experiments/parity-loom-strong/report.md) | prospective | 0c28adc | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. | - | strong 0 ended of 3 | - | descriptive |
 | [`parity-loom-strong-2`](../experiments/parity-loom-strong-2/report.md) | prospective | ee6b50b | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited. | - | strong 0 of 3 | - | descriptive |
 | [`parity-loom-strong-3`](../experiments/parity-loom-strong-3/report.md) | prospective | e7dfa4b | Registered hypothesis, written before the runs: with the decider's answers declared in bindings/tools/answers.yaml (scope.answer, amend.upstream), the runs through Loom get past scope.answer, where all three runs of parity-loom-strong-2 stopped (decider_cannot_decide in IDEA-1.intake), and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). What counts against it: a run that stops at a decision the answers file declares, or an end outside the tolerance. It is the evaluation run of that story. This record follows parity-loom-strong-2, which stays as the evidence of its three stops and is not edited. | - | strong 0 of 3 | - | descriptive |
-| [`parity-loom-strong-4`](../experiments/parity-loom-strong-4/report.md) | prospective | 9be5098 | Registered hypothesis, written before the runs: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-3, which stays as the evidence of its three stops and is not edited. | - | strong 0 ended of 0 | - | planned, no run yet |
+| [`parity-loom-strong-4`](../experiments/parity-loom-strong-4/report.md) | prospective | 9be5098 | Registered hypothesis, written before the runs: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-3, which stays as the evidence of its three stops and is not edited. | - | strong 0 of 3 | - | descriptive |
 | [`release-0.3.0`](../experiments/release-0.3.0/report.md) | prospective | ae7a697 | Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 of 3; mixed 0 of 3; haiku 0 of 2 | - | descriptive |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 3 | - | planned, no run yet |
 | [`review-minimal-facts`](../experiments/review-minimal-facts/report.md) | prospective | 9152866 | Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input. | - | minimal-facts 0 ended of 0 | - | planned, no run yet |

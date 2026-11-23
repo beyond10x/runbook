@@ -79,8 +79,8 @@ is `step-window`, `tool-window` or `record`.
     no tool window holds it (a decider call, which runs outside any action).
   - `none`: nothing was in flight; `case` and `action` are null.
 - A record's case: from `decide-request.json` (`case_dir`, `action`) for a decider call; for an
-  agent call from its `request.json` (`case`, written by `llm-node.sh` before the adapter runs,
-  `docs/driver.md` "Observation records"), else from `llm-calls.jsonl` (`record` → `case`) once
+  agent call from its `request.json` (`case`, written by the model node before the adapter runs,
+  `docs/loom-run.md`, "A failed model call"), else from `llm-calls.jsonl` (`record` → `case`) once
   the call is finished. Only when neither names it (a record from before 2026-11-21, or the first
   moments before `request.json` is written): the case whose open action equals the record's
   action, a guess that the request or the log replaces once either names the case.
@@ -93,7 +93,7 @@ is `step-window`, `tool-window` or `record`.
 The kind of run directory is detected as `driver/src/run_kind.rs` does (or given with `--kind
 driver|loom`): `settings.json` in it marks a Loom run, `runbook run`'s.
 
-| | driver run (`sdc-drive`, `scripts/run-trial.sh`) | Loom run (`runbook run --watch`) |
+| | run directory of the former driver | Loom run (`runbook run --watch`) |
 |---|---|---|
 | roots | `store/<C>/work`, `llm/<NNN-action>/cwd`, `decider/<NNN-id>/cwd`, `work/.sdc/llm/<NNN-action>/cwd` | `work/` (the product tree of the whole run), `work/.sdc/llm/<NNN-action>/cwd`, `decider/<NNN-id>/cwd` |
 | not product | the case store's `evidence/`, `blobs/`, `evaluations/` | `store/` (Loom's case store and the projection of it), the run's own files, and under `work/.sdc/llm/` everything outside a `cwd/`: a call record's `request.json`, `status.json`, `response.json`, ... and `calls.jsonl` |
@@ -164,8 +164,9 @@ no `seq`.
   (a parent-death signal and a poll every 200 ms); refused when `pid` is not the parent at start.
   `runbook run --watch` starts it so, with `--kind loom`: the watcher ends with the runner, also
   when that is killed with SIGKILL (`docs/cli.md`, `run --watch`).
-- `scripts/watch-run.sh start|stop|status <run-dir>`: background start (returns once watching),
-  stop by PID (waits for the flush). The driver's launcher uses it; `runbook run` does not.
+- A run directory's changes are recorded by `runbook run --watch` (above, `docs/cli.md`, `run
+  --watch`). The shell launcher `scripts/watch-run.sh`, which the former driver's launcher used, is
+  deleted.
 
 ## Limits of the prototype
 

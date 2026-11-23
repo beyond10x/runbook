@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # The SDC example's tools, one subcommand per binding. Run with cwd = the case tree's shared work/
-# directory, by sdc-drive (driver mode) or by Loom (Loom mode: LOOM_CASE is set). Each check is
+# directory. A run reaches it one way: Loom starts it (Loom mode: LOOM_CASE is set). The branches
+# that read SDC_CASE and the other SDC_* variables alone (no LOOM_CASE) are reached by
+# `sdc-conform` (its `ess` calls) and by the tests `driver/tests/impl_gate.rs` and
+# `driver/tests/questions_check.rs`, which set those variables themselves. Each check is
 # deterministic and reports only through its exit code; each `stub-*` is a stand-in for an LLM
 # executor: it writes a fixed draft and decides nothing.
 #
 # Loom mode (docs/loom-bindings.md, "Tool changes for Loom's program contract"): Loom starts a
 # bound program with PATH and LOOM_CASE alone and its arguments as one JSON object on standard
-# input, which no subcommand here takes. What the driver gives as variables comes from the case id
-# (SDC_CASE) and from argv entries the binding states after the subcommand: --action <id>
+# input, which no subcommand here takes. What the other branches read as variables comes from the
+# case id (SDC_CASE) and from argv entries the binding states after the subcommand: --action <id>
 # (SDC_ACTION), --principal <principal> (SDC_PRINCIPAL), --stub-fixtures <dir> (SDC_STUB_FIXTURES)
 # and --stub-counter <dir> (SDC_STUB_COUNTER). They are exported, so the programs started here read
-# them as under the driver. sdc-findings and sdc-bugfix come from PATH, else from the driver
-# crate's build in this repository, never from HOME. Without LOOM_CASE none of this runs.
+# them the same way in both modes. sdc-findings and sdc-bugfix come from PATH, else from the driver
+# crate's build in this repository, never from HOME. Without LOOM_CASE the argv entries above are not read.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -87,8 +90,7 @@ export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.97.4} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAI
 # Exit 0 when every line of stdin is "true".
 all_true() { ! grep -qv '^true$'; }
 
-# A program the tool needs and cannot find is a program error, exit 127 (sdc-drive records no
-# evidence and stops), never a check result: a check that could not run is not `invalid`.
+# A program the tool needs and cannot find is a program error, exit 127 (no evidence is recorded and the run stops), never a check result: a check that could not run is not `invalid`.
 need() {
   local p
   for p; do
@@ -212,7 +214,7 @@ bugfix() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
-# Run a command; under Loom (the old driver keeps the step's log itself) also keep its log as the
+# Run a command; under Loom also keep its log as the
 # record of <kind> about the tree <tree> (sdc-reply record): the change.review inputs read it from
 # the workspace, since Loom gives a program no case store.  recorded <kind> <tree> <command>...
 recorded() {
@@ -588,9 +590,9 @@ story-tests)
   findings gate story || exit 5
   recorded conformance_run "${2:?implementation tree}" "$here/sdc-tool.sh" story-tests-run "$2" ;;
 amend) findings amend "${2:?stage}" ;;
-# amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
+# amend.upstream's handoff_when: exit 0 while a finding waits for a person's decision:
 # none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
-# keep-going's `rule:keep-going`, run.unstick's `agent:unstick`).
+# keep-going's `rule:keep-going`).
 findings-wait)
   [[ -f findings.yaml ]] &&
   yq -e '[.findings[]? | select(.status == "needs_person" and ((.decision // "") == ""

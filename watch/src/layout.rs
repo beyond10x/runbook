@@ -2,7 +2,7 @@
 //!
 //! Two kinds of run directory (`Kind`, as `driver/src/run_kind.rs` tells them apart):
 //!
-//! - driver run (`sdc-drive`):
+//! - run of the removed driver:
 //!   - case store: `store/<C>` and `store/<C>(/children/<C>)*`; its log is `events.jsonl`
 //!   - work root: `<case store>/work` (a child's `work` is a symlink to its parent's and is never
 //!     walked, so only the tree root's real `work/` is a root)

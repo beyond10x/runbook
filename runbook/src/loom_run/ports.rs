@@ -1,4 +1,4 @@
-//! The options of the six ports of the old driver's launcher (`scripts/run-trial.sh`) as `runbook
+//! The options of the six ports of the removed driver's launcher as `runbook
 //! run` takes them, parsed into [`Ports`]. Each port has its own file with one function that
 //! refuses the port's options until the port is built: `dry.rs`, `replay.rs`, `bugfix.rs`,
 //! `goals.rs`, `watch.rs`, `conformance.rs`. Building a port replaces the body of its function and

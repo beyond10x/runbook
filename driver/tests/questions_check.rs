@@ -331,7 +331,7 @@ mod loom_mode {
 
     /// Loom's start with the names it gave the case: `LOOM_CASE_NAME`, `LOOM_PARENT_CASE_NAME`.
     fn loom_named(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>, names: &[(&str, &str)]) -> Run {
-        let mut c = if tool == "llm-node.sh" {
+        let mut c = if tool == "sdc-node" {
             sdc_node(argv)
         } else {
             let mut c = Command::new(tools().join(tool));
@@ -369,8 +369,6 @@ mod loom_mode {
     }
 
     const WRITE_INSTRUCTIONS: &str = r#"{"task":"instructions/questions.write.md"}"#;
-    const NODE: &str = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/questions.write.md"},"stub":["stub-file","questions-open.yaml","questions.yaml"]}"#;
-
     #[test]
     fn a_check_subcommand_runs_the_same_under_loom() {
         let r = roots("check");
@@ -427,7 +425,7 @@ mod loom_mode {
         assert_eq!((l.code, l.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{l:#?}");
     }
 
-    /// The prompt llm-node wrote on the dry adapter for `node`, under Loom with `names`.
+    /// The prompt sdc-node wrote on the dry adapter for `node`, under Loom with `names`.
     fn named_prompt(name: &str, node: &str, case: &str, names: &[(&str, &str)]) -> String {
         let r = roots(name);
         let cfg = if node == "plan.decompose" { "plan.decompose" } else { "change.implement" };
@@ -437,7 +435,7 @@ mod loom_mode {
             r#"{"task":"instructions/change.implement.md","coverage":"instructions/change.implement.coverage.md","coverage_inputs":"instructions/change.implement.coverage.inputs.md"}"#
         };
         let argv = [cfg, "--model", "claude-haiku-5-5", "--max-turns", "15", "--max-budget-usd", "0.5", "--instructions", instructions, "--adapter", "dry", "--stub", "stub-tree", "impl", "impl"];
-        let l = loom_named(&r.1, "llm-node.sh", &argv, case, "{}", None, names);
+        let l = loom_named(&r.1, "sdc-node", &argv, case, "{}", None, names);
         assert_eq!(l.code, Some(0), "{l:#?}");
         l.files[&format!(".sdc/llm/001-{node}/prompt.md")].clone()
     }
@@ -482,7 +480,7 @@ mod loom_mode {
         let doc_path = r.1.join("store-feedback.json");
         fs::write(&doc_path, doc.to_string()).unwrap();
         let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
-        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
+        let l = loom(&r.1, "sdc-node", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
         assert_eq!(l.code, Some(0), "{l:#?}");
         let feedback = &l.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
         assert!(feedback.contains("## questions_shape = invalid") && !feedback.contains("SECRET-OUTSIDE"), "{feedback}");
@@ -502,41 +500,34 @@ mod loom_mode {
             argv.extend_from_slice(&extra);
             argv.extend_from_slice(&["--stub"]);
             argv.extend_from_slice(&stub);
-            let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.intake", "{}", None);
+            let l = loom(&r.1, "sdc-node", &argv, "IDEA-1.intake", "{}", None);
             assert_eq!(l.code, Some(64), "{extra:?}: {l:#?}");
             assert!(l.stderr.contains(want), "{extra:?}: {}", l.stderr);
         }
     }
 
     #[test]
-    fn an_agent_node_on_the_stub_and_on_dry_runs_the_same_under_loom() {
+    fn an_agent_node_runs_on_the_stub_and_on_dry_under_loom() {
         // idea.dissect on the stub: the binding's stub argv writes dissection.yaml.
         let r = roots("stub");
         put(&r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
         let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
-        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/idea.dissect.md"},"stub":["stub-file","dissection.yaml","dissection.yaml"]}"#;
-        let d = driver(&r.0, "llm-node.sh", &["idea.dissect"], &[("SDC_ACTION", "idea.dissect"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", cfg)]);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("idea.dissect", &stub, &["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]), "IDEA-1.intake", "{}", None);
-        assert_eq!(d.code, Some(0), "{d:#?}");
-        assert!(d.files.contains_key("dissection.yaml"), "{d:#?}");
-        same("idea.dissect on the stub", &d, &l);
-        // spec.author on dry: the prompt names the domain the arguments give (standard input under
-        // Loom, SDC_ARGS for the driver), the request names the binding's model and caps.
+        let l = loom(&r.1, "sdc-node", &node_argv("idea.dissect", &stub, &["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]), "IDEA-1.intake", "{}", None);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        assert!(l.files.contains_key("dissection.yaml"), "{l:#?}");
+        // spec.author on dry: the prompt names the domain the arguments give (standard input), the request names the binding's model and caps.
         let r = roots("dry");
         for f in ["idea.yaml", "requirements.yaml", "context.yaml"] {
             put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
         }
-        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":40,"max_budget_usd":2,"instructions":{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"},"stub":["stub-tree","billing-spec","spec"]}"#;
         let args = r#"{"domain":"billing"}"#;
-        let d = driver(&r.0, "llm-node.sh", &["spec.author"], &[("SDC_ACTION", "spec.author"), ("SDC_CASE", "IDEA-1.billing.spec"), ("SDC_ARGS", args), ("SDC_LLM_NODE", cfg), ("SDC_LLM_ADAPTER", "dry")]);
         let argv = ["spec.author", "--model", "claude-haiku-5-5", "--max-turns", "40", "--max-budget-usd", "2", "--instructions", r#"{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}"#, "--adapter", "dry", "--stub", "stub-tree", "billing-spec", "spec"];
-        let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.billing.spec", args, None);
-        assert_eq!(d.code, Some(0), "{d:#?}");
-        let prompt = &d.files[".sdc/llm/001-spec.author/prompt.md"];
+        let l = loom(&r.1, "sdc-node", &argv, "IDEA-1.billing.spec", args, None);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let prompt = &l.files[".sdc/llm/001-spec.author/prompt.md"];
         assert!(prompt.contains("format: ess/1, system: billing, version: v1"), "{prompt}");
-        assert!(d.files[".sdc/llm/001-spec.author/request.json"].contains("\"max_turns\": 40"), "{d:#?}");
-        assert!(d.files.contains_key("spec/system.yaml"), "{d:#?}");
-        same("spec.author on dry", &d, &l);
+        assert!(l.files[".sdc/llm/001-spec.author/request.json"].contains("\"max_turns\": 40"), "{l:#?}");
+        assert!(l.files.contains_key("spec/system.yaml"), "{l:#?}");
     }
 
     /// A person's rejection reaches the writer as the reasons text (Loom's `--result rejected
@@ -557,7 +548,7 @@ mod loom_mode {
         let doc_path = r.1.join("feedback-doc.json");
         fs::write(&doc_path, doc.to_string()).unwrap();
         let stub = ["stub-file", "context.yaml", "context.yaml"];
-        let l = loom(&r.1, "llm-node.sh", &node_argv("context.default", &stub, &[]), "IDEA-1.direction", "{}", Some(&doc_path));
+        let l = loom(&r.1, "sdc-node", &node_argv("context.default", &stub, &[]), "IDEA-1.direction", "{}", Some(&doc_path));
         assert_eq!(l.code, Some(0), "{l:#?}");
         let context = &l.files["context.yaml"];
         assert!(
@@ -565,7 +556,7 @@ mod loom_mode {
             "{context}"
         );
         // The same document through the model adapter's dry run reaches the writer's input.
-        let dry = loom(&r.1, "llm-node.sh", &node_argv("context.default", &stub, &["--adapter", "dry", "--instructions", r#"{"task":"instructions/context.default.md"}"#]), "IDEA-1.direction", "{}", Some(&doc_path));
+        let dry = loom(&r.1, "sdc-node", &node_argv("context.default", &stub, &["--adapter", "dry", "--instructions", r#"{"task":"instructions/context.default.md"}"#]), "IDEA-1.direction", "{}", Some(&doc_path));
         let feedback = dry.files.iter().find(|(k, _)| k.ends_with("/cwd/in/feedback.md")).map(|(_, v)| v.clone()).unwrap_or_default();
         assert!(feedback.contains("context_approval = rejected") && feedback.contains("Name the failure modes of a missing connection."), "{dry:#?}");
     }
@@ -578,22 +569,12 @@ mod loom_mode {
         }
         put(&r, "questions.yaml", "questions: []\n");
         let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
-        let env = [("SDC_ACTION", "questions.write"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", NODE), ("SDC_LLM_ADAPTER", "dry")];
-        // No feedback: questions.yaml exists, so questions.write is not called.
-        let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
-        assert!(d.code == Some(0) && d.stdout.contains("questions.write not called"), "{d:#?}");
-        // The driver ends 0 with the reason in SDC_NOT_CALLED; under Loom the node ends with the
-        // code of `exits.not_called` (79) and prints the same line: everything else is equal.
-        assert_eq!(l.code, Some(79), "{l:#?}");
-        same("questions.write, no feedback", &d, &Run { code: d.code, stdout: l.stdout.clone(), stderr: l.stderr.clone(), files: l.files.clone() });
-        // The check's record that sent it back, with its log: the driver's SDC_FEEDBACK, and Loom's
-        // loom.retry-feedback/1 document holding the record and the log's tail.
+        let l = loom(&r.1, "sdc-node", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
+        assert_eq!(l.code, Some(79), "questions.write, no feedback: not called, the code of exits.not_called: {l:#?}");
+        assert!(!l.files.keys().any(|k| k.ends_with("/cwd/in/feedback.md")), "{l:#?}");
+        // The check's record that sent it back, with its log: Loom's loom.retry-feedback/1 document
+        // holding the record and the log's tail.
         let log = "check-questions: scope-changing question lacks a key\nq1: lacks excerpt\n";
-        fs::write(r.0.join("check.log"), log).unwrap();
-        let fb = serde_json::json!([{"kind": "questions_shape", "result": "invalid", "subject": "questions",
-            "action": null, "exit": null, "log": r.0.join("check.log")}]);
-        fs::write(r.0.join("feedback.json"), fb.to_string()).unwrap();
         let blob = "4f".repeat(32);
         let doc = serde_json::json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.intake", "action": "questions.write",
             "records": [{"evidence_id": "e1", "kind": "questions_shape", "subject": "questions", "subject_revision": "r1",
@@ -602,15 +583,10 @@ mod loom_mode {
         fs::create_dir_all(r.1.join("store/blobs")).unwrap();
         let doc_path = r.1.join("store/blobs/feedback");
         fs::write(&doc_path, doc.to_string()).unwrap();
-        let fb_path = r.0.join("feedback.json").display().to_string();
-        let mut env = env.to_vec();
-        env.push(("SDC_FEEDBACK", &fb_path));
-        let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
-        assert_eq!(d.code, Some(0), "{d:#?}");
-        let feedback = &d.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
-        assert!(feedback.contains("## questions_shape = invalid (from ?, exit ?)") && feedback.contains("q1: lacks excerpt"), "{feedback}");
-        same("questions.write, retried", &d, &l);
+        let l = loom(&r.1, "sdc-node", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let feedback = &l.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
+        assert!(feedback.contains("## questions_shape = invalid") && feedback.contains("q1: lacks excerpt"), "{feedback}");
     }
 
     /// A `claude` that calls no model: it checks that the adapter put the login into its config
@@ -657,7 +633,7 @@ mod loom_mode {
         assert!(!l.stderr.contains("unbound variable") && !mark.exists(), "{l:#?}");
     }
 
-    /// The binding passes the login as an argv entry (`--claude-credentials <file>`): llm-node
+    /// The binding passes the login as an argv entry (`--claude-credentials <file>`): sdc-node
     /// exports it as SDC_CLAUDE_CREDENTIALS and a node runs on the claude-cli adapter under an
     /// environment of `PATH` and `LOOM_CASE`.
     #[test]
@@ -728,28 +704,6 @@ fi
 [ -n "$cwd" ] && [ -f "$b/write-decision" ] && { mkdir -p "$cwd/out" && cp "$b/write-decision" "$cwd/out/decision.json"; }
 printf '%s\n' '{"format":"metaharness.event/1","seq":1,"run":"standin","event":"session.ended","is_error":false,"subtype":"success","terminal_reason":"completed","num_turns":1,"duration_ms":1,"total_cost_usd":0.0,"usage":{}}'
 "#;
-
-    /// A `sdc-reply` for the model paths that need the case's store: it answers what the tools ask
-    /// before and after the call with canned documents and hands `adapters` to the real binary.
-    fn reply_standin() -> String {
-        format!(
-            r#"#!/bin/sh
-[ "$1" = adapters ] && exec '{real}' "$@"
-sub=$1; shift
-cwd=
-while [ $# -gt 0 ]; do case $1 in --cwd) cwd=$2; shift 2 ;; *) shift ;; esac; done
-case $sub in
-  review-inputs) mkdir -p "$cwd/in"; printf 'review input\n' > "$cwd/in/review.md"; echo '{{"base":"mainline","document_bytes":13,"coverage":false}}' ;;
-  schema) echo '{{"type":"object"}}' ;;
-  check-review) echo '{{"notes":[]}}' ;;
-  citable) echo '{{"artifacts":[],"examples":{{}}}}' ;;
-  rejections) echo '[]' ;;
-  *) exit 0 ;;
-esac
-"#,
-            real = env!("CARGO_BIN_EXE_sdc-reply")
-        )
-    }
 
     struct Standin {
         base: PathBuf,
@@ -882,7 +836,7 @@ esac
         r.1.join("work/.sdc/llm").join(format!("001-{node}"))
     }
 
-    /// `llm-node.sh idea.dissect` started as Loom starts it, on `adapter`, with the dummy login.
+    /// `sdc-node idea.dissect` started as Loom starts it, on `adapter`, with the dummy login.
     fn dissect_under_loom(r: &(PathBuf, PathBuf), st: &Standin, adapter: &str, login: Option<&Path>) -> Run {
         put(r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
         let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
@@ -898,7 +852,7 @@ esac
         run(&r.1, c, "{}")
     }
 
-    /// A request for an adapter, as llm-node.sh writes it.
+    /// A request for an adapter, as sdc-node writes it.
     fn adapter_request(r: &(PathBuf, PathBuf)) -> PathBuf {
         let work = r.1.join("work");
         fs::write(work.join("prompt.md"), "prompt\n").unwrap();
@@ -1202,58 +1156,6 @@ esac
         assert!(in_private.iter().any(|n| n.starts_with("h.")), "{in_private:?}");
         let tmpdir = logged_value(&st.logged("claude.")[0], "tmpdir");
         assert!(Path::new(&tmpdir).starts_with(login.parent().unwrap()), "the scratch root lies outside the private directory: {tmpdir}");
-    }
-
-    /// The environment `runbook run`'s model decider gives `decider.sh` (`runbook/src/loom_run/decider.rs`,
-    /// `env`): `PATH`, an empty `HOME` inside the run directory, and the `SDC_*` it sets.
-    fn decider_under_loom_run(name: &str, adapter: Option<&str>, st: &Standin) -> (Run, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
-        let r = roots(name);
-        let login = private_login(&r);
-        let reply = st.base.join("sdc-reply");
-        fs::write(&reply, reply_standin()).unwrap();
-        fs::set_permissions(&reply, fs::Permissions::from_mode(0o755)).unwrap();
-        let home = r.1.join("home");
-        fs::create_dir_all(&home).unwrap();
-        let rec = r.1.join("rec");
-        let request = serde_json::json!({"type": "approval", "case_dir": r.1.join("case"), "action": "scope.approve", "capability": "ApproveAction",
-            "subject": "scope", "path": null, "revision": "r1", "position": {"claims": {}, "open_obligations": [], "legitimate_outcomes": []},
-            "record_dir": rec});
-        fs::create_dir_all(r.1.join("case")).unwrap();
-        fs::write(r.1.join("request.json"), request.to_string()).unwrap();
-        let mut c = Command::new(tools().join("decider.sh"));
-        c.args(["model"]).arg(r.1.join("request.json")).env_clear().env("PATH", st.path()).env("HOME", &home)
-            .env("SDC_DECIDER_ESCALATE", "stop").env("SDC_LLM_MODEL_DECIDER", "claude-haiku-5-5").env("SDC_DECIDER_MAX_BUDGET_USD", "0.25")
-            .env("SDC_REPLY", &reply).env("SDC_DECIDER_MAX_TURNS", "8").env("SDC_CLAUDE_CREDENTIALS", &login);
-        if let Some(a) = adapter {
-            c.env("SDC_DECIDER_ADAPTER", a);
-        }
-        (run(&r.1, c, ""), rec)
-    }
-
-    #[test]
-    fn the_model_decider_on_the_claude_cli_adapter_finds_its_login_under_loom_run() {
-        let st = Standin::new("decider-claude", &[("claude", CLAUDE_STANDIN)]);
-        let (l, rec) = decider_under_loom_run("decider-claude", Some("claude-cli"), &st);
-        assert_eq!(l.code, Some(0), "{l:#?}");
-        let reply: serde_json::Value = serde_json::from_str(l.stdout.trim()).unwrap();
-        assert_eq!((reply["valid"].as_bool(), reply["decision"].as_str(), reply["adapter"].as_str()), (Some(true), Some("approve"), Some("claude-cli")), "{l:#?}");
-        let claude = st.logged("claude.");
-        assert_eq!((claude.len(), logged_value(&claude[0], "login")), (1, DUMMY_LOGIN.to_owned()), "{claude:?}");
-        assert_no_private_copy(&rec);
-    }
-
-    #[test]
-    fn the_model_decider_on_the_default_adapter_finds_its_login_under_loom_run() {
-        let st = Standin::new("decider-default", &[("metaharness", METAHARNESS_STANDIN)]);
-        fs::write(st.base.join("write-decision"), r#"{"decision":"approve","reasons":["ok"],"cites":[]}"#).unwrap();
-        let (l, rec) = decider_under_loom_run("decider-default", None, &st);
-        assert_eq!(l.code, Some(0), "{l:#?}");
-        let reply: serde_json::Value = serde_json::from_str(l.stdout.trim()).unwrap();
-        assert_eq!((reply["valid"].as_bool(), reply["decision"].as_str(), reply["adapter"].as_str()), (Some(true), Some("approve"), Some("metaharness")), "{l:#?}");
-        let seen = st.logged("seen.");
-        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "{seen:?}");
-        assert_no_private_copy(&rec);
     }
 
     /// `change.review` under Loom, the writers on `--adapter metaharness`: the review class takes

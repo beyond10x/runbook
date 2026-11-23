@@ -595,7 +595,7 @@ fn decisions_by_class(lines: &[J]) -> (BTreeMap<String, DecisionClass>, BTreeMap
             let d = l["decision"].as_str().unwrap_or("");
             let has_model = l["model"].as_str().is_some_and(|m| !m.is_empty());
             // A call: a line naming a model that is not an effective line repeating an escalation
-            // or an invalid reply already counted (decisions.jsonl, scripts/run-trial.sh `line`).
+            // or an invalid reply already counted (decisions.jsonl, as the removed driver wrote it).
             let repeat = l["suppressed"] == true || l.get("fallback").is_some_and(|f| !f.is_null());
             match d {
                 "invalid_reply" => {

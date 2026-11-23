@@ -1,5 +1,5 @@
 //! sdc-bugfix: the programs of `sdc.bugfix` (protocol/sdc-bugfix.protocol.yaml, docs/bugfix.md).
-//! Run by sdc-drive with cwd = the case's work directory; every path is relative to it.
+//! Run by Loom with cwd = the case's work directory; every path is relative to it.
 //!
 //!   sdc-bugfix schema dissection|repro   the JSON schema of an LLM data document
 //!   sdc-bugfix schema ticket             the JSON schema of the ticket document sdc.ticket/1
@@ -27,7 +27,7 @@
 //! .runbook/checks.yaml, else the detection table examples/sdc/checks-detect.yaml). Every command
 //! runs as an argv, never through a shell, in a copy of impl/ (or of the base) under .sdc/bugfix/
 //! (nothing is written into an artifact), through `slot` when it is on PATH. A program that is
-//! missing exits 127 (sdc-drive records nothing), never a check result; so does an unusable
+//! missing exits 127 (nothing is recorded), never a check result; so does an unusable
 //! checks.yaml (126).
 //!
 //! The build pool (docs/driver.md, "The build pool wait"): `repro-run`, `tests-run` and `gate-run`
@@ -90,8 +90,7 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("sdc-bugfix: {e}");
-            // A missing program (127) or commands that cannot run (126) are program errors: sdc-drive
-            // records nothing. The seed's refusals are 2.
+            // A missing program (127) or commands that cannot run (126) are program errors. The seed's refusals are 2.
             let seed = args.first().is_some_and(|a| a == "seed");
             // The build pool's: no slot within the wait bound (nothing ran), or a job the pool ended
             // at its run limit (docs/driver.md, "The build pool wait").
@@ -937,7 +936,7 @@ const INSTANT_RE: &str = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d
 const BRANCH_RE: &str = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$";
 
 /// The size cap of a repository seeded from a ticket. Every model call copies the code tree into
-/// its scratch directory and back (`tools/llm-node.sh`, `input impl`, `seed impl`), so a large tree
+/// its scratch directory and back (`sdc-node`, `input impl`, `seed impl`), so a large tree
 /// costs every call. Raised for one run with SDC_SEED_MAX_FILES and SDC_SEED_MAX_BYTES.
 const SEED_MAX_FILES: u64 = 2000;
 const SEED_MAX_BYTES: u64 = 16 * 1024 * 1024;

@@ -11,7 +11,7 @@ use super::{read_json, sorted, walk};
 
 // --- change.implement's requirement coverage (story:implement-cites-requirements) ---------------
 
-/// Where llm-node.sh puts the implementer's coverage document: inside the change tree, so it is
+/// Where `sdc-node` puts the implementer's coverage document: inside the change tree, so it is
 /// part of the revision it describes (`.sdc/` is left out of the review's copy and diff).
 pub const COVERAGE: &str = ".sdc/coverage.json";
 
@@ -237,7 +237,7 @@ pub fn story_arg(story: Option<String>) -> Result<String, String> {
         .filter(|s| !s.is_empty()).ok_or("no --story and no story in SDC_CASE".into())
 }
 
-/// The case's `work/`: `--work` (llm-node.sh passes its own), else `<case dir>/work`.
+/// The case's `work/`: `--work` (`sdc-node` passes its own), else `<case dir>/work`.
 pub fn work_arg(work: Option<PathBuf>, case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     match work {
         Some(w) => Ok(w),

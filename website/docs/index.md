@@ -31,33 +31,32 @@ repository is `beyond10x/runbook`; the binaries, environment names and format id
 
 ## The LLM is not the runtime
 
-The driver `sdc-drive` runs one case tree on Canon. It reads Canon's decision for the case
-(`canon-decision/1`), runs the tool bound to one admissible action, turns the tool's result into a
-`canon-evidence/1` record and evaluates again. An LLM is only ever one action's executor: its
-output becomes an artifact revision, never evidence and never the next state
-([`docs/driver.md:3-6`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/driver.md#L3-L6)). Only
+`runbook run` runs one case tree through Loom, on Canon. Canon's decision for the case
+(`canon-decision/1`) names the admissible actions; the tool bound to one of them runs, its result
+becomes a `canon-evidence/1` record, and the case is evaluated again. An LLM is only ever one
+action's executor: its output becomes an artifact revision, never evidence and never the next state
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)). Only
 the bound programs record evidence about what the model wrote. The page
 [The LLM is not the runtime](pathname:///runbook/llm-is-not-the-runtime) shows one run step by step.
 
 ## A run
 
-A run drives one case tree from an idea to an end or a stop. `scripts/run-trial.sh <run> "<idea>"`
-starts it; the driver takes one admissible action after another and stops with a named verdict when
-nothing useful is left: `terminable` when a legitimate outcome exists, `awaiting_person`,
-`writer_spent`, `stuck`, or a spent step, model-call or wall-time budget
-([`docs/driver.md:164-172`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/driver.md#L164-L172)).
-Decisions that belong to a person stop the run and print the command that takes them
-([`README.md:11`](https://github.com/beyond10x/runbook/blob/0.1.1/README.md#L11)).
+A run drives one case tree from an idea to an end or a stop. `runbook run <runbook> --intake <idea
+file> …` starts it; the runner takes one step of the tree through Loom after another and ends the
+run when the tree ends, when it is stuck, or when a cap is reached: spend, model calls or wall time
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)). A decision
+that belongs to a person stops the run: with no autonomy level set, every decision does
+([`docs/loom-run-settings.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run-settings.md)).
 
 ## Autopilot and the decider
 
-Under autopilot (`--autopilot`, level A5) a decider model takes the place of a person and its
-decision is final. It answers the scope-changing questions and the findings, approves or rejects,
-and a stop that needs a person ends the run with a stop record by `rule:autopilot`
-([`docs/autonomy-levels.md:449`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/autonomy-levels.md#L449)).
-A rejected approval is not an end: the writer runs again with the reasons, and the third rejection
-stops the run (`rework_spent`)
-([`docs/releases/0.1.0.md:9`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/releases/0.1.0.md#L9)).
+Under autopilot (autonomy level A5 in the run's settings) a decider model takes the place of a
+person and its decision is final. It answers the scope-changing questions and the findings,
+approves or rejects, and a decision it cannot take ends the run as `stopped: decider`
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md),
+[`docs/loom-run-decisions.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run-decisions.md)).
+A rejected approval is not an end: the writer runs again with the reasons. The driver's cap on
+rejections is not ported.
 
 ## A clean pass
 

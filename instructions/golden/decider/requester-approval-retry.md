@@ -7,6 +7,7 @@ Inputs:
 - in/aep/initiative/roadmap.md
 - in/idea.yaml
 - in/dissection.yaml
+- in/goals.yaml
 - in/decisions.json (your earlier decisions in this run)
 
 Choose the option (or, for a question, a short answer of your own) that the entries of
@@ -27,6 +28,6 @@ The goals revision is g1; idea and prior grounds
 (source idea, prior_decision) cite lines as {"form": "path_line", "value": {"path": "work/<file>", "line": <n>}}.
 
 This is attempt 3. Your previous reply was refused by the program check:
-  no ground
+  the grounding check refused it: goals@g1#G9: no such entry
 
 When the file is written, reply with the single word: done.

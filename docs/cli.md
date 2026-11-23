@@ -103,7 +103,7 @@ runbook test <suite file> [--scratch <dir>] [--only <name>[,<name>...]] --confin
 
 Runs the cycles of a `loom.tree-suite/1` file one after another through Loom's suite runner
 (`b10x_loom_tree::suite::run_suite`), in this process (`runbook/src/test_suite.rs`). It is not a
-client of a daemon. No `b10x-loom`, `canon` or `sdc-drive` process is started; the process tree of a
+client of a daemon. No `b10x-loom` or `canon` process is started; the process tree of a
 run holds `runbook` and the bound programs, and a bound program gets `PATH` and `LOOM_*` from Loom
 and nothing of this process's environment. The protocols are the files of the asset root's
 `protocol/` directory (`RUNBOOK_HOME`, else the checkout). The suite's seeds, bindings and suite
