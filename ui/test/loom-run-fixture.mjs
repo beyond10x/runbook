@@ -117,8 +117,11 @@ const T0 = Date.parse('2026-11-21T10:00:00Z');
 export const iso = (sec) => new Date(T0 + sec * 1000).toISOString().replace('.000Z', 'Z');
 
 // options: outcome (the tree's outcome), delivered (what status.json says), root (the case id), protocols and
-// bindings (write the copies), watch (null: no fs/ directory; 'empty': an empty record; 'changes': two changes)
-export function writeLoomRun(dir, {outcome = 'ready', delivered = false, root = 'CASE-1', protocolId = PROTOCOL, protocols = true, bindings = true, watch = null} = {}) {
+// bindings (write the copies), watch (null: no fs/ directory; 'empty': an empty record; 'changes': two changes),
+// revision (the protocol revision of the opened event; null: the event has none), evaluations (false: the runner's
+// own projection, which writes none; true: an evaluation file, the event that names it and the claims of ir.json,
+// as a runner that records them would write them)
+export function writeLoomRun(dir, {outcome = 'ready', delivered = false, root = 'CASE-1', protocolId = PROTOCOL, protocols = true, bindings = true, watch = null, revision = REVISION, evaluations = false} = {}) {
   fs.rmSync(dir, {recursive: true, force: true});
   put(path.join(dir, 'settings.json'), JSON.stringify({case: root, root_protocol: `${protocolId}@${REVISION}`, loom: {in_process: true, confinement: 'local'}}, null, 2) + '\n');
   put(path.join(dir, 'run-settings.jsonl'), jl([{format: 'sdc.run-settings/1', at: iso(0), leg: 'loom', adapter: 'claude-cli'}]));
@@ -132,19 +135,22 @@ export function writeLoomRun(dir, {outcome = 'ready', delivered = false, root = 
   put(path.join(dir, 'work', 'notes.txt'), 'three invented lines\nabout nothing real\nfor a fixture\n');
   put(path.join(dir, 'work', 'report.md'), '# Report\n\nAn invented report.\n');
   const store = path.join(dir, 'store', root);
-  const events = [{event: 'opened', at: iso(0), protocol: {id: protocolId, revision: REVISION}}];
+  const events = [{event: 'opened', at: iso(0), protocol: revision == null ? {id: protocolId} : {id: protocolId, revision}}];
   ACTIONS.forEach((a, i) => {
     events.push({event: 'action_started', at: iso(10 * (i + 1)), action: a, llm: /\.write$/.test(a), retry_of: []});
     const fin = {event: 'action_finished', at: iso(10 * (i + 1)), action: a, exit: '0', evidence: []};
     if (a === 'report.approve') fin.principal = 'decider:rule';
     events.push(fin);
   });
+  if (evaluations) events.push({event: 'evaluated', at: iso(end - 1), file: 'evaluations/0001.json', case_revision: 2});
   events.push({event: 'terminated', at: iso(end), outcome});
   events.forEach((e, i) => { e.seq = i; e.source = 'loom-runlog'; });
   put(path.join(store, 'events.jsonl'), jl(events));
   put(path.join(store, 'observed.jsonl'), jl(events.map((e, i) => ({index: i, event: e.event, observed_at: e.at, format: 'sdc.observed/1'}))));
   const effects = {'notes.write': 'write', 'notes.check': 'read', 'report.write': 'write', 'report.check': 'read', 'report.approve': 'read', 'report.read': 'read'};
-  if (protocols) put(path.join(store, 'ir.json'), JSON.stringify({actions: Object.fromEntries(Object.entries(effects).map(([a, e]) => [a, {effect: e}]))}, null, 2) + '\n');
+  const claims = {'notes.valid': {description: 'the notes pass the shape check'}, 'report.valid': {description: 'the report passes the shape check'}};
+  if (protocols || evaluations) put(path.join(store, 'ir.json'), JSON.stringify({...(protocols ? {actions: Object.fromEntries(Object.entries(effects).map(([a, e]) => [a, {effect: e}]))} : {}), ...(evaluations ? {claims} : {})}, null, 2) + '\n');
+  if (evaluations) put(path.join(store, 'evaluations', '0001.json'), JSON.stringify({format: 'canon-decision/1', at: iso(end - 1), claims: {'notes.valid': {value: 'true'}, 'report.valid': {value: 'unknown'}}}, null, 2) + '\n');
   if (bindings) put(path.join(store, 'bindings.json'), JSON.stringify({'report.approve': {manual: true}, 'report.read': {copy: {from: 'example-first'}}}, null, 2) + '\n');
   if (watch) {
     const change = (seq, file, n) => ({format: 'sdc.fs-change/1', seq, at: iso(10 * seq), root: 'work', path: file, op: 'create', from_path: null, before: null, after: 'a'.repeat(64), binary: false, too_large: false,

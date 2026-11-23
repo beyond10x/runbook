@@ -6,11 +6,30 @@
 // artifacts and no program. YAML is read with the reader the inspector already uses for `work/questions.yaml`
 // (`yq`, decisions.mjs); nothing here adds a dependency. A part that cannot be read is named in `parts`, and the
 // page says "not available for this run" for it.
-// Every read of a file of the run goes through ./runfiles.mjs (`listDir`, `statOf`, `runPath`): a copy that is
+// Every read of a file of the run goes through ./runfiles.mjs (`listDir`, `statOf`, and the text read through the checked open that is given to `yq` on standard input): a copy that is
 // a link leaving the run is not listed, not statted and not handed to `yq`.
 import path from 'node:path';
 import {yamlJson} from './decisions.mjs';
-import {listDir, statOf, runPath} from './runfiles.mjs';
+import {listDir, statOf, readRegular} from './runfiles.mjs';
+
+// The protocol id of a case from the `opened` event of its events.jsonl (a run of `runbook run` writes no case.json,
+// docs/loom-run-directory.md), or null. Only the head of the log is read (the first 64 KiB, whole lines): `opened` is its
+// first event and the log may be long. The head is read through the checked open (one name, regular, under the run).
+export const HEAD_BYTES = 65536;
+export function openedProtocol(dir) {
+  const r = readRegular(path.join(dir, 'events.jsonl'), {limit: HEAD_BYTES});
+  if (r.state !== 'ok') return null;
+  const lines = r.bytes.toString('utf8').split('\n');
+  if (r.bytes.length === HEAD_BYTES && r.size > HEAD_BYTES) lines.pop();
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (e?.event !== 'opened') continue;
+    const p = e.protocol?.id ?? e.protocol;
+    return typeof p === 'string' && p ? p : null;
+  }
+  return null;
+}
 
 // the registration stem of a protocol id: `.` and `_` written as `-` (runbook/src/loom_run/run_dir.rs `stem`)
 const stem = (id) => String(id ?? '').replace(/[._]/g, '-');
@@ -27,8 +46,7 @@ export function runFacts(runDir) {
   const facts = {protocols: [], bindings: [], unreadable: []};
   for (const [dir, list] of [[pdir, facts.protocols], [bdir, facts.bindings]]) {
     for (const n of yamlFiles(dir, runDir)) {
-      const real = runPath(path.join(dir, n), runDir);
-      const doc = real ? yamlJson(real) : null;
+      const doc = yamlJson(path.join(dir, n), runDir);
       if (doc && typeof doc === 'object' && !Array.isArray(doc)) list.push(doc); else facts.unreadable.push(`${path.basename(dir)}/${n}`);
     }
   }
