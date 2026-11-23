@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:bindings-state-their-exits
 kind: story
-status: draft
+status: active
 title: The bindings state which exit codes are a program error and which mean not called
 summary: 'Found while wave 2026-11-22-w1 ran: Loom 70b0e6e0 loads the exits member; bindings/PENDING.md still lists D36, D37 and the pool-wait exits as open.'
 tags:
@@ -10,7 +10,13 @@ tags:
 relations:
 - informed_by: story:driver-runtime-removed
 - depends_on: story:loom-bindings-files
-revision: 1
+scope:
+- confidence: cited
+  path: cycles
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-22T22:25:54Z", actor: "human:operator", revision: 4, executor: "agent:runbook", correlation: "d613-2026-11-22"}
+- {from: "proposed", to: "active", at: "2026-11-22T22:25:55Z", actor: "human:operator", revision: 5, executor: "agent:runbook", correlation: "d613-2026-11-22"}
 ---
 ## Outcome
 
@@ -40,6 +46,16 @@ could not run ends the run as `ProgramError` and records nothing; it is no longe
 - The D36, D37 and pool-wait entries leave `bindings/PENDING.md`; `scripts/check-bindings.sh`
   exits 0.
 - `runbook test cycles/tree-suite.yaml`: no entry changes from `expected` to another state.
+- Added on acceptance (operator's pick on D613, 2026-11-22, after record `parity-loom-strong-4`):
+  runs 1 and 3 of that record stopped at `RunsSpent` because a not-called `spec.author` and a
+  not-called `change.implement` counted against `budget.max_runs`. Loom `70b0e6e0` treats a
+  not-called exit as "records nothing, the step is performed", so the action is not taken again
+  until the case moves. A stub entry of `cycles/tree-suite.yaml` (no model call) therefore holds
+  the state of run 1: a finding with status `needs_person` in a spec case and a model node that
+  is not called. Its expected end: the finding is decided (by the decider at A5, by a person
+  below) and the model node is then called; the run ends neither `RunsSpent` nor `Stuck`. Where
+  that end needs a change outside this story's scope (a rule of Loom), the entry is `pending`
+  with the Loom story it waits for, and the unit reports the code line.
 
 ## Scope
 

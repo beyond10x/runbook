@@ -583,7 +583,10 @@ mod loom_mode {
         let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
         let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
         assert!(d.code == Some(0) && d.stdout.contains("questions.write not called"), "{d:#?}");
-        same("questions.write, no feedback", &d, &l);
+        // The driver ends 0 with the reason in SDC_NOT_CALLED; under Loom the node ends with the
+        // code of `exits.not_called` (79) and prints the same line: everything else is equal.
+        assert_eq!(l.code, Some(79), "{l:#?}");
+        same("questions.write, no feedback", &d, &Run { code: d.code, stdout: l.stdout.clone(), stderr: l.stderr.clone(), files: l.files.clone() });
         // The check's record that sent it back, with its log: the driver's SDC_FEEDBACK, and Loom's
         // loom.retry-feedback/1 document holding the record and the log's tail.
         let log = "check-questions: scope-changing question lacks a key\nq1: lacks excerpt\n";

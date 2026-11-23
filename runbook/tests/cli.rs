@@ -7,6 +7,7 @@ use std::process::{Command, Output};
 mod linked_canon;
 mod canon_cmd;
 mod ess_digest;
+mod exit_classes;
 mod loom_run;
 mod reply_lib;
 mod test_suite;

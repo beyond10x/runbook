@@ -7,6 +7,11 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// The exit of a step that did not call the model ("not called"): the one code every model-node
+/// binding lists under `exits.not_called`. It is no key of a result table and no code of any
+/// binding's `exits.error` (75, 126, 127; 69 and 70 on the pool-wait bindings).
+pub const NOT_CALLED: i32 = 79;
+
 /// A program error whose message is already printed; the value is the exit code.
 #[derive(Debug)]
 pub struct Exit(pub i32);

@@ -1192,10 +1192,10 @@ What exists now, for the steps that call `slot` through the tool (`conform-run`,
   stops with that verdict and exit 5, like the other caps. `message` names the action. The next
   `run` tries the step afresh. Recording a result such as `not_run` instead was rejected: a second,
   conflicting record leaves `tests.run` unknown for Canon and the re-run inadmissible.
-- Loom: the same tool exits 69. The YAML (the loader at `8a8fad3b`) has no `exits` member, so
-  until Loom's loader has it the result map `"*": failed` still maps 69 to `failed`: this is the
-  open part, a line of `bindings/PENDING.md`. With `exits: {error: [69, 75, 126, 127]}` Loom ends
-  the run `ProgramError`, records nothing and calls no model; it does not run the step again.
+- Loom: the same tool exits 69 (and 70). The five bindings that wait for the pool state
+  `exits: {error: [69, 70, 75, 126, 127]}` (`bindings/*.yaml`), so Loom ends the run
+  `ProgramError`, records nothing and calls no model; it does not run the step again, and the
+  result map `"*": failed` no longer sees 69 or 70.
 
 The bug-fix steps (`repro.run`, `tests.run`, `gate.run`, 2026-11-22) follow the same rules with
 the same exits; the driver needs no rule of its own for them. They could not share `pool_run`
