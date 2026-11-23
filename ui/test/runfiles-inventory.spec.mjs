@@ -15,6 +15,7 @@ const ALLOWED = {
   'runfiles.mjs': {'fs.openSync(': 1, 'fs.readSync(': 1, 'fs.readFileSync(': 1, 'fs.readdirSync(': 1}, // openChecked and what reads its descriptor; listDir after runPath
   'products.mjs': {'fs.opendirSync(': 1}, // the listing walk: names of a real directory under a work/ root, entry by entry
   'decisions.mjs': {'execFileSync(': 1}, // yq, given the text on standard input
+  'runnerlive.mjs': {'fs.readFileSync(': 1}, // /proc/<pid>/stat of the runner: the kernel's start time of a process, not a file of a run
   'vclock.mjs': {'fs.readFileSync(': 2}, // the operator's --clock directory
   'server.mjs': {'fs.readFileSync(': 4, 'fs.readdirSync(': 2}, // --view files, the checkout (readRepoJson, readRepoText, listRepoDir), the page's own files
 };
