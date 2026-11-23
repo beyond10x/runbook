@@ -653,7 +653,7 @@ fn a_submit_names_a_runbook_by_name_and_version_and_never_by_a_path() {
     let runs = |rig: &Rig| std::fs::read_dir(rig.state_root().join("runs")).map(|d| d.count()).unwrap_or(0);
     let before = runs(&rig);
     let home = rig.home.to_string_lossy().into_owned();
-    for id in ["../home/bindings/engine-demo", "bindings/engine-demo", &format!("{home}/bindings/engine-demo"), "/etc/hostname", ".hidden", ""] {
+    for id in ["../elsewhere/engine-demo","bindings/engine-demo", &format!("{home}/bindings/engine-demo"), "/etc/hostname", ".hidden", ""] {
         let o = rig.d().submit_run(SubmitRun { runbook_id: id.into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
         assert!(o.is_refusal() && o.name == "no-runbook", "{id:?}: {o:?}");
     }
