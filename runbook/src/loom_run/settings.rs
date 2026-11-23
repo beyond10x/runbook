@@ -136,6 +136,7 @@ fn old_place(loom: &Value) -> String {
 pub fn normalise(raw: &Value, args: &crate::loom_run::Args) -> Result<Value, String> {
     let mut v = raw.clone();
     let top = v.as_object_mut().ok_or("settings: a table")?;
+    crate::loom_run::gateway::check_shape(raw)?;
     if let Some(loom) = top.get("loom") {
         return Err(old_place(loom));
     }
@@ -252,12 +253,14 @@ pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::lo
     v
 }
 
-/// The settings as written into the run directory: `login_file` replaced by the text `named`.
+/// The settings as written into the run directory: `login_file` and `gateway` replaced by the text `named`.
 pub fn redacted(settings: &Value) -> Value {
     let mut v = settings.clone();
     if let Some(o) = v.as_object_mut() {
-        if o.contains_key(LOGIN_KEY) {
-            o.insert(LOGIN_KEY.to_owned(), Value::String("named".to_owned()));
+        for key in [LOGIN_KEY, crate::loom_run::gateway::KEY] {
+            if o.contains_key(key) {
+                o.insert(key.to_owned(), Value::String("named".to_owned()));
+            }
         }
     }
     v

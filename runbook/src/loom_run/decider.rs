@@ -145,6 +145,9 @@ pub struct NativeDecider {
     /// Who decides, read once (see [`Decider::pin_routing`]) and never again: the run's own
     /// copy of the table is writable by a bound program.
     routing: std::sync::OnceLock<Result<Routing, String>>,
+    /// The gateway file of the run's private directory (see [`Decider::use_gateway`]): handed to the
+    /// adapter as `SDC_GATEWAY_FILE`, the path only.
+    gateway_file: std::sync::OnceLock<PathBuf>,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -249,7 +252,7 @@ impl NativeDecider {
             Some(_) => return Err("decider.requester: true or false".to_owned()),
         };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester, routing: std::sync::OnceLock::new() })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester, routing: std::sync::OnceLock::new(), gateway_file: std::sync::OnceLock::new() })
     }
 
     /// The table this run is routed by: the read of [`Decider::pin_routing`], or the first read
@@ -384,6 +387,10 @@ impl NativeDecider {
             // stays in the settings alone.
             let value = request.login_link.map_or_else(|| login.clone(), |link| link.display().to_string());
             env.push(("SDC_CLAUDE_CREDENTIALS".to_owned(), value));
+        }
+        if let (Mode::Model { .. }, Some(file)) = (&self.mode, self.gateway_file.get()) {
+            // The path of the gateway file, never the token: the adapter reads the file.
+            env.push((crate::loom_run::gateway::FILE_VARIABLE.to_owned(), file.display().to_string()));
         }
         Ok(env)
     }
@@ -550,6 +557,10 @@ const NO_INSTRUCTIONS: &str = "the instruction files are not found: the decider 
 impl Decider for NativeDecider {
     fn pin_routing(&self, run_dir: &Path) {
         let _ = self.routing.get_or_init(|| Routing::load(run_dir));
+    }
+
+    fn use_gateway(&self, file: &Path) {
+        let _ = self.gateway_file.set(file.to_path_buf());
     }
 
     fn max_call_micro_usd(&self) -> u64 {

@@ -19,7 +19,7 @@ pub fn conformance_not_built(_ports: &Ports) -> Result<(), Refusal> {
 }
 
 /// Where the observation finds its parts, from the options of the run and the asset root.
-fn setup_of(args: &Args, run_dir: &Path) -> Setup {
+fn setup_of(args: &Args, run_dir: &Path, gateway_file: Option<&Path>) -> Setup {
     let lookup = crate::assets::Lookup::from_process();
     let assets = lookup.locate().ok();
     let instructions = assets.as_ref().map(|a| a.root.clone()).or_else(|| args.bindings.parent().map(Path::to_path_buf));
@@ -29,13 +29,15 @@ fn setup_of(args: &Args, run_dir: &Path) -> Setup {
         tools: Some(args.bindings.join("tools")),
         instructions,
         adapter: lookup.helper("sdc-conform-adapter", assets.as_ref()),
+        gateway_file: gateway_file.map(Path::to_path_buf),
     }
 }
 
 /// Observes the product of a run that ended, when `--conformance observe` was given. The line it
 /// prints says what was written or why nothing was; a failure is the line or `oracle.json`'s
-/// `unknown` with its cause, never a change of the run's outcome.
-pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome) {
+/// `unknown` with its cause, never a change of the run's outcome. `gateway_file` is the run's gateway
+/// file (`private.rs`), which the observation's model adapter is given while it still exists.
+pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, gateway_file: Option<&Path>) {
     if args.ports.conformance != Conformance::Observe {
         return;
     }
@@ -50,7 +52,7 @@ pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome) {
             return;
         }
     };
-    let setup = setup_of(args, run_dir);
+    let setup = setup_of(args, run_dir, gateway_file);
     let pin = Path::new("driver/ess-pin.json");
     let seen = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| conform::observe(run_dir, None, tables, pin, &setup)));
     match seen {

@@ -13,13 +13,16 @@
 //! A link, not a copy of the file: no second copy of the credential is written to disk, and a
 //! token the CLI refreshes lands in the real file.
 
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use sdc_tools::gateway::Gateway;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// The directory and, when the settings name a login file, the link in it.
+/// The directory and, when the settings name a login file, the link in it, or, when they name a
+/// gateway, the file with its address and token.
 pub struct PrivateDir {
     dir: PathBuf,
     link: Option<PathBuf>,
+    gateway: Option<PathBuf>,
 }
 
 fn owned_directory(path: &Path, what: &str) -> Result<(), String> {
@@ -39,16 +42,30 @@ impl PrivateDir {
     /// or not owned by the user, when the login file is not an absolute path of a file that
     /// exists, and when the directory of this run name exists already. No message holds the login
     /// file's path.
+    #[cfg(test)]
     pub fn create(run: &str, login: Option<&Path>) -> Result<Option<PrivateDir>, String> {
-        let Some(login) = login else {
-            return Ok(None);
-        };
-        if !login.is_absolute() || !login.is_file() {
-            return Err("login_file: not an absolute path of a file that exists".to_owned());
+        PrivateDir::create_with(run, login, None)
+    }
+
+    /// [`PrivateDir::create`] for a run that may name a gateway instead of a login: with `gateway`, the
+    /// directory holds the one file `gateway` (mode 0600, written with `create_new` into the directory of
+    /// mode 0700, so it never exists with wider rights) and no link. A login and a gateway together are
+    /// refused; neither: nothing is made. No message holds the token.
+    pub fn create_with(run: &str, login: Option<&Path>, gateway: Option<&Gateway>) -> Result<Option<PrivateDir>, String> {
+        if login.is_some() && gateway.is_some() {
+            return Err("gateway and login_file: a run has one or the other, never both".to_owned());
         }
+        if let Some(login) = login {
+            if !login.is_absolute() || !login.is_file() {
+                return Err("login_file: not an absolute path of a file that exists".to_owned());
+            }
+        } else if gateway.is_none() {
+            return Ok(None);
+        }
+        let named = if gateway.is_some() { "a gateway" } else { "a login file" };
         let base = match std::env::var_os("XDG_RUNTIME_DIR") {
             Some(v) if !v.is_empty() => PathBuf::from(v),
-            _ => return Err("a login file is named and XDG_RUNTIME_DIR is not set: the link to it lives in $XDG_RUNTIME_DIR/runbook/<run>/, not in the run directory".to_owned()),
+            _ => return Err(format!("{named} is named and XDG_RUNTIME_DIR is not set: what it needs lives in $XDG_RUNTIME_DIR/runbook/<run>/, not in the run directory")),
         };
         if !base.is_absolute() {
             return Err("XDG_RUNTIME_DIR is not an absolute path".to_owned());
@@ -68,17 +85,35 @@ impl PrivateDir {
             }
             Err(e) => return Err(format!("{}: {}", dir.display(), e.kind())),
         }
-        let mut made = PrivateDir { dir, link: None };
+        let mut made = PrivateDir { dir, link: None, gateway: None };
         std::fs::set_permissions(&made.dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| format!("{}: {}", made.dir.display(), e.kind()))?;
-        let link = made.dir.join("login");
-        std::os::unix::fs::symlink(login, &link).map_err(|e| format!("{}: could not link the login file: {}", link.display(), e.kind()))?;
-        made.link = Some(link);
+        if let Some(login) = login {
+            let link = made.dir.join("login");
+            std::os::unix::fs::symlink(login, &link).map_err(|e| format!("{}: could not link the login file: {}", link.display(), e.kind()))?;
+            made.link = Some(link);
+        }
+        if let Some(gateway) = gateway {
+            let file = made.dir.join("gateway");
+            let written = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&file)
+                .and_then(|mut f| std::io::Write::write_all(&mut f, gateway.render().as_bytes()));
+            written.map_err(|e| format!("{}: could not write the gateway file: {}", file.display(), e.kind()))?;
+            made.gateway = Some(file);
+        }
         Ok(Some(made))
     }
 
     /// The link to the login file.
     pub fn link(&self) -> Option<&Path> {
         self.link.as_deref()
+    }
+
+    /// The gateway file: the address and the token, mode 0600.
+    pub fn gateway_file(&self) -> Option<&Path> {
+        self.gateway.as_deref()
     }
 }
 
@@ -92,5 +127,54 @@ impl Drop for PrivateDir {
             let _ = std::fs::remove_file(link);
         }
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::testdir::Dir;
+
+    const TOKEN: &str = "tok-private-6e1f20ab";
+
+    /// One test owns `XDG_RUNTIME_DIR` (the process's environment is shared by threads).
+    #[test]
+    fn a_gateway_file_is_mode_600_in_a_directory_of_mode_700_and_goes_with_the_directory() {
+        let dir = Dir::new("private-gateway");
+        let xdg = dir.path().join("xdg");
+        std::fs::create_dir_all(&xdg).unwrap();
+        std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::env::set_var("XDG_RUNTIME_DIR", &xdg);
+        let gateway = Gateway::new("http://127.0.0.1:8080", TOKEN).unwrap();
+        let made = PrivateDir::create_with("g1", None, Some(&gateway)).unwrap().expect("a gateway makes the directory");
+        let file = made.gateway_file().unwrap().to_path_buf();
+        assert_eq!(file, xdg.join("runbook/g1/gateway"));
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(xdg.join("runbook/g1")).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(sdc_tools::gateway::read(&file).unwrap(), gateway);
+        assert!(made.link().is_none());
+        let names: Vec<_> = std::fs::read_dir(xdg.join("runbook/g1")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["gateway"]);
+        // the same run name is refused while the directory is there, without the token
+        let again = PrivateDir::create_with("g1", None, Some(&gateway)).err().expect("a second directory of the name is refused");
+        assert!(again.contains("exists") && !again.contains(TOKEN), "{again}");
+        drop(made);
+        assert!(!xdg.join("runbook/g1").exists(), "the directory is left");
+        // neither: nothing is made; both: refused
+        assert!(PrivateDir::create_with("g2", None, None).unwrap().is_none());
+        assert!(!xdg.join("runbook/g2").exists());
+        let login = dir.path().join("login.json");
+        std::fs::write(&login, "{}").unwrap();
+        let both = PrivateDir::create_with("g3", Some(&login), Some(&gateway)).err().expect("both are refused");
+        assert!(both.contains("gateway") && both.contains("login_file") && !both.contains(TOKEN), "{both}");
+        assert!(!xdg.join("runbook/g3").exists());
+        // no runtime directory: refused by what is named, with nothing made
+        std::env::remove_var("XDG_RUNTIME_DIR");
+        let none = PrivateDir::create_with("g4", None, Some(&gateway)).err().expect("no XDG_RUNTIME_DIR");
+        assert!(none.contains("gateway") && none.contains("XDG_RUNTIME_DIR") && !none.contains(TOKEN), "{none}");
+        // a login alone works as it did
+        std::env::set_var("XDG_RUNTIME_DIR", &xdg);
+        let by_login = PrivateDir::create("g5", Some(&login)).unwrap().unwrap();
+        assert!(by_login.link().is_some() && by_login.gateway_file().is_none());
     }
 }

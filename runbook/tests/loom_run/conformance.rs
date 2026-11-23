@@ -203,3 +203,44 @@ fn the_tables_setting_is_checked_and_never_changes_the_exit() {
     assert!(stderr(&o).contains("not observed (SDC_CONFORMANCE_TABLES is a number from 1 to 9)"), "{}", stderr(&o));
     assert!(!rig.run_dir("r1").join("oracle.json").exists());
 }
+
+#[test]
+fn gateway_the_observation_gives_its_model_adapter_the_gateway_file_while_the_private_directory_exists() {
+    const TOKEN: &str = "gw-token-observe-91c2d7f0";
+    let rig = Rig::new("gateway-observe");
+    stand_in_tool(&rig);
+    let seen = rig.root.join("recorder-seen");
+    rig.executable(
+        "recorder-adapter",
+        &format!(
+            "#!/bin/sh\n{{ echo \"file=${{SDC_GATEWAY_FILE-unset}}\"; [ -f \"${{SDC_GATEWAY_FILE-/nonexistent}}\" ] && echo present=yes || echo present=no; env | grep -c '{TOKEN}'; env | grep -c ANTHROPIC_; }} > '{}'\nexit 1\n",
+            seen.display()
+        ),
+    );
+    let settings = json!({"in_process": true, "confinement": "local", "gateway": {"base_url": "http://127.0.0.1:8080", "token": TOKEN},
+        "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
+    std::fs::write(rig.root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
+    let xdg = rig.root.join("xdg");
+    std::fs::create_dir_all(&xdg).unwrap();
+    std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let o = Command::new(BIN)
+        .args(rig.args("r1", 1_000_000, &["--conformance", "observe"]))
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("XDG_RUNTIME_DIR", &xdg)
+        .env("SDC_CONFORMANCE_ADAPTER", rig.root.join("recorder-adapter"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let text = std::fs::read_to_string(&seen).expect("the model adapter of the observation was not started");
+    let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{key}="))).unwrap_or("").to_owned();
+    assert_eq!(value("file"), xdg.join("runbook/r1/gateway").display().to_string(), "{text}");
+    assert_eq!(value("present"), "yes", "the file was gone when the adapter ran: {text}");
+    let counts: Vec<&str> = text.lines().filter(|l| !l.contains('=')).collect();
+    assert_eq!(counts, ["0", "0"], "the token or an ANTHROPIC_ variable is in the environment of the adapter: {text}");
+    assert!(!xdg.join("runbook/r1").exists(), "the private directory is left");
+    let mut hits = Vec::new();
+    super::core::grep_tree(&rig.run_dir("r1"), TOKEN, &mut hits);
+    assert!(hits.is_empty(), "the token is in {hits:?}");
+}

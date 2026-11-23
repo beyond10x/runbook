@@ -81,6 +81,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
+    let (given, gateway) = super::gateway::take(args, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;
     let mut settings_value = given.clone();
@@ -101,7 +102,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         return Err(format!("the run directory {} exists", run_dir.display()));
     }
     let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
-    let private = PrivateDir::create(&args.run, login.as_deref())?;
+    let private = PrivateDir::create_with(&args.run, login.as_deref(), gateway.as_ref())?;
+    if let Some(file) = private.as_ref().and_then(|p| p.gateway_file()) {
+        decider.use_gateway(file);
+    }
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
@@ -145,6 +149,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         answered: std::collections::HashMap::new(),
         reasons_written: 0,
         login_link: private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf),
+        gateway_file: private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf),
     };
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
@@ -161,7 +166,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, private.as_ref().and_then(|p| p.gateway_file()));
     Ok(outcome)
 }
 
@@ -224,6 +229,8 @@ struct Runner<'a> {
     answered: std::collections::HashMap<String, u64>,
     reasons_written: u64,
     login_link: Option<PathBuf>,
+    /// The gateway file of the private directory, when the settings name a gateway: the copy names it.
+    gateway_file: Option<PathBuf>,
 }
 
 /// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
@@ -289,7 +296,7 @@ impl Runner<'_> {
             std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
-        let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
+        let root_file = bindings_copy::materialise_with(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref(), self.gateway_file.as_deref())?;
         // The copy is made and no bound program has run: who decides is read now and not again.
         self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;

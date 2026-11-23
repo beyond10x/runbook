@@ -8,6 +8,7 @@ mod decisions;
 mod dry;
 mod fake;
 mod flags;
+mod gateway;
 mod goals;
 mod held;
 mod inproc;
