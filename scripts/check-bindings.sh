@@ -31,7 +31,8 @@ check_exits() {
 # sdc-bugfix.yaml), and by nothing else (not by where this script lies: another repository may hold
 # a copy of it); a root with none of them is the runbook of another repository, whose programs are
 # checked by the binding itself: an argv with `--pool-wait` wants `exits.error`
-# [69, 70, 75, 126, 127], one without it [75, 126, 127].
+# [69, 70, 75, 126, 127], one without it [75, 126, 127] or [69, 70, 75, 126, 127] (the tool exits 69
+# and 70 for SDC_POOL_WAIT too).
 binding_files=()
 for f in "$sdc"/bindings/*.yaml; do
   if [[ -e $f ]]; then binding_files+=("$f"); fi
@@ -77,7 +78,7 @@ exit_findings=$(cd "$sdc" && {
   | (($a.executor.argv // []) | index("--pool-wait") != null) as $waits
   | (if $own then ($pools | index("\($f):\($a.action)") != null) else $waits end) as $pool
   | (($a.executor.argv[0] // "") == "sdc-node") as $node
-  | (if $pool then [69, 70, 75, 126, 127] else [75, 126, 127] end) as $want
+  | (if $pool then [[69, 70, 75, 126, 127]] elif $own then [[75, 126, 127]] else [[75, 126, 127], [69, 70, 75, 126, 127]] end) as $wants
   | (if ($a.exits | type) == "object" then $a.exits else {} end) as $ex
   | [$ex | keys[] | select(. != "error" and . != "not_called")] as $unknown
   | (["error", "not_called"] | map(select(. as $c | $ex[$c] != null and ($ex[$c] | type) != "array"))) as $nolist
@@ -94,7 +95,7 @@ exit_findings=$(cd "$sdc" && {
       ($unknown[] | "\($f) \($a.action): exits.\(.) is not an exit class, Loom reads error and not_called"),
       ($nolist[] | "\($f) \($a.action): exits.\(.) is not a list of exit codes"),
       (if $malformed then empty else
-        (if $err != $want then "\($f) \($a.action): exits.error is \($err | tojson), want \($want | tojson)" else empty end),
+        (if any($wants[]; . == $err) | not then "\($f) \($a.action): exits.error is \($err | tojson), want \($wants | map(tojson) | join(" or "))" else empty end),
         (if $node and $nc != [79] then "\($f) \($a.action): exits.not_called is \($nc | tojson), want [79]" else empty end),
         (if ($node | not) and $nc != [] then "\($f) \($a.action): exits.not_called on a program that is no model node" else empty end),
         (if ([$err[], $nc[]] | map(select(. as $c | $keys | index($c))) | length) > 0 then "\($f) \($a.action): an exits code is a key of the result table" else empty end),

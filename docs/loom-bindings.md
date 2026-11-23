@@ -149,11 +149,12 @@ The list of the five pool bindings is this repository's: it applies when `<root>
 the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`), and by nothing else; where
 the script lies does not count, another repository may hold a copy of it. For any other root,
 the runbook of another repository, the option asks nothing about the build pool and checks the root's own
-files by the binding itself: every `program` binding states `exits.error`, `[75, 126, 127]`, or
-`[69, 70, 75, 126, 127]` when its argv holds `--pool-wait`; a model node (`sdc-node`) also states
+files by the binding itself: every `program` binding states `exits.error`: `[69, 70, 75, 126, 127]` when
+its argv holds `--pool-wait` as an element, else `[75, 126, 127]` or `[69, 70, 75, 126, 127]` (the tool
+exits 69 and 70 for the environment variable `SDC_POOL_WAIT` too, which wins over the flag); a model node (`sdc-node`) also states
 `exits.not_called: [79]`; no code is in both classes or a key of the action's `from: exit` result table,
 and `exits` is on no other executor. A binding that lacks it gets one named line
-(`bindings/<file> <action>: exits.error is [], want [75,126,127]`); the line a user adds to its program
+(`bindings/<file> <action>: exits.error is [], want [75,126,127] or [69,70,75,126,127]`); the line a user adds to its program
 binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
 the root. A file of no bytes (`the file is empty`), a file that is no mapping with an `actions` list, an
 entry of `actions` that is no mapping or has no `action` name, and an `executor` that is no mapping or an

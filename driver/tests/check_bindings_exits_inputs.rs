@@ -110,9 +110,9 @@ fn only_a_whole_pool_wait_element_of_the_argv_makes_the_five_codes_the_want() {
         ("inside-a-quoted-argument", r#"[bash, -c, "slot --pool-wait 5 run"]"#, three, 0),
         ("later-element", r#"[tools/x.sh, a, b, c, d, --pool-wait, "5"]"#, five, 0),
         ("twice", r#"[tools/x.sh, --pool-wait, "5", --pool-wait, "6"]"#, five, 0),
-        ("five-without", "[tools/x.sh]", five, 1),
+        ("five-without", "[tools/x.sh]", five, 0),
         ("three-with", r#"[tools/x.sh, --pool-wait, "5"]"#, three, 1),
-        ("five-with-part-of-word", r#"[tools/x.sh, "x--pool-wait"]"#, five, 1),
+        ("five-with-part-of-word", r#"[tools/x.sh, "x--pool-wait"]"#, five, 0),
     ];
     for (name, argv, codes, want) in cases {
         let s = with_one_action(&format!("pw-{name}"), argv, codes);

@@ -100,7 +100,7 @@ fn a_binding_of_another_runbook_without_exits_error_is_the_one_line_named() {
     let o = outside_root("other-runbook-one-line", &doc);
     let (out, err) = said(&o);
     assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
-    assert_eq!(out, "FAIL exits\n  bindings/example.yaml bare.action: exits.error is [], want [75,126,127]\n", "{err}");
+    assert_eq!(out, "FAIL exits\n  bindings/example.yaml bare.action: exits.error is [], want [75,126,127] or [69,70,75,126,127]\n", "{err}");
 }
 
 fn waiting_action(name: &str, exits: &str) -> String {
@@ -183,6 +183,29 @@ fn a_root_with_a_space_or_a_glob_character_in_its_path_is_read() {
         let (out, err) = said(&o);
         assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{name}: {err}");
     }
+}
+
+fn one_action(name: &str, argv: &str, codes: &str) -> (Option<i32>, String, String) {
+    let doc = format!("format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {{kind: program, argv: {argv}}}\n    exits: {{error: {codes}}}\n");
+    let o = outside_root(name, &doc);
+    let (out, err) = said(&o);
+    (o.status.code(), out, err)
+}
+
+#[test]
+fn a_binding_of_another_runbook_without_the_flag_may_list_the_five_codes_for_the_environment_variable() {
+    let (code, out, err) = one_action("other-runbook-five-no-flag", "[tools/x.sh]", "[69, 70, 75, 126, 127]");
+    assert_eq!((code, out.as_str()), (Some(0), "pass exits\n"), "{err}");
+}
+
+#[test]
+fn a_binding_of_another_runbook_without_the_flag_and_with_other_codes_gets_the_line_naming_both_lists() {
+    let (code, out, err) = one_action("other-runbook-other-codes", "[tools/x.sh]", "[75, 126]");
+    assert_eq!(
+        (code, out.as_str()),
+        (Some(1), "FAIL exits\n  bindings/example.yaml a.one: exits.error is [75,126], want [75,126,127] or [69,70,75,126,127]\n"),
+        "{err}"
+    );
 }
 
 const GOOD: &str = "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n";
