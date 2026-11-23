@@ -117,6 +117,20 @@ test('what the server keeps for one run is bounded in bytes as well as in count,
   expect(fs.statSync(path.join(dir, 'fs/changes.jsonl')).size, 'the file is longer than the bound').toBeGreaterThan(100000);
 });
 
+test('the diff of a change is not kept and does not count in the bytes bound: thirty records of 20000 diff characters under a bound of 100000 are all read', async () => {
+  test.setTimeout(60000);
+  const diff = '+' + 'D'.repeat(20000) + '\n';
+  const dir = await make('diffbytes', {written: [], extra: []}, (d) => {
+    for (let i = 0; i < 30; i++) put(path.join(d, `work/f${i}.txt`), 'x\n');
+    fs.writeFileSync(path.join(d, 'fs/changes.jsonl'), rows(Array.from({length: 30}, (_, i) => ({...change(900 + i, `f${i}.txt`, {text: 'x\n', step: 3}), diff}))));
+  }, {...process.env, SDC_UI_MAX_RECORD_BYTES: '100000'});
+  const p = await products('diffbytes');
+  expect(fs.statSync(path.join(dir, 'fs/changes.jsonl')).size, 'the file is longer than the bound').toBeGreaterThan(600000);
+  expect(p.json.recordsStopped, JSON.stringify(p.json.recordsStopped)).toBeNull();
+  expect(p.json.truncated).toBe(false);
+  expect(p.json.files.length).toBe(30);
+});
+
 // ---- the strings of a record ----------------------------------------------------------------------------------------
 
 test('an action name of 300 four-byte characters is cut at 256 characters, not at 256 UTF-16 units, and never inside a character', async () => {
@@ -331,6 +345,17 @@ test('attribution lines that name more changes than the server keeps for one run
   const p = await products('latebound');
   expect(p.json.basis).toBe('records');
   expect(p.json.recordsStopped, 'the 301st distinct late attribution is past the bound of 300').toMatchObject({cause: 'records'});
+  expect(p.json.truncated).toBe(true);
+});
+
+test('attribution lines count in the bytes the server keeps for one run: more of them than the bound stop the reader with the cause bytes', async () => {
+  test.setTimeout(60000);
+  await make('latebytes', {written: []}, (d) => {
+    append(d, Array.from({length: 60}, (_, i) => ({format: 'sdc.fs-attribution/1', change: i, at: '2026-11-23T09:30:00Z', attribution: {case: null, action: `late.${i}`, record: null, tool: null, basis: 'late', step: 2, note: 'N'.repeat(4000)}})));
+  }, {...process.env, SDC_UI_MAX_RECORD_BYTES: '100000'});
+  const p = await products('latebytes');
+  expect(p.json.basis).toBe('records');
+  expect(p.json.recordsStopped, JSON.stringify(p.json.recordsStopped)).toMatchObject({cause: 'bytes'});
   expect(p.json.truncated).toBe(true);
 });
 
