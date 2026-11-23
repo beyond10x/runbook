@@ -498,3 +498,54 @@ fn a_last_ledger_line_without_a_newline_does_not_glue_to_the_next_id() {
     assert_eq!(fs::read_to_string(case.ledger()).unwrap(), "requirements.check e0\nrequirements.check e1\nrequirements.check e2\n");
     assert!(third.ends_with(&note(" 3")), "{third}");
 }
+
+fn copy_dir_name(doc: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(doc.as_bytes()).iter().take(8).map(|x| format!("{x:02x}")).collect()
+}
+
+/// The copy of the retry feedback is written below `.sdc/loom-feedback/<sha16 of the document>/`. The
+/// round's check names `.sdc` and `.sdc/loom-feedback` only: a link at the directory of the copy is
+/// followed by `create_dir_all` and the two writes.
+#[test]
+fn a_link_at_the_directory_of_the_copy_leaves_the_directory_it_names_empty() {
+    let mut case = Case::new("copy-dir-link");
+    let doc = one("e1", "r1");
+    let outside = case.root.join("outside-dir");
+    fs::create_dir_all(&outside).unwrap();
+    fs::create_dir_all(case.work().join(".sdc/loom-feedback")).unwrap();
+    std::os::unix::fs::symlink(&outside, case.work().join(".sdc/loom-feedback").join(copy_dir_name(&doc))).unwrap();
+    let o = case.run(&doc);
+    assert_eq!(tree_listing(&outside), Vec::<String>::new(), "the stub wrote through the link at the directory of the copy (exit {:?})", o.status.code());
+}
+
+/// The same for `feedback.json` itself as a link to a file.
+#[test]
+fn a_link_at_feedback_json_leaves_the_file_it_names_unchanged() {
+    let mut case = Case::new("copy-file-link");
+    let doc = one("e1", "r1");
+    let outside = case.root.join("outside-file");
+    fs::write(&outside, "mine\n").unwrap();
+    let dir = case.work().join(".sdc/loom-feedback").join(copy_dir_name(&doc));
+    fs::create_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink(&outside, dir.join("feedback.json")).unwrap();
+    let o = case.run(&doc);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "mine\n", "the stub wrote through the link at feedback.json (exit {:?})", o.status.code());
+}
+
+/// A second start with the same document writes into the directory of the first copy: both exit 0, an
+/// older `feedback.json` (here replaced by other bytes) is replaced by the copy of this start, and
+/// every file of the copy is a regular file.
+#[test]
+fn a_second_start_with_the_same_document_rewrites_its_copy() {
+    let mut case = Case::new("copy-twice");
+    let doc = one("e1", "r1");
+    assert_eq!(case.run(&doc).status.code(), Some(0));
+    let file = case.work().join(".sdc/loom-feedback").join(copy_dir_name(&doc)).join("feedback.json");
+    let first = fs::read_to_string(&file).unwrap();
+    assert!(first.contains("requirements_approval"), "{first}");
+    fs::write(&file, "stale\n").unwrap();
+    assert_eq!(case.run(&doc).status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), first);
+    assert!(fs::symlink_metadata(&file).unwrap().file_type().is_file());
+}

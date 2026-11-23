@@ -224,15 +224,17 @@ impl Ctx {
 /// The path of the ledger of the rejections numbered so far, relative to the work directory.
 const LEDGER: &str = ".sdc/rework-seen";
 
-/// Before the first write under `.sdc` (the copy of the retry feedback): `.sdc` and
-/// `.sdc/loom-feedback` are each missing or a directory of the work directory, never a link or
-/// another kind of file. Checked here, then opened by the writes; a swap in between is not covered.
-pub fn check_sdc_dirs(work: &std::path::Path) -> crate::util::R<()> {
-    for rel in [".sdc", ".sdc/loom-feedback"] {
-        match fs::symlink_metadata(work.join(rel)) {
+/// Before the first write under `.sdc` (the copy of the retry feedback): `.sdc`,
+/// `.sdc/loom-feedback` and the directory of the copy, `.sdc/loom-feedback/<copy>`, are each missing
+/// or a directory of the work directory, never a link or another kind of file. Checked here, then
+/// opened by the writes; a swap in between is not covered. The files of the copy are new files
+/// (`setup.rs` `write_new`), so a link at one of them is never followed.
+pub fn check_sdc_dirs(work: &std::path::Path, copy: &str) -> crate::util::R<()> {
+    for rel in [".sdc".to_string(), ".sdc/loom-feedback".to_string(), format!(".sdc/loom-feedback/{copy}")] {
+        match fs::symlink_metadata(work.join(&rel)) {
             Ok(m) if m.file_type().is_dir() => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Ok(_) => return Err(ledger_error(&format!("cannot be used: {rel} is not a directory of the work directory"))),
+            Ok(_) => return Err(ledger_error(&format!("cannot be used: {rel} is not a directory of the work directory (the copy of the retry feedback is written below it)"))),
             Err(e) => return Err(ledger_error(&format!("cannot be reached: {e}"))),
         }
     }

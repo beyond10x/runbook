@@ -8,7 +8,7 @@ use crate::yaml;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// The binding's `llm` object as the script builds it (SDC_LLM_NODE), in jq's key order.
@@ -285,8 +285,9 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
     let Some(parsed) = parsed.filter(|d| d.str_of("format") == Some("loom.retry-feedback/1")) else {
         return Err(die(format!("llm-node: {node} could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document"), 126));
     };
-    crate::rework::check_sdc_dirs(work)?;
-    let dir = work.join(".sdc/loom-feedback").join(sha16(doc));
+    let name = sha16(doc);
+    crate::rework::check_sdc_dirs(work, &name)?;
+    let dir = work.join(".sdc/loom-feedback").join(&name);
     // "Was there before" is asked of the path itself, not of what a link points at: a dangling link is there.
     let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| d.symlink_metadata().is_err()).cloned();
     let _ = fs::create_dir_all(&dir);
@@ -294,11 +295,11 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
     let blobs: Vec<&str> = logs.iter().filter_map(|l| l.get("blob_sha256").and_then(is_blob)).collect();
     for b in &blobs {
         let tail = logs.iter().find(|l| l.get("blob_sha256").and_then(is_blob) == Some(b)).and_then(|l| l.get("tail"));
-        let _ = fs::write(dir.join(b), tail.map(Ov::raw).unwrap_or_else(|| "null".to_string()));
+        let _ = write_new(&dir.join(b), &tail.map(Ov::raw).unwrap_or_else(|| "null".to_string()));
     }
     let target = dir.join("feedback.json");
     let Some(records) = parsed.get("records") else {
-        let _ = fs::write(&target, "");
+        let _ = write_new(&target, "");
         return Ok((None, made));
     };
     let one = |r: &Ov| {
@@ -320,6 +321,15 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
     let out = Ov::Arr(records.items().into_iter().map(one).collect());
     let mut text = serde_json::to_string_pretty(&out).map_err(|_| Exit(126))?;
     text.push('\n');
-    let _ = fs::write(&target, text);
+    let _ = write_new(&target, &text);
     Ok((Some(target), made))
+}
+
+/// Writes `text` to a file that is new at `path`: what is there (an older copy, or a link, which is
+/// removed and never followed) goes first, and `create_new` refuses a link put there since.
+fn write_new(path: &Path, text: &str) -> std::io::Result<()> {
+    if fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_dir()) {
+        fs::remove_file(path)?;
+    }
+    fs::OpenOptions::new().write(true).create_new(true).open(path)?.write_all(text.as_bytes())
 }

@@ -702,8 +702,10 @@ evidence id is taken as its first line, so one id is one ledger line. The ledger
 file of one name inside the work directory and without following a link: a link, a directory, a FIFO, a
 file with a second name, a `.sdc` that is a link and a `.sdc` that is a file end the stub (exit 126, one
 line on standard error that names `.sdc/rework-seen`), and so does an error of reading or writing it; no
-note is written. `.sdc` and `.sdc/loom-feedback` are checked before the copy of the retry feedback is
-written under `.sdc/loom-feedback/`, so nothing is written through a link at either. A path is checked,
+note is written. `.sdc`, `.sdc/loom-feedback` and the directory of the copy are checked before the copy
+of the retry feedback is written under `.sdc/loom-feedback/`, so nothing is written through a link at
+any of them, and the files of the copy are made new: a link at one of them is removed and never
+followed. A path is checked,
 then opened: a `.sdc` swapped between the check and the open by a second writer is not covered. A stub
 that failed ends with its own exit code, and a ledger error is printed. A missing ledger is the first
 rejection and no error. A last line without a newline is ended by the next append.
