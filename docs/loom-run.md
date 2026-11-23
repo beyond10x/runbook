@@ -118,7 +118,7 @@ child".
    is not the file `--loom-sha256` names, Loom is a library and the level is one it cannot
    give, `--run` is not a plain name, the settings are not a JSON object, the decider settings are not usable, a
    path is missing, or `<runs-dir>/<name>` exists.
-   A run that has a model node (below) is also refused when `--spend-ledger` is missing:
+   A run that has a model node (below) is also refused when `--spend-ledger` is missing, with exit 64 and nothing written:
    `--spend-ledger is required: the run has a model node (<why>); a run without one needs none`.
    A run without a model node under `--confinement local` is refused too, by name, when `--spend-ledger`
    is missing or `--cap-micro-usd` or `--max-llm-calls` is 0 ("Where caps of 0 are accepted").
@@ -334,7 +334,7 @@ egress aperture, and a child with none gets `NetworkMode::None`
 the constant does not name is refused like `local` (a test holds a level name it does not hold).
 
 `--confinement local` is not in the list: the program runs unconfined on the host's network. A run
-whose bindings name no model node, under `local`, is refused by name before the opening, exit 2: no
+whose bindings name no model node, under `local`, is refused by name before the opening, exit 2 (for a missing `--spend-ledger` and for a cap of 0, unlike a run with a model node, whose missing `--spend-ledger` is exit 64): no
 run directory, no ledger file, no private directory, no call of Loom, so no bound program started. The
 message names the level, says a run without a model node needs caps under it, and names
 `--cap-micro-usd`, `--max-llm-calls` and `--spend-ledger`. It needs all three: a ledger, and both caps
@@ -448,7 +448,7 @@ reserved, no ledger is opened (a `--spend-ledger` that is named is not created),
 and `--cap-micro-usd 0` are accepted and the run does not end `stopped: llm calls`, `--spend-ledger`
 may be left out, and the records state `llm_calls` 0 and `spent_micro_usd` 0. `--max-wall-seconds`
 stays, and so do the other options. With a model node nothing changes: a cap of 0 stops the run before
-its first `tree run`, a missing `--spend-ledger` is refused before anything is written (exit 2), and an
+its first `tree run`, a missing `--spend-ledger` is a usage error before anything is written (exit 64, as it was when the parser required it; each of the three options missing alone gives 64: `a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone` of `no_model_node.rs`), and an
 unreadable or invalid ledger fails the run closed.
 
 A model program in a run that was opened without a model node and without caps (a run under `substrate`) is

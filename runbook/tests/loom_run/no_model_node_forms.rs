@@ -56,7 +56,7 @@ fn more_forms_the_scan_cannot_read_count_as_a_model_node() {
         let w = World::new("more-forms");
         setup(&w);
         let o = w.run(&zero(&w));
-        if code(&o) != 2 || !stderr(&o).contains("--spend-ledger is required") {
+        if code(&o) != 64 || !stderr(&o).contains("--spend-ledger is required") {
             wrong.push(format!("{what}: exit {} ({})", code(&o), stderr(&o).lines().last().unwrap_or("")));
         }
         if w.run_dir("r1").exists() {

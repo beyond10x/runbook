@@ -165,7 +165,7 @@ fn the_committed_bug_fix_bindings_with_a_seed_do_not_run_without_a_ledger() {
     let c = Committed::new("bugfix", &["sdc-bugfix.yaml"]);
     let o = c.run("sdc-bugfix", false, &["--bugfix", &c.p("seed")]);
     let seen = c.summary("committed sdc-bugfix.yaml alone, --bugfix <seed>, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 2, "{seen}");
+    assert_eq!(code(&o), 64, "{seen}");
     assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
     assert!(!c.root.join("runs/r1").exists(), "{seen}");
     assert!(c.called("sdc-bugfix").is_empty(), "the seed ran: {seen}");
@@ -179,7 +179,7 @@ fn the_committed_story_bindings_and_the_whole_directory_do_not_run_without_a_led
     let c = Committed::new("story", &["sdc-story.yaml"]);
     let o = c.run("sdc", false, &["--root-protocol", "sdc-story@8", "--case", "STORY-1"]);
     let seen = c.summary("committed sdc-story.yaml alone, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 2, "{seen}");
+    assert_eq!(code(&o), 64, "{seen}");
     assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
     assert!(!c.root.join("runs/r1").exists(), "{seen}");
 
@@ -187,7 +187,7 @@ fn the_committed_story_bindings_and_the_whole_directory_do_not_run_without_a_led
     let c = Committed::new("whole", &all);
     let o = c.run("sdc-bugfix", false, &["--bugfix", &c.p("seed")]);
     let seen = c.summary("the whole committed bindings directory, --bugfix <seed>, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 2, "{seen}");
+    assert_eq!(code(&o), 64, "{seen}");
     assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
     assert!(c.called("sdc-bugfix").is_empty(), "the seed ran: {seen}");
     assert!(!c.workspace_code_ran(), "{seen}");

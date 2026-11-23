@@ -182,7 +182,7 @@ fn a_run_with_a_model_node_is_refused_without_a_ledger_under_both_levels_as_befo
         without(&mut a, "--spend-ledger");
         set(&mut a, "--confinement", level);
         let o = w.run(&a);
-        assert_eq!(code(&o), 2, "{level}: {}", stderr(&o));
+        assert_eq!(code(&o), 64, "{level}: {}", stderr(&o));
         assert!(stderr(&o).contains("--spend-ledger is required: the run has a model node"), "{level}: {}", stderr(&o));
         assert_nothing_written(&w, level);
     }

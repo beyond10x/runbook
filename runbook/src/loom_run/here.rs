@@ -5,7 +5,10 @@
 //! bindings, the protocols, the root protocol) is looked up when its option is not given, by the
 //! code `runbook list` and `runbook check` use. Without `--loom` Loom is a library of this process;
 //! `--loom` with `--loom-sha256` runs the `b10x-loom` binary as a child process. A missing required
-//! option is a usage error that names it (clap, exit 64); a refusal of the run itself is exit 2.
+//! option is a usage error that names it (clap, exit 64); a refusal of the run itself is exit 2. The
+//! one option that is required only by what the bindings hold, `--spend-ledger` of a run with a model
+//! node, is exit 64 too, before anything is written; a run without a model node under `local` that
+//! lacks it is refused by name, exit 2.
 
 use super::ports::{refuse_unbuilt, Bugfix, Conformance, OnDivergence, Ports, Refusal, Replay};
 use super::{Args, Confinement, EXIT_REFUSED};
@@ -216,7 +219,7 @@ pub fn command(base: RunArgs, here: HereOptions) -> ExitCode {
         }
         Err(refusal) => {
             eprintln!("runbook run: refused: {refusal}");
-            ExitCode::from(EXIT_REFUSED)
+            ExitCode::from(refusal.exit_code())
         }
     }
 }

@@ -180,11 +180,29 @@ fn a_run_with_a_model_node_refuses_a_missing_ledger_before_anything_starts() {
     let mut a = w.args("r1", 1_000_000);
     without(&mut a, "--spend-ledger");
     let o = w.run(&a);
-    assert_eq!(code(&o), 2, "{}", stderr(&o));
+    assert_eq!(code(&o), 64, "{}", stderr(&o));
     let text = stderr(&o);
     assert!(text.contains("refused") && text.contains("--spend-ledger is required") && text.contains("model node"), "{text}");
     assert!(!w.run_dir("r1").exists(), "nothing was written");
     assert!(w.fake.calls().is_empty(), "nothing was started");
+}
+
+/// A run with a model node keeps the exits of `main`, where the three options were required by the
+/// parser: each one missing alone is a usage error, exit 64, naming the option, with nothing written
+/// and nothing started. (A run without a model node under `local` that lacks the ledger is refused
+/// by name, exit 2: the cases of `no_model_node_local.rs`.)
+#[test]
+fn a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone() {
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        let w = World::new("model-missing-option");
+        let mut a = w.args("r1", 1_000_000);
+        without(&mut a, flag);
+        let o = w.run(&a);
+        assert_eq!(code(&o), 64, "{flag} missing alone: {}", stderr(&o));
+        assert!(stderr(&o).contains(flag), "{flag} missing alone: {}", stderr(&o));
+        assert!(!w.run_dir("r1").exists() && !w.ledger().exists() && !w.root.join("xdg/runbook").exists(), "{flag} missing alone: something was written");
+        assert!(w.fake.calls().is_empty(), "{flag} missing alone: a call of Loom was made");
+    }
 }
 
 #[test]
@@ -211,7 +229,7 @@ fn the_forms_that_count_as_a_model_node_refuse_a_missing_ledger() {
         let mut a = w.args("r1", 0);
         without(&mut a, "--spend-ledger");
         let o = w.run(&a);
-        assert_eq!(code(&o), 2, "{what}: counts as a model node, so the missing ledger is refused: {}", stderr(&o));
+        assert_eq!(code(&o), 64, "{what}: counts as a model node, so the missing ledger is refused: {}", stderr(&o));
         assert!(stderr(&o).contains("--spend-ledger is required"), "{what}: {}", stderr(&o));
     }
     // a model node named in another bindings file, and in the answers file
@@ -226,7 +244,7 @@ fn the_forms_that_count_as_a_model_node_refuse_a_missing_ledger() {
         let mut a = w.args("r1", 0);
         without(&mut a, "--spend-ledger");
         let o = w.run(&a);
-        assert_eq!(code(&o), 2, "{what}: {}", stderr(&o));
+        assert_eq!(code(&o), 64, "{what}: {}", stderr(&o));
     }
 }
 
@@ -251,7 +269,7 @@ fn a_decider_that_calls_a_model_counts_as_a_model_node() {
     let mut a = w.args("r1", 0);
     without(&mut a, "--spend-ledger");
     let o = w.run(&a);
-    assert_eq!(code(&o), 2, "{}", stderr(&o));
+    assert_eq!(code(&o), 64, "{}", stderr(&o));
     assert!(stderr(&o).contains("--spend-ledger is required") && stderr(&o).contains("decider"), "{}", stderr(&o));
     // a decider of a rule calls none
     w.settings(&json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
@@ -265,7 +283,7 @@ fn a_decider_that_calls_a_model_counts_as_a_model_node() {
     w.settings(&json!({"decider": {"kind": "scripted", "max_call_micro_usd": 5, "answers": []}}));
     let mut a = w.args("r1", 0);
     without(&mut a, "--spend-ledger");
-    assert_eq!(code(&w.run(&a)), 2);
+    assert_eq!(code(&w.run(&a)), 64);
 }
 
 #[test]
@@ -276,7 +294,7 @@ fn a_run_that_re_drives_a_recording_or_observes_conformance_counts_as_having_a_m
     without(&mut a, "--spend-ledger");
     a.extend(["--conformance".to_owned(), "observe".to_owned()]);
     let o = w.run(&a);
-    assert_eq!(code(&o), 2, "{}", stderr(&o));
+    assert_eq!(code(&o), 64, "{}", stderr(&o));
     assert!(stderr(&o).contains("--spend-ledger is required") && stderr(&o).contains("conformance"), "{}", stderr(&o));
 }
 

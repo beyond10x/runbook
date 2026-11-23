@@ -55,22 +55,63 @@ fn install_signal_handlers() {
     }
 }
 
-/// Runs the whole command. `Err` is a refusal before anything was written (exit 2); `Ok` is how
-/// the run ended, written into the outcome file.
-pub fn run(args: &Args) -> Result<Outcome, String> {
+/// A refusal before anything was written. A run with a model node that lacks `--spend-ledger` is a
+/// usage error (exit 64), as it was when the parser required the option; every other refusal is
+/// exit 2.
+#[derive(Debug)]
+pub enum Refused {
+    /// A required option is missing: exit 64.
+    Usage(String),
+    /// The run itself is refused: exit 2.
+    Plain(String),
+}
+
+impl Refused {
+    /// The exit code of the refusal.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Refused::Usage(_) => 64,
+            Refused::Plain(_) => crate::loom_run::EXIT_REFUSED,
+        }
+    }
+}
+
+impl From<String> for Refused {
+    fn from(text: String) -> Self {
+        Refused::Plain(text)
+    }
+}
+
+impl From<&str> for Refused {
+    fn from(text: &str) -> Self {
+        Refused::Plain(text.to_owned())
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refused::Usage(text) | Refused::Plain(text) => f.write_str(text),
+        }
+    }
+}
+
+/// Runs the whole command. `Err` is a refusal before anything was written (exit 2, or 64 for a
+/// usage error); `Ok` is how the run ended, written into the outcome file.
+pub fn run(args: &Args) -> Result<Outcome, Refused> {
     install_signal_handlers();
     run_with(args, &SystemClock, &SIGNALLED)
 }
 
 /// [`run`] with the clock and the cancel flag given.
-pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, String> {
+pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, Refused> {
     // The way to Loom is checked before anything else: one of the two, and a binary that is the
     // file its digest names, or a level the library can give.
     let (identity, library) = match args.way()? {
         Way::Child { loom, sha256 } => {
             let sha = file_sha256(loom).map_err(|e| format!("--loom: {e}"))?;
             if sha != sha256.trim().to_ascii_lowercase() {
-                return Err(format!("--loom has sha256 {sha}, not the {sha256} that --loom-sha256 names"));
+                return Err(format!("--loom has sha256 {sha}, not the {sha256} that --loom-sha256 names").into());
             }
             (Identity::Binary { sha256: sha }, None)
         }
@@ -93,25 +134,25 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::goals::check_settings(&args.ports, &settings_value)?;
     let protocols = protocol_files(&args.protocols)?;
     if args.intake.is_empty() {
-        return Err("--intake is empty: a run needs the idea's text".to_owned());
+        return Err("--intake is empty: a run needs the idea's text".into());
     }
     if !args.bindings.is_dir() {
-        return Err(format!("--bindings {} is not a directory", args.bindings.display()));
+        return Err(format!("--bindings {} is not a directory", args.bindings.display()).into());
     }
     // A run with a model node needs the ledger, and a run without one needs its caps where a bound
     // program has a network: refused here, before anything is written. The opening decides again on
     // the run's copy and that decision is the one that counts.
     match model_node::decide(args, &settings_value, &*decider, &args.bindings) {
-        ModelNode::With { because } if args.spend_ledger.is_none() => return Err(ledger_required(&because)),
+        ModelNode::With { because } if args.spend_ledger.is_none() => return Err(Refused::Usage(ledger_required(&because))),
         ModelNode::Capped { level } => {
             if let Some(missing) = caps_missing(args) {
-                return Err(caps_required(&level, &missing));
+                return Err(caps_required(&level, &missing).into());
             }
         }
         _ => {}
     }
     if run_dir.exists() {
-        return Err(format!("the run directory {} exists", run_dir.display()));
+        return Err(format!("the run directory {} exists", run_dir.display()).into());
     }
     let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
     // nothing is made for the login yet: its link is made after the opening, in a run that has a model node
@@ -132,7 +173,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
         }
         (Identity::Library { .. }, Some((level, runner))) => Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, runner, cancel)),
-        (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
+        (Identity::Library { .. }, None) => return Err("the library was not prepared".into()),
     };
     let mut runner = Runner {
         args,
