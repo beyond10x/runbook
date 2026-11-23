@@ -1,0 +1,17 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-demo@1
+  bindings: bindings/suite-meet.yaml
+cycles:
+  - name: meet-first
+    expect:
+      exit: 0
+      outcome: written
+      checks:
+        - {check: contains, name: the-note, select: [{doc: {in: work, path: note.txt}}], is: met}
+  - name: meet-second
+    expect:
+      exit: 0
+      outcome: written
+      checks:
+        - {check: contains, name: the-note, select: [{doc: {in: work, path: note.txt}}], is: met}

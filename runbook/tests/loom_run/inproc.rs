@@ -259,7 +259,8 @@ fn a_level_the_library_cannot_give_is_refused_before_anything_is_written() {
     args[i + 1] = "substrate".into();
     let o = rig.run(&args);
     assert_eq!(code(&o), 2, "{}", stderr(&o));
-    assert!(stderr(&o).contains("substrate"), "{}", stderr(&o));
+    assert!(stderr(&o).contains("--confinement substrate is not a level the library can give here"), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("ConfinementRefused:"), "a library run refuses the level in its own words, not with the reason's name: {}", stderr(&o));
     assert!(!rig.run_dir("r1").exists(), "a run directory was made");
     assert!(!rig.ledger().exists(), "a ledger was made");
 }
@@ -528,11 +529,26 @@ fn a_person_program_that_fails_ends_the_run_with_the_engines_refusal() {
     let rig = Rig::new("person-program-fails");
     review_program(&rig, "#!/bin/sh\nexit 3\n");
     let o = rig.run(&rig.args("r1", 1_000_000));
-    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert_eq!(code(&o), 12, "a refusal of Loom by a named reason has its own exit code: {}", stderr(&o));
     let outcome = rig.outcome("r1");
-    assert_eq!(outcome["outcome"], "error", "{outcome}");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("person_program_failed")), "{outcome}");
     assert!(outcome["reason"].as_str().unwrap().contains("PersonProgramFailed"), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "person_program_failed", "{stopped}");
     assert!(!rig.work("r1").join("review-note.txt").exists());
+}
+
+#[test]
+fn a_bound_program_ended_by_a_signal_ends_the_run_with_the_signal_as_the_cause_not_stuck() {
+    let rig = Rig::new("program-signalled");
+    rig.writer("#!/bin/sh\nexit 137\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "a tree left stuck by a program that a signal ended is a refusal of Loom by name, not exit 3: {}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str(), outcome["exit_code"].as_u64()), (Some("refused"), Some("program_signalled"), Some(12)), "{outcome}");
+    assert!(outcome["reason"].as_str().unwrap().starts_with("ProgramSignalled:"), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "program_signalled", "{stopped}");
 }
 
 // ---- the program of a person's action: its environment, and who may take it ----
@@ -552,12 +568,33 @@ fn the_program_of_a_person_action_gets_path_and_loom_variables_and_nothing_of_th
     }
 }
 
+/// A bindings file Loom refuses at `tree open` (a format it does not know) ends the run `refused`,
+/// exit 12, with the reason as its cause, where it was exit 1 `error` before the pin; no run of a
+/// program, no model.
+#[test]
+fn a_bindings_file_loom_refuses_at_the_opening_ends_the_run_refused_with_its_reason_as_the_cause() {
+    let rig = Rig::new("open-refused");
+    let file = rig.root.join("fx/bindings/engine-demo.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("format: loom.bindings/1"), "the fixture changed: {text}");
+    std::fs::write(&file, text.replace("format: loom.bindings/1", "format: loom.bindings/99")).unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "bindings_refused");
+    assert!(!rig.work("r1").join("draft.txt").exists(), "a program ran after the opening was refused");
+}
+
 #[test]
 fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
     let rig = Rig::new("person-model");
     review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
     rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "decider:model", "cost_micro_usd": 0}]}}));
     let o = rig.run(&rig.args("r1", 1_000_000));
-    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert_eq!(code(&o), 12, "a refusal of Loom by a named reason has its own exit code: {}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("not_a_person_action")), "{outcome}");
     assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
 }
