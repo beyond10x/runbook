@@ -36,6 +36,7 @@ export const WIDE_ONLY = {
   'decisions-yaml-parses-what-was-read.spec.mjs': 'in-process parse, no page',
   'event-log-lines.spec.mjs': 'server survives bad lines',
   'good-end.spec.mjs': 'end-of-run wording, a text',
+  'fixture-hold.spec.mjs': 'player ends, no page',
   'graph-any-runbook.spec.mjs': 'graph labels per runbook',
   'holder-model.spec.mjs': 'model function, no page',
   'lenses-escape.spec.mjs': 'model check, no page',

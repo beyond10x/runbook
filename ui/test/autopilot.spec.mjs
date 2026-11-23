@@ -52,7 +52,7 @@ test('autopilot: the decider is deciding or no decision is pending, never a pers
   test.setTimeout(60000);
   // the decider's call is held after its last event, response still empty, until the page has been seen deciding
   const hold = path.join(runs, 'autopilot.hold');
-  procs.push(spawnChild('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '50'], {cwd: ui, stdio: 'ignore', env: {...process.env, SDC_FIXTURE_HOLD: hold}}));
+  procs.push(spawnChild('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '50', hold], {cwd: ui, stdio: 'ignore'}));
   for (let i = 0; i < 100 && !fs.existsSync(path.join(runs, 'autopilot', 'store')); i++) await new Promise((x) => setTimeout(x, 100));
   await expect.poll(async () => (sources = await (await fetch(base + '/api/sources')).json()).some((s) => s.path.endsWith('/autopilot/store')), {timeout: 15000}).toBe(true);
   await page.setViewportSize(GATING[0]);
