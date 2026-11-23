@@ -829,8 +829,8 @@
   },
   "source": {
     "path": "protocol/sdc-release.protocol.yaml",
-    "tag": "0.6.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.6.0/protocol/sdc-release.protocol.yaml"
+    "tag": "0.7.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.7.0/protocol/sdc-release.protocol.yaml"
   },
   "stem": "sdc-release",
   "summary": "Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running.",
