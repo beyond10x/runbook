@@ -1,7 +1,7 @@
 use super::state::scratch;
 use super::stub::ask;
 use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Fault, OpenSession, Outcome, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
-use runbook::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
+use runbook::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use runbook::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunState, State};
 use runbook::stub::{Script, Step, StubRuntime};
 use serde_json::{json, Value};
@@ -653,6 +653,12 @@ impl Runtime for Resuming {
     }
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
         self.0.knows_runbook(runbook, version)
+    }
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        self.0.runbooks()
+    }
+    fn kind(&self) -> &'static str {
+        self.0.kind()
     }
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
         self.0.start(request, sink, cancel)

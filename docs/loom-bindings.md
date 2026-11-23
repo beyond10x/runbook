@@ -144,6 +144,53 @@ no slot within `--pool-wait` (nothing ran), 70 the pool ended a started job at i
 over its time"). The tool exits 69 and 70 in both modes; under Loom neither maps to `failed` any
 more.
 
+`scripts/check-bindings.sh --exits <root>` runs the exits check alone over `<root>/bindings/*.yaml`.
+The list of the five pool bindings is this repository's: it applies when `<root>/bindings/` holds one of
+the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`; a link of one of these names
+that points at nothing counts), and by nothing else; where the script lies does not count, another
+repository may hold a copy of it. A runbook of another repository that happens to hold a file with one of
+these names sees the five lines `bindings/<file>:<action>: a binding that waits for the build pool is not in
+bindings/` (`sdc-story.yaml:tests.run`, `sdc-release.yaml:acceptance.run`, `sdc-bugfix.yaml:repro.run`,
+`tests.run`, `gate.run`), pinned by the test
+`a_runbook_of_another_repository_with_a_file_named_sdc_story_yaml_gets_the_five_pool_lines`. For any other root,
+the runbook of another repository, the option asks nothing about the build pool and checks the root's own
+files by the binding itself: every `program` binding states `exits.error`: `[69, 70, 75, 126, 127]` when
+its argv holds `--pool-wait` as an element, else `[75, 126, 127]` or `[69, 70, 75, 126, 127]` (the tool
+exits 69 and 70 for the environment variable `SDC_POOL_WAIT` too, which wins over the flag); a model node (`sdc-node`) also states
+`exits.not_called: [79]`; no code is in both classes or a key of the action's `from: exit` result table,
+and `exits` is on no other executor. A binding that lacks it gets one named line
+(`bindings/<file> <action>: exits.error is [], want [75,126,127] or [69,70,75,126,127]`); the line a user adds to its program
+binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
+the root. A file of no bytes (`the file is empty`), a link named `*.yaml` that points at nothing, a file
+that is no mapping with an `actions` list, an entry of `actions` that is no mapping or has no `action` name,
+an `executor` that is present and no mapping (`executor:` with no value too), an `executor.argv` that is no
+list, `evidence` that is no list of mappings, a `results` that is no mapping, and a result key read from
+the exit that is no exit code (plain digits for a number from 0 to 255: `+1`, `01`, `256` and `1` with a
+final newline are refused) are each refused by one line that names the file (and the action where there
+is one), exit 1; the other files are still checked. Of every member the script reads from a YAML bindings
+file, an absent or null value counts as absent and any other value must have the type the check needs: `false` is not an empty
+list. The full `scripts/check-bindings.sh` refuses the same shapes in the bindings file of a protocol under
+`FAIL <name>`, and there also an element of `executor.argv` or of `arguments_from` that is no string, an
+`arguments_from` that is no list and a `budget` that is no mapping; its registrations step reads a bindings
+file of any shape that `yq` can write as JSON without a message of `yq`, and fails the script when it
+cannot read a file. Every member the script reads from the YAML bindings file of a protocol, with each JSON
+type in it (null, false, true, a number, a string, an empty string, a list, an empty list, a mapping, an
+empty mapping; for text and keys also a final newline, a leading `+`, a leading zero, a number of 26
+digits), ends in exit 0 or 1 with a `FAIL` line that names the file, never in a raw message of `jq` or
+`yq`; the table is in `driver/tests/check_bindings_exits_value_table.rs`, one test per member. Outside
+that, and unchanged from before: YAML that `yq` cannot write as JSON (`.inf`, a key that is a list) ends
+the check with the message of `yq`, exit 1, with no `FAIL` line and no file named; a bindings file of more
+than one YAML document gives a raw message of `jq` in the full check; the JSON copies under
+`driver/examples/` and the protocol files that the registrations step reads are not checked for the type
+of their members, and a member of the wrong type there ends the check in a message of `jq` (exit 5). The
+backlog story `check-bindings-refuses-every-file-by-name` holds these; three ignored cases in
+`driver/tests/check_bindings_exits_unwritable_yaml_json_copies_and_protocol_ids.rs` measure them. Text that
+is no YAML ends the check with the message of `yq`, which names the file. A root given as a relative path
+may start with a dash. A copy of
+this repository's bindings elsewhere is this repository only while it holds one of the three named files.
+That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
+and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
+
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5 and 8, the exits of the check tools) and
 with no `exits.error` code of any binding (75, 126, 127, 69, 70); Loom refuses a code that is in

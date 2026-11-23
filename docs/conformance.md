@@ -317,7 +317,7 @@ the suite was never counted) for a run with no counted table; `not observed` wit
 
 ## The ess pin
 
-`driver/ess-pin.json` pins ess 0.97.4 (tag `0.97.4`, commit `b076ef00be`): per platform the
+`driver/ess-pin.json` pins ess 0.98.0 (tag `0.98.0`, commit `eb2bdd51d9`): per platform the
 release archive's sha256 (as in the release's `SHA256SUMS`) and the unpacked binary's. The binary is
 `ESS_BIN` when set, else `$SDC_ESS_CACHE`, `$XDG_CACHE_HOME/sdc/ess` or `$HOME/.cache/sdc/ess`,
 then `<version>/<target>/ess`; it is refused unless its sha256 and `--version` match the pin.
