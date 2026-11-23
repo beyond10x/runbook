@@ -1,0 +1,42 @@
+{
+  "autonomy": "A5",
+  "adapter": "metaharness",
+  "max_llm_calls": 100,
+  "max_wall_seconds": 120,
+  "models": {
+    "writer": {
+      "model": "model-w",
+      "max_turns": 3,
+      "max_budget_usd": 0.5
+    },
+    "review": {
+      "model": "model-r"
+    }
+  },
+  "efforts": {
+    "review": {
+      "effort": "low"
+    }
+  },
+  "review": {
+    "adapter": "claude-cli"
+  },
+  "decider": {
+    "kind": "scripted",
+    "max_call_micro_usd": 0,
+    "answers": [
+      {
+        "approve": true,
+        "cost_micro_usd": 0
+      }
+    ]
+  },
+  "loom": {
+    "in_process": true,
+    "commit": "db2726ff78440b8187cf956dd84e0847986e7e96",
+    "confinement": "local",
+    "cap_micro_usd": 1000000
+  },
+  "case": "ROOT-1",
+  "root_protocol": "engine-demo@1"
+}
