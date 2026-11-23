@@ -1,5 +1,6 @@
 mod answers;
 mod bugfix;
+mod child_refusal;
 mod conformance;
 mod core;
 mod decider;
@@ -12,6 +13,7 @@ mod held;
 mod inproc;
 mod login;
 mod model_call;
+mod pages;
 mod replay;
 mod replay_boundaries;
 mod run_dir;

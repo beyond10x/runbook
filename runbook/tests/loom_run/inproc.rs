@@ -259,7 +259,8 @@ fn a_level_the_library_cannot_give_is_refused_before_anything_is_written() {
     args[i + 1] = "substrate".into();
     let o = rig.run(&args);
     assert_eq!(code(&o), 2, "{}", stderr(&o));
-    assert!(stderr(&o).contains("substrate"), "{}", stderr(&o));
+    assert!(stderr(&o).contains("--confinement substrate is not a level the library can give here"), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("ConfinementRefused:"), "a library run refuses the level in its own words, not with the reason's name: {}", stderr(&o));
     assert!(!rig.run_dir("r1").exists(), "a run directory was made");
     assert!(!rig.ledger().exists(), "a ledger was made");
 }
@@ -565,6 +566,25 @@ fn the_program_of_a_person_action_gets_path_and_loom_variables_and_nothing_of_th
     for name in dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)) {
         assert!(name == "PATH" || name.starts_with("LOOM_") || matches!(name, "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is in the environment of the program of a person action:\n{dump}");
     }
+}
+
+/// A bindings file Loom refuses at `tree open` (a format it does not know) ends the run `refused`,
+/// exit 12, with the reason as its cause, where it was exit 1 `error` before the pin; no run of a
+/// program, no model.
+#[test]
+fn a_bindings_file_loom_refuses_at_the_opening_ends_the_run_refused_with_its_reason_as_the_cause() {
+    let rig = Rig::new("open-refused");
+    let file = rig.root.join("fx/bindings/engine-demo.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("format: loom.bindings/1"), "the fixture changed: {text}");
+    std::fs::write(&file, text.replace("format: loom.bindings/1", "format: loom.bindings/99")).unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "bindings_refused");
+    assert!(!rig.work("r1").join("draft.txt").exists(), "a program ran after the opening was refused");
 }
 
 #[test]
