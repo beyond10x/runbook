@@ -5,6 +5,8 @@ kind: story
 status: active
 title: A check command of a bug-fix run names its pool time, and the run takes a checks file
 summary: sdc-bugfix passes a time a check command names to the pool (at most 30 minutes), and runbook run --bugfix takes --checks <file> for a repository that is not Rust.
+relations:
+- decomposes: epic:ticket-to-merge-request-on-a-real-repository
 scope:
 - confidence: cited
   path: docs/bugfix.md
