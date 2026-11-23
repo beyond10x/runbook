@@ -5,7 +5,7 @@ setup, a run, an expected verdict) into data, `cycles/suite.yaml` (format `runbo
 Loom's `loom.tree-suite/1` then took the cycles that can be said in it over, as
 `cycles/tree-suite.yaml`. `story:driver-runtime-removed` deleted the script, `cycles/suite.yaml` and
 the driver the script ran. This file stays as the table of the 130 entries of the deleted suite: each
-row says what holds the entry now. The 130 names are committed in `cycles/old-suite-names.txt`.
+row says what holds the entry now. The 130 names, and `spec-person-wait` (a cycle added after the deletion, so the list holds 131 names), are committed in `cycles/old-suite-names.txt`.
 
 ## What holds an entry now
 
@@ -33,7 +33,7 @@ Every entry is in one of four states. The `state` cell of its row says exactly t
 and fails when it is not format `loom.tree-suite/1`, repeats a cycle name, has an entry without a
 `name`, or names a seed (`seed: [{from: ...}]`, in `defaults` or in a cycle) that is not under
 `cycles/`. It reads `cycles/old-suite-names.txt` and fails when a cycle of the file is not one of the
-130 names. While this file exists it reads the rows of its tables headed `| entry | state |` and fails
+131 names. While this file exists it reads the rows of its tables headed `| entry | state |` and fails
 when a name has no row or more than one, when a row names an entry that is not in the list, when the state of a row is none of the four words
 above (the refusal names the row and the word), when a row
 says converted or pending and the suite file says otherwise, or when a row of another state names a
@@ -103,7 +103,7 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 40 converted, 14 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
+131 entries (the 130 of the deleted suite and `spec-person-wait`): 40 converted, 15 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
 `scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending).
 At Loom `db2726ff` every `pending` entry was run once. `run-stop`, `replay-sibling` and `decider-rework` run as expected and lost
 `pending` (`story:tree-suite-stop-resume-reopen-steps`, `story:tree-replay-command`). `decider-rework-spent` and
@@ -184,6 +184,7 @@ is held by the tests named):
 | plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
 | spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
 | replay-sibling | converted | the `replay` step (Loom `db2726ff`, `story:tree-replay-command`, merged): the scripted replies are seeds, and every case of the replay matches its log (`state_matches_log`, `decision_matches_log`); 43.3 s at a one-minute load of 62 |
+| spec-person-wait | pending | gap: a not-called action is selected again at the same revision (Loom `story:action-dated-by-revisions-its-step-left`). The state of run 1 of record `parity-loom-strong-4`, no model call (a stub spec case, a `needs_person` finding, `spec.author` not called). It runs and still fails: `sdc-node` exits 79 (`exits.not_called`), Loom records no result and counts no run, and `spec.author` is taken again at once, about twice a second, until the runner's 60 s bound (exit 5): the writer stays `due` through its `retry_when` records, which overrule "performed at this revision" (`crates/loom-tree/src/history.rs:25-55`), and only an action with a refusal leaves the due set (`crates/loom-tree/src/run.rs:978-991`, Loom `70b0e6e0`). The pending `cite-fault-sent-back` shows the same loop on `requirements.normalise` (97 runs of exit 79 in 60 s). Waits for that story; the person's decision is also out of reach of the suite until a step writes a workspace file |
 | pool-wait | dropped with the driver | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
 
 ### Re-drive entries (9)
@@ -268,7 +269,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | rework-not-called | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-no-rework-prompt | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | cite-dark-spot | pending | the intake finding is decided by the decider in the old cycle; here it stops for a person's decision written into `findings.yaml` (gap, no Loom story yet) |
-| cite-fault-sent-back | pending | same: the intake finding stops for a person's decision (gap, no Loom story yet) |
+| cite-fault-sent-back | pending | gap: a not-called action is selected again at the same revision (`requirements.normalise` exits 79 and is taken again, Loom `story:action-dated-by-revisions-its-step-left`); and the same as the entries above: the intake finding stops for a person's decision (gap, no Loom story yet) |
 | autopilot-close | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a5_with_a_model_decider_the_close_is_taken_by_rule_and_the_decider_is_not_asked` (principal `rule:autopilot`, no model call); `at_a5_the_close_through_an_outcome_the_class_does_not_list_is_asked_of_the_model_decider_and_run_as_printed` holds the close of an outcome the close class does not list |
 | autopilot-close-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_close_is_a_persons_and_the_decider_is_not_asked` (the table of `tools/autonomy-levels.json` gives the close to a person at A3: exit 8, no model call; the driver asked the decider there, and a level never widens what its table gives); `at_a4_the_decider_is_asked_for_the_close_rejects_and_the_run_stops_unclosed` holds the decider's rejection of the close where the table gives it (A4: exit 9, nothing closed) |
 | conformance-default-off | held by a Rust test | `runbook/tests/loom_run/conformance.rs::conformance_default_off`: a closed run without `--conformance observe` (and with `--conformance off`) writes no `oracle.json` and starts no observer; `--conformance observe` on a closed run writes it (`observe_on_a_closed_run_writes_oracle_json_from_the_run_workspace_through_the_pinned_tool`), the observation of a failure is written into it and never changes the exit (`a_failed_observation_is_written_into_oracle_json_and_the_run_exit_stays`). The entry stays in `cycles/suite.yaml` until the script is deleted |

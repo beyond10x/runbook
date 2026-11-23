@@ -16,7 +16,7 @@
 //!    `instructions/golden/` (rendered prompts kept as test data) is left out of both.
 //! 4. `views`: each `views/*.view.json` parses, is an object and has `"format": "runbook.view/1"`.
 //! 5. `cycles`: `cycles/tree-suite.yaml` parses, has `loom.tree-suite/1`, unique cycle names and
-//!    the seeds each cycle names; each name is one of the 130 entries of the old suite, listed in
+//!    the seeds each cycle names; each name is one of the entries of the old suite, listed in
 //!    `cycles/old-suite-names.txt`; and, while `docs/cycles-suite.md` exists, its table has one row
 //!    per listed entry, and a row that says converted or pending is a cycle of the suite file.
 
@@ -510,7 +510,7 @@ fn cycles(root: &Path, r: &mut Report, seen: &mut Seen) {
     let names = match std::fs::read_to_string(&names_path) {
         Ok(t) => names_of(&t),
         Err(_) => {
-            r.add("cycles", CYCLES_NAMES, "is missing or unreadable", "restore the committed list of the 130 entries of the old suite, one name per line");
+            r.add("cycles", CYCLES_NAMES, "is missing or unreadable", "restore the committed list of the entries of the old suite, one name per line");
             return;
         }
     };

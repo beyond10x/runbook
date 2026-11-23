@@ -13,6 +13,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, check-idea, --action, idea.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: idea_shape
         subject: idea
@@ -23,6 +24,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, idea.dissect, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/idea.dissect.md"}', --stub, stub-file, dissection.yaml, dissection.yaml]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -31,6 +33,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, check-dissection, --action, dissection.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: dissection_shape
         subject: dissection
@@ -42,6 +45,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, questions.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.write.md"}', --stub, stub-file, questions-open.yaml, questions.yaml]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -50,6 +54,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.answer.md"}', --stub, stub-file, questions-answered.yaml, questions.yaml]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -64,6 +69,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, check-questions, --action, questions.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: questions_shape
         subject: questions
@@ -81,6 +87,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, requirements.normalise, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/requirements.normalise.md"}', --stub, stub-file, requirements.yaml, requirements.yaml]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -89,6 +96,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, check-requirements, --action, requirements.check]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: requirements_shape
         subject: requirements
@@ -100,6 +108,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, amend, requirements, --action, amend.upstream]
+    exits: {error: [75, 126, 127]}
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

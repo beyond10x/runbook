@@ -620,10 +620,43 @@ fn derived_by_default(root: &Path) {
     put(&w, "findings.yaml", DERIVED_FINDINGS);
 }
 
+/// The exit code of a node that is not called: the one `exits.not_called` of every model-node
+/// binding lists (`bindings/*.yaml`).
+const NOT_CALLED: i32 = 79;
+
+#[test]
+fn every_model_node_binding_lists_the_one_exit_the_program_ends_not_called_with() {
+    let mut nodes = Vec::new();
+    for e in fs::read_dir(repo().join("bindings")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_none_or(|x| x != "yaml") {
+            continue;
+        }
+        let doc: serde_yaml::Value = serde_yaml::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        for a in doc.get("actions").and_then(|a| a.as_sequence()).into_iter().flatten() {
+            let argv0 = a.get("executor").and_then(|x| x.get("argv")).and_then(|x| x.as_sequence()).and_then(|s| s.first()).and_then(|v| v.as_str());
+            if argv0 != Some("sdc-node") {
+                continue;
+            }
+            let name = a["action"].as_str().unwrap().to_string();
+            let listed: Vec<i64> = a
+                .get("exits")
+                .and_then(|x| x.get("not_called"))
+                .and_then(|x| x.as_sequence())
+                .map(|s| s.iter().filter_map(|v| v.as_i64()).collect())
+                .unwrap_or_default();
+            assert_eq!(listed, vec![i64::from(NOT_CALLED)], "{name} in {}", p.display());
+            nodes.push(name);
+        }
+    }
+    nodes.sort();
+    assert_eq!(nodes.len(), 14, "the fourteen model nodes: {nodes:?}");
+}
+
 #[test]
 fn a_finding_that_waits_for_a_person_stops_the_node() {
     let (_, r) = pair("findings-wait", &start("spec.author"), &|root| put(&root.join("work"), "findings.yaml", FINDING));
-    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert_eq!(r.code, Some(NOT_CALLED), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: spec.author not called: findings wait for a person (f1 f2)\n");
 }
 
@@ -636,6 +669,7 @@ fn a_decided_finding_does_not_stop_the_node() {
 #[test]
 fn a_derived_tree_is_renewed_when_every_decision_is_a_default_the_node_raised() {
     let (_, r) = pair("findings-derived", &start("spec.author").with(&["--adapter", "dry"]), &derived_by_default);
+    assert_eq!(r.code, Some(0), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: spec.author not called: the decisions since spec/ was written are the defaults it raised and follows (f1); spec/ marked as derived from the amended requirements\n");
     assert!(!r.files.keys().any(|k| k.starts_with(".sdc/llm/")), "{r:#?}");
 }
@@ -679,6 +713,7 @@ fn have_questions(root: &Path) {
 #[test]
 fn questions_write_is_not_called_while_questions_exist() {
     let (_, r) = pair("questions-guard", &start("questions.write"), &have_questions);
+    assert_eq!(r.code, Some(NOT_CALLED), "{r:#?}");
     assert_eq!(r.stdout, "llm-node: questions.write not called: questions.yaml exists and no check found it invalid\n");
 }
 

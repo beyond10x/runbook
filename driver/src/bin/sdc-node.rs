@@ -17,8 +17,9 @@
 //! retry. The program builds the prompt from the node's declared inputs, copies those into the
 //! call's `in/`, lets the adapter write `out/`, and copies back only the declared output. It holds
 //! no text a model reads: every sentence is a file under `instructions/`. Exit codes are the
-//! script's: 0, 64 (bad arguments), 75 (the model's API ended), 126 (program error), 127 (missing
-//! program); an adapter's exit is passed through.
+//! script's: 0, 64 (bad arguments), 75 (the model's API ended), 79 (not called: the program prints
+//! why and writes no evidence; a derived tree that is only renewed ends 0, see `derived_skip`), 126
+//! (program error), 127 (missing program); an adapter's exit is passed through.
 
 #[path = "sdc-node/call.rs"]
 mod call;
@@ -178,7 +179,7 @@ impl Ctx {
         if self.node == "questions.write" && interview && self.set.feedback.is_none() {
             let msg = self.render("instructions/shared/node.not-called.questions.md", &[])?;
             Out::inherit().line(msg.as_bytes());
-            return Ok(Some(0));
+            return Ok(Some(util::NOT_CALLED));
         }
         self.adapter = env_set("SDC_LLM_ADAPTER").unwrap_or_else(|| "stub".to_string());
         // The review's reply is a data document under a response schema, so its class has its own
@@ -256,6 +257,11 @@ fn run(argv: &[String]) -> R<i32> {
     let set = setup::setup(node, &argv[2..])?;
     let mut ctx = Ctx::new(node, set);
     if let Some(code) = ctx.before_call()? {
+        if code == util::NOT_CALLED {
+            if let Some(made) = &ctx.set.made {
+                let _ = fs::remove_dir_all(made);
+            }
+        }
         return Ok(code);
     }
     call::run(&ctx)
