@@ -87,6 +87,21 @@ impl Case {
     /// `requirements.yaml` after one start of the stub of `requirements.normalise` with the retry
     /// feedback document `doc`, kept as Loom keeps one: a file of its own for each document.
     fn start(&mut self, doc: &str) -> String {
+        let o = self.run(doc);
+        assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+        fs::read_to_string(self.work().join("requirements.yaml")).unwrap()
+    }
+
+    fn work(&self) -> PathBuf {
+        self.root.join("work")
+    }
+
+    fn ledger(&self) -> PathBuf {
+        self.work().join(".sdc/rework-seen")
+    }
+
+    /// One start of the stub with the feedback document `doc`: its whole output.
+    fn run(&mut self, doc: &str) -> std::process::Output {
         self.runs += 1;
         let work = self.root.join("work");
         let name = format!("feedback-doc-{}.json", self.runs);
@@ -100,9 +115,7 @@ impl Case {
         c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = c.spawn().unwrap();
         child.stdin.take().unwrap().write_all(br#"{"domain":"billing"}"#).unwrap();
-        let o = child.wait_with_output().unwrap();
-        assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
-        fs::read_to_string(work.join("requirements.yaml")).unwrap()
+        child.wait_with_output().unwrap()
     }
 }
 
@@ -185,4 +198,171 @@ fn a_record_that_is_not_a_rejection_of_this_approval_is_not_counted() {
         record("e4", "r2", "approved", "requirements.check"),
     ]));
     assert!(second.ends_with(&note(" 2")), "{second}");
+}
+
+fn one(id: &str, revision: &str) -> String {
+    document(&[record(id, revision, "rejected", "requirements.check")])
+}
+
+/// A ledger the stub wrote earlier, or half wrote, counts the ids it names for this approval, each
+/// once: a junk line, a blank line, a line of another approval and a repeated line add nothing.
+#[test]
+fn a_ledger_with_a_duplicate_a_junk_line_and_another_approval_counts_the_ids_of_this_one_once() {
+    let mut case = Case::new("junk");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "garbage\n\ncontext.approve e9\nrequirements.check e1\nrequirements.check e1\n").unwrap();
+    let text = case.start(&one("e2", "r2"));
+    assert!(text.ends_with(&note(" 2")), "{text}");
+}
+
+/// A start that ended after the note and before the ledger: the same document gives the same note.
+#[test]
+fn a_start_again_after_the_note_and_before_the_ledger_writes_the_same_note() {
+    let mut case = Case::new("note-no-ledger");
+    let first = case.start(&one("e1", "r1"));
+    fs::remove_file(case.ledger()).unwrap();
+    assert_eq!(first, case.start(&one("e1", "r1")));
+}
+
+/// A start that ended after the ledger and before the note: the document that names the id gives
+/// the note it would have given.
+#[test]
+fn a_start_again_after_the_ledger_and_before_the_note_writes_the_same_note() {
+    let mut case = Case::new("ledger-no-note");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "requirements.check e1\nrequirements.check e2\n").unwrap();
+    let text = case.start(&one("e2", "r2"));
+    assert!(text.ends_with(&note(" 2")), "{text}");
+}
+
+/// One rejection is one line of the ledger however often the stub starts for it.
+#[test]
+fn a_start_again_on_the_same_rejection_adds_no_line_to_the_ledger() {
+    let mut case = Case::new("one-line");
+    let doc = one("e1", "r1");
+    for _ in 0..3 {
+        case.start(&doc);
+    }
+    assert_eq!(fs::read_to_string(case.ledger()).unwrap(), "requirements.check e1\n");
+}
+
+/// An evidence id with a path separator or a NUL is data: it makes no file and is counted.
+#[test]
+fn an_evidence_id_with_a_path_separator_or_a_nul_names_no_file_and_is_counted() {
+    let mut case = Case::new("separator");
+    assert!(case.start(&one("../../escaped/x", "r1")).ends_with(&note("")));
+    assert!(case.start(&one("a\u{0}b", "r2")).ends_with(&note(" 2")));
+    assert!(case.start(&one("e3", "r3")).ends_with(&note(" 3")));
+    assert!(!case.root.join("escaped").exists() && !case.root.parent().unwrap().join("escaped").exists());
+}
+
+/// A ledger of 200000 lines is read once and counted.
+#[test]
+fn a_large_ledger_is_counted() {
+    let mut case = Case::new("large");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    let body: String = (0..200_000).map(|i| format!("requirements.check id{i}\n")).collect();
+    fs::write(case.ledger(), body).unwrap();
+    let text = case.start(&one("e2", "r2"));
+    assert!(text.ends_with(&note(" 200001")), "{}", &text[text.len().saturating_sub(120)..]);
+}
+
+/// An evidence id is taken as its first line, so one id is one ledger line: an id that holds a
+/// newline and a line of a ledger forges no second rejection.
+#[test]
+fn an_evidence_id_with_a_newline_is_taken_as_one_line_and_is_one_rejection() {
+    let mut case = Case::new("newline");
+    assert!(case.start(&one("x\nrequirements.check y", "r1")).ends_with(&note("")));
+    assert!(case.start(&one("e2", "r2")).ends_with(&note(" 2")));
+    assert_eq!(fs::read_to_string(case.ledger()).unwrap(), "requirements.check x\nrequirements.check e2\n");
+}
+
+/// The ledger is the only memory of the numbering: with it gone the count starts again from the
+/// records of the document, so the third rework is numbered 1.
+#[test]
+fn the_count_starts_again_when_the_ledger_is_gone() {
+    let mut case = Case::new("gone");
+    case.start(&one("e1", "r1"));
+    case.start(&one("e2", "r2"));
+    fs::remove_file(case.ledger()).unwrap();
+    let text = case.start(&one("e3", "r3"));
+    assert!(text.ends_with(&note("")), "{text}");
+}
+
+/// A ledger the stub cannot use ends the stub with one line on standard error, names the path
+/// relative to the work directory and writes no note: a rework numbered by a ledger it could not
+/// read would repeat the one before it, and Loom would make no new revision.
+fn ends_the_stub(case: &mut Case, what: &str) {
+    let before = fs::read_to_string(case.work().join("requirements.yaml")).unwrap();
+    let o = case.run(&one("e1", "r1"));
+    let err = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_eq!(o.status.code(), Some(126), "{what}: {err}");
+    assert_eq!(err.lines().count(), 1, "{what}: {err}");
+    assert!(err.starts_with("sdc-node: the ledger .sdc/rework-seen "), "{what}: {err}");
+    assert!(!err.contains(case.root.to_str().unwrap()), "{what}: {err}");
+    assert_eq!(fs::read_to_string(case.work().join("requirements.yaml")).unwrap(), before, "{what}: a note was written");
+}
+
+#[test]
+fn a_ledger_that_is_a_link_is_an_error_and_nothing_is_written_through_it() {
+    let mut case = Case::new("link");
+    let outside = case.root.join("outside-file");
+    fs::write(&outside, "mine\n").unwrap();
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    std::os::unix::fs::symlink(&outside, case.ledger()).unwrap();
+    ends_the_stub(&mut case, "a link to a file");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "mine\n", "the stub wrote through the link");
+}
+
+#[test]
+fn a_ledger_that_is_a_link_to_nothing_is_an_error_and_makes_no_file() {
+    let mut case = Case::new("dangling");
+    let outside = case.root.join("not-there");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    std::os::unix::fs::symlink(&outside, case.ledger()).unwrap();
+    ends_the_stub(&mut case, "a link to nothing");
+    assert!(!outside.exists(), "the stub made the file the link names");
+}
+
+#[test]
+fn a_ledger_that_is_a_directory_a_fifo_or_a_file_with_a_second_name_is_an_error() {
+    let mut case = Case::new("dir");
+    fs::create_dir_all(case.ledger()).unwrap();
+    ends_the_stub(&mut case, "a directory");
+
+    let mut case = Case::new("fifo");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    assert!(Command::new("mkfifo").arg(case.ledger()).status().unwrap().success());
+    ends_the_stub(&mut case, "a FIFO");
+
+    let mut case = Case::new("hard");
+    let outside = case.root.join("outside-file");
+    fs::write(&outside, "requirements.check e0\n").unwrap();
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::hard_link(&outside, case.ledger()).unwrap();
+    ends_the_stub(&mut case, "a file with a second name");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "requirements.check e0\n");
+}
+
+#[test]
+fn a_sdc_directory_that_is_a_link_is_an_error_and_nothing_is_written_through_it() {
+    let mut case = Case::new("sdc-link");
+    let outside = case.root.join("outside-dir");
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, case.work().join(".sdc")).unwrap();
+    ends_the_stub(&mut case, "a .sdc link");
+    assert!(!outside.join("rework-seen").exists(), "the stub wrote the ledger into the directory the link names");
+}
+
+#[test]
+fn a_ledger_that_cannot_be_read_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut case = Case::new("unreadable");
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), "requirements.check e0\n").unwrap();
+    fs::set_permissions(case.ledger(), fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(case.ledger()).is_ok() {
+        return;
+    }
+    ends_the_stub(&mut case, "a file with no permission");
 }
