@@ -159,13 +159,92 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
         let (found, detail, path) = probe(spec, l, var, assets.as_ref());
         checks.push(Check { name: spec.name, found, required, detail, path, by: spec.by, hint: spec.hint });
         if matches!(spec.kind, Kind::Assets) {
-            checks.extend(LAYOUT.iter().map(|part| layout_check(part, assets.as_ref())));
+            checks.extend(assets.as_ref().and_then(install_check));
+            checks.extend(
+                LAYOUT
+                    .iter()
+                    .map(|part| layout_check(part, assets.as_ref())),
+            );
         }
     }
     Report { scope: only.map(|(id, _)| id.to_string()), assets, checks }
 }
 
-const LAYOUT_HINT: &str = "restore it in the asset root: it holds every directory of the text layout, as the repository does";
+const INSTALL_HINT: &str =
+    "run scripts/install.sh --prefix <prefix> again over this prefix: it finishes the install";
+
+/// How many names of missing files the `install` line spells out.
+const NAMED_MISSING: usize = 3;
+
+/// What an installed prefix lacks, or `None` when it is whole: the `share/runbook/INSTALLING` marker of an
+/// install that did not finish is there, `VERSION` or `MANIFEST` is missing, or a file `MANIFEST` names is
+/// missing. Existence only: nothing is hashed.
+fn incomplete(share: &Path) -> Option<String> {
+    if share.join("INSTALLING").symlink_metadata().is_ok() {
+        return Some("share/runbook/INSTALLING is there: an install did not finish".to_string());
+    }
+    let absent: Vec<&str> = ["VERSION", "MANIFEST"]
+        .into_iter()
+        .filter(|n| !share.join(n).is_file())
+        .collect();
+    if !absent.is_empty() {
+        return Some(format!(
+            "share/runbook/{} is missing",
+            absent.join(" and share/runbook/")
+        ));
+    }
+    let prefix = share.join("..").join("..");
+    let manifest = std::fs::read_to_string(share.join("MANIFEST")).ok()?;
+    let gone: Vec<&str> = manifest
+        .lines()
+        .filter(|l| !l.is_empty() && !prefix.join(l).exists())
+        .collect();
+    if gone.is_empty() {
+        return None;
+    }
+    let first: Vec<&str> = gone.iter().take(NAMED_MISSING).copied().collect();
+    let more = if gone.len() > NAMED_MISSING {
+        ", ..."
+    } else {
+        ""
+    };
+    Some(format!(
+        "{} of the files MANIFEST names are missing: {}{more}",
+        gone.len(),
+        first.join(", ")
+    ))
+}
+
+/// The `install` line, only for assets of an installed prefix: `incomplete install: <what is missing>`, or the
+/// number of files `MANIFEST` names.
+fn install_check(a: &Assets) -> Option<Check> {
+    if a.source != crate::assets::Source::Installed {
+        return None;
+    }
+    let (found, detail) = match incomplete(&a.root) {
+        Some(what) => (false, format!("incomplete install: {what}")),
+        None => {
+            let n = std::fs::read_to_string(a.root.join("MANIFEST"))
+                .map(|m| m.lines().filter(|l| !l.is_empty()).count())
+                .unwrap_or(0);
+            (
+                true,
+                format!("whole ({n} files named by MANIFEST are there)"),
+            )
+        }
+    };
+    Some(Check {
+        name: "install",
+        found,
+        required: true,
+        detail,
+        path: None,
+        by: "every runbook run from an installed prefix: the files the install script wrote",
+        hint: INSTALL_HINT,
+    })
+}
+
+const LAYOUT_HINT: &str ="restore it in the asset root: it holds every directory of the text layout, as the repository does";
 
 /// One part of the text layout, found under the asset root or `missing` by name. Every part is
 /// required, as the `assets` line is (every runbook and the ui need all of them).
@@ -368,6 +447,108 @@ mod tests {
         let mut have: Vec<String> = helper_names().into_iter().map(String::from).collect();
         have.sort();
         assert_eq!(have, want);
+    }
+
+    fn whole_prefix(t: &crate::assets::testdir::Dir) -> Assets {
+        let share = t.dir("prefix/share/runbook");
+        t.dir("prefix/share/runbook/protocol");
+        t.dir("prefix/bin");
+        for f in [
+            "bin/runbook",
+            "share/runbook/VERSION",
+            "share/runbook/MANIFEST",
+        ] {
+            std::fs::write(t.path().join("prefix").join(f), "x\n").unwrap();
+        }
+        std::fs::write(
+            share.join("MANIFEST"),
+            "bin/runbook\nshare/runbook/VERSION\nshare/runbook/MANIFEST\n",
+        )
+        .unwrap();
+        Assets {
+            root: share,
+            source: crate::assets::Source::Installed,
+        }
+    }
+
+    #[test]
+    fn a_whole_prefix_passes_the_install_line_and_one_that_is_not_installed_has_none() {
+        let t = crate::assets::testdir::Dir::new("doctor-whole");
+        let a = whole_prefix(&t);
+        let c = install_check(&a).expect("an installed prefix has the line");
+        assert!(c.found && c.required, "{}", c.detail);
+        let checkout = Assets {
+            root: a.root.clone(),
+            source: crate::assets::Source::Checkout,
+        };
+        assert!(install_check(&checkout).is_none());
+    }
+
+    /// The `install` line of a prefix that is not whole: failed, required, one line, `incomplete install: <what>`.
+    fn incomplete_line(a: &Assets) -> String {
+        let c = install_check(a).unwrap();
+        assert!(!c.found && c.required, "{}", c.detail);
+        assert!(!c.detail.contains('\n'), "one line: {}", c.detail);
+        assert!(c.detail.starts_with("incomplete install: "), "{}", c.detail);
+        c.detail
+    }
+
+    #[test]
+    fn the_marker_of_an_install_that_did_not_finish_is_an_incomplete_install() {
+        let t = crate::assets::testdir::Dir::new("doctor-marker");
+        let a = whole_prefix(&t);
+        std::fs::write(a.root.join("INSTALLING"), "").unwrap();
+        assert!(incomplete_line(&a).contains("INSTALLING"));
+        std::fs::remove_file(a.root.join("INSTALLING")).unwrap();
+        assert!(install_check(&a).unwrap().found);
+    }
+
+    #[test]
+    fn a_missing_version_file_is_an_incomplete_install() {
+        let t = crate::assets::testdir::Dir::new("doctor-no-version");
+        let a = whole_prefix(&t);
+        std::fs::remove_file(a.root.join("VERSION")).unwrap();
+        let d = incomplete_line(&a);
+        assert!(d.contains("VERSION") && !d.contains("MANIFEST"), "{d}");
+    }
+
+    #[test]
+    fn a_missing_manifest_is_an_incomplete_install() {
+        let t = crate::assets::testdir::Dir::new("doctor-no-manifest");
+        let a = whole_prefix(&t);
+        std::fs::remove_file(a.root.join("MANIFEST")).unwrap();
+        let d = incomplete_line(&a);
+        assert!(d.contains("MANIFEST") && !d.contains("VERSION"), "{d}");
+    }
+
+    #[test]
+    fn a_file_the_manifest_names_that_is_missing_is_an_incomplete_install_and_is_named() {
+        let t = crate::assets::testdir::Dir::new("doctor-gone-file");
+        let a = whole_prefix(&t);
+        let listed = "bin/runbook\nshare/runbook/VERSION\nshare/runbook/MANIFEST\nbin/gone\nshare/runbook/protocol/gone.yaml\n";
+        std::fs::write(a.root.join("MANIFEST"), listed).unwrap();
+        let d = incomplete_line(&a);
+        assert!(
+            d.contains("bin/gone")
+                && d.contains("share/runbook/protocol/gone.yaml")
+                && d.contains("2 of"),
+            "{d}"
+        );
+        std::fs::remove_file(t.path().join("prefix/bin/runbook")).unwrap();
+        assert!(
+            incomplete_line(&a).contains("bin/runbook"),
+            "a listed file that was there is missing now"
+        );
+        std::fs::write(
+            a.root.join("MANIFEST"),
+            "bin/a\nbin/b\nbin/c\nbin/d\nbin/e\n",
+        )
+        .unwrap();
+        let d = incomplete_line(&a);
+        assert!(
+            d.contains("5 of") && d.contains("bin/a") && !d.contains("bin/d") && d.ends_with("..."),
+            "at most three are named: {d}"
+        );
     }
 
     #[test]

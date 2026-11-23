@@ -8,8 +8,9 @@
 //! 3. A checkout: walking up from the executable's directory, then from the current directory, the
 //!    first directory that holds `protocol/` and `driver/examples/sdc/`.
 //!
-//! Helper binaries, first match wins: `<exe dir>/../libexec`, the executable's own directory, in a
-//! checkout `driver/target/{release,debug}` and `watch/target/{release,debug}`, then `PATH`.
+//! Helper binaries, first match wins: `<exe dir>/../libexec/runbook`, the executable's own directory, in a
+//! checkout `driver/target/{release,debug}` and `watch/target/{release,debug}`, then `PATH`. A flat
+//! `<prefix>/libexec` is not read.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -158,7 +159,7 @@ impl Lookup {
     pub fn helper(&self, name: &str, assets: Option<&Assets>) -> Option<PathBuf> {
         let mut dirs: Vec<PathBuf> = Vec::new();
         if let Some(d) = self.exe_dir() {
-            dirs.push(d.join("..").join("libexec"));
+            dirs.push(d.join("..").join("libexec").join("runbook"));
             dirs.push(d.to_path_buf());
         }
         if let Some(a) = assets.filter(|a| a.source == Source::Checkout) {
@@ -171,23 +172,47 @@ impl Lookup {
         dirs.iter().map(|d| d.join(name)).find(|p| is_executable(p)).or_else(|| self.which(name))
     }
 
-    /// The `PATH` for this process and the programs it starts, when it runs from an installed prefix (the
-    /// directory beside `bin/` holds `share/runbook/protocol/` and `libexec/`): `<prefix>/libexec` in front of the
-    /// current `PATH`. A bound tool that starts a helper (`sdc-reply`, `sdc-findings`) finds it there: the install
-    /// puts the helpers in `libexec`, not in `bin`, so a `PATH` of `<prefix>/bin` alone does not reach them.
-    /// `None` when there is nothing to change: no installed layout, or `libexec` already on `PATH`.
+    /// The directory of the helpers of an installed prefix, `<prefix>/libexec/runbook`, or `None` when the
+    /// executable does not run from an installed layout. The layout is installed when all of these hold: the
+    /// executable's directory is named `bin`, `<prefix>/libexec/runbook` is a directory and
+    /// `<prefix>/share/runbook/protocol` is a directory. `libexec/runbook` belongs to this product alone, so
+    /// nothing another package keeps in `<prefix>/libexec` is ever found through it.
+    pub fn installed_helpers(&self) -> Option<PathBuf> {
+        let bin = self.exe_dir()?;
+        if bin.file_name()? != "bin" {
+            return None;
+        }
+        let prefix = bin.parent()?;
+        let helpers = prefix.join("libexec").join("runbook");
+        (helpers.is_dir()
+            && prefix
+                .join("share")
+                .join("runbook")
+                .join("protocol")
+                .is_dir())
+        .then_some(helpers)
+    }
+
+    /// The `PATH` for this process and the programs it starts, when it runs from an installed prefix:
+    /// `<prefix>/libexec/runbook` in front of the current `PATH`, so a bound tool that starts a helper
+    /// (`sdc-reply`, `sdc-findings`) finds it there: the install puts the helpers in `libexec/runbook`, not in
+    /// `bin`, so a `PATH` of `<prefix>/bin` alone does not reach them. The new `PATH` has no empty entry (an
+    /// empty entry is the working directory): empty entries of the current one are dropped, and with `PATH` unset
+    /// or empty the rest is `/usr/bin:/bin`. `None` when there is nothing to change: no installed layout, or the
+    /// helpers directory already on `PATH`.
     pub fn path_with_libexec(&self) -> Option<OsString> {
-        let prefix = self.exe_dir()?.parent()?;
-        let libexec = prefix.join("libexec");
-        if !libexec.is_dir() || !prefix.join("share").join("runbook").join("protocol").is_dir() {
-            return None;
-        }
+        let helpers = self.installed_helpers()?;
         let current = self.path.clone().unwrap_or_default();
-        let mut dirs: Vec<PathBuf> = std::env::split_paths(&current).collect();
-        if dirs.contains(&libexec) {
+        let mut dirs: Vec<PathBuf> = std::env::split_paths(&current)
+            .filter(|d| !d.as_os_str().is_empty())
+            .collect();
+        if dirs.contains(&helpers) {
             return None;
         }
-        dirs.insert(0, libexec);
+        if dirs.is_empty() {
+            dirs = vec![PathBuf::from("/usr/bin"), PathBuf::from("/bin")];
+        }
+        dirs.insert(0, helpers);
         std::env::join_paths(dirs).ok()
     }
 
@@ -336,10 +361,17 @@ mod tests {
         let release = t.exe("co/driver/target/release/sdc-x");
         assert_eq!(l.helper("sdc-x", Some(&a)), Some(release));
         let beside = t.exe("prefix/bin/sdc-x");
-        assert_eq!(l.helper("sdc-x", Some(&a)), Some(beside));
-        let libexec = t.exe("prefix/libexec/sdc-x");
+        assert_eq!(l.helper("sdc-x", Some(&a)), Some(beside.clone()));
+        let flat = t.exe("prefix/libexec/sdc-x");
+        assert_eq!(
+            l.helper("sdc-x", Some(&a)),
+            Some(beside.clone()),
+            "a flat libexec is not read"
+        );
+        let libexec = t.exe("prefix/libexec/runbook/sdc-x");
         let got = l.helper("sdc-x", Some(&a)).unwrap();
         assert_eq!(got.canonicalize().unwrap(), libexec.canonicalize().unwrap());
+        assert_ne!(got.canonicalize().unwrap(), flat.canonicalize().unwrap());
     }
 
     #[test]
@@ -357,15 +389,60 @@ mod tests {
         let mut l = lookup(&t);
         l.path = Some("/usr/bin:/bin".into());
         assert_eq!(l.path_with_libexec(), None, "no libexec");
-        let libexec = t.dir("prefix/libexec");
-        assert_eq!(l.path_with_libexec(), None, "a libexec beside bin/ without share/runbook/protocol is not an install");
+        t.dir("prefix/libexec");
         t.dir("prefix/share/runbook/protocol");
-        let want = std::env::join_paths([libexec.clone(), PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap();
-        assert_eq!(l.path_with_libexec(), Some(want));
-        l.path = Some(std::env::join_paths([PathBuf::from("/usr/bin"), libexec]).unwrap());
+        assert_eq!(
+            l.path_with_libexec(),
+            None,
+            "a flat libexec is not the helpers' directory"
+        );
+        let libexec = t.dir("prefix/libexec/runbook");
+        std::fs::remove_dir_all(t.path().join("prefix/share/runbook/protocol")).unwrap();
+        assert_eq!(
+            l.path_with_libexec(),
+            None,
+            "libexec/runbook without share/runbook/protocol is not an install"
+        );
+        t.dir("prefix/share/runbook/protocol");
+        let mut want = libexec.clone().into_os_string();
+        want.push(":/usr/bin:/bin");
+        l.path = Some("/usr/bin:/bin".into());
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(want.clone()),
+            "in front of the given PATH"
+        );
+        l.path = Some(std::env::join_paths([PathBuf::from("/usr/bin"), libexec.clone()]).unwrap());
         assert_eq!(l.path_with_libexec(), None, "already on PATH");
-        l.path = None;
-        assert!(l.path_with_libexec().is_some(), "no PATH at all: libexec alone");
+        for unset in [None, Some(OsString::new()), Some(OsString::from(":"))] {
+            l.path = unset.clone();
+            assert_eq!(l.path_with_libexec(), Some(want.clone()), "PATH {unset:?}");
+        }
+        l.path = Some("/usr/local/bin::/bin:".into());
+        let mut want = libexec.into_os_string();
+        want.push(":/usr/local/bin:/bin");
+        assert_eq!(
+            l.path_with_libexec(),
+            Some(want),
+            "empty entries are dropped"
+        );
+    }
+
+    #[test]
+    fn the_executable_directory_of_an_installed_layout_is_named_bin() {
+        let t = Dir::new("libexec-bin-name");
+        t.dir("prefix/libexec/runbook");
+        t.dir("prefix/share/runbook/protocol");
+        let mut l = lookup(&t);
+        l.path = Some("/usr/bin".into());
+        assert!(l.path_with_libexec().is_some());
+        l.exe = Some(t.dir("prefix/debug").join("runbook"));
+        assert_eq!(
+            l.installed_helpers(),
+            None,
+            "<x>/debug/runbook with <x>/libexec/runbook is no install"
+        );
+        assert_eq!(l.path_with_libexec(), None);
     }
 
     #[test]
