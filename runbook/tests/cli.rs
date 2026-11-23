@@ -18,6 +18,28 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
+/// A `runbook.toml` that holds nothing, shared by every test process (written once, renamed into
+/// place). A test binary that names it in `RUNBOOK_CONFIG` reads no file of the host: neither the
+/// walk over the parents of its working directory nor the user's configuration directory is read.
+fn empty_config() -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("empty-config");
+    let file = dir.join("runbook.toml");
+    if !file.is_file() {
+        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = dir.join(format!("runbook.toml.{}", std::process::id()));
+        std::fs::write(&tmp, "").unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::rename(&tmp, &file).unwrap();
+    }
+    file
+}
+
+/// Every start of the binary by a test goes through this: the configuration is the empty file, so
+/// no `runbook.toml` of the host reaches a test (`tests/loom_run/config_file.rs` holds the rule).
+fn isolate(c: &mut Command) -> &mut Command {
+    c.env("RUNBOOK_CONFIG", empty_config())
+}
+
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/repo")
 }
@@ -76,6 +98,7 @@ impl World {
             .env("HOME", self.root.join("home"))
             .env("RUNBOOK_HOME", self.root.join("assets"))
             .current_dir(&self.root);
+        isolate(&mut c);
         for (k, v) in extra {
             c.env(k, v);
         }
@@ -375,7 +398,7 @@ fn list_without_a_protocol_directory_fails() {
 fn list_shows_the_nine_protocols_of_this_repository() {
     let w = World::new("list");
     let root = repo();
-    let o = Command::new(BIN).arg("list").env("RUNBOOK_HOME", &root).current_dir(&w.root).output().unwrap();
+    let o = isolate(Command::new(BIN).arg("list")).env("RUNBOOK_HOME", &root).current_dir(&w.root).output().unwrap();
     assert_eq!(o.status.code(), Some(0));
     let rows: Vec<Vec<String>> = stdout(&o).lines().map(|l| l.split_whitespace().map(String::from).collect()).collect();
     assert_eq!(rows.len(), 9, "{}", stdout(&o));
@@ -387,7 +410,7 @@ fn list_shows_the_nine_protocols_of_this_repository() {
     }
     assert!(rows.iter().all(|r| r.len() > 2), "every row has a title");
 
-    let o = Command::new(BIN).args(["list", "--json"]).env("RUNBOOK_HOME", &root).output().unwrap();
+    let o = isolate(Command::new(BIN).args(["list", "--json"])).env("RUNBOOK_HOME", &root).output().unwrap();
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
     let a = v.as_array().unwrap();
     assert_eq!(a.len(), 9);
@@ -398,7 +421,7 @@ fn list_shows_the_nine_protocols_of_this_repository() {
 
 #[test]
 fn list_finds_a_checkout_from_the_working_directory() {
-    let o = Command::new(BIN).arg("list").env_remove("RUNBOOK_HOME").current_dir(repo().join("docs")).output().unwrap();
+    let o = isolate(Command::new(BIN).arg("list")).env_remove("RUNBOOK_HOME").current_dir(repo().join("docs")).output().unwrap();
     assert_eq!(o.status.code(), Some(0));
     assert_eq!(stdout(&o).lines().count(), 9);
 }

@@ -78,6 +78,7 @@ impl Bin {
         let mut cmd = Command::new(BIN);
         cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0", "--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::isolate(&mut cmd);
         match token {
             Some(t) => cmd.env("RUNBOOK_TOKEN", t),
             None => cmd.env_remove("RUNBOOK_TOKEN"),

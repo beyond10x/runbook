@@ -87,11 +87,24 @@ artifacts, prints every LLM command and runs none, with scripted approvals. It i
 (the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
 
 ```console
-runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
-  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+runbook init
+runbook run sdc --intake idea.txt --dry
 ```
 
-The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+`runbook init` writes this `runbook.toml` (mode 600, no comment) into the working directory; the
+binary finds it there and in every directory below it:
+
+```toml runbook.toml
+runs_dir = "runs"
+confinement = "substrate"
+max_wall_seconds = 3600
+cap_micro_usd = 5000000
+max_llm_calls = 200
+```
+
+`runbook config` prints every value of a run and the file or option it comes from. The run's name is
+generated and printed; any option of `runbook run` still wins over the file. The options and the file's
+keys are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 

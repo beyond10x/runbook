@@ -40,6 +40,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
     let path = format!("{}:{}", driver_bin.display(), std::env::var("PATH").unwrap_or_default());
     let run = Command::new(BIN)
         .env_clear()
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
         .args(["run", "sdc", "--run", "stub-cycle", "--runs-dir"])
@@ -103,6 +104,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
         let run = format!("stub-cycle-{name}");
         let out = Command::new(BIN)
             .env_clear()
+            .env("RUNBOOK_CONFIG", crate::empty_config())
             .env("PATH", &path)
             .env("HOME", &home)
             .args(["run", "sdc", "--run", &run, "--runs-dir"])

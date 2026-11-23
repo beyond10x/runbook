@@ -13,6 +13,13 @@ pub fn read(path: &Path) -> Result<Value, String> {
     parse(&text).map_err(|e| format!("--settings {}: {e}", path.display()))
 }
 
+/// The settings a run reads: the `--settings` file when one is named, over the members `runbook.toml`
+/// carries (a member of the file replaces the default's whole). With neither, an empty table.
+pub fn merged(args: &crate::loom_run::Args) -> Result<Value, String> {
+    let over = args.settings.as_deref().map(read).transpose()?;
+    Ok(crate::config::merge(&args.defaults, over.as_ref()))
+}
+
 /// The settings of a TOML text as the JSON value the loop, the decider and the bindings copy read:
 /// a table is an object in file order, an integer a whole number, a float a float (so no guard that
 /// wants a whole number takes it). A date or a time is no value of any setting.
@@ -292,7 +299,8 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
-            settings: PathBuf::from("settings.toml"),
+            settings: Some(PathBuf::from("settings.toml")),
+            defaults: Default::default(),
             spend_ledger: PathBuf::from("ledger.json"),
             cap_micro_usd: 5_000_000,
             max_llm_calls: 100,

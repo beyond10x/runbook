@@ -287,7 +287,7 @@ impl Where<'_> {
         let program = if argv[0].contains('/') { self.bindings.join(&argv[0]).display().to_string() } else { argv[0].clone() };
         let name = argv[0].clone();
         let mut command = Command::new(&program);
-        command.args(&argv[1..]).env_clear().env("PATH", self.path).env("LOOM_CASE", self.case).current_dir(self.workspace);
+        command.args(&argv[1..]).env_clear().env("PATH", self.path).env("LOOM_CASE", self.case).env(crate::config::ENV_NO_CONFIG, "1").current_dir(self.workspace);
         command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
         let mut child = command.spawn().map_err(|e| format!("could not start {name}: {}", e.kind()))?;
         let mut out = child.stdout.take().ok_or("no stdout")?;

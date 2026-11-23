@@ -79,7 +79,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::bugfix::check(args)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
-    let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    let given = settings::normalise(&settings::merged(args)?, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;
@@ -783,7 +783,8 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
-            settings: root.join("settings.toml"),
+            settings: Some(root.join("settings.toml")),
+            defaults: Default::default(),
             spend_ledger: root.join("ledger.json"),
             cap_micro_usd: 1_000_000,
             max_llm_calls: 100,

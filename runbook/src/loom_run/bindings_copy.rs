@@ -107,6 +107,11 @@ pub fn efforts(settings: &Value) -> Result<BTreeMap<String, String>, String> {
     Ok(out)
 }
 
+/// Whether the settings' members are ones the copy reads: every table, key and kind, nothing written.
+pub fn check(settings: &Value) -> Result<(), String> {
+    read_plan(settings).map(|_| ())
+}
+
 fn read_plan(settings: &Value) -> Result<Plan, String> {
     let top = object(settings, "settings")?;
     for key in top.keys() {

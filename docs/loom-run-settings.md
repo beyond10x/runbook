@@ -11,6 +11,11 @@ hold the path of the login file. One format serves the loop (`docs/loom-run.md`)
 the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`read`,
 `normalise`, `fill_decider`), `decider.rs` (`from_settings`) and `bindings_copy.rs` (`materialise`).
 
+A `runbook.toml` (`docs/loom-run.md` "Where a value comes from") may carry the members `login_file`,
+`autonomy`, `decider`, `adapter`, `models`, `efforts` and `review` of this format as defaults, read by the same reader; a
+member of the `--settings` file replaces the file's member as a whole. `format`, `run`, `loom_sha256`,
+`in_process` and `replay` belong to one run and are refused in that file.
+
 Each setting has one place. A table exists only where it groups: `[decider]`, `[models.<role>]`,
 `[efforts.<role>]` and `[review]`. There is no `[loom]` table: what lived under `loom` in the JSON form
 is at the top level (the table at the end of this section lists the old and the new place).

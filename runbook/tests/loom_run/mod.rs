@@ -2,6 +2,7 @@ mod answers;
 mod bugfix;
 mod child_refusal;
 mod conformance;
+mod config_file;
 mod core;
 mod decider;
 mod decisions;

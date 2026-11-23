@@ -1,14 +1,19 @@
 //! `runbook run <runbook>` without `--detach`: one run of a runbook in this process, through the
 //! loop of `run_loop.rs`.
 //!
-//! The options are those the loop needs (`Args`); what the asset root holds for the runbook (the
-//! bindings, the protocols, the root protocol) is looked up when its option is not given, by the
-//! code `runbook list` and `runbook check` use. Without `--loom` Loom is a library of this process;
-//! `--loom` with `--loom-sha256` runs the `b10x-loom` binary as a child process. A missing required
-//! option is a usage error that names it (clap, exit 64); a refusal of the run itself is exit 2.
+//! The options are those the loop needs (`Args`). The values that have a default (the run, the directory
+//! of the runs, the spend ledger, the caps, the confinement, the settings) come from an option, else
+//! from `runbook.toml` (`config.rs`), else from a built-in default where a wrong value does no harm;
+//! what the asset root holds for the runbook (the bindings, the protocols, the root protocol) is looked
+//! up when its option is not given, by the code `runbook list` and `runbook check` use. Without
+//! `--loom` Loom is a library of this process; `--loom` with `--loom-sha256` runs the `b10x-loom` binary
+//! as a child process. A value that has no default and is not stated (the confinement, the wall time,
+//! the two caps) is a usage error that names the option and the line to add (exit 64); a refusal of the
+//! run itself, and of `runbook.toml`, is exit 2.
 
 use super::ports::{refuse_unbuilt, Bugfix, Conformance, OnDivergence, Ports, Refusal, Replay};
-use super::{Args, Confinement, EXIT_REFUSED};
+use super::{Args, EXIT_REFUSED};
+use crate::config::{self, ValueOptions};
 use clap::Args as ClapArgs;
 use runbook::client::RunArgs;
 use std::path::PathBuf;
@@ -17,34 +22,12 @@ use std::process::ExitCode;
 /// The case id of the root case when `--case` is not given.
 pub const DEFAULT_CASE: &str = "IDEA-1";
 
-/// The options of a run in this process; every one conflicts with `--detach`. The ones without a
-/// default are required without it.
+/// The options of a run in this process; every one conflicts with `--detach` (the value options are
+/// checked against it by `main`).
 #[derive(ClapArgs, Clone, Debug)]
 pub struct HereOptions {
-    /// Name of the run; the run directory is `<runs-dir>/<name>` and must not exist.
-    #[arg(long, value_name = "NAME", required_unless_present = "detach", conflicts_with = "detach")]
-    pub run: Option<String>,
-    /// Directory that holds the run directories.
-    #[arg(long, value_name = "DIR", required_unless_present = "detach", conflicts_with = "detach")]
-    pub runs_dir: Option<PathBuf>,
-    /// The confinement of every bound program: `local` or `substrate`. No default.
-    #[arg(long, value_enum, value_name = "LEVEL", required_unless_present = "detach", conflicts_with = "detach")]
-    pub confinement: Option<Confinement>,
-    /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
-    #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
-    pub settings: Option<PathBuf>,
-    /// The spend ledger shared by every run that counts against the same cap.
-    #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
-    pub spend_ledger: Option<PathBuf>,
-    /// The spend cap in micro USD over all runs that share the ledger.
-    #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
-    pub cap_micro_usd: Option<u64>,
-    /// The most model calls of this run (steps and decisions together).
-    #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
-    pub max_llm_calls: Option<u64>,
-    /// The most wall seconds of this run.
-    #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
-    pub max_wall_seconds: Option<u64>,
+    #[command(flatten)]
+    pub values: ValueOptions,
     /// The `b10x-loom` binary, run as a child process; with `--loom-sha256`. Without both, Loom is
     /// a library of this process.
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
@@ -129,8 +112,19 @@ fn root_protocol_of(runbook: &str, protocols: &std::path::Path) -> Result<String
     Ok(format!("{}@{revision}", entry.protocol_id.replace('.', "-")))
 }
 
-/// The options of the loop from the command line; what is not given comes from the asset root.
-pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
+/// The refusal of a value that is not stated: the option, the key and a line to add, and the file.
+fn not_stated(flag: &str, line: &str, no_default: bool, file: Option<&std::path::Path>) -> Refusal {
+    let default = if no_default { " and has no built-in default" } else { "" };
+    let place = match file {
+        Some(f) => f.display().to_string(),
+        None => "a runbook.toml (no file was found; `runbook init` writes one)".to_owned(),
+    };
+    (64, format!("{flag} is required{default}: give the option, or add the line `{line}` to {place}"))
+}
+
+/// The options of the loop from the command line and `runbook.toml`; what is not given comes from the
+/// asset root. The second part is the run's name when it was generated.
+pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -> Result<(Args, Option<String>), Refusal> {
     const USAGE: u8 = 64;
     if let Some(flag) = detach_only(base) {
         return Err((USAGE, format!("{flag} belongs to --detach: a run in this process takes no daemon and no context")));
@@ -152,7 +146,6 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         watch: here.watch,
         conformance: here.conformance,
     };
-    let missing = |flag: &str| (USAGE, format!("{flag} is required"));
     let intake = runbook::client::read_intake(&base.intake).map_err(|f| (EXIT_REFUSED, f.message))?;
     let assets = if here.bindings.is_none() || here.protocols.is_none() {
         Some(crate::assets::Lookup::from_process().locate().map_err(|e| (EXIT_REFUSED, format!("no asset root for the runbook's bindings and protocols ({e}): name --bindings and --protocols, or set RUNBOOK_HOME")))?)
@@ -173,29 +166,54 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         Some(r) => r,
         None => root_protocol_of(super::bugfix::runbook_of(&ports, &base.runbook)?, &protocols).map_err(|e| (EXIT_REFUSED, e))?,
     };
-    Ok(Args {
-        run: here.run.ok_or_else(|| missing("--run"))?,
-        runs_dir: here.runs_dir.ok_or_else(|| missing("--runs-dir"))?,
-        loom: here.loom,
-        loom_sha256: here.loom_sha256,
-        bindings,
-        protocols,
-        root_protocol,
-        case: super::bugfix::case_of(&ports, here.case),
-        intake,
-        confinement: here.confinement.ok_or_else(|| missing("--confinement"))?,
-        settings: here.settings.ok_or_else(|| missing("--settings"))?,
-        spend_ledger: here.spend_ledger.ok_or_else(|| missing("--spend-ledger"))?,
-        cap_micro_usd: here.cap_micro_usd.ok_or_else(|| missing("--cap-micro-usd"))?,
-        max_llm_calls: here.max_llm_calls.ok_or_else(|| missing("--max-llm-calls"))?,
-        max_wall_seconds: here.max_wall_seconds.ok_or_else(|| missing("--max-wall-seconds"))?,
-        ports,
-    })
+    let cwd = std::env::current_dir().map_err(|e| (EXIT_REFUSED, format!("the working directory: {e}")))?;
+    let values = config::resolve(&here.values, file, &cwd);
+    let at = values.file.as_deref();
+    let confinement = values.confinement.clone().map(|(c, _)| c).ok_or_else(|| not_stated("--confinement", "confinement = \"<local or substrate>\"", true, at))?;
+    let max_wall_seconds = values.max_wall_seconds.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--max-wall-seconds", "max_wall_seconds = <seconds>", true, at))?;
+    let cap_micro_usd = values.cap_micro_usd.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--cap-micro-usd", "cap_micro_usd = <micro USD>", false, at))?;
+    let max_llm_calls = values.max_llm_calls.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--max-llm-calls", "max_llm_calls = <calls>", false, at))?;
+    let (run, generated) = match values.run {
+        Some((name, _)) => (name, None),
+        None => {
+            let name = config::generated_run_name(&base.runbook);
+            (name.clone(), Some(name))
+        }
+    };
+    Ok((
+        Args {
+            run,
+            runs_dir: values.runs_dir.0,
+            loom: here.loom,
+            loom_sha256: here.loom_sha256,
+            bindings,
+            protocols,
+            root_protocol,
+            case: super::bugfix::case_of(&ports, here.case),
+            intake,
+            confinement,
+            settings: values.settings,
+            defaults: values.members,
+            spend_ledger: values.spend_ledger.0,
+            cap_micro_usd,
+            max_llm_calls,
+            max_wall_seconds,
+            ports,
+        },
+        generated,
+    ))
 }
 
 /// `runbook run <runbook>` without `--detach`.
-pub fn command(base: RunArgs, here: HereOptions) -> ExitCode {
-    let args = match args_of(&base, here) {
+pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> ExitCode {
+    let file = match config::load(source) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("runbook run: {e}");
+            return ExitCode::from(EXIT_REFUSED);
+        }
+    };
+    let (args, generated) = match args_of(&base, here, file.as_ref()) {
         Ok(a) => a,
         Err((code, line)) => {
             eprintln!("runbook run: {line}");
@@ -205,6 +223,9 @@ pub fn command(base: RunArgs, here: HereOptions) -> ExitCode {
     if let Err((code, line)) = refuse_unbuilt(&args.ports) {
         eprintln!("runbook run: {line}");
         return ExitCode::from(code);
+    }
+    if let Some(name) = generated {
+        eprintln!("runbook run: run {name} (generated), directory {}", args.runs_dir.join(&name).display());
     }
     match super::run_loop::run(&args) {
         Ok(outcome) => {

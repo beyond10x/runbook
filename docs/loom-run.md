@@ -14,9 +14,12 @@ runbook run <runbook> --intake <file|-> --run <name> --runs-dir <dir> --confinem
 ```
 
 `<runbook>` is the id of a protocol file under the protocols directory (`sdc`, `sdc-bugfix`; the
-code of `runbook list`). Required, with no default: `<runbook>`, `--intake`, `--run`, `--runs-dir`,
-`--confinement`, `--settings`, `--spend-ledger`, `--cap-micro-usd`, `--max-llm-calls` and
-`--max-wall-seconds`; a missing one is a usage error (exit 64) that names it. Optional:
+code of `runbook list`). Required: `<runbook>`, `--intake`, and each of `--confinement`,
+`--max-wall-seconds`, `--cap-micro-usd` and `--max-llm-calls` that neither an option nor a
+`runbook.toml` states ("Where a value comes from" below); a missing one is a usage error (exit 64)
+that names the option and the line to add to the file. `--run`, `--runs-dir`, `--settings` and
+`--spend-ledger` are optional now: `runbook run sdc --intake idea.txt --dry` is the whole command
+once a `runbook.toml` states the four values. Optional:
 `--bindings` and `--protocols` default to `bindings/` and `protocol/` of the asset root
 (`RUNBOOK_HOME`, the installed share directory or the checkout the executable lies in; the lookup
 of `runbook doctor`), `--root-protocol` to `<protocol id with . as ->@<revision>` of the runbook's
@@ -50,6 +53,69 @@ the last three lines the seed printed (`sdc-bugfix` quotes the ticket's id and n
 The text of a ticket is in `work/` and in no other file the runner writes and on neither stream
 (`runbook/tests/loom_run/bugfix.rs`). The bug-fix runbook works on Rust repositories only
 (`docs/bugfix.md`).
+
+## Where a value comes from
+
+`story:runbook-toml-carries-defaults`. A `runbook.toml` that the binary finds supplies the defaults, so
+`runbook run <runbook> --intake <file>` needs nothing else once the file states the values that have no
+built-in default. `runbook init` writes a starter (mode 600, never over a file that is there);
+`runbook config` prints every effective value of a run and its origin and opens no login file.
+
+A value comes from, in this order: an option of the command line; a member of a `--settings` file (a
+member of that file replaces the file's member as a whole, a table is not merged with a table); the
+`runbook.toml`; a built-in default where a wrong value does no harm. Only the second and third are the
+settings of a run (`autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file`; read by the
+one reader of `docs/loom-run-settings.md`); `format`, `run`, `loom_sha256`, `in_process` and `replay`
+belong to one run and are no key of the file. A file value never lowers what an option sets, and the
+confinement and the wall time have no built-in default: a run that is not told them is refused
+(exit 64, the option and the line to add are named).
+
+```toml runbook.toml
+runs_dir = "runs"
+spend_ledger = "runs/spend-ledger.json"
+confinement = "substrate"
+max_wall_seconds = 3600
+cap_micro_usd = 5000000
+max_llm_calls = 200
+autonomy = "A5"
+login_file = "/path/to/the/login-file"
+
+[decider]
+kind = "model"
+model = "claude-opus-5-5"
+without_claims = true
+
+[models.writer]
+model = "claude-sonnet-5-5"
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `runs_dir` | path | `runs/` beside the file | directory of the run directories (`--runs-dir`) |
+| `spend_ledger` | path | `spend-ledger.json` in `runs_dir` | the ledger shared by the runs that count against one cap (`--spend-ledger`) |
+| `confinement` | `local`, `substrate` | none: refused | `--confinement`; there is no built-in level and no file lowers one |
+| `max_wall_seconds` | whole number | none: refused | `--max-wall-seconds` |
+| `cap_micro_usd` | whole number | none: refused | `--cap-micro-usd` |
+| `max_llm_calls` | whole number | none: refused | `--max-llm-calls` |
+| `autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file` | as in `docs/loom-run-settings.md` | none | the run settings members |
+
+A relative path of the file is relative to the directory of the file. A run name that is not given is
+generated (the runbook, a time and a random part, unique) and printed on standard error.
+
+The file is found in this order and the first hit wins; two files are never merged: `--config <file>`;
+the variable `RUNBOOK_CONFIG`; `runbook.toml` in the working directory or a parent; then
+`$XDG_CONFIG_HOME/runbook/runbook.toml` (else `<home>/.config/runbook/runbook.toml`). `--no-config` and
+the variable `RUNBOOK_NO_CONFIG` read no file; the runner gives that variable to every program of a run.
+
+What the file can never do. A refusal names the file and the key, and prints no line, value or part of a
+value of it. A key named like a login, a token or a key, a value that has the form of one (the vendors'
+key prefixes, a private key block, a web token, a bearer value) and an unknown key at any level are
+refused; a login is named by its path, never held by content. A file found by the walk or in the user's
+directory is a regular file with one name that its user owns and that group and others cannot write; a
+link, a file with a second name and a writable file are refused by name (`--config` and
+`RUNBOOK_CONFIG` get the same checks except the owner). The walk never reads a `runbook.toml` inside a
+run directory or in the directory of runs that holds it, so a file a model wrote into a run is no
+source; the runner resolves the file once, before the run directory exists.
 
 ## The two ways to Loom
 

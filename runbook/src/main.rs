@@ -4,6 +4,7 @@
 mod assets;
 mod canon_cmd;
 mod check;
+mod config;
 mod doctor;
 mod list;
 mod loom_run;
@@ -17,6 +18,8 @@ use std::process::ExitCode;
 #[derive(Parser)]
 #[command(name = "runbook", version, about = "Run a runbook: a fixed, checked way to handle a case")]
 struct Cli {
+    #[command(flatten)]
+    source: config::Source,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -50,6 +53,10 @@ enum Cmd {
     Mcp(runbook::mcp::stdio::McpArgs),
     /// Run a runbook once in this process, through Loom as a library or a `b10x-loom` child, under a spend ledger and caps; writes a run directory. With `--detach`: submit the run to a daemon and print its id.
     Run(Box<RunCmd>),
+    /// Print every effective value of `runbook run` with where it comes from: an option, a settings file, `runbook.toml` or a built-in default. Opens no login file.
+    Config(config::ValueOptions),
+    /// Write a starter `runbook.toml` (mode 600) into the working directory; refuses to overwrite one.
+    Init,
     /// Inspect and steer the runs of a daemon: list, show, events, cancel, decisions.
     Runs {
         #[command(subcommand)]
@@ -143,8 +150,34 @@ fn main() -> ExitCode {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
-        Cmd::Run(run) if run.common.detach => runbook::client::run(run.common),
-        Cmd::Run(run) => loom_run::here::command(run.common, run.here),
+        Cmd::Run(run) if run.common.detach => match run.here.values.first_given() {
+            Some(flag) => {
+                eprintln!("runbook run: {flag} belongs to a run in this process and conflicts with --detach");
+                ExitCode::from(USAGE_ERROR)
+            }
+            None => runbook::client::run(run.common),
+        },
+        Cmd::Run(run) => loom_run::here::command(run.common, run.here, &cli.source),
+        Cmd::Config(options) => match config::show(&cli.source, &options) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("runbook config: {e}");
+                ExitCode::from(loom_run::EXIT_REFUSED)
+            }
+        },
+        Cmd::Init => match config::init(None) {
+            Ok(path) => {
+                println!("wrote {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("runbook init: {e}");
+                ExitCode::from(loom_run::EXIT_REFUSED)
+            }
+        },
         Cmd::Runs { cmd } => runbook::client::runs(cmd),
         Cmd::Decide(args) => runbook::client::decide(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),

@@ -31,8 +31,9 @@ pub enum EndedBy {
 }
 
 /// The environment of every `b10x-loom` child, built by the runner: `PATH` (the runner's own,
-/// `/usr/bin:/bin` when it has none), `HOME` and `XDG_DATA_HOME` inside the run directory.
-/// Nothing else is passed.
+/// `/usr/bin:/bin` when it has none), `HOME` and `XDG_DATA_HOME` inside the run directory, and
+/// `RUNBOOK_NO_CONFIG`: a start of `runbook` from inside a run reads no `runbook.toml` (`config.rs`),
+/// whatever a program of the run wrote into the tree. Nothing else is passed.
 pub fn child_env(run_dir: &Path) -> Vec<(String, String)> {
     let path = std::env::var("PATH").ok().filter(|p| !p.is_empty()).unwrap_or_else(|| "/usr/bin:/bin".to_owned());
     let home = run_dir.join("home");
@@ -40,6 +41,7 @@ pub fn child_env(run_dir: &Path) -> Vec<(String, String)> {
         ("PATH".to_owned(), path),
         ("HOME".to_owned(), home.display().to_string()),
         ("XDG_DATA_HOME".to_owned(), home.join("data").display().to_string()),
+        (crate::config::ENV_NO_CONFIG.to_owned(), "1".to_owned()),
     ]
 }
 
