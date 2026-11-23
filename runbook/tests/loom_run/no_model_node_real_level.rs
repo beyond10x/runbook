@@ -66,9 +66,11 @@ impl Rig {
         super::decider::install_routing_table_at(&root.join("fx"));
         let rig = Rig { root, level, caps, loom };
         let approve = json!({"approve": true, "cost_micro_usd": 0});
-        let loom = if rig.loom.is_some() { json!({"confinement": level}) } else { json!({"in_process": true, "confinement": level}) };
-        let v = json!({"login_file": rig.login(), "loom": loom, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
-        std::fs::write(rig.root.join("settings.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        let mut v = json!({"login_file": rig.login(), "confinement": level, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+        if rig.loom.is_none() {
+            v["in_process"] = json!(true);
+        }
+        std::fs::write(rig.root.join("settings.toml"), super::core::toml_text(&v)).unwrap();
         rig
     }
 
@@ -88,7 +90,7 @@ impl Rig {
         let r = |p: &str| self.root.join(p).display().to_string();
         let mut args: Vec<String> = [
             "run", "sdc", "--run", "r1", "--runs-dir", &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-draft@1", "--case", "DRAFT-1", "--intake", &r("idea.yaml"),
-            "--confinement", self.level, "--settings", &r("settings.json"), "--max-wall-seconds", "50",
+            "--confinement", self.level, "--settings", &r("settings.toml"), "--max-wall-seconds", "50",
         ]
         .map(String::from)
         .to_vec();

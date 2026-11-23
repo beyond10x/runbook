@@ -89,8 +89,8 @@ impl Committed {
         write_exe(&root.join("bin/slot"), "#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/../called-slot\"\nexec \"$@\"\n");
         write_exe(&root.join("bin/sdc-bugfix"), SEED_HELPER);
         let approve = json!({"approve": true, "cost_micro_usd": 0});
-        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
-        std::fs::write(root.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+        let settings = json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+        std::fs::write(root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
         Committed { root }
     }
 
@@ -102,7 +102,7 @@ impl Committed {
     fn run(&self, runbook: &str, caps: bool, extra: &[&str]) -> Output {
         let mut args: Vec<String> = ["run", runbook, "--run", "r1", "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         args.extend([self.p("runs"), "--bindings".into(), self.p("fx/bindings"), "--protocols".into(), self.p("fx/protocol"), "--intake".into(), self.p("idea.yaml")]);
-        args.extend(["--confinement".into(), "local".into(), "--settings".into(), self.p("settings.json")]);
+        args.extend(["--confinement".into(), "local".into(), "--settings".into(), self.p("settings.toml")]);
         if caps {
             args.extend(["--spend-ledger".to_owned(), self.p("ledger.json")]);
             args.extend(["--cap-micro-usd", "5000000", "--max-llm-calls", "100", "--max-wall-seconds", "40"].map(String::from));
@@ -280,12 +280,12 @@ fn with_caps_the_whole_committed_directory_runs_the_code_of_a_ticket_repository(
     std::fs::write(scratch.join("idea.yaml"), "text: a ticket stands in for the report\n").unwrap();
     let answers: Vec<Value> = (0..3).map(|_| json!({"approve": true, "cost_micro_usd": 0})).collect();
     let settings = json!({"decider": {"kind": "scripted", "principal": "person:owner", "max_call_micro_usd": 0, "answers": answers}});
-    std::fs::write(scratch.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    std::fs::write(scratch.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
     let p = |rel: &str| scratch.join(rel).display().to_string();
     let mut args: Vec<String> = ["run", "sdc-bugfix", "--run", "r1", "--runs-dir"].map(String::from).to_vec();
     args.push(p("runs"));
     args.extend(["--bindings".into(), root.join("bindings").display().to_string(), "--protocols".into(), root.join("protocol").display().to_string()]);
-    args.extend(["--intake".into(), p("idea.yaml"), "--confinement".into(), "local".into(), "--settings".into(), p("settings.json"), "--spend-ledger".into(), p("ledger.json")]);
+    args.extend(["--intake".into(), p("idea.yaml"), "--confinement".into(), "local".into(), "--settings".into(), p("settings.toml"), "--spend-ledger".into(), p("ledger.json")]);
     args.extend(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "50"].map(String::from));
     args.extend(["--bugfix-ticket".into(), p("input/ticket.yaml")]);
     let started = std::time::Instant::now();

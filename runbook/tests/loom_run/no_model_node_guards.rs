@@ -230,12 +230,14 @@ impl Lib {
     /// A scripted decider that approves and reserves nothing, so it is no model node.
     fn settings(&self, extra: &Value) {
         let approve = json!({"approve": true, "cost_micro_usd": 0});
-        let loom = if self.loom.is_some() { json!({"confinement": "local"}) } else { json!({"in_process": true, "confinement": "local"}) };
-        let mut v = json!({"loom": loom, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+        let mut v = json!({"confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+        if self.loom.is_none() {
+            v["in_process"] = json!(true);
+        }
         for (k, x) in extra.as_object().unwrap() {
             v[k] = x.clone();
         }
-        std::fs::write(self.root.join("settings.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        std::fs::write(self.root.join("settings.toml"), super::core::toml_text(&v)).unwrap();
     }
 
     fn marker(&self) -> PathBuf {
@@ -285,7 +287,7 @@ impl Lib {
         let mut args = vec![
             "run".to_owned(), "sdc".into(), "--run".into(), "r1".into(), "--runs-dir".into(), r("runs"), "--bindings".into(), r("fx/bindings"), "--protocols".into(), r("fx/protocol"),
             "--root-protocol".into(), "engine-draft@1".into(), "--case".into(), "DRAFT-1".into(), "--intake".into(), r("idea.yaml"), "--confinement".into(), "local".into(),
-            "--settings".into(), r("settings.json"), "--spend-ledger".into(), r("ledger.json"), "--cap-micro-usd".into(), "5000000".into(), "--max-llm-calls".into(), "100".into(), "--max-wall-seconds".into(), "50".into(),
+            "--settings".into(), r("settings.toml"), "--spend-ledger".into(), r("ledger.json"), "--cap-micro-usd".into(), "5000000".into(), "--max-llm-calls".into(), "100".into(), "--max-wall-seconds".into(), "50".into(),
         ];
         if let Some(loom) = &self.loom {
             let digest = Command::new("sha256sum").arg(loom).output().unwrap();

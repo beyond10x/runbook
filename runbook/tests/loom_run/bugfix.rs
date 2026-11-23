@@ -66,8 +66,8 @@ impl Rig {
         let rig = Rig { root };
         rig.helper(STAND_IN);
         let approve = json!({"approve": true, "cost_micro_usd": 0});
-        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve]}});
-        std::fs::write(rig.root.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+        let settings = json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve]}});
+        std::fs::write(rig.root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
         rig
     }
 
@@ -94,7 +94,7 @@ impl Rig {
     fn args(&self, runbook: &str, extra: &[&str]) -> Vec<String> {
         let mut a: Vec<String> = ["run", runbook, "--run", "r1", "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         a.extend([self.p("runs"), "--bindings".into(), self.p("fx/bindings"), "--protocols".into(), self.p("fx/protocol"), "--intake".into(), self.p("idea.yaml")]);
-        a.extend(["--confinement".into(), "local".into(), "--settings".into(), self.p("settings.json"), "--spend-ledger".into(), self.p("ledger.json")]);
+        a.extend(["--confinement".into(), "local".into(), "--settings".into(), self.p("settings.toml"), "--spend-ledger".into(), self.p("ledger.json")]);
         a.extend(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"].map(String::from));
         a.extend(extra.iter().map(|s| (*s).to_owned()));
         a
@@ -336,7 +336,7 @@ fn real_scratch(tag: &str) -> PathBuf {
     std::fs::write(scratch.join("idea.yaml"), "text: a ticket stands in for the report\n").unwrap();
     let answers: Vec<Value> = (0..3).map(|_| json!({"approve": true, "cost_micro_usd": 0})).collect();
     let settings = json!({"decider": {"kind": "scripted", "principal": "person:owner", "max_call_micro_usd": 0, "answers": answers}});
-    std::fs::write(scratch.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    std::fs::write(scratch.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
     scratch
 }
 
@@ -349,7 +349,7 @@ fn real_run(scratch: &Path, name: &str, extra: &[&str]) -> Output {
     args.push(scratch.join("runs").display().to_string());
     args.extend(["--bindings".into(), root.join("bindings").display().to_string(), "--protocols".into(), root.join("protocol").display().to_string()]);
     args.extend(["--intake".into(), scratch.join("idea.yaml").display().to_string(), "--confinement".into(), "local".into()]);
-    args.extend(["--settings".into(), scratch.join("settings.json").display().to_string(), "--spend-ledger".into(), scratch.join("ledger.json").display().to_string()]);
+    args.extend(["--settings".into(), scratch.join("settings.toml").display().to_string(), "--spend-ledger".into(), scratch.join("ledger.json").display().to_string()]);
     args.extend(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "600"].map(String::from));
     args.extend(["--bugfix-ticket".into(), scratch.join("input/ticket.yaml").display().to_string()]);
     args.extend(extra.iter().map(|s| (*s).to_owned()));
@@ -450,10 +450,10 @@ fn bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constra
     let scratch = real_scratch("dry");
     // the effort of a class is on the dry command of its nodes (`efforts` of `cycles/suite.yaml`): the
     // cycle runs bug.dissect (class other), test.reproduce and change.fix (class implement)
-    let file = scratch.join("settings.json");
-    let mut settings: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let file = scratch.join("settings.toml");
+    let mut settings: Value = super::core::from_toml(&std::fs::read_to_string(&file).unwrap());
     settings["efforts"] = json!({"other": {"effort": "xhigh"}, "implement": {"effort": "low"}});
-    std::fs::write(&file, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    std::fs::write(&file, super::core::toml_text(&settings)).unwrap();
     let run = real_run(&scratch, "bugfix-from-ticket", &["--dry"]);
     assert_eq!(code(&run), 0, "{}", text(&run));
     check_real_run(&scratch, "bugfix-from-ticket", &text(&run));

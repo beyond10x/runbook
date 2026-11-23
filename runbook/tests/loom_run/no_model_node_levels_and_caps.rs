@@ -99,14 +99,14 @@ fn a_level_from_the_settings_the_environment_or_a_second_option_does_not_replace
     // the settings name substrate, the option local
     let w = World::new("zc-level-settings-a");
     std::fs::write(w.root.join("bindings/sdc.yaml"), NO_MODEL).unwrap();
-    w.settings(&json!({"loom": {"confinement": "substrate"}}));
+    w.settings(&json!({"confinement": "substrate"}));
     let o = w.run(&zero(&w, "local"));
     println!("settings substrate, option local: exit {}, {}", code(&o), last_line(&o));
     wrong.extend(nothing_started(&w, &o, "settings substrate, option local", true));
     // the settings name the level in another letter case
     let w = World::new("zc-level-settings-b");
     std::fs::write(w.root.join("bindings/sdc.yaml"), NO_MODEL).unwrap();
-    w.settings(&json!({"loom": {"confinement": "Substrate"}}));
+    w.settings(&json!({"confinement": "Substrate"}));
     let o = w.run(&zero(&w, "local"));
     println!("settings Substrate, option local: exit {}, {}", code(&o), last_line(&o));
     wrong.extend(nothing_started(&w, &o, "settings Substrate, option local", true));
@@ -165,8 +165,8 @@ fn no_form_of_no_caps_starts_a_bound_program_under_local() {
         ("--max-llm-calls +0", true, Box::new(|_: &World, a: &mut Vec<String>| set(a, "--max-llm-calls", "+0"))),
         ("--cap-micro-usd -1", true, Box::new(|_: &World, a: &mut Vec<String>| set(a, "--cap-micro-usd", "-1"))),
         ("--cap-micro-usd without a value", true, Box::new(|_: &World, a: &mut Vec<String>| set(a, "--cap-micro-usd", ""))),
-        ("--cap-micro-usd 0 and loom.cap_micro_usd 5000000 in the settings", true, Box::new(|w: &World, a: &mut Vec<String>| {
-            w.settings(&json!({"loom": {"cap_micro_usd": 5_000_000}}));
+        ("--cap-micro-usd 0 and cap_micro_usd 5000000 in the settings", true, Box::new(|w: &World, a: &mut Vec<String>| {
+            w.settings(&json!({"cap_micro_usd": 5_000_000}));
             set(a, "--cap-micro-usd", "0");
         })),
         ("--max-llm-calls 0 and max_llm_calls 100 in the settings", true, Box::new(|w: &World, a: &mut Vec<String>| {
@@ -174,12 +174,12 @@ fn no_form_of_no_caps_starts_a_bound_program_under_local() {
             set(a, "--max-llm-calls", "0");
         })),
         ("both caps 0 in the options and in the settings, a ledger named", true, Box::new(|w: &World, a: &mut Vec<String>| {
-            w.settings(&json!({"loom": {"cap_micro_usd": 0}, "max_llm_calls": 0}));
+            w.settings(&json!({"cap_micro_usd": 0, "max_llm_calls": 0}));
             set(a, "--cap-micro-usd", "0");
             set(a, "--max-llm-calls", "0");
         })),
         ("no --spend-ledger and a spend_ledger member in the settings", true, Box::new(|w: &World, a: &mut Vec<String>| {
-            w.settings(&json!({"spend_ledger": w.ledger().display().to_string(), "loom": {"spend_ledger": w.ledger().display().to_string()}}));
+            w.settings(&json!({"spend_ledger": w.ledger().display().to_string()}));
             without(a, "--spend-ledger");
         })),
         ("--spend-ledger with an empty value", false, Box::new(|_: &World, a: &mut Vec<String>| set(a, "--spend-ledger", ""))),

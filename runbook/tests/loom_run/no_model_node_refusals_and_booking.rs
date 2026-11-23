@@ -106,7 +106,7 @@ fn with_a_model_node_a_value_that_is_present_and_unusable_ends_as_on_main() {
 /// run directory, the ledger, the login link and the private directory also when another refusal
 /// of the run waits behind it: a run directory that exists already is left as it was, and a
 /// runtime directory that is not there is not asked for. A refusal that stands before it (settings
-/// that are no JSON) wins with its own exit, and nothing is written either.
+/// that are no TOML) wins with its own exit, and nothing is written either.
 #[test]
 fn the_usage_refusal_of_a_run_with_a_model_node_writes_nothing_beside_another_refusal() {
     let mut wrong = Vec::new();
@@ -139,15 +139,15 @@ fn the_usage_refusal_of_a_run_with_a_model_node_writes_nothing_beside_another_re
     if !written(&w).is_empty() || w.fake.calls_so_far() != 0 {
         wrong.push(format!("no XDG_RUNTIME_DIR: written {:?}", written(&w)));
     }
-    // settings that are no JSON: the refusal of the settings stands first
+    // settings that are no TOML: the refusal of the settings stands first
     let w = World::new("nmrb-usage-settings");
-    std::fs::write(w.root.join("settings.json"), "{{ not json").unwrap();
+    std::fs::write(w.root.join("settings.toml"), "= not toml\n").unwrap();
     let mut a = w.args("r1", 1_000_000);
     without(&mut a, "--spend-ledger");
     let o = w.run(&a);
-    said("no ledger, settings that are no JSON", &o);
+    said("no ledger, settings that are no TOML", &o);
     if code(&o) == 0 || !written(&w).is_empty() || w.fake.calls_so_far() != 0 {
-        wrong.push(format!("settings that are no JSON: exit {}, written {:?}", code(&o), written(&w)));
+        wrong.push(format!("settings that are no TOML: exit {}, written {:?}", code(&o), written(&w)));
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

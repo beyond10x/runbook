@@ -213,12 +213,12 @@ fn the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_
     );
     write_exe(&root.join("fx/bindings/tools/draft-write.sh"), &code_of_the_repository);
     let approve = json!({"approve": true, "cost_micro_usd": 0});
-    let settings = json!({"login_file": root.join("login/credentials.json").display().to_string(), "loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
-    std::fs::write(root.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    let settings = json!({"login_file": root.join("login/credentials.json").display().to_string(), "in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve, approve, approve, approve]}});
+    std::fs::write(root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
     let r = |p: &str| root.join(p).display().to_string();
     let args: Vec<String> = [
         "run", "sdc", "--run", "r1", "--runs-dir", &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-draft@1", "--case", "DRAFT-1", "--intake", &r("idea.yaml"), "--confinement", "local",
-        "--settings", &r("settings.json"), "--spend-ledger", &r("ledger.json"), "--cap-micro-usd", "1", "--max-llm-calls", "1", "--max-wall-seconds", "50",
+        "--settings", &r("settings.toml"), "--spend-ledger", &r("ledger.json"), "--cap-micro-usd", "1", "--max-llm-calls", "1", "--max-wall-seconds", "50",
     ]
     .map(String::from)
     .to_vec();

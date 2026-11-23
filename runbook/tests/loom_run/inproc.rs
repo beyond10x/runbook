@@ -45,12 +45,12 @@ impl Rig {
     /// The scripted decider: `answers` in order, each call reserving up to `max_call` micro USD.
     fn answers(&self, answers: &[Value], max_call: u64) {
         // the `loom` member is what `sdc-experiment run` writes for a record that runs the library
-        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": max_call, "answers": answers}});
+        let settings = json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": max_call, "answers": answers}});
         self.settings(&settings);
     }
 
     fn settings(&self, settings: &Value) {
-        std::fs::write(self.root.join("settings.json"), serde_json::to_string_pretty(settings).unwrap()).unwrap();
+        std::fs::write(self.root.join("settings.toml"), super::core::toml_text(settings)).unwrap();
     }
 
     /// The writer of the fixture replaced by `script`.
@@ -90,7 +90,7 @@ impl Rig {
             "--confinement".into(),
             "local".into(),
             "--settings".into(),
-            r("settings.json"),
+            r("settings.toml"),
             "--spend-ledger".into(),
             r("ledger.json"),
             "--cap-micro-usd".into(),
@@ -269,20 +269,22 @@ fn a_level_the_library_cannot_give_is_refused_before_anything_is_written() {
 fn the_settings_file_must_agree_with_the_way_the_options_name() {
     let rig = Rig::new("settings");
     let decider = json!({"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve()]});
-    for (what, loom, want) in [
-        ("a digest under --in-process", json!({"in_process": true, "sha256": "0".repeat(64)}), "loom.sha256"),
-        ("in_process false", json!({"in_process": false}), "loom.in_process"),
-        ("a binary path", json!({"in_process": true, "bin": "/opt/b10x-loom"}), "loom.bin"),
+    for (what, members, want) in [
+        ("a digest under --in-process", json!({"in_process": true, "loom_sha256": "0".repeat(64)}), "loom_sha256"),
+        ("in_process false", json!({"in_process": false}), "in_process"),
+        ("a binary path", json!({"in_process": true, "loom": {"bin": "/opt/b10x-loom"}}), "loom.bin"),
     ] {
-        rig.settings(&json!({"loom": loom, "decider": decider}));
+        let mut settings = members;
+        settings["decider"] = decider.clone();
+        rig.settings(&settings);
         let o = rig.run(&rig.args("r1", 1_000_000));
         assert_eq!(code(&o), 2, "{what}: {}", stderr(&o));
         assert!(stderr(&o).contains(want), "{what}: {}", stderr(&o));
         assert!(!rig.run_dir("r1").exists(), "{what}: a run directory was made");
     }
-    // `loom.in_process` under a child (a binary and its digest; the runbook binary stands in, the
+    // `in_process` under a child (a binary and its digest; the runbook binary stands in, the
     // settings are refused before any call) is refused too
-    rig.settings(&json!({"loom": {"in_process": true}, "decider": decider}));
+    rig.settings(&json!({"in_process": true, "decider": decider}));
     let digest = Command::new("sha256sum").arg(BIN).output().expect("sha256sum").stdout;
     let digest = String::from_utf8(digest).unwrap().split_whitespace().next().unwrap().to_owned();
     let mut args = rig.args("r1", 1_000_000);
@@ -413,7 +415,7 @@ fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     exe("ask-requests.sh", "printf '%s\\n' '{\"type\":\"question\",\"id\":\"q1\",\"question\":{\"id\":\"q1\",\"default\":\"A\"}}'\n");
     exe("ask-apply.sh", "printf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" >> asked.txt\n");
     exe("ask-then.sh", "printf '%s %s\\n' \"$1\" \"$2\" >> then.txt\n");
-    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
+    rig.settings(&json!({"in_process": true, "confinement": "local", "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
     let started = Instant::now();
     let o = rig.run(&rig.args("r1", 1_000_000));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
@@ -455,7 +457,7 @@ fn a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_
     exe("ask-requests.sh", "printf '%s\\n' '{\"type\":\"question\",\"id\":\"q1\",\"question\":{\"id\":\"q1\",\"default\":\"A\"}}'\n");
     exe("ask-apply.sh", "printf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" >> asked.txt\n");
     review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
-    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
+    rig.settings(&json!({"in_process": true, "confinement": "local", "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
     let started = Instant::now();
     let o = rig.run(&rig.args("r1", 1_000_000));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
@@ -591,7 +593,7 @@ fn a_bindings_file_loom_refuses_at_the_opening_ends_the_run_refused_with_its_rea
 fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
     let rig = Rig::new("person-model");
     review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
-    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "decider:model", "cost_micro_usd": 0}]}}));
+    rig.settings(&json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "decider:model", "cost_micro_usd": 0}]}}));
     let o = rig.run(&rig.args("r1", 1_000_000));
     assert_eq!(code(&o), 12, "a refusal of Loom by a named reason has its own exit code: {}", stderr(&o));
     let outcome = rig.outcome("r1");

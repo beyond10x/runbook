@@ -35,7 +35,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
     std::fs::create_dir_all(&work).unwrap();
     let answers: Vec<_> = (0..5).map(|_| serde_json::json!({"approve": true, "cost_micro_usd": 0})).collect();
     let settings = serde_json::json!({"decider": {"kind": "scripted", "principal": "person:owner", "max_call_micro_usd": 0, "answers": answers}});
-    std::fs::write(work.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    std::fs::write(work.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
 
     let path = format!("{}:{}", driver_bin.display(), std::env::var("PATH").unwrap_or_default());
     let run = Command::new(BIN)
@@ -54,7 +54,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
         .args(["--root-protocol", "sdc@8", "--case", "IDEA-1", "--intake"])
         .arg(root.join("driver/examples/sdc/fixtures/idea.yaml"))
         .args(["--confinement", "local", "--settings"])
-        .arg(work.join("settings.json"))
+        .arg(work.join("settings.toml"))
         .arg("--spend-ledger")
         .arg(work.join("ledger.json"))
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "1800"])
@@ -96,7 +96,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
     std::fs::create_dir_all(&work).unwrap();
     let answers: Vec<_> = (0..5).map(|_| serde_json::json!({"approve": true, "cost_micro_usd": 0})).collect();
     let settings = serde_json::json!({"decider": {"kind": "scripted", "principal": "person:owner", "max_call_micro_usd": 0, "answers": answers}});
-    std::fs::write(work.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    std::fs::write(work.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
     let path = format!("{}:{}", driver_bin.display(), std::env::var("PATH").unwrap_or_default());
     let mut summaries = Vec::new();
     for (name, way) in [("child", vec!["--loom".to_owned(), loom.display().to_string(), "--loom-sha256".to_owned(), sha.clone()]), ("library", Vec::new())] {
@@ -112,7 +112,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
             .arg("--intake")
             .arg(root.join("driver/examples/sdc/fixtures/idea.yaml"))
             .args(["--confinement", "local", "--settings"])
-            .arg(work.join("settings.json"))
+            .arg(work.join("settings.toml"))
             .arg("--spend-ledger")
             .arg(work.join(format!("ledger-{name}.json")))
             .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "1800"])

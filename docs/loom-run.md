@@ -8,7 +8,7 @@ programs or the decider do; the command itself calls no model and no API.
 
 ```
 runbook run <runbook> --intake <file|-> --run <name> --runs-dir <dir> --confinement <local|substrate>
-  --settings <file.json> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+  --settings <file.toml> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
   [--spend-ledger <file>]
   [--loom <b10x-loom> --loom-sha256 <hex>] [--bindings <bindings/>] [--protocols <dir>]
   [--root-protocol <name>@<revision>] [--case <id>]
@@ -30,7 +30,7 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 (`runbook::engine::layout::idea_document`, as the daemon writes it), and the runner puts it at
 `work/idea.yaml`; an empty intake is refused. With `--detach` the command is the daemon client
 (`runbook run --detach --daemon <url>`), takes none of the options above and none of these takes
-`--detach`. The settings file has one format, `runbook.loom-run-settings/1`
+`--detach`. The settings file is TOML and has one format, `runbook.loom-run-settings/1`
 (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every `tree run` (`local` is
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
 1 error, 2 refused before anything was written, 3 stuck, 4 to 11 stopped (spend cap, wall time, model
@@ -87,8 +87,8 @@ the one Loom prints in its command. A `Handoff` runs nothing of its own: the nex
 `settings.json` and `run-settings.jsonl` hold the Loom used, in `loom`: `sha256` of the binary
 (child), or `in_process: true` and `commit`, the 40 hex digits of the pinned Loom commit (library;
 a constant of the build, read from `Cargo.lock` by `build.rs`). A settings file may carry
-`loom.in_process: true` only when Loom is a library (no `--loom`) and `loom.sha256` only with `--loom-sha256`; a
-member that disagrees with the option, or `loom.sha256` under the library, is refused.
+`in_process = true` only when Loom is a library (no `--loom`) and `loom_sha256` only with `--loom-sha256`; a
+member that disagrees with the option, or `loom_sha256` under the library, is refused.
 
 The run directory holds the same files in the same shapes under both ways. Two members only a
 child has are `null` under the library, in `outcome.json` and in the `ended` event:
@@ -116,7 +116,7 @@ child".
 
 1. Refuses (exit 2, nothing written) when `--loom` and `--loom-sha256` do not go together, `--loom`
    is not the file `--loom-sha256` names, Loom is a library and the level is one it cannot
-   give, `--run` is not a plain name, the settings are not a JSON object, the decider settings are not usable, a
+   give, `--run` is not a plain name, the settings file is not TOML (a JSON file is refused, naming the TOML form), the decider settings are not usable, a
    path is missing, or `<runs-dir>/<name>` exists.
    A run that has a model node (below) is also refused when `--spend-ledger` is missing, with exit 64 and nothing written:
    `--spend-ledger is required: the run has a model node (<why>); a run without one needs none`.
@@ -127,7 +127,7 @@ child".
    `no_model_node_refusals_and_booking.rs`).
    A run without a model node under `--confinement local` is refused too, by name, when `--spend-ledger`
    is missing or `--cap-micro-usd` or `--max-llm-calls` is 0 ("Where caps of 0 are accepted").
-2. Creates the run directory, writes `settings.json` (the login file's path replaced by `named`),
+2. Creates the run directory, writes `settings.json` (JSON, the record of the settings; the login file's path replaced by `named`),
    copies `--bindings` into `bindings/` (the copy is what Loom reads; the checkout is never
    edited), decides once whether the run has a model node (the `model_node_decided` event, the
    second line of `events.jsonl`), opens the spend ledger when it has one, writes the idea file
@@ -219,7 +219,7 @@ the link of the private directory (next section).
 
 ## The login file
 
-When the settings name a login file (`login_file` or `loom.login_file`), the run directory holds no
+When the settings name a login file (`login_file`), the run directory holds no
 path of it and no link to it. The bindings copy and the model decider read a link in a private
 directory, `$XDG_RUNTIME_DIR/runbook/<run name>/` (mode 0700, the link is `login`). A link and not a
 copy: no second copy of the credential is written to disk, and a token the model CLI refreshes lands
