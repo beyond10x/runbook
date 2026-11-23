@@ -144,6 +144,13 @@ test('the list changes between the two paints: a runbook that is still listed st
   info.annotations.push({type: 'measured', description: line});
   console.log(`[security-start-second-paint] ${line}`);
   expect(now[1]).not.toBe('sdc-bugfix');
+  expect(now[0], 'another runbook was selected in place of the one that left the list').toBe(-1);
+  await expect(page.locator('#st-start')).toBeDisabled();
+  await expect(page.locator('#st-msg')).toContainText('no longer listed');
+  // picking another runbook ends the state: the message goes and Start is enabled again
+  await page.locator('#st-runbook').selectOption({index: 0});
+  await expect(page.locator('#st-msg')).toHaveText('');
+  await expect(page.locator('#st-start')).toBeEnabled();
   expect(sent.length).toBe(0);
   expect(await added()).toBe(0);
 });

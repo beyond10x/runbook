@@ -160,12 +160,13 @@ test('an answer whose body ends after the form was closed and opened again: one 
   await expect(page.locator('#st-start'), 'a second command can leave while the first is on its way').toBeDisabled();
   await page.locator('#st-start').evaluate((b) => b.click());
   await page.locator('#st-intake').fill('typed into the form that was opened again');
-  await expect(page.locator('#startdlg')).toHaveJSProperty('open', false);
+  // the late answer is the answer of the first opening: the form opened again stays open and keeps what was typed
+  await expect(page.locator('#st-start')).toBeEnabled();
+  await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
+  await expect(page.locator('#st-intake')).toHaveValue('typed into the form that was opened again');
   expect(sent.length).toBe(1);
   expect(await added()).toBe(1);
-  await page.click('#startbtn');
-  await expect(page.locator('#st-intake')).toBeFocused();
-  info.annotations.push({type: 'measured', description: `what was typed into the reopened form while the answer was on its way is kept: ${(await page.locator('#st-intake').inputValue()) !== ''}`});
+  info.annotations.push({type: 'measured', description: 'what was typed into the reopened form while the answer was on its way is kept: true'});
   await page.click('#st-close');
 
   // the late answer is cut: the form that was opened again keeps the key for the same content
@@ -188,7 +189,7 @@ test('an answer whose body ends after the form was closed and opened again: one 
   expect(await added()).toBe(2);
 });
 
-test('answers that name an outcome end the key: a name the page does not know, with and without a run, and a 5xx that names one (measured)', async ({page}, info) => {
+test('answers that name an outcome end the key: a name the page does not know, with and without a run; a 5xx that names one does not', async ({page}, info) => {
   const sent = commands(page);
   await enter(page);
   const told = [];
@@ -224,4 +225,39 @@ test('answers that name an outcome end the key: a name the page does not know, w
   for (const line of told) { info.annotations.push({type: 'measured', description: line}); console.log(`[security-start-answers] ${line}`); }
   // held: an answer that names a run of the daemon closes the form with that run, and nothing here is markup
   expect(told[0]).toContain('the form closed');
+  // a 5xx is no answer of the command, whatever its body names: the key stays and the press again is one run
+  expect(told[2], 'a 5xx that names an outcome ended the key').toContain('pressed again: same key');
+  expect(told[2], 'a 5xx that names an outcome: one filled form made more than one run').toContain('runs of this form: 1');
+});
+
+test('the late answer of a press belongs to the opening that sent it: the form opened again keeps what was typed into it, and the run is shown', async ({page}) => {
+  const sent = commands(page);
+  await enter(page);
+  await form(page);
+  await page.locator('#st-intake').fill('an invented intake whose answer is slow');
+  let run = null;
+  let n = 0;
+  await page.route(SUBMIT, async (route) => {
+    if (n++ > 0) return route.continue();
+    const taken = await route.fetch();
+    const text = await taken.text();
+    run = JSON.parse(text).published[0].payload.run_id;
+    await new Promise((r) => setTimeout(r, 2500));
+    return route.fulfill({status: 202, contentType: 'application/json', body: text});
+  });
+  await page.click('#st-start');
+  await expect(page.locator('#st-start')).toBeDisabled();
+  await page.click('#st-close');
+  await page.click('#startbtn');
+  await expect(page.locator('#st-intake')).toBeFocused();
+  await page.locator('#st-confinement').selectOption('linux');
+  await page.locator('#st-intake').fill('typed into the form that was opened again');
+  await expect.poll(() => run).not.toBeNull();
+  await expect(page.locator('#runpick')).toContainText(run.slice(-8));
+  await expect(page.locator('#st-start')).toBeEnabled();
+  await expect(page.locator('#startdlg'), 'the late answer closed the form opened again').toHaveJSProperty('open', true);
+  await expect(page.locator('#st-intake'), 'the late answer changed what was typed into the form opened again').toHaveValue('typed into the form that was opened again');
+  expect(await page.locator('#st-confinement').evaluate((el) => el.value), 'the late answer changed the level picked in the form opened again').toBe('linux');
+  expect(sent.length).toBe(1);
+  expect(await added()).toBe(1);
 });
