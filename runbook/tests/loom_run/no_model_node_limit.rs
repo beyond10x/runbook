@@ -52,11 +52,12 @@ fn world(tag: &str) -> World {
     w
 }
 
-/// Run `r1` under `substrate` with every cap at 0 and no ledger: the one way a run starts without caps.
-fn zero_substrate(w: &World) -> Vec<String> {
+/// Run `r1` under `substrate` with none of the three money options.
+fn bare_substrate(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    without(&mut a, "--spend-ledger");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        without(&mut a, flag);
+    }
     set(&mut a, "--confinement", "substrate");
     a
 }
@@ -90,7 +91,7 @@ fn an_unread_model_program_is_started_and_gets_no_login() {
     let looks = format!("env > '{}'\ncat '{xdg}'/runbook/r1/login > '{}' 2>/dev/null\n", dump.display(), reach.display());
     let hook = std::fs::read_to_string(w.fake.dir.join("script/tree_run.1.sh")).unwrap();
     w.fake.hook("tree_run", "1", &format!("{hook}{looks}"));
-    let o = w.run(&zero_substrate(&w));
+    let o = w.run(&bare_substrate(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(marker.exists(), "the program was not started");
     let env = std::fs::read_to_string(&dump).unwrap();
@@ -109,23 +110,23 @@ fn an_unread_model_program_is_started_and_gets_no_login() {
 }
 
 #[test]
-fn an_unread_model_program_that_records_a_call_ends_the_run_without_caps() {
+fn an_unread_model_program_that_records_a_call_is_counted_without_caps_and_does_not_end_the_run() {
     let w = world("limit-recorded");
     let marker = hidden_start(&w, true);
-    let o = w.run(&zero_substrate(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
+    let o = w.run(&bare_substrate(&w));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(marker.exists(), "the program was not started");
     let outcome = w.outcome("r1");
-    assert_eq!(outcome["cause"], "model_call_without_model_node", "{outcome}");
+    assert_eq!(outcome["outcome"], "ended", "{outcome}");
     assert_eq!(outcome_triple(&w), (Some(false), Some(1), Some(400_000)), "{outcome}");
-    assert!(!w.ledger().exists(), "a ledger was made");
+    assert!(!w.ledger().exists(), "a ledger was made though none was named");
 }
 
 #[test]
 fn an_unread_model_program_that_records_nothing_is_not_seen() {
     let w = world("limit-unrecorded");
     let marker = hidden_start(&w, false);
-    let o = w.run(&zero_substrate(&w));
+    let o = w.run(&bare_substrate(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(marker.exists(), "the program was not started");
     assert_eq!(outcome_triple(&w), (Some(false), Some(0), Some(0)), "{}", w.outcome("r1"));
@@ -160,7 +161,7 @@ fn the_tool_name_in_another_letter_case_is_decided_by_the_scan_as_it_is_written(
     let w = world("limit-letter-case");
     let bindings = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: a.b\n    executor: {kind: program, argv: [SDC-NODE, a.b]}\n";
     std::fs::write(w.root.join("bindings/sdc.yaml"), bindings).unwrap();
-    let o = w.run(&zero_substrate(&w));
+    let o = w.run(&bare_substrate(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     let outcome = w.outcome("r1");
     assert_eq!(outcome["has_model_node"], false, "the other letter case counted as the model tool: {outcome}");

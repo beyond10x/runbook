@@ -96,8 +96,6 @@ impl Rig {
         .to_vec();
         if self.caps {
             args.extend(["--spend-ledger".to_owned(), r("ledger.json"), "--cap-micro-usd".into(), "5000000".into(), "--max-llm-calls".into(), "100".into()]);
-        } else {
-            args.extend(["--cap-micro-usd".to_owned(), "0".into(), "--max-llm-calls".into(), "0".into()]);
         }
         if let Some(loom) = &self.loom {
             let digest = Command::new("sha256sum").arg(loom).output().unwrap();

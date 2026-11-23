@@ -1,10 +1,10 @@
-//! Security review pass 1 of the unit `run-without-model-node-needs-no-caps` (untracked): the
-//! cases that hold the unit to its own contract (`docs/loom-run.md`, "A run without a model
-//! node"). The `real_loom_*` cases run the loop over Loom as a library with POSIX sh programs
-//! (the draft case of `tests/fixtures/engine-runbook` as the root, so no `open` executor); the
-//! others run it against the fake `b10x-loom`. The "model program" is a stand-in named `sdc-node`
-//! that writes a marker file with invented text: no model call, no network request, no real login
-//! file read or copied.
+//! Security review pass 1 of the unit `run-without-model-node-needs-no-caps`: the cases that hold the
+//! decision "has this run a model node" to its contract (`docs/loom-run.md`, "A run without a model
+//! node"): it gates the login link and refuses nothing. The `real_loom_*` cases run the loop over Loom
+//! as a library with POSIX sh programs (the draft case of `tests/fixtures/engine-runbook` as the root,
+//! so no `open` executor); the others run it against the fake `b10x-loom`. The "model program" is a
+//! stand-in named `sdc-node` that writes a marker file with invented text: no model call, no network
+//! request, no real login file read or copied.
 
 use super::core::{code, model_call_hook, stderr, World, BIN};
 use super::fake::tree_run_json;
@@ -13,7 +13,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-// ---- the fake world: caps of 0, no ledger ----
+// ---- the fake world: none of the three money options ----
 
 const NO_MODEL: &str = "format: loom.bindings/1
 protocol: sdc@8
@@ -36,12 +36,13 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-/// The options of run `r1` with every cap at 0 and no ledger, under `substrate`: the one level where
-/// such a run starts (the fake `b10x-loom` takes the level as an argument and does not enforce it).
-fn zero(w: &World) -> Vec<String> {
+/// The options of run `r1` with none of the three money options, under `substrate` (the fake
+/// `b10x-loom` takes the level as an argument and does not enforce it).
+fn bare(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    without(&mut a, "--spend-ledger");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        without(&mut a, flag);
+    }
     set(&mut a, "--confinement", "substrate");
     a
 }
@@ -57,8 +58,8 @@ fn one_action(executor: &str) -> String {
 }
 
 /// Every form here names the model tool, or is a form the rule says it cannot read, in a place the
-/// implementor's cases do not put it. Each must count as a model node: the run that names no
-/// ledger is refused before anything is written.
+/// implementor's cases do not put it. Each must count as a model node: a run that starts records it as
+/// having one.
 #[test]
 fn forms_of_the_copy_that_must_count_as_a_model_node() {
     type Setup = Box<dyn Fn(&World)>;
@@ -106,73 +107,20 @@ fn forms_of_the_copy_that_must_count_as_a_model_node() {
     for (what, setup) in &forms {
         let w = World::new("review1-forms");
         setup(&w);
-        let o = w.run(&zero(&w));
-        if code(&o) != 64 || !stderr(&o).contains("--spend-ledger is required") {
-            wrong.push(format!("{what}: exit {} ({})", code(&o), stderr(&o).lines().last().unwrap_or("")));
-        }
-        if w.run_dir("r1").exists() {
-            wrong.push(format!("{what}: a run directory was made"));
+        w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+        let o = w.run(&bare(&w));
+        // a form the copy cannot take ends the run in an error before any program starts; a run
+        // that goes on to its first step never records "no model node" for such a form
+        if w.run_dir("r1").join("outcome.json").exists() && !w.fake.calls_of(&["tree", "run"]).is_empty() {
+            let outcome = w.outcome("r1");
+            if outcome["has_model_node"] != true {
+                wrong.push(format!("{what}: recorded as no model node: exit {} ({})", code(&o), stderr(&o).lines().last().unwrap_or("")));
+            }
         }
         // a locked file would stop the removal of the world by the next case of this tag
         let _ = std::fs::set_permissions(w.root.join("bindings/locked.yaml"), std::fs::Permissions::from_mode(0o600));
     }
     assert!(wrong.is_empty(), "forms that did not count as a model node:\n{}", wrong.join("\n"));
-}
-
-/// A ledger of other runs is not opened, written or replaced by a run without a model node: here
-/// it is a file the ledger reader would refuse, and the run ends as if it were not named.
-#[test]
-fn a_ledger_of_other_runs_is_left_as_it_is_by_a_run_without_a_model_node() {
-    let w = World::new("review1-shared-ledger");
-    file(&w, "bindings/sdc.yaml", NO_MODEL);
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    let before = "the ledger of other runs, not this run's to read\n";
-    std::fs::write(w.ledger(), before).unwrap();
-    std::fs::set_permissions(w.ledger(), std::fs::Permissions::from_mode(0o400)).unwrap();
-    let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    set(&mut a, "--confinement", "substrate");
-    let o = w.run(&a);
-    assert_eq!(code(&o), 0, "{}", stderr(&o));
-    assert_eq!(std::fs::read_to_string(w.ledger()).unwrap(), before);
-    let names: Vec<String> = std::fs::read_dir(&w.root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("ledger")).collect();
-    assert_eq!(names, ["ledger.json"], "a lock or a temporary file was left beside the ledger");
-}
-
-/// A model call that a step recorded in a run without a model node: the run ends by the named
-/// cause, and its records state the call and the cost they saw, never 0, with `has_model_node`
-/// false beside them, so a reader can tell it from a run with a ledger.
-#[test]
-fn a_recorded_call_in_a_run_without_a_model_node_is_stated_in_the_records_with_its_cost() {
-    let w = World::new("review1-recorded");
-    file(&w, "bindings/sdc.yaml", NO_MODEL);
-    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.hook("tree_run", "default", &model_call_hook("0.1"));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    let outcome = w.outcome("r1");
-    assert_eq!((outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64(), outcome["has_model_node"].as_bool()), (Some(1), Some(100_000), Some(false)), "{outcome}");
-    assert_eq!(outcome["cause"], "model_call_without_model_node", "{outcome}");
-    let events = std::fs::read_to_string(w.run_dir("r1").join("events.jsonl")).unwrap();
-    assert!(events.contains("\"cap\":\"model_node\""), "{events}");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "no step after the one that recorded the call");
-}
-
-/// Cost records a step left that cannot be read: a model call cannot be ruled out, so the run
-/// without a model node ends by the named cause and takes no further step.
-#[test]
-fn cost_records_that_cannot_be_read_end_a_run_without_a_model_node() {
-    let w = World::new("review1-unreadable-records");
-    file(&w, "bindings/sdc.yaml", NO_MODEL);
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_run", "1", "mkdir -p work/.sdc/llm; printf 'not a record {{{\\n' >> work/.sdc/llm/calls.jsonl\n");
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    let outcome = w.outcome("r1");
-    assert_eq!(outcome["cause"], "model_call_without_model_node", "{outcome}");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "no step after the one that left the records");
 }
 
 // ---- Loom as a library: the draft case of the engine fixture as the root ----
@@ -206,10 +154,7 @@ const LOGIN_TEXT: &str = "STAND-IN-LOGIN-TEXT-7731";
 
 impl Lib {
     fn new(tag: &str) -> Lib {
-        Lib::with_loom(tag, None)
-    }
-
-    fn with_loom(tag: &str, loom: Option<PathBuf>) -> Lib {
+        let loom: Option<PathBuf> = None;
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("review1-lib-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["runs", "xdg", "bin", "login"] {
@@ -458,76 +403,6 @@ fn real_loom_under_local_with_caps_a_run_without_a_model_node_gives_its_bound_pr
     assert!(!lib.root.join("xdg/runbook").join("r1").exists(), "the private directory is left");
 }
 
-// ---- the same refusals against the fake: forms the library cannot make cheaply ----
-
-/// Every form of the manifest the runner must not accept: each ends the run by the named cause after
-/// the first `tree run` and before a second. The hook runs in the run directory; `$store` is the
-/// store directory. The first answer is `BudgetSpent` (the run goes on), the second ends it, so a
-/// check that is removed makes this case fail by its assertions and not by waiting.
-#[test]
-fn a_manifest_that_does_not_name_the_root_file_of_the_copy_ends_a_run_without_a_model_node() {
-    let forms: Vec<(&str, &str)> = vec![
-        ("removed", "rm \"$store/tree.json\""),
-        ("replaced by a link", "mv \"$store/tree.json\" \"$store/real.json\" && ln -s real.json \"$store/tree.json\""),
-        ("not JSON", "echo '{{ not json' > \"$store/tree.json\""),
-        ("a JSON text that is not an object", "echo '[\"bindings\"]' > \"$store/tree.json\""),
-        ("without a bindings member", "echo '{\"root\":\"r\"}' > \"$store/tree.json\""),
-        ("a bindings member that is not a text", "echo '{\"bindings\":3}' > \"$store/tree.json\""),
-        ("a bindings member that is not absolute", "echo '{\"bindings\":\"bindings/sdc.yaml\"}' > \"$store/tree.json\""),
-        ("another file of the copy", "cp bindings/sdc.yaml bindings/other.yaml && printf '{\"bindings\":\"%s/bindings/other.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-        ("a file that does not exist", "printf '{\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-        ("a link to the root file", "ln -s \"$PWD/bindings/sdc.yaml\" \"$PWD/same.yaml\" && printf '{\"bindings\":\"%s/same.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-        ("a directory instead of the file", "rm \"$store/tree.json\" && mkdir \"$store/tree.json\""),
-        ("two bindings members, the last names other bindings", "printf '{\"bindings\":\"%s/bindings/sdc.yaml\",\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" \"$PWD\" > \"$store/tree.json\""),
-        ("a bindings member that is a list holding the path", "printf '{\"bindings\":[\"%s/bindings/sdc.yaml\"]}' \"$PWD\" > \"$store/tree.json\""),
-        ("a hard link to the root file", "ln bindings/sdc.yaml bindings/hard.yaml && printf '{\"bindings\":\"%s/bindings/hard.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-    ];
-    let mut wrong: Vec<String> = Vec::new();
-    for (what, hook) in &forms {
-        let w = World::new("manifest-forms");
-        file(&w, "bindings/sdc.yaml", NO_MODEL);
-        w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-        w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-        w.fake.hook("tree_run", "1", &format!("{hook}\n"));
-        let o = w.run(&zero(&w));
-        let outcome = w.outcome("r1");
-        let reason = outcome["reason"].as_str().unwrap_or("");
-        if code(&o) != 13 || outcome["cause"] != "model_call_without_model_node" || !reason.contains("tree manifest") || w.fake.calls_of(&["tree", "run"]).len() != 1 || w.ledger().exists() {
-            wrong.push(format!("{what}: exit {}, {outcome}, tree runs {}", code(&o), w.fake.calls_of(&["tree", "run"]).len()));
-        }
-    }
-    assert!(wrong.is_empty(), "forms of the manifest that did not end the run:\n{}", wrong.join("\n"));
-}
-
-/// A manifest that is as the opening wrote it, or names the root file by a spelling that resolves
-/// to it, does not stop a run; with a model node the manifest is not looked at.
-#[test]
-fn a_manifest_that_names_the_root_file_of_the_copy_does_not_stop_a_run_without_a_model_node() {
-    for (what, hook) in [
-        ("as written", ":"),
-        ("with dots in the path", "printf '{\"bindings\":\"%s/bindings/../bindings/./sdc.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-        ("two bindings members, the first names other bindings and the last the root file", "printf '{\"bindings\":\"%s/bindings/none.yaml\",\"bindings\":\"%s/bindings/sdc.yaml\"}' \"$PWD\" \"$PWD\" > \"$store/tree.json\""),
-        ("a path through a directory link that resolves to the root file", "ln -s bindings lnk && printf '{\"bindings\":\"%s/lnk/sdc.yaml\"}' \"$PWD\" > \"$store/tree.json\""),
-    ] {
-        let w = World::new("manifest-ok");
-        file(&w, "bindings/sdc.yaml", NO_MODEL);
-        w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-        w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-        w.fake.hook("tree_run", "1", &format!("{hook}\n"));
-        let o = w.run(&zero(&w));
-        assert_eq!(code(&o), 0, "{what}: {}", stderr(&o));
-        assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 2, "{what}");
-    }
-    // a run with a model node: the manifest is not the runner's to judge, the caps hold
-    let w = World::new("manifest-with-node");
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_run", "1", "rm \"$store/tree.json\"\n");
-    let o = w.run(&w.args("r1", 1_000_000));
-    assert_eq!(code(&o), 0, "{}", stderr(&o));
-    assert_eq!(w.outcome("r1")["has_model_node"], true);
-}
-
 // ---- the login link: a run without a model node makes none ----
 
 /// The private directory of a run holds the one link to the login file. A run without a model node
@@ -540,7 +415,7 @@ fn the_link_to_the_login_file_is_made_in_a_run_with_a_model_node_and_in_no_other
     file(&w, "bindings/sdc.yaml", NO_MODEL);
     w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
     w.fake.hook("tree_run", "1", &seen_link(&w));
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert!(!w.fake.dir.join("had-link").exists(), "a run without a model node made the link to the login file");
     assert!(!w.fake.dir.join("runtime-ls").exists() || std::fs::read_to_string(w.fake.dir.join("runtime-ls")).unwrap().trim().is_empty(), "a run without a model node made a private directory");
@@ -561,7 +436,7 @@ fn a_login_file_that_cannot_be_used_refuses_a_run_without_a_model_node_before_an
     let w = World::new("login-unusable");
     file(&w, "bindings/sdc.yaml", NO_MODEL);
     w.settings(&json!({"login_file": w.root.join("no-such-login").display().to_string()}));
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_ne!(code(&o), 0, "{}", stderr(&o));
     assert!(stderr(&o).contains("login_file"), "{}", stderr(&o));
     assert!(!w.run_dir("r1").exists(), "a run directory was made");
@@ -586,37 +461,3 @@ fn with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted()
     assert_eq!((outcome["has_model_node"].as_bool(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(true), Some(1), Some(400_000)), "{outcome}");
 }
 
-// ---- the slow lane: the child `b10x-loom` of the pinned revision ----
-
-fn pinned_loom_binary() -> PathBuf {
-    PathBuf::from(std::env::var("RUNBOOK_LOOM_BIN").expect("RUNBOOK_LOOM_BIN names the b10x-loom binary of the pinned Loom revision"))
-}
-
-/// A handoff's printed command is `tree run` with no bound on its steps, and Loom reads the bindings
-/// again before every step of one call. The runner bounds it to one step in a run without a model node
-/// (`child_host.rs`, `one_step_argv`), so it reads its copy again between two steps. With the real
-/// `b10x-loom` of the pinned revision, behind a wrapper that logs every call, under `local` with caps:
-/// the run takes a handoff, and every `tree run` call of the run, the handoff's included, carries
-/// `--max-steps 1`.
-#[test]
-#[ignore = "slow lane: set RUNBOOK_LOOM_BIN to the b10x-loom of the pinned Loom revision"]
-fn child_loom_the_printed_command_of_a_handoff_takes_one_step_in_a_run_without_a_model_node() {
-    let real = pinned_loom_binary();
-    let wrapper = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("review1-lib-handoff-wrapper-{}", std::process::id()));
-    let lib = Lib::with_loom("child-handoff", Some(wrapper.clone()));
-    let log = lib.root.join("loom-calls.log");
-    write_exe(&wrapper, &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{}' \"$@\"\n", log.display(), real.display()));
-    lib.stand_in(false);
-    lib.bindings(|t| t.replace("      argv: [tools/draft-write.sh]\n", "      argv: [tools/draft-write.sh]\n    handoff: \"decide, then run again\"\n    handoff_when: [tools/draft-wait.sh]\n"));
-    lib.tool("draft-wait.sh", "#!/bin/sh\n[ -e ../waited ] && exit 1\ntouch ../waited\nexit 0\n");
-    let o = lib.run();
-    let events = std::fs::read_to_string(lib.run_dir().join("events.jsonl")).unwrap_or_default();
-    assert!(events.contains("Handoff"), "the run took no handoff: {}\n{events}", lib.seen(&o));
-    let calls = std::fs::read_to_string(&log).unwrap_or_default();
-    let runs: Vec<&str> = calls.lines().filter(|l| l.starts_with("tree run ")).collect();
-    assert!(runs.len() >= 2, "too few calls of tree run to hold a handoff: {calls}");
-    for call in &runs {
-        assert!(call.ends_with(" --max-steps 1"), "a tree run call of the run takes more than one step: {call}");
-    }
-    let _ = std::fs::remove_file(&wrapper);
-}

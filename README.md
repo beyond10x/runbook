@@ -88,7 +88,7 @@ artifacts, prints every LLM command and runs none, with scripted approvals. It i
 
 ```console
 runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
-  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+  --confinement local --max-wall-seconds <n> [--spend-ledger <ledger file>] [--cap-micro-usd <n>] [--max-llm-calls <n>]
 ```
 
 The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).

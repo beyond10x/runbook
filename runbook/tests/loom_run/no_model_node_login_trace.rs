@@ -1,7 +1,7 @@
 //! What a run without a model node leaves of the login file: nothing. The settings name a login file
 //! (a stand-in with invented text); no private directory is made, no file of the run directory holds
 //! the file's path or text, and no call of Loom carries either in its argv or environment. A fake
-//! `b10x-loom`, under `substrate` with every cap at 0: no model call, no network request.
+//! `b10x-loom`, under `substrate` with none of the money options: no model call, no network request.
 
 use super::core::{code, grep_tree, stderr, World};
 use super::fake::tree_run_json;
@@ -16,10 +16,11 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-fn zero(w: &World) -> Vec<String> {
+fn bare(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    without(&mut a, "--spend-ledger");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        without(&mut a, flag);
+    }
     set(&mut a, "--confinement", "substrate");
     a
 }
@@ -44,7 +45,7 @@ fn a_run_without_a_model_node_leaves_no_trace_of_the_login_file() {
     std::fs::write(w.root.join("bindings/sdc.yaml"), NO_MODEL).unwrap();
     w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
     w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(w.outcome("r1")["has_model_node"], false);
     assert!(!w.root.join("xdg/runbook").exists(), "a private directory was made");

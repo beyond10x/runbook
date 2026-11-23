@@ -70,7 +70,6 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
                 Cap::Spend => "spend",
                 Cap::LlmCalls => "llm_calls",
                 Cap::WallTime => "wall_time",
-                Cap::ModelNode => "model_node",
             };
             ("cap_reached", json!({"cap": cap, "detail": detail}))
         }

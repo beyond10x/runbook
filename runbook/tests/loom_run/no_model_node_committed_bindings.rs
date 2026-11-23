@@ -1,7 +1,6 @@
 //! The bindings committed in the repository, unchanged, run by `runbook run` over Loom as a library
-//! under `local` (`docs/loom-run.md`, "A run without a model node"): the bug-fix and story bindings
-//! hold a model node and need their caps; the release bindings hold none, so under `local` they need
-//! caps too, and with them they start and run no code of a ticket's repository.
+//! under `local` (`docs/loom-run.md`, "A run without a model node"): with none of the three money
+//! options they start, and with caps the release bindings start and run no code of a ticket's repository.
 //!
 //! Programs here are sh scripts with invented text. A "model program" is a stand-in that writes a
 //! marker file; "workspace code" is a hand-written Taskfile whose check writes a marker file. No
@@ -98,7 +97,7 @@ impl Committed {
         self.root.join(rel).display().to_string()
     }
 
-    /// Run `r1`: with `caps`, a ledger and both caps above 0; without, every cap at 0 and no ledger.
+    /// Run `r1`: with `caps`, a ledger and both caps above 0; without, none of the three money options.
     fn run(&self, runbook: &str, caps: bool, extra: &[&str]) -> Output {
         let mut args: Vec<String> = ["run", runbook, "--run", "r1", "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         args.extend([self.p("runs"), "--bindings".into(), self.p("fx/bindings"), "--protocols".into(), self.p("fx/protocol"), "--intake".into(), self.p("idea.yaml")]);
@@ -107,7 +106,7 @@ impl Committed {
             args.extend(["--spend-ledger".to_owned(), self.p("ledger.json")]);
             args.extend(["--cap-micro-usd", "5000000", "--max-llm-calls", "100", "--max-wall-seconds", "40"].map(String::from));
         } else {
-            args.extend(["--cap-micro-usd", "0", "--max-llm-calls", "0", "--max-wall-seconds", "40"].map(String::from));
+            args.extend(["--max-wall-seconds", "40"].map(String::from));
         }
         args.extend(extra.iter().map(|s| (*s).to_owned()));
         Command::new(BIN)
@@ -158,41 +157,6 @@ impl Committed {
     }
 }
 
-/// The bug-fix bindings as committed, alone in the `--bindings` directory, with a seed directory:
-/// the file names the model tool, so the run needs a ledger and nothing of the seed is run.
-#[test]
-fn the_committed_bug_fix_bindings_with_a_seed_do_not_run_without_a_ledger() {
-    let c = Committed::new("bugfix", &["sdc-bugfix.yaml"]);
-    let o = c.run("sdc-bugfix", false, &["--bugfix", &c.p("seed")]);
-    let seen = c.summary("committed sdc-bugfix.yaml alone, --bugfix <seed>, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 64, "{seen}");
-    assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
-    assert!(!c.root.join("runs/r1").exists(), "{seen}");
-    assert!(c.called("sdc-bugfix").is_empty(), "the seed ran: {seen}");
-    assert!(!c.workspace_code_ran(), "{seen}");
-}
-
-/// The same for the story bindings as committed (`story-tests impl`), and for the whole committed
-/// directory with a seed.
-#[test]
-fn the_committed_story_bindings_and_the_whole_directory_do_not_run_without_a_ledger() {
-    let c = Committed::new("story", &["sdc-story.yaml"]);
-    let o = c.run("sdc", false, &["--root-protocol", "sdc-story@8", "--case", "STORY-1"]);
-    let seen = c.summary("committed sdc-story.yaml alone, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 64, "{seen}");
-    assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
-    assert!(!c.root.join("runs/r1").exists(), "{seen}");
-
-    let all = ["sdc-bugfix.yaml", "sdc-direction.yaml", "sdc-epic.yaml", "sdc-intake.yaml", "sdc-plan.yaml", "sdc-release.yaml", "sdc-spec.yaml", "sdc-story.yaml", "sdc.yaml"];
-    let c = Committed::new("whole", &all);
-    let o = c.run("sdc-bugfix", false, &["--bugfix", &c.p("seed")]);
-    let seen = c.summary("the whole committed bindings directory, --bugfix <seed>, caps 0, no ledger", &o);
-    assert_eq!(code(&o), 64, "{seen}");
-    assert!(stderr(&o).contains("--spend-ledger is required"), "{seen}");
-    assert!(c.called("sdc-bugfix").is_empty(), "the seed ran: {seen}");
-    assert!(!c.workspace_code_ran(), "{seen}");
-}
-
 /// The release bindings as committed hold no model node. A seed directory is the one way code that
 /// no bound program wrote gets into a workspace, and it cannot be given to them: the bug-fix
 /// options open the bug-fix protocol only.
@@ -207,19 +171,24 @@ fn a_seed_directory_cannot_be_given_to_the_committed_release_bindings() {
     assert!(!c.root.join("runs/r1/work/mainline").exists(), "{seen}");
 }
 
-/// The release bindings as committed, alone, under `local` with caps of 0 and no ledger: they hold no
-/// model node, and a bound program has the network under `local`, so the run is refused by name before
-/// anything is written and no program of the bindings starts.
+/// The committed bug-fix bindings with a seed and the release bindings alone, under `local` with none
+/// of the three money options: the runs start (a limit that is not named is not applied) and the seed
+/// helper is the one program that is called.
 #[test]
-fn the_committed_release_bindings_alone_are_refused_under_local_without_caps() {
-    let c = Committed::new("release-refused", &["sdc-release.yaml"]);
+fn the_committed_bindings_start_under_local_with_none_of_the_three_money_options() {
+    let c = Committed::new("bare-release", &["sdc-release.yaml"]);
     let o = c.run("sdc", false, &["--root-protocol", "sdc-release@4", "--case", "REL-1"]);
-    let seen = c.summary("committed sdc-release.yaml alone, caps 0, no ledger, local", &o);
-    assert_eq!(code(&o), 2, "{seen}");
-    assert!(stderr(&o).contains("--confinement local") && stderr(&o).contains("--spend-ledger"), "{seen}");
-    assert!(!c.root.join("runs/r1").exists(), "{seen}");
-    assert!(!c.workspace_code_ran(), "{seen}");
-    assert!(c.called("cargo").is_empty() && c.called("slot").is_empty(), "{seen}");
+    let seen = c.summary("committed sdc-release.yaml alone, none of the money options, local", &o);
+    assert!(c.root.join("runs/r1/outcome.json").exists(), "the run did not start: {seen}");
+    assert_ne!(code(&o), 2, "refused: {seen}");
+    assert_ne!(code(&o), 64, "usage error: {seen}");
+    assert!(!c.root.join("ledger.json").exists(), "{seen}");
+    let c = Committed::new("bare-bugfix", &["sdc-bugfix.yaml"]);
+    let o = c.run("sdc-bugfix", false, &["--bugfix", &c.p("seed")]);
+    let seen = c.summary("committed sdc-bugfix.yaml alone, --bugfix <seed>, none of the money options, local", &o);
+    assert!(c.root.join("runs/r1/outcome.json").exists(), "the run did not start: {seen}");
+    assert!(!c.called("sdc-bugfix").is_empty(), "the seed did not run: {seen}");
+    assert!(!c.root.join("ledger.json").exists(), "{seen}");
 }
 
 /// The release bindings as committed, alone, under `local` with caps: the run starts. Its workspace

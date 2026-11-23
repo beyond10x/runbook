@@ -55,44 +55,32 @@ fn install_signal_handlers() {
     }
 }
 
-/// A refusal before anything was written. A run with a model node that lacks `--spend-ledger` is a
-/// usage error (exit 64), as it was when the parser required the option; every other refusal is
-/// exit 2.
+/// A refusal before anything was written: exit 2.
 #[derive(Debug)]
-pub enum Refused {
-    /// A required option is missing: exit 64.
-    Usage(String),
-    /// The run itself is refused: exit 2.
-    Plain(String),
-}
+pub struct Refused(String);
 
 impl Refused {
     /// The exit code of the refusal.
     pub fn exit_code(&self) -> u8 {
-        match self {
-            Refused::Usage(_) => 64,
-            Refused::Plain(_) => crate::loom_run::EXIT_REFUSED,
-        }
+        crate::loom_run::EXIT_REFUSED
     }
 }
 
 impl From<String> for Refused {
     fn from(text: String) -> Self {
-        Refused::Plain(text)
+        Refused(text)
     }
 }
 
 impl From<&str> for Refused {
     fn from(text: &str) -> Self {
-        Refused::Plain(text.to_owned())
+        Refused(text.to_owned())
     }
 }
 
 impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Refused::Usage(text) | Refused::Plain(text) => f.write_str(text),
-        }
+        f.write_str(&self.0)
     }
 }
 
@@ -121,7 +109,11 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::bugfix::check(args)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
-    let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    // a cap the settings file names and no option does is the cap of the run
+    let raw = settings::read(&args.settings)?;
+    let named = settings::with_named_caps(args, &raw);
+    let args = &named;
+    let given = settings::normalise(&raw, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;
@@ -138,18 +130,6 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     }
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()).into());
-    }
-    // A run with a model node needs the ledger, and a run without one needs its caps where a bound
-    // program has a network: refused here, before anything is written. The opening decides again on
-    // the run's copy and that decision is the one that counts.
-    match model_node::decide(args, &settings_value, &*decider, &args.bindings) {
-        ModelNode::With { because } if args.spend_ledger.is_none() => return Err(Refused::Usage(ledger_required(&because))),
-        ModelNode::Capped { level } => {
-            if let Some(missing) = caps_missing(args) {
-                return Err(caps_required(&level, &missing).into());
-            }
-        }
-        _ => {}
     }
     if run_dir.exists() {
         return Err(format!("the run directory {} exists", run_dir.display()).into());
@@ -220,38 +200,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &runner.node);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
     Ok(outcome)
-}
-
-/// What a run that needs its caps lacks: `None` when it has all three.
-fn caps_missing(args: &Args) -> Option<String> {
-    let mut missing: Vec<&str> = Vec::new();
-    if args.spend_ledger.is_none() {
-        missing.push("--spend-ledger");
-    }
-    if args.cap_micro_usd == 0 {
-        missing.push("--cap-micro-usd above 0");
-    }
-    if args.max_llm_calls == 0 {
-        missing.push("--max-llm-calls above 0");
-    }
-    if missing.is_empty() {
-        None
-    } else {
-        Some(missing.join(", "))
-    }
-}
-
-/// The refusal of a run without a model node, under a level that leaves a bound program the network,
-/// that lacks a cap.
-fn caps_required(level: &str, missing: &str) -> String {
-    format!("--confinement {level} gives a bound program the network: a run without a model node needs caps under it, and this run lacks {missing}; give --cap-micro-usd, --max-llm-calls (both above 0) and --spend-ledger, or run under a confinement that takes the network from bound programs (substrate)")
-}
-
-/// The refusal of a run that has a model node and names no `--spend-ledger`.
-fn ledger_required(because: &str) -> String {
-    format!("--spend-ledger is required: the run has a model node ({because}); a run without one needs none")
 }
 
 fn file_sha256(path: &Path) -> Result<String, String> {
@@ -393,12 +343,11 @@ impl Runner<'_> {
         self.answers = Answers::load(&self.bindings_dir)?;
         // The one decision of the run: whether it has a model node. It is made here, from the
         // options, the decider and the copy before any program of the run has started, written to
-        // the records, and never made again. With a model node the ledger is opened and every cap
-        // holds; without one nothing is counted, reserved or opened.
+        // the records, and never made again. It gates the link to the login file and nothing else:
+        // the caps and the ledger hold for every run that names them.
         self.node = model_node::decide(self.args, &self.settings, &*self.decider, &self.bindings_dir);
         self.emit(Event::ModelNodeDecided { has_model_node: self.node.has_model_node(), because: self.node.because() })?;
-        if self.node.caps_apply() {
-            let path = self.args.spend_ledger.as_deref().ok_or_else(|| ledger_required(&self.node.because()))?;
+        if let Some(path) = self.args.spend_ledger.as_deref() {
             self.ledger = Some(Ledger::open(path)?);
         }
         if self.node.has_model_node() {
@@ -425,7 +374,7 @@ impl Runner<'_> {
         let mut index = 0u64;
         loop {
             self.check_stop()?;
-            if self.node.caps_apply() && self.llm_calls >= self.args.max_llm_calls {
+            if self.calls_cap_reached() {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Ok(Outcome::StoppedLlmCalls);
             }
@@ -468,15 +417,14 @@ impl Runner<'_> {
     /// through [`Runner::uncosted`], which refuses to start a model program and ends the run when a
     /// model call turns up in the records.
     fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
-        if self.node.is_without() {
-            return self.uncosted(handoff);
-        }
-        let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
+        let want = budget::largest_call_budget(&self.bindings_dir)?.or(self.args.cap_micro_usd).unwrap_or(u64::MAX);
         let reservation = self.reserve(want)?;
-        budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+        if self.args.cap_micro_usd.is_some() {
+            budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+        }
         let result = match handoff {
             None => self.host.step(),
-            Some(answer) => self.host.handoff(answer, !self.node.has_model_node()),
+            Some(answer) => self.host.handoff(answer),
         };
         let cost_halt = self.book_step(&reservation);
         let result = result?;
@@ -484,131 +432,10 @@ impl Runner<'_> {
         Ok(result)
     }
 
-    /// A `b10x-loom` call in a run opened without a model node. Before it starts, the bindings copy is
-    /// read again and the call is refused when it now names the model tool or cannot be read (a bound
-    /// program may have written it; the decision of the opening is not changed, the path only
-    /// refuses). After it, the cost records are read: a model call in them ends the run.
-    fn uncosted(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
-        let path = if handoff.is_some() { "handoff command" } else { "tree run" };
-        self.refuse_model_path(path)?;
-        let result = match handoff {
-            None => self.host.step(),
-            Some(answer) => self.host.handoff(answer, true),
-        };
-        let seen = self.refuse_recorded_call(path);
-        let result = result?;
-        seen?;
-        Ok(result)
-    }
-
-    /// Ends the run, naming the cause, when `path` is about to start a model program in a run
-    /// opened without a model node. Reads the bindings copy as it is now: it can only make this
-    /// refuse, never lift a cap.
-    fn refuse_model_path(&mut self, path: &'static str) -> Result<(), Halt> {
-        if !self.node.is_without() {
-            return Ok(());
-        }
-        if let Some(why) = self.manifest_problem() {
-            return self.stop_model_call(path, format!("a model program could start by {path} in a run opened without a model node: the tree manifest no longer says what the opening wrote: {why}"));
-        }
-        match bindings_copy::model_node_in(&self.bindings_dir) {
-            None => Ok(()),
-            Some(why) => self.stop_model_call(path, format!("a model program was about to start by {path} in a run opened without a model node: the bindings copy now says: {why}")),
-        }
-    }
-
-    /// What Loom reads to decide which bindings apply: the tree manifest `store/tree.json`, member
-    /// `bindings`. It must be a regular file (not a link, not removed) whose `bindings` member is an
-    /// absolute path of a file that is not a link and that resolves to the root file of the copy
-    /// the opening made (and this runner scanned): `.` and `..` in the path are accepted when they
-    /// resolve to it. Anything else is a reason, and the run ends before a program starts.
-    /// The other members (`root`, `workspace`, `catalog`) cannot add a program to the copy's
-    /// bindings: they choose a case, the directory it works in and where protocols come from.
-    fn manifest_problem(&self) -> Option<String> {
-        let Some(root_file) = &self.root_file else {
-            return Some("the root file of the copy is not known".to_owned());
-        };
-        let manifest = self.store.join("tree.json");
-        match std::fs::symlink_metadata(&manifest) {
-            Ok(m) if m.is_file() => {}
-            Ok(_) => return Some("tree.json is not a regular file".to_owned()),
-            Err(e) => return Some(format!("tree.json cannot be read ({})", e.kind())),
-        }
-        let text = match std::fs::read_to_string(&manifest) {
-            Ok(t) => t,
-            Err(e) => return Some(format!("tree.json cannot be read ({})", e.kind())),
-        };
-        let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&text) else {
-            return Some("tree.json is not a JSON object".to_owned());
-        };
-        let Some(named) = object.get("bindings").and_then(Value::as_str).map(PathBuf::from).filter(|p| p.is_absolute()) else {
-            return Some("its bindings member is not an absolute path".to_owned());
-        };
-        for (what, file) in [("the bindings member", &named), ("the root file of the copy", root_file)] {
-            match std::fs::symlink_metadata(file) {
-                Ok(m) if m.is_file() => {}
-                Ok(m) if m.file_type().is_symlink() => return Some(format!("{what} is a link")),
-                Ok(_) => return Some(format!("{what} is not a regular file")),
-                Err(e) => return Some(format!("{what} cannot be read ({})", e.kind())),
-            }
-        }
-        match (std::fs::canonicalize(&named), std::fs::canonicalize(root_file)) {
-            (Ok(a), Ok(b)) if a == b => None,
-            (Ok(_), Ok(_)) => Some("its bindings member names another file than the root file of the copy".to_owned()),
-            _ => Some("its bindings member cannot be resolved".to_owned()),
-        }
-    }
-
     /// Records an answer with Loom (`tree approve`, which runs the program a person action binds).
-    /// In a run opened without a model node the bindings copy is read again first, like a `tree run`.
     fn take_answer(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        self.refuse_model_path("tree approve")?;
         self.host.answer(answer)?;
         Ok(())
-    }
-
-    /// Ends the run, naming the cause, when the decider could start a model program in a run opened
-    /// without a model node.
-    fn refuse_decider_path(&mut self, path: &'static str) -> Result<(), Halt> {
-        if !self.node.is_without() || !(self.decider.may_call_model() || self.decider.max_call_micro_usd() > 0) {
-            return Ok(());
-        }
-        self.stop_model_call(path, format!("the decider was about to start a model program ({path}) in a run opened without a model node"))
-    }
-
-    /// In a run opened without a model node: a model call in the cost records after `path` ends the
-    /// run. The calls are counted in the records of the run (they happened) and booked nowhere else.
-    fn refuse_recorded_call(&mut self, path: &'static str) -> Result<(), Halt> {
-        let cost = match self.reader.read_new(&self.workspace) {
-            Ok(cost) => cost,
-            Err(reason) => return self.stop_model_call("recorded call", format!("the cost records after {path} cannot be read, so a model call cannot be ruled out in a run opened without a model node: {reason}")),
-        };
-        for note in cost.no_call {
-            let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
-            let exit = note.get("exit").and_then(Value::as_i64).unwrap_or(-1);
-            self.emit(Event::NoModelCall { call, exit })?;
-        }
-        let calls = cost.records.len() as u64 + cost.unknown.len() as u64;
-        if calls == 0 {
-            return Ok(());
-        }
-        self.llm_calls += calls;
-        self.spent += cost.micro_usd;
-        for record in cost.records {
-            let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
-            self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
-        }
-        for mut record in cost.unknown {
-            record["cost_unknown"] = Value::Bool(true);
-            self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: 0, record })?;
-        }
-        self.stop_model_call("recorded call", format!("{calls} model call(s) recorded in .sdc/llm/calls.jsonl after {path} in a run opened without a model node; no ledger was open, so nothing was reserved or booked"))
-    }
-
-    /// The end of a run that met a model program without a model node: the event, then the outcome.
-    fn stop_model_call<T>(&mut self, path: &'static str, reason: String) -> Result<T, Halt> {
-        self.emit(Event::CapReached { cap: Cap::ModelNode, detail: reason.clone() })?;
-        Err(Halt::Done(Outcome::StoppedModelCall { path, reason }))
     }
 
     /// Runs `tree status` and writes `tree-status.json` (atomically, paths relative to the run
@@ -616,9 +443,6 @@ impl Runner<'_> {
     /// `XDG_DATA_HOME` of the run), and a store read with another catalog answers
     /// `GovernorUnavailable`.
     fn refresh_status(&mut self) -> Result<(), Halt> {
-        // `tree status` starts no program, but it reads the manifest first: a manifest that was
-        // changed ends a run without a model node here by the same cause, not by a Loom error.
-        self.refuse_model_path("tree status")?;
         let r = self.host.status()?;
         if r.code != Some(0) {
             let child = format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code);
@@ -629,41 +453,50 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// The ledger of a run with a model node. A run without one never gets here: its paths
-    /// reserve, commit and release nothing.
-    fn ledger(&self) -> Result<&Ledger, Halt> {
-        self.ledger.as_ref().ok_or_else(|| Halt::Failed("the run has a model node and no ledger is open".to_owned()))
+    /// Whether a named `--max-llm-calls` is reached: no cap named is never reached, a cap of 0 is
+    /// reached before the first call.
+    fn calls_cap_reached(&self) -> bool {
+        self.args.max_llm_calls.is_some_and(|max| self.llm_calls >= max)
     }
 
-    /// Books `micro_usd` for `reservation` under `what`; nothing in a run without a model node.
+    /// Books `micro_usd` for `reservation` under `what`: in the ledger when the run names one. The
+    /// run's own total (`self.spent`) is kept by the callers.
     fn commit(&mut self, reservation: &Reservation, what: &str, micro_usd: u64) -> Result<(), Halt> {
-        if self.node.is_without() {
-            return Ok(());
+        if let Some(ledger) = &self.ledger {
+            ledger.commit(reservation, &self.args.run, what, micro_usd)?;
         }
-        self.ledger()?.commit(reservation, &self.args.run, what, micro_usd)?;
         Ok(())
     }
 
-    /// Gives `reservation` back; nothing in a run without a model node.
+    /// Gives `reservation` back (the ledger's, when the run names one).
     fn release(&mut self, reservation: &Reservation) -> Result<(), Halt> {
-        if self.node.is_without() {
-            return Ok(());
+        if let Some(ledger) = &self.ledger {
+            ledger.release(reservation)?;
         }
-        self.ledger()?.release(reservation)?;
         Ok(())
     }
 
+    /// Reserves what a call may cost, at most `want` micro USD. With a named `--cap-micro-usd` it
+    /// grants at most what the cap has left: over all runs of the ledger when the run names one, over
+    /// this run's own spend when it does not. With none named it grants `want` and holds nothing in
+    /// the ledger (a run without a cap must not starve a run with one that shares the file). A named
+    /// cap with nothing left for a call that wants something ends the run (exit 4).
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
-        if self.node.is_without() {
-            return Ok(Reservation { id: String::new(), micro_usd: 0 });
-        }
-        let r = self.ledger()?.reserve(&self.args.run, self.args.cap_micro_usd, want)?;
-        if want > 0 && r.micro_usd == 0 {
-            let spent = self.ledger()?.spent()?;
-            self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {} micro USD spent", self.args.cap_micro_usd) })?;
+        let cap = self.args.cap_micro_usd;
+        let granted = match (&self.ledger, cap) {
+            (Some(ledger), Some(cap)) => ledger.reserve(&self.args.run, cap, want)?,
+            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)) },
+            (_, None) => Reservation { id: String::new(), micro_usd: want },
+        };
+        if let Some(cap) = cap.filter(|_| want > 0 && granted.micro_usd == 0) {
+            let spent = match &self.ledger {
+                Some(ledger) => ledger.spent()?,
+                None => self.spent,
+            };
+            self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {cap} micro USD spent") })?;
             return Err(Halt::Done(Outcome::StoppedSpendCap));
         }
-        Ok(r)
+        Ok(granted)
     }
 
     /// Reads what the step spent and books it. A cost that cannot be read books the whole
@@ -733,9 +566,8 @@ impl Runner<'_> {
             if self.answer_declared(&decision, &kind, &case)? {
                 continue;
             }
-            self.refuse_decider_path("decider")?;
             let want = self.decider.max_call_micro_usd();
-            if self.node.caps_apply() && want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if want > 0 && self.calls_cap_reached() {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -763,12 +595,6 @@ impl Runner<'_> {
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
-            if self.node.is_without() && (cost > 0 || calls > 0) {
-                // A decider that said it calls no model answered with a call: nothing can book it.
-                self.spent += cost;
-                self.llm_calls += calls;
-                return self.stop_model_call("decider", format!("the decider reported {calls} model call(s) and {cost} micro USD in a run opened without a model node; no ledger was open"));
-            }
             self.commit(&reservation, "decider", cost)?;
             self.spent += cost;
             self.llm_calls += calls;
@@ -809,7 +635,7 @@ impl Runner<'_> {
     /// A handoff's printed command is `tree run`: it runs as printed, through the ledger like every
     /// call that may start a model program, and what it printed is read like any `tree run`.
     fn run_handoff(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        if self.node.caps_apply() && self.llm_calls >= self.args.max_llm_calls {
+        if self.calls_cap_reached() {
             self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
             return Err(Halt::Done(Outcome::StoppedLlmCalls));
         }
@@ -946,7 +772,7 @@ impl Runner<'_> {
                     if let Err(e) = run_files::write_tree_files(&self.run_dir, (se == 0).then_some(s.stdout.as_slice()), ve, &v.stdout, &v.stderr) {
                         outcome = Outcome::Error { reason: e };
                     }
-                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. } | Outcome::StoppedModelCall { .. }) {
+                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
                         let child = format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label());
                         let library = format!("Loom refused the tree status after the run ended as {}: {}", outcome.label(), tail_of(&s.stderr));
                         outcome = match self.loom_halt(child, library, &s) {
@@ -955,7 +781,7 @@ impl Runner<'_> {
                             Halt::Done(done) => done,
                         };
                     }
-                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. } | Outcome::StoppedModelCall { .. }) {
+                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
                         outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };
                     }
                     (se, ve)
@@ -1072,8 +898,8 @@ mod tests {
             confinement: Confinement::Local,
             settings: root.join("settings.toml"),
             spend_ledger: Some(root.join("ledger.json")),
-            cap_micro_usd: 1_000_000,
-            max_llm_calls: 100,
+            cap_micro_usd: Some(1_000_000),
+            max_llm_calls: Some(100),
             max_wall_seconds: wall,
             ports: Default::default(),
         }

@@ -18,8 +18,8 @@
 //!   the run directory. The dry adapter writes to its standard error, which Loom keeps; the sink
 //!   reads the call's record (`argv.json`, `request.json`) instead.
 //!
-//! `--dry` lowers no option: the cap, the call and wall limits and the confinement stay required.
-//! A dry call costs 0 (`cost.rs`), so the spend ledger stays at 0 and no login file is read.
+//! `--dry` lowers no option: the wall limit and the confinement stay required; the ledger, the cap and the call limit are optional, as in every run.
+//! A dry call costs 0 (`cost.rs`), so a ledger stays at 0 and no login file is read.
 
 use super::events::{CostSource, Event, EventSink};
 use super::ports::{Ports, Refusal};

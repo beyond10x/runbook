@@ -1,13 +1,12 @@
-//! The two refusal kinds of a run (exit 64 for a missing option of a run with a model node, exit 2
-//! for the other refusals) and what the caps book under `local` (`docs/loom-run.md`, "A run without
-//! a model node" and "What the spend cap does not promise"). A fake `b10x-loom`, no model call, no
-//! network request. Three cases are guards of the default step. Two are measurements, `#[ignore]`d:
-//! they assert what the backlog story `spend-cap-with-nothing-left-starts-nothing` is to build and
-//! fail until it is built.
+//! The refusal kinds of a run that stay (a value that is present and unusable) and what the caps book
+//! under `local` (`docs/loom-run.md`, "A run without a model node" and "What the spend cap does not
+//! promise"). A fake `b10x-loom`, no model call, no network request. Two cases are measurements,
+//! `#[ignore]`d: they assert what the backlog story `spend-cap-with-nothing-left-starts-nothing` is to
+//! build and fail until it is built.
 
-use super::core::{code, stderr, World};
+use super::core::{code, World};
 use super::fake::{decision_json, tree_run_json};
-use super::no_model_node_levels_and_caps::{last_line, set, without, NO_MODEL};
+use super::no_model_node_levels_and_caps::{last_line, set, NO_MODEL};
 use serde_json::{json, Value};
 use std::process::Output;
 
@@ -38,17 +37,6 @@ fn booked(w: &World) -> Option<u64> {
 
 fn tree_runs(w: &World) -> usize {
     w.fake.calls_of(&["tree", "run"]).len()
-}
-
-/// What was written by a run that was to be refused before anything is written.
-fn written(w: &World) -> Vec<&'static str> {
-    let mut made = Vec::new();
-    for (name, path) in [("a run directory", w.run_dir("r1")), ("a ledger file", w.ledger()), ("a private directory", w.root.join("xdg/runbook"))] {
-        if path.exists() {
-            made.push(name);
-        }
-    }
-    made
 }
 
 fn said(what: &str, o: &Output) {
@@ -98,56 +86,6 @@ fn with_a_model_node_a_value_that_is_present_and_unusable_ends_as_on_main() {
         if *refused && (w.run_dir("r1").exists() || w.root.join("xdg/runbook").exists() || w.fake.calls_so_far() != 0) {
             wrong.push(format!("{what}: something was written or started before the refusal"));
         }
-    }
-    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
-}
-
-/// The usage refusal of a run with a model node (no `--spend-ledger`) stands before the
-/// run directory, the ledger, the login link and the private directory also when another refusal
-/// of the run waits behind it: a run directory that exists already is left as it was, and a
-/// runtime directory that is not there is not asked for. A refusal that stands before it (settings
-/// that are no TOML) wins with its own exit, and nothing is written either.
-#[test]
-fn the_usage_refusal_of_a_run_with_a_model_node_writes_nothing_beside_another_refusal() {
-    let mut wrong = Vec::new();
-    // a run directory that exists
-    let w = World::new("nmrb-usage-rundir");
-    std::fs::create_dir_all(w.run_dir("r1")).unwrap();
-    std::fs::write(w.run_dir("r1").join("kept.txt"), "kept").unwrap();
-    let mut a = w.args("r1", 1_000_000);
-    without(&mut a, "--spend-ledger");
-    let o = w.run(&a);
-    said("no ledger, the run directory exists", &o);
-    let names: Vec<String> = std::fs::read_dir(w.run_dir("r1")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    if code(&o) != 64 || !stderr(&o).contains("--spend-ledger is required") {
-        wrong.push(format!("the run directory exists: exit {}, {}", code(&o), last_line(&o)));
-    }
-    if names != ["kept.txt"] || w.ledger().exists() || w.root.join("xdg/runbook").exists() || w.fake.calls_so_far() != 0 {
-        wrong.push(format!("the run directory exists: something was written or started: {names:?}"));
-    }
-    // no runtime directory for the private directory
-    let w = World::new("nmrb-usage-xdg");
-    let mut a = w.args("r1", 1_000_000);
-    without(&mut a, "--spend-ledger");
-    let mut c = w.command(&a);
-    c.env_remove("XDG_RUNTIME_DIR");
-    let o = c.output().unwrap();
-    said("no ledger, no XDG_RUNTIME_DIR", &o);
-    if code(&o) != 64 || !stderr(&o).contains("--spend-ledger is required") {
-        wrong.push(format!("no XDG_RUNTIME_DIR: exit {}, {}", code(&o), last_line(&o)));
-    }
-    if !written(&w).is_empty() || w.fake.calls_so_far() != 0 {
-        wrong.push(format!("no XDG_RUNTIME_DIR: written {:?}", written(&w)));
-    }
-    // settings that are no TOML: the refusal of the settings stands first
-    let w = World::new("nmrb-usage-settings");
-    std::fs::write(w.root.join("settings.toml"), "= not toml\n").unwrap();
-    let mut a = w.args("r1", 1_000_000);
-    without(&mut a, "--spend-ledger");
-    let o = w.run(&a);
-    said("no ledger, settings that are no TOML", &o);
-    if code(&o) == 0 || !written(&w).is_empty() || w.fake.calls_so_far() != 0 {
-        wrong.push(format!("settings that are no TOML: exit {}, written {:?}", code(&o), written(&w)));
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

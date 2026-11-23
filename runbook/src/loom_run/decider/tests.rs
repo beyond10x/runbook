@@ -334,8 +334,8 @@ fn the_per_call_budget_is_the_max_budget_in_the_adapters_request() {
     ask(&w, &s, &approve_action(&w), 900_000);
     let asked = json_file(&first_record(&w).join("adapter-request.json"));
     assert_eq!(asked["max_budget_usd"].as_f64(), Some(0.05), "{asked}");
-    // the default limit is the driver's 0.25 USD
-    assert_eq!(from_settings(&settings(&w, json!({}))).unwrap().max_call_micro_usd(), 250_000);
+    // no limit is named: none is applied
+    assert_eq!(from_settings(&settings(&w, json!({}))).unwrap().max_call_micro_usd(), u64::MAX);
 }
 
 #[test]

@@ -48,7 +48,7 @@ enum Cmd {
     Serve(runbook::serve::ServeArgs),
     /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
     Mcp(runbook::mcp::stdio::McpArgs),
-    /// Run a runbook once in this process, through Loom as a library or a `b10x-loom` child, under a spend ledger and caps; writes a run directory. With `--detach`: submit the run to a daemon and print its id.
+    /// Run a runbook once in this process, through Loom as a library or a `b10x-loom` child, with the spend ledger and the caps you name (each is optional); writes a run directory. With `--detach`: submit the run to a daemon and print its id.
     Run(Box<RunCmd>),
     /// Inspect and steer the runs of a daemon: list, show, events, cancel, decisions.
     Runs {

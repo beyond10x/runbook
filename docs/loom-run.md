@@ -2,25 +2,23 @@
 
 `story:runbook-loom-run-command` (built as the subcommand `loom-run`, now `runbook run`), `story:driver-runtime-removed`, `story:engine-on-loom-library-entry` (slice 2). The command runs
 one case tree to its end, to a cap or to a stop, through Loom: the `b10x-loom` binary as a child
-process, or Loom as a library in this process. It has a spend ledger that caps the money over all
-runs and a run directory that records what happened. It makes model calls only when the bound
-programs or the decider do; the command itself calls no model and no API.
+process, or Loom as a library in this process. It has a run directory that records what happened,
+and a spend ledger and caps when you name them: no money limit is built in. It makes model calls
+only when the bound programs or the decider do; the command itself calls no model and no API.
 
 ```
 runbook run <runbook> --intake <file|-> --run <name> --runs-dir <dir> --confinement <local|substrate>
-  --settings <file.toml> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
-  [--spend-ledger <file>]
+  --settings <file.toml> --max-wall-seconds <n>
+  [--spend-ledger <file>] [--cap-micro-usd <n>] [--max-llm-calls <n>]
   [--loom <b10x-loom> --loom-sha256 <hex>] [--bindings <bindings/>] [--protocols <dir>]
   [--root-protocol <name>@<revision>] [--case <id>]
 ```
 
 `<runbook>` is the id of a protocol file under the protocols directory (`sdc`, `sdc-bugfix`; the
 code of `runbook list`). Required, with no default: `<runbook>`, `--intake`, `--run`, `--runs-dir`,
-`--confinement`, `--settings`, `--cap-micro-usd`, `--max-llm-calls` and
-`--max-wall-seconds`; a missing one is a usage error (exit 64) that names it. `--spend-ledger` is
-required when the run has a model node and when it has none under `--confinement local`; it may be
-left out only under `--confinement substrate` in a run with no model node ("A run without a model
-node" below). Optional:
+`--confinement`, `--settings` and `--max-wall-seconds`; a missing one is a usage error (exit 64)
+that names it. `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are optional, each alone
+and together, for every run and under every `--confinement` ("The money options" below). Optional:
 `--bindings` and `--protocols` default to `bindings/` and `protocol/` of the asset root
 (`RUNBOOK_HOME`, the installed share directory or the checkout the executable lies in; the lookup
 of `runbook doctor`), `--root-protocol` to `<protocol id with . as ->@<revision>` of the runbook's
@@ -35,8 +33,7 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
 1 error, 2 refused before anything was written, 3 stuck, 4 to 11 stopped (spend cap, wall time, model
 calls, signal, decider, denied, rejected, recording diverged), 12 refused by Loom during the run
-(`refused`, the reason is the cause), 13 a model program was about to start in a run opened without
-a model node (`stopped: model call`, cause `model_call_without_model_node`), 64 usage. The subcommand was called `loom-run` before; this is the
+(`refused`, the reason is the cause), 64 usage (13 is not given any more). The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
 A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
@@ -118,15 +115,9 @@ child".
    is not the file `--loom-sha256` names, Loom is a library and the level is one it cannot
    give, `--run` is not a plain name, the settings file is not TOML (a JSON file is refused, naming the TOML form), the decider settings are not usable, a
    path is missing, or `<runs-dir>/<name>` exists.
-   A run that has a model node (below) is also refused when `--spend-ledger` is missing, with exit 64 and nothing written:
-   `--spend-ledger is required: the run has a model node (<why>); a run without one needs none`.
-   Exit 64 is given when that is the only refusal of the run: another refusal that also applies (the way
-   to Loom, the run name, the settings, the protocols, the intake, the bindings) gives its own exit code
-   first, and nothing is written either way
-   (`the_usage_refusal_of_a_run_with_a_model_node_writes_nothing_beside_another_refusal` of
-   `no_model_node_refusals_and_booking.rs`).
-   A run without a model node under `--confinement local` is refused too, by name, when `--spend-ledger`
-   is missing or `--cap-micro-usd` or `--max-llm-calls` is 0 ("Where caps of 0 are accepted").
+   No refusal depends on the money options: a run with none of `--spend-ledger`, `--cap-micro-usd`
+   and `--max-llm-calls` is refused for nothing, under either `--confinement`, with or without a model
+   node (`tests/loom_run/caps_optional.rs`).
 2. Creates the run directory, writes `settings.json` (JSON, the record of the settings; the login file's path replaced by `named`),
    copies `--bindings` into `bindings/` (the copy is what Loom reads; the checkout is never
    edited), decides once whether the run has a model node (the `model_node_decided` event, the
@@ -227,7 +218,7 @@ in the real file. The run directory records only that a file was named (`setting
 `login_file: named`).
 
 - The link and its directory are made only in a run that has a model node (a run opened without one,
-  "A run without a model node" above, makes neither), after the opening decided; the checks below are
+  "A run without a model node" below, makes neither), after the opening decided; the checks below are
   made at the start in every run, so a login file that cannot be used refuses a run without a model
   node too, and nothing is written. The test is
   `the_link_to_the_login_file_is_made_in_a_run_with_a_model_node_and_in_no_other`.
@@ -281,10 +272,9 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 
 | Cap | Outcome | Exit | Checked |
 |---|---|---|---|
-| spend | `stopped: spend cap` | 4 | before each step and each decider call |
+| spend, when `--cap-micro-usd` is named | `stopped: spend cap` | 4 | before each step and each decider call |
 | wall seconds | `stopped: wall time` | 5 | before each call, and a running call is ended at the deadline |
-| model calls | `stopped: llm calls` | 6 | before each step and each decider call |
-| a model program in a run without a model node | `stopped: model call` | 13 | before each `tree run`, handoff and decider call, and after each `tree run` (see "A run without a model node") |
+| model calls, when `--max-llm-calls` is named | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
 An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `refused` (exit 12, see below) with Loom's text, as every refusal of Loom by a named reason does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
@@ -300,7 +290,7 @@ A call of the run that Loom refuses by a reason of `TreeRefusalReason` (`runbook
 | `PersonProgramFailed` | `person_program_failed` | the program of a person action ended badly (see above) |
 | `TreeAlreadyStopped`, `TreeNotStopped`, `StopUnusable` | `tree_already_stopped`, `tree_not_stopped`, `stop_unusable` | refusals of `hold` and `reopen`, which no `runbook` command calls; named all the same |
 
-Exit 2 and exit 12 are both a refusal and differ in when it happens. Exit 2 is a refusal before a run directory exists: nothing is written and there is no `outcome.json`. The refusals of `runbook run` that are exit 2 are: `--loom` without `--loom-sha256`, or the reverse (`--loom and --loom-sha256 go together`); a `--loom` binary whose sha256 is not the one named; a confinement level the library cannot give (below); a `--run` that is not a plain name; a `--root-protocol` that is not `name@revision` or that the protocol directory does not register; a settings file that cannot be read or that disagrees with the options; an intake that cannot be read or is empty; no asset root when `--bindings` or `--protocols` is not given and `RUNBOOK_HOME` is not set; a `--bindings` that is not a directory; a run directory that already exists; a run that has a model node and no `--spend-ledger`; a run with no model node under `--confinement local` that lacks `--spend-ledger` or has `--cap-micro-usd` or `--max-llm-calls` at 0 (see "A run without a model node"); `--watch` without the helper `sdc-watch`; a bug-fix option without the helper `sdc-bugfix`. A missing or invalid option is not exit 2: it is exit 64 (`--confinement`, `--run` and the other required options, and an option that needs another, such as `--recorded`'s). Exit 12 is Loom refusing a call of a run that has started: the run directory exists and `outcome.json` holds the cause.
+Exit 2 and exit 12 are both a refusal and differ in when it happens. Exit 2 is a refusal before a run directory exists: nothing is written and there is no `outcome.json`. The refusals of `runbook run` that are exit 2 are: `--loom` without `--loom-sha256`, or the reverse (`--loom and --loom-sha256 go together`); a `--loom` binary whose sha256 is not the one named; a confinement level the library cannot give (below); a `--run` that is not a plain name; a `--root-protocol` that is not `name@revision` or that the protocol directory does not register; a settings file that cannot be read or that disagrees with the options; an intake that cannot be read or is empty; no asset root when `--bindings` or `--protocols` is not given and `RUNBOOK_HOME` is not set; a `--bindings` that is not a directory; a run directory that already exists; `--watch` without the helper `sdc-watch`; a bug-fix option without the helper `sdc-bugfix`. A missing or invalid option is not exit 2: it is exit 64 (`--confinement`, `--run` and the other required options, and an option that needs another, such as `--recorded`'s). Exit 12 is Loom refusing a call of a run that has started: the run directory exists and `outcome.json` holds the cause.
 
 What each path does:
 
@@ -313,69 +303,64 @@ The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a
 
 The run log has two new kinds, `StopRecorded` (the principal and the reason of a hold) and `StopLifted` (the principal and the `seq` of the hold it lifts). The run directory's reader (`run_dir.rs`), the daemon's tail (`engine/tail.rs`, through Loom's reader) and the driver tools (`sdc-replay`) take both without error, each with a test. The run directory's projection (`events.jsonl`) skips both kinds, so they are not events of a run; the inspector reads that projected `events.jsonl` (never the run log `runlog-case-*.jsonl`) and so never meets them.
 
-Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 13 `stopped: model call` (a model program in a run opened without a model node), 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 12 `refused` (Loom refused a call by a named reason; cause the reason), 64 usage.
+Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 12 `refused` (Loom refused a call by a named reason; cause the reason), 64 usage.
+
+### The money options
+
+No money limit is built in (the operator: "runbook should not have any limitations in terms of money
+cap - there is basically no technical limitation at all"). `--spend-ledger`, `--cap-micro-usd` and
+`--max-llm-calls` are each optional, alone and together, for every run, under every `--confinement`,
+with or without a model node, with `--dry` and in the library. A run that names none of them
+runs to its end, to `--max-wall-seconds` or to a stop that is not money: it opens no ledger, refuses
+nothing and applies no limit of its own
+(`a_run_with_a_model_node_and_none_of_the_three_options_starts_and_ends_closed_under_every_level` and
+`a_run_without_a_model_node_and_none_of_the_three_options_starts_under_local_and_substrate` of
+`tests/loom_run/caps_optional.rs`; in the library `a_run_with_a_model_decider_and_none_of_the_three_options_ends_closed_in_process`
+of `inproc.rs`; with `--dry` `a_dry_run_needs_none_of_the_three_money_options` of `dry.rs`).
+
+A cap that is named stops the run when it is reached, as before:
+
+- `--cap-micro-usd <n>` stops the run `stopped: spend cap` (exit 4) when a call has no budget left
+  to reserve; `--max-llm-calls <n>` stops it `stopped: llm calls` (exit 6) when the recorded calls
+  reach `n`. A named 0 means spend nothing, or call nothing: the run starts and the first call that may cost
+  is stopped (`caps_of_0_under_local_start_and_stop_at_the_first_model_call`; the exceptions of a
+  cap of 0 are under "What the spend cap does not promise");
+- `--cap-micro-usd` without `--spend-ledger` is counted in the run itself: the sum of what the
+  run booked is compared with the cap, and no file is written. It guards one run, not all runs that
+  share a ledger (`a_cap_without_a_ledger_is_counted_in_the_run_and_stops_it_at_the_cap`, and in the
+  library `a_cap_without_a_ledger_stops_a_run_in_process`);
+- `--max-llm-calls` alone counts the calls of the run and stops at the number
+  (`a_call_cap_alone_stops_the_run_without_a_ledger_and_without_a_spend_cap`);
+- `--spend-ledger` without a cap records every booked cost in the file and stops nothing
+  (`a_ledger_alone_records_the_spend_and_stops_nothing`); a ledger holds no reservation of a run that
+  names no cap, so such a run never takes from the others that share the file;
+- all three together stop the run at the first cap reached, over all runs of the ledger
+  (`a_ledger_and_a_cap_still_stop_the_run_as_before`);
+- a settings member `cap_micro_usd` or `max_llm_calls` without its option names the cap, and beside
+  its option must equal it (`a_cap_named_in_the_settings_file_alone_is_the_cap_of_the_run`; the
+  refusals of a member that differs are in `docs/loom-run-settings.md`);
+- when a cap is named, the per-call budget of a model node is lowered to what the cap has left; with
+  none named, a call gets the budget the bindings name and nothing is lowered
+  (`a_call_is_given_the_budget_the_bindings_name_when_no_cap_is_named`).
+
+The decider's own limits are the settings it names: `decider.max_calls` and `decider.max_budget_usd`
+hold as named, and a decider that names none is not limited by the runner (no built-in number of
+calls and no built-in budget per call).
 
 ### A run without a model node
 
-The caps guard model calls. A run that has no model node makes none, so it needs none of them, but
-only where a bound program has no network (next section). The runner decides once, at the opening,
-whether the run has a model node: after the run's copy of the bindings is made and before the first
-`tree run` (`runbook/src/loom_run/model_node.rs`). The decision is a value of the run, one of three:
-`With` (a model node, or unclear), `Capped` (no model node, a confinement that leaves a bound program
-the network: the caps apply) and `Without` (no model node, no network for a bound program: no cap, no
-ledger). It is written once, as the event `model_node_decided` (`has_model_node` and `because`, the
-second line of `events.jsonl`) and as `has_model_node` in `outcome.json` (true only for `With`), and it
-is never made again, from a file a program can write or from anything else.
-
-#### Where caps of 0 are accepted
-
-A run without a model node starts with `--max-llm-calls 0`, `--cap-micro-usd 0` and no
-`--spend-ledger` only under a confinement that takes the network from bound programs. The levels that
-do are one constant, `NO_NETWORK_LEVELS` of `model_node.rs`: `substrate`. Under it the pinned Loom
-starts a bound program through the Substrate runner as a child that asks for no network: its
-environment is built by `bound_program_child` (`loom-intake-slice/src/bindings.rs`), which names no
-egress aperture, and a child with none gets `NetworkMode::None`
-(`loom-intake-slice/src/confinement.rs`, `ChildCommand::new`), no address but loopback. A level that
-the constant does not name is refused like `local` (a test holds a level name it does not hold).
-
-`--confinement local` is not in the list: the program runs unconfined on the host's network. A run
-whose bindings name no model node, under `local`, is refused by name before the opening, exit 2 (for a missing `--spend-ledger` and for a cap of 0, unlike a run with a model node, whose missing `--spend-ledger` is exit 64): no
-run directory, no ledger file, no private directory, no call of Loom, so no bound program started. The
-message names the level, says a run without a model node needs caps under it, and names
-`--cap-micro-usd`, `--max-llm-calls` and `--spend-ledger`. It needs all three: a ledger, and both caps
-above 0. With them the same run starts, as a run with caps always did:
-
-- the records state `has_model_node` false and why (`because` names the level); the ledger is opened,
-  a step reserves and books what it records, and `--max-llm-calls` and `--cap-micro-usd` stop the run
-  as they stop any run (the same exit, outcome and count of calls as a run with a model node); a run that
-  records no model call counts 0 calls and 0 micro USD. The amount booked is the same until a cap is
-  reached and can differ at the cap: the runner lowers the `--max-budget-usd` of a declared model tool to
-  what the cap has left, and a program the bindings do not declare as a model node has no such option.
-  What one step records is booked whole: the runner bounds neither the amount nor the count of what one
-  step records, and no `tree run` follows once the booked amount has reached the cap (a decision the
-  same step printed can still be answered by one `tree approve`; backlog story
-  `spend-cap-with-nothing-left-starts-nothing`). With one call of 0.1 USD per step and a cap of 150000 a
-  run with a model node books 150000 and a run without one books 200000; with 50000, 50000 and 100000
-  (`under_local_the_caps_end_a_run_without_a_model_node_as_they_end_a_run_with_one` of
-  `no_model_node_levels_and_caps.rs`). One step that records one call of 1000 USD books 1000000000
-  micro USD, and one that records three calls of 0.1 USD books 300000, at a cap of 150000, with a model
-  node and without one, each ending exit 4 after one `tree run`
-  (`under_local_what_one_step_records_is_booked_whole_and_no_tree_run_follows_the_cap` of
-  `no_model_node_refusals_and_booking.rs`);
-- the exit-13 rule of this section does not apply to it: a model call recorded in such a run is booked
-  in the ledger and counted against the caps, and it does not end the run (it ends it only at a cap).
-  The checks of the table below (the tree manifest, the copy read again, a recorded call, the model
-  decider) are the checks of a run opened without caps, that is, of `substrate`;
-- it makes no link to the login file: no declared node needs it;
-- the printed command of a handoff takes one step, as in a run without caps.
-
-What follows from this for `local`: the caps count the model calls the runner records. A program that a
-bound program starts by itself, that calls a model without the runner's adapter and writes no cost
-record, is counted by no cap, in a run with a model node too. The refusal of caps of 0 under `local`
-keeps a recorded call counted and changes nothing for a call that no record names.
+The runner decides once, at the opening, whether the run has a model node: after the run's copy of
+the bindings is made and before the first `tree run` (`runbook/src/loom_run/model_node.rs`). The
+decision is a value of the run, `With` (a model node, or unclear) or `Without`. It is written once,
+as the event `model_node_decided` (`has_model_node` and `because`, the second line of `events.jsonl`)
+and as `has_model_node` in `outcome.json` (true only for `With`), and it is never made again
+(`the_decision_is_in_the_records_once_and_the_opening_event_says_why` of `no_model_node.rs`). It
+limits nothing: no cap, no refusal and no ledger depends on it, and a model call that a run records
+is booked and counted in a run without a model node as in any other. It decides one thing: the link
+to the login file is made only for a run that has a model node.
 
 The run has a model node when any of these holds. Unclear counts: a reading that fails, or a form
-the rule does not know, is "has a model node" and the caps apply.
+the rule does not know, is "has a model node".
 
 - the bindings copy names the model tool `sdc-node`: any text of a file of the copy, at any depth,
   contains it, in an `argv` or elsewhere. That covers a program whose first word is the tool (the rule
@@ -395,132 +380,38 @@ The settings `adapter`, `models`, `efforts`, `review` and `login_file` only chan
 model node the bindings hold, so they decide nothing alone.
 
 Where the rule applies: `runbook run`, the loop of `runbook/src/loom_run/`. `runbook test` and the
-daemon's Loom runtime do not go through that loop; they decide nothing about a model node, and no cap
-or refusal of this section holds for them.
+daemon's Loom runtime do not go through that loop.
 
 The limit of the rule. The scan reads the names in the copy of the bindings. A bound program that
 starts a model program by a name no text of the copy holds (a script of `tools/` that builds the name
 from two parts, a shell word of an `argv` that builds it, a copy of the model tool under another file
-name) is not seen: the caps guard stops spend by declared model nodes; a bound program the runbook
-author wrote is trusted like any program the author runs under `--confinement local`. A model node
-that is not declared is therefore not stopped before it starts. Each sentence below is held by a case
-of `runbook/tests/loom_run/no_model_node_limit.rs`.
-
-In a run opened without caps (`substrate`), for such a program:
-
-- it is started, and it gets no login from the runner: the runner makes no link to the login file in a
-  run without a model node (the private directory of the run is not made), and passes `PATH` and
-  `LOOM_*` to a bound program, so no token and no path of the login is in its environment
-  (`an_unread_model_program_is_started_and_gets_no_login`);
-- a call it records, by writing the cost record of the model tool, ends the run after that step by
-  exit 13 (`stopped: model call`, cause `model_call_without_model_node`), with the call and its cost
-  stated in `outcome.json` (`llm_calls`, `spent_micro_usd`, never 0 for a recorded call) and nothing
-  booked in a ledger (`an_unread_model_program_that_records_a_call_ends_the_run_without_caps`);
-- a call it does not record is not seen by the runner: the run ends as any run does, with `llm_calls` 0
-  (`an_unread_model_program_that_records_nothing_is_not_seen`).
-
-In a run that has caps, under `local` or with a model node, the same program:
-
-- a call it records is booked in the ledger and counted against the caps, whatever started the program:
-  the runner reads the records, not the process; it ends the run only at a cap
-  (`under_local_with_caps_an_unread_model_program_that_records_a_call_is_booked_and_counted`, and for a
-  run with a model node `with_a_model_node_a_call_recorded_whatever_started_it_is_booked_and_counted`
-  of `no_model_node_guards.rs`);
-- a call it does not record is counted by no cap
-  (`under_local_with_caps_an_unread_model_program_that_records_nothing_is_counted_by_no_cap`).
+name) is not seen: it is started, and it gets no login from the runner, because the runner makes no
+link to the login file in a run without a model node and passes `PATH` and `LOOM_*` to a bound
+program, so no token and no path of the login is in its environment. A call such a program records
+is booked and counted like any recorded call; a call it does not record is counted by no cap. As decided: the caps guard stops spend by declared model nodes; a bound
+program the runbook author wrote is trusted like any program the author runs under `--confinement local`.
 
 The committed test steps of a ticket's repository (the Taskfile and the test command of a workspace
 that a bound program runs, as `bindings/sdc-bugfix.yaml` does) run the code of that repository with the
 same reach as any bound program under `local`: its working directory is the workspace of the run, it
 is given `PATH` and `LOOM_*`, and it can write outside the run directory as the user. The caps count
-nothing that code does by itself
-(`the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_the_caps_count_nothing_it_does_by_itself`).
+nothing that code does by itself.
 
-The scan reads a name as it is written. The tool's name in another letter case (`SDC-NODE`) is
-another program name: the scan does not count it as the model tool (on a file system that does not tell
-the cases apart it still starts the model tool, by a name the scan does not read)
-(`the_tool_name_in_another_letter_case_is_decided_by_the_scan_as_it_is_written`).
-
-What the network of such a program is depends on the confinement level. Under `--confinement local`
+What the network of a bound program is depends on the confinement level. Under `--confinement local`
 the program has the network and the host as the user running the command has them (`unconfined and
-declared insecure`, above). Under `--confinement substrate` it has none beyond loopback (the section
-"Where caps of 0 are accepted"). Measured inside a job of the build pool, where the cgroup is
-delegated, the level `substrate` runs and a bound program sees only `lo`: no route, no resolver file, no
-socket, nothing of the host's `/etc`, `/run` or `/var`, a workspace that is read-only except `target/`,
-and no way to write the run's copy of the bindings or a path outside the run. Outside a delegated
-cgroup the level is refused with exit 2 and nothing is written (the words of the first bullet of
-"What each path does"). Both are held by one case that decides by what the host gives: on a host with no
-delegated cgroup it asserts the refusal and passes
-(`real_loom_under_substrate_without_caps_a_bound_program_has_no_network` of
-`no_model_node_real_level.rs`, Loom as a library). The other cases above stand a fake `b10x-loom` in for the level, and no case
-makes a network request.
-
-Without a model node and without caps (`substrate`): a `tree run` is not counted as a call, nothing is
-reserved, no ledger is opened (a `--spend-ledger` that is named is not created), `--max-llm-calls 0`
-and `--cap-micro-usd 0` are accepted and the run does not end `stopped: llm calls`, `--spend-ledger`
-may be left out, and the records state `llm_calls` 0 and `spent_micro_usd` 0. `--max-wall-seconds`
-stays, and so do the other options. With a model node nothing changes: a cap of 0 stops the run before
-its first `tree run` when the bindings name a `--max-budget-usd` above 0 (the limit under "What the
-spend cap does not promise" says what happens otherwise), a missing `--spend-ledger` is a usage error before anything is written (exit 64 when it is the only refusal of the run, as it was when the parser required it, and another refusal that also applies gives its own exit code first, step 1 of "What it does"; each of the three options missing alone gives 64: `a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone` of `no_model_node.rs`), and an
-unreadable or invalid ledger fails the run closed.
-
-A model program in a run that was opened without a model node and without caps (a run under `substrate`) is
-refused. Under `local` a bound program can write the copy of the bindings after the opening (a copy
-rewritten to name the model tool starts it:
-`real_loom_under_local_with_caps_a_copy_rewritten_to_name_the_model_tool_starts_it_and_the_call_is_booked`
-of `no_model_node_guards.rs`); under `substrate` the copy and the manifest are out of the program's reach
-(the real-level case above). The runner rests on neither: every path by which it starts a model program,
-or reserves an amount for one, reads the decision of the opening; when it is "no model node" the run
-ends `stopped: model call` (exit 13, cause `model_call_without_model_node`, the event `cap_reached`
-with cap `model_node`, `run-stopped.json`) before the program starts:
-
-| Path | Check |
-|---|---|
-| a `tree run` (the model node of the tree) | before it, the tree manifest is checked (below) and the copy is read again with the rule above; a model node in it, or a manifest that fails the check, ends the run, the decision of the opening is not changed |
-| the printed command of a handoff (a `tree run`) | the same, before the command runs; the command runs with `--max-steps 1` (a bound the printed command may carry is replaced, a printed command that is no `tree run` is not run), so the copy is read again between two steps, as for every `tree run` of the run |
-| the answer to a decision (`tree approve`, which runs the program a person action binds) | the same, before the answer is sent to Loom |
-| a `tree status` (after each step; it starts no program but reads the manifest) | the same: a changed manifest ends the run by this cause and not by an error of Loom |
-| a model call recorded by a step | after each `tree run` the cost records of the workspace are read; a call, or a record that cannot be read, ends the run |
-| the model decider, the requester and the router | before the decider is asked for a decision |
-| the decider's answers to the questions and findings of the answers file | before the decider is asked |
-| `--conformance observe` | before the observation, which would start a model |
-
-Which bindings Loom reads is not the copy's directory but the file the tree manifest
-(`store/tree.json`, member `bindings`) names: Loom reads the manifest at every call. The check of a
-run without a model node therefore holds the manifest to what the opening wrote, and it is the same
-check at every path above:
-
-- `tree.json` is a regular file (a link, a directory or a removed file ends the run) and a JSON object;
-- its `bindings` member is an absolute path of a file that is not a link and that resolves to the
-  root file of the copy the opening made, which is itself not a link. A path that names the same file
-  by another spelling (`.` or `..` inside the path) is accepted: it is the same file, and the scan
-  runs over that file and the files below it. A relative path, a link to the root file, another file
-  of the copy, a file that does not exist: refused;
-- the other members of the manifest, the program files the bindings name, the protocol catalog, the
-  case files and the run logs of the store are read by Loom too. None of them can add a program to
-  the bindings the scan covers: the manifest's `root` and `workspace` choose a case and a directory,
-  the catalog and the case files hold protocols and state, and the programs are named by the bindings
-  files below the root file (which the scan reads) and run from `tools/` (the limit below).
-
-The closing `tree status` and `tree verify` of a run that ended this way read the store as it is: if
-Loom refuses them (a manifest that is a link, for one), the run keeps its end `stopped: model call`,
-exit 13 (the cases of the manifest in `no_model_node_guards.rs` hold it).
-
-A model node that a file adds after the opening never turns a run that was opened with one into a run
-without one: the caps of the opening hold for the whole run, and a bindings file edited in the copy
-only makes a path of a run without a model node refuse.
+declared insecure`, above). Under `--confinement substrate` it has none beyond loopback.
 
 ### The spend ledger
 
-`--spend-ledger` is one JSON file (`runbook.spend-ledger/1`) under an exclusive file lock, shared by
-every run that counts against the same cap. A call first reserves the most it may cost (the
-largest `--max-budget-usd` of the bindings, or the decider's own maximum, whichever applies, cut to
-what the cap has left), then books the real cost and releases the rest. Two runs at once therefore
-never grant more than the cap: two processes that each want 0.60 USD against a cap of 2.00 USD
-spend at most 2.00 USD between them.
+`--spend-ledger`, when named, is one JSON file (`runbook.spend-ledger/1`) under an exclusive file
+lock, shared by every run that counts against the same cap. With `--cap-micro-usd` named, a call
+first reserves the most it may cost (the largest `--max-budget-usd` of the bindings, or the
+decider's own maximum, whichever applies, cut to what the cap has left), then books the real cost
+and releases the rest. Two runs at once therefore never grant more than the cap: two processes that
+each want 0.60 USD against a cap of 2.00 USD spend at most 2.00 USD between them.
 
-The per-call budget is the `--max-budget-usd` argv value of the model tools in the copy, lowered
-before each step to the reservation. No `max_budget_micro_usd` is written: in a tree only `max_runs`
+With a cap named, the per-call budget is the `--max-budget-usd` argv value of the model tools in
+the copy, lowered before each step to the reservation. No `max_budget_micro_usd` is written: in a tree only `max_runs`
 acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes
@@ -556,7 +447,7 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
 
 `--dry` is the old launcher's `--dry`: the stub cycle with every model command printed and none run.
 It sets three things before the run opens and keeps every required option required (`--confinement`,
-`--cap-micro-usd`, `--max-llm-calls`, `--max-wall-seconds`, the paths).
+`--max-wall-seconds`, the paths); the ledger, the cap and the call limit stay optional.
 
 - Every model node of the bindings copy runs the adapter `dry` (`bindings/tools/llm-adapter-dry.sh`):
   it builds the command the real adapter would run and calls nothing. A settings file that names an
@@ -566,7 +457,7 @@ It sets three things before the run opens and keeps every required option requir
   with no decider in the settings the rule decider `approve` at autonomy `A5` plays the person, so
   the person steps of the copy are bound to `decider:approve` and every one is approved by script. A
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
-- A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
+- A dry call costs 0. A named spend ledger stays at 0 and no login file is read (`login_file` is not
   needed). A dry call still counts against `--max-llm-calls`.
 - The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
   `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
@@ -683,7 +574,7 @@ committed recording and the plan-only settings (`replay.rs` of the tests), each 
 
 ### Fail closed
 
-The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers
+The run ends as `error` (exit 1) when: a ledger that was named is unreadable or invalid, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
 a model step has no cost record, `tree status` is refused, or an event sink fails.
 
@@ -709,7 +600,7 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
   leaves 0.30 of 1.00; a stale 1.00 leaves none and the run stops before its first call) and
   `after_a_sigkill_the_next_run_on_the_same_ledger_finds_less_left_not_more` (a real SIGKILL on a
   running call, then a second run on the same ledger).
-- A cap of 0 stops a run with a model node before its first `tree run` only when the bindings copy
+- A named cap of 0 stops a run before its first `tree run` only when the bindings copy
   names a `--max-budget-usd` above 0. A step is stopped for lack of money only when the amount it
   wants is above 0, and that amount is the largest `--max-budget-usd` the copy names, or the cap
   itself when it names none (an option of 0 wants 0 as well). With a cap of 0 and no such option

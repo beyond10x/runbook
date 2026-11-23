@@ -27,9 +27,11 @@ refused, as are a date, a date and time and a time, which no setting takes. A pa
 A whole number may be written in any spelling TOML gives an integer: `0x10` is 16, `0o20` is 16,
 `0b10` is 2, `1_000` is 1000 and `+5` is 5. A float (`1.0`, `1e3`, `inf`, `nan`) is refused where a
 whole number is asked for. The three members that repeat an option, `cap_micro_usd`, `max_llm_calls`
-and `max_wall_seconds`, must equal the option: a spelling that is the option's number (`0x4C4B40` for
-5000000) is the option, any other number is refused with the member named, and no value is read as
-larger than the option, as absent or as unlimited.
+and `max_wall_seconds`, must equal the option when it is given: a spelling that is the option's number
+(`0x4C4B40` for 5000000) is the option, any other number is refused with the member named, and no
+value is read as larger than the option, as absent or as unlimited. `cap_micro_usd` and
+`max_llm_calls` are optional like their options: a member without its option names the cap (0 means
+spend nothing), and neither named means no limit.
 
 ## Example
 
@@ -96,9 +98,9 @@ effort = "low"
 | `loom_sha256` | text | none | `normalise` | when present, equal to `--loom-sha256`; refused when Loom is a library (no `--loom`) |
 | `in_process` | `true` | none | `normalise` | `true` only when Loom is a library (no `--loom`); `false` and any other value are refused |
 | `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
-| `cap_micro_usd` | whole number | none | `normalise` | when present, equal to `--cap-micro-usd` |
+| `cap_micro_usd` | whole number | none | `normalise`, `with_named_caps` | names the spend cap when `--cap-micro-usd` is not given; beside the option, equal to it |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
-| `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; text, a float and a date are refused |
+| `max_llm_calls` | whole number | none | `normalise` | names the call cap when `--max-llm-calls` is not given; beside the option, equal to it; text, a float and a date are refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |
 | `autonomy` | `A0` to `A5` | none | decider, `materialise` | the decider answers only at `A5`; with no level every decision stops the run for a person |
 | `decider` | table | none | `from_settings` | see below; no `decider` table: every decision ends the run as `stopped: decider` |

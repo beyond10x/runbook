@@ -7,7 +7,6 @@
 //! command line of). It runs ess through `bindings/tools/sdc-tool.sh ess`, which pins the release,
 //! never an `ess` of its own; the workspace is `<run>/work`, whatever the root case is called.
 
-use super::model_node::{self, ModelNode};
 use super::ports::{Conformance, Ports, Refusal};
 use super::{Args, Outcome};
 use sdc_tools::conform::{self, EssTool, Setup};
@@ -17,17 +16,6 @@ use std::path::Path;
 /// `ports::refuse_unbuilt` calls one function per port.
 pub fn conformance_not_built(_ports: &Ports) -> Result<(), Refusal> {
     Ok(())
-}
-
-/// Whether the observation may start: it starts a model, so a run that was opened without a model
-/// node does not observe (cause `model_call_without_model_node`). `--conformance observe` makes the
-/// opening decide "with" (`model_node::decide`), so this refuses only a decision that was forced.
-pub fn permitted(node: &ModelNode) -> Result<(), String> {
-    if node.caps_apply() {
-        Ok(())
-    } else {
-        Err(format!("conformance: not observed (the run was opened without a model node and the observation starts a model; cause {})", model_node::CAUSE))
-    }
 }
 
 /// Where the observation finds its parts, from the options of the run and the asset root.
@@ -47,12 +35,8 @@ fn setup_of(args: &Args, run_dir: &Path) -> Setup {
 /// Observes the product of a run that ended, when `--conformance observe` was given. The line it
 /// prints says what was written or why nothing was; a failure is the line or `oracle.json`'s
 /// `unknown` with its cause, never a change of the run's outcome.
-pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, node: &ModelNode) {
+pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome) {
     if args.ports.conformance != Conformance::Observe {
-        return;
-    }
-    if let Err(why) = permitted(node) {
-        eprintln!("runbook run: {why}");
         return;
     }
     if !matches!(outcome, Outcome::Ended { .. }) {

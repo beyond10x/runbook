@@ -6,9 +6,9 @@
 //! code `runbook list` and `runbook check` use. Without `--loom` Loom is a library of this process;
 //! `--loom` with `--loom-sha256` runs the `b10x-loom` binary as a child process. A missing required
 //! option is a usage error that names it (clap, exit 64); a refusal of the run itself is exit 2. The
-//! one option that is required only by what the bindings hold, `--spend-ledger` of a run with a model
-//! node, is exit 64 too, before anything is written; a run without a model node under `local` that
-//! lacks it is refused by name, exit 2.
+//! money options `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are optional, alone and
+//! together, whatever the run holds and under every confinement: none named is no limit, no
+//! refusal and no ledger. `--max-wall-seconds` bounds time, not money, and stays required.
 
 use super::ports::{refuse_unbuilt, Bugfix, Conformance, OnDivergence, Ports, Refusal, Replay};
 use super::{Args, Confinement, EXIT_REFUSED};
@@ -36,14 +36,14 @@ pub struct HereOptions {
     /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
     #[arg(long, value_name = "FILE", required_unless_present = "detach", conflicts_with = "detach")]
     pub settings: Option<PathBuf>,
-    /// The spend ledger shared by every run that counts against the same cap. Required when the run has a model node; a run without one opens none.
+    /// Record the spend in this ledger file, shared by every run that names it; without it none is opened.
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub spend_ledger: Option<PathBuf>,
-    /// The spend cap in micro USD over all runs that share the ledger.
-    #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
+    /// Stop the run when this many micro USD are spent (over all runs that share the ledger, or over this run alone without one); 0 spends nothing. Without it, no spend limit.
+    #[arg(long, value_name = "N", conflicts_with = "detach")]
     pub cap_micro_usd: Option<u64>,
-    /// The most model calls of this run (steps and decisions together).
-    #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
+    /// Stop the run after this many model calls (steps and decisions together); 0 allows none. Without it, no limit.
+    #[arg(long, value_name = "N", conflicts_with = "detach")]
     pub max_llm_calls: Option<u64>,
     /// The most wall seconds of this run.
     #[arg(long, value_name = "N", required_unless_present = "detach", conflicts_with = "detach")]
@@ -189,8 +189,8 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         confinement: here.confinement.ok_or_else(|| missing("--confinement"))?,
         settings: here.settings.ok_or_else(|| missing("--settings"))?,
         spend_ledger: here.spend_ledger,
-        cap_micro_usd: here.cap_micro_usd.ok_or_else(|| missing("--cap-micro-usd"))?,
-        max_llm_calls: here.max_llm_calls.ok_or_else(|| missing("--max-llm-calls"))?,
+        cap_micro_usd: here.cap_micro_usd,
+        max_llm_calls: here.max_llm_calls,
         max_wall_seconds: here.max_wall_seconds.ok_or_else(|| missing("--max-wall-seconds"))?,
         ports,
     })

@@ -1,9 +1,10 @@
 //! Forms of a bindings copy that the rule counts as a model node, which no other case holds
-//! (`docs/loom-run.md`, "A run without a model node"). Each form is run under `substrate` with every
-//! cap at 0 and no ledger, where a run without a model node starts; a form that counts is refused
-//! before anything is written, for the ledger. A fake `b10x-loom`: no model call, no network request.
+//! (`docs/loom-run.md`, "A run without a model node"). Each form is run under `substrate` with none of
+//! the three money options: it starts, and the records say it has a model node. A fake `b10x-loom`:
+//! no model call, no network request.
 
 use super::core::{code, stderr, World};
+use super::fake::tree_run_json;
 
 fn set(a: &mut [String], flag: &str, value: &str) {
     let i = a.iter().position(|x| x == flag).unwrap();
@@ -15,11 +16,12 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-/// The options of run `r1` with every cap at 0 and no ledger, under `substrate`.
-fn zero(w: &World) -> Vec<String> {
+/// The options of run `r1` with none of the three money options, under `substrate`.
+fn bare(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    without(&mut a, "--spend-ledger");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        without(&mut a, flag);
+    }
     set(&mut a, "--confinement", "substrate");
     a
 }
@@ -55,13 +57,13 @@ fn more_forms_the_scan_cannot_read_count_as_a_model_node() {
     for (what, setup) in &forms {
         let w = World::new("more-forms");
         setup(&w);
-        let o = w.run(&zero(&w));
-        if code(&o) != 64 || !stderr(&o).contains("--spend-ledger is required") {
+        w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+        let o = w.run(&bare(&w));
+        if code(&o) != 0 {
             wrong.push(format!("{what}: exit {} ({})", code(&o), stderr(&o).lines().last().unwrap_or("")));
-        }
-        if w.run_dir("r1").exists() {
-            wrong.push(format!("{what}: a run directory was made"));
+        } else if w.outcome("r1")["has_model_node"] != true {
+            wrong.push(format!("{what}: recorded as no model node"));
         }
     }
-    assert!(wrong.is_empty(), "forms that did not count as a model node:\n{}", wrong.join("\n"));
+    assert!(wrong.is_empty(), "forms that did not start or were not recorded as a model node:\n{}", wrong.join("\n"));
 }

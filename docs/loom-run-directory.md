@@ -162,7 +162,7 @@ The writer is built on the interface as it is. Four members it needs from the lo
 and until they are the cells in the table above are absent:
 
 - `RunStarted.settings` carries `loom.{sha256, confinement, cap_micro_usd}`, `max_llm_calls`,
-  `max_wall_seconds`, `case` and `root_protocol`. Without them `check --runs-dir` refuses the run.
+  `max_wall_seconds`, `case` and `root_protocol`; `loom.cap_micro_usd` and `max_llm_calls` are `null` when the run names no cap. Without them `check --runs-dir` refuses the run.
 - `protocols/*.protocol.yaml` of `--protocols` are copied into the run directory. Without them there is
   no node kind, and `looping_factor`, `first_pass_yield`, `rework_cost_usd` and the Loops table are
   not computed.

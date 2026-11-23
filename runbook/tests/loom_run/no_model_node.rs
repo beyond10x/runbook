@@ -1,13 +1,11 @@
-//! A run whose bindings hold no model node runs with caps of 0 and no spend ledger; a run with one
-//! keeps every cap as it was; a model program started in a run that was opened without one is
-//! refused (`docs/loom-run.md`, "A run without a model node"). A fake `b10x-loom`, sh programs and a
-//! stand-in for the model tool that writes a marker file: no model call, no network request.
+//! The decision "has this run a model node" is a record and a gate for the login link, and no more
+//! (`docs/loom-run.md`, "A run without a model node"): it refuses nothing and limits nothing, so a run
+//! with or without a model node takes the money options as every run does. A fake `b10x-loom`, sh
+//! programs and stand-ins for the model tool: no model call, no network request.
 
 use super::core::{code, model_call_hook, spent, stderr, World};
 use super::fake::tree_run_json;
 use serde_json::{json, Value};
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 
 const NO_MODEL: &str = "format: loom.bindings/1
 protocol: sdc@8
@@ -39,12 +37,13 @@ fn without(a: &mut Vec<String>, flag: &str) {
     a.drain(i..=i + 1);
 }
 
-/// The options of run `r1` with every cap at 0 and no ledger, under `substrate`: the one level where
-/// such a run starts (the fake `b10x-loom` takes the level as an argument and does not enforce it).
-fn zero(w: &World) -> Vec<String> {
+/// The options of run `r1` with none of the three money options, under `substrate` (the fake
+/// `b10x-loom` takes the level as an argument and does not enforce it).
+fn bare(w: &World) -> Vec<String> {
     let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    without(&mut a, "--spend-ledger");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        without(&mut a, flag);
+    }
     set(&mut a, "--confinement", "substrate");
     a
 }
@@ -67,40 +66,19 @@ fn decided(w: &World) -> Vec<Value> {
     events(w).into_iter().filter(|e| e["event"] == "model_node_decided").collect()
 }
 
-/// A stand-in for the model tool that the runner finds on its PATH (the world's root is first);
-/// it writes the marker file `marker`, so a marker after a run says a model program started.
-fn stand_in_model_tool(w: &World) -> PathBuf {
-    let marker = w.root.join("marker-model-tool");
-    let script = w.root.join("sdc-node");
-    std::fs::write(&script, format!("#!/bin/sh\necho started >> '{}'\n", marker.display())).unwrap();
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    marker
-}
-
-const REWRITE_TO_MODEL: &str = "cat > bindings/sdc.yaml <<'EOF'
-format: loom.bindings/1
-protocol: sdc@8
-actions:
-  - action: node.write
-    executor:
-      kind: program
-      argv: [sdc-node, node.write]
-EOF
-";
-
 #[test]
-fn a_run_without_a_model_node_runs_with_caps_of_0_and_no_ledger() {
-    let w = World::new("zero-caps");
+fn a_run_without_a_model_node_and_without_the_money_options_records_the_decision_once() {
+    let w = World::new("bare-no-model");
     bindings(&w, NO_MODEL);
     tree_of_two_steps(&w);
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 2);
     let outcome = w.outcome("r1");
     assert_eq!(outcome["outcome"], "ended", "{outcome}");
     assert_eq!((outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(0), Some(0)), "{outcome}");
     assert_eq!(outcome["has_model_node"], false, "{outcome}");
-    assert!(!w.ledger().exists(), "no ledger is opened");
+    assert!(!w.ledger().exists(), "no ledger is opened when none is named");
     let opening = decided(&w);
     assert_eq!(opening.len(), 1, "the decision is written once");
     assert_eq!(opening[0]["has_model_node"], false);
@@ -108,21 +86,21 @@ fn a_run_without_a_model_node_runs_with_caps_of_0_and_no_ledger() {
 }
 
 #[test]
-fn a_run_without_a_model_node_given_a_ledger_does_not_open_it() {
-    let w = World::new("zero-caps-ledger-given");
+fn a_run_without_a_model_node_given_a_ledger_opens_it_and_books_nothing() {
+    let w = World::new("no-model-ledger-given");
     bindings(&w, NO_MODEL);
     tree_of_two_steps(&w);
-    let mut a = w.args("r1", 0);
-    set(&mut a, "--max-llm-calls", "0");
-    set(&mut a, "--confinement", "substrate");
+    let mut a = bare(&w);
+    a.extend(["--spend-ledger".to_owned(), w.ledger().display().to_string()]);
     let o = w.run(&a);
     assert_eq!(code(&o), 0, "{}", stderr(&o));
-    assert!(!w.ledger().exists(), "a ledger that is named and not needed is not created");
+    assert!(w.ledger().exists(), "a ledger that is named is the run's ledger, whatever the run is");
+    assert_eq!(spent(&w), 0);
     assert_eq!(w.outcome("r1")["spent_micro_usd"], 0);
 }
 
 #[test]
-fn without_a_model_node_a_tree_run_is_not_a_call_and_the_run_does_not_end_on_the_call_cap() {
+fn a_tree_run_is_not_a_call_and_a_call_cap_counts_the_recorded_calls_only() {
     let w = World::new("not-a-call");
     bindings(&w, NO_MODEL);
     w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
@@ -134,7 +112,7 @@ fn without_a_model_node_a_tree_run_is_not_a_call_and_the_run_does_not_end_on_the
     assert_eq!(code(&o), 0, "four tree runs against a cap of 1 call: {}", stderr(&o));
     assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 4);
     assert_ne!(w.outcome("r1")["outcome"], "stopped: llm calls");
-    assert!(!w.ledger().exists(), "no ledger, so nothing was spent");
+    assert_eq!(spent(&w), 0, "nothing was recorded, so nothing was spent");
 }
 
 #[test]
@@ -142,7 +120,7 @@ fn the_wall_time_bound_stays_for_a_run_without_a_model_node() {
     let w = World::new("zero-wall");
     bindings(&w, NO_MODEL);
     tree_of_two_steps(&w);
-    let mut a = zero(&w);
+    let mut a = bare(&w);
     set(&mut a, "--max-wall-seconds", "0");
     let o = w.run(&a);
     assert_eq!(code(&o), 5, "{}", stderr(&o));
@@ -175,38 +153,7 @@ fn a_run_with_a_model_node_stops_at_a_spend_cap_of_0_before_the_first_tree_run()
 }
 
 #[test]
-fn a_run_with_a_model_node_refuses_a_missing_ledger_before_anything_starts() {
-    let w = World::new("model-no-ledger");
-    let mut a = w.args("r1", 1_000_000);
-    without(&mut a, "--spend-ledger");
-    let o = w.run(&a);
-    assert_eq!(code(&o), 64, "{}", stderr(&o));
-    let text = stderr(&o);
-    assert!(text.contains("refused") && text.contains("--spend-ledger is required") && text.contains("model node"), "{text}");
-    assert!(!w.run_dir("r1").exists(), "nothing was written");
-    assert!(w.fake.calls().is_empty(), "nothing was started");
-}
-
-/// A run with a model node keeps the exits of `main`, where the three options were required by the
-/// parser: each one missing alone is a usage error, exit 64, naming the option, with nothing written
-/// and nothing started. (A run without a model node under `local` that lacks the ledger is refused
-/// by name, exit 2: the cases of `no_model_node_local.rs`.)
-#[test]
-fn a_run_with_a_model_node_gives_exit_64_for_each_of_the_three_options_missing_alone() {
-    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
-        let w = World::new("model-missing-option");
-        let mut a = w.args("r1", 1_000_000);
-        without(&mut a, flag);
-        let o = w.run(&a);
-        assert_eq!(code(&o), 64, "{flag} missing alone: {}", stderr(&o));
-        assert!(stderr(&o).contains(flag), "{flag} missing alone: {}", stderr(&o));
-        assert!(!w.run_dir("r1").exists() && !w.ledger().exists() && !w.root.join("xdg/runbook").exists(), "{flag} missing alone: something was written");
-        assert!(w.fake.calls().is_empty(), "{flag} missing alone: a call of Loom was made");
-    }
-}
-
-#[test]
-fn the_forms_that_count_as_a_model_node_refuse_a_missing_ledger() {
+fn the_forms_that_count_as_a_model_node_are_recorded_and_start_without_a_ledger() {
     let wrap = |argv: &str| format!("format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: a.b\n    executor:\n      kind: program\n      argv: {argv}\n");
     let forms: Vec<(&str, String)> = vec![
         ("the first word names the model tool", wrap("[sdc-node, a.b]")),
@@ -220,17 +167,16 @@ fn the_forms_that_count_as_a_model_node_refuse_a_missing_ledger() {
         ("an empty argv", wrap("[]")),
         ("an executor kind the rule does not know", "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: a.b\n    executor: {kind: agent}\n".to_owned()),
         ("an action with no executor", "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: a.b\n".to_owned()),
-        ("a file that is not YAML", "format: [unclosed\n".to_owned()),
         ("actions that are not a list", "format: loom.bindings/1\nactions: {a: b}\n".to_owned()),
     ];
     for (what, text) in &forms {
         let w = World::new("forms");
         bindings(&w, text);
-        let mut a = w.args("r1", 0);
-        without(&mut a, "--spend-ledger");
-        let o = w.run(&a);
-        assert_eq!(code(&o), 64, "{what}: counts as a model node, so the missing ledger is refused: {}", stderr(&o));
-        assert!(stderr(&o).contains("--spend-ledger is required"), "{what}: {}", stderr(&o));
+        tree_of_two_steps(&w);
+        let o = w.run(&bare(&w));
+        assert_eq!(code(&o), 0, "{what}: counts as a model node and starts without a ledger: {}", stderr(&o));
+        assert_eq!(w.outcome("r1")["has_model_node"], true, "{what}");
+        assert!(!w.ledger().exists(), "{what}: no ledger was named, none was opened");
     }
     // a model node named in another bindings file, and in the answers file
     for (what, file, text) in [
@@ -239,23 +185,23 @@ fn the_forms_that_count_as_a_model_node_refuse_a_missing_ledger() {
     ] {
         let w = World::new("forms-other");
         bindings(&w, NO_MODEL);
+        tree_of_two_steps(&w);
         std::fs::create_dir_all(w.root.join("bindings/tools")).unwrap();
         std::fs::write(w.root.join(file), text).unwrap();
-        let mut a = w.args("r1", 0);
-        without(&mut a, "--spend-ledger");
-        let o = w.run(&a);
-        assert_eq!(code(&o), 64, "{what}: {}", stderr(&o));
+        let o = w.run(&bare(&w));
+        assert_eq!(code(&o), 0, "{what}: {}", stderr(&o));
+        assert_eq!(w.outcome("r1")["has_model_node"], true, "{what}");
     }
 }
 
 #[test]
-fn the_forms_that_do_not_count_run_without_a_ledger() {
+fn the_forms_that_do_not_count_are_recorded_as_no_model_node() {
     let programs = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: a.b\n    executor:\n      kind: program\n      argv: [tools/sdc-tool.sh, check-idea, --note, node]\n  - action: c.d\n    executor: {kind: program, argv: [sh, -c, \"echo hello\"]}\n  - action: e.f\n    executor: {kind: person, principal: person:owner}\n";
     for text in [NO_MODEL, programs, "format: loom.bindings/1\n"] {
         let w = World::new("not-forms");
         bindings(&w, text);
         tree_of_two_steps(&w);
-        let o = w.run(&zero(&w));
+        let o = w.run(&bare(&w));
         assert_eq!(code(&o), 0, "{text}: {}", stderr(&o));
         assert_eq!(w.outcome("r1")["has_model_node"], false, "{text}");
     }
@@ -266,36 +212,42 @@ fn a_decider_that_calls_a_model_counts_as_a_model_node() {
     let w = World::new("model-decider");
     bindings(&w, NO_MODEL);
     w.settings(&json!({"autonomy": "A5", "decider": {"kind": "model", "model": "m", "adapter": "claude-cli", "without_claims": true}}));
-    let mut a = w.args("r1", 0);
-    without(&mut a, "--spend-ledger");
-    let o = w.run(&a);
-    assert_eq!(code(&o), 64, "{}", stderr(&o));
-    assert!(stderr(&o).contains("--spend-ledger is required") && stderr(&o).contains("decider"), "{}", stderr(&o));
+    tree_of_two_steps(&w);
+    let o = w.run(&bare(&w));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(w.outcome("r1")["has_model_node"], true);
     // a decider of a rule calls none
+    let w = World::new("rule-decider");
+    bindings(&w, NO_MODEL);
     w.settings(&json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
     tree_of_two_steps(&w);
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(w.outcome("r1")["has_model_node"], false);
     // a scripted decider that reserves an amount does
     let w = World::new("scripted-decider");
     bindings(&w, NO_MODEL);
     w.settings(&json!({"decider": {"kind": "scripted", "max_call_micro_usd": 5, "answers": []}}));
-    let mut a = w.args("r1", 0);
-    without(&mut a, "--spend-ledger");
-    assert_eq!(code(&w.run(&a)), 64);
+    tree_of_two_steps(&w);
+    let o = w.run(&bare(&w));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(w.outcome("r1")["has_model_node"], true);
 }
 
 #[test]
-fn a_run_that_re_drives_a_recording_or_observes_conformance_counts_as_having_a_model_node() {
-    let w = World::new("conformance-flag");
+fn a_model_call_recorded_in_a_run_without_a_model_node_is_booked_and_counted_like_any() {
+    let w = World::new("recorded-call-booked");
     bindings(&w, NO_MODEL);
-    let mut a = w.args("r1", 0);
-    without(&mut a, "--spend-ledger");
-    a.extend(["--conformance".to_owned(), "observe".to_owned()]);
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.hook("tree_run", "1", &model_call_hook("0.1"));
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    let mut a = w.args("r1", 1_000_000);
+    set(&mut a, "--confinement", "substrate");
     let o = w.run(&a);
-    assert_eq!(code(&o), 64, "{}", stderr(&o));
-    assert!(stderr(&o).contains("--spend-ledger is required") && stderr(&o).contains("conformance"), "{}", stderr(&o));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let outcome = w.outcome("r1");
+    assert_eq!((outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(1), Some(100_000)), "{outcome}");
+    assert_eq!(spent(&w), 100_000);
 }
 
 #[test]
@@ -307,222 +259,6 @@ fn a_run_with_a_model_node_and_an_unreadable_ledger_fails_closed_before_the_firs
     assert!(w.outcome("r1")["reason"].as_str().unwrap().contains("spend ledger"));
     assert!(w.fake.calls_of(&["tree", "run"]).is_empty());
 }
-
-// --- a model program in a run opened without a model node
-
-#[test]
-fn a_binding_rewritten_after_the_opening_to_name_the_model_tool_is_refused_before_it_starts() {
-    let w = World::new("rewrite-tree-run");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    // a second answer that ends the run: with the refusal removed the test fails by its
-    // assertions in a second, and does not drive the fake for ever
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_run", "1", REWRITE_TO_MODEL);
-    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the second tree run was not started");
-    let outcome = w.outcome("r1");
-    assert_eq!(outcome["outcome"], "stopped: model call", "{outcome}");
-    assert_eq!(outcome["cause"], "model_call_without_model_node", "{outcome}");
-    assert_eq!((outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64()), (Some(0), Some(0)));
-    assert_eq!(outcome["has_model_node"], false, "the decision of the opening is not changed");
-    assert!(!w.ledger().exists());
-    let stop: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
-    assert_eq!(stop["cause"], "model_call_without_model_node", "{stop}");
-    assert!(std::fs::read_to_string(w.run_dir("r1").join("events.jsonl")).unwrap().contains("\"cap\":\"model_node\""));
-}
-
-#[test]
-fn a_binding_rewritten_to_something_unreadable_is_refused_too() {
-    let w = World::new("rewrite-unreadable");
-    bindings(&w, NO_MODEL);
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_run", "1", "echo 'format: [unclosed' > bindings/sdc.yaml\n");
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1);
-}
-
-/// The check before each call stands by itself: the copy is rewritten by the `tree status` that
-/// follows a step (a process left behind, say), after the check that follows the step has passed.
-/// Only the check before the next `tree run`, the handoff command or the approval can refuse then.
-#[test]
-fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_next_tree_run() {
-    let w = World::new("rewrite-after-status-run");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
-    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the second tree run was not started");
-    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
-}
-
-#[test]
-fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_handoff_command() {
-    let w = World::new("rewrite-after-status-handoff");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    let handoff = "{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[\"b10x-loom\",\"tree\",\"run\",\"--store\",\"@STORE@\",\"--confinement\",\"local\"],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}";
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
-    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the printed command was not run");
-    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
-}
-
-/// The printed command of a handoff is a `tree run` with no step bound of its own (Loom prints it
-/// so). In a run without a model node it takes one step, like every other `tree run` of the run, so
-/// the runner reads the copy again between two steps.
-#[test]
-fn the_printed_command_of_a_handoff_takes_one_step_in_a_run_without_a_model_node() {
-    for (n, printed) in [
-        r#""b10x-loom","tree","run","--store","@STORE@","--confinement","substrate""#,
-        r#""b10x-loom","tree","run","--store","@STORE@","--confinement","substrate","--max-steps","50""#,
-        r#""b10x-loom","tree","run","--max-steps","9","--store","@STORE@","--confinement","substrate""#,
-    ]
-    .iter()
-    .enumerate()
-    {
-        let w = World::new(&format!("handoff-one-step-{n}"));
-        bindings(&w, NO_MODEL);
-        let handoff = format!("{{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[{printed}],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}}");
-        w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
-        w.fake.answer("tree_run", "2", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-        w.fake.answer("tree_run", "3", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-        w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-        let o = w.run(&zero(&w));
-        assert_eq!(code(&o), 0, "{n}: {}", stderr(&o));
-        let runs = w.fake.calls_of(&["tree", "run"]);
-        assert!(runs.len() >= 2, "{n}: the printed command was not run: {:?}", runs.iter().map(|c| c.argv.clone()).collect::<Vec<_>>());
-        let argv = &runs[1].argv;
-        assert_eq!(argv.iter().filter(|a| *a == "--max-steps").count(), 1, "{n}: {argv:?}");
-        let at = argv.iter().position(|a| a == "--max-steps").unwrap();
-        assert_eq!(argv[at + 1], "1", "{n}: {argv:?}");
-        let store = w.run_dir("r1/store").display().to_string();
-        let at = argv.iter().position(|a| a == "--store").unwrap();
-        assert_eq!(argv[at + 1], store, "{n}: the rest of the printed command is as printed: {argv:?}");
-    }
-}
-
-#[test]
-fn a_printed_command_of_a_handoff_that_is_no_tree_run_is_not_run_in_a_run_without_a_model_node() {
-    let w = World::new("handoff-not-a-tree-run");
-    bindings(&w, NO_MODEL);
-    let handoff = "{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[\"b10x-loom\",\"tree\",\"frobnicate\",\"--store\",\"@STORE@\"],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}";
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
-    w.fake.answer("tree_frobnicate", "default", "{}\n", 0);
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 1, "{}", stderr(&o));
-    assert!(w.fake.calls_of(&["tree", "frobnicate"]).is_empty(), "the command was run");
-    assert!(w.outcome("r1")["reason"].as_str().unwrap().contains("tree run"), "{}", w.outcome("r1"));
-}
-
-#[test]
-fn a_copy_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() {
-    let w = World::new("rewrite-after-status-approve");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    let approval = super::fake::decision_json("scope.approve", "ApproveAction", "person:owner");
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{approval}]")), 3);
-    w.fake.hook("tree_status", "1", REWRITE_TO_MODEL);
-    w.fake.hook("tree_approve", "default", "sdc-node node.write\n");
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was not sent to Loom");
-    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
-}
-
-/// The tree manifest, not the copy, is rewritten while Loom answers the `tree status` of a step (the
-/// runner's check of the status ran before it); the next path is the approval. It is refused for the
-/// manifest, and the approval is not sent to Loom: the manifest check holds before an approval too.
-#[test]
-fn a_manifest_rewritten_after_the_status_of_a_step_is_refused_before_the_approval() {
-    let w = World::new("manifest-after-status-approve");
-    bindings(&w, NO_MODEL);
-    let approval = super::fake::decision_json("scope.approve", "ApproveAction", "person:owner");
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{approval}]")), 3);
-    w.fake.hook("tree_status", "1", "printf '{\"bindings\":\"%s/bindings/none.yaml\"}' \"$PWD\" > \"$store/tree.json\"\n");
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    let outcome = w.outcome("r1");
-    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was sent to Loom: exit {}, {outcome}", code(&o));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    let reason = outcome["reason"].as_str().unwrap_or("");
-    assert!(reason.contains("tree manifest") && reason.contains("tree approve"), "{outcome}");
-}
-
-#[test]
-fn a_handoff_command_is_refused_when_the_copy_was_rewritten_to_name_the_model_tool() {
-    let w = World::new("rewrite-handoff");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    let handoff = "{\"action\":\"amend.upstream\",\"case\":\"root\",\"command\":[\"b10x-loom\",\"tree\",\"run\",\"--store\",\"@STORE@\",\"--confinement\",\"local\"],\"decides\":\"Add a second stop, then run again.\",\"kind\":\"Handoff\"}";
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{handoff}]")), 3);
-    w.fake.hook("tree_run", "1", REWRITE_TO_MODEL);
-    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
-    w.fake.hook("tree_run", "2", "sdc-node node.write\n");
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "the printed command was not run");
-    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
-}
-
-#[test]
-fn an_approval_that_would_run_a_bound_program_is_refused_when_the_copy_was_rewritten_to_name_the_model_tool() {
-    // `tree approve` runs the program a person action binds: it is a path that can start a model program
-    let w = World::new("rewrite-approve");
-    let marker = stand_in_model_tool(&w);
-    bindings(&w, NO_MODEL);
-    let approval = super::fake::decision_json("scope.approve", "ApproveAction", "person:owner");
-    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 2, None, &format!("[{approval}]")), 3);
-    w.fake.hook("tree_run", "1", REWRITE_TO_MODEL);
-    w.fake.hook("tree_approve", "default", "sdc-node node.write\n");
-    w.settings(&json!({"decider": {"kind": "scripted", "answers": [{"approve": true, "cost_micro_usd": 0}]}}));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert!(!marker.exists(), "the model program started");
-    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "the approval was not sent to Loom");
-    assert_eq!(w.outcome("r1")["cause"], "model_call_without_model_node");
-}
-
-#[test]
-fn a_model_call_recorded_in_a_run_without_a_model_node_ends_it_naming_the_cause() {
-    // The adapter of a model call writes its record into the workspace; the runner reads it after
-    // every tree run, so a call that no check could stop is still named and ends the run.
-    let w = World::new("recorded-call");
-    bindings(&w, NO_MODEL);
-    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.hook("tree_run", "default", &model_call_hook("0.1"));
-    let o = w.run(&zero(&w));
-    assert_eq!(code(&o), 13, "{}", stderr(&o));
-    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1);
-    let outcome = w.outcome("r1");
-    assert_eq!(outcome["cause"], "model_call_without_model_node", "{outcome}");
-    assert!(outcome["reason"].as_str().unwrap().contains("recorded"), "{outcome}");
-    assert!(!w.ledger().exists());
-}
-
-// --- the run copy
 
 #[test]
 fn a_bindings_file_edited_in_the_run_copy_never_lowers_the_caps_of_a_run_opened_with_a_model_node() {
@@ -546,7 +282,7 @@ fn the_decision_is_in_the_records_once_and_the_opening_event_says_why() {
     let w = World::new("record-why");
     bindings(&w, NO_MODEL);
     tree_of_two_steps(&w);
-    let o = w.run(&zero(&w));
+    let o = w.run(&bare(&w));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     let because = decided(&w)[0]["because"].as_str().unwrap().to_owned();
     assert!(because.contains("no model node"), "{because}");
