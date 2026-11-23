@@ -57,6 +57,14 @@ pub enum Event {
     NoModelCall { call: String, exit: i64 },
     /// A cap stopped the run before the next call.
     CapReached { cap: Cap, detail: String },
+    /// The conformance observation of a run that closed was not started for the spend cap (a
+    /// fixed `reason`: no path and no byte of a file). Written after `Ended`.
+    ObservationSkipped { reason: &'static str },
+    /// The conformance observation of a run that closed was booked under a named cap: `reserved`
+    /// is what it held, `record` the cost its own record names (none: not known), `booked` what
+    /// was booked (never more than `reserved`), `spent_micro_usd` the run's total with it.
+    /// Written after `Ended`.
+    ObservationBooked { reserved: u64, record: Option<u64>, booked: u64, spent_micro_usd: u64 },
     /// `tree status` and `tree verify` were stored (exit codes of both).
     TreeStored { status_exit: i32, verify_exit: i32 },
     /// The run ended: `outcome` is the outcome label, `exit_code` the runner's exit code.

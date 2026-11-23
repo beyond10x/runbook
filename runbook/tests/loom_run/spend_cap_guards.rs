@@ -804,3 +804,83 @@ fn what_an_observation_booked_is_in_the_outcome_of_a_run_without_a_ledger() {
     let outcome = w.outcome("r1");
     assert_eq!(outcome["spent_micro_usd"].as_u64(), Some(200_000 + 1_500_000), "the observation cost {} USD (oracle.json) and outcome.json says {}", doc["conformance"]["table_cost_usd"], outcome["spent_micro_usd"]);
 }
+
+fn event_lines(w: &World, name: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(w.run_dir("r1").join("events.jsonl")).unwrap();
+    text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|e| e["event"] == name).collect()
+}
+
+/// An adapter that keeps the budget it is given: each session costs what its request allows, and the budgets are
+/// written to `limits.txt`.
+fn budget_keeping_adapter(w: &World) -> String {
+    let body = r#"limit=$(sed -n 's/.*"max_budget_usd": *\([0-9.]*\).*/\1/p' "$1")
+rec=$(sed -n 's/.*"record_dir": *"\([^"]*\)".*/\1/p' "$1")
+echo "$limit" >> LIMITS
+echo "{\"cost_usd\":$limit}" > "$rec/response.json"
+exit 1"#;
+    body.replace("LIMITS", &format!("{}/limits.txt", w.root.display()))
+}
+
+fn limits_given(w: &World) -> Vec<f64> {
+    std::fs::read_to_string(w.root.join("limits.txt")).unwrap_or_default().lines().map(|l| l.parse().unwrap()).collect()
+}
+
+/// The model sessions of the observation are given the reservation as their one budget: the first session's limit is
+/// what the cap has left (not the 2 USD of its own), and when it costs that, no second session starts.
+#[test]
+fn the_sessions_of_an_observation_are_given_the_reservation_as_their_one_budget() {
+    let w = observed_world_with_ess("obs-budget", "");
+    let o = observe_with_adapter(&w, Some(1_000_000), &budget_keeping_adapter(&w), &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(limits_given(&w), vec![0.8], "the sessions were given other budgets than what the cap had left (1 USD, the step booked 0.2): {}", stderr(&o));
+    assert_eq!(spent(&w), 1_000_000);
+    let doc = oracle(&w);
+    assert_eq!(doc["conformance"]["table_cost_usd"].as_f64(), Some(0.8), "{doc}");
+    assert_eq!(doc["conformance"]["cost_unknown_sessions"].as_u64(), Some(0), "{doc}");
+}
+
+/// With no cap named nothing bounds the sessions but their own limit: the observation starts as it did.
+#[test]
+fn with_no_cap_named_the_sessions_of_the_observation_keep_their_own_limit() {
+    let w = observed_world_with_ess("obs-budget-nocap", "");
+    let o = observe_with_adapter(&w, None, &budget_keeping_adapter(&w), &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(limits_given(&w), vec![2.0, 2.0, 2.0], "{}", stderr(&o));
+    assert!(event_lines(&w, "conformance_booked").is_empty(), "an observation without a cap booked something");
+}
+
+/// A program that spends past the budget it was given is outside the bound, and the ledger still never holds more than
+/// the cap because of the observation: its record names 1 USD, 0.8 USD were reserved, 0.8 USD are booked, and the line,
+/// the event and `outcome.json` say both amounts.
+#[test]
+fn a_record_that_names_more_than_the_reservation_is_booked_at_the_reservation_and_says_so() {
+    let w = observed_world_with_ess("obs-clamp", "");
+    let o = observe_with_adapter(&w, Some(1_000_000), "echo '{\"cost_usd\":0.5}'\nexit 1", &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert!(stderr(&o).contains("the record names 1000000 micro USD, more than the 800000 reserved: 800000 booked"), "{}", stderr(&o));
+    assert_eq!(spent(&w), 1_000_000);
+    let booked = event_lines(&w, "conformance_booked");
+    assert_eq!(booked.len(), 1, "{booked:?}");
+    assert_eq!(
+        (booked[0]["reserved_micro_usd"].as_u64(), booked[0]["record_micro_usd"].as_u64(), booked[0]["booked_micro_usd"].as_u64(), booked[0]["spent_micro_usd"].as_u64()),
+        (Some(800_000), Some(1_000_000), Some(800_000), Some(1_000_000)),
+        "{}",
+        booked[0]
+    );
+    let outcome = w.outcome("r1");
+    assert_eq!((outcome["spent_micro_usd"].as_u64(), outcome["observation_micro_usd"].as_u64()), (Some(1_000_000), Some(800_000)), "{outcome}");
+}
+
+/// An observation that is not started for the spend cap is one line of the event log with a fixed reason: no path, no
+/// byte of a file, and no booking line.
+#[test]
+fn a_skipped_observation_is_one_line_of_the_event_log_with_a_fixed_reason() {
+    let w = observed_world("capg-conformance-skipped", "");
+    let o = observe(&w, Some(200_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let skipped = event_lines(&w, "conformance_not_observed");
+    assert_eq!(skipped.len(), 1, "{skipped:?}");
+    assert_eq!(skipped[0]["reason"], "spend cap: nothing left", "{}", skipped[0]);
+    assert_eq!(skipped[0].as_object().map(|m| m.len()), Some(3), "the line names more than its time, its name and its reason: {}", skipped[0]);
+    assert!(event_lines(&w, "conformance_booked").is_empty());
+}

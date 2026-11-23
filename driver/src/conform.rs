@@ -64,6 +64,11 @@ pub struct Setup {
     /// The program that answers the product's requests for ess (`sdc-conform-adapter`); none:
     /// `SDC_CONFORM_ADAPTER_BIN`, else beside the running program.
     pub adapter: Option<PathBuf>,
+    /// The most the node sessions of the whole observation may spend, USD; none: no bound but each
+    /// session's own (`SDC_CONFORMANCE_MAX_BUDGET_USD`, default 2). With a bound no session starts
+    /// once what the sessions before it cost has reached it (a session that left no cost record
+    /// counts at its own limit), and no session's own limit is larger than what is left of it.
+    pub budget_usd: Option<f64>,
 }
 
 /// An ess that is run through a tool program: `<tool> ess <arguments>` (`bindings/tools/sdc-tool.sh`,
@@ -327,6 +332,15 @@ struct Node {
     /// The delivered tree, whose README or manifest the start command is checked against.
     tree: PathBuf,
     setup: Setup,
+    /// What the node sessions of this observation cost so far, USD (a session without a cost
+    /// record at its own limit), and how many of them left no cost record.
+    meter: Meter,
+}
+
+#[derive(Default)]
+struct Meter {
+    spent: std::cell::Cell<f64>,
+    unknown: std::cell::Cell<u32>,
 }
 
 fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (&'static str, String)> {
@@ -355,7 +369,7 @@ fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) ->
     prep().map_err(|e| ("table_missing", e))?;
     let rec = json!({"source": "conformance.table", "adapter": adapter_name, "model": model, "model_source": model_source,
         "effort": effort, "effort_source": effort_source});
-    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone() })
+    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone(), meter: Meter::default() })
 }
 
 /// One slot's table from the node: at most `tries` fresh sessions, each reply checked by the
@@ -367,6 +381,17 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
     let mut feedback = first;
     let mut invalid = vec![];
     for _ in 0..tries {
+        let own = env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()).unwrap_or(2.0);
+        let session_usd = match node.setup.budget_usd {
+            Some(budget) => {
+                let left = budget - node.meter.spent.get();
+                if left < 1e-6 {
+                    return Err(("table_missing", "no session was started: what the observation may spend is used".to_string(), invalid));
+                }
+                own.min(left)
+            }
+            None => own,
+        };
         *attempts += 1;
         let attempt = *attempts;
         let rec = dir.join("node").join(format!("{attempt:03}"));
@@ -376,12 +401,21 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
             "node": "conformance.table", "slot": slot, "attempt": attempt, "json_schema": node.schema,
             "operations": ["dir.list", "file.read", "search"],
             "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40),
-            "max_budget_usd": env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()).unwrap_or(2.0)});
+            "max_budget_usd": session_usd});
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let limit = Duration::from_secs(env("SDC_CONFORMANCE_NODE_TIMEOUT").and_then(|x| x.parse().ok()).unwrap_or(1800));
         let (code, tail) = run_bounded(Command::new(&node.adapter).arg(rec.join("request.json")), limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
         let resp = read_json(&rec.join("response.json")).unwrap_or(J::Null);
-        *cost += resp["cost_usd"].as_f64().unwrap_or(0.0);
+        match resp["cost_usd"].as_f64() {
+            Some(c) => {
+                *cost += c;
+                node.meter.spent.set(node.meter.spent.get() + c.max(0.0));
+            }
+            None => {
+                node.meter.unknown.set(node.meter.unknown.get() + 1);
+                node.meter.spent.set(node.meter.spent.get() + session_usd);
+            }
+        }
         let reply = fs::read_to_string(rec.join("structured-output.json")).ok();
         invalid = match reply.as_deref().map(serde_json::from_str::<J>) {
             None => vec![format!("no reply (adapter exit {code:?}: {tail})")],
@@ -894,6 +928,7 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
     let total_cost: f64 = recs.iter().filter_map(|r| r["cost_usd"].as_f64()).sum();
     o.rec["node_sessions"] = json!(recs.iter().filter_map(|r| r["attempts"].as_u64()).sum::<u64>());
     o.rec["table_cost_usd"] = json!((total_cost * 1e6).round() / 1e6);
+    o.rec["cost_unknown_sessions"] = json!(node.as_ref().map_or(0, |n| n.meter.unknown.get()));
     let detail_doc = json!({"format": "sdc.conformance-detail/1", "runs": details});
     fs::write(run.join("conformance-detail.json"), serde_json::to_string_pretty(&detail_doc).unwrap_or_default() + "\n").map_err(|e| e.to_string())?;
     conclude(o, &cx, slots, recs, counted, uncounted)
