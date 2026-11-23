@@ -1288,3 +1288,59 @@ pub fn cli() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bounded(name: &str, script: &str, limit: Duration) -> (Option<i32>, String, Duration) {
+        let dir = std::env::temp_dir().join(format!("sdc-conform-unit-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let started = Instant::now();
+        let (code, tail) = run_bounded(Command::new("sh").arg("-c").arg(script), limit, None, &dir.join("stderr"));
+        let took = started.elapsed();
+        let _ = fs::remove_dir_all(&dir);
+        (code, tail, took)
+    }
+
+    /// The digest of a file is the digest of its bytes, whatever its length relative to the read
+    /// buffer, and a file that cannot be read is an error that names it.
+    #[test]
+    fn the_digest_of_a_file_is_the_digest_of_its_bytes() {
+        let dir = std::env::temp_dir().join(format!("sdc-conform-unit-{}-digest", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for len in [0usize, 1, 65_535, 65_536, 65_537, 3 * (1 << 20) + 17] {
+            let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
+            let file = dir.join(format!("f{len}"));
+            fs::write(&file, &bytes).unwrap();
+            assert_eq!(sha256_file(&file).unwrap(), sha256_bytes(&bytes), "{len} bytes");
+        }
+        let missing = dir.join("missing");
+        let e = sha256_file(&missing).unwrap_err();
+        assert!(e.contains(&missing.display().to_string()), "{e}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A child that runs past its bound is killed at the bound and reported so.
+    #[test]
+    fn a_child_over_its_bound_is_ended_at_the_bound() {
+        let (code, tail, took) = bounded("over", "exec sleep 30", Duration::from_secs(1));
+        assert_eq!(code, None);
+        assert_eq!(tail, "killed after 1 s");
+        assert!(took >= Duration::from_secs(1) && took < Duration::from_secs(10), "{took:?}");
+    }
+
+    /// A child that ends is answered when it ended, with its exit code and the tail of its stderr,
+    /// not at the next tick of a poll; forty such children one after another take far less than
+    /// the 4 s that a poll of 100 ms would add.
+    #[test]
+    fn a_child_that_ends_is_answered_when_it_ended() {
+        let started = Instant::now();
+        for i in 0..40 {
+            let (code, tail, _) = bounded("quick", "echo said >&2; exit 3", Duration::from_secs(30));
+            assert_eq!((code, tail.as_str()), (Some(3), "said"), "child {i}");
+        }
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(3), "40 children that end at once took {took:?}");
+    }
+}
