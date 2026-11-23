@@ -1355,3 +1355,50 @@ fn a_cap_written_in_a_settings_block_that_is_no_mapping_is_refused_by_name() {
     let bad = caps_the_program_cannot_read(&[("list", "list", "`settings`"), ("string", "string", "`settings`"), ("free list", "free list", "`settings`")]);
     assert!(bad.is_empty(), "named and dropped: {bad:#?}");
 }
+
+/// A variant's `settings` block that is null or an empty mapping is no refusal (committed records have
+/// such blocks): the record is accepted. The refusal of a block that is no mapping lets both pass.
+#[test]
+fn a_settings_block_that_is_null_or_empty_is_accepted() {
+    let d = scratch("block-null-or-empty");
+    let mut bad = vec![];
+    for (tag, settings) in [("settings null", "~"), ("settings empty", "{}")] {
+        let text = free_text("", "null").replace("settings: {}", &format!("settings: {settings}"));
+        write_record(&d, &text);
+        let (code, said) = experiment(&["check", "lx"], &d);
+        if code != 0 {
+            bad.push(format!("{tag}: check {code}: {}", said.lines().next().unwrap_or("")));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// A `fixed` block that is no mapping holds settings the program cannot read: a cap written in it would
+/// be dropped when the block reads as empty. It is refused by the member's name at `check` and at
+/// `run --print`.
+#[test]
+fn a_fixed_block_that_is_no_mapping_is_refused_by_name() {
+    let d = scratch("fixed-no-mapping");
+    let builds = fake_build(&d, 11, true);
+    let run_args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"];
+    let own = "settings: {free.model: claude-sonnet-5-5, free.effort: high, free.adapter: claude-cli, free.max_wall_s: 600, free.max_turns: 40}";
+    let mut bad = vec![];
+    for (tag, fixed) in [("list", "[{free.max_usd: 5}]"), ("string", "'free.max_usd: 5'"), ("number", "5")] {
+        let text = |c: &str| {
+            let t = free_text("", c);
+            let (head, rest) = t.split_once("fixed:\n").unwrap();
+            let (_, tail) = rest.split_once("variants:\n").unwrap();
+            format!("{head}fixed: {fixed}\nvariants:\n{}", tail.replace("settings: {}", own))
+        };
+        write_record(&d, &text("null"));
+        let (code, said) = experiment(&["check", "lx"], &d);
+        write_record(&d, &text(COMMIT));
+        let (rc, out) = experiment(&run_args, &d);
+        let carried = word_after(&out, "--max-usd").and_then(|g| g.parse::<f64>().ok());
+        let refused_by_name = code != 0 && said.contains("`fixed`") && rc != 0;
+        if !refused_by_name {
+            bad.push(format!("{tag}: check {code} ({}), run --print {rc}, --max-usd reads {carried:?}, named 5", said.lines().next().unwrap_or("")));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
