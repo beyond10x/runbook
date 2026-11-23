@@ -81,9 +81,11 @@ check_budget() {
 # one line for the first defect of an action. `rework_limit` is read as Loom reads it, from the
 # text of the scalar and not from a number: only an integer from 1 to 9223372036854775807 (written
 # in decimal, 0x, 0o or 0b) is one, so 2.0, 1e3, .inf, a number past that and a quoted 2 are
-# refused, each as Loom shows it (`is 2`, `is 1000`, `is inf`). `check-bindings.sh --budget <root>` runs this check
+# refused, each as Loom shows it (`is 2`, `is 1000`, `is inf`). An alias is expanded first, as Loom
+# expands it, and a mapping is an object whatever keys it holds: the text of each scalar travels in
+# a list beside the actions, never as a member of a mapping of the file. `check-bindings.sh --budget <root>` runs this check
 # alone over <root>/bindings/*.yaml (driver/tests/check_bindings_budget.rs).
-budget_findings=$(cd "$sdc" && yq -o=json -I=0 '(.actions[] | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= {"$scalar": {"tag": tag, "text": ("" + .)}} | {"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
+budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "limits": [.actions[] | ((select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map") | {"tag": tag, "text": ("" + .)}) // null)], "actions": (((.actions[] | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= null) | .actions)}' bindings/*.yaml | jq -rn '
   def shown: if . == null then "null" elif type == "string" then tojson elif type == "array" then "a list" elif type == "object" then "an object" else tostring end;
   def intform: test("^\\+?(0|[1-9][0-9]*)$") or test("^\\+?(0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+)$");
   def inrange: sub("^\\+"; "") as $t
@@ -100,8 +102,8 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 '(.actions[] | select(.budget | t
   def floatshown: sub("^\\+"; "") as $t
     | if $t | test("^\\.(inf|Inf|INF)$") then "inf" elif $t | test("^-\\.(inf|Inf|INF)$") then "-inf" elif $t | test("^\\.(nan|NaN|NAN)$") then "NaN"
       else (($t | tonumber? // null) | if . == null then $t else ((. + 0) | tostring | plain) end) end;
-  def whole: type == "object" and has("$scalar") and (.["$scalar"] | .tag == "!!int" and (.text | intform and inrange));
-  def limitshown: if type == "object" and has("$scalar") then .["$scalar"] as $s
+  def whole($lim): $lim != null and $lim.tag == "!!int" and ($lim.text | intform and inrange);
+  def limitshown($lim): if $lim != null then $lim as $s
       | if $s.tag == "!!int" and ($s.text | test("^-(0|[1-9][0-9]*)$")) then ($s.text | if . == "-0" then "0" else . end)
         elif $s.tag == "!!int" and ($s.text | intform) then ($s.text | sub("^\\+"; "") | if test("^[0-9]+$") then . else $s.text end)
         elif $s.tag == "!!float" and ($s.text | test("^\\+?[0-9]+$")) then ($s.text | sub("^\\+"; ""))
@@ -126,8 +128,8 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 '(.actions[] | select(.budget | t
         ] | .[0] // empty
       end;
   [inputs] | .[]
-  | .f as $f | .actions[]?
-  | . as $a
+  | .f as $f | .limits as $limits | ([.actions[]?] | to_entries[])
+  | .key as $i | .value as $a | $limits[$i] as $lim
   | (($a.budget // {}) | if type == "object" then . else {} end) as $b
   | (($a.retry_when // {}) | if type == "object" then to_entries else [] end
       | map({key, value: (if (.value | type) == "array" then .value else [] end)})) as $rw
@@ -135,8 +137,8 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 '(.actions[] | select(.budget | t
   | [
       (if ($b | has("runs_per")) and $b.runs_per != "case" and $b.runs_per != "rejection"
        then "budget.runs_per is \($b.runs_per | shown); it is case or rejection" else empty end),
-      (if ($b | has("rework_limit")) and ($b.rework_limit | whole | not)
-       then "budget.rework_limit is \($b.rework_limit | limitshown); it is a whole number from 1" else empty end),
+      (if ($b | has("rework_limit")) and (whole($lim) | not)
+       then "budget.rework_limit is \($b.rework_limit | limitshown($lim)); it is a whole number from 1" else empty end),
       (if $b | has("rework_on") then $b.rework_on | rework_on else empty end),
       (if $b.runs_per != "rejection" then
          (if $b | has("rework_limit") then "budget.rework_limit is read only under runs_per: rejection" else empty end),

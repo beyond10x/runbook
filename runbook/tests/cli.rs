@@ -532,6 +532,35 @@ fn check_json_lists_each_finding_with_file_what_and_fix() {
     assert!(f["what"].as_str().unwrap().contains("runbook.view/9") && !f["fix"].as_str().unwrap().is_empty(), "{f}");
 }
 
+/// Loom's reader refuses a bindings file that holds a tag other than a core tag; the check says so
+/// by the file, as it says every file it cannot read.
+#[test]
+fn check_refuses_a_rework_limit_with_a_tag_that_is_not_a_core_tag() {
+    let w = World::new("check-tag-foo");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "rework_limit: 2,", "rework_limit: !foo 2,");
+    let o = check(&w, &co);
+    assert_finding(&o, "bindings/sdc-story.yaml", &["does not parse", "a YAML value without a tag"]);
+}
+
+#[test]
+fn check_takes_a_core_int_tag_on_a_rework_limit() {
+    let w = World::new("check-tag-int");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "rework_limit: 2,", "rework_limit: !!int 2,");
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+}
+
+#[test]
+fn check_takes_an_alias_of_a_whole_number_as_a_rework_limit() {
+    let w = World::new("check-alias-limit");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "budget: {max_runs: 3, runs_per: rejection, rework_limit: 2,", "budget: {max_runs: &n 3, runs_per: rejection, rework_limit: *n,");
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+}
+
 #[test]
 fn check_without_assets_fails_and_says_why() {
     let w = World::new("check-no-assets");
@@ -1917,6 +1946,26 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     let table = stdout(&parity(&["compare", "--rules"]));
     assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/loom-feedback/**] | never compared | ")), "{table}");
     assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/records/**] | never compared | ")), "{table}");
+}
+
+/// The ledger of the stub's reworks is a file only the Loom side has: one explicit rule leaves out
+/// that path alone, so a file beside it or under another directory of `.sdc/` is still listed.
+#[test]
+fn parity_leaves_out_the_rework_ledger_by_its_path_and_no_other_file_under_sdc() {
+    let _t = Timed::start("parity_leaves_out_the_rework_ledger_by_its_path_and_no_other_file_under_sdc");
+    let s = Synth::new("rework-ledger");
+    s.put("tree/a.txt", "a");
+    s.put("tree/.sdc/rework-seen", "requirements.check e1\n");
+    s.put("tree/.sdc/rework-seen.bak", "x");
+    s.put("tree/sub/.sdc/rework-seen", "x");
+    s.put("tree/.sdc/keep/rework-seen", "x");
+    let out = s.root.join("o.json");
+    let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("tree")), "--output", path_str(&out)]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let paths: Vec<Value> = read_summary(&out)["product_tree"].as_array().unwrap().iter().map(|e| e["path"].clone()).collect();
+    assert_eq!(paths, [json!(".sdc/keep/rework-seen"), json!(".sdc/rework-seen.bak"), json!("a.txt"), json!("sub/.sdc/rework-seen")]);
+    let table = stdout(&parity(&["compare", "--rules"]));
+    assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/rework-seen] | never compared | ")), "{table}");
 }
 
 // ---- runbook parity: the revision a child's `case_outcome` record carries in its parent

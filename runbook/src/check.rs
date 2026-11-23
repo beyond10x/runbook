@@ -164,6 +164,9 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
                     Y::String(s) => s,
                     other => serde_yaml::to_string(&other).unwrap_or_default().trim_end().to_string(),
                 };
+                // The key `$float` marks a float with no JSON form (above); a mapping of the file
+                // that holds it stays a mapping.
+                let key = if key == "$float" { "$$float".to_string() } else { key };
                 o.insert(key, yaml_to_json(v));
             }
             Value::Object(o)
@@ -175,6 +178,32 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
 fn read_yaml(path: &Path) -> Result<Value, String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_yaml::from_str::<serde_yaml::Value>(&text).map(yaml_to_json).map_err(|e| e.to_string())
+}
+
+/// The first tag in `v` that is not a core tag, as the text of the tag. The core tags (`!!int`,
+/// `!!str`, ...) are read by the parser into their value and leave no tag; any other tag is kept.
+fn custom_tag(v: &serde_yaml::Value) -> Option<String> {
+    use serde_yaml::Value as Y;
+    match v {
+        Y::Tagged(t) => Some(t.tag.to_string()),
+        Y::Sequence(s) => s.iter().find_map(custom_tag),
+        Y::Mapping(m) => m.iter().find_map(|(k, v)| custom_tag(k).or_else(|| custom_tag(v))),
+        _ => None,
+    }
+}
+
+/// A bindings file as Loom's reader takes it: no value carries a tag but a core tag, and a file
+/// with one is refused whole (`a YAML value without a tag`).
+fn read_bindings_yaml(path: &Path) -> Result<Value, String> {
+    parse_bindings_yaml(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+}
+
+fn parse_bindings_yaml(text: &str) -> Result<Value, String> {
+    let doc = serde_yaml::from_str::<serde_yaml::Value>(text).map_err(|e| e.to_string())?;
+    match custom_tag(&doc) {
+        Some(tag) => Err(format!("a YAML value without a tag (found {tag})")),
+        None => Ok(yaml_to_json(doc)),
+    }
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
@@ -227,7 +256,7 @@ fn bindings(root: &Path, r: &mut Report, seen: &mut Seen) {
     let mut yaml_docs: BTreeMap<String, Value> = BTreeMap::new();
     for p in &yamls {
         let f = rel(root, p);
-        match read_yaml(p) {
+        match read_bindings_yaml(p) {
             Ok(d) => {
                 let name = p.file_stem().unwrap().to_string_lossy().into_owned();
                 yaml_docs.insert(name, d);
@@ -816,7 +845,7 @@ mod tests {
     /// What `rework_limit` is, as Loom's decoder reads it (`Node::as_i64`: only a YAML integer from
     /// 1 to `i64::MAX`), and the value as Loom shows it. `scripts/check-bindings.sh --budget` takes
     /// the same table (`driver/tests/check_bindings_budget.rs`).
-    const LIMITS: [(&str, Option<&str>); 19] = [
+    const LIMITS: [(&str, Option<&str>); 21] = [
         ("2", None),
         ("+2", None),
         ("0x2", None),
@@ -836,6 +865,8 @@ mod tests {
         ("null", Some("null")),
         ("true", Some("true")),
         ("[2]", Some("a list")),
+        ("{a: 2}", Some("an object")),
+        ("{\"$float\": hi}", Some("an object")),
     ];
 
     #[test]
@@ -847,6 +878,21 @@ mod tests {
                 Some(shown) => assert_eq!(found, [format!("bindings/x.yaml: a.write: budget.rework_limit is {shown}; it is a whole number from 1")], "rework_limit {value}"),
             }
         }
+    }
+
+    /// Loom's reader takes the core tag `!!int` and refuses a file that holds any other tag, in a
+    /// value or in a key, whole (`a YAML value without a tag`).
+    #[test]
+    fn a_bindings_file_with_a_tag_that_is_not_a_core_tag_is_refused_as_loom_refuses_it() {
+        for (what, limit) in [("a custom tag on a number", "!foo 2"), ("a custom tag on a text", "!foo two"), ("a custom tag on a list", "!foo [2]")] {
+            let text = format!("format: loom.bindings/1\nactions:\n  - action: a.write\n    budget: {{runs_per: rejection, rework_limit: {limit}}}\n");
+            let err = parse_bindings_yaml(&text).unwrap_err();
+            assert_eq!(err, "a YAML value without a tag (found !foo)", "{what}");
+        }
+        let in_key = "format: loom.bindings/1\nactions:\n  - action: a.write\n    budget: {!bar runs_per: rejection}\n";
+        assert_eq!(parse_bindings_yaml(in_key).unwrap_err(), "a YAML value without a tag (found !bar)");
+        let core = "format: loom.bindings/1\nactions:\n  - action: a.write\n    budget: {runs_per: rejection, rework_limit: !!int 2}\n";
+        assert!(parse_bindings_yaml(core).is_ok(), "a core tag is read into its value");
     }
 
     /// An integer past 64 bits is no YAML value to Loom's reader or to this one (both read it as a
