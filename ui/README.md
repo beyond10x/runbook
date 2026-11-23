@@ -10,6 +10,13 @@ decision and sends no command to the daemon. A decision is answered with `runboo
 <request> <answer>` or on the page of `runbook serve --ui`; `runbook runs decisions <run>` lists the
 open ones. Every place that would offer the act says so in one line.
 
+The page has two modes and its header names the mode. **watch**: this server serves it, and it only
+reads (no start form, no token field, `405` to every `POST`). **operate**: the daemon serves it
+(`runbook serve --ui`): the same page, plus "Start a run" (a runbook from the daemon's view
+`runbooks`, the intake, the confinement at or above the daemon's floor; `daemon/start.js`) and the
+answer to a decision (`daemon/decide.js`). Both files are in `daemon/`, which this server does not
+serve.
+
 ## Start
 
 ```console
@@ -25,7 +32,8 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - A file of a run is read only when its real path lies under the real path of the run directory
   (`runfiles.mjs`): a link that leaves the run is not followed, not listed and not served
   (`/api/blob` answers 404); a link that stays inside is. `web/` is everything the server serves;
-  the code that answers a decision lives in `daemon/decide.js`, which only the daemon serves.
+  the code that answers a decision lives in `daemon/decide.js` and the code that starts a run in
+  `daemon/start.js`, which only the daemon serves.
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
@@ -58,7 +66,8 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - The server needs Node 22 and nothing else, and listens on 127.0.0.1 only.
 - The server never writes anything and starts no program. Every request that is not a GET or HEAD
   answers 405, and an option it does not know (`--write`, `--principal` and `--write-only` of earlier
-  versions) is refused with exit code 2. There is no route, token field or proxy to the daemon.
+  versions) is refused with exit code 2. There is no route, token field or proxy to the daemon, and
+  the header of its page says "watch".
 - LLM calls, tokens, cost and tool calls come from `llm-calls.jsonl` next to the store; decider
   decisions from `decisions.jsonl` there. Panels without data say "not recorded yet".
 
@@ -408,7 +417,11 @@ and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`
 `stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
 inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
 an option of the removed acts exits 2, and a Decisions drawer shows the line on where a decision is
-answered and no control that acts. `test/view-race.spec.mjs` holds two sources with two views on one
+answered and no control that acts; its last test holds the mode: the page says "watch", has no
+start form and no token field, sends no command, and a `POST` of the start command is `405`.
+`test/daemon-start.spec.mjs` is the other mode: four daemons (stub runtime with a runbook directory,
+the same with a token and a floor of `local`, one whose runbook goes away, one on the Loom runtime)
+and the page that starts a run. `test/view-race.spec.mjs` holds two sources with two views on one
 server and checks that concurrent requests each keep their own view. `test/paths.spec.mjs` fails
 when a file git would commit under `ui/` or any page or API answer names an absolute home path;
 `test/paths-served.spec.mjs` checks the same on a served copy of the committed fixture. The server

@@ -10,7 +10,7 @@ mod tail;
 
 pub use decision::Parsed;
 
-use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
@@ -334,6 +334,14 @@ impl Runtime for Engine {
 
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
         layout::resolve(&self.home, runbook, version).is_ok()
+    }
+
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        layout::list(&self.home)
+    }
+
+    fn kind(&self) -> &'static str {
+        "loom"
     }
 
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {

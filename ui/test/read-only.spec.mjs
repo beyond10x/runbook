@@ -117,3 +117,24 @@ test('the Now band and the run picker say what the run directory shows about bei
   await page.locator('#runpick').click();
   await expect(page.locator(`#pk-o-${src('unknown')} .pk-mt`)).toHaveText('live state unknown');
 });
+
+test('the inspector says watch, has no start form and no token field, sends no command, and answers 405 to a POST of the start command', async ({page, request}) => {
+  const sent = [];
+  page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/daemon/') || r.method() !== 'GET') sent.push(`${r.method()} ${r.url()}`); });
+  await page.goto(`${base}/?source=${src('history')}`);
+  await expect(page.locator('#live')).toHaveClass(/\bon\b/);
+  await expect(page.locator('#mode')).toHaveText('watch');
+  await expect(page.locator('#startbtn, #startdlg, #st-runbook, #st-intake, #st-start, #st-token')).toHaveCount(0);
+  await expect(page.locator('input[type=password], textarea')).toHaveCount(0);
+  await page.locator('#decbtn').click();
+  await expect(page.locator('#drawer input[type=password], #drawer textarea, #drawer #st-token')).toHaveCount(0);
+  const start = {runbook_id: 'sdc', intake: 'an invented intake', idempotency_key: 'read-only-spec-0123456789'};
+  for (const p of ['/daemon/commands/submit-run', '/daemon/views/runbooks']) {
+    const res = await request.post(base + p, {data: start});
+    expect(res.status(), `POST ${p}`).toBe(405);
+  }
+  expect((await request.get(base + '/daemon/views/runbooks')).status()).toBe(404);
+  for (const f of ['start.js', 'daemon/start.js']) expect((await request.get(base + '/' + f)).status(), f).toBe(404);
+  expect(sent).toEqual([]);
+  expect(KINDS.map((k) => fs.existsSync(path.join(root, k, 'ui-actions.jsonl')))).toEqual([false, false, false, false]);
+});
