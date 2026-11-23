@@ -5,6 +5,7 @@
 pub mod calls;
 pub mod copy;
 mod decision;
+mod hide;
 pub mod layout;
 pub mod pin;
 pub mod refusal;
@@ -16,6 +17,7 @@ use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Ru
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
+use hide::{Hide, HidingSink};
 use pin::Pin;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -381,7 +383,10 @@ impl Runtime for Engine {
             runs.insert(request.run_id.clone(), slot.clone());
         }
         let _registered = Registered { engine: self, run_id: request.run_id.clone() };
-        self.drive(&request, sink, cancel, &slot)
+        // Everything that leaves the engine toward a client, a failure and what the run reports, goes
+        // through one `Hide`: no path of the run's directory, the state directory or the home.
+        let hide = Hide::new(&[&request.state_dir.join(pin::COPY_DIR), &request.state_dir, &request.workspace_dir, &self.state_dir, &self.home]);
+        self.drive(&request, &HidingSink { inner: sink, hide: &hide }, cancel, &slot).map_err(|f| RuntimeFailure { reason: hide.text(&f.reason) })
     }
 
     fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {

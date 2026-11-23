@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 const MAX_DEPTH: usize = 24;
 
 /// The most entries (directories and files, a link counted as what it is copied as) the daemon's copy
-/// takes. The runbook home of this repository holds about 600 (`bindings/`, `protocol/`,
-/// `instructions/`, `views/`, `driver/examples/`, `tools/`): the bound is about seven times that.
+/// takes. The runbook home of this repository holds 661 (`bindings/`, `protocol/`,
+/// `instructions/`, `views/`, `driver/examples/`, `tools/`): the bound is about six times that.
 pub const MAX_ENTRIES: usize = 4096;
 
 /// The most bytes (the lengths of the files) the daemon's copy takes. The same home holds about
@@ -76,6 +76,19 @@ fn open_regular(path: &Path) -> std::io::Result<File> {
     OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
 }
 
+/// How a refusal names `path`: for the daemon's copy relative to the home (the directory itself is
+/// `.`; a path that is not below the home is named by its last component), for `runbook run` as given.
+fn named(links: Links<'_>, path: &Path) -> String {
+    match links {
+        Links::Keep => path.display().to_string(),
+        Links::Within(root) => match path.strip_prefix(root) {
+            Ok(rel) if rel.as_os_str().is_empty() => ".".to_string(),
+            Ok(rel) => rel.display().to_string(),
+            Err(_) => path.file_name().map_or_else(|| ".".to_string(), |name| name.to_string_lossy().into_owned()),
+        },
+    }
+}
+
 /// Copies each `(source, destination)` directory. Every refusal of the plan comes before the first
 /// write: when it refuses, no destination was created. A `Within` copy that fails while it writes
 /// removes the destinations it created.
@@ -86,9 +99,9 @@ pub fn copy_dirs(jobs: &[(&Path, &Path)], links: Links<'_>) -> Result<(), String
         match links {
             Links::Keep => plan(src, dst, links, 0, &mut budget, &mut entries)?,
             Links::Within(root) => {
-                let real = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
+                let real = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", named(links, src)))?;
                 if !real.starts_with(root) {
-                    return Err(format!("{}: a link that leaves the runbook home", src.display()));
+                    return Err(format!("{}: a link that leaves the runbook home", named(links, src)));
                 }
                 plan(&real, dst, links, 0, &mut budget, &mut entries)?
             }
@@ -145,16 +158,16 @@ fn copy_seen(from: &Path, to: &Path, seen: Seen) -> Result<(), String> {
 
 fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, budget: &mut Budget, out: &mut Vec<Entry>) -> Result<(), String> {
     if matches!(links, Links::Within(_)) && depth > MAX_DEPTH {
-        return Err(format!("{}: nested deeper than {MAX_DEPTH} levels, or a link that loops", src.display()));
+        return Err(format!("{}: nested deeper than {MAX_DEPTH} levels, or a link that loops", named(links, src)));
     }
     budget.charge(0)?;
     out.push(Entry::Dir(dst.to_path_buf()));
-    let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", named(links, src)))?;
     for entry in entries {
-        let entry = entry.map_err(|e| format!("{}: {e}", src.display()))?;
+        let entry = entry.map_err(|e| format!("{}: {e}", named(links, src)))?;
         let from = entry.path();
         let to = dst.join(entry.file_name());
-        let kind = entry.file_type().map_err(|e| format!("{}: {e}", from.display()))?;
+        let kind = entry.file_type().map_err(|e| format!("{}: {e}", named(links, &from)))?;
         match links {
             Links::Keep if kind.is_symlink() => {
                 // A link stays a link: the fixtures hold links to directories and to programs.
@@ -165,22 +178,22 @@ fn plan(src: &Path, dst: &Path, links: Links<'_>, depth: usize, budget: &mut Bud
             Links::Keep => out.push(Entry::File { from, to, seen: None }),
             Links::Within(root) => {
                 let real = if kind.is_symlink() {
-                    let real = std::fs::canonicalize(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+                    let real = std::fs::canonicalize(&from).map_err(|e| format!("{}: {e}", named(links, &from)))?;
                     if !real.starts_with(root) {
-                        return Err(format!("{}: a link that leaves the runbook home", from.display()));
+                        return Err(format!("{}: a link that leaves the runbook home", named(links, &from)));
                     }
                     real
                 } else {
                     from.clone()
                 };
-                let meta = std::fs::symlink_metadata(&real).map_err(|e| format!("{}: {e}", from.display()))?;
+                let meta = std::fs::symlink_metadata(&real).map_err(|e| format!("{}: {e}", named(links, &from)))?;
                 if meta.is_dir() {
                     plan(&real, &to, links, depth + 1, budget, out)?;
                 } else if meta.is_file() {
                     budget.charge(meta.len())?;
                     out.push(Entry::File { from: real, to, seen: Some(Seen { dev: meta.dev(), ino: meta.ino(), len: meta.len(), exec: meta.mode() & 0o111 != 0 }) });
                 } else {
-                    return Err(format!("{}: not a regular file or a directory", from.display()));
+                    return Err(format!("{}: not a regular file or a directory", named(links, &from)));
                 }
             }
         }
