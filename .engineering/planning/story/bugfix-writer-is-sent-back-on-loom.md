@@ -7,6 +7,7 @@ title: A writer of a bug-fix run on Loom is sent back before the case ends
 summary: A reproduction that is not red and a test run that failed send the writer back within its budget; the case ends not_reproduced or not_fixed only when the writer is spent.
 relations:
 - decomposes: epic:ticket-to-merge-request-on-a-real-repository
+- depends_on: story:bugfix-keeps-the-output-of-a-failed-check
 revision: 1
 ---
 ## What is known
