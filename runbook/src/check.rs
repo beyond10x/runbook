@@ -262,6 +262,9 @@ fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Opt
                 r.add("bindings", &file, format!("{action} {member} names {p}: not an executable bindings/tools/<file>"), "add the program to bindings/tools/ with the execute bit, or name one that is there");
             }
         }
+        if let Some(defect) = budget_defect(a) {
+            r.add("bindings", &file, format!("{action}: {defect}"), "write the budget as docs/loom-bindings.md (\"The budget\") says: Loom refuses it at load");
+        }
         let yaml_names = match argv_instructions(&argv) {
             None => None,
             Some(Ok(m)) => Some(Value::Object(m)),
@@ -288,6 +291,83 @@ fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Opt
             }
         }
     }
+}
+
+/// What a value is, for a message, as Loom's decoder says it.
+fn shown(v: &Value) -> String {
+    match v {
+        Value::Null => "null".into(),
+        Value::String(s) => format!("{s:?}"),
+        Value::Array(_) => "a list".into(),
+        Value::Object(_) => "an object".into(),
+        other => other.to_string(),
+    }
+}
+
+/// The first defect of the rework members of an action's `budget` that Loom refuses at load, in
+/// Loom's words after the member (`story:rework-allowance-after-a-rejection`): `runs_per` is `case`
+/// or `rejection`; `rework_limit` a whole number from 1; `rework_on` a non-empty map of evidence
+/// kinds to non-empty lists of results; `rework_limit` and `rework_on` are read only under
+/// `runs_per: rejection`, which needs a `retry_when` that lists a result, and each pair of
+/// `rework_on` is one `retry_when` lists; the three members belong to the program and person
+/// executors. `scripts/check-bindings.sh` (`check_budget`) says the same in `jq`.
+fn budget_defect(a: &Value) -> Option<String> {
+    let member = |k: &str| a.pointer("/budget").and_then(|b| b.get(k));
+    let rejection = member("runs_per").and_then(Value::as_str) == Some("rejection");
+    if let Some(v) = member("runs_per").filter(|v| !matches!(v.as_str(), Some("case" | "rejection"))) {
+        return Some(format!("budget.runs_per is {}; it is case or rejection", shown(v)));
+    }
+    if let Some(v) = member("rework_limit").filter(|v| !v.as_i64().is_some_and(|n| n >= 1)) {
+        return Some(format!("budget.rework_limit is {}; it is a whole number from 1", shown(v)));
+    }
+    if let Some(defect) = member("rework_on").and_then(rework_on_defect) {
+        return Some(defect);
+    }
+    let retry: Vec<(&str, Vec<&str>)> = a.get("retry_when").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.as_str(), strings(v))).collect()).unwrap_or_default();
+    if !rejection {
+        for m in ["rework_limit", "rework_on"] {
+            if member(m).is_some() {
+                return Some(format!("budget.{m} is read only under runs_per: rejection"));
+            }
+        }
+    } else if retry.iter().all(|(_, results)| results.is_empty()) {
+        return Some("budget.runs_per is rejection and retry_when lists no result, so no record could open an allowance".into());
+    } else if let Some(on) = member("rework_on").and_then(Value::as_object) {
+        for (kind, results) in on {
+            for result in strings(results) {
+                if !retry.iter().any(|(k, listed)| k == kind && listed.contains(&result)) {
+                    return Some(format!("budget.rework_on lists {kind} {result}, which retry_when does not list; a rejection is a record that sends the action back"));
+                }
+            }
+        }
+    }
+    let kind = a.pointer("/executor/kind").and_then(Value::as_str).filter(|k| !matches!(*k, "program" | "person"))?;
+    let named: String = kind.chars().take(1).flat_map(char::to_uppercase).chain(kind.chars().skip(1)).collect();
+    ["rework_limit", "rework_on", "runs_per"].into_iter().find(|m| member(m).is_some()).map(|m| format!("budget.{m} belongs to the Program and Person executors, not {named}"))
+}
+
+/// The structure of `budget.rework_on`: a map of kinds to lists of strings, none empty, and itself
+/// not empty (Loom's `rework_on`, after the shape of `retry_when`).
+fn rework_on_defect(v: &Value) -> Option<String> {
+    const M: &str = "budget.rework_on";
+    let Some(map) = v.as_object() else {
+        return Some(format!("{M} is {}; it is an object", shown(v)));
+    };
+    for (kind, results) in map {
+        let Some(list) = results.as_array() else {
+            return Some(format!("{M}.{kind} is {}; it is a list of strings", shown(results)));
+        };
+        if let Some((i, item)) = list.iter().enumerate().find(|(_, item)| !item.is_string()) {
+            return Some(format!("{M}.{kind}[{i}] is {}; it is a string", shown(item)));
+        }
+        if let Some(i) = list.iter().position(|item| item.as_str() == Some("")) {
+            return Some(format!("{M}.{kind}[{i}] is empty"));
+        }
+    }
+    if map.is_empty() {
+        return Some(format!("{M} is empty; it names the kinds and results that are rejections"));
+    }
+    map.iter().find(|(_, results)| results.as_array().is_some_and(Vec::is_empty)).map(|(kind, _)| format!("{M}.{kind} is empty; it lists the results of the kind that are rejections"))
 }
 
 fn json_instructions(root: &Path, r: &mut Report, name: &str, doc: &Value) {
@@ -657,5 +737,70 @@ mod tests {
     #[test]
     fn the_list_of_old_entries_skips_blank_and_comment_lines() {
         assert_eq!(names_of("a\n\n# note\n  b  \n"), ["a", "b"]);
+    }
+
+    /// The findings of the `bindings` check for a one-action bindings file: `executor` and `rest` are
+    /// the lines of the action after its name (2 spaces and 4 spaces of indent).
+    fn budget_findings(executor: &str, rest: &str) -> Vec<String> {
+        let text = format!("format: loom.bindings/1\nactions:\n  - action: a.write\n    executor: {executor}\n{rest}");
+        let doc = yaml_to_json(serde_yaml::from_str::<serde_yaml::Value>(&text).unwrap());
+        let mut r = Report::default();
+        yaml_bindings(Path::new("."), &mut r, "x", &doc, None);
+        r.findings.into_iter().map(|f| format!("{}: {}", f.file, f.what)).collect()
+    }
+
+    const PROGRAM: &str = "{kind: program, argv: [sdc-node, a.write]}";
+    const RETRY: &str = "    retry_when:\n      code_review: [rejected]\n      conformance_run: [failed]\n";
+
+    #[test]
+    fn a_budget_that_loom_reads_passes() {
+        for budget in [
+            "{max_runs: 3}",
+            "{max_runs: 3, runs_per: case}",
+            "{runs_per: rejection}",
+            "{max_runs: 3, runs_per: rejection, rework_limit: 2}",
+            "{max_runs: 3, runs_per: rejection, rework_limit: 1, rework_on: {code_review: [rejected]}}",
+        ] {
+            assert_eq!(budget_findings(PROGRAM, &format!("    budget: {budget}\n{RETRY}")), Vec::<String>::new(), "{budget}");
+        }
+        let person = "{kind: person, principal: person:owner}";
+        let rest = "    budget: {runs_per: rejection, rework_limit: 2}\n    retry_when:\n      merge_approval: [rejected]\n";
+        assert_eq!(budget_findings(person, rest), Vec::<String>::new(), "a person's action takes the members too");
+    }
+
+    #[test]
+    fn each_budget_defect_loom_refuses_at_load_is_one_finding_naming_the_member() {
+        for (what, budget, retry, member, words) in [
+            ("a runs_per that is neither value", "{runs_per: window}", RETRY, "budget.runs_per", "is \"window\"; it is case or rejection"),
+            ("a runs_per that is no text", "{runs_per: 3}", RETRY, "budget.runs_per", "it is case or rejection"),
+            ("rejection beside a retry_when with no result", "{runs_per: rejection}", "    retry_when: {code_review: []}\n", "budget.runs_per", "lists no result"),
+            ("rejection with no retry_when", "{runs_per: rejection}", "", "budget.runs_per", "lists no result"),
+            ("a rework_limit of 0", "{runs_per: rejection, rework_limit: 0}", RETRY, "budget.rework_limit", "it is a whole number from 1"),
+            ("a rework_limit that is no number", "{runs_per: rejection, rework_limit: many}", RETRY, "budget.rework_limit", "it is a whole number from 1"),
+            ("a rework_limit beside runs_per case", "{runs_per: case, rework_limit: 2}", RETRY, "budget.rework_limit", "is read only under runs_per: rejection"),
+            ("a rework_limit with no runs_per", "{rework_limit: 2}", RETRY, "budget.rework_limit", "is read only under runs_per: rejection"),
+            ("a rework_on beside runs_per case", "{runs_per: case, rework_on: {code_review: [rejected]}}", RETRY, "budget.rework_on", "is read only under runs_per: rejection"),
+            ("an empty rework_on", "{runs_per: rejection, rework_on: {}}", RETRY, "budget.rework_on", "is empty"),
+            ("a rework_on kind with no result", "{runs_per: rejection, rework_on: {code_review: []}}", RETRY, "budget.rework_on.code_review", "is empty"),
+            ("a rework_on that is no mapping", "{runs_per: rejection, rework_on: [code_review]}", RETRY, "budget.rework_on", "it is an object"),
+            ("a rework_on pair retry_when does not list", "{runs_per: rejection, rework_on: {code_review: [approved]}}", RETRY, "budget.rework_on", "lists code_review approved, which retry_when does not list"),
+            ("a rework_on kind retry_when does not list", "{runs_per: rejection, rework_on: {merge_approval: [rejected]}}", RETRY, "budget.rework_on", "lists merge_approval rejected, which retry_when does not list"),
+        ] {
+            let found = budget_findings(PROGRAM, &format!("    budget: {budget}\n{retry}"));
+            assert_eq!(found.len(), 1, "{what}: {found:?}");
+            assert!(found[0].starts_with("bindings/x.yaml: a.write: ") && found[0].contains(member) && found[0].contains(words), "{what}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn the_rework_members_belong_to_the_program_and_person_executors_only() {
+        let budget = "    budget: {runs_per: rejection}\n    retry_when:\n      code_review: [rejected]\n";
+        for executor in ["{kind: agent, adapter: claude-code, model: m}", "{kind: open, name: c, bindings: c.yaml}", "{kind: copy, evidence: e, from: p@1}"] {
+            let found = budget_findings(executor, budget);
+            assert_eq!(found.len(), 1, "{executor}: {found:?}");
+            assert!(found[0].contains("budget.runs_per") && found[0].contains("belongs to the Program and Person executors"), "{executor}: {found:?}");
+        }
+        let found = budget_findings("{kind: open, name: c, bindings: c.yaml}", "    budget: {max_runs: 3}\n");
+        assert_eq!(found, Vec::<String>::new(), "max_runs is read on every executor");
     }
 }

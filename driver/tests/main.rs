@@ -5,6 +5,7 @@
 mod answers;
 mod bugfix_languages;
 mod bugfix_prompt;
+mod check_bindings_budget;
 mod check_bindings_exits;
 mod conformance;
 mod decision_contract_mutants;

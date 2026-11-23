@@ -8,7 +8,8 @@
 # bindings/tools/<file> (no `..`) or a bare name from PATH; and each names the registration of its
 # protocol file (<id with . and _ as ->@<revision>), every `copy` `from:` is the registration of a
 # protocol file, and a file that binds a program has `program_root: bindings`; and each program
-# states `exits.error` (and a model node `exits.not_called: [79]`). Run
+# states `exits.error` (and a model node `exits.not_called: [79]`), and each budget names
+# `runs_per`, `rework_limit` and `rework_on` as Loom reads them. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md (exit 1: findings, the script goes on; exit 2: a
 # file it reads is refused, the script prints REFUSED and stops with exit 3). Then the experiment
@@ -70,9 +71,79 @@ else
   echo "pass exits"
 fi
 }
+check_budget() {
+# The `budget` of every action (docs/loom-bindings.md, "The budget"): `runs_per` is `case` or
+# `rejection`, `rework_limit` a whole number from 1, `rework_on` a non-empty map of evidence kinds
+# to non-empty lists of results, each pair one `retry_when` lists. `rework_limit` and `rework_on`
+# are read only under `runs_per: rejection`, which needs a `retry_when` that lists a result; and
+# the three members belong to the program and person executors. Loom refuses each of these at
+# load (`InvalidBudget`, `MemberNotForExecutor`); this fails before a run does, in Loom's words,
+# one line for the first defect of an action. `check-bindings.sh --budget <root>` runs this check
+# alone over <root>/bindings/*.yaml (driver/tests/check_bindings_budget.rs).
+budget_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
+  def shown: if . == null then "null" elif type == "string" then tojson elif type == "array" then "a list" elif type == "object" then "an object" else tostring end;
+  def whole: type == "number" and . >= 1 and . == floor;
+  def listed($rw; $k; $r): any($rw[]; .key == $k and (.value | index($r) != null));
+  def rework_on: . as $o
+    | if type != "object" then "budget.rework_on is \(shown); it is an object"
+      else
+        [ ($o | to_entries[] | .key as $k | .value as $v
+            | if ($v | type) != "array" then "budget.rework_on.\($k) is \($v | shown); it is a list of strings"
+              else
+                ([$v | to_entries[] | select(.value | type != "string") | "budget.rework_on.\($k)[\(.key)] is \(.value | shown); it is a string"][0]
+                 // (if ($v | index("")) != null then "budget.rework_on.\($k)[\($v | index(""))] is empty" else null end))
+                | select(. != null)
+              end),
+          (if ($o | length) == 0 then "budget.rework_on is empty; it names the kinds and results that are rejections" else empty end),
+          ($o | to_entries[] | select((.value | type) == "array" and (.value | length) == 0)
+            | "budget.rework_on.\(.key) is empty; it lists the results of the kind that are rejections")
+        ] | .[0] // empty
+      end;
+  [inputs] | .[]
+  | .f as $f | .actions[]?
+  | . as $a
+  | (($a.budget // {}) | if type == "object" then . else {} end) as $b
+  | (($a.retry_when // {}) | if type == "object" then to_entries else [] end
+      | map({key, value: (if (.value | type) == "array" then .value else [] end)})) as $rw
+  | (($b.rework_on // null) | if type == "object" then to_entries else [] end) as $on
+  | [
+      (if ($b | has("runs_per")) and $b.runs_per != "case" and $b.runs_per != "rejection"
+       then "budget.runs_per is \($b.runs_per | shown); it is case or rejection" else empty end),
+      (if ($b | has("rework_limit")) and ($b.rework_limit | whole | not)
+       then "budget.rework_limit is \($b.rework_limit | shown); it is a whole number from 1" else empty end),
+      (if $b | has("rework_on") then $b.rework_on | rework_on else empty end),
+      (if $b.runs_per != "rejection" then
+         (if $b | has("rework_limit") then "budget.rework_limit is read only under runs_per: rejection" else empty end),
+         (if $b | has("rework_on") then "budget.rework_on is read only under runs_per: rejection" else empty end)
+       elif ($rw | all(.value | length == 0)) then
+         "budget.runs_per is rejection and retry_when lists no result, so no record could open an allowance"
+       else
+         ($on[] | .key as $k | (.value | if type == "array" then .[] else empty end) as $r
+          | select(listed($rw; $k; $r) | not)
+          | "budget.rework_on lists \($k) \($r), which retry_when does not list; a rejection is a record that sends the action back")
+       end),
+      (($a.executor.kind // "") as $kind
+       | if $kind == "" or $kind == "program" or $kind == "person" then empty
+         else ("rework_limit", "rework_on", "runs_per") as $m
+           | select($b | has($m))
+           | "budget.\($m) belongs to the Program and Person executors, not \($kind | .[:1] | ascii_upcase)\($kind | .[1:])"
+         end)
+    ] | .[0] // empty
+  | "\($f) \($a.action): \(.)"')
+if [[ -n $budget_findings ]]; then
+  echo "FAIL budget"; echo "$budget_findings" | sed 's/^/  /'; fail=1
+else
+  echo "pass budget"
+fi
+}
 if [[ ${1:-} == --exits ]]; then
   sdc=$(cd "${2:?usage: check-bindings.sh --exits <root>}" && pwd)
   check_exits
+  exit "$fail"
+fi
+if [[ ${1:-} == --budget ]]; then
+  sdc=$(cd "${2:?usage: check-bindings.sh --budget <root>}" && pwd)
+  check_budget
   exit "$fail"
 fi
 for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
@@ -183,6 +254,7 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
   fi
 done
 check_exits
+check_budget
 # The registrations of bindings/*.yaml (docs/loom-bindings.md, "Registrations"): Loom's catalog
 # registers protocol/<name>.protocol.yaml as its id with `.` and `_` written as `-`, then
 # `@<revision>`, and refuses another major. A file's `protocol:` is that registration, the `from:`
