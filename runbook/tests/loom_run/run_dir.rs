@@ -2,7 +2,7 @@
 //! `sdc-experiment report` and `runbook parity summarize` read.
 //!
 //! The crate has no library target, so the writer and the events it receives are compiled into this
-//! test binary from their source files (`events.rs` and `run_dir.rs` use nothing else of the
+//! test binary from their source files (`events.rs`, `record_write.rs` and `run_dir.rs` use nothing else of the
 //! crate). `read_run` below reads a run directory by the rules of the contract table
 //! (`driver/src/run_metrics.rs` `load`, as `docs/loom-run-directory.md` repeats them); the driver's
 //! own code is not a dependency of this crate.
@@ -10,6 +10,9 @@
 #[allow(dead_code)]
 #[path = "../../src/loom_run/events.rs"]
 mod events;
+#[allow(dead_code)]
+#[path = "../../src/loom_run/record_write.rs"]
+mod record_write;
 #[allow(dead_code)]
 #[path = "../../src/loom_run/run_dir.rs"]
 mod writer;

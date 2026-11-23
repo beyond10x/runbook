@@ -104,7 +104,7 @@ pub fn limit_call_budgets(dir: &Path, micro_usd: u64) -> Result<(), String> {
         let mut v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if walk_limit(&mut v, micro_usd) {
             let out = serde_yaml::to_string(&v).map_err(|e| format!("{}: {e}", file.display()))?;
-            std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
+            crate::loom_run::record_write::write_atomic(&file, out.as_bytes())?;
         }
     }
     Ok(())
@@ -134,6 +134,19 @@ mod tests {
         assert!(text.contains("max_runs: 3"), "{text}");
         assert!(!text.contains("'2'") && !text.contains("\"2\"") && !text.contains("'0.5'") && !text.contains("\"0.5\""), "{text}");
         assert_eq!(largest_call_budget(&d).unwrap(), Some(300_000));
+    }
+
+    #[test]
+    fn limiting_replaces_a_link_at_a_bindings_file_and_writes_nothing_outside() {
+        let d = dir("link");
+        let outside = d.join("outside.yaml");
+        std::fs::write(&outside, BINDINGS).unwrap();
+        std::fs::create_dir(d.join("bindings")).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("bindings/sdc.yaml")).unwrap();
+        limit_call_budgets(&d.join("bindings"), 300_000).unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), BINDINGS, "the file the link points at was written");
+        assert!(std::fs::symlink_metadata(d.join("bindings/sdc.yaml")).unwrap().is_file());
+        assert_eq!(largest_call_budget(&d.join("bindings")).unwrap(), Some(300_000));
     }
 
     #[test]

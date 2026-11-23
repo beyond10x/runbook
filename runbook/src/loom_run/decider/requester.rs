@@ -15,6 +15,7 @@
 
 use super::call::{adapter_path, call_status, now, start, ModelCall, Replied};
 use super::inputs::write_pretty;
+use crate::loom_run::record_write::{copy_atomic, write_atomic};
 use super::prompt::{or, raw, Renderer};
 use super::rules::rule;
 use super::run_program;
@@ -176,7 +177,7 @@ fn input(work: &Path, cwd: &Path, p: &str, listed: &mut Vec<String>) {
     if let Some(dir) = to.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::copy(&from, &to);
+    let _ = copy_atomic(&from, &to);
     listed.push(format!("in/{p}"));
 }
 
@@ -224,7 +225,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     } else {
         approval_request(&renderer, req, &case_dir, &level).map_err(program)?
     };
-    let write = |path: &Path, text: String| std::fs::write(path, text).map_err(|e| Failed::Program(format!("{}: {}", path.display(), e.kind())));
+    let write = |path: &Path, text: String| write_atomic(path, text.as_bytes()).map_err(Failed::Program);
     write(&cwd.join("in").join("request.json"), format!("{}\n", serde_json::to_string(&request).unwrap_or_default()))?;
     let mut listed = vec![renderer.render("requester.input-request.md", &[]).map_err(Failed::Program)?];
     let subject_path = request["subject_path"].as_str().unwrap_or("");

@@ -417,3 +417,28 @@ fn the_prompt_of_the_requester_is_its_golden_byte_for_byte() {
     super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[0], &prompt(0));
     super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[1], &prompt(2));
 }
+
+#[test]
+fn the_files_of_a_requester_call_replace_a_link_a_program_left_at_their_names() {
+    let w = world("requester-links");
+    let rec = w.run.join("decider/002-vision.approve");
+    std::fs::create_dir_all(rec.join("cwd/in")).unwrap();
+    let mut links = Vec::new();
+    for name in ["cwd/in/request.json", "cwd/in/decisions.json", "proposal.json"] {
+        let at = rec.join(name);
+        let outside = w.run.parent().unwrap().join(format!("outside-{}.txt", name.replace('/', "-")));
+        std::fs::write(&outside, "keep\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &at).unwrap();
+        links.push((at, outside));
+    }
+    let dangling = w.run.parent().unwrap().join("outside-goals.txt");
+    std::os::unix::fs::symlink(&dangling, rec.join("cwd/in/goals.yaml")).unwrap();
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    for (at, outside) in &links {
+        assert_eq!(std::fs::read_to_string(outside).unwrap(), "keep\n", "{} was written through the link at {}", outside.display(), at.display());
+        assert!(std::fs::symlink_metadata(at).unwrap().is_file(), "{} is not a regular file", at.display());
+    }
+    assert!(!dangling.exists(), "a copy of work/goals.yaml was written through a link that points at nothing");
+    assert!(std::fs::symlink_metadata(rec.join("cwd/in/goals.yaml")).unwrap().is_file());
+}

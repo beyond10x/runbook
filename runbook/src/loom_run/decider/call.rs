@@ -6,6 +6,7 @@
 //! (`sdc.call-status/1`) and `cwd/` with `in/` (what the model reads) and `out/decision.json`.
 
 use super::inputs::{prepare, write_pretty};
+use crate::loom_run::record_write::{copy_atomic, write_atomic};
 use super::prompt::{or, prompt, raw, Parts, Renderer};
 use super::rules::dry_reply;
 use super::validate::{validate, Check};
@@ -61,10 +62,7 @@ pub(super) fn call_status(rec: &Path, state: &str, started: &str, exit: Option<i
         map.insert("finished_at".to_owned(), json!(now()));
         map.insert("exit".to_owned(), json!(exit));
     }
-    let tmp = rec.join(".status.json.tmp");
-    if write_pretty(&tmp, &doc).is_ok() {
-        let _ = std::fs::rename(&tmp, rec.join("status.json"));
-    }
+    let _ = write_pretty(&rec.join("status.json"), &doc);
 }
 
 /// The adapter program of the name the settings give: one of the three of the bindings copy, or a path.
@@ -146,11 +144,11 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     let renderer = Renderer { root: c.root.to_path_buf() };
     let prepared = prepare(req, &case_dir, cwd, &renderer, c.final_escalate).map_err(program)?;
     let schema_file = c.rec.join("reply-schema.json");
-    std::fs::write(&schema_file, super::inputs::schema_text(&prepared.schema)).map_err(|e| program(format!("reply schema: {}", e.kind())))?;
+    write_atomic(&schema_file, super::inputs::schema_text(&prepared.schema).as_bytes()).map_err(|e| program(format!("reply schema: {e}")))?;
     let has_aep = cwd.join("in").join("aep").exists();
     let text = prompt(&renderer, &Parts { req, final_escalate: c.final_escalate, inputs: &prepared.inputs, citable: &prepared.citable, prior_rejections: prepared.prior, has_aep, met_after: prepared.met_after }).map_err(program)?;
     let prompt_file = c.rec.join("prompt.md");
-    std::fs::write(&prompt_file, text).map_err(|e| program(format!("prompt file: {}", e.kind())))?;
+    write_atomic(&prompt_file, text.as_bytes()).map_err(|e| program(format!("prompt file: {e}")))?;
 
     let effort = c.effort.map(str::to_owned).or_else(|| default_effort(c.tools));
     let case = sdc_tools::reply::read_json(&case_dir.join("case.json"));
@@ -166,7 +164,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     let request_file = c.rec.join("request.json");
     // `jq` keeps the text of a number it was given as text (`0.250000`): so does the file.
     let text = format!("{}\n", serde_json::to_string_pretty(&request).unwrap_or_default()).replacen(&format!("\"max_budget_usd\": {}", Value::from(usd)), &format!("\"max_budget_usd\": {usd_literal}"), 1);
-    std::fs::write(&request_file, text).map_err(|e| program(format!("{}: {}", request_file.display(), e.kind())))?;
+    write_atomic(&request_file, text.as_bytes()).map_err(program)?;
 
     let ran = start(&adapter_path(c.tools, adapter), &request_file, c).map_err(Failed::Ended)?;
     let exit = i64::from(ran.code);
@@ -176,7 +174,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     };
     let structured = c.rec.join("structured-output.json");
     if std::fs::read(&structured).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v.is_object()) {
-        let _ = std::fs::copy(&structured, cwd.join("out").join("decision.json"));
+        let _ = copy_atomic(&structured, &cwd.join("out").join("decision.json"));
     }
     if let Some(map) = response.as_object_mut() {
         let constrained = map.get("schema_constrained").is_some_and(|v| !v.is_null() && v != &json!(false));

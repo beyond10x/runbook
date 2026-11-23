@@ -17,14 +17,14 @@
 //! Nothing here writes the content of a login file, a path under a home directory or an
 //! environment: every value copied from an event is cleaned first (`Cleaner`).
 //!
-//! This file uses `super::events` and nothing else of the crate, so that the tests of the
+//! This file uses `super::events` and `super::record_write` and nothing else of the crate, so that the tests of the
 //! integration-test binary (there is no library target) can include it as it is.
 
 use super::events::{Cap, CostSource, Event, EventSink};
+use super::record_write;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The placeholder `sdc-experiment` puts in a summary for a string holding an absolute path.
@@ -134,12 +134,11 @@ fn io(what: &Path, e: std::io::Error) -> String {
 }
 
 /// One line appended to `path` with one write: a killed process leaves whole lines.
+/// The file is made when it is missing and is otherwise only a regular file with one name (`record_write::append`).
 fn append_line(path: &Path, v: &Value) -> Result<(), String> {
-    let mut f = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| io(path, e))?;
     let mut line = serde_json::to_string(v).map_err(|e| e.to_string())?;
     line.push('\n');
-    f.write_all(line.as_bytes()).map_err(|e| io(path, e))?;
-    f.flush().map_err(|e| io(path, e))
+    record_write::append(path, line.as_bytes(), true)
 }
 
 fn read_json(path: &Path) -> Option<Value> {
@@ -409,8 +408,8 @@ impl RunDirWriter {
         self.run_dir.join(name)
     }
 
-    /// Replaces `path` by `content` through a temporary file and a rename; nothing is written
-    /// when the file already holds it.
+    /// Replaces `path` by `content` through the one writer of the records of a run directory
+    /// (`record_write::write_atomic`); nothing is written when the file already holds it.
     fn put(&mut self, path: &Path, content: Vec<u8>) -> Result<(), String> {
         if self.written.get(path).is_some_and(|c| *c == content) {
             return Ok(());
@@ -418,11 +417,7 @@ impl RunDirWriter {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
         }
-        let mut tmp = path.as_os_str().to_os_string();
-        tmp.push(".tmp");
-        let tmp = PathBuf::from(tmp);
-        fs::write(&tmp, &content).map_err(|e| io(&tmp, e))?;
-        fs::rename(&tmp, path).map_err(|e| io(path, e))?;
+        record_write::write_atomic(path, &content)?;
         self.written.insert(path.to_path_buf(), content);
         Ok(())
     }

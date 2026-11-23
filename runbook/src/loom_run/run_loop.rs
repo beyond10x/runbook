@@ -15,6 +15,7 @@ use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Ope
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
+use crate::loom_run::record_write::write_atomic;
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -655,7 +656,7 @@ impl Runner<'_> {
         let dir = self.workspace.join(".sdc").join("reasons");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let file = dir.join(format!("{:03}-{safe}.txt", self.reasons_written));
-        std::fs::write(&file, format!("{text}\n")).map_err(|e| format!("{}: {e}", file.display()))?;
+        write_atomic(&file, format!("{text}\n").as_bytes())?;
         Ok(file)
     }
 

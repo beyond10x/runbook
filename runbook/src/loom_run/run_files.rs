@@ -2,11 +2,11 @@
 //! per event), `outcome.json`, `tree-status.json` and `tree-verify.json`.
 
 use crate::loom_run::events::{Cap, CostSource, Event, EventSink, StartSource};
+use crate::loom_run::record_write::write_atomic;
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Writes R1's files as events arrive.
 pub struct BasicFiles {
@@ -33,38 +33,6 @@ pub fn relative_text(run_dir: &Path, text: &str) -> String {
         return text.to_owned();
     }
     text.replace(&format!("{root}/"), "").replace(root, ".")
-}
-
-/// Writes `bytes` to `path` through a temporary file and a rename, so a reader never sees half a file.
-///
-/// The run directory is written by the programs of a run too (`--confinement local`), so no name in it is trusted: the
-/// temporary file is created as new (`O_EXCL`: nothing at the name is followed, opened or written through) under a dot
-/// name the writer chooses for this one write, and the rename replaces whatever lies at `path`, a link or a pipe too. A
-/// name that is taken is not used: the next one is tried.
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    let leaf = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut last = String::new();
-    for _ in 0..16 {
-        let tmp = path.with_file_name(format!(".{leaf}.{}.{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
-        let mut file = match OpenOptions::new().write(true).create_new(true).mode(0o644).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&tmp) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                last = format!("{}: {e}", tmp.display());
-                continue;
-            }
-            Err(e) => return Err(format!("{}: {e}", tmp.display())),
-        };
-        let written = file.write_all(bytes).and_then(|()| file.flush()).map_err(|e| format!("{}: {e}", tmp.display()));
-        drop(file);
-        let renamed = written.and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display())));
-        if renamed.is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        return renamed;
-    }
-    Err(last)
 }
 
 /// The JSON object of one event: `{"at": secs, "event": "<name>", ...}`.

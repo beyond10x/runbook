@@ -2,6 +2,7 @@
 //! claims it reads (`in/checks.json`) and the decision itself (`in/decision.json`).
 
 use super::prompt::{or, raw, Renderer};
+use crate::loom_run::record_write::{copy_atomic, write_atomic};
 use sdc_tools::reply::rules::later as protocol_later;
 use sdc_tools::reply::{read_json, sorted};
 use serde_json::{json, Map, Value};
@@ -36,8 +37,7 @@ fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
         return std::fs::set_permissions(to, meta.permissions());
     }
     if meta.is_file() {
-        let _ = std::fs::remove_file(to);
-        std::fs::copy(from, to)?;
+        copy_atomic(from, to).map_err(std::io::Error::other)?;
     }
     Ok(())
 }
@@ -279,7 +279,7 @@ pub(super) fn decision(req: &Value, item: &Value, touches: &Value, citable: &Val
 
 /// Writes a document as `jq` does: indented, then a newline.
 pub(super) fn write_pretty(path: &Path, value: &Value) -> Result<(), String> {
-    std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(value).unwrap_or_default())).map_err(|e| format!("{}: {}", path.display(), e.kind()))
+    write_atomic(path, format!("{}\n", serde_json::to_string_pretty(value).unwrap_or_default()).as_bytes())
 }
 
 /// Everything below `in/` the model is shown, and the prompt's pieces that come from it.

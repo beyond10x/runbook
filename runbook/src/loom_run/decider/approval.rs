@@ -109,12 +109,12 @@ pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) 
         artifacts.insert(approval.subject.clone(), json!({ "revision": approval.revision }));
     }
     let case = json!({"id": approval.case, "artifacts": artifacts});
-    std::fs::write(dir.join("case.json"), format!("{case}\n")).map_err(|e| format!("decider case file: {e}"))?;
+    write_atomic(&dir.join("case.json"), format!("{case}\n").as_bytes()).map_err(|e| format!("decider case file: {e}"))?;
     // The file the reply's address cites (`<artifact>@<revision>#<entry>`) resolve through: the
     // decision's subject and its path are the one artifact the runner knows a file of.
     let bindings = dir.join("bindings.json");
     match (approval.subject.is_empty(), &approval.path) {
-        (false, Some(path)) => std::fs::write(bindings, format!("{}\n", json!({"$artifacts": {approval.subject.clone(): path}}))).map_err(|e| format!("decider case file: {e}"))?,
+        (false, Some(path)) => write_atomic(&bindings, format!("{}\n", json!({"$artifacts": {approval.subject.clone(): path}})).as_bytes()).map_err(|e| format!("decider case file: {e}"))?,
         _ => {
             let _ = std::fs::remove_file(bindings);
         }

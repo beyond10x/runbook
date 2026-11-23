@@ -33,6 +33,7 @@ pub mod ledger;
 pub mod library;
 pub mod ports;
 pub mod private;
+pub mod record_write;
 pub mod replay;
 pub mod run_dir;
 pub mod run_files;

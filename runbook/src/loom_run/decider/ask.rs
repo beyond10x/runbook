@@ -35,8 +35,8 @@ impl NativeDecider {
             return Asked::cannot(format!("decider record directory: {}", e.kind()));
         }
         let body = ask_body(r, approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-            return Asked::cannot(format!("decider request file: {}", e.kind()));
+        if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+            return Asked::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, dreq, 0) {
             Ok(reply) => reply,
@@ -116,8 +116,8 @@ impl NativeDecider {
             if let Some(level) = &self.autonomy {
                 body["autonomy"] = json!(level);
             }
-            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
-                asked.result = Err(format!("decider request file: {}", e.kind()));
+            if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()).and_then(|()| write_atomic(&rec.join("loom-decision.json"), format!("{}\n", r.decision).as_bytes())) {
+                asked.result = Err(format!("decider request file: {e}"));
                 return asked;
             }
             let reply = match self.reply(&body, &rec, dreq, budget - asked.cost_micro_usd) {

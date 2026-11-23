@@ -12,6 +12,7 @@
 
 use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
+use crate::loom_run::record_write::write_atomic;
 use serde_json::{json, Map, Value};
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -416,8 +417,8 @@ impl NativeDecider {
                 .map_err(|reason| self.redact(&reason))?
             }
         };
-        let _ = std::fs::write(rec.join("decider-stderr.txt"), self.redact(&replied.stderr));
-        let _ = std::fs::write(rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)));
+        let _ = write_atomic(&rec.join("decider-stderr.txt"), self.redact(&replied.stderr).as_bytes());
+        let _ = write_atomic(&rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)).as_bytes());
         Ok(replied.reply)
     }
 
@@ -427,8 +428,8 @@ impl NativeDecider {
             return Self::cannot(format!("decider record directory: {}", e.kind()));
         }
         let body = decide_request(approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-            return Self::cannot(format!("decider request file: {}", e.kind()));
+        if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+            return Self::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, request, 0) {
             Ok(reply) => reply,
@@ -495,11 +496,11 @@ impl NativeDecider {
                     body["autonomy"] = json!(level);
                 }
             }
-            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-                return Self::cannot(format!("decider request file: {}", e.kind()));
+            if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+                return Self::cannot(format!("decider request file: {e}"));
             }
-            if let Err(e) = std::fs::write(rec.join("loom-decision.json"), format!("{}\n", request.decision)) {
-                return Self::cannot(format!("decider record file: {}", e.kind()));
+            if let Err(e) = write_atomic(&rec.join("loom-decision.json"), format!("{}\n", request.decision).as_bytes()) {
+                return Self::cannot(format!("decider record file: {e}"));
             }
             let reply = match self.reply(&body, &rec, request, budget - spent_micro) {
                 Ok(reply) => reply,

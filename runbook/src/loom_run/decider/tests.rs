@@ -1261,3 +1261,104 @@ fn an_obligation_only_a_later_step_meets_is_listed_apart_not_open_and_the_prompt
     assert!(checks.get("met_after_this_action").is_none(), "{checks}");
     assert!(!text.contains("a step after release.publish"), "{text}");
 }
+
+// --- the files of the decider in the run directory: a program of the run may have put something at any of their names ---
+
+/// A file outside the run that must keep its text, and a link at `at` that points at it.
+fn link_to_outside(w: &World, at: &Path) -> PathBuf {
+    let name = at.strip_prefix(&w.run).unwrap().display().to_string().replace('/', "-");
+    let outside = w.run.parent().unwrap().join(format!("outside-{name}.txt"));
+    std::fs::write(&outside, "keep\n").unwrap();
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&outside, at).unwrap();
+    outside
+}
+
+/// Every link made by `link_to_outside` for `at` still points at an untouched file, and what lies at `at` is a regular file.
+fn assert_replaced_not_written_through(links: &[(PathBuf, PathBuf)]) {
+    for (at, outside) in links {
+        assert_eq!(std::fs::read_to_string(outside).unwrap(), "keep\n", "{} was written through the link at {}", outside.display(), at.display());
+        assert!(std::fs::symlink_metadata(at).unwrap().is_file(), "{} is not a regular file", at.display());
+    }
+}
+
+#[test]
+fn the_files_of_a_model_call_replace_a_link_a_program_left_at_their_names() {
+    let w = world("r2-links-model", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    // the directory made here counts as a record directory: the call that follows is the second and writes in the one named 002
+    let rec = w.run.join("decider/002-context.approve");
+    let case_dir = w.run.join("decider-cases/IDEA-1.direction");
+    let mut at = vec![case_dir.join("case.json"), case_dir.join("bindings.json")];
+    for name in ["decide-request.json", "loom-decision.json", "reply-schema.json", "prompt.md", "request.json", "response.json", "status.json", "reply.json", "decider-stderr.txt", "cwd/in/checks.json", "cwd/in/decision.json"] {
+        at.push(rec.join(name));
+    }
+    let links: Vec<(PathBuf, PathBuf)> = at.into_iter().map(|a| (a.clone(), link_to_outside(&w, &a))).collect();
+    let dangling = w.run.parent().unwrap().join("outside-dangling-context.txt");
+    std::os::unix::fs::symlink(&dangling, rec.join("cwd/in/context.yaml")).unwrap();
+    let s = settings(&w, json!({}));
+    let verdict = ask(&w, &s, &approve_action(&w), 250_000);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    assert_replaced_not_written_through(&links);
+    assert!(!dangling.exists(), "a copy of work/context.yaml was written through a link that points at nothing");
+    assert!(std::fs::symlink_metadata(rec.join("cwd/in/context.yaml")).unwrap().is_file());
+}
+
+#[test]
+fn the_files_of_a_rule_decision_replace_a_link_a_program_left_at_their_names() {
+    let w = world("r2-links-rule", "#!/bin/sh\n");
+    let rec = w.run.join("decider/rule");
+    let links: Vec<(PathBuf, PathBuf)> =
+        ["decide-request.json", "reply.json", "decider-stderr.txt"].iter().map(|n| rec.join(n)).map(|a| (a.clone(), link_to_outside(&w, &a))).collect();
+    let s = json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}});
+    let verdict = ask(&w, &s, &approve_action(&w), 0);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    assert_replaced_not_written_through(&links);
+}
+
+#[test]
+fn the_files_of_a_question_replace_a_link_a_program_left_at_their_names() {
+    let w = world("ask-links", &answer_reply("approve", ""));
+    let rec = w.run.join("decider/002-q1");
+    let links: Vec<(PathBuf, PathBuf)> = ["decide-request.json", "loom-decision.json"].iter().map(|n| rec.join(n)).map(|a| (a.clone(), link_to_outside(&w, &a))).collect();
+    let decider = from_settings(&settings(&w, json!({}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(asked.result.unwrap().answer, "take it");
+    assert_replaced_not_written_through(&links);
+}
+
+#[test]
+fn the_request_file_of_a_rule_answer_to_a_question_replaces_a_link_a_program_left_at_its_name() {
+    let w = world("ask-links-rule", "#!/bin/sh\n");
+    let at = w.run.join("decider/rule/decide-request.json");
+    let links = vec![(at.clone(), link_to_outside(&w, &at))];
+    let decider = from_settings(&json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}})).unwrap();
+    let _ = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 0);
+    assert_replaced_not_written_through(&links);
+}
+
+#[test]
+fn the_status_of_a_call_is_written_past_a_link_the_adapter_left_at_the_old_temporary_name() {
+    let w = world("r2-status-link", "#!/bin/sh\n");
+    let target = w.run.parent().unwrap().join("outside-status.txt");
+    std::fs::write(&target, "keep\n").unwrap();
+    write_exe(&w.adapter, &script(Some(APPROVE), &response("0.1"), &format!("ln -s '{}' \"$d/.status.json.tmp\"\n", target.display())));
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep\n", "the status of the call was written through a link at its temporary name");
+    assert_eq!(json_file(&first_record(&w).join("status.json"))["state"], "finished");
+}
+
+#[test]
+fn the_structured_output_of_a_call_is_copied_past_a_link_a_program_left_at_the_decision_file() {
+    let w = world("r2-structured-link", "#!/bin/sh\n");
+    write_exe(&w.adapter, &script(None, &response("0.1"), "printf '%s\\n' '{\"decision\":\"approve\"}' > \"$d/structured-output.json\"\n"));
+    let target = w.run.parent().unwrap().join("outside-decision.txt");
+    std::fs::write(&target, "keep\n").unwrap();
+    let rec = w.run.join("decider/002-context.approve");
+    std::fs::create_dir_all(rec.join("cwd/out")).unwrap();
+    std::os::unix::fs::symlink(&target, rec.join("cwd/out/decision.json")).unwrap();
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep\n", "the structured output was copied through a link at the decision file");
+    assert!(std::fs::symlink_metadata(rec.join("cwd/out/decision.json")).unwrap().is_file(), "the decision file is not a regular file");
+}

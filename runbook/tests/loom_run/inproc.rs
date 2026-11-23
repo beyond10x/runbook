@@ -722,14 +722,19 @@ const AFTER_PLANT_SECS: u64 = 12;
 /// Waits for the child to end: up to 45 s for the program to plant (`planted.txt` in the work directory of `r1`), then
 /// `AFTER_PLANT_SECS` more. A child still running at the limit is killed (it is the child of this test) and `None` is answered.
 fn ended_after_plant(rig: &Rig, child: &mut std::process::Child) -> Option<std::process::ExitStatus> {
+    ended_after_plant_within(rig, child, AFTER_PLANT_SECS)
+}
+
+/// [`ended_after_plant`] with `secs` after the plant instead of `AFTER_PLANT_SECS`.
+fn ended_after_plant_within(rig: &Rig, child: &mut std::process::Child, secs: u64) -> Option<std::process::ExitStatus> {
     let planted = rig.work("r1").join("planted.txt");
     let mut limit = Instant::now() + Duration::from_secs(45);
     loop {
         if let Some(status) = child.try_wait().unwrap() {
             return Some(status);
         }
-        if planted.exists() && limit > Instant::now() + Duration::from_secs(AFTER_PLANT_SECS) {
-            limit = Instant::now() + Duration::from_secs(AFTER_PLANT_SECS);
+        if planted.exists() && limit > Instant::now() + Duration::from_secs(secs) {
+            limit = Instant::now() + Duration::from_secs(secs);
         }
         if Instant::now() >= limit {
             let _ = child.kill();
@@ -980,6 +985,29 @@ fn a_run_whose_every_temporary_name_a_program_took_ends_with_an_error_that_names
     assert!(text.contains(&format!(".{ppid}.")), "the error does not name the temporary file in the run directory: {text}");
 }
 
+/// The time the runner has to end after a program planted a name for a record: the writer of a record tries at most 16
+/// names and none of them waits, so a run that has not ended after this long waits on something a program left.
+const RECORD_AFTER_PLANT_SECS: u64 = 6;
+
+#[test]
+fn a_named_pipe_a_program_left_at_the_temporary_name_of_status_json_does_not_hold_the_end_of_the_run() {
+    let rig = Rig::new("status-fifo");
+    planting_writer(&rig, "mkfifo ../status.json.tmp");
+    let (mut child, _out, _err) = spawn_to_files(&rig, "status-fifo");
+    let status = ended_after_plant_within(&rig, &mut child, RECORD_AFTER_PLANT_SECS);
+    assert!(status.is_some_and(|s| s.success()), "the run did not end within {RECORD_AFTER_PLANT_SECS} s of the plant: the writer of status.json waits on a pipe that a program left at its temporary name ({status:?})");
+}
+
+#[test]
+fn a_link_a_program_left_at_the_temporary_name_of_status_json_is_not_written_through() {
+    let rig = Rig::new("status-link");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("ln -s '{}' ../status.json.tmp", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "status.json was written into a file outside the run directory, through a link at its temporary name");
+}
+
 #[test]
 fn guard_a_run_leaves_no_temporary_file_in_its_directory() {
     let rig = Rig::new("no-temp-file-left");
@@ -1012,4 +1040,56 @@ fn guard_an_events_file_with_no_permission_does_not_stop_the_run() {
 #[test]
 fn guard_an_events_file_that_is_read_only_does_not_stop_the_run() {
     an_events_file_a_program_made_unusable_does_not_stop_the_run("mode444", "chmod 444 ../events.jsonl");
+}
+
+/// A record the runner appends to (`rounds.jsonl` after the first step, `decisions.jsonl` after the first answer) that a
+/// program of the run replaced by `plant` (sh, `OUTSIDE` is a file outside the run): the run ends within
+/// `RECORD_AFTER_PLANT_SECS` of the plant with an error that names the file in the run directory, and nothing is written
+/// outside the run.
+fn an_appended_record_a_program_replaced_ends_the_run_with_an_error(tag: &str, leaf: &str, plant: &str) {
+    let rig = Rig::new(&format!("appended-{tag}"));
+    let outside = outside(&rig);
+    planting_writer(&rig, &plant.replace("OUTSIDE", &outside.display().to_string()));
+    let (mut child, out, err) = spawn_to_files(&rig, tag);
+    let status = ended_after_plant_within(&rig, &mut child, RECORD_AFTER_PLANT_SECS);
+    let text = format!("{}{}", std::fs::read_to_string(&out).unwrap_or_default(), std::fs::read_to_string(&err).unwrap_or_default());
+    assert!(status.is_some(), "{tag}: the run did not end within {RECORD_AFTER_PLANT_SECS} s of the plant: the writer of {leaf} waits on what a program put there ({text})");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "{tag}: {leaf} was appended to a file outside the run directory");
+    assert!(status.is_some_and(|s| !s.success()), "{tag}: the run ended without an error although {leaf} was not a regular file with one name ({status:?}): {text}");
+    assert!(text.contains(leaf), "{tag}: the error does not name {leaf} in the run directory: {text}");
+    assert!(!text.contains("outside.txt"), "{tag}: a message names the file outside the run: {text}");
+}
+
+#[test]
+fn a_link_a_program_put_at_rounds_jsonl_is_not_appended_through() {
+    an_appended_record_a_program_replaced_ends_the_run_with_an_error("rounds-link", "rounds.jsonl", "rm -f ../rounds.jsonl\nln -s 'OUTSIDE' ../rounds.jsonl");
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_rounds_jsonl_does_not_hold_the_end_of_the_run() {
+    an_appended_record_a_program_replaced_ends_the_run_with_an_error("rounds-pipe", "rounds.jsonl", "rm -f ../rounds.jsonl\nmkfifo ../rounds.jsonl");
+}
+
+#[test]
+fn a_second_name_of_a_file_outside_the_run_put_at_rounds_jsonl_is_not_appended_to() {
+    an_appended_record_a_program_replaced_ends_the_run_with_an_error("rounds-name", "rounds.jsonl", "rm -f ../rounds.jsonl\nln 'OUTSIDE' ../rounds.jsonl");
+}
+
+#[test]
+fn a_link_a_program_put_at_decisions_jsonl_is_not_appended_through() {
+    an_appended_record_a_program_replaced_ends_the_run_with_an_error("decisions-link", "decisions.jsonl", "rm -f ../decisions.jsonl\nln -s 'OUTSIDE' ../decisions.jsonl");
+}
+
+#[test]
+fn the_reasons_of_a_rejection_replace_a_link_a_program_left_at_their_file() {
+    let rig = Rig::new("reasons-link");
+    rig.answers(&[json!({"approve": false, "reasons": "the draft needs a title line", "cost_micro_usd": 0}), approve()], 0);
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("mkdir -p .sdc/reasons\nln -s '{}' .sdc/reasons/001-draft.review.txt", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "the reasons of a rejection were written into a file outside the run directory, through a link");
+    let reasons = rig.work("r1").join(".sdc/reasons/001-draft.review.txt");
+    assert!(std::fs::symlink_metadata(&reasons).unwrap().is_file(), "{} is not a regular file", reasons.display());
+    assert!(std::fs::read_to_string(&reasons).unwrap().contains("the draft needs a title line"));
 }
