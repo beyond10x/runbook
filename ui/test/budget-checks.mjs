@@ -3,7 +3,7 @@
 
 import path from 'node:path';
 
-export const SIZE =/setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(|toBeVisible|toBeHidden|isHidden|toBeInViewport|scrollIntoViewIfNeeded|matchMedia/;
+export const SIZE = /setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(|toBeVisible|toBeHidden|isHidden|toBeInViewport|scrollIntoViewIfNeeded|matchMedia/;
 
 // The skips on the project name that bothSkipProblems knows.
 export const SKIP_SPELLINGS = ["project.name !== 'wide'", "project.name != 'wide'", "project.name === 'laptop'", "project.name == 'laptop'"];
