@@ -7,6 +7,7 @@
 //! process, so a global in the process would build it once per test). The slow lane (`task test:install`) runs the
 //! `--release` build into a prefix of its own and the same commands (`slow.rs`).
 
+mod guards;
 mod slow;
 
 use serde_json::{json, Value};
