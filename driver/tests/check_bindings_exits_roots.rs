@@ -1,6 +1,5 @@
 //! Cases for `scripts/check-bindings.sh --exits <root>`: the pool list of this repository
-//! and the roots that are not this repository. `ADV_CHECK_BINDINGS` names another copy of the script
-//! (a mutant in the scratch directory); without it the script of the tree runs.
+//! and the roots that are not this repository. The script is the one of the tree.
 
 use std::fs;
 use std::path::PathBuf;
@@ -9,10 +8,7 @@ use std::process::{Command, Output};
 const POOL_FILES: [&str; 3] = ["sdc-story.yaml", "sdc-release.yaml", "sdc-bugfix.yaml"];
 
 fn script() -> PathBuf {
-    match std::env::var_os("ADV_CHECK_BINDINGS") {
-        Some(p) => PathBuf::from(p),
-        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-bindings.sh"),
-    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-bindings.sh")
 }
 
 fn root_in(name: &str) -> PathBuf {
