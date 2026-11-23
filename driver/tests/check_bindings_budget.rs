@@ -240,7 +240,7 @@ fn a_hex_octal_or_binary_limit_is_taken_up_to_i64_max_and_refused_past_it() {
 
 /// Loom's reader (`serde_yaml_ng`) refuses a document whose alias jumps pass 100 for each event of the
 /// document, whatever its values add up to: a tower of nine-fold aliases over one scalar is about 74700
-/// values (under the bound of 100000) and 66000 jumps for some 130 events. The script counts values
+/// values (under the bound of 100000) and 74727 jumps for 87 events. The script counts values
 /// only.
 #[test]
 fn a_tower_of_aliases_past_the_repetition_limit_of_loom_is_refused_by_its_file() {
@@ -257,9 +257,9 @@ fn a_tower_of_aliases_past_the_repetition_limit_of_loom_is_refused_by_its_file()
     assert!(!out.contains("l5") && !out.contains("*l"), "the refusal prints a line of the file: {out}");
 }
 
-/// The same tower has 66429 alias jumps (9, 90, 819, 7380 and 66429 for its five levels, each jump
+/// The same tower has 74727 alias jumps (9, 90, 819, 7380 and 66429 for its five levels, each jump
 /// counted once) and the limit is 100 for each event: with 330 padding keys (two events each) the
-/// document has 664 events and is refused, with 331 it has 666 and is taken. Loom's reader gave the
+/// document has 747 events and is refused, with 331 it has 749 and is taken. Loom's reader gave the
 /// same two answers for these two documents when they were measured.
 #[test]
 fn the_repetition_limit_is_held_at_its_boundary() {
@@ -276,7 +276,48 @@ fn the_repetition_limit_is_held_at_its_boundary() {
         doc
     };
     let o = check("tower-330", &tower(330));
-    assert_eq!(o.status.code(), Some(1), "664 events and 66429 jumps: {}", said(&o).0);
+    assert_eq!(o.status.code(), Some(1), "747 events and 74727 jumps: {}", said(&o).0);
     let o = check("tower-331", &tower(331));
-    assert_eq!(o.status.code(), Some(0), "666 events and 66429 jumps: {}", said(&o).0);
+    assert_eq!(o.status.code(), Some(0), "749 events and 74727 jumps: {}", said(&o).0);
+}
+
+fn tower() -> String {
+    let mut t = String::from("x-s: &s x\n");
+    let mut prev = "s".to_string();
+    for l in 1..=5 {
+        t += &format!("x-l{l}: &l{l} [{}]\n", vec![format!("*{prev}"); 9].join(", "));
+        prev = format!("l{l}");
+    }
+    t
+}
+
+/// The tower (74727 alias jumps in all: 9, 90, 819, 7380 and 66429 for its five levels) with `keys`
+/// entries that each define a scalar and use it as a KEY (one alias jump, four events each), a map of
+/// those keys (three events) and `pad` plain entries (two events each). The document has
+/// 87 + 4 * keys + 3 + 2 * pad events: 74 keys and 181 pads make 748 events, the limit is 74800, the
+/// jumps 74801 with the key aliases counted and 74727 without them.
+fn tower_with_key_aliases(keys: usize, pad: usize) -> String {
+    let mut t = tower();
+    for i in 0..keys {
+        t += &format!("x-d{i}: &k{i} key{i}\n");
+    }
+    t += "x-keyed: {";
+    t += &(0..keys).map(|i| format!("*k{i} : 1")).collect::<Vec<_>>().join(", ");
+    t += "}\n";
+    for i in 0..pad {
+        t += &format!("x-p{i}: 1\n");
+    }
+    t
+}
+
+/// Guard (an alias in the place of a key counts as a jump). 74 keys and 181 pads are tuned in the
+/// scratch directory with the decoder of the pin (the document is refused by Loom's reader).
+#[test]
+fn an_alias_used_as_a_key_counts_as_a_jump() {
+    let o = check("keyjump-refused", &tower_with_key_aliases(74, 181));
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(1), "the script took a document whose key aliases push the jumps past the limit: {out}\n{err}");
+    let o = check("keyjump-taken", &tower_with_key_aliases(74, 182));
+    let (out, err) = said(&o);
+    assert_eq!(o.status.code(), Some(0), "the script refused a document under the limit: {out}\n{err}");
 }
