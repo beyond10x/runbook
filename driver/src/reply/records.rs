@@ -44,22 +44,23 @@ pub struct Facts {
     workspace: bool,
 }
 
-/// The work directory a case directory names: its `work/` when it has one (the driver's layout, and
-/// a Loom case directory that keeps the workspace in `work/`), else the directory itself, which then
-/// is the workspace (Loom's suite layout keeps workspaces in `work/<n>`, apart from `store/<n>`).
+/// The work directory (the workspace) of a case, the one place that decides it.
+///
+/// Under Loom (`LOOM_CASE` set) a bound program starts in the workspace root, and Loom (`c9b4c177`,
+/// `b10x_loom_bindings::bound_case_child`) states nothing else: its environment is `PATH`,
+/// `LOOM_CASE`, `LOOM_TIMEOUT_SECONDS` and, for an opened case, `LOOM_CASE_NAME` and
+/// `LOOM_PARENT_CASE_NAME`; it names no case directory and no store, and a suite's layout
+/// (`<scratch>/work/<n>`, `<scratch>/store/<n>`) is not something a program can see. So the workspace
+/// is the current directory, and `case_dir` is not read: nothing in the workspace, which a model
+/// writes, decides where it is. Without `LOOM_CASE` (the old driver) it is `<case_dir>/work`.
 pub fn case_work(case_dir: &Path) -> PathBuf {
-    let work = case_dir.join("work");
-    if work.is_dir() { work } else { case_dir.to_path_buf() }
+    loom_workspace().unwrap_or_else(|| case_dir.join("work"))
 }
 
-/// The case directory of a workspace `work`: its parent when `work` is that parent's `work/` (the
-/// layouts `case_work` reads back to `work`), else `work` itself.
-pub fn case_dir_of(work: &Path) -> PathBuf {
-    let parent = work.join("..");
-    match (fs::canonicalize(parent.join("work")), fs::canonicalize(work)) {
-        (Ok(a), Ok(b)) if a == b => parent,
-        _ => work.to_path_buf(),
-    }
+/// The workspace of a bound program: the directory it was started in, when `LOOM_CASE` is set.
+pub fn loom_workspace() -> Option<PathBuf> {
+    std::env::var_os("LOOM_CASE").filter(|v| !v.is_empty())?;
+    std::env::current_dir().ok()
 }
 
 /// The records directory below a workspace.
@@ -69,8 +70,7 @@ impl Facts {
     /// The source the environment names: the workspace's records when `LOOM_CASE` is set.
     pub fn open(case_dir: &Path) -> Facts {
         let loom = std::env::var_os("LOOM_CASE").is_some_and(|v| !v.is_empty());
-        let work = if loom { case_work(case_dir) } else { case_dir.join("work") };
-        Facts { dir: case_dir.to_path_buf(), work, workspace: loom }
+        Facts { dir: case_dir.to_path_buf(), work: case_work(case_dir), workspace: loom }
     }
 
     /// The driver mode of a case directory, whatever `LOOM_CASE` says (a caller that builds the

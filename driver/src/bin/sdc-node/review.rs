@@ -7,7 +7,7 @@ use crate::nodes::{Built, Inputs};
 use crate::ordjson::Ov;
 use crate::util::{chomp, env_set, now_utc, run_split, Exit, Out, R};
 use crate::Ctx;
-use sdc_tools::reply::records::{case_dir_of, Facts};
+use sdc_tools::reply::records::Facts;
 use sdc_tools::reply::review::{check_review, review_inputs, review_inputs_session};
 use sdc_tools::reply::schemas::review_schema;
 use sdc_tools::reply::read_json;
@@ -34,7 +34,7 @@ const SESSION_OPS: &[&str] = &["dir.list", "file.read", "search"];
 /// task. Inputs that cannot be made end the run with exit 2, recording nothing.
 pub fn inputs(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
     let story = c.names().1;
-    let case_dir = env_set("SDC_CASE_DIR").map_or_else(|| case_dir_of(&c.work), PathBuf::from);
+    let case_dir = env_set("SDC_CASE_DIR").map_or_else(|| c.work.join(".."), PathBuf::from);
     let facts = c.facts();
     let source = Facts::open(&case_dir);
     let made = if facts { review_inputs(cwd, &source, &story) } else { review_inputs_session(cwd, &source, &story) };
