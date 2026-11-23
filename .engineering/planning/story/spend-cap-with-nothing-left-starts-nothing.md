@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:spend-cap-with-nothing-left-starts-nothing
 kind: story
-status: draft
+status: active
 title: A spend cap with nothing left starts nothing
 summary: 'Two findings of security pass 4 of run-without-model-node-needs-no-caps in code on main: the stop before a tree run depends on an option the model tool names, and a decision printed by the step that passed the cap is still answered.'
 relations:
@@ -12,7 +12,10 @@ scope:
   path: runbook/src/loom_run/budget.rs
 - confidence: cited
   path: runbook/src/loom_run/run_loop.rs
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-23T09:19:06Z", actor: "human:operator", revision: 4, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-23T09:19:06Z", actor: "human:operator", revision: 5, executor: "agent:runbook"}
 ---
 ## Outcome
 
