@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import gate, {BUDGET} from '../playwright.config.mjs';
-import {slowFiles, bothFiles, wideOnlyFiles, WIDE_ONLY, BOTH, SIZE_EXCEPTIONS} from './lanes.mjs';
+import {slowFiles, bothFiles, wideOnlyFiles, WIDE_ONLY, BOTH, SIZE_EXCEPTIONS, FIXED_WAITS} from './lanes.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const specs = fs.readdirSync(here).filter((f) => f.endsWith('.spec.mjs'));
@@ -45,7 +45,7 @@ test('every slow-lane spec exists, and no spec of the gate lane needs runs/, a b
 });
 
 const code = (f) => text(f).split('\n').filter((l) => !/^\s*\/\//.test(l) && !/test\.skip\(/.test(l)).join('\n').replace(/\s\/\/ .*$/gm, '');
-const SIZE = /setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(/;
+const SIZE = /setViewportSize|viewport\s*:|viewportSize|boundingBox|getBoundingClientRect|scrollWidth|innerWidth|toHaveScreenshot|\.screenshot\(|\.isVisible\(|toBeVisible|toBeHidden|isHidden|toBeInViewport|scrollIntoViewIfNeeded|matchMedia/;
 
 test('every spec file is in exactly one list of test/lanes.mjs: both viewports, wide only, or slow', () => {
   const lists = {both: bothFiles, wide: wideOnlyFiles, slow: slowFiles};
@@ -56,9 +56,48 @@ test('every spec file is in exactly one list of test/lanes.mjs: both viewports, 
   }
   for (const [k, l] of Object.entries(lists)) for (const f of l) if (!specs.includes(f)) bad.push(`${f}: listed in ${k}, not a spec file under test/`);
   expect(bad).toEqual([]);
-  for (const [name, why] of [...Object.entries(WIDE_ONLY), ...Object.entries(BOTH)]) {
-    expect(why.trim().split(/\s+/).length, `${name}: the reason in at most five words`).toBeLessThanOrEqual(5);
+});
+
+test('every reason of WIDE_ONLY, BOTH and SIZE_EXCEPTIONS is one to five words, none empty', () => {
+  const words = (why) => why.trim().split(/\s+/).filter(Boolean).length;
+  const bad = [];
+  for (const [list, map] of Object.entries({WIDE_ONLY, BOTH, SIZE_EXCEPTIONS})) {
+    for (const [name, why] of Object.entries(map)) if (words(why) < 1 || words(why) > 5) bad.push(`${list} ${name}: "${why}" (${words(why)} words)`);
   }
+  expect(bad).toEqual([]);
+});
+
+test('a file listed for both viewports has no skip on the project name, which would leave one of the sizes unrun', () => {
+  const bad = [];
+  for (const f of bothFiles.filter((x) => specs.includes(x))) {
+    if (text(f).split('\n').some((l) => !/^\s*\/\//.test(l) && /project\.name\s*!==?\s*['"]wide['"]|project\.name\s*===?\s*['"]laptop['"]/.test(l))) bad.push(`${f}: listed for both viewports and skips on the project name`);
+  }
+  expect(bad).toEqual([]);
+});
+
+test('a fixed wait (waitForTimeout) is made only where FIXED_WAITS names the file and the count', () => {
+  const bad = [];
+  for (const f of gateSpecs.filter((x) => x !== 'budget.spec.mjs')) {
+    const n = (code(f).match(/waitForTimeout\(/g) ?? []).length;
+    const allowed = FIXED_WAITS[f] ?? 0;
+    if (n > allowed) bad.push(`${f}: ${n} fixed waits, ${allowed} allowed: wait for an event (settled, expect, expect.poll)`);
+    if (n < allowed) bad.push(`${f}: ${allowed} fixed waits allowed, ${n} made: lower the entry in FIXED_WAITS`);
+  }
+  for (const f of Object.keys(FIXED_WAITS)) if (!gateSpecs.includes(f)) bad.push(`${f}: in FIXED_WAITS, not a spec of the gate lane`);
+  expect(bad).toEqual([]);
+});
+
+test('SIZE matches every kind of line the README and lanes.mjs say a size check is', () => {
+  const NAMED = {
+    'a viewport': ['viewport: {width: 390}', 'page.viewportSize()', 'page.setViewportSize(x)'],
+    'a position': ['el.boundingBox()', 'el.getBoundingClientRect()', 'document.documentElement.scrollWidth', 'window.innerWidth'],
+    'a screenshot': ['expect(page).toHaveScreenshot()', 'page.screenshot({})'],
+    'a visibility check': ['el.isVisible()', 'expect(el).toBeVisible()', 'expect(el).toBeHidden()', 'el.isHidden()', 'expect(el).toBeInViewport()', 'el.scrollIntoViewIfNeeded()', "window.matchMedia('(max-width: 800px)')"],
+  };
+  const missed = [];
+  for (const [what, lines] of Object.entries(NAMED)) for (const l of lines) if (!SIZE.test(l)) missed.push(`${what}: ${l}`);
+  expect(missed).toEqual([]);
+  expect(SIZE.test('await page.locator("#x").click()')).toBe(false);
 });
 
 test('a spec that names a size or a position is listed wide only only with a reason in SIZE_EXCEPTIONS', () => {

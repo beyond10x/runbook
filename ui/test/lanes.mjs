@@ -30,6 +30,7 @@ export const WIDE_ONLY = {
   'child.spec.mjs': 'process guard, no page',
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
+  'daemon-start.spec.mjs': 'start form against own daemons',
   'daemon-ui.spec.mjs': 'daemon serves, page lists runs',
   'decisions-reads-the-run.spec.mjs': 'pure reader refuses other runs',
   'decisions-yaml-parses-what-was-read.spec.mjs': 'in-process parse, no page',
@@ -68,6 +69,19 @@ export const WIDE_ONLY = {
   'security-products-race.spec.mjs': 'swap race, no page',
   'security-products-routes.spec.mjs': 'route guard, Host and Origin',
   'security-products-runlog.spec.mjs': 'run-log guard of server',
+  'security-start-answers.spec.mjs': 'answers that end the key',
+  'security-start-close.spec.mjs': 'closed form keeps no token',
+  'security-start-content.spec.mjs': 'start form shows only text',
+  'security-start-floor-reread.spec.mjs': 'floor read again on Start',
+  'security-start-gone-runbook.spec.mjs': 'runbook left the list',
+  'security-start-idempotency.spec.mjs': 'one filled form, one run',
+  'security-start-inspector.spec.mjs': 'inspector stays read-only',
+  'security-start-key.spec.mjs': 'life of the key',
+  'security-start-late-answers.spec.mjs': 'answer after form reopened',
+  'security-start-ready-window.spec.mjs': 'floor changes under the form',
+  'security-start-second-paint.spec.mjs': 'picks kept across a repaint',
+  'security-start-token-places.spec.mjs': 'token found in no store',
+  'security-start-token.spec.mjs': 'token field rules',
   'slim-scrub.spec.mjs': 'committed fixture check',
   'stall-model.spec.mjs': 'model function, no page',
   'step-products-api.spec.mjs': 'route answers, no page',
@@ -82,17 +96,55 @@ export const WIDE_ONLY = {
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
-// A wide-only file whose code names a size or a position (a `viewport`, `setViewportSize`, `boundingBox`,
-// `getBoundingClientRect`, `scrollWidth`, `toHaveScreenshot`, a screenshot, or a visibility check) is listed here
-// with the reason its claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file
-// that names one and is not listed.
+// A wide-only file whose code names a size, a position or a visibility (`viewport`, `setViewportSize`, `boundingBox`,
+// `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`,
+// `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) is listed here with the reason its
+// claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file that names one and is
+// not listed, and a listed file that names none.
 export const SIZE_EXCEPTIONS = {
   'autopilot.spec.mjs': 'sets both gating sizes itself',
-  'daemon-decide.spec.mjs': 'its phone test sets a size',
+  'daemon-decide.spec.mjs': 'phone test sets size',
+  'daemon-start.spec.mjs': 'presence, not layout',
+  'daemon-ui.spec.mjs': 'presence, not layout',
+  'good-end.spec.mjs': 'presence, not layout',
+  'graph-any-runbook.spec.mjs': 'presence, not layout',
+  'loom-run-record.spec.mjs': 'presence, not layout',
+  'markdown-hostile.spec.mjs': 'presence, not layout',
   'mobile.spec.mjs': 'sets the phone size itself',
-  'read-only.spec.mjs': 'screenshot is a file, not a claim',
+  'read-only.spec.mjs': 'screenshot is a file',
+  'run-picker-experiments.spec.mjs': 'presence, not layout',
   'run-picker.spec.mjs': 'sets 805x1270 and 390x844 itself',
-  'step-products-page.spec.mjs': 'sets 390 and 1366 sizes itself',
+  'security-products-page.spec.mjs': 'presence, not layout',
+  'security-start-answers.spec.mjs': 'presence, not layout',
+  'security-start-close.spec.mjs': 'presence, not layout',
+  'security-start-idempotency.spec.mjs': 'presence, not layout',
+  'security-start-key.spec.mjs': 'presence, not layout',
+  'security-start-late-answers.spec.mjs': 'presence, not layout',
+  'security-start-ready-window.spec.mjs': 'presence, not layout',
+  'security-start-token-places.spec.mjs': 'presence, not layout',
+  'security-start-token.spec.mjs': 'presence, not layout',
+  'step-products-bounds.spec.mjs': 'presence, not layout',
+  'step-products-page.spec.mjs': 'sets 390 and 1366 itself',
   'stopped.spec.mjs': 'sets both gating sizes itself',
   'stub-runs.spec.mjs': 'sets 805x1270 and 390x844 itself',
+  'view.spec.mjs': 'presence, not layout',
+};
+
+// The gate's specs that wait a fixed time (`page.waitForTimeout`), with how many times: each is a wait for something that
+// must not happen (nothing changes, nothing is drawn), which no event ends. budget.spec.mjs fails a gate spec whose count
+// differs from its entry, so a new fixed wait is a line here, in a change a reviewer reads.
+export const FIXED_WAITS = {
+  'daemon-decide-review.spec.mjs': 2,
+  'daemon-decide.spec.mjs': 2,
+  'daemon-start.spec.mjs': 1,
+  'paths-served.spec.mjs': 1,
+  'security-start-content.spec.mjs': 2,
+  'security-start-gone-runbook.spec.mjs': 1,
+  'security-start-key.spec.mjs': 2,
+  'security-start-late-answers.spec.mjs': 1,
+  'security-start-ready-window.spec.mjs': 8,
+  'security-start-second-paint.spec.mjs': 3,
+  'security-start-token-places.spec.mjs': 1,
+  'security-start-token.spec.mjs': 2,
+  'stopped.spec.mjs': 2,
 };
