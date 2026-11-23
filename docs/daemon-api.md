@@ -349,7 +349,11 @@ Without `--ui`, `GET /` is `404`.
   (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
   the person picked while the form was still reading the floor and the list stays picked when the floor just
   read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
-  `below-floor`). From the moment the form opens until it has read the floor of that opening, Start is
+  `below-floor`). The page checks the level against the floor it read when the form opened; when the daemon
+  comes back with a higher floor while the form is open, a start with the lower level can leave the page, and the
+  daemon refuses it with `409 below-floor` and starts no run: the daemon's check is the guard
+  (`ui/test/security-start-ready-window.spec.mjs`, "measured: the daemon comes back with a higher floor while the form is open and has read its floor", which asserts `409` and 0 runs).
+  From the moment the form opens until it has read the floor of that opening, Start is
   disabled and a press sends nothing, whatever level an earlier opening offered. A runbook the person
   picked that the list just read no longer has is not replaced by another: none is selected, Start is
   disabled and the form says that the picked runbook is no longer listed. The answer of a press belongs to
