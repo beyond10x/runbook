@@ -47,6 +47,19 @@ test('cache-count-bound: files that add no content (empty, long names) are held 
   expect(cacheStats().entries, 'entries held').toBeLessThan(N);
 });
 
+test('cache-accounting-is-not-below-memory: what the cache counts for an entry with a short path and no content is at least the memory it takes', () => {
+  const dir = fresh('overhead');
+  const N = 3000;
+  for (let i = 0; i < N; i++) fs.writeFileSync(path.join(dir, `f${i}.json`), '');
+  const h0 = heap();
+  for (let i = 0; i < N; i++) readText(path.join(dir, `f${i}.json`));
+  const held = heap() - h0;
+  const {entries, held: counted} = cacheStats();
+  console.log(`cache accounting: ${entries} empty files with short paths: counted ${(counted / entries).toFixed(0)} bytes each, memory ${(held / entries).toFixed(0)} bytes each`);
+  expect(entries).toBe(N);
+  expect(counted, 'the bound counts less than the memory an entry takes: the entry itself (its map slot and record) is left out').toBeGreaterThanOrEqual(held);
+});
+
 test('cache-bytes-bound: files with one character above U+00FF hold no more memory than the named bound', () => {
   test.setTimeout(60000);
   const dir = fresh('bytes');

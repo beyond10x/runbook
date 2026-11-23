@@ -155,6 +155,16 @@ test('reads-route: without the option the route is an unknown route (same answer
   expect((await get('/events', {method: 'POST'})).status).toBe(405);
 });
 
+test('a request that names no run reads no run: a source that is none is not run 0', async () => {
+  test.setTimeout(60000);
+  const before = (await reads()).byRun;
+  fs.appendFileSync(eventsOf(0), JSON.stringify({event: 'note', seq: 9000, at: iso(70), source: 'test'}) + '\n');
+  for (const s of ['99', '-1', 'abc']) for (const r of ['/api/tree', '/api/live', '/api/inbox', '/api/run']) await get(`${r}?source=${s}`);
+  expect((await reads()).byRun, 'a run was read for a request that names none').toEqual(before);
+  await get('/api/tree?source=0');
+  expect((await reads()).byRun, 'the change of run 0 is read when its run is named').not.toEqual(before);
+});
+
 test('reads-names-no-host-path: runs given as a store argument, through a link, as a case directory or under --runs are all named by run, whatever is read', async () => {
   test.setTimeout(60000);
   const link = path.join(root, 'link-to-r1');
