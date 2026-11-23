@@ -16,7 +16,7 @@ test.afterAll(() => fs.rmSync(dir, {recursive: true, force: true}));
 test('a player of the decider scenario ends by itself although SDC_FIXTURE_HOLD names a file nobody writes', async () => {
   fs.mkdirSync(dir, {recursive: true});
   const never = path.join(dir, 'never-written.hold');
-  const proc = spawnChild(process.execPath, ['test/fixture-run.mjs', 'decider', path.join(dir, 'ambient')], {cwd: ui, stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, SDC_FIXTURE_HOLD: never}});
+  const proc = spawnChild(process.execPath, ['test/fixture-run.mjs', 'decider', path.join(dir, 'ambient'), '50'],{cwd: ui, stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, SDC_FIXTURE_HOLD: never}});
   let err = '';
   proc.stderr.on('data', (d) => { err += d; });
   try {
