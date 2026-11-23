@@ -208,6 +208,130 @@ fn a_binding_of_another_runbook_without_the_flag_and_with_other_codes_gets_the_l
     );
 }
 
+#[test]
+fn a_dangling_link_named_yaml_is_refused_by_one_line_naming_it() {
+    let root = root_in("dangling-alone");
+    fs::write(root.join("bindings/good.yaml"), GOOD).unwrap();
+    std::os::unix::fs::symlink("nowhere", root.join("bindings/dangling.yaml")).unwrap();
+    let o = run_exits(&root);
+    let (out, err) = said(&o);
+    assert_eq!((o.status.code(), out.as_str()), (Some(1), "FAIL exits\n  bindings/dangling.yaml: a link that points at nothing\n"), "{err}");
+}
+
+/// A link named like one of the three files counts as holding it: the pool rule applies, and nothing provides the
+/// five bindings, so the output is the refusal of the link and the five pool lines.
+#[test]
+fn a_dangling_link_named_like_a_pool_file_is_refused_and_the_pool_rule_applies() {
+    let root = root_in("dangling-pool-name");
+    fs::write(root.join("bindings/good.yaml"), GOOD).unwrap();
+    std::os::unix::fs::symlink("nowhere", root.join("bindings/sdc-story.yaml")).unwrap();
+    let o = run_exits(&root);
+    let (out, err) = said(&o);
+    let pool = "a binding that waits for the build pool is not in bindings/";
+    let want = format!(
+        "FAIL exits\n  bindings/sdc-story.yaml: a link that points at nothing\n  bindings/sdc-story.yaml:tests.run: {pool}\n  bindings/sdc-release.yaml:acceptance.run: {pool}\n  bindings/sdc-bugfix.yaml:repro.run: {pool}\n  bindings/sdc-bugfix.yaml:tests.run: {pool}\n  bindings/sdc-bugfix.yaml:gate.run: {pool}\n"
+    );
+    assert_eq!((o.status.code(), out.as_str()), (Some(1), want.as_str()), "{err}");
+}
+
+/// A tree for the full check, cut before its cargo steps (at the answers file): this repository's bindings, protocol
+/// files and instructions, and the compiled protocol and JSON bindings of `sdc-story`.
+fn full_check_tree(name: &str) -> PathBuf {
+    let root = own_root(name);
+    let from = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    fs::create_dir_all(root.join("protocol")).unwrap();
+    for e in fs::read_dir(from.join("protocol")).unwrap() {
+        let p = e.unwrap().path();
+        if p.to_string_lossy().ends_with(".protocol.yaml") {
+            fs::copy(&p, root.join("protocol").join(p.file_name().unwrap())).unwrap();
+        }
+    }
+    fs::copy(from.join("bindings/PENDING.md"), root.join("bindings/PENDING.md")).unwrap();
+    for (dir, file) in [("driver/examples/sdc", "sdc-story.bindings.json"), ("protocol/compiled", "sdc-story.ir.json")] {
+        fs::create_dir_all(root.join(dir)).unwrap();
+        fs::copy(from.join(dir).join(file), root.join(dir).join(file)).unwrap();
+    }
+    std::os::unix::fs::symlink(from.join("instructions").canonicalize().unwrap(), root.join("instructions")).unwrap();
+    std::os::unix::fs::symlink(from.join("bindings/tools").canonicalize().unwrap(), root.join("bindings/tools")).unwrap();
+    let text = fs::read_to_string(script()).unwrap();
+    let cut = text.split("# The answers file of").next().unwrap();
+    fs::create_dir_all(root.join("scripts")).unwrap();
+    fs::write(root.join("scripts/check-bindings.sh"), format!("{cut}exit $fail\n")).unwrap();
+    root
+}
+
+fn full_check(root: &std::path::Path) -> (Option<i32>, String, String) {
+    let o = Command::new("bash").arg(root.join("scripts/check-bindings.sh")).output().unwrap();
+    (o.status.code(), String::from_utf8_lossy(&o.stdout).into_owned(), String::from_utf8_lossy(&o.stderr).into_owned())
+}
+
+/// The registrations step reads `bindings/*.yaml` through yq, as the exits step does and before it. To show the
+/// registrations step alone, the call of the exits step is cut out of the copy of the script (the line `check_exits`
+/// at the start of a line). A clean tree is the control; then a file in `bindings/` that is no YAML must fail the
+/// check: its reader was a process substitution, whose failure was lost, so the step stayed green with yq's message
+/// printed.
+#[test]
+fn the_registrations_step_alone_fails_the_full_check_for_a_bindings_file_it_cannot_read() {
+    let root = full_check_tree("full-registrations");
+    let script_copy = root.join("scripts/check-bindings.sh");
+    let text = fs::read_to_string(&script_copy).unwrap();
+    let no_exits = text.replacen("\ncheck_exits\n", "\n", 1);
+    assert_ne!(text, no_exits);
+    fs::write(&script_copy, no_exits).unwrap();
+    let (code, out, err) = full_check(&root);
+    assert!(out.contains("pass registrations") && !out.contains("exits") && code == Some(0), "the fixture is not a clean tree: {out}\n{err}");
+    fs::write(root.join("bindings/extra.yaml"), "this: is: [not\n  yaml {{{\n").unwrap();
+    let (code, out, err) = full_check(&root);
+    assert_eq!(code, Some(1), "{out}\n{err}");
+    assert!(out.contains("FAIL registrations") && !out.contains("pass registrations"), "{out}\n{err}");
+    assert!(err.contains("bindings/extra.yaml"), "{out}\n{err}");
+}
+
+#[test]
+fn an_executor_that_is_present_and_null_is_refused_by_one_line() {
+    let root = root_in("executor-null-line");
+    fs::write(root.join("bindings/bad.yaml"), "format: loom.bindings/1\nactions:\n  - action: b.two\n    executor:\n").unwrap();
+    let o = run_exits(&root);
+    let (out, err) = said(&o);
+    assert_eq!((o.status.code(), out.as_str()), (Some(1), "FAIL exits\n  bindings/bad.yaml b.two: executor is not a mapping\n"), "{err}");
+}
+
+#[test]
+fn evidence_of_the_wrong_type_is_refused_by_one_line_naming_the_file_and_the_action() {
+    let shapes = [
+        ("map", "{a: b}", "evidence is not a list"),
+        ("number", "[1]", "an evidence entry is not a mapping"),
+        ("null-entry", "[null]", "an evidence entry is not a mapping"),
+        ("results-string", "[{kind: k, from: exit, results: nope}]", "results of an evidence entry is not a mapping"),
+        ("results-key", "[{kind: k, from: exit, results: {ok: pass}}]", "a result key of an evidence entry read from the exit is no exit code"),
+    ];
+    for (name, ev, line) in shapes {
+        let root = root_in(&format!("evidence-{name}"));
+        fs::write(root.join("bindings/good.yaml"), GOOD).unwrap();
+        let doc = format!("format: loom.bindings/1\nactions:\n  - action: b.two\n    executor: {{kind: program, argv: [x]}}\n    exits: {{error: [75, 126, 127]}}\n    evidence: {ev}\n");
+        fs::write(root.join("bindings/bad.yaml"), doc).unwrap();
+        let o = run_exits(&root);
+        let (out, err) = said(&o);
+        assert_eq!((o.status.code(), out.as_str()), (Some(1), format!("FAIL exits\n  bindings/bad.yaml b.two: {line}\n").as_str()), "{name}: {err}");
+    }
+}
+
+/// The full check reads the evidence of the bindings file of a protocol in its per-protocol loop, before the exits
+/// step: the shape is refused there by one line under `FAIL <name>`, and the other steps go on.
+#[test]
+fn the_full_check_refuses_evidence_of_the_wrong_type_by_one_line_under_the_protocol() {
+    let root = full_check_tree("full-evidence");
+    let file = root.join("bindings/sdc-story.yaml");
+    let text = fs::read_to_string(&file).unwrap();
+    let bad = text.replacen("    evidence:\n      - kind:", "    evidence: nope\n    extra:\n      - kind:", 1);
+    assert_ne!(text, bad);
+    fs::write(&file, bad).unwrap();
+    let (code, out, err) = full_check(&root);
+    assert_eq!(code, Some(1), "{out}\n{err}");
+    assert!(out.contains("FAIL sdc-story\n  bindings/sdc-story.yaml ") && out.contains(": evidence is not a list\n"), "{out}\n{err}");
+    assert!(!err.contains("jq:"), "{out}\n{err}");
+}
+
 const GOOD: &str = "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: a.one\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n";
 
 #[test]
