@@ -7,12 +7,16 @@
 use super::copy::{copy_dirs, digest, Links};
 use super::layout::{self, Resolved};
 use serde_json::{json, Value};
+use std::io::Read;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 /// The directory of the copy, in the run's directory.
 pub const COPY_DIR: &str = "runbook";
 /// The file in the run's directory (beside the copy, not in it) that names what the copy was.
 const PIN_FILE: &str = "runbook-pin.json";
+/// The most bytes of the pin file `load` reads: the file holds five short members.
+const PIN_FILE_MAX: u64 = 64 << 10;
 /// The name a refusal of a changed copy starts with.
 pub const CHANGED: &str = "RunbookCopyChanged";
 /// What the tools of the bindings read beside `bindings/` (`$here/../..`): the instruction files,
@@ -35,6 +39,12 @@ pub struct Pin {
     pub copy_sha256: String,
 }
 
+/// The refusal of a run whose pin file is not what the submit wrote: it names no path and holds no
+/// byte of the file.
+fn pin_file_changed() -> String {
+    format!("{CHANGED}: the pin file of the run's copy of the runbook is missing or is not what the submit wrote; the run ends and nothing of the copy runs")
+}
+
 impl Pin {
     /// Copies the runbook `name` of `home` into `run_dir` and describes the copy. A refusal (a link
     /// that leaves the home, a runbook that is not there, a revision that is not the one asked for)
@@ -54,8 +64,7 @@ impl Pin {
             }
         }
         let borrowed: Vec<(&Path, &Path)> = jobs.iter().map(|(from, to)| (from.as_path(), to.as_path())).collect();
-        copy_dirs(&borrowed, Links::Within(&root)).map_err(refused)?;
-        let made = (|| {
+        let made = copy_dirs(&borrowed, Links::Within(&root)).and_then(|()| {
             let resolved = layout::resolve(&copy, name, version)?;
             let pin = Pin {
                 bindings_sha256: digest(&copy.join("bindings"))?,
@@ -65,27 +74,42 @@ impl Pin {
                 protocol: resolved.protocol_id.clone(),
                 revision: resolved.revision,
             };
-            std::fs::write(run_dir.join(PIN_FILE), pin.record().to_string()).map_err(|e| format!("{PIN_FILE}: {e}"))?;
+            let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(run_dir.join(PIN_FILE)).map_err(|e| format!("{PIN_FILE}: {e}"))?;
+            std::io::Write::write_all(&mut file, pin.record().to_string().as_bytes()).map_err(|e| format!("{PIN_FILE}: {e}"))?;
             Ok::<_, String>((pin, resolved))
-        })();
+        });
         if made.is_err() {
             let _ = std::fs::remove_dir_all(&copy);
         }
         made.map_err(refused)
     }
 
-    /// The pin of a run whose copy was made by an earlier process; `None` for a run that has none
-    /// (a run opened before the copy existed reads the runbook home, as it always did).
+    /// The pin of a run whose copy was made by an earlier process. `None` only for a run that has
+    /// neither a copy nor a pin file (a run opened before the copy existed reads the runbook home, as
+    /// it always did). A copy that stands without a pin file that is a regular file of one name, text,
+    /// and what the submit wrote is a changed copy: refused by the error a changed copy has. The pin
+    /// file is opened without following a link and without waiting on a pipe.
     pub fn load(run_dir: &Path) -> Result<Option<Pin>, String> {
-        let Ok(text) = std::fs::read_to_string(run_dir.join(PIN_FILE)) else { return Ok(None) };
-        let bad = |what: &str| format!("RunbookCopyRefused: {PIN_FILE}: {what}");
-        let doc: Value = serde_json::from_str(&text).map_err(|e| bad(&e.to_string()))?;
-        let text_of = |k: &str| doc.get(k).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| bad(&format!("no {k}")));
+        let copy = run_dir.join(COPY_DIR);
+        let stands = std::fs::symlink_metadata(&copy).is_ok();
+        let mut file = match std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(run_dir.join(PIN_FILE)) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !stands => return Ok(None),
+            Err(_) => return Err(pin_file_changed()),
+        };
+        let meta = file.metadata().map_err(|_| pin_file_changed())?;
+        if !meta.is_file() || meta.nlink() != 1 || meta.len() > PIN_FILE_MAX {
+            return Err(pin_file_changed());
+        }
+        let mut text = String::new();
+        file.read_to_string(&mut text).map_err(|_| pin_file_changed())?;
+        let doc: Value = serde_json::from_str(&text).map_err(|_| pin_file_changed())?;
+        let text_of = |k: &str| doc.get(k).and_then(Value::as_str).map(str::to_owned).ok_or_else(pin_file_changed);
         let pin = Pin {
-            copy: run_dir.join(COPY_DIR),
+            copy,
             runbook: text_of("runbook")?,
             protocol: text_of("protocol")?,
-            revision: doc.get("revision").and_then(Value::as_i64).ok_or_else(|| bad("no revision"))?,
+            revision: doc.get("revision").and_then(Value::as_i64).ok_or_else(pin_file_changed)?,
             bindings_sha256: text_of("bindings_sha256")?,
             copy_sha256: text_of("copy_sha256")?,
         };
@@ -93,7 +117,8 @@ impl Pin {
         Ok(Some(pin))
     }
 
-    /// Whether the copy is what it was. A copy that is not is refused by name: nothing in it runs.
+    /// Whether the copy is what it was. A copy that is not is refused by name: nothing in it runs. A
+    /// reason names an entry relative to the copy, never a path of the host.
     pub fn check(&self) -> Result<(), String> {
         match digest(&self.copy) {
             Ok(now) if now == self.copy_sha256 => Ok(()),
