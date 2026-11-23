@@ -2077,3 +2077,123 @@ fn check_fails_a_row_cut_to_one_cell() {
     let o = check(&w, &co);
     assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "no row"]);
 }
+
+/// The rework ledger is left out of the parity listing by its exact path: the same name in another
+/// case, with a trailing space, as a directory with a file below it, and the directories `.SDC` are
+/// all listed.
+#[test]
+fn parity_lists_the_names_that_are_not_the_rework_ledger_path() {
+    let s = Synth::new("ledger-names");
+    s.put("tree/a.txt", "a");
+    s.put("tree/.sdc/Rework-seen", "x");
+    s.put("tree/.SDC/rework-seen", "x");
+    s.put("tree/.sdc/rework-seen ", "x");
+    s.put("tree/.sdc/rework-seen/inner", "x");
+    let out = s.root.join("o.json");
+    let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("tree")), "--output", path_str(&out)]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let paths: Vec<Value> = read_summary(&out)["product_tree"].as_array().unwrap().iter().map(|e| e["path"].clone()).collect();
+    assert_eq!(paths, [json!(".SDC/rework-seen"), json!(".sdc/Rework-seen"), json!(".sdc/rework-seen "), json!(".sdc/rework-seen/inner"), json!("a.txt")]);
+}
+
+/// The rule leaves the file out on both sides: a driver that wrote the file with any content is no
+/// difference.
+#[test]
+fn parity_does_not_see_the_rework_ledger_on_the_driver_side() {
+    let mut k = base();
+    k.extra_path = Some(".sdc/rework-seen");
+    let (code, lines) = compare_with("driver-ledger", k, &["--product-digests"]);
+    assert_eq!(code, 0, "{lines:?}");
+    assert_eq!(lines, ["equal: 2 cases, 7 evidence records, 2 program runs, 3 person steps, 2 product files"]);
+}
+
+/// Loom's reader refuses a `<<` merge key in a bindings document, as it refuses a tag.
+#[test]
+fn check_refuses_a_merge_key_as_loom_refuses_the_document() {
+    let w = World::new("check-merge-key");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "budget: {max_runs: 3, runs_per: rejection, rework_limit: 2,", "budget: {<<: {max_turns: 9}, max_runs: 3, runs_per: rejection, rework_limit: 2,");
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+    assert_finding(&o, "bindings/sdc-story.yaml", &["does not parse", "a merge key (<<)"]);
+}
+
+/// A tag in a member the budget check never reads is a tag in the document: refused whole.
+#[test]
+fn check_refuses_a_tag_in_a_member_that_is_no_budget() {
+    let w = World::new("check-tag-elsewhere");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "artifacts:\n  spec: spec\n", "artifacts:\n  spec: !foo spec\n");
+    let o = check(&w, &co);
+    assert_finding(&o, "bindings/sdc-story.yaml", &["does not parse", "a YAML value without a tag"]);
+}
+
+/// A tag on an element of a list is a tag in the document.
+#[test]
+fn check_refuses_a_tag_on_an_element_of_a_list() {
+    let w = World::new("check-tag-in-list");
+    let co = text_copy(&w);
+    edit(&co, "bindings/sdc-story.yaml", "argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]", "argv: [!foo tools/sdc-tool.sh, ess-gate, --action, spec.gate]");
+    let o = check(&w, &co);
+    assert_finding(&o, "bindings/sdc-story.yaml", &["does not parse", "a YAML value without a tag"]);
+}
+
+/// The tag rule is the bindings files' alone: a tag in the suite file is read as its value.
+#[test]
+fn check_reads_a_tag_in_the_suite_file_as_its_value() {
+    let w = World::new("check-tag-suite");
+    let co = text_copy(&w);
+    edit(&co, "cycles/tree-suite.yaml", "pending: true", "pending: !foo true");
+    let o = check(&w, &co);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+}
+
+/// What the rework ledger does to a revision, measured with Loom's `content_revision` on a workspace
+/// of stand-ins: the ledger lies in the tree of the workspace, so it moves the revision of an artifact
+/// that places the whole workspace (`.`) or `.sdc`, and the revision of no other path.
+#[test]
+fn the_rework_ledger_moves_the_revision_of_the_whole_workspace_and_of_sdc_only() {
+    let w = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ledger-revision");
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(w.join("impl")).unwrap();
+    std::fs::create_dir_all(w.join("spec")).unwrap();
+    std::fs::write(w.join("impl/lib.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(w.join("spec/s.yaml"), "a: 1\n").unwrap();
+    std::fs::write(w.join("requirements.yaml"), "r: 1\n").unwrap();
+    std::fs::write(w.join("findings.yaml"), "f: 1\n").unwrap();
+    let placed = ["impl", "spec", "requirements.yaml", "findings.yaml", "idea.yaml", "aep", "repro", ".", ".sdc"];
+    let rev = |p: &str| b10x_loom_bindings::content_revision(&w, p).unwrap_or_else(|(_, why)| format!("refused: {why}"));
+    let before: Vec<String> = placed.iter().map(|p| rev(p)).collect();
+    std::fs::create_dir_all(w.join(".sdc")).unwrap();
+    std::fs::write(w.join(".sdc/rework-seen"), "requirements.check e1\n").unwrap();
+    let one: Vec<String> = placed.iter().map(|p| rev(p)).collect();
+    std::fs::write(w.join(".sdc/rework-seen"), "requirements.check e1\nrequirements.check e2\n").unwrap();
+    let two: Vec<String> = placed.iter().map(|p| rev(p)).collect();
+    for (i, p) in placed.iter().enumerate() {
+        let moved = before[i] != one[i] && one[i] != two[i];
+        let still = before[i] == one[i] && one[i] == two[i];
+        assert_eq!(moved, [".", ".sdc"].contains(p), "{p}: {} {} {}", before[i], one[i], two[i]);
+        assert!(moved || still, "{p}: {} {} {}", before[i], one[i], two[i]);
+    }
+}
+
+/// No committed binding places the whole workspace or `.sdc` as an artifact, so no revision of a
+/// committed binding covers the rework ledger.
+#[test]
+fn no_committed_binding_places_the_whole_workspace_or_sdc() {
+    let mut placed = 0;
+    for e in std::fs::read_dir(repo().join("bindings")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_none_or(|x| x != "yaml") {
+            continue;
+        }
+        let doc: serde_yaml::Value = serde_yaml::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        for (name, path) in doc.get("artifacts").and_then(|a| a.as_mapping()).into_iter().flatten() {
+            let path = path.as_str().unwrap_or_default();
+            let clean = path.trim_start_matches("./").trim_end_matches('/');
+            assert!(!clean.is_empty() && clean != "." && !clean.starts_with(".sdc"), "{}: artifact {name:?} places {path:?}", p.display());
+            placed += 1;
+        }
+    }
+    assert!(placed > 0, "no artifact was read");
+}

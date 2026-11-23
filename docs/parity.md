@@ -99,8 +99,9 @@ child's `case_outcome` record, is described under "Known differences of the two 
   `<approval> <id>` per line (`docs/driver.md`, "The ledger of the stub's numbering"). It writes the file
   only when `LOOM_RETRY_FEEDBACK` names rejection records, which only Loom sets; the driver numbers a
   rework from its own rejection record and writes no file, so a run that rejects a person step lists
-  this one file on Loom's side only. The file is part of the revision the writer makes (it is in the
-  tree of that revision). The listing of the product tree leaves out this one path on both sides, where
+  this one file on Loom's side only. The file lies in the tree of the workspace: it moves the revision
+  only of an artifact that places the whole workspace or `.sdc`, and no committed binding places either
+  (`docs/driver.md`). The listing of the product tree leaves out this one path on both sides, where
   the summary is written (`walk_product`, `LOOM_ONLY_FILES`); the rule names the path and not `.sdc/`,
   so any other file under `.sdc/` is listed as before.
 

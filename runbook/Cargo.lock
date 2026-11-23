@@ -1589,6 +1589,7 @@ version = "0.8.0"
 dependencies = [
  "axum",
  "b10x-canon",
+ "b10x-loom-bindings",
  "b10x-loom-protocols",
  "b10x-loom-runlog",
  "b10x-loom-tree",

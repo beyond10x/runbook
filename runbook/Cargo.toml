@@ -26,4 +26,7 @@ b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "d8944d492
 b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
 b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
 
+[dev-dependencies]
+b10x-loom-bindings = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
+
 [workspace]
