@@ -35,7 +35,7 @@ fn copy_tree(from: &Path, to: &Path) {
 
 /// The settings file without a login: a dry run needs none.
 fn settings_without_login(w: &World, settings: &Value) {
-    std::fs::write(w.root.join("settings.json"), serde_json::to_string_pretty(settings).unwrap()).unwrap();
+    std::fs::write(w.root.join("settings.toml"), super::core::toml_text(settings)).unwrap();
 }
 
 fn dry_args(w: &World, name: &str) -> Vec<String> {
@@ -416,7 +416,7 @@ impl Inproc {
         copy_tree(&repo().join("runbook/tests/fixtures/engine-runbook"), &root.join("fx"));
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
         super::decider::install_routing_table_at(&root.join("fx"));
-        std::fs::write(root.join("settings.json"), "{}").unwrap();
+        std::fs::write(root.join("settings.toml"), "").unwrap();
         Inproc { root }
     }
 
@@ -428,7 +428,7 @@ impl Inproc {
             .args(["--root-protocol", "engine-demo@1", "--case", "ROOT-1", "--intake"])
             .arg(r("idea.yaml"))
             .args(["--confinement", "local", "--settings"])
-            .arg(r("settings.json"))
+            .arg(r("settings.toml"))
             .args(["--spend-ledger"])
             .arg(r("ledger.json"))
             .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])

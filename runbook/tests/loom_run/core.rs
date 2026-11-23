@@ -24,6 +24,16 @@ printf '{{\"action\":\"node.write\",\"record\":\"%s/%s\",\"cost_usd\":%s}}\\n' \
     )
 }
 
+/// The TOML text of a settings value: the form `runbook run --settings` reads.
+pub fn toml_text(v: &Value) -> String {
+    toml::to_string(v).unwrap_or_else(|e| panic!("{e}: {v}"))
+}
+
+/// A settings value read back from TOML text.
+pub fn from_toml(text: &str) -> Value {
+    toml::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
+}
+
 pub struct World {
     pub root: PathBuf,
     pub fake: Fake,
@@ -60,7 +70,7 @@ impl World {
         for (k, x) in extra.as_object().unwrap() {
             v[k] = x.clone();
         }
-        std::fs::write(self.root.join("settings.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        std::fs::write(self.root.join("settings.toml"), super::core::toml_text(&v)).unwrap();
     }
 
     pub fn ledger(&self) -> PathBuf {
@@ -94,7 +104,7 @@ impl World {
             "--confinement".into(),
             "local".into(),
             "--settings".into(),
-            r("settings.json"),
+            r("settings.toml"),
             "--spend-ledger".into(),
             r("ledger.json"),
             "--cap-micro-usd".into(),
@@ -111,14 +121,14 @@ impl World {
     /// settings repeat (`--cap-micro-usd`, `--max-llm-calls`, `--max-wall-seconds`, `--confinement`)
     /// taken from the settings themselves.
     pub fn args_for(&self, settings: &Value) -> Vec<String> {
-        let mut a = self.args(settings["run"].as_str().unwrap(), settings["loom"]["cap_micro_usd"].as_u64().unwrap());
+        let mut a = self.args(settings["run"].as_str().unwrap(), settings["cap_micro_usd"].as_u64().unwrap());
         let mut set = |flag: &str, value: String| {
             let i = a.iter().position(|x| x == flag).unwrap();
             a[i + 1] = value;
         };
         set("--max-llm-calls", settings["max_llm_calls"].as_u64().unwrap().to_string());
         set("--max-wall-seconds", settings["max_wall_seconds"].as_u64().unwrap().to_string());
-        set("--confinement", settings["loom"]["confinement"].as_str().unwrap().to_owned());
+        set("--confinement", settings["confinement"].as_str().unwrap().to_owned());
         a
     }
 

@@ -87,7 +87,7 @@ artifacts, prints every LLM command and runs none, with scripted approvals. It i
 (the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
 
 ```console
-runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
   --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 

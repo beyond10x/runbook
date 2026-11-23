@@ -1,0 +1,33 @@
+format = "runbook.loom-run-settings/1"
+run = "lx.low.1"
+autonomy = "A5"
+adapter = "metaharness"
+max_llm_calls = 100
+max_wall_seconds = 3600
+loom_sha256 = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567"
+confinement = "local"
+cap_micro_usd = 5000000
+login_file = '/opt/we"ird\dir/ünï/login.json'
+
+[decider]
+kind = "model"
+model = "claude-opus-5-5"
+without_claims = true
+escalate = "final"
+adapter = "claude-cli"
+max_decider_calls = 40
+
+[review]
+adapter = "claude-cli"
+
+[models.writer]
+model = "claude-sonnet-5-5"
+
+[models.implement]
+model = "claude-sonnet-5-5"
+
+[models.review]
+model = "claude-sonnet-5-5"
+
+[models.other]
+model = "claude-sonnet-5-5"
