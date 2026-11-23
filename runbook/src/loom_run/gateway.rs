@@ -254,4 +254,22 @@ mod tests {
         let e = take(&args(Confinement::Local, false), table(&dir.path().display().to_string())).unwrap_err();
         assert!(e.contains("gateway.token_file"), "{e}");
     }
+
+    /// The bytes this thread has asked the kernel to read so far (`rchar`).
+    fn bytes_read_by_this_thread() -> u64 {
+        let io = std::fs::read_to_string("/proc/thread-self/io").unwrap();
+        io.lines().find_map(|l| l.strip_prefix("rchar: ")).unwrap().trim().parse().unwrap()
+    }
+
+    #[test]
+    fn a_token_file_far_over_the_read_bound_is_refused_after_a_few_thousand_bytes_are_read() {
+        let dir = crate::assets::testdir::Dir::new("gateway-token-far-over");
+        let big = dir.path().join("big");
+        std::fs::File::create(&big).unwrap().set_len(256 << 20).unwrap();
+        let before = bytes_read_by_this_thread();
+        let e = token_of_file(&big.display().to_string()).unwrap_err();
+        let read = bytes_read_by_this_thread() - before;
+        assert!(e.contains("gateway.token_file"), "{e}");
+        assert!(read < 64 * 1024, "{read} bytes of a file of 256 MiB were read");
+    }
 }

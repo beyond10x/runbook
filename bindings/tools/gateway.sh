@@ -10,7 +10,7 @@
 # C locale so that a length is in bytes and a character is a byte.
 sdc_gateway_address_ok() {
   local url=$1 rest authority host port inside after
-  [[ -n $url && $url != *[^[:graph:]]* ]] || return 1
+  [[ -n $url && ${#url} -le 2048 && $url != *[^[:graph:]]* ]] || return 1
   case $url in
     http://*) rest=${url#http://} ;;
     https://*) rest=${url#https://} ;;

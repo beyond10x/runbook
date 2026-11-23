@@ -17,7 +17,8 @@
 # that name the file and a login are in its environment (the adapter's own CLAUDE_CODE_ settings below stay).
 # What `claude` prints to its two streams goes through a filter that replaces every occurrence of the token by
 # `<gateway token>` before `events.jsonl` and `stderr.txt` are written. A file that cannot be read ends the
-# call with exit 127 before `claude` starts, naming the variable and no value.
+# call with exit 127 before `claude` starts, naming the variable and no value. `claude` and what it starts get
+# no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5 are closed for the start).
 # A call
 # is the same on any host: its effort is the request's (set by sdc-node or the decider of `runbook run`), and
 # CLAUDE_CODE_EFFORT_LEVEL, which would override it, is unset for the child.
@@ -128,7 +129,7 @@ fi
 (cd "$(r .cwd)" && { [[ -z ${SDC_GATEWAY_FILE:-} ]] || {
     export ANTHROPIC_BASE_URL=$SDC_GATEWAY_BASE_URL ANTHROPIC_AUTH_TOKEN=$SDC_GATEWAY_TOKEN
     unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS
-  }; } && env -u CLAUDE_CODE_EFFORT_LEVEL "${unset_names[@]}" "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" >&4 2>&5)
+  }; } && env -u CLAUDE_CODE_EFFORT_LEVEL "${unset_names[@]}" "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" >&4 2>&5 4>&- 5>&-)
 code=$?
 exec 4>&- 5>&-
 if [[ -n ${SDC_GATEWAY_FILE:-} ]] && ! { wait "$filter_events" && wait "$filter_stderr"; }; then

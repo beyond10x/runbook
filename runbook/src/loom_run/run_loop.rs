@@ -38,7 +38,7 @@ impl Clock for SystemClock {
     }
 }
 
-/// Set by the SIGTERM, SIGINT and SIGHUP handlers.
+/// Set by the SIGTERM, SIGINT and SIGHUP handlers (SIGHUP has none when the caller ignored it).
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_signal(_: libc::c_int) {
@@ -47,11 +47,16 @@ extern "C" fn on_signal(_: libc::c_int) {
 
 fn install_signal_handlers() {
     let handler = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
-    // SAFETY: the handler only stores into an atomic.
+    // SAFETY: the handler only stores into an atomic; `sigaction` with a null new action only reads the disposition.
     unsafe {
         libc::signal(libc::SIGTERM, handler);
         libc::signal(libc::SIGINT, handler);
-        libc::signal(libc::SIGHUP, handler);
+        // A SIGHUP the caller ignored (a run under `nohup`) stays ignored.
+        let mut old: libc::sigaction = std::mem::zeroed();
+        let ignored = libc::sigaction(libc::SIGHUP, std::ptr::null(), &mut old) == 0 && old.sa_sigaction == libc::SIG_IGN;
+        if !ignored {
+            libc::signal(libc::SIGHUP, handler);
+        }
     }
 }
 

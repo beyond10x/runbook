@@ -16,6 +16,9 @@ pub const FILE_VARIABLE: &str = "SDC_GATEWAY_FILE";
 pub const OPTION: &str = "--gateway-file";
 /// The most a token has, in bytes.
 pub const TOKEN_LIMIT: usize = 8192;
+/// The most an address has, in bytes: with it a gateway file of two good lines is far below the read limit of
+/// [`read`], so no reader takes a cut-off line for a whole one.
+pub const ADDRESS_LIMIT: usize = 2048;
 /// The fewest bytes a token has: the adapters replace every occurrence of the token in what a model program
 /// prints, so a token short enough to be a common string is refused.
 pub const TOKEN_MINIMUM: usize = 8;
@@ -40,6 +43,9 @@ impl std::fmt::Debug for Gateway {
 pub fn check_base_url(url: &str) -> Result<(), &'static str> {
     if url.is_empty() {
         return Err("is empty");
+    }
+    if url.len() > ADDRESS_LIMIT {
+        return Err("is longer than 2048 bytes");
     }
     if !url.bytes().all(|b| b.is_ascii_graphic()) {
         return Err("holds a blank, a control or a non-ASCII character");
@@ -130,8 +136,18 @@ pub fn parse(text: &str) -> Result<Gateway, String> {
 /// The gateway of the file at `path`. An error says that the file could not be read or is not a gateway
 /// file; it holds neither the path nor a part of the content.
 pub fn read(path: &Path) -> Result<Gateway, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    // `O_NONBLOCK` as the platform has it: a FIFO opens at once and is then refused as no regular file.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const NONBLOCK: i32 = 0o4000;
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    const NONBLOCK: i32 = 0x4;
+    let unreadable = || "the gateway file cannot be read".to_owned();
     let mut text = String::new();
-    let file = std::fs::File::open(path).map_err(|_| "the gateway file cannot be read".to_owned())?;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(NONBLOCK).open(path).map_err(|_| unreadable())?;
+    if !file.metadata().map_err(|_| unreadable())?.is_file() {
+        return Err(unreadable());
+    }
     file.take(2 * (TOKEN_LIMIT as u64) + 1024).read_to_string(&mut text).map_err(|_| "the gateway file cannot be read".to_owned())?;
     parse(&text)
 }
