@@ -117,8 +117,8 @@ const fn o(command: &'static str, outcome: &'static str, status: u16, error: Opt
     OutcomeSpec { command, outcome, status, error }
 }
 
-/// Every outcome of every command of the domain, by wire name. A test holds it equal to the domain
-/// file and to the OpenAPI document.
+/// Every outcome of every command of the domain, by wire name, in the order the domain file declares
+/// them. A test holds it equal to the domain file, order included, and to the OpenAPI document.
 pub const OUTCOMES: &[OutcomeSpec] = &[
     o("open-session", "opened", 202, None),
     o("open-session", "session-exists", 422, Some("SessionExists")),
@@ -131,8 +131,8 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("submit-run", "no-runbook", 422, Some("NoSuchRunbook")),
     o("submit-run", "context-outside-roots", 422, Some("ContextOutsideRoots")),
     o("submit-run", "no-daemon", 409, Some("NoSuchDaemon")),
-    o("submit-run", "below-floor", 409, Some("BelowConfinementFloor")),
     o("submit-run", "no-session", 409, Some("NoSuchSession")),
+    o("submit-run", "below-floor", 409, Some("BelowConfinementFloor")),
     o("submit-run", "session-closed", 409, Some("SessionClosedToRuns")),
     o("submit-run", "already-submitted", 202, None),
     o("submit-run", "submitted", 202, None),
@@ -161,10 +161,10 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("answer-decision", "no-request", 404, Some("NoSuchDecisionRequest")),
     o("answer-decision", "not-of-run", 409, Some("DecisionNotOfRun")),
     o("answer-decision", "withdrawn", 409, Some("DecisionWithdrawn")),
+    o("answer-decision", "already-answered", 409, Some("DecisionAlreadyAnswered")),
     o("answer-decision", "no-run", 409, Some("NoSuchRun")),
     o("answer-decision", "run-not-waiting", 409, Some("RunNotWaiting")),
     o("answer-decision", "answered", 202, None),
-    o("answer-decision", "already-answered", 409, Some("DecisionAlreadyAnswered")),
     o("record-run-event", "no-run", 409, Some("NoSuchRun")),
     o("record-run-event", "run-closed", 409, Some("RunClosedToEvents")),
     o("record-run-event", "not-ascending", 409, Some("SequenceNotAscending")),
@@ -483,15 +483,15 @@ impl Daemon {
             Some(d) if d.daemon_id == daemon_id => d.confinement_floor,
             _ => return refused("no-daemon", json!({"daemon_id": daemon_id})),
         };
+        let session = input.session_id.as_ref().map(|sid| (sid, st.session(sid).map(|s| s.state)));
+        if let Some((sid, None)) = &session {
+            return refused("no-session", json!({"session_id": sid}));
+        }
         if confinement.rank() < floor.rank() {
             return refused("below-floor", json!({"run_id": run_id, "confinement": confinement}));
         }
-        if let Some(sid) = &input.session_id {
-            match st.session(sid).map(|s| s.state) {
-                None => return refused("no-session", json!({"session_id": sid})),
-                Some(SessionState::Closed) => return refused("session-closed", json!({"run_id": run_id, "session_id": sid})),
-                Some(SessionState::Open) => {}
-            }
+        if let Some((sid, Some(SessionState::Closed))) = &session {
+            return refused("session-closed", json!({"run_id": run_id, "session_id": sid}));
         }
         if let Some(key) = &input.idempotency_key {
             if let Some(first) = st.run_by_key(key) {

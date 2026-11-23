@@ -1,0 +1,89 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-a-missing-session-is-refused-before-the-floor
+summary: "A run below the floor into a missing session is refused as NoSuchSession, into an existing one as BelowConfinementFloor."
+
+timeline:
+  - at: 2026-11-22T11:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-22T11:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T11:00:30Z
+    command: sdc.daemon.OpenSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "weekly"
+      client: "ci"
+      at: 2026-11-22T11:00:30Z
+    outcome: opened
+
+  - at: 2026-11-22T11:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-a"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: local
+      session_id: "monthly"
+      at: 2026-11-22T11:01:00Z
+    outcome: no-session
+
+  - at: 2026-11-22T11:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-b"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: local
+      session_id: "weekly"
+      at: 2026-11-22T11:02:00Z
+    outcome: below-floor
+
+  - at: 2026-11-22T11:03:00Z
+    command: sdc.daemon.CloseSession
+    actor: sdc.daemon.Client
+    input:
+      session_id: "weekly"
+      at: 2026-11-22T11:03:00Z
+    outcome: closed
+
+  - at: 2026-11-22T11:04:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-c"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: local
+      session_id: "weekly"
+      at: 2026-11-22T11:04:00Z
+    outcome: below-floor
+
+assert:
+  - view: sdc.daemon.Sessions
+    contains: {session_id: "weekly", client: "ci", state: Closed}
+  - view: sdc.daemon.DaemonConfiguration
+    contains: {daemon_id: "runbookd", confinement_floor: linux}

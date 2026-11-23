@@ -28,3 +28,4 @@ scenarios:
   - scenarios/daemon-context-outside-the-roots-is-refused.yaml
   - scenarios/daemon-an-answer-is-judged-by-its-request-before-its-run.yaml
   - scenarios/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned.yaml
+  - scenarios/daemon-a-missing-session-is-refused-before-the-floor.yaml
