@@ -117,7 +117,9 @@ fn a_prefix_with_a_share_directory_and_no_protocol_is_refused_and_never_falls_ba
     let prefix = sandbox.join("prefix");
     fs::create_dir_all(prefix.join("bin")).unwrap();
     fs::create_dir_all(prefix.join("share/runbook")).unwrap();
-    fs::copy(BIN, prefix.join("bin/runbook")).unwrap();
+    // a hard link, not a copy: a copy of a program that is written while another thread starts a program can fail with
+    // "text file busy" (the file is open for writing in a child that has not yet run its program)
+    fs::hard_link(BIN, prefix.join("bin/runbook")).unwrap();
     let o = from_prefix(&prefix, &bare_checkout("share-without-protocol-checkout"), &["list"]);
     assert_ne!(code(&o), 0, "{}", out(&o));
     assert!(err(&o).contains("incomplete install"), "{}", err(&o));
