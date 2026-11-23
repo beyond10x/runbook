@@ -1011,6 +1011,70 @@ pub fn cache_path(pin: &J) -> PathBuf {
     base.join(s(&pin["version"])).join(target_triple()).join("ess")
 }
 
+/// Where the digests of binaries are kept: `$SDC_ESS_DIGEST_CACHE`, else `$XDG_CACHE_HOME/sdc/ess-digest`,
+/// else `$HOME/.cache/sdc/ess-digest`. Not under `sdc/ess`, which only `ess-install` writes.
+fn digest_cache_dir() -> Option<PathBuf> {
+    let var = |n: &str| std::env::var_os(n).filter(|v| !v.is_empty()).map(PathBuf::from);
+    var("SDC_ESS_DIGEST_CACHE")
+        .or_else(|| var("XDG_CACHE_HOME").map(|d| d.join("sdc/ess-digest")))
+        .or_else(|| var("HOME").map(|d| d.join(".cache/sdc/ess-digest")))
+}
+
+fn file_stamp(m: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+    format!("{} {}.{:09} {}.{:09} {} {}", m.len(), m.mtime(), m.mtime_nsec(), m.ctime(), m.ctime_nsec(), m.ino(), m.dev())
+}
+
+/// The newest of the file's mtime and ctime in nanoseconds since the epoch.
+fn file_newest_ns(m: &fs::Metadata) -> i128 {
+    use std::os::unix::fs::MetadataExt;
+    let ns = |s: i64, n: i64| i128::from(s) * 1_000_000_000 + i128::from(n);
+    ns(m.mtime(), m.mtime_nsec()).max(ns(m.ctime(), m.ctime_nsec()))
+}
+
+/// A file changed less than this before the digest started may change again within the clock's
+/// granularity with the same stamp: such a digest is not kept.
+const DIGEST_RACY_NS: i128 = 100_000_000;
+
+/// The SHA-256 of a binary, from a cache file when the binary is the one that was digested: an entry
+/// (`ess-digest/1 <sha> <started ns>`, the file's stamp, its path; one file per path) holds when the
+/// file's size, mtime, ctime, inode and device are the ones recorded and the file was already older
+/// than [`DIGEST_RACY_NS`] when the digest started. The ctime moves with every write and cannot be
+/// set, so a swapped file never matches. Anything else, a cache that cannot be read or written
+/// included, digests the file again.
+fn binary_sha256(path: &Path) -> Result<String, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let before = fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let stamp = file_stamp(&before);
+    let entry = digest_cache_dir().map(|d| d.join(&sha256_bytes(path.as_os_str().as_bytes())[..32]));
+    let here = path.to_string_lossy();
+    if let Some(text) = entry.as_ref().and_then(|e| fs::read_to_string(e).ok()) {
+        let mut lines = text.lines();
+        let head: Vec<&str> = lines.next().unwrap_or("").split(' ').collect();
+        if let ([ESS_DIGEST_ENTRY, sha, started], Some(s), Some(p)) = (head.as_slice(), lines.next(), lines.next()) {
+            let sealed = started.parse::<i128>().is_ok_and(|t| file_newest_ns(&before) + DIGEST_RACY_NS < t);
+            if s == stamp && p == here && sealed && sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Ok((*sha).to_string());
+            }
+        }
+    }
+    let started = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as i128);
+    let sha = sha256_file(path)?;
+    let unchanged = fs::metadata(path).is_ok_and(|after| file_stamp(&after) == stamp);
+    if let (Some(entry), true, true) = (entry, unchanged, file_newest_ns(&before) + DIGEST_RACY_NS < started) {
+        if let Some(dir) = entry.parent() {
+            let tmp = entry.with_extension(format!("tmp{}", std::process::id()));
+            let _ = fs::create_dir_all(dir)
+                .and_then(|()| fs::write(&tmp, format!("{ESS_DIGEST_ENTRY} {sha} {started}\n{stamp}\n{here}\n")))
+                .and_then(|()| fs::rename(&tmp, &entry));
+            let _ = fs::remove_file(&tmp);
+        }
+    }
+    Ok(sha)
+}
+
+const ESS_DIGEST_ENTRY: &str = "ess-digest/1";
+
 /// The pinned ess: `ESS_BIN` when set, else the cache path. Refused (`Err((cause, why))`) when the
 /// pin cannot be read, the binary is missing, or its digest or `--version` is not the pinned one.
 /// The `ess` on PATH is never used.
@@ -1031,7 +1095,7 @@ pub fn resolve_ess(pin_path: &Path) -> Result<Ess, (&'static str, String)> {
     if !path.is_file() {
         return Err(("ess_missing", format!("{} ({source}) does not exist: run `sdc-conform ess-install`", path.display())));
     }
-    let got = sha256_file(&path).map_err(|e| ("ess_missing", e))?;
+    let got = binary_sha256(&path).map_err(|e| ("ess_missing", e))?;
     if got != want {
         return Err(("ess_pin_mismatch", format!("{} ({source}) has sha256 {got}, the pin {want}", path.display())));
     }

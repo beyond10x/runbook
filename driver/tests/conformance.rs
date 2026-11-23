@@ -2,6 +2,7 @@
 //! table node (`examples/conformance-stub-product.rs`), and the route table check. They need the
 //! pinned ess (driver/ess-pin.json): `sdc-conform ess-install` once, or `ESS_BIN`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -20,10 +21,19 @@ fn stub() -> PathBuf {
     p
 }
 
+/// Runs of `sdc-conform ess-path` in this process.
+static ESS_PATH_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The pinned ess, resolved once per process (each test is one process under cargo-nextest).
 fn ess() -> PathBuf {
-    let o = Command::new(BIN).arg("ess-path").output().unwrap();
-    assert!(o.status.success(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", String::from_utf8_lossy(&o.stderr));
-    PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
+    static ESS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ESS.get_or_init(|| {
+        ESS_PATH_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let o = Command::new(BIN).arg("ess-path").output().unwrap();
+        assert!(o.status.success(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", String::from_utf8_lossy(&o.stderr));
+        PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
+    })
+    .clone()
 }
 
 fn copy(from: &Path, to: &Path) {
@@ -264,11 +274,104 @@ fn a_run_without_a_delivered_tree_is_unknown() {
     assert_eq!(d["conformance"]["cause"], "no_delivered_tree", "{:#}", d["conformance"]);
 }
 
+fn sha_of(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `sdc-conform ess-path` for a stand-in binary at `bin` and a pin that names `want` for it. The
+/// digest cache is `cache`, so no test reads or writes the host's.
+fn ess_path_of(dir: &Path, bin: &Path, want: &str, cache: &Path) -> Output {
+    let arch = std::env::consts::ARCH;
+    let triple = if cfg!(target_os = "macos") { format!("{arch}-apple-darwin") } else { format!("{arch}-unknown-linux-gnu") };
+    let pin = dir.join("pin.json");
+    fs::write(&pin, json!({"format": "sdc.ess-pin/1", "version": "9.9.9", "platforms": {triple: {"binary_sha256": want}}}).to_string()).unwrap();
+    Command::new(BIN).arg("ess-path").arg("--pin").arg(&pin).env("ESS_BIN", bin).env("SDC_ESS_DIGEST_CACHE", cache).output().unwrap()
+}
+
+/// `resolve_ess` takes the SHA-256 of the 113 MB pinned binary once and keeps it in a cache file
+/// keyed by the binary's path, size, mtime, ctime and inode. The cache never lets a wrong binary
+/// pass: a binary that changed in any of those is digested again and refused when it is not the pin.
+#[test]
+fn the_digest_of_the_pinned_binary_is_cached_and_a_changed_binary_is_still_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp("ess-digest");
+    let (bin, cache) = (dir.join("ess"), dir.join("cache"));
+    let write_bin = |body: &str| {
+        fs::write(&bin, body).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    let good = "#!/bin/sh\necho 'ess 9.9.9'\n";
+    let want = sha_of(good);
+    write_bin(good);
+    let good_mtime = fs::metadata(&bin).unwrap().modified().unwrap();
+    // a file changed within the last 100 ms may change again unseen: it is not cached
+    std::thread::sleep(std::time::Duration::from_millis(250));
+
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    assert!(o.status.success(), "{}", says(&o));
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), bin.to_str().unwrap());
+    assert!(cache.is_dir(), "the digest was taken and no cache entry was written");
+    let entries: Vec<PathBuf> = fs::read_dir(&cache).unwrap().flatten().map(|e| e.path()).collect();
+    assert_eq!(entries.len(), 1, "one cache entry for one binary: {entries:?}");
+    let entry = fs::read_to_string(&entries[0]).unwrap();
+    assert!(entry.contains(&want), "{entry}");
+
+    // the second run reads the digest from the entry: an entry that holds another digest is believed
+    fs::write(&entries[0], entry.replacen(&want, &"0".repeat(64), 1)).unwrap();
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains(&"0".repeat(64)), "{}", says(&o));
+    fs::write(&entries[0], &entry).unwrap();
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    assert!(o.status.success(), "{}", says(&o));
+
+    // a binary of another size at the same path is digested again and refused
+    let longer = "#!/bin/sh\necho 'ess 9.9.9'\n# swapped\n";
+    write_bin(longer);
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_of(longer)), "{}", says(&o));
+
+    // the same size, other content and the old mtime put back: the ctime still moved
+    fs::write(&entries[0], &entry).unwrap();
+    let same_size = "#!/bin/sh\necho 'ess 9.9.8'\n";
+    assert_eq!(same_size.len(), good.len());
+    write_bin(same_size);
+    fs::File::options().write(true).open(&bin).unwrap().set_modified(good_mtime).unwrap();
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success() && err.contains("ess_pin_mismatch") && err.contains(&sha_of(same_size)), "{}", says(&o));
+
+    // the pin's binary put back: digested again and accepted
+    write_bin(good);
+    let o = ess_path_of(&dir, &bin, &want, &cache);
+    assert!(o.status.success(), "{}", says(&o));
+}
+
+/// Runs of `ess compile` per output file in this process (the test of `ir_of` reads them).
+static COMPILES: std::sync::Mutex<BTreeMap<PathBuf, u32>> = std::sync::Mutex::new(BTreeMap::new());
+
 fn ir_of(dir: &Path, spec: &str) -> PathBuf {
     let p = dir.join(format!("ir-{spec}.json"));
+    if p.is_file() {
+        return p;
+    }
+    *COMPILES.lock().unwrap().entry(p.clone()).or_default() += 1;
     let o = Command::new(ess()).args(["compile", "--path"]).arg(fixtures().join(spec)).arg("--out").arg(&p).output().unwrap();
     assert!(o.status.success());
     p
+}
+
+/// A test that checks one table many times starts the pinned ess once: one `sdc-conform ess-path`
+/// (a digest and a `--version`) and one `ess compile` of the fixture, not one of each per check.
+#[test]
+fn the_pinned_ess_and_the_compiled_fixture_are_made_once_for_many_checks() {
+    let dir = tmp("check-once");
+    for _ in 0..4 {
+        assert!(check(&dir, &table()).0);
+    }
+    assert_eq!(ESS_PATH_RUNS.load(std::sync::atomic::Ordering::SeqCst), 1, "runs of `sdc-conform ess-path`");
+    assert_eq!(COMPILES.lock().unwrap().get(&dir.join("ir-spec.json")).copied(), Some(1), "runs of `ess compile`");
 }
 
 fn check(dir: &Path, t: &J) -> (bool, J) {
@@ -370,12 +473,66 @@ fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value()
     assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.OpenBoard/outcome/opened" && x["status"] == "failed"), "{c:#}");
 }
 
+const ADAPTER: &str = env!("CARGO_BIN_EXE_sdc-conform-adapter");
+
+/// One `begin_scenario` sent to a bare `sdc-conform-adapter` whose table captures `token` from
+/// stdout within `timeout_s`, for the stub product in `mode`: the `unavailable` detail the adapter
+/// answered, and how long the answer took.
+fn begin_scenario_detail(name: &str, mode: &str, timeout_s: u64) -> (String, std::time::Duration) {
+    use std::io::{BufRead, BufReader, Write};
+    let run = run_dir(name, "spec");
+    let work = run.join("store/IDEA-1/work");
+    let mut t = token_table(mode, true);
+    t["captures"][0]["timeout_s"] = json!(timeout_s);
+    let table = write_table(run.parent().unwrap(), "t.json", &t);
+    let mut child = Command::new(ADAPTER)
+        .args(["--table", &table, "--tree"])
+        .arg(work.join("published"))
+        .arg("--work")
+        .arg(run.parent().unwrap().join("adapter-work"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", json!({"id": 1, "op": "begin_scenario", "request": {"scenario": "x"}})).unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let took = started.elapsed();
+    drop(stdin);
+    child.wait().unwrap();
+    let reply: J = serde_json::from_str(&line).unwrap_or_else(|e| panic!("reply {line:?}: {e}"));
+    assert_eq!(reply["target_error"]["kind"], "unavailable", "{reply:#}");
+    (s(&reply["target_error"]["detail"]).to_string(), took)
+}
+
+/// A product that closed the stream the capture is read from can never print it: the adapter says
+/// so at once and does not wait out `timeout_s` (20 s here; 7 scenarios x 3 runs made 21 s of
+/// waiting at 1 s in the test below).
+#[test]
+fn a_capture_on_a_stream_the_product_closed_is_missing_at_once() {
+    let (detail, took) = begin_scenario_detail("capture-closed", "token-silent", 20);
+    assert!(detail.contains("capture token did not appear on stdout") && detail.contains("closed"), "{detail}");
+    assert!(took < std::time::Duration::from_secs(10), "answered after {took:?}, the timeout is 20 s");
+}
+
+/// A product that keeps the stream open and prints nothing is waited for until `timeout_s`.
+#[test]
+fn a_capture_that_does_not_appear_on_an_open_stream_waits_its_timeout() {
+    let (detail, took) = begin_scenario_detail("capture-open", "token-quiet", 1);
+    assert!(detail.contains("capture token did not appear on stdout within 1 s"), "{detail}");
+    assert!(took >= std::time::Duration::from_secs(1), "answered after {took:?}, before the timeout");
+}
+
 #[test]
 fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
     ess();
     let run = run_dir("capture-missing", "spec");
     let mut silent = token_table("token-silent", true);
-    // the product never prints the token: each of the 7 scenarios x 2 runs waits the capture out
+    // the product never prints the token and closes its output: each scenario of the 3 runs ends
+    // at once (`a_capture_on_a_stream_the_product_closed_is_missing_at_once`)
     silent["captures"][0]["timeout_s"] = json!(1);
     let t = write_table(run.parent().unwrap(), "t.json", &silent);
     let (o, d) = observe(&run, &t, &[]);

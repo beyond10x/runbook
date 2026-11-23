@@ -12,7 +12,8 @@
 //! `end_scenario`. The product gets no environment but `PATH`, `LANG`, `HOST`, `PORT`, and `HOME`
 //! and `TMPDIR` set to the scenario's directory: no credential of the caller reaches it. Its stdout
 //! and stderr go to `product.log`; the table's `captures` are read from them (one regex group, within
-//! `timeout_s` of the start; a capture that does not appear answers `begin_scenario` `unavailable`)
+//! `timeout_s` of the start, or until the product closes the stream; a capture that does not appear
+//! answers `begin_scenario` `unavailable`)
 //! and are filled into paths, headers and bodies as `{capture.<name>}`. A `binding` replaces an input
 //! field of that name by its capture and maps the captured value back to the spec value in events,
 //! error fields and view rows. The adapter reports what the product answered, never a verdict: a
@@ -29,6 +30,7 @@ use std::net::TcpListener;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -97,7 +99,7 @@ enum Fail {
 
 /// Copies one output stream of the product, line by line, into `product.log` and a buffer the
 /// captures are read from.
-fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>) {
+fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>, closed: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         for line in BufReader::new(r).lines().map_while(Result::ok) {
             if let Ok(mut f) = log.lock() {
@@ -110,6 +112,7 @@ fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<Str
                 }
             }
         }
+        closed.store(true, Ordering::SeqCst);
     });
 }
 
@@ -237,11 +240,12 @@ impl Adapter {
             .map_err(|e| Fail::Start(format!("cannot start {}: {e}", prog.display())))?;
         let spawned = Instant::now();
         let streams = [Arc::new(Mutex::new(String::new())), Arc::new(Mutex::new(String::new()))];
+        let closed = [Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false))];
         if let Some(o) = child.stdout.take() {
-            pump(o, log.clone(), streams[0].clone());
+            pump(o, log.clone(), streams[0].clone(), closed[0].clone());
         }
         if let Some(e) = child.stderr.take() {
-            pump(e, log.clone(), streams[1].clone());
+            pump(e, log.clone(), streams[1].clone(), closed[1].clone());
         }
         let mut product = Product { child, port };
         let exited = |product: &mut Product| -> Option<String> {
@@ -255,10 +259,13 @@ impl Adapter {
         for c in self.table["captures"].as_array().cloned().unwrap_or_default() {
             let (name, stream) = (s(&c["name"]).to_string(), s(&c["stream"]).to_string());
             let re = regex::Regex::new(s(&c["regex"])).map_err(|e| Fail::Start(format!("capture {name}: {e}")))?;
-            let buf = &streams[usize::from(stream == "stderr")];
+            let which = usize::from(stream == "stderr");
+            let (buf, ended) = (&streams[which], &closed[which]);
             let secs = c["timeout_s"].as_u64().unwrap_or(5);
             let deadline = spawned + Duration::from_secs(secs);
             loop {
+                // Read before the text: the pump sets it after its last line is in the buffer.
+                let stream_ended = ended.load(Ordering::SeqCst);
                 let found = re.captures(&buf.lock().map(|b| b.clone()).unwrap_or_default()).and_then(|m| m.get(1).map(|g| g.as_str().to_string()));
                 if let Some(v) = found {
                     captured.insert(name.clone(), J::String(v));
@@ -266,6 +273,16 @@ impl Adapter {
                 }
                 if let Some(why) = exited(&mut product) {
                     return Err(Fail::Start(why));
+                }
+                if stream_ended {
+                    // A product that closed the stream prints nothing more on it: waiting out
+                    // `timeout_s` cannot change the answer. The stream also ends when the product
+                    // exits, a moment before it can be waited for: ask once more.
+                    std::thread::sleep(Duration::from_millis(20));
+                    if let Some(why) = exited(&mut product) {
+                        return Err(Fail::Start(why));
+                    }
+                    return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream}: the product closed {stream} without printing it")));
                 }
                 if Instant::now() > deadline {
                     return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
