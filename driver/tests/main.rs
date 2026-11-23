@@ -12,6 +12,7 @@ mod decision_request;
 mod experiment_loom;
 mod finding_kpis;
 mod impl_gate;
+mod not_called_writes;
 mod plugin;
 mod producer_ids;
 mod progress;

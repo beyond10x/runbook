@@ -257,6 +257,11 @@ fn run(argv: &[String]) -> R<i32> {
     let set = setup::setup(node, &argv[2..])?;
     let mut ctx = Ctx::new(node, set);
     if let Some(code) = ctx.before_call()? {
+        if code == util::NOT_CALLED {
+            if let Some(made) = &ctx.set.made {
+                let _ = fs::remove_dir_all(made);
+            }
+        }
         return Ok(code);
     }
     call::run(&ctx)
