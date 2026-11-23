@@ -672,14 +672,14 @@
     }
   ],
   "release": {
-    "date": "2026-11-22",
+    "date": "2026-11-23",
     "notes": "docs/releases/0.6.0.md",
     "tag": "0.6.0",
     "version": "0.6.0"
   },
   "releases": [
     {
-      "date": "2026-11-22",
+      "date": "2026-11-23",
       "limits": [
         "**The evaluation did not deliver.** The three runs of `experiments/parity-loom-strong-4.yaml` on this code delivered 0 of 3; all stopped `stuck`. The record's facts give two causes. A model node that is not called (a finding waits for a person, or the decisions it would follow are the defaults) exits 0 and counts against `budget.max_runs`: run 1 reached `RunsSpent` at `spec.author` after one model call in four runs, and run 3 at `change.implement` (the draft `story:bindings-state-their-exits` holds the fix; it is not built). Run 2 stopped after `requirements.check` exited 5 and the handoff check of `amend.upstream` exited 1; the record infers, and does not prove, that this is Loom `70b0e6e0` dating a performed action by the next `evaluated` line (`ActionFinished.revisions` is written empty, so selection rejects the action as not useful). The record decides nothing: its verdict is `descriptive`, and no parity verdict between the old driver and Loom exists.",
         "**No statement about speed, quality or cost goes beyond `experiments/`.** The release claims no measured change over 0.5.0 or over the old driver; a figure in these notes is one that a record of `experiments/` carries or a count read from the tree.",
@@ -693,7 +693,7 @@
       ],
       "notes": "docs/releases/0.6.0.md",
       "notes_url": "https://github.com/beyond10x/runbook/blob/0.6.0/docs/releases/0.6.0.md",
-      "summary": "A minor release of 0.5.0, the same day. `runbook run` routes decisions by autonomy level from a table it reads once before the first action, `runbook run --recorded <source>` re-drives a case tree from a recording, `runbook canon` runs the linked Canon library, and the run inspector is read-only. A source release at tag `0.6.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.5.0.md` for the release this one follows.",
+      "summary": "A minor release of 0.5.0, the day after. `runbook run` routes decisions by autonomy level from a table it reads once before the first action, `runbook run --recorded <source>` re-drives a case tree from a recording, `runbook canon` runs the linked Canon library, and the run inspector is read-only. A source release at tag `0.6.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.5.0.md` for the release this one follows.",
       "version": "0.6.0"
     },
     {
@@ -890,7 +890,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "10df716532f8cdf0e46c586033ee3fd185b1e376e01a81d2bab8fe3aac9c0d71"
+      "sha256": "edd825de39ad98a6f99a29783dc89ea4f9225420767330d35867a61e5caeaf7a"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -950,7 +950,7 @@
     },
     {
       "path": "docs/releases/0.6.0.md",
-      "sha256": "3949c34c0a249e3030b5510c26a47e1ce290387a2a01b13e30fcdc700e2c9778"
+      "sha256": "fe5415b28e829dd6cd42bb4c4ea7d890660b15afc6538a0e36a1c424a5675e00"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

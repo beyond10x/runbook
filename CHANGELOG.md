@@ -7,7 +7,7 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-11-22
+## [0.6.0] - 2026-11-23
 
 The runner routes decisions by autonomy level and can re-drive a recording. `runbook run` reads
 `tools/autonomy-levels.json` once before the first action and stops every decision for a person when
