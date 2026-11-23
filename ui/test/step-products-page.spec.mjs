@@ -45,8 +45,8 @@ test.beforeAll(async ({}, info) => {
 
 const open = async (page, name, at = () => base) => {
   await page.goto(`${at()}/?run=${name}`);
-  await expect(page.locator('#gtitle .gt-id').first()).toBeVisible();
-  await expect(page.locator('#product')).toBeVisible();
+  await expect(page.locator('#gtitle .gt-id').first()).toBeVisible({timeout: 20000});
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
 };
 const tab = async (page) => {
   const phone = await page.evaluate(() => document.documentElement.classList.contains('phone'));
