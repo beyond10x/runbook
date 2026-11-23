@@ -109,7 +109,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         return Err(format!("the run directory {} exists", run_dir.display()));
     }
     let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
-    let private = PrivateDir::create(&args.run, login.as_deref())?;
+    // nothing is made for the login yet: its link is made after the opening, in a run that has a model node
+    let planned_link = PrivateDir::check(&args.run, login.as_deref())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
@@ -153,7 +154,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         answers: Answers::default(),
         answered: std::collections::HashMap::new(),
         reasons_written: 0,
-        login_link: private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf),
+        login_link: planned_link,
+        login_file: login,
+        private: None,
+        root_file: None,
     };
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
@@ -241,7 +245,13 @@ struct Runner<'a> {
     answers: Answers,
     answered: std::collections::HashMap<String, u64>,
     reasons_written: u64,
+    /// The path the link to the login file has, or will have: the bindings copy names it. The link
+    /// exists only in a run that has a model node, and only after the opening decided.
     login_link: Option<PathBuf>,
+    login_file: Option<PathBuf>,
+    private: Option<PrivateDir>,
+    /// The root file of the bindings copy that `tree open` was given; the tree manifest must still name it.
+    root_file: Option<PathBuf>,
 }
 
 /// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
@@ -319,7 +329,14 @@ impl Runner<'_> {
         if self.node.is_with() {
             let path = self.args.spend_ledger.as_deref().ok_or_else(|| ledger_required(&self.node.because()))?;
             self.ledger = Some(Ledger::open(path)?);
+            // the link to the login file is for the model nodes of a run that has one
+            self.private = PrivateDir::create(&self.args.run, self.login_file.as_deref())?;
+            self.login_link = self.private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf);
+        } else {
+            // a run without a model node gives its bound programs no way to the login
+            self.login_link = None;
         }
+        self.root_file = Some(root_file.clone());
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         if let Some(goals) = &self.args.ports.goals {
@@ -418,9 +435,54 @@ impl Runner<'_> {
         if self.node.is_with() {
             return Ok(());
         }
+        if let Some(why) = self.manifest_problem() {
+            return self.stop_model_call(path, format!("a model program could start by {path} in a run opened without a model node: the tree manifest no longer says what the opening wrote: {why}"));
+        }
         match bindings_copy::model_node_in(&self.bindings_dir) {
             None => Ok(()),
             Some(why) => self.stop_model_call(path, format!("a model program was about to start by {path} in a run opened without a model node: the bindings copy now says: {why}")),
+        }
+    }
+
+    /// What Loom reads to decide which bindings apply: the tree manifest `store/tree.json`, member
+    /// `bindings`. It must be a regular file (not a link, not removed) whose `bindings` member is an
+    /// absolute path of a file that is not a link and that resolves to the root file of the copy
+    /// the opening made (and this runner scanned): `.` and `..` in the path are accepted when they
+    /// resolve to it. Anything else is a reason, and the run ends before a program starts.
+    /// The other members (`root`, `workspace`, `catalog`) cannot add a program to the copy's
+    /// bindings: they choose a case, the directory it works in and where protocols come from.
+    fn manifest_problem(&self) -> Option<String> {
+        let Some(root_file) = &self.root_file else {
+            return Some("the root file of the copy is not known".to_owned());
+        };
+        let manifest = self.store.join("tree.json");
+        match std::fs::symlink_metadata(&manifest) {
+            Ok(m) if m.is_file() => {}
+            Ok(_) => return Some("tree.json is not a regular file".to_owned()),
+            Err(e) => return Some(format!("tree.json cannot be read ({})", e.kind())),
+        }
+        let text = match std::fs::read_to_string(&manifest) {
+            Ok(t) => t,
+            Err(e) => return Some(format!("tree.json cannot be read ({})", e.kind())),
+        };
+        let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&text) else {
+            return Some("tree.json is not a JSON object".to_owned());
+        };
+        let Some(named) = object.get("bindings").and_then(Value::as_str).map(PathBuf::from).filter(|p| p.is_absolute()) else {
+            return Some("its bindings member is not an absolute path".to_owned());
+        };
+        for (what, file) in [("the bindings member", &named), ("the root file of the copy", root_file)] {
+            match std::fs::symlink_metadata(file) {
+                Ok(m) if m.is_file() => {}
+                Ok(m) if m.file_type().is_symlink() => return Some(format!("{what} is a link")),
+                Ok(_) => return Some(format!("{what} is not a regular file")),
+                Err(e) => return Some(format!("{what} cannot be read ({})", e.kind())),
+            }
+        }
+        match (std::fs::canonicalize(&named), std::fs::canonicalize(root_file)) {
+            (Ok(a), Ok(b)) if a == b => None,
+            (Ok(_), Ok(_)) => Some("its bindings member names another file than the root file of the copy".to_owned()),
+            _ => Some("its bindings member cannot be resolved".to_owned()),
         }
     }
 
@@ -481,6 +543,9 @@ impl Runner<'_> {
     /// `XDG_DATA_HOME` of the run), and a store read with another catalog answers
     /// `GovernorUnavailable`.
     fn refresh_status(&mut self) -> Result<(), Halt> {
+        // `tree status` starts no program, but it reads the manifest first: a manifest that was
+        // changed ends a run without a model node here by the same cause, not by a Loom error.
+        self.refuse_model_path("tree status")?;
         let r = self.host.status()?;
         if r.code != Some(0) {
             let child = format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code);
@@ -808,7 +873,7 @@ impl Runner<'_> {
                     if let Err(e) = run_files::write_tree_files(&self.run_dir, (se == 0).then_some(s.stdout.as_slice()), ve, &v.stdout, &v.stderr) {
                         outcome = Outcome::Error { reason: e };
                     }
-                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
+                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. } | Outcome::StoppedModelCall { .. }) {
                         let child = format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label());
                         let library = format!("Loom refused the tree status after the run ended as {}: {}", outcome.label(), tail_of(&s.stderr));
                         outcome = match self.loom_halt(child, library, &s) {
@@ -817,7 +882,7 @@ impl Runner<'_> {
                             Halt::Done(done) => done,
                         };
                     }
-                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. }) {
+                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. } | Outcome::Refused { .. } | Outcome::StoppedModelCall { .. }) {
                         outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };
                     }
                     (se, ve)

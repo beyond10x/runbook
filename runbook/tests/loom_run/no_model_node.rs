@@ -293,7 +293,10 @@ fn a_binding_rewritten_after_the_opening_to_name_the_model_tool_is_refused_befor
     let w = World::new("rewrite-tree-run");
     let marker = stand_in_model_tool(&w);
     bindings(&w, NO_MODEL);
-    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    // a second answer that ends the run: with the refusal removed the test fails by its
+    // assertions in a second, and does not drive the fake for ever
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
     w.fake.hook("tree_run", "1", REWRITE_TO_MODEL);
     w.fake.hook("tree_run", "2", "sdc-node node.write\n");
     let o = w.run(&zero(&w));
@@ -315,7 +318,8 @@ fn a_binding_rewritten_after_the_opening_to_name_the_model_tool_is_refused_befor
 fn a_binding_rewritten_to_something_unreadable_is_refused_too() {
     let w = World::new("rewrite-unreadable");
     bindings(&w, NO_MODEL);
-    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
     w.fake.hook("tree_run", "1", "echo 'format: [unclosed' > bindings/sdc.yaml\n");
     let o = w.run(&zero(&w));
     assert_eq!(code(&o), 13, "{}", stderr(&o));
