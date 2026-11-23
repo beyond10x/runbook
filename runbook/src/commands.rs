@@ -7,7 +7,7 @@
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
 use crate::clock::{Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
+use crate::runtime::{AnswerFailure, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -53,6 +53,29 @@ pub struct Config {
     /// Who the daemon acts as (`check_principal`): fixed for the life of the process, and the only
     /// principal the runtime is ever given.
     pub principal: String,
+}
+
+/// What the operator sets besides `Config`: what a submit that names less gets. Nothing here is
+/// read from a request, and the floor is never read as a default.
+#[derive(Clone, Debug, Default)]
+pub struct Policy {
+    /// The level of a submit that names none (`--default-confinement`, else `confinement` of
+    /// `runbook.toml`); none: linux.
+    pub default_confinement: Option<Confinement>,
+}
+
+/// The refusal of a default level below the floor, naming both values. The daemon does not start
+/// with one: a default that every submit it applies to would refuse is a configuration that
+/// disagrees with itself.
+pub fn check_default_confinement(floor: Confinement, default: Confinement) -> Result<(), String> {
+    if default.at_least(floor) {
+        return Ok(());
+    }
+    Err(format!(
+        "the default confinement {} is below the floor {}: --default-confinement (or `confinement` of runbook.toml) and --min-confinement disagree; raise the default or lower the floor",
+        default.as_str(),
+        floor.as_str()
+    ))
 }
 
 /// A request the daemon cannot take at all (no outcome of the specification), or a failure of its own.
@@ -253,7 +276,7 @@ pub struct SubmitRun {
     pub context_path: Option<String>,
     #[serde(default)]
     pub settings: BTreeMap<String, String>,
-    /// Absent means `linux`.
+    /// Absent: the daemon's default level, else `linux`.
     #[serde(default)]
     pub confinement: Option<Confinement>,
     #[serde(default)]
@@ -279,6 +302,7 @@ pub struct AnswerDecision {
 
 struct Inner {
     cfg: Config,
+    policy: Policy,
     daemon_id: String,
     state: Mutex<State>,
     runtime: Arc<dyn Runtime>,
@@ -312,7 +336,20 @@ impl Daemon {
     /// process (`clock::SetClock`); `runbook serve` calls `start`, and no option, environment variable
     /// or request reaches this.
     pub fn start_with_clock(cfg: Config, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, Policy::default(), runtime, clock)
+    }
+
+    /// `start` with the operator's policy.
+    pub fn start_with(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, policy, runtime, Arc::new(SystemClock))
+    }
+
+    /// Everything `start` takes. A default level below the floor is refused before the state directory is opened.
+    pub fn start_full(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
         check_principal(&cfg.principal).map_err(io::Error::other)?;
+        if let Some(default) = policy.default_confinement {
+            check_default_confinement(cfg.confinement_floor, default).map_err(io::Error::other)?;
+        }
         let mut roots = Vec::new();
         for r in &cfg.context_roots {
             let canon = std::fs::canonicalize(r).map_err(|e| io::Error::new(e.kind(), format!("context root {}: {e}", r.display())))?;
@@ -327,6 +364,7 @@ impl Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
                 cfg,
+                policy,
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
@@ -461,7 +499,11 @@ impl Daemon {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
         let run_id = uuid::Uuid::now_v7().to_string();
-        let confinement = input.confinement.unwrap_or(Confinement::Linux);
+        let (confinement, source) = match (input.confinement, self.inner.policy.default_confinement) {
+            (Some(named), _) => (named, ConfinementSource::Submit),
+            (None, Some(default)) => (default, ConfinementSource::DaemonDefault),
+            (None, None) => (Confinement::Linux, ConfinementSource::BuiltIn),
+        };
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
         // The two facts the specification takes from the host.
         let runbook_known = self.runbook_known(&input.runbook_id, input.runbook_version.as_deref());
@@ -487,7 +529,7 @@ impl Daemon {
         if let Some((sid, None)) = &session {
             return refused("no-session", json!({"session_id": sid}));
         }
-        if confinement.rank() < floor.rank() {
+        if !confinement.at_least(floor) {
             return refused("below-floor", json!({"run_id": run_id, "confinement": confinement}));
         }
         if let Some((sid, Some(SessionState::Closed))) = &session {
@@ -515,6 +557,7 @@ impl Daemon {
             context_path: input.context_path.clone(),
             settings: input.settings.clone(),
             confinement,
+            confinement_source: Some(source),
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
             submitted_at: st.now(),
@@ -526,7 +569,8 @@ impl Daemon {
         };
         st.commit(Fact::RunSubmitted(run))?;
         let payload = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement});
-        record_event_locked(&mut st, &run_id, "runbook.submitted", payload.clone())?;
+        let record = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement, "confinement_source": source.as_str()});
+        record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         drop(st);
 
         let request = StartRequest {
@@ -1078,6 +1122,9 @@ fn run_row(r: &Run) -> Value {
     put(&mut m, "runbook_version", &r.runbook_version);
     m.insert("state".into(), json!(r.state));
     m.insert("confinement".into(), json!(r.confinement));
+    if let Some(source) = r.confinement_source {
+        m.insert("confinement_source".into(), json!(source));
+    }
     put(&mut m, "session_id", &r.session_id);
     m.insert("submitted_at".into(), json!(r.submitted_at));
     put(&mut m, "started_at", &r.started_at);

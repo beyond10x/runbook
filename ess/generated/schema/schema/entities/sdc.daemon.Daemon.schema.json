@@ -37,13 +37,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:65b30e31ca9dd2168ef7b614cf808cf3de63c82c2ae34333f7f4076013c24871",
+    "contract_digest": "slice-sha256/2:7d09be4fac8cf85a41fc271ffdb6b6ddb1ecfc74079fcb462bfccc2804d84e2f",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.ConfinementLevel": {
       "title": "ConfinementLevel",
-      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon's default level (runbook serve --default-confinement, or `confinement` of runbook.toml), else at linux; the handler fills it. The daemon's floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.",
       "x-ess-name": "sdc.daemon.ConfinementLevel",
       "x-ess-kind": "enum",
       "type": "string",

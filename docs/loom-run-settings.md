@@ -100,7 +100,7 @@ effort = "low"
 | `run` | text | none | `normalise` | when present, equal to `--run` |
 | `loom_sha256` | text | none | `normalise` | when present, equal to `--loom-sha256`; refused when Loom is a library (no `--loom`) |
 | `in_process` | `true` | none | `normalise` | `true` only when Loom is a library (no `--loom`); `false` and any other value are refused |
-| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
+| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level. `runbook serve` reads the same key as its default level for a submit that names none (`--default-confinement` wins; `docs/daemon-api.md`) |
 | `cap_micro_usd` | whole number | none | `normalise` | when present, equal to `--cap-micro-usd` |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; text, a float and a date are refused |

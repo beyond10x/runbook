@@ -198,6 +198,13 @@ fn main() -> ExitCode {
                 }
             };
             args.runbooks = world.configured.clone();
+            match config::load(&cli.source) {
+                Ok(file) => args.file_confinement = file.and_then(|f| f.confinement).map(loom_run::library::level_of),
+                Err(e) => {
+                    eprintln!("runbook serve: {e}");
+                    return ExitCode::from(2);
+                }
+            }
             if args.runbook_dir.is_none() {
                 args.runbook_dir = world.assets.as_ref().map(|a| a.protocol_dir());
             }

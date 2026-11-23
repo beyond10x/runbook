@@ -7,7 +7,7 @@
 //! synced to the disk per fact: it survives the process, not a power cut.
 
 use crate::clock::{format_instant, Clock, SystemClock};
-use crate::runtime::Confinement;
+use crate::runtime::{Confinement, ConfinementSource};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -92,6 +92,9 @@ pub struct Run {
     pub context_path: Option<String>,
     pub settings: BTreeMap<String, String>,
     pub confinement: Confinement,
+    /// Where the level came from; a journal line of a run submitted before the daemon kept it has none.
+    #[serde(default)]
+    pub confinement_source: Option<ConfinementSource>,
     pub session_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub submitted_at: String,

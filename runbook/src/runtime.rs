@@ -37,6 +37,40 @@ impl Confinement {
     pub fn rank(self) -> u8 {
         self as u8
     }
+
+    /// Whether `self` is at least as strong as `floor`. The one comparison of two levels: every pair
+    /// is written out, so a level added to the enum does not compile until it is placed here; there
+    /// is no arm that passes what it did not name.
+    pub fn at_least(self, floor: Confinement) -> bool {
+        match (self, floor) {
+            (Confinement::Local, Confinement::Local) => true,
+            (Confinement::Linux, Confinement::Local) => true,
+            (Confinement::Linux, Confinement::Linux) => true,
+            (Confinement::Local, Confinement::Linux) => false,
+        }
+    }
+}
+
+/// Where the level of a run came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfinementSource {
+    /// The submit named it.
+    Submit,
+    /// The daemon's default level (`--default-confinement`, or `confinement` of `runbook.toml`).
+    DaemonDefault,
+    /// The submit named none and the daemon has no default: linux.
+    BuiltIn,
+}
+
+impl ConfinementSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfinementSource::Submit => "submit",
+            ConfinementSource::DaemonDefault => "daemon-default",
+            ConfinementSource::BuiltIn => "built-in",
+        }
+    }
 }
 
 /// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime

@@ -22,9 +22,12 @@ runtime.
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 
-Confinement levels, weakest first: `local` (not confined), `linux`. The default of a submit is
-`linux`, the daemon's default floor is `linux`; `local` must be asked for by name and is refused
-under a `linux` floor.
+Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
+`confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
+`confinement` of `runbook.toml`), and at `linux` when the daemon has none. The run's row and its
+first event (`runbook.submitted`) carry `confinement_source`: `submit`, `daemon-default` or
+`built-in`. The daemon's default floor is `linux`; `local` must be asked for by name or stated as
+the daemon's default, and is refused under a `linux` floor. The floor is never read as a default.
 
 ## Client commands
 
@@ -186,7 +189,7 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ```
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
-              [--token-file FILE] [--ui] [--mcp]
+              [--default-confinement local|linux] [--token-file FILE] [--ui] [--mcp]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -205,6 +208,7 @@ open event streams are closed then (see "Event streams").
 | `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
+| `--default-confinement` | the `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` is `linux`), else none | The level of a submit that names none. The option wins over the file. It is never the floor: a default below `--min-confinement` stops the daemon at start, exit 1, with a message that names the two values and nothing else of the file. With none, a submit without a level runs at `linux`. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
 
@@ -344,9 +348,10 @@ Without `--ui`, `GET /` is `404`.
   started a run: look in the list of runs). The levels offered start at the daemon's floor
   (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
   level, Start stays disabled until then, and the form says what the floor is. The form presets no level; the
-  command does: a `submit-run` without the member `confinement` runs at `linux` (the specification says so in
-  the summary of `sdc.daemon.ConfinementLevel`, `ess/domains/daemon.yaml`: "The default of a submit is linux
-  (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
+  command does: a `submit-run` without the member `confinement` runs at the daemon's default level, else at
+  `linux` (the specification says so in the summary of `sdc.daemon.ConfinementLevel`,
+  `ess/domains/daemon.yaml`, and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`; the page
+  sends no level it was not given, so the one it picked is the one that runs). A level
   the person picked while the form was still reading the floor and the list stays picked when the floor just
   read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
   `below-floor`). The page checks the level against the floor it read when the form opened; when the daemon

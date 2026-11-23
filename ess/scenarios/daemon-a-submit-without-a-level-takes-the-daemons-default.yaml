@@ -1,0 +1,50 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-a-submit-without-a-level-takes-the-daemons-default
+summary: "A submit that names no confinement is taken: the handler fills the daemon's default level (else linux) and the run is Submitted. A submit that names a level below the floor is still refused."
+
+timeline:
+  - at: 2026-11-23T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-23T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-23T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-no-level"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      at: 2026-11-23T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-23T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-low"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: local
+      at: 2026-11-23T10:02:00Z
+    outcome: below-floor
+
+assert:
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-no-level", state: Submitted}

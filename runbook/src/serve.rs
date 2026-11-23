@@ -1,7 +1,7 @@
 //! `runbook serve`: the daemon in the foreground.
 
 use crate::api::{self, auth};
-use crate::commands::{check_principal, Config, Daemon};
+use crate::commands::{check_default_confinement, check_principal, Config, Daemon, Policy};
 use crate::engine::Engine;
 use crate::runtime::{Confinement, Runtime};
 use crate::stub::StubRuntime;
@@ -42,6 +42,13 @@ pub struct ServeArgs {
     /// The weakest confinement level the daemon takes for a run.
     #[arg(long, value_name = "LEVEL", default_value = "linux", value_parser = ["local", "linux"])]
     pub min_confinement: String,
+    /// The level of a submit that names none; never below the floor, or the daemon does not start. Else the
+    /// `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` the level `linux`), else linux.
+    #[arg(long, value_name = "LEVEL", value_parser = ["local", "linux"])]
+    pub default_confinement: Option<String>,
+    /// The `confinement` of `runbook.toml`, as a level. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub file_confinement: Option<Confinement>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -108,6 +115,13 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         .ok_or_else(|| format!("--listen {}: no address", args.listen))?;
     auth::check_listen(&addr, token.as_deref())?;
     let floor = Confinement::parse(&args.min_confinement).ok_or_else(|| format!("--min-confinement {}: not a level", args.min_confinement))?;
+    let default_confinement = match (&args.default_confinement, args.file_confinement) {
+        (Some(level), _) => Some(Confinement::parse(level).ok_or_else(|| format!("--default-confinement {level}: not a level"))?),
+        (None, file) => file,
+    };
+    if let Some(default) = default_confinement {
+        check_default_confinement(floor, default)?;
+    }
     let state = state_dir(args, env)?;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
@@ -125,7 +139,8 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let daemon = Daemon::start(cfg, runtime).map_err(|e| format!("state directory: {e}"))?;
+    let policy = Policy { default_confinement };
+    let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon })
 }
 

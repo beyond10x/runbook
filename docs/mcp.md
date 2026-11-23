@@ -53,7 +53,7 @@ Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
 the `Input` schema of its command with the members the HTTP handler fills removed (`run_id`,
 `daemon_id`, `runbook_known`, `context_inside_roots` of a submit, and `at` of all) and with the
-members the daemon defaults (`settings`, `confinement`) not required; a view tool's schema is built
+members the daemon defaults (`settings`, `confinement`) not required (a `submit_run` without `confinement` runs at the daemon's default level, else `linux`; the level and where it came from are `confinement` and `confinement_source` of `read_run`); a view tool's schema is built
 from the query parameters of its view. Every `$ref` is inlined. The one member typed here is
 `after_sequence` of `read_events`, which has no parameter in the view: the view pages by `position`;
 a run's own `sequence` (from 1) is the filter the tool puts on the rows of that view.
