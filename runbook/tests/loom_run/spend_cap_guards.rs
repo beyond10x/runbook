@@ -240,21 +240,26 @@ fn a_ledger_that_is_a_fifo_ends_the_run_and_does_not_hang() {
     steps_then_end(&w, 3);
     let made = Command::new("mkfifo").arg(w.ledger()).status().unwrap();
     assert!(made.success());
-    let mut child = w.command(&w.args("r1", 5_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let ended = ends_within_8_s(&mut w.command(&w.args("r1", 5_000_000)));
+    assert!(ended, "the runner did not end within 8 s of a ledger that is a FIFO (it was killed by its PID); tree runs {}", tree_runs(&w));
+}
+
+/// Starts `command` and says whether it ended within 8 s; one that did not is killed by its PID and reaped.
+fn ends_within_8_s(command: &mut Command) -> bool {
+    let mut child = command.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     let started = Instant::now();
-    let mut ended = None;
-    while started.elapsed() < Duration::from_secs(8) {
-        if let Some(status) = child.try_wait().unwrap() {
-            ended = Some(status);
-            break;
+    let ended = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if started.elapsed() >= Duration::from_secs(8) {
+            break false;
         }
         std::thread::sleep(Duration::from_millis(100));
-    }
-    if ended.is_none() {
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
-    assert!(ended.is_some(), "the runner did not end within 8 s of a ledger that is a FIFO (it was killed by its PID); tree runs {}", tree_runs(&w));
+    };
+    let _ = child.kill();
+    child.wait().unwrap();
+    ended
 }
 
 // ---- B and D: the places that start a program ----
@@ -508,21 +513,8 @@ fn a_fifo_in_the_copy_ends_the_run_and_does_not_hang() {
     w.fake.hook("tree_run", "1", "mkfifo bindings/f.yaml\n");
     let mut a = w.args("r1", 0);
     without(&mut a, "--spend-ledger");
-    let mut child = w.command(&a).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    let started = Instant::now();
-    let mut ended = None;
-    while started.elapsed() < Duration::from_secs(8) {
-        if let Some(status) = child.try_wait().unwrap() {
-            ended = Some(status);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    if ended.is_none() {
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
-    assert!(ended.is_some(), "the runner did not end within 8 s of a FIFO named *.yaml in the copy (it was killed by its PID); tree runs {}", tree_runs(&w));
+    let ended = ends_within_8_s(&mut w.command(&a));
+    assert!(ended, "the runner did not end within 8 s of a FIFO named *.yaml in the copy (it was killed by its PID); tree runs {}", tree_runs(&w));
 }
 
 /// The same with no money option named: separates the reads that the caps unit added from the reads that were
@@ -538,21 +530,8 @@ fn a_fifo_in_the_copy_with_no_cap_named_ends_the_run_and_does_not_hang() {
     for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
         without(&mut a, flag);
     }
-    let mut child = w.command(&a).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    let started = Instant::now();
-    let mut ended = None;
-    while started.elapsed() < Duration::from_secs(8) {
-        if let Some(status) = child.try_wait().unwrap() {
-            ended = Some(status);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    if ended.is_none() {
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
-    assert!(ended.is_some(), "the runner did not end within 8 s of a FIFO named *.yaml in the copy with no cap named (it was killed by its PID); tree runs {}", tree_runs(&w));
+    let ended = ends_within_8_s(&mut w.command(&a));
+    assert!(ended, "the runner did not end within 8 s of a FIFO named *.yaml in the copy with no cap named (it was killed by its PID); tree runs {}", tree_runs(&w));
 }
 
 // ---- E: two runs, one ledger ----
