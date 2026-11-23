@@ -125,7 +125,7 @@ list): each of the 50 program bindings of `bindings/*.yaml` states `exits.error`
 (the `sdc-node` actions) also `exits.not_called: [79]`. An exit in `error` ends the run
 `ProgramError`, the run log holds no result for the node, and the run is not counted against
 `budget.max_runs`; an exit in `not_called` records nothing, the step is performed, and the run is
-not counted either. `sdc-node` ends 79 where it prints "not called" and writes nothing
+not counted either. `scripts/check-bindings.sh` refuses by name an `exits` class other than these two, a class that is not a list and an `exits` that is not a mapping, as Loom's decoder does. `sdc-node` ends 79 where it prints "not called" and writes nothing
 (`questions.write` with an interview, a stage agent while a finding waits for a person); the one
 "not called" that stays exit 0 is a derived tree that is only renewed (`derived_skip`): its
 renewed `.derived-from` is what moves the case, and a run that records nothing leaves the case at
