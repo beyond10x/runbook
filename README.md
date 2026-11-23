@@ -118,11 +118,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.5.0`; nothing is published to crates.io. The latest is 0.5.0 (2026-11-22).
+`0.6.0`; nothing is published to crates.io. The latest is 0.6.0 (2026-11-23).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.5.0 over 0.4.1 (nothing is unreleased): `runbook run <runbook>` runs a case in process on
+- New in 0.6.0 over 0.5.0 (nothing is unreleased): `runbook run` routes decisions by autonomy level
+  from `tools/autonomy-levels.json` and `runbook run --recorded <source>` re-drives a case tree from a
+  recording, `runbook canon` runs the linked Canon library (`runbook doctor` needs no `canon`
+  binary), and the run inspector is read-only; its acts and the options `--write`, `--write-only` and
+  `--principal` are gone. The three evaluation runs of record `parity-loom-strong-4` delivered 0 of 3
+  ([docs/releases/0.6.0.md](docs/releases/0.6.0.md)).
+- New in 0.5.0 over 0.4.1: `runbook run <runbook>` runs a case in process on
   the Loom engine and the command `runbook loom-run` is gone, `runbook test <suite>` runs a tree
   suite, the decider and every model node are Rust programs, and `sdc-experiment run` starts runs
   only with `runbook run`; the replay options of `runbook run` are refused and no measured run has
