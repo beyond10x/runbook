@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:run-inputs-declared-by-runbook
 kind: story
-status: draft
+status: proposed
 title: 'runbook run loses --bugfix, --bugfix-ticket and --goals: a runbook declares its inputs and its program before the open'
 summary: A person gives a file with --input <name>=<file>; the story creates the declarations file of a runbook and its one reader; bugfix.rs and goals.rs leave the runner.
 tags:
@@ -66,7 +66,9 @@ scope:
   path: runbook/tests/source_names/known/runbook/src/loom_run/run_loop.rs.txt
 - confidence: inferred
   path: scripts
-revision: 11
+revision: 13
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-23T09:57:20Z", actor: "human:operator", revision: 13, executor: "agent:runbook"}
 ---
 ## Outcome
 
@@ -92,7 +94,7 @@ This story also creates the place of these declarations: one declarations file p
 - Runbook -> input a person may give at the start: zero to many; the runbook owns the declaration; each input lands on one artifact of the bindings. inferable (inferred from `runbook/src/loom_run/goals.rs` and `runbook/src/loom_run/bugfix.rs:22-27`, one option per input in code; no `ess/1` document declares it).
 - Runbook -> program before the open: zero or one. inferable (inferred from `runbook/src/loom_run/run_loop.rs:297`).
 - Runbook -> declarations file: zero or one; a runbook without one declares nothing. inferable (inferred from the four places in code that the question of the blocker lists; no `ess/1` document declares it).
-- Which file of a runbook holds these declarations: requires-stakeholder-input, filed as `decision-blocker:runbook-declarations-without-a-format-member`, which is open and blocks this story. The working answer of this draft is its option A (the recommended one): one file of the runbook beside its bindings, in a closed format of this repository, TOML. Another answer changes the reader of this story and nothing of its acceptance but the lines on the format.
+- Which file of a runbook holds these declarations: decided by the operator on 2026-11-23, option A of `decision-blocker:runbook-declarations-without-a-format-member`: a TOML file that the runbook owns, beside its bindings, in a closed format of this repository; no change of Canon or Loom.
 
 ## Names taken in this draft
 
@@ -100,7 +102,7 @@ The names of the new options are defaults of the coordinator, written here so th
 
 ## Scope
 
-- New: the reader, `runbook/src/declarations.rs` with its line in `runbook/src/lib.rs`. The path of the declarations file itself is typed when the blocker closes; under the working answer it is one new file beside the bindings of `sdc`, of `sdc-bugfix` and of each fixture runbook that declares something.
+- New: the reader, `runbook/src/declarations.rs` with its line in `runbook/src/lib.rs`. The declarations file is one new TOML file beside the bindings of `sdc`, of `sdc-bugfix` and of each fixture runbook that declares something.
 - `runbook/src/loom_run/here.rs`, `runbook/src/loom_run/ports.rs`, `runbook/src/loom_run/run_loop.rs`; `runbook/src/loom_run/bugfix.rs` and `runbook/src/loom_run/goals.rs` (both go).
 - `runbook/tests/loom_run/bugfix.rs`, `runbook/tests/loom_run/goals.rs`, new `runbook/tests/loom_run/declarations.rs` (with its line in `runbook/tests/loom_run/mod.rs`); `runbook/tests/fixtures/bugfix-runbook/` (its declarations and the two recorded listings); `runbook/tests/fixtures/model-runbook/` (one declared input).
 - `docs/cli.md`, `docs/bugfix.md`, `docs/requester.md`, `docs/loom-run.md`; `Taskfile.yml` and `scripts/` where one passes an old option; the shards of `bugfix.rs`, `goals.rs`, `here.rs` and `run_loop.rs`.

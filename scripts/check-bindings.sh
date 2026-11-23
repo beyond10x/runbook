@@ -15,8 +15,56 @@
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
 # experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
-sdc=$(cd "$(dirname "$0")/.." && pwd)
+sdc=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
 fail=0
+# The shapes of an action that the checks below read (jq definitions, used by the exits check and by the
+# per-protocol loop). A member that is absent or null counts as absent, and any other value must have the
+# type the check needs: `//` reads a member only after its type is checked, since `false // []` is `[]`.
+# problem is the first reason an action cannot be read by the exits check: an action that is no mapping, has
+# no name, has an executor that is present and no mapping (null too), an executor.argv that is no list,
+# evidence that is no list of mappings, a results member that is no mapping, or a result key of an entry read
+# from the exit that is no exit code (0 to 255, written without sign, zero or final newline: \A and \z, since
+# `$` matches before a final newline). loop_problem adds what the per-protocol loop reads: an argv element or
+# arguments_from that is no list of strings, a budget that is no mapping. badaction($f) and loop_badaction($f)
+# are the line of each, naming the file and the action.
+jq_shapes='
+  def xe: if has("executor") then .executor else {} end;
+  def execok: (has("executor") | not) or ((.executor | type) == "object");
+  def typed($v; $t): $v == null or ($v | type) == $t;
+  def exitcode: test("\\A(0|[1-9][0-9]{0,2})\\z") and (tonumber <= 255);
+  def evidence_problem:
+    if typed(.evidence; "array") | not then "evidence is not a list"
+    else (.evidence // []) as $ev
+    | if ([$ev[] | select(type != "object")] | length) > 0 then "an evidence entry is not a mapping"
+      elif ([$ev[] | select(typed(.results; "object") | not)] | length) > 0 then "results of an evidence entry is not a mapping"
+      elif ([$ev[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and (exitcode | not))] | length) > 0 then "a result key of an evidence entry read from the exit is no exit code"
+      else null end end;
+  def problem:
+    if type != "object" then "an entry of actions is not a mapping"
+    elif (.action | type) != "string" then "an entry of actions has no action name"
+    elif (execok | not) then "executor is not a mapping"
+    elif typed(xe.argv; "array") | not then "executor.argv is not a list"
+    else evidence_problem end;
+  def loop_problem:
+    problem //
+    if ((xe.argv // []) | all(type == "string")) | not then "an element of executor.argv is not a string"
+    elif typed(.arguments_from; "array") | not then "arguments_from is not a list"
+    elif ((.arguments_from // []) | all(type == "string")) | not then "an element of arguments_from is not a string"
+    elif typed(.budget; "object") | not then "budget is not a mapping"
+    else null end;
+  def okaction: problem == null;
+  def line($f; $p):
+    if $p == null then empty
+    elif type == "object" and ((.action | type) == "string") then "\($f) \(.action): \($p)"
+    else "\($f): \($p)" end;
+  def badaction($f): line($f; problem);
+  def loop_badaction($f): line($f; loop_problem);
+'
+shape_lines() {
+  yq -o=json -I=0 '{"actions": (.actions? // null)}' "$1" | jq -r --arg f "$2" "$jq_shapes"'
+    if (.actions | type) != "array" then "\($f): not a bindings file, it is no mapping with an actions list"
+    else .actions[] | loop_badaction($f) end'
+}
 check_exits() {
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
 # [75, 126, 127], and [69, 70, 75, 126, 127] for the five bindings the checker names as waiting for
@@ -26,21 +74,53 @@ check_exits() {
 # overlap itself; this fails before a run does. Loom reads two classes, `error` and `not_called`, each
 # a list of exit codes: another class, a class that is not a list and an `exits` that is not a
 # mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
-# <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs).
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .actions}' bindings/*.yaml | jq -rn '
+# <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs). The pool list is this repository's:
+# it applies when <root>/bindings/ holds one of the files it names (sdc-story.yaml, sdc-release.yaml,
+# sdc-bugfix.yaml), and by nothing else (not by where this script lies: another repository may hold
+# a copy of it); a root with none of them is the runbook of another repository, whose programs are
+# checked by the binding itself: an argv with `--pool-wait` wants `exits.error`
+# [69, 70, 75, 126, 127], one without it [75, 126, 127] or [69, 70, 75, 126, 127] (the tool exits 69
+# and 70 for SDC_POOL_WAIT too).
+binding_files=()
+for f in "$sdc"/bindings/*.yaml; do
+  if [[ -e $f || -L $f ]]; then binding_files+=("$f"); fi
+done
+if [[ ${#binding_files[@]} -eq 0 ]]; then
+  exit_findings="$sdc: no bindings/*.yaml"
+else
+# A file of no bytes (or with no yq output) is told as {"empty": true}, a link that points at nothing as
+# {"link": true}. Text that is no YAML ends the script with yq's message, which names the file.
+exit_findings=$(cd -- "$sdc" && {
+  for f in "${binding_files[@]}"; do
+    rel=bindings/${f##*/}
+    doc=
+    if [[ -L $f && ! -e $f ]]; then doc='{"link": true}'
+    elif [[ -s $f ]]; then doc=$(yq -o=json -I=0 '{"actions": (.actions? // null)}' "$rel") || exit 1; fi
+    [[ -n $doc ]] || doc='{"empty": true}'
+    printf "%s\n" "$doc" | jq -c --arg f "$rel" '.f = $f'
+  done
+} | jq -rn "$jq_shapes"'
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
-  | [inputs] as $docs
-  | ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
+  | [inputs] as $all
+  | ([$all[] | select((.actions | type) == "array") | .actions |= map(select(okaction))]) as $docs
+  | ([$pools[] | split(":")[0]] | unique) as $poolfiles
+  | ([$docs[], ($all[] | select(.link == true))] | map(.f) | any(. as $f | $poolfiles | index($f) != null)) as $own
+  | (if $own then $pools else [] end) as $pools
+  | ($all[] | select(.link == true) | "\(.f): a link that points at nothing"),
+  ($all[] | select(.empty == true) | "\(.f): the file is empty"),
+  ($all[] | select(.empty != true and .link != true and (.actions | type) != "array") | "\(.f): not a bindings file, it is no mapping with an actions list"),
+  ($all[] | select((.actions | type) == "array") | .f as $f | .actions[] | badaction($f)),
+  ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)
      | "\(.): a binding that waits for the build pool is not in bindings/"),
   ($docs[]
   | .f as $f | .actions[]
   | . as $a
   | (($a.executor.kind // "") == "program") as $program
   | (($a.executor.argv // []) | index("--pool-wait") != null) as $waits
-  | ($pools | index("\($f):\($a.action)") != null) as $pool
+  | (if $own then ($pools | index("\($f):\($a.action)") != null) else $waits end) as $pool
   | (($a.executor.argv[0] // "") == "sdc-node") as $node
-  | (if $pool then [69, 70, 75, 126, 127] else [75, 126, 127] end) as $want
+  | (if $pool then [[69, 70, 75, 126, 127]] elif $own then [[75, 126, 127]] else [[75, 126, 127], [69, 70, 75, 126, 127]] end) as $wants
   | (if ($a.exits | type) == "object" then $a.exits else {} end) as $ex
   | [$ex | keys[] | select(. != "error" and . != "not_called")] as $unknown
   | (["error", "not_called"] | map(select(. as $c | $ex[$c] != null and ($ex[$c] | type) != "array"))) as $nolist
@@ -57,13 +137,14 @@ exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": .action
       ($unknown[] | "\($f) \($a.action): exits.\(.) is not an exit class, Loom reads error and not_called"),
       ($nolist[] | "\($f) \($a.action): exits.\(.) is not a list of exit codes"),
       (if $malformed then empty else
-        (if $err != $want then "\($f) \($a.action): exits.error is \($err | tojson), want \($want | tojson)" else empty end),
+        (if any($wants[]; . == $err) | not then "\($f) \($a.action): exits.error is \($err | tojson), want \($wants | map(tojson) | join(" or "))" else empty end),
         (if $node and $nc != [79] then "\($f) \($a.action): exits.not_called is \($nc | tojson), want [79]" else empty end),
         (if ($node | not) and $nc != [] then "\($f) \($a.action): exits.not_called on a program that is no model node" else empty end),
         (if ([$err[], $nc[]] | map(select(. as $c | $keys | index($c))) | length) > 0 then "\($f) \($a.action): an exits code is a key of the result table" else empty end),
         (if ([$err[] | select(. as $c | $nc | index($c))] | length) > 0 then "\($f) \($a.action): a code is in exits.error and exits.not_called" else empty end)
       end)
     end)')
+fi
 if [[ -n $exit_findings ]]; then
   echo "FAIL exits"; echo "$exit_findings" | sed 's/^/  /'; fail=1
 else
@@ -71,7 +152,7 @@ else
 fi
 }
 if [[ ${1:-} == --exits ]]; then
-  sdc=$(cd "${2:?usage: check-bindings.sh --exits <root>}" && pwd)
+  sdc=$(cd -- "${2:?usage: check-bindings.sh --exits <root>}" && pwd -P)
   check_exits
   exit "$fail"
 fi
@@ -99,6 +180,8 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
   y=$sdc/bindings/$name.yaml
   if [[ ! -f $y ]]; then
     findings+=${findings:+$'\n'}"no bindings/$name.yaml"
+  elif shapes=$(shape_lines "$y" "bindings/$name.yaml"); [[ -n $shapes ]]; then
+    findings+=${findings:+$'\n'}$shapes
   else
     ya=$(yq -o=json '[.actions[].action]' "$y")
     for a in $(jq -r --argjson y "$ya" 'keys[] | select(startswith("$") | not) | select(. as $a | $y | index($a) | not)' "$b"); do
@@ -188,24 +271,41 @@ check_exits
 # `@<revision>`, and refuses another major. A file's `protocol:` is that registration, the `from:`
 # of every `copy` executor is the registration of some protocol file, and a file that binds a
 # program (argv or arguments_from) names `program_root: bindings`.
-regs=$(cd "$sdc" && jq -r --slurpfile p <(yq -o=json -I=0 '{"f": filename, "id": .protocol.id, "rev": .protocol.revision}' protocol/*.protocol.yaml) '
+# The two readers run before the check, not as process substitutions of it: a failure of a process
+# substitution is lost, so that a file yq could not open left the step green.
+# A link that points at nothing is left out: the exits step refused it by name.
+reg_unreadable=0
+reg_files=()
+for f in "$sdc"/bindings/*.yaml; do
+  if [[ -e $f ]]; then reg_files+=("bindings/${f##*/}"); fi
+done
+reg_protocols=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "id": .protocol.id, "rev": .protocol.revision}' protocol/*.protocol.yaml) || reg_unreadable=1
+reg_bindings=
+if [[ ${#reg_files[@]} -gt 0 ]]; then
+  reg_bindings=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "doc": .}' "${reg_files[@]}") || reg_unreadable=1
+fi
+if [[ $reg_unreadable -eq 1 ]]; then
+  regs="a file this step reads could not be read (the message of yq is above)"
+else
+regs=$(jq -r --slurpfile p <(printf '%s\n' "$reg_protocols") '
   def reg: (.id | gsub("[._]"; "-")) + "@" + (.rev | tostring);
   ($p | map({key: (.f | ltrimstr("protocol/") | rtrimstr(".protocol.yaml")), value: reg}) | from_entries) as $byname
   | ($p | map(reg)) as $all
   | .f as $f | (.f | ltrimstr("bindings/") | rtrimstr(".yaml")) as $n
+  | (.doc | if type == "object" then . else {} end) as $d
+  | ([$d.actions | arrays | .[] | objects | .executor | objects | select(.kind == "copy") | .from]) as $froms
+  | (any($d.actions | arrays | .[] | objects; ((.executor | if type == "object" then .argv else null end) != null) or .arguments_from != null)) as $program
   | (if $byname[$n] == null then "\($f): no protocol/\($n).protocol.yaml"
-     elif .protocol != $byname[$n]
-     then "\($f): protocol is \(.protocol), the registration of protocol/\($n).protocol.yaml is \($byname[$n])"
+     elif $d.protocol != $byname[$n]
+     then "\($f): protocol is \($d.protocol), the registration of protocol/\($n).protocol.yaml is \($byname[$n])"
      else empty end),
-    (.froms[] | select(. as $x | $all | index($x) | not)
+    ($froms[] | select(. as $x | $all | index($x) | not)
      | "\($f): copy from \(.) is the registration of no protocol file in protocol/"),
-    (if .program | not then empty
-     elif .root == null then "\($f): binds a program and has no program_root; write program_root: bindings"
-     elif .root != "bindings" then "\($f): program_root is \(.root); write program_root: bindings"
-     else empty end)' \
-  <(yq -o=json -I=0 '{"f": filename, "protocol": .protocol, "root": .program_root,
-      "froms": [.actions[].executor | select(.kind == "copy") | .from],
-      "program": ([.actions[] | select(.executor.argv != null or .arguments_from != null)] | length > 0)}' bindings/*.yaml))
+    (if $program | not then empty
+     elif $d.program_root == null then "\($f): binds a program and has no program_root; write program_root: bindings"
+     elif $d.program_root != "bindings" then "\($f): program_root is \($d.program_root); write program_root: bindings"
+     else empty end)' <<< "$reg_bindings")
+fi
 if [[ -n $regs ]]; then
   echo "FAIL registrations"; echo "$regs" | sed 's/^/  /'; fail=1
 else

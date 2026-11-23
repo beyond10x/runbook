@@ -58,6 +58,12 @@ types:
     naming:
       summary: "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir."
 
+  - name: sdc.daemon.RunbookName
+    kind: newtype
+    of: String
+    naming:
+      summary: "The name of a runbook in the list the view Runbooks gives: the text a client puts into the runbook_id of a SubmitRun. A type of its own, not RunbookId, because a row of that list names a runbook the daemon can start and is not a reference of a run to it."
+
   - name: sdc.daemon.RunbookVersion
     kind: newtype
     of: String
@@ -96,6 +102,12 @@ types:
     variants: [local, linux]
     naming:
       summary: "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor."
+
+  - name: sdc.daemon.RuntimeKind
+    kind: enum
+    variants: [stub, loom]
+    naming:
+      summary: "The runtime that runs the daemon's runs (runbook serve --runtime): stub is scripted and executes nothing; loom runs the runbook through Loom's library entry in the daemon's process."
 
   - name: sdc.daemon.RunSettings
     kind: newtype
@@ -144,9 +156,23 @@ entities:
       states: [Up]
       terminal: [Up]
 
+  - name: sdc.daemon.Runbook
+    naming:
+      summary: "A runbook the daemon can start, as its host lists it: a script of the stub runtime, a runbook of the runbook home (runbook serve --runbook-home, runtime loom) or a runbook of --runbook-dir. The daemon reads the list from the host when a client asks for the view Runbooks; the language cannot read a file system, so no command of the specification creates or changes a row, and a client reads the list only."
+    identity:
+      name: runbook_id
+      type: sdc.daemon.RunbookName
+    fields:
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>, summary: "The version the runtime has for the runbook (for the runbook home, the revision of its root protocol); absent when the host names none."}
+      - {name: runtime, type: sdc.daemon.RuntimeKind}
+    lifecycle:
+      initial: Listed
+      states: [Listed]
+      terminal: [Listed]
+
   - name: sdc.daemon.Run
     naming:
-      summary: "One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended."
+      summary: "One run of a runbook on the daemon:its inputs as submitted, its confinement, where it stands and how it ended."
     identity:
       name: run_id
       type: sdc.daemon.RunId
@@ -1072,6 +1098,20 @@ views:
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
       - {name: principal, type: sdc.decision.Principal}
       - {name: started_at, type: Timestamp}
+
+  - name: sdc.daemon.Runbooks
+    naming:
+      wire: runbooks
+      display: Runbooks
+      summary: "The runbooks the daemon can start, by name and version, in order of name: GET /daemon/views/runbooks. A name in this view is one a SubmitRun accepts (its runbook_known fact is true). The view names runbooks only: no path of the host is in a row."
+    source: sdc.daemon.Runbook
+    consistency: read_your_writes
+    order_by:
+      - runbook_id asc
+    fields:
+      - {name: runbook_id, type: sdc.daemon.RunbookName}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: runtime, type: sdc.daemon.RuntimeKind}
 
   - name: sdc.daemon.Runs
     naming:

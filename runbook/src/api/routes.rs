@@ -14,7 +14,7 @@ use std::collections::HashMap;
 pub const COMMANDS: [&str; 5] = ["open-session", "close-session", "submit-run", "cancel-run", "answer-decision"];
 
 /// The views, by wire name.
-pub const VIEWS: [&str; 12] = [
+pub const VIEWS: [&str; 13] = [
     "runs",
     "runs-of-session",
     "runs-in-state",
@@ -27,6 +27,7 @@ pub const VIEWS: [&str; 12] = [
     "daemon-events",
     "sessions",
     "configuration",
+    "runbooks",
 ];
 
 /// The views that page events by position: asked with `Accept: text/event-stream` they are streams.
@@ -139,6 +140,7 @@ pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>)
             "daemon-events" => daemon.events_of_daemon_after(position(query)?),
             "sessions" => daemon.sessions(),
             "configuration" => daemon.daemon_configuration(),
+            "runbooks" => daemon.runbooks(),
             other => unreachable!("no view {other}"),
         })
     })();
