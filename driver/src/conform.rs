@@ -327,6 +327,24 @@ struct Node {
     /// The delivered tree, whose README or manifest the start command is checked against.
     tree: PathBuf,
     setup: Setup,
+    /// The money budget the environment names, `None` when it names none.
+    budget: Option<f64>,
+}
+
+/// `SDC_CONFORMANCE_MAX_BUDGET_USD`: unset or empty names no budget; a value that is set must be a
+/// finite number of at least 0, or the observation is refused (a named cap never becomes none).
+fn budget_named() -> Result<Option<f64>, String> {
+    let Some(raw) = env("SDC_CONFORMANCE_MAX_BUDGET_USD") else { return Ok(None) };
+    match raw.parse::<f64>() {
+        Ok(v) if v.is_finite() && v >= 0.0 => Ok(Some(v.abs())),
+        _ => {
+            let mut end = raw.len().min(40);
+            while !raw.is_char_boundary(end) {
+                end -= 1;
+            }
+            Err(format!("SDC_CONFORMANCE_MAX_BUDGET_USD must be a finite number of at least 0 (got {:?})", &raw[..end]))
+        }
+    }
 }
 
 fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (&'static str, String)> {
@@ -340,6 +358,7 @@ fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) ->
         p => PathBuf::from(p),
     };
     let (model, model_source) = env("SDC_LLM_MODEL_CONFORMANCE").map(|m| (m, "SDC_LLM_MODEL_CONFORMANCE")).unwrap_or((DEFAULT_MODEL.into(), "default"));
+    let budget = budget_named().map_err(|e| ("table_missing", e))?;
     let (effort, effort_source) = effort(setup);
     if !EFFORTS.contains(&effort.as_str()) {
         return Err(("table_missing", format!("effort {effort:?} ({effort_source}) is not one of {}", EFFORTS.join(", "))));
@@ -355,7 +374,7 @@ fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) ->
     prep().map_err(|e| ("table_missing", e))?;
     let rec = json!({"source": "conformance.table", "adapter": adapter_name, "model": model, "model_source": model_source,
         "effort": effort, "effort_source": effort_source});
-    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone() })
+    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone(), budget })
 }
 
 /// One slot's table from the node: at most `tries` fresh sessions, each reply checked by the
@@ -377,7 +396,7 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
             "operations": ["dir.list", "file.read", "search"],
             "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40)});
         // A money budget is named by the environment alone: with none set the request names none.
-        if let Some(budget) = env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()) {
+        if let Some(budget) = node.budget {
             req["max_budget_usd"] = json!(budget);
         }
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;

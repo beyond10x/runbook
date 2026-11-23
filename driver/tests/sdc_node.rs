@@ -844,6 +844,11 @@ fn a_max_budget_that_is_no_number_is_refused() {
 }
 
 #[test]
+fn a_max_budget_that_is_named_empty_is_refused_not_read_as_none() {
+    refused("budget-empty", &["--max-budget-usd", ""], 64, "--max-budget-usd takes a number");
+}
+
+#[test]
 fn instructions_that_are_no_json_object_are_refused() {
     refused("json", &["--instructions", "{not json"], 64, "--instructions takes a JSON object");
 }

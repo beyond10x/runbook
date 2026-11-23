@@ -172,7 +172,9 @@ fn build_cfg(node: &str, opt: &BTreeMap<&str, String>, stub: Option<Vec<String>>
     let mut bad = String::new();
     let mut numbers = Vec::new();
     for k in ["--max-turns", "--max-budget-usd"] {
-        match given(k).map(|v| NumLit::parse(v).ok_or(v)) {
+        // A budget that is named with an empty value is a non-number, never "none": an unset option is the only none.
+        let named = if k == "--max-budget-usd" { opt.get(k) } else { given(k) };
+        match named.map(|v| NumLit::parse(v).ok_or(v)) {
             None => numbers.push(None),
             Some(Ok(n)) => numbers.push(Some(n)),
             Some(Err(v)) => {

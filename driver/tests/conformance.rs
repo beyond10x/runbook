@@ -998,3 +998,55 @@ fn the_stub_product_ends_when_its_parent_is_killed() {
     }
     assert!(!left, "the stub product {pid} still runs 5 s after its parent was killed");
 }
+
+/// Integrity check of the money budget: a `SDC_CONFORMANCE_MAX_BUDGET_USD` that is SET and cannot be read
+/// as a finite number must never reach the table node as "no budget" (no `max_budget_usd` member, or a
+/// `null` one, which the adapters read as "no cap"). The run may refuse; the node may be started only with
+/// a finite number in its request.
+fn budget_set_but_unreadable(tag: &str, value: &str) {
+    installed();
+    let run = run_dir(&format!("budget-set-{tag}"), "spec");
+    let mut t = table();
+    t["views"] = json!([]);
+    let t = write_table(run.parent().unwrap(), "t.json", &t);
+    let (_o, _) = observe(&run, &t, &[("SDC_CONFORMANCE_MAX_BUDGET_USD", value)]);
+    let path = run.join("conformance/table-1/node/001/request.json");
+    let Ok(text) = fs::read_to_string(&path) else { return };
+    let request: J = serde_json::from_str(&text).unwrap();
+    let budget = request.get("max_budget_usd").and_then(J::as_f64);
+    assert!(
+        budget.is_some_and(f64::is_finite),
+        "SDC_CONFORMANCE_MAX_BUDGET_USD={value:?} was set; the node was started with max_budget_usd {:?} (no budget)",
+        request.get("max_budget_usd")
+    );
+}
+
+#[test]
+fn conformance_budget_set_to_text_is_not_no_budget() {
+    budget_set_but_unreadable("text", "abc");
+}
+
+#[test]
+fn conformance_budget_set_with_a_unit_is_not_no_budget() {
+    budget_set_but_unreadable("unit", "2usd");
+}
+
+#[test]
+fn conformance_budget_set_with_a_space_is_not_no_budget() {
+    budget_set_but_unreadable("space", " 2");
+}
+
+#[test]
+fn conformance_budget_set_to_nan_is_not_no_budget() {
+    budget_set_but_unreadable("nan", "NaN");
+}
+
+#[test]
+fn conformance_budget_set_to_inf_is_not_no_budget() {
+    budget_set_but_unreadable("inf", "inf");
+}
+
+#[test]
+fn conformance_budget_set_beyond_f64_is_not_no_budget() {
+    budget_set_but_unreadable("overflow", "1e400");
+}

@@ -491,7 +491,10 @@ fn parse_run(args: &[String]) -> Result<RunArgs, String> {
             "--example-spec" => a.example = Some(PathBuf::from(v()?)),
             "--model" => a.model = Some(v()?),
             "--effort" => a.effort = Some(v()?),
-            "--max-usd" => a.max_usd = Some(v()?.parse().map_err(|_| "--max-usd needs a number")?),
+            "--max-usd" => {
+                let n: f64 = v()?.parse().ok().filter(|n: &f64| n.is_finite() && *n >= 0.0).ok_or("--max-usd needs a number")?;
+                a.max_usd = Some(n.abs());
+            }
             "--max-wall-s" => a.max_wall = Some(v()?.parse().map_err(|_| "--max-wall-s needs seconds")?),
             "--max-turns" => a.max_turns = Some(v()?.parse().map_err(|_| "--max-turns needs a number")?),
             "--claude" => a.claude = Some(PathBuf::from(v()?)),

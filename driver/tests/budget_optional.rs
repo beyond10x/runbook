@@ -123,3 +123,76 @@ fn the_free_agent_passes_a_money_budget_only_when_one_is_named() {
         assert!(out.contains("--max-budget-usd") && out.contains(&format!("\"{named}\"")), "{named}: {out}");
     }
 }
+
+/// What `sdc-free-agent run --print` makes of a `--max-usd` that is NAMED: either it refuses (non-zero
+/// exit) or the command of the session carries `--max-budget-usd` with a finite, non-negative number.
+/// A value that is named and is passed on as `NaN` or `inf` is a cap that never stops the run.
+#[test]
+fn free_agent_a_named_max_usd_is_a_finite_non_negative_number_or_refused() {
+    let mut bad = vec![];
+    for (tag, value) in [("nan", "NaN"), ("inf", "inf"), ("over", "1e400"), ("neg", "-1")] {
+        let (code, out) = free_agent_print(&format!("maxusd-{tag}"), Some(value));
+        if code == 0 {
+            bad.push(format!("--max-usd {value}: exit 0, {}", out.lines().find(|l| l.contains("max-budget-usd") || l.contains(value)).unwrap_or("no budget in the command").trim()));
+        }
+    }
+    assert!(bad.is_empty(), "named and not refused: {bad:#?}");
+}
+
+#[test]
+fn free_agent_refuses_a_max_usd_that_is_text_or_empty() {
+    for (tag, value) in [("text", "abc"), ("empty", ""), ("unit", "2usd")] {
+        let (code, out) = free_agent_print(&format!("refused-{tag}"), Some(value));
+        assert_ne!(code, 0, "--max-usd {value:?}: {out}");
+        assert!(out.contains("--max-usd needs a number"), "--max-usd {value:?}: {out}");
+        assert!(!out.contains("--max-budget-usd"), "--max-usd {value:?}: {out}");
+    }
+}
+
+/// A stand-in model program that writes its argv NUL-separated, so that an entry holding a newline is
+/// one entry.
+const SEC1_STANDIN: &str = r#"#!/bin/sh
+printf '%s\0' "$@" > "$(dirname "$(readlink -f "$0")")/argv0.bin"
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"usage":{}}'
+"#;
+
+fn argv_nul(adapter: &str, program: &str, tag: &str, budget: &str, env: &[(&str, &str)]) -> Vec<String> {
+    let d = scratch(&format!("nul-{tag}-{program}"));
+    let bin = d.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join(program), SEC1_STANDIN).unwrap();
+    fs::set_permissions(bin.join(program), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(d.join("prompt.md"), "prompt\n").unwrap();
+    fs::create_dir_all(d.join("cwd")).unwrap();
+    let request = json!({"record_dir": d.join("rec"), "prompt_file": d.join("prompt.md"), "cwd": d.join("cwd"),
+        "model": "claude-haiku-5-5", "max_turns": 3, "operations": ["file.read"], "node": "idea.dissect", "attempt": 1,
+        "max_budget_usd": budget});
+    fs::write(d.join("request.json"), request.to_string()).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let mut c = Command::new(tools().join(adapter));
+    c.arg(d.join("request.json")).current_dir(&d).env_clear().env("PATH", path);
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    let o = c.output().unwrap();
+    assert_eq!(o.status.code(), Some(0), "{adapter}: {}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    let raw = String::from_utf8_lossy(&fs::read(bin.join("argv0.bin")).unwrap()).into_owned();
+    raw.trim_end_matches('\0').split('\0').map(str::to_string).collect()
+}
+
+/// A budget member that holds a space, a dash, quotes or a newline stays ONE entry of the model
+/// program's argv, directly after `--max-budget-usd`: it makes no other option.
+#[test]
+fn the_adapters_pass_a_budget_member_as_one_argv_entry() {
+    let hostile = "1 --permission-mode bypassPermissions\n--allowedTools Bash 'x' \"y\" $(id)";
+    for (adapter, program, env) in [
+        ("llm-adapter-claude-cli.sh", "claude", vec![("ANTHROPIC_API_KEY", "dummy")]),
+        ("llm-adapter-metaharness.sh", "metaharness", vec![("SDC_LLM_ENDPOINT", "http://127.0.0.1:9")]),
+    ] {
+        let argv = argv_nul(adapter, program, "hostile", hostile, &env);
+        let at = argv.iter().position(|a| a == "--max-budget-usd").unwrap_or_else(|| panic!("{adapter}: no --max-budget-usd in {argv:?}"));
+        assert_eq!(argv[at + 1], hostile, "{adapter}: {argv:?}");
+        assert_eq!(argv.iter().filter(|a| a.as_str() == "--permission-mode").count(), usize::from(adapter.contains("claude-cli")), "{adapter}: {argv:?}");
+        assert!(!argv.iter().any(|a| a == "bypassPermissions"), "{adapter}: {argv:?}");
+    }
+}
