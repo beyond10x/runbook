@@ -6,6 +6,17 @@ is published to crates.io (the four crates `driver/`, `watch/`, `goals/` and `ru
 `publish = false`) and there is no release workflow and no binary or archive asset; the GitHub
 Release carries the notes only.
 
+## The binary
+
+`scripts/install.sh --prefix <dir>` is how the binary is made: it builds `runbook`, the helper programs a run
+starts and `sdc-watch` with `cargo build --locked --release` and lays them out under `<dir>` (`bin/`, `libexec/`,
+`share/runbook/` with `VERSION` and `MANIFEST`). It is the source of the release asset of
+`story:prebuilt-release-binary`: that asset is the prefix of one run of the script on the release commit, packed,
+and nothing else; a release workflow calls the script and does not lay files out itself. The asset does not exist
+yet (step 4 below still creates a Release with the notes only). `task test:install` (the slow lane, in the
+background) runs the real release build into `runbook/target/install-slow` and starts `runbook list`,
+`runbook doctor` and one run from it.
+
 ## Where the version lives
 
 One version for the repository, written in these files and nowhere else:

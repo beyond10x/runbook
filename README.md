@@ -74,21 +74,45 @@ The skills and what each needs: [plugin/README.md](plugin/README.md).
 ## Try it
 
 Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`); no `canon` binary is
-installed. It needs Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`. Build `runbook` and
-the programs it runs once, in the repository root:
+installed. It needs Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
+
+Install `runbook`, the programs it starts and the files it reads under one directory you name (it must
+exist; the script builds with `cargo build --locked --release`, which takes minutes):
 
 ```console
-(cd driver && cargo build --locked --bins)
-(cd runbook && cargo build --locked --bin runbook)
+scripts/install.sh --prefix <dir>
 ```
 
+It writes `<dir>/bin/runbook`, `<dir>/libexec/` (the helper programs), and `<dir>/share/runbook/` (the
+protocols, bindings, instructions, views and the files of the page, `VERSION` and `MANIFEST`, the list of every
+file it wrote). Nothing is written elsewhere and no shell profile is changed; run again over the same prefix to
+update it (a file the old `MANIFEST` lists that the new one does not is removed, nothing else). At its end it
+prints three lines, one per shell; add the one for yours to its profile to put `<dir>/bin` on `PATH`:
+
+```console
+bash (~/.bashrc):  export PATH="<dir>/bin:$PATH"
+zsh (~/.zshrc):    export PATH="<dir>/bin:$PATH"
+fish (config.fish): fish_add_path <dir>/bin
+```
+
+The installed `runbook` runs from any directory and needs no checkout (`runbook --version` prints the version and the
+commit; `runbook doctor` lists what it found and what is missing). With your own `protocol/` and `bindings/`
+directories, name them: `runbook run <name> --protocols <dir> --bindings <dir> ...`.
+
 The dry run uses an idea text you give it (`--intake`) and stub executors that write the
-artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`
-(the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
+artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`:
 
 ```console
 runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
   --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+```
+
+From a checkout without installing, build `runbook` and the programs it runs once, in the repository root, and
+start `runbook/target/debug/runbook` in place of `runbook`:
+
+```console
+(cd driver && cargo build --locked --bins)
+(cd runbook && cargo build --locked --bin runbook)
 ```
 
 The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
@@ -109,7 +133,7 @@ The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and
 | `experiments/` | Experiment records, run summaries and reports |
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
-| `scripts/` | Check and evaluate scripts |
+| `scripts/` | Check and evaluate scripts, and `install.sh` (the install of `runbook`: [Try it](#try-it)) |
 | `plugin/`, `.claude-plugin/` | The `runbook` plugin (the skills `workflow-builder`, `harden` and `record`) and its marketplace |
 | `.engineering/planning/` | The planning store (AEP) |
 

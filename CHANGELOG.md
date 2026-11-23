@@ -7,7 +7,14 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/install.sh --prefix <dir>` (POSIX sh): builds `runbook`, the programs a run starts (`sdc-answers`, `sdc-bugfix`, `sdc-check-routes`, `sdc-conform`, `sdc-conform-adapter`, `sdc-decision-request`, `sdc-findings`, `sdc-node`, `sdc-replay`, `sdc-reply`) and `sdc-watch` with `cargo build --locked --release` and writes `<dir>/bin/runbook`, `<dir>/libexec/<helper>` and `<dir>/share/runbook/` (the directories `runbook doctor` lists, `tools/`, the page's scripts, `VERSION` and `MANIFEST`). It refuses a prefix that is missing, relative, `/` or inside `~/.cargo`, writes nowhere else and changes no shell profile; a second run removes the files the old `MANIFEST` lists that the new one does not and nothing else, and follows no link out of the prefix. `--from-built <debug|release>` takes binaries that exist. Tests: `runbook/tests/install/` (a prefix from the debug builds, `runbook list`, `runbook doctor` and one run of sh programs from an empty directory with `<prefix>/bin` on `PATH`, the refusals, the second install) and `task test:install` (the slow lane: the real release build).
+- `runbook --version` prints the version and the commit of the build (`unknown` outside a git checkout).
+
 ### Changed
+
+- `runbook` puts `<prefix>/libexec` (the directory beside `bin/` that holds the helper programs) on the `PATH` of the programs it starts, when it runs from an installed prefix: a bound tool that starts `sdc-reply` or `sdc-findings` finds it without the prefix having to put `libexec` on `PATH`.
 
 - The package `sdc-drive` is renamed `sdc-tools` (`driver/Cargo.toml`; the library is still `sdc_tools`, `runbook` depends on it as `sdc-tools`); its lock files change by the package name only. The helper programs keep their names (`sdc-node`, `sdc-reply`, `sdc-findings`, `sdc-bugfix` and the rest).
 - `runbook check` compares `cycles/tree-suite.yaml` (`loom.tree-suite/1`: format, cycle names, seeds under `cycles/`) with `cycles/old-suite-names.txt`, the committed list of the 130 entries of the deleted suite, and with the rows of `docs/cycles-suite.md`, in place of the `expected` and `pending` arrays of the deleted script; it also reads `runbook/src/` for the instruction files a program names. `runbook doctor` no longer lists `canon`, `sdc-drive`, `sdc-unstick`, `rsync` or `bindings/tools/decider.sh`: nothing starts them.
