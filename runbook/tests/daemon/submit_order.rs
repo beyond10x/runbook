@@ -223,7 +223,9 @@ fn no_request_below_the_floor_is_accepted_or_changes_what_the_daemon_stores() {
     assert!(wrong.is_empty(), "{} of {n}: {:#?}", wrong.len(), &wrong[..wrong.len().min(10)]);
 }
 
-fn without_auth_is_one_answer(post: &dyn Fn(&Value, Option<&str>) -> (u16, String), probe: &dyn Fn() -> (Vec<u8>, usize)) {
+type Post<'a> = &'a dyn Fn(&Value, Option<&str>) -> (u16, String);
+
+fn without_auth_is_one_answer(post: Post, probe: &dyn Fn() -> (Vec<u8>, usize)) {
     let before = probe();
     let missing_low = json!({"runbook_id": "quick", "intake": "x", "confinement": "local", "session_id": "none"});
     let open_low = json!({"runbook_id": "quick", "intake": "x", "confinement": "local", "session_id": "open-s"});
@@ -246,9 +248,7 @@ fn without_auth_is_one_answer(post: &dyn Fn(&Value, Option<&str>) -> (u16, Strin
 fn the_token_is_checked_before_the_order_on_the_http_route() {
     let s = Server::start("adv-http-token", Some(TOKEN));
     let auth = format!("Bearer {TOKEN}");
-    for id in ["open-s"] {
-        s.fx.d().open_session(OpenSession { session_id: id.into(), client: "adv".into() }).unwrap();
-    }
+    s.fx.d().open_session(OpenSession { session_id: "open-s".into(), client: "adv".into() }).unwrap();
     let probe = || (std::fs::read(s.fx.dir.join("state/journal.jsonl")).unwrap(), s.fx.d().runs().len());
     let post = |body: &Value, a: Option<&str>| {
         let mut h = vec![("Content-Type", "application/json")];
