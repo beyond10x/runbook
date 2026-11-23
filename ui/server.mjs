@@ -15,7 +15,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {inbox, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
-import {runFacts, applyFacts} from './runfacts.mjs';
+import {runFacts, applyFacts, openedProtocol} from './runfacts.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
@@ -96,27 +96,10 @@ function readEvents(dir) {
   return out;
 }
 
-// The protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of events.jsonl
-// (a run of `runbook run` writes no case.json, docs/loom-run-directory.md). Only the head of the log is read
-// (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
-const HEAD_BYTES = 65536;
+// the protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of its events.jsonl (runfacts.mjs)
+const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
 // the most of a blob of fs/blobs/ that the page diffs or parses for its meaning, and of a blob it shows
 const DIFF_BLOB_LIMIT = 8 * 1048576, BLOB_SHOWN = 200000;
-function openedProtocol(dir) {
-  const r = readRegular(path.join(dir, 'events.jsonl'), {limit: HEAD_BYTES});
-  if (r.state !== 'ok') return null;
-  const lines = r.bytes.toString('utf8').split('\n');
-  if (r.bytes.length === HEAD_BYTES && r.size > HEAD_BYTES) lines.pop();
-  for (const line of lines) {
-    let e;
-    try { e = JSON.parse(line); } catch { continue; }
-    if (e?.event !== 'opened') continue;
-    const p = e.protocol?.id ?? e.protocol;
-    return typeof p === 'string' && p ? p : null;
-  }
-  return null;
-}
-const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
 
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };

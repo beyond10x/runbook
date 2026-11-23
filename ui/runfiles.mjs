@@ -127,6 +127,8 @@ export const typeOf = (st) => TYPES.find(([m]) => st[m]())?.[1] ?? (st.isFile() 
 // offset, on the same checked descriptor.
 export function readRegular(p, {root, limit = 1048576, tail = false, end = null, at = null, accept = null, nameOf = fdPath} = {}) {
   const abs = path.resolve(p);
+  // a position is a whole number of bytes from the start: anything else reads nothing
+  if (at != null && !(Number.isSafeInteger(at) && at >= 0)) return {state: 'refused', why: 'not a position'};
   const real = runPath(abs, root);
   if (!real) {
     try { fs.lstatSync(abs); } catch { return {state: 'missing'}; }

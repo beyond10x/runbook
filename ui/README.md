@@ -319,7 +319,13 @@ code, and the files of the run with their content. It reads and acts on nothing.
   chunks of 32 MiB), and one change of it by its position. A file that fails the check is read as absent
   (`fs.present` is false; the change is 404). No read of a file of a run opens it any other way; the files
   the server reads without that check are not files of a run (the checkout's protocols, docs and
-  experiment records, the files of `--view` and `--clock`, the page's own files).
+  experiment records, the files of `--view` and `--clock`, the page's own files). A position (`at`) is a
+  whole number of bytes from the start, else nothing is read; a position at or past the end is an empty
+  window. The reads of the decisions (`decisions.mjs`) have the run as root, the step log of a failed
+  action the case's `blobs/`, and a name with a dot part is refused; the record a writer names (`llm-calls.jsonl`)
+  is read only under the run. No program opens a file of a run by its name: the text of a YAML file is read
+  once through the checked open and given to `yq` on standard input, and `yq`'s messages are not shown.
+  `test/runfiles-inventory.spec.mjs` holds the list of the calls that open, read or list a file.
 - An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
   page draws at most 24 levels of it (`cut at depth 24`).
 - A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
