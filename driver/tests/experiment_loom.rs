@@ -1264,3 +1264,94 @@ fn a_loom_cap_named_as_an_odd_number_is_refused_by_name() {
         }
     }
 }
+
+/// A planned loom record with no cap in `fixed`; `extra` are raw `fixed` lines, `settings` the text
+/// of both variants' settings.
+fn loom_text(extra: &[(&str, &str)], settings: &str, commit: &str) -> String {
+    let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "loom.cap_micro_usd").collect();
+    f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    let own = format!("settings: {settings}");
+    record_with(&f, commit, "planned", ("", "")).replace("settings: {max_llm_calls: 100}", &own).replace("settings: {max_llm_calls: 200}", &own)
+}
+
+/// A planned free-agent record; `lines` are raw `fixed` lines after the required ones.
+fn free_text(lines: &str, commit: &str) -> String {
+    format!(
+        r#"format: sdc.experiment/1
+id: lx
+kind: prospective
+status: planned
+created: 2026-11-22
+title: A free agent
+purpose: Whether a named money cap is read or refused.
+inputs:
+- {{name: invoices, kind: idea, text: {IDEA}, sha256: {}}}
+tree_commit: {commit}
+fixed:
+  free.model: claude-sonnet-5-5
+  free.effort: high
+  free.adapter: claude-cli
+  free.max_wall_s: 600
+  free.max_turns: 40
+{lines}variants:
+- {{id: free, runner: free-agent, settings: {{}}, runs: []}}
+runs_per_variant: 1
+pass_rule: clean-delivery
+decision_rule: {{rule: descriptive, text: the record describes its runs and decides nothing}}
+"#,
+        sha(IDEA)
+    )
+}
+
+/// The word after `option` in a printed launch plan.
+fn word_after(out: &str, option: &str) -> Option<String> {
+    let mut words = out.split_whitespace();
+    words.find(|w| *w == option)?;
+    words.next().map(str::to_string)
+}
+
+/// Records that name a cap where no setting reads it. At `check` and at `run --print` each is refused
+/// by the name in its row, or the command carries the cap that was named; one never passes without it.
+/// Returns the rows that failed. Rows: (what, how the record writes the cap, the name the refusal gives).
+fn caps_the_program_cannot_read(which: &[(&str, &str, &str)]) -> Vec<String> {
+    let d = scratch(&format!("unread-{}", which[0].0.replace(' ', "-")));
+    let builds = fake_build(&d, 11, true);
+    let run_args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"];
+    let mut bad = vec![];
+    for (what, setting, refusal_names) in which {
+        let text = |c: &str| match *setting {
+            "list" => loom_text(&[], "[{max_llm_calls: 5}]", c),
+            "string" => loom_text(&[], "'max_llm_calls: 5'", c),
+            "free list" => free_text("", c).replace("settings: {}", "settings: [{free.max_usd: 5}]"),
+            key => free_text(&format!("  {key}: 5\n"), c),
+        };
+        let option = if *setting == "list" || *setting == "string" { "--max-llm-calls" } else { "--max-usd" };
+        write_record(&d, &text("null"));
+        let (code, said) = experiment(&["check", "lx"], &d);
+        write_record(&d, &text(COMMIT));
+        let (rc, out) = experiment(&run_args, &d);
+        let carried = word_after(&out, option).and_then(|g| g.parse::<f64>().ok());
+        let refused_by_name = code != 0 && said.contains(refusal_names) && rc != 0 && out.contains(refusal_names);
+        let carried_as_named = code == 0 && rc == 0 && carried == Some(5.0);
+        if !refused_by_name && !carried_as_named {
+            bad.push(format!("{what}: check {code} ({}), run --print {rc}, {option} reads {carried:?}, named 5; the refusal must name {refusal_names}", said.lines().next().unwrap_or("")));
+        }
+    }
+    bad
+}
+
+/// `free.*` is the prefix of the free-agent settings: a money cap written under a name that is no setting
+/// of it (a typo, a dash, another word) is refused by that name, never dropped.
+#[test]
+fn a_free_agent_cap_written_under_a_name_that_is_no_setting_is_refused_by_name() {
+    let bad = caps_the_program_cannot_read(&[("typo", "free.max_usdd", "free.max_usdd"), ("dash", "free.max-usd", "free.max-usd"), ("word", "free.max_cost", "free.max_cost")]);
+    assert!(bad.is_empty(), "named and dropped: {bad:#?}");
+}
+
+/// A `settings` block of a variant that is no mapping (a list, a string) holds settings the program cannot
+/// read: it is refused by the member's name, never read as empty so that the cap named in it is dropped.
+#[test]
+fn a_cap_written_in_a_settings_block_that_is_no_mapping_is_refused_by_name() {
+    let bad = caps_the_program_cannot_read(&[("list", "list", "`settings`"), ("string", "string", "`settings`"), ("free list", "free list", "`settings`")]);
+    assert!(bad.is_empty(), "named and dropped: {bad:#?}");
+}

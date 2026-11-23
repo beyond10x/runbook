@@ -767,7 +767,17 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
         Some(Y::Null) if prospective && status == "planned" => {}
         _ => p.push("`tree_commit` must be a commit (null only while a prospective record is planned)".into()),
     }
-    // Variants and runs.
+    // Variants and runs. A `fixed` or `settings` block is a mapping: one that is not never reads as empty,
+    // which would drop a cap written in it.
+    let not_map = |b: Option<&Y>| b.is_some_and(|x| !x.is_null() && !x.is_mapping());
+    if not_map(r.get("fixed")) {
+        p.push("`fixed` must be a mapping of settings".into());
+    }
+    for (i, y) in yseq(r, "variants").iter().enumerate() {
+        if not_map(y.get("settings")) {
+            p.push(format!("variant {}: `settings` must be a mapping of settings", i + 1));
+        }
+    }
     let vs = variants(r);
     let hyp = has_hypothesis(r);
     if vs.is_empty() || (hyp && vs.len() < 2) {
@@ -812,7 +822,8 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
             if v.settings.get("free.max_usd").is_some_and(|x| !x.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.0)) {
                 p.push(format!("variant {:?}: free.max_usd must be a finite number of at least 0 (0 allows nothing)", v.id));
             }
-            for k in v.settings.keys().filter(|k| !k.starts_with("free.")) {
+            // Every key is one `free_argv` reads: a cap under a misspelt name is refused, never dropped.
+            for k in v.settings.keys().filter(|k| !REQUIRED_FREE.contains(&k.as_str()) && k.as_str() != "free.max_usd") {
                 p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));
             }
         } else if v.runner == "loom" {

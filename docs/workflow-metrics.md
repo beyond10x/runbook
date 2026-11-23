@@ -296,7 +296,7 @@ efforts, but the record format does not carry them to it yet, so the class defau
 `runbook run --recorded`, with `flags.on_divergence`, `flags.live_adapter`, `flags.live_cap` and
 `flags.source_tree` as the options that go with it. `flags.live_cap` is optional: none named means no limit on live calls,
 a whole number is a cap and 0 is accepted and lets no live call start (as `--live-cap 0` does); text, a negative number and a fraction are refused by name.
-A `free-agent` variant's `free.max_usd` is optional in the same way: when it is named it is a finite number of at least 0 (0 spends nothing), and `check` refuses any other value by name. A `loom` input is an `idea` (the case is `IDEA-1`) or a
+A `free-agent` variant's `free.max_usd` is optional in the same way: when it is named it is a finite number of at least 0 (0 spends nothing), and `check` refuses any other value by name; a free-agent variant that sets a key `sdc-free-agent` does not read (a cap under a misspelt name), and a `fixed` or `settings` block that is no mapping, are refused by name too. A `loom` input is an `idea` (the case is `IDEA-1`) or a
 `seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
