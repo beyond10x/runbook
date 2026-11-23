@@ -10,7 +10,7 @@ use super::*;
 /// `MANIFEST.new`), but not at the place of its marker: `printf ... > "$share/INSTALLING"` follows a link that
 /// lies there. A file outside the prefix is overwritten, and a link to a path that does not exist makes that file.
 #[test]
-fn the_marker_is_written_through_a_link_at_its_place_into_a_file_outside_the_prefix() {
+fn the_marker_is_not_written_through_a_link_at_its_place_into_a_file_outside_the_prefix() {
     let root = fake_checkout("fix2-marker-link", None);
     let (sandbox, prefix) = sandbox_of(&root);
     assert_eq!(code(&from_built(&root, &prefix)), 0);

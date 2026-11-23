@@ -11,7 +11,7 @@ use super::*;
 /// `GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own switch for that state), and `git` is not on `PATH`. The built files
 /// print the commit `unknown`, as a build under the same condition does (`build_commit.rs` asks the same git).
 #[test]
-fn a_git_checkout_whose_git_cannot_be_asked_is_copied_like_an_archive_with_its_untracked_files() {
+fn a_git_checkout_whose_git_cannot_be_asked_never_gives_its_untracked_files_to_the_prefix() {
     let mut broken = Vec::new();
     for case in ["another owner (a root shell, a container)", "no git on PATH"] {
         let root = fake_checkout(&format!("fix2-nogit-{}", &case[..2]), None);
@@ -47,7 +47,7 @@ fn a_git_checkout_whose_git_cannot_be_asked_is_copied_like_an_archive_with_its_u
 /// above that root is dropped, so a target that climbs out and names a directory `r` on its way back passes, and the
 /// link is installed as it is: in the prefix it points outside the prefix.
 #[test]
-fn a_tracked_link_whose_target_passes_a_directory_named_r_is_installed_pointing_out_of_the_prefix() {
+fn a_tracked_link_whose_target_passes_a_directory_named_r_is_not_installed_pointing_out_of_the_prefix() {
     let root = fake_checkout("fix2-link-r", None);
     let (sandbox, prefix) = sandbox_of(&root);
     std::os::unix::fs::symlink("../../../../r/x", root.join("protocol/lnk")).unwrap();

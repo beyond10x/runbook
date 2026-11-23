@@ -11,7 +11,7 @@ fn version_of(prefix: &Path) -> String {
 /// HEAD adds ` dirty`, and the bytes installed are those of the work tree, not of HEAD. An untracked file there and a
 /// change outside the copied directories add no mark.
 #[test]
-fn version_names_head_and_a_tracked_change_of_a_copied_directory_adds_one_word_and_installs_the_work_tree_bytes() {
+fn version_names_head_and_a_tracked_change_adds_one_word_and_installs_the_work_tree_bytes() {
     let root = fake_checkout("fix2-dirty", None);
     let (sandbox, prefix) = sandbox_of(&root);
     let head = head12(&root);

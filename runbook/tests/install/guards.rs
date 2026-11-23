@@ -35,7 +35,7 @@ fn mode(p: &Path) -> u32 {
 /// of the run get `PATH=<prefix>/libexec:`. An empty entry is the working directory, and the directories a shell
 /// searches without a `PATH` are gone, so the same run behaves otherwise than from the checkout build.
 #[test]
-fn red_an_installed_run_started_without_path_gives_its_programs_the_working_directory_as_path_and_no_system_directory() {
+fn an_installed_run_started_without_path_gives_its_programs_no_working_directory_in_path_and_the_system_directories() {
     let prefix = shared_prefix();
     let writer = "#!/bin/sh\n\
         printf '%s\\n' \"${PATH-<unset>}\" > path.txt\n\
@@ -73,7 +73,7 @@ fn red_an_installed_run_started_without_path_gives_its_programs_the_working_dire
 /// (`protocol`, a directory of every checkout), the link check looks at that other name, and the file behind the
 /// link is removed. The script is started from the checkout, as `README.md` prints the command.
 #[test]
-fn red_a_manifest_path_through_a_link_whose_name_is_a_pattern_is_removed_outside_the_prefix() {
+fn a_manifest_path_through_a_link_whose_name_is_a_pattern_removes_nothing_outside_the_prefix() {
     let (root, sandbox, prefix) = subject("guard-pattern");
     assert_eq!(code(&from_built(&root, &prefix)), 0);
     let outside = sandbox.join("outside");
@@ -104,7 +104,7 @@ fn red_a_manifest_path_through_a_link_whose_name_is_a_pattern_is_removed_outside
 /// and `settings.local.json`; the committed case asserts no name that starts with `settings`, on a tree that holds
 /// none.
 #[test]
-fn red_a_login_file_and_a_settings_file_of_the_checkout_are_copied_into_the_prefix() {
+fn a_login_file_and_a_settings_file_of_the_checkout_are_not_copied_into_the_prefix() {
     let (root, _sandbox, prefix) = subject("guard-login");
     fs::write(
         root.join("ui/web/.npmrc"),
@@ -132,7 +132,7 @@ fn red_a_login_file_and_a_settings_file_of_the_checkout_are_copied_into_the_pref
 /// `cp -p` carries the mode of the source over: a checkout made under umask 002 (664 files, 775 programs) gives a
 /// prefix whose helpers on `PATH` and whose bound tools are group-writable, whatever the umask of the install.
 #[test]
-fn red_a_group_writable_file_of_the_checkout_is_group_writable_in_the_prefix() {
+fn a_group_writable_file_of_the_checkout_is_not_group_writable_in_the_prefix() {
     let (root, _sandbox, prefix) = subject("guard-modes");
     fs::set_permissions(
         root.join("protocol/file.txt"),
@@ -182,7 +182,7 @@ fn red_a_group_writable_file_of_the_checkout_is_group_writable_in_the_prefix() {
 /// The three lines the script prints are what `README.md` tells the reader to add to a profile. The bash and zsh
 /// lines quote the directory; the fish line does not, and fish splits an unquoted argument at a space.
 #[test]
-fn red_the_fish_line_of_a_prefix_with_a_space_names_two_directories() {
+fn the_fish_line_of_a_prefix_with_a_space_names_one_quoted_directory() {
     let (root, sandbox, _) = subject("guard-fish");
     let prefix = sandbox.join("my prefix");
     fs::create_dir_all(&prefix).unwrap();
@@ -284,7 +284,7 @@ fn stale_release_install(tag: &str, env: &[(&str, &str)]) {
 }
 
 #[test]
-fn red_a_release_install_takes_an_old_binary_when_cargo_builds_into_another_target_directory() {
+fn a_release_install_builds_where_it_looks_when_cargo_build_target_dir_names_another_directory() {
     stale_release_install("guard-stale", &[("CARGO_BUILD_TARGET_DIR", "elsewhere")]);
 }
 
