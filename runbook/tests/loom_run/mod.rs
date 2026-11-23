@@ -10,6 +10,7 @@ mod fake;
 mod flags;
 mod gateway;
 mod gateway_hardening;
+mod gateway_signals_and_files;
 mod goals;
 mod held;
 mod inproc;
