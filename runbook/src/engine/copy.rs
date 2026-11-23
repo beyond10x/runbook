@@ -364,6 +364,30 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_holds_more_bytes_than_its_length_says_is_refused_by_the_digest() {
+        // procfs says a length of 0 for a file that has content: the bytes after the length are a file
+        // that changed while it was read.
+        let mut hasher = Sha256::new();
+        let refused = hash_file(Path::new("/proc/self/status"), Path::new("status"), &mut hasher).unwrap_err();
+        assert!(refused.contains("changed while it was read"), "{refused}");
+    }
+
+    #[test]
+    fn a_file_that_holds_fewer_bytes_than_its_length_says_refuses_the_copy() {
+        // sysfs says a length of 4096 for an attribute of a few bytes: the file the plan saw is shorter
+        // when it is read.
+        let attribute = Path::new("/sys/devices/system/cpu/online");
+        let Ok(meta) = std::fs::metadata(attribute) else {
+            eprintln!("no sysfs on this host: the case did not run");
+            return;
+        };
+        assert!(meta.len() > 64, "sysfs says {} for an attribute of a few bytes", meta.len());
+        let seen = Seen { dev: meta.dev(), ino: meta.ino(), len: meta.len(), exec: false };
+        let refused = copy_seen(attribute, &dir("shrunk").join("online"), seen).unwrap_err();
+        assert!(refused.contains("changed while it was copied"), "{refused}");
+    }
+
+    #[test]
     fn a_source_that_is_a_link_out_of_the_home_is_refused() {
         let home = home("source");
         let outside = dir("source-outside");
