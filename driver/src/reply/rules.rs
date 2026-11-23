@@ -12,6 +12,13 @@ use super::{read_json, sorted};
 /// The principal of an approval taken by the rule.
 pub const RULE_PRINCIPAL: &str = "rule:autopilot";
 
+/// Whether the argv of binding `b` starts a model's program: `sdc-node`.
+pub fn model_step_argv(b: &Value) -> bool {
+    b["argv"].as_array().is_some_and(|a| {
+        a.iter().any(|x| x.as_str().and_then(|s| s.rsplit('/').next()) == Some("sdc-node"))
+    })
+}
+
 /// Every `(claim id, is)` a condition names.
 pub fn claim_conditions(f: &Value, out: &mut Vec<(String, String)>) {
     match f {
@@ -35,8 +42,7 @@ pub fn program_check(b: &Value, w: &Value) -> Result<(), String> {
     if b["manual"] == true {
         return Err("it is a person's action, not a program check".into());
     }
-    let llm_argv = b["argv"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|s| s.ends_with("/llm-node.sh"))));
-    if !b["llm"].is_null() || llm_argv {
+    if !b["llm"].is_null() || model_step_argv(b) {
         return Err("it is run by a model, not a program check".into());
     }
     let kind = w["kind"].as_str().unwrap_or("");
@@ -200,6 +206,16 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn only_sdc_node_starts_a_model_step() {
+        assert!(model_step_argv(&json!({"argv": ["sdc-node", "spec.author"]})));
+        assert!(model_step_argv(&json!({"argv": ["/x/bin/sdc-node", "spec.author"]})));
+        let old = ["llm-node", "sh"].join(".");
+        assert!(!model_step_argv(&json!({"argv": [format!("{{dir}}/../../../bindings/tools/{old}"), "spec.author"]})));
+        assert!(!model_step_argv(&json!({"argv": [old, "spec.author"]})));
+        assert!(!model_step_argv(&json!({"argv": ["tools/sdc-tool.sh", "spec-domain"]})));
+    }
     use serde_json::{json, Map, Value};
     use crate::reply::read_json;
 

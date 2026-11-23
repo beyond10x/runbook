@@ -8,7 +8,7 @@
 # stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json); three
 # entries name the subcommand too (test.reproduce: ["stub-tree", "bugfix-pager/stub-repro", "repro"]).
 #
-# The decider's calls (node `decide.<action>`, tools/decider.sh) get a scripted reply in
+# The decider's calls (node `decide.<action>`, the decider of `runbook run`) get a scripted reply in
 # out/decision.json: SDC_DECIDER_REPLIES (JSON {key: reply}) by key, the request's question id,
 # finding id or action (in/decision.json); without one, approve, with a question's or a finding's
 # default as the answer; a list of replies is taken by the request's `attempt` (the n-th, else the
@@ -26,8 +26,6 @@
 # [...]}` taken by the request's `attempt` (the node's n-th call record, the last round after
 # that), each round a reply or a list by `coverage_attempt`; else the tree fixture's
 # .sdc/coverage.json; else the stub document (sdc-reply coverage-stub).
-# run.unstick (scripts/run-trial.sh) gets out/unstick.json from SDC_UNSTICK_REPLIES (JSON {cause:
-# reply}, "*" for any cause; a list by attempt); without one, the move `stop`.
 #
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
@@ -58,17 +56,7 @@ if [[ $node == decide.* ]]; then
     cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
   exit 0
 fi
-if [[ $node == run.unstick ]]; then
-  mkdir -p "$cwd/out"
-  jq --argjson r "${SDC_UNSTICK_REPLIES:-"{}"}" --argjson n "$(jq '.attempt // 1' "$1")" '($r[.cause] // $r["*"]
-    | if type == "array" then (.[$n - 1] // last) else . end)
-    // {move: "stop", diagnosis: "fixture run.unstick: no scripted reply, the run stops as it would have.",
-      defect_class: "other", reasons: ["no scripted reply"]}' "$cwd/in/stop.json" > "$cwd/out/unstick.json" || exit 1
-  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
-    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
-  exit 0
-fi
-# The requester agent's calls (node `requester.<question id or action>`, decider.sh requester) get a
+# The requester agent's calls (node `requester.<question id or action>`, the requester of `runbook run`) get a
 # scripted reply in out/reply.json: SDC_REQUESTER_REPLIES (a JSON object, or a file holding one) by
 # the question id or action; `{goals_rev}` in it becomes the case's current goals revision. Without
 # one: option A, grounded on the idea's first line.

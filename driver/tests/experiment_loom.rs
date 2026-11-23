@@ -17,6 +17,10 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// it as the sign of a build that has it).
 const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
 const LOOM_SHA: &str = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567";
+/// Names of the old driver that no output of `sdc-experiment` carries; each is built from two parts
+/// so that this file does not name them.
+const OLD_LAUNCHER: &str = concat!("run-tri", "al.sh");
+const OLD_DRIVER: &str = concat!("sdc-dr", "ive");
 
 fn scratch(name: &str) -> PathBuf {
     let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join("experiment-loom").join(name);
@@ -310,7 +314,7 @@ fn a_record_of_the_old_driver_is_still_checked_and_is_refused_at_run_with_one_li
         assert_eq!(code, 1, "{out}");
         assert_eq!(out.lines().count(), 1, "one line: {out}");
         assert!(out.contains("the old driver, which is gone") && out.contains("runner: loom"), "{out}");
-        assert!(!out.contains("run-trial.sh") && !out.contains("sdc-drive"), "{out}");
+        assert!(!out.contains(OLD_LAUNCHER) && !out.contains(OLD_DRIVER), "{out}");
         assert!(!units.exists(), "no unit was started");
         assert!(!d.join("runs").exists(), "no run directory was made");
     }
@@ -828,7 +832,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     assert!(row("lx.high.1").contains("high") && state("lx.high.1") != "-" && row("lx.high.1").contains("not started"), "{out}");
     let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
-    assert!(!out.contains("run-trial.sh"), "a loom run is not stopped with run-trial.sh: {out}");
+    assert!(!out.contains(OLD_LAUNCHER), "a loom run is not stopped with the old launcher: {out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
     assert_eq!(stop["format"], "sdc.run-stopped/1");
     assert_eq!(stop["reason"], "the cap was wrong");
@@ -981,7 +985,7 @@ fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
     let wrapped = fs::read_to_string(&wrapper_log).expect("the launcher called systemd-run");
     assert_eq!(wrapped.lines().count(), 1, "one unit for one run: {wrapped}");
     assert!(wrapped.contains(&format!("{} run sdc", bin.join("runbook").display())), "the unit runs `runbook run`: {wrapped}");
-    for old in ["run-trial.sh", "sdc-drive"] {
+    for old in [OLD_LAUNCHER, OLD_DRIVER] {
         assert!(!wrapped.contains(old) && !line.iter().any(|a| a.contains(old)), "{old} is no part of the run: {wrapped} {line:?}");
     }
 }
@@ -1006,5 +1010,5 @@ fn stop_signals_the_unit_of_the_run_and_calls_no_script() {
     assert!(d.join("runs/lx.low.1/run-stopped.json").is_file(), "{out}");
     let log = fs::read_to_string(&calls).unwrap();
     assert!(log.lines().any(|l| l == "--user stop sdc-exp-lx-low-1"), "the unit of the run is stopped: {log}");
-    assert!(!out.contains("run-trial.sh"), "{out}");
+    assert!(!out.contains(OLD_LAUNCHER), "{out}");
 }

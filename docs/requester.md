@@ -23,26 +23,26 @@ or run. *(inferred)* marks design not observed.
 | 5 | Requester agent = a decider configuration, principal `decider:requester`; no new `PrincipalKind` | every guard and holder (D→P, D\*) applies as is (`decision.yaml:180-190`); Canon sees only the string (`decisions.md:238`) |
 | 6 | Each decision class gets a `side` in `sdc.decision-classes/1`; the host hands in eligible principals per side | the P of a scope question is the requester, the P of a merge the maintainer; `eligible` is host input already (`decision.yaml:237`) |
 | 7 | Requester inputs: the request, its subject, the files its grounds cite, idea, dissection, goals, its own earlier decisions; nothing else | independence by construction, checkable as an input list |
-| 8 | No ground in the goals: D→P escalates to the requester person; D\* takes the request's default, marked `no_ground_in_goals` | the existing holder semantics (`autonomy-levels.md:235-236`) |
-| 9 | Answers that a goal states are `answered_by: derived` with a `basis`; scope-changing ones only where the class holder is D (A3 up) | keeps the A0-A2 rule "scope is the person's" (`autonomy-levels.md:244`); see question 1 |
-| 10 | Persona per eval item: goals given to the run, `truth.yaml` hidden beside the oracle | the oracle rule (`eval-design.md:174-177`) |
+| 8 | No ground in the goals: D→P escalates to the requester person; D\* takes the request's default, marked `no_ground_in_goals` | the existing holder semantics (`autonomy-levels.md:236-237`) |
+| 9 | Answers that a goal states are `answered_by: derived` with a `basis`; scope-changing ones only where the class holder is D (A3 up) | keeps the A0-A2 rule "scope is the person's" (`autonomy-levels.md:245`); see question 1 |
+| 10 | Persona per eval item: goals given to the run, `truth.yaml` hidden beside the oracle | the oracle rule (`eval-design.md:180-183`) |
 
 ## 1. What exists and is reused
 
 | Exists | Where | Used for |
 |---|---|---|
-| Decider gets `in/` = idea, dissection, questions, requirements, context, `aep/vision/product.md`, `aep/initiative/roadmap.md`, `aep/epic`, the story, the subject, `checks.json`, `decision.json` | `decider.sh:127-133`, `:146-149` | **no goals or requester context among them**; vision and roadmap are the run's own outputs. Its prompt acts "in place of the product owner" (`:175`) with no values to act on |
+| Decider gets `in/` = idea, dissection, questions, requirements, context, `aep/vision/product.md`, `aep/initiative/roadmap.md`, `aep/epic`, the story, the subject, `checks.json`, `decision.json` | the model decider's input files (`runbook/src/loom_run/decider/`) | **no goals or requester context among them**; vision and roadmap are the run's own outputs. Its prompt acts "in place of the product owner" with no values to act on (as read on 2026-11-21, in the former shell decider) |
 | Decision contract: options, recommendation, strength, grounds, holder, eligible | `decisions.md:35-59`; `decision.yaml:157-165` | the requester's reply and the person's view |
 | Grounding check: citations resolve, digests match, prior reuse | `tools/decision-grounds.sh:17-55`, `:68-81` | goals citations (one new resolver case) |
-| Holders, classes, levels, eval at A5 | `autonomy-levels.md:242-257`, `:397-413`, `:454-472` | requester classes |
-| Gold decisions per eval item (proposed, not built) | `autonomy-levels.md:520-523` | the persona's truth |
+| Holders, classes, levels, eval at A5 | `autonomy-levels.md:243-258`, `:397-413`, `:454-472` | requester classes |
+| Gold decisions per eval item (proposed, not built) | `autonomy-levels.md:524-527` | the persona's truth |
 | Ranks, `answered_by: derived`, findings, `amend.upstream`, `scope.answer` | `trial-2.md:57-68`, `:109-121` | derived answers, stale-basis findings |
 | Consistency rules (`sdc-consistency-rules/1`) | `bindings/tools/consistency-rules.json` | rules against constraints |
 | AEP `vision` = an objective; active work must `serves` one once a store declares any | `aep plan artifact relations` (`serves`); `aep/crates/edge/aep-cli/tests/planning_cli.rs:2374-2441` | product-layer source |
 | AEP `initiative` (draft → proposed → active → implemented), `product-requirements` | `aep plan artifact kinds`, `lifecycle initiative` | time-bound goals, constraints |
 | Brownfield reads context from the repository and adopts `vision:*` | `orchestration.md:318-319` | where an existing repository's goals come from |
 | Cold-read epic: questions carry excerpt, consequences, default reason | `epic:decisions-a-person-can-take-cold` | the request the requester receives |
-| Eval: hidden oracle, no persona, no simulated requester | `eval-design.md:174-177`; `eval/` has none (searched) | built here |
+| Eval: hidden oracle, no persona, no simulated requester | `eval-design.md:180-183`; `eval/` has none (searched) | built here |
 
 Gaps found: `check-questions` accepts a scope-changing answer under any `answered_by` except empty
 and `non-interactive` (`sdc-tool.sh:65-67`), so `derived` passes with no basis checked. The
@@ -86,19 +86,19 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   (request over product over company).
 - **Where it lives** *(inferred)*: company in the requester organisation's own repository, pinned by
   commit; product in the product repository as `.sdc/goals.yaml` (already a protected path,
-  `autonomy-levels.md:374`, so no delivering agent edits it); request with the idea
+  `autonomy-levels.md:376`, so no delivering agent edits it); request with the idea
   (`sdc run --goals FILE`, or a `goals:` block in a ticket). Brownfield: with no `.sdc/goals.yaml`,
   the product layer is imported from approved `vision:*`, active `initiative:*` and
   `product-requirements:*` of the repository's AEP store, each `sources: [aep:<id>@<rev>]`; imports
   count as rank 1 (a proposed default) until a person approves the layer.
-- **How a run receives it**: `scripts/run-trial.sh --goals FILE` copies the file unchanged to the
-  root case's `work/goals.yaml` when the run starts (`run-trial.sh:41-55`, `:142`); a goals
+- **How a run receives it**: `runbook run --goals FILE` copies the file unchanged to the
+  root case's `work/goals.yaml` when the run starts; a goals
   document or the output of `sdc-goals resolve` both work. It is artifact `goals` beside `idea`
   (`protocol/sdc.protocol.yaml:10`, `sdc.bindings.json:4`), and also of `sdc.intake` and
   `sdc.direction` (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`, their bindings
-  `:4`). A child's `work/` is a link to its parent's (`driver/src/main.rs:506`), so intake and
+  `:4`). A child's `work/` is a link to its parent's (the former driver's code, deleted), so intake and
   direction read the same file, and each case records the same revision: `t` and the first 16 hex
-  digits of the file's sha256 (`main.rs:191-199`), `none` without `--goals`. No claim reads it and
+  digits of the file's sha256 (the former driver's code, deleted), `none` without `--goals`. No claim reads it and
   no invalidation names it: a revised goals document makes no intake or direction record stale.
   Ground: source `goals`, citation `artifact_revision` with an `entry` id; displayed
   `goals@<rev>#<id>`.
@@ -134,11 +134,11 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
 - **Independence**: its own record directory and principal, confined like the decider today (writes
   `out/` only); delivering agents never see its prompt, the requester never sees `impl/` or `spec/`
   except as a cited subject. A different model per side is `different_model`
-  (`autonomy-levels.md:483-486`), optional.
+  (`autonomy-levels.md:487-490`), optional.
 - **Prompt** *(inferred)*: "You answer for the requester. Its goals are in in/goals.yaml. Choose the
   answer its entries support; cite each entry you rely on; never cross a constraint; say
   `no_ground_in_goals` when nothing covers the question." The decider's clause "escalate when the
-  decision would change scope" (`decider.sh:185-187`) does not apply: scope is its job.
+  decision would change scope" does not apply: scope is its job.
 
 ## 4. Goals in intake and the other stages
 
@@ -146,7 +146,7 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   after `questions.write`. For each open question an entry answers with strong or moderate grounds,
   it writes `answer`, `status: accepted|changed`, `answered_by: derived`, `derived_by:
   decider:requester`, `basis: [{entry, digest}]`. Non-scope questions: at every level (they are
-  writer answers today, `llm-node.sh:148-155`). Scope-changing: only where the class holder is D;
+  writer answers today). Scope-changing: only where the class holder is D;
   below, the derivation becomes the request's recommendation.
 - **Check**: `check-questions` refuses `derived` with no basis, and a basis whose entry is missing
   or changed (`finding`). This closes the `sdc-tool.sh:65-67` gap.
@@ -178,7 +178,7 @@ their entries, in the digest (`autonomy-levels.md:328`). Reversing one is an edi
 | id | KPI | formula | source | dir | gate |
 |---|---|---|---|---|---|
 | G1 | answered from goals without a person | questions `derived` or decided by `decider:requester` on a strong or moderate goals ground / questions answered | `questions.yaml`, `decisions.jsonl` | ↑ | advisory |
-| G2 | requester agreement with the persona | answers matching `accept` / matched answers; covered (`derivable_from` set) and uncovered apart | eval report | ↑ | covered: Wilson lower bound ≥ 0.9 to admit scope answers to D (`autonomy-levels.md:527-532`) |
+| G2 | requester agreement with the persona | answers matching `accept` / matched answers; covered (`derivable_from` set) and uncovered apart | eval report | ↑ | covered: Wilson lower bound ≥ 0.9 to admit scope answers to D (`autonomy-levels.md:531-536`) |
 | G3 | answers with no ground | `no_ground_in_goals` / requester answers | `decisions.jsonl`, `questions.yaml` | ↓ | advisory; each is a missing entry |
 | G4 | asked though a goal answered it | requests opened to any holder whose decided answer rests on a strong goals ground; in eval also `derivable_from` questions asked | same; `truth.yaml` | ↓, target 0 | ratchet |
 | G5 | answers set aside by a goals change | stale-basis findings / answers resting on goals | `findings.yaml` | n/a | advisory |

@@ -25,7 +25,7 @@
   },
   "change.implement": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "change.implement"
     ],
     "produces": "implementation_change",
@@ -35,7 +35,8 @@
     ],
     "producer": "llm-node",
     "results": {
-      "0": null
+      "0": null,
+      "8": "coverage_refused"
     },
     "llm": {
       "model": "claude-haiku-5-5",
@@ -48,6 +49,9 @@
       ]
     },
     "retry_when": {
+      "implementation_change": [
+        "coverage_refused"
+      ],
       "conformance_run": [
         "failed"
       ],
@@ -95,7 +99,7 @@
   },
   "change.review": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "change.review"
     ],
     "produces": "code_review",
@@ -141,7 +145,7 @@
     ],
     "produces": "merge_record",
     "subject": "change",
-    "producer": "sdc-drive.merge",
+    "producer": "runbook.merge",
     "results": {
       "0": null
     }

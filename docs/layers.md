@@ -1,5 +1,13 @@
 # Layers: Canon, Loom, SDC on Substrate
 
+**State now.** The runtime of a case is Loom's. `runbook run` (`docs/loom-run.md`) runs a case tree
+through Loom, as a library in its own process or through the `b10x-loom` binary, and the daemon's
+engine makes the same library calls (`docs/engine.md`). The runtime copy that `driver/` held (case
+store, event log, action selection, child cases) is deleted. `driver/` is the crate `sdc-tools`: the
+programs the bindings run and the tools around runs (`sdc-node`, `sdc-findings`, `sdc-reply`,
+`sdc-experiment`, and the others in `driver/Cargo.toml`). The analysis below is dated 2026-11-20,
+when the driver was still a runtime; "the driver" in it means that former runtime.
+
 Question (the operator, 2026-11-20): Canon, Loom and the SDC have blurred layers. (a) What exactly is a
 binding, and could Canon ship a default one? (b) One `substrate` layer should decide which outbound
 connections are allowed and should start and stop every process, so that everything can run
@@ -64,7 +72,7 @@ built or run. Statements marked *inferred* were not observed in the code or docs
 | 1 | capability → data contract → Connection, per deployment (`binding/1`) | Atlas ADR 0083; Atlas's incident-response walkthrough | runtime (Loom, ex-Commission), resolved per call |
 | 2 | action id → one Connector operation (`instance_id`, `operation_id`) | `loom-commission/src/ports/connector.rs:1-9` (`ActionBinding`) | Loom effect port |
 | 3 | action id → argv, run without a shell, with arguments as JSON on stdin and evidence read from the stdout report (`intake.bindings`) | `loom/ess/intake/domains/bindings.yaml:1-21`; `loom-intake-slice/src/bindings.rs:1-18` | Loom effect port (`CommandEffects`) |
-| 4 | action id → argv, plus `produces`, `subject`, `producer`, an exit-code → result table, `revises`, `until` and `max_runs` | `sdc/driver/examples/sdc/bindings.json`; `driver.md:83, 149-174` | SDC driver (a fourth runtime) |
+| 4 | action id → argv, plus `produces`, `subject`, `producer`, an exit-code → result table, `revises`, `until` and `max_runs` | `sdc/driver/examples/sdc/bindings.json`; `driver.md:118, 184-209` | SDC driver (a fourth runtime) |
 | 5 | action id → executor (`program`, `agent` or connector), with inputs, output artifact, budget, sandbox and an evidence table (`loom.bindings/1`, *proposed*) | `loom-sdk-and-agent-node.md:239-283` | Loom (proposal) |
 | 6 | Rust core → JavaScript or Python (language bindings) | `loom-sdk-and-agent-node.md:94-98`; `canon-requests.md:50-58` | SDK packaging |
 | 7 | evidence record → artifact revision ("revision binding") | `canon/website/docs/reference/evaluation.md:124-127`; `canon/crates/canon/src/eval/binding.rs` | Canon semantics |
@@ -154,7 +162,7 @@ start those processes for a case.
 |---|---|---|---|
 | 1 | `sdc/driver/src/main.rs:522-524` | `Command::new(argv[0])` per bound action. The environment is inherited (no `env_clear`), there is no timeout, `sh -c` is allowed, and absolute home paths appear in `examples/sdc/bindings.json:3` | Loom binding executor → Substrate. Delete the code once SDC runs on Loom (`boundary.md:28-33`) |
 | 2 | `sdc/driver/src/main.rs:180, 339` | spawns the `canon` CLI to evaluate and compile | Canon as a library inside Loom's governor (`boundary.md:67`). A layering error, not a security one |
-| 3 | `sdc` bindings `slot ess …`, `slot task check` (`driver.md:161, 169-170`) | Outside a sandbox, the slot daemon runs the job with its own cwd and environment, outside the caller's process tree (`slot/src/server/mod.rs:878-887`). Inside a Substrate sandbox, `socket(AF_UNIX)` is refused (ADR 0039:41), so `slot` runs the job locally (`client.rs:325-328`) and the pool is lost (*inferred*: not run) | a decision: slot jobs as Substrate host processes, or slot as admission only (§ 5) |
+| 3 | `sdc` bindings `slot ess …`, `slot task check` (`driver.md:196, 204-205`) | Outside a sandbox, the slot daemon runs the job with its own cwd and environment, outside the caller's process tree (`slot/src/server/mod.rs:878-887`). Inside a Substrate sandbox, `socket(AF_UNIX)` is refused (ADR 0039:41), so `slot` runs the job locally (`client.rs:325-328`) and the pool is lost (*inferred*: not run) | a decision: slot jobs as Substrate host processes, or slot as admission only (§ 5) |
 | 4 | `loom-intake-slice/src/bindings.rs:415-433` (`CommandEffects`) | operator-bound commands run unconfined behind `--unconfined-bindings` (`bindings.yaml:15-18`; `loom/AGENTS.md:1732-1734`), although `SubstrateRunner::run_child` exists (`confinement.rs:475`) | the injected substrate (`TestRunner` / `run_child`) |
 | 5 | `loom-session-executor/src/lib.rs:1390-1396, 2432-2436` and the table at `:15-17` | Claude Code starts through metaharness's `SpawnRunner`, limited by tool policy only. Codex is confined by its own vendor sandbox. Only b10x-harness is confined by Substrate | the injected substrate (ADR 0109: "one consumer path") |
 | 6 | `loom-operator/src/lib.rs:4-12`; `loom-boundary/src/lib.rs:1-15`; `loom/CHANGELOG.md:19, 50-53, 203` | Loom runs its own Kubernetes Jobs and pods, its own egress control (NetworkPolicy, loopback relays) and its own secret-file staging | Substrate's namespace driver and `pod` adapter (ADR 0047; ADR 0109), apertures (ADR 0013), secret slots (ADR 0012) |
@@ -165,7 +173,7 @@ start those processes for a case.
 | 11 | Atlas's O6 loop script; the `sandbox` repository | the O6 loop still calls `b10x-sandbox` | Substrate's CLI; then archive `sandbox` (ADR 0109). Not done |
 | 12 | `connectors-host/src/local/runtime/process.rs:330`; `launch.rs:1-10, 416-471` | Its own supervision of adapter processes (parent-death lease) and its own sealed-memfd credential on fd 3 for launched consumers, the same mechanism as substrate ADR 0012 | allowed: no component is required to wrap Connectors (ADR 0110). Still a second process manager and a second secret-delivery path (*inferred*: candidates to compose on Substrate) |
 | 13 | `slot/src/server/mod.rs:878-887`; `client.rs:367, 495` | the slot daemon spawns every build, `run_local` spawns directly, and remote mode spawns `ssh` | beside Substrate: slot decides when, Substrate decides how and where (*inferred*, § 5) |
-| 14 | `gates/src/delivery.rs:65` (`gh`), `scan.rs:74` (scanners) | network pushes and scanner processes from a tool the SDC binds for `merge` and `push` (`driver.md:173`) | run as a bound tool inside Substrate, with a GitHub aperture and a secret slot for the bot token (*proposed*) |
+| 14 | `gates/src/delivery.rs:65` (`gh`), `scan.rs:74` (scanners) | network pushes and scanner processes from a tool the SDC binds for `merge` and `push` (`driver.md:208`) | run as a bound tool inside Substrate, with a GitHub aperture and a secret slot for the bot token (*proposed*) |
 | 15 | conductor `confine/systemd.rs:64`, autodev (private) | own `systemd-run` and bwrap | Substrate, in later hops (ADR 0109). Cited from the ADR, not re-read |
 
 Canon: no process start and no network call in `canon/crates/*/src` outside documentation tooling
@@ -203,7 +211,7 @@ Top three changes, by value per cost:
    (`loom-sdk/src/lib.rs:99-117`).
 9. **Loom: extend `intake.bindings` into `loom.bindings/1`**, adding the result table, `revises`,
    the executor kind and a profile delta, so that `sdc/driver/examples/sdc/bindings.json` becomes a
-   Loom file and `sdc-drive` loses its spawn (`main.rs:522`). Value: it removes the fourth runtime
+   Loom file and the former driver loses its spawn (`main.rs:522`). Value: it removes the fourth runtime
    copy (`boundary.md:30-33`), and the SDC gets confinement, timeouts and a cleared environment for
    free (violation 1). Cost: moderate. The format and its ESS domain exist (`bindings.yaml`); result
    tables are new (`loom-sdk-and-agent-node.md:73`). Do it after change 8, so the format is born

@@ -1,8 +1,8 @@
 //! The requester decider (`decider.requester: true` of a model decider, principal
 //! `decider:requester`): a decision of a requester-side class (`driver/examples/sdc/
 //! decision-classes.json`) is answered from the requester's goals document, `work/goals.yaml`
-//! (`--goals`), by one model call of its own. What the driver did with `decider.sh requester`
-//! (`scripts/run-trial.sh`, `decide`, lines 799 to 822) is done here, file for file: the same
+//! (`--goals`), by one model call of its own. What the removed driver did for the requester
+//! is done here, file for file: the same
 //! call directory, the same inputs under `in/`, the same reply.
 //!
 //! The text the model reads is in `instructions/decider/requester*.md`; this file holds none. The
@@ -122,7 +122,7 @@ fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<(
 
 /// The request of an approval or a close, with the question and the two options rendered from the
 /// instruction files.
-fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level: &str) -> Result<Value, String> {
+pub(super) fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level: &str) -> Result<Value, String> {
     let close = req["type"] == "close";
     let (question, a, b) = if close {
         let outcome = raw(&req["outcome"]);

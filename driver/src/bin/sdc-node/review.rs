@@ -1,4 +1,4 @@
-//! `change.review`: its inputs (lines 555-586 of `llm-node.sh`), the call with the check of its
+//! `change.review`: its inputs, the call with the check of its
 //! reply and the asking again (lines 750-801). Inputs, schema and check are the library's
 //! (`sdc_tools::reply`); no `sdc-reply` process is started.
 

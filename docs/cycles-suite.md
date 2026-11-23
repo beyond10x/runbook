@@ -1,109 +1,53 @@
-# The finding cycles as data: `cycles/suite.yaml`
+# The 130 entries of the old finding-cycle suite, and what holds each one now
 
-`story:cycles-suite-as-data`, step 5 of the move of Runbook onto Loom. The finding cycles (each: a
-stub setup, a run, an expected verdict) are code in `scripts/run-finding-cycles.sh`. `cycles/suite.yaml`
-(format `runbook.cycles/1`) is the same list as data. Loom's `tree test --suite` is to read it and the
-script is then deleted. Until then the script runs the cycles and the suite is checked against it.
+`story:cycles-suite-as-data` made the finding cycles of `scripts/run-finding-cycles.sh` (each: a stub
+setup, a run, an expected verdict) into data, `cycles/suite.yaml` (format `runbook.cycles/1`).
+Loom's `loom.tree-suite/1` then took the cycles that can be said in it over, as
+`cycles/tree-suite.yaml`. `story:driver-runtime-removed` deleted the script, `cycles/suite.yaml` and
+the driver the script ran. This file stays as the table of the 130 entries of the deleted suite: each
+row says what holds the entry now. The 130 names are committed in `cycles/old-suite-names.txt`.
 
-Loom has no suite format yet (no `tree test` on its wave branches), so `runbook.cycles/1` is defined
-here. Its open points go to Loom: the distinct `unexpressed` kinds below are the list of things a
-declarative format must be able to say.
+## What holds an entry now
 
-## Shape
-
-One entry per cycle, in the order of the script:
-
-- `id`, `state` (`expected`, `pending`, or `unlisted`: a cycle the script runs outside both arrays;
-  none now), `when` (the condition when the script adds the id conditionally),
-  `protocol` (root protocol id), `driver` (`full-cycle`, `trial`, `redrive`, `other`).
-- `stub`: fixture files and directories, the llm or decider adapter, scripted replies.
-- `switches`: every environment variable the cycle sets. `arguments`: run arguments such as
-  `--autopilot`. `setup`: declarative setup steps.
-- `expect`: `exit` (or `exit_not`), the script's own `pass_line`, and `checks`, each one comparison:
-  `event_count`, `json_count`, `json_equals`, `json_matches`, `yaml_equals`, `yaml_matches`,
-  `yaml_not_matches`, `yaml_has_item`, `yaml_lacks_item`, `file_contains`, `file_absent_text`,
-  `file_exists`, `file_absent`, `file_empty`, `file_same_as`, `file_count_lines`. Paths use
-  `{scratch}`, `{run}`, `{store}`, `{work}` and `{console}`.
-- `unexpressed`: every assertion or setup that needs more than one comparison or a program, with its
-  `kind`, `lines` (the script's line numbers, as `"412"`, `"412-418"` or a comma list of both, or the name
-  of the script expression that makes the assertion, such as `"red_then_green"`) and a short `note`. Kinds: `aggregate`, `event-order`, `tree-search`,
-  `second-run`, `cross-record`, `field-compare`, `derived-value`, `setup-shell`, `mutated-store`,
-  `console-regex`, `conditional`, `computed-input`.
-- `source`: the line range of the cycle's block in the script.
-
-No shell in the data. An assertion that cannot be said declaratively stays in `unexpressed`; nothing
-is dropped.
-
-## The check
-
-`runbook check` (run by `task check:cycles-suite`, part of `task check`) reads the suite and fails when
-it is not format `runbook.cycles/1`, repeats an id, has an entry without an `id` or with a state other
-than `expected`, `pending` or `unlisted`, or names a fixture (`stub.fixtures`) that does not exist
-under the asset root. While `scripts/run-finding-cycles.sh` exists it also reads the script text:
-every `expected=(...)`, `expected+=(...)`, `pending=(...)` and `pending+=(...)` array, a conditional
-append included, and fails when the suite differs from them in the set of ids or in a state. An entry
-with state `unlisted` is not compared with the arrays; it fails only when the script lists its id
-after all, and the check prints a note with the number of such entries. Without the script the
-comparison is skipped and one note says so. `RUNBOOK_HOME=<root>` points the check at another tree
-(the task defaults to this checkout; the old `CYCLES_SUITE` variable is gone). `runbook check` also
-checks the rest of the text layout: the parts `runbook doctor` lists, the bindings and the
-instruction files they name, the placeholders of the instruction files, and the view files.
-
-## Running named cycles
-
-A full run of `scripts/run-finding-cycles.sh <scratch dir>` takes over an hour. To repeat one cycle
-or a few, name them after the scratch directory:
-
-```
-scripts/run-finding-cycles.sh <scratch dir> --only <name>[,<name>...]
-task cycles:only SCRATCH=<scratch dir> NAMES=<name>[,<name>...]
-```
-
-A name is an id of `cycles/suite.yaml` (an `expected` or a `pending` cycle of the script); `--only` may
-be repeated. A selected cycle runs the same code with the same checks as in a full run. A cycle that is
-not selected neither runs nor is counted.
-
-- A name the script does not list ends it with exit 2, naming it, before anything runs.
-- A cycle that reads the output of an earlier cycle (its run directory, store or log) runs that cycle
-  too and says so in one line: `cycles: also running autopilot (needed by decider-input: it reads that
-  cycle's output)`. The script holds that list in `needs`: `run-stop-decider` needs
-  `decider-finding-refused`; `decider-later-obligation` needs `autopilot`; `decider-input` needs
-  `autopilot` and `autopilot-close-a3`; `conformance-default-off` needs `autopilot-close`;
-  `principals` needs `finding-person` and `finding-person-stop`; `run-metrics` needs `decider-rework`;
-  `rework-cap` needs `decider-rework-spent`; `rework-pending-rejection` needs `rework-not-called`;
-  `writer-not-called` needs `replay-sibling`. `rule-approvals-default`, `review-mode-default` and
-  `implement-coverage-default` read one shared re-drive (`switches-default`), which runs once for any
-  of them (in the Rust tests of `runbook/tests/loom_run/replay.rs` they read the run of
-  `replay-unchanged`, made once by the setup step `replay-runs` of the slow lane `task test:replay`). The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
-  `review-facts-once`, ...) run with it.
-- The verdict line says how many were selected, so that it is never taken for a full run:
-  `cycles: selected 2 of 126, 2 as expected, 0 failed: none`, or with a pulled-in cycle
-  `cycles: selected 1 of 126 (+1 needed: autopilot), 2 as expected, 0 failed: none`. It compares the
-  selected and pulled-in cycles only. A selected `pending` cycle is reported on a `pending: selected K
-  of P (...)` line and, as in a full run, never fails the script. The line of a full run, `cycles: N
-  expected, ...`, is not printed.
-- The exit code is 1 when a selected cycle failed, 0 when all are as expected.
-- The log is `<scratch dir>/cycles-only.log`; the `cycles.log` of a full run in the same directory
-  stays. The run and store directories of a selected cycle are rewritten, as in a full run.
-
-A cycle added to the script stands in its own `if sel <name>; then` ... `fi` block, and one that
-reads another cycle's output gets an entry in `needs`.
-
-## The same cycles as a Loom tree suite: `cycles/tree-suite.yaml`
-
-`runbook test cycles/tree-suite.yaml --confinement local` runs the file in the `runbook` process
-(Loom's `run_suite`, format `loom.tree-suite/1`); the run holds `runbook` and the bound programs
-only. `task test:cycles-loom` runs it. `cycles/suite.yaml` and `scripts/run-finding-cycles.sh` stay as
-they are until the table below has no `pending` and no `not converted` left.
-
-Every entry of `cycles/suite.yaml` is in one of three states:
+Every entry is in one of four states. The `state` cell of its row says exactly these words
+(`converted`, `pending`, `held by a Rust test`, `dropped with the driver`); a qualification such as
+"in part" goes in the third cell:
 
 - **converted**: a cycle in `cycles/tree-suite.yaml`, run through `runbook test`, as expected.
 - **pending**: a cycle in the file marked `pending: true`. A cycle whose step or member the pinned
   Loom does not run yet prints `pending, waits for story:<id>`; a cycle that runs prints
   `pending, still failing: <difference>`, which is the evidence that the mark is right, and
   `pending, passing` when it can move to converted.
-- **not converted**: not in the file; the class says which kind of Loom story it needs.
+- **held by a Rust test**: a test of the runner (`runbook/`) or of a tool of `driver/` that the row
+  names; the cycle is not in the file.
+- **dropped with the driver**: the cycle tested a behaviour of the deleted driver (its autopilot loop,
+  `--keep-going`, the unstick step, the rule approver, stand-in binaries through the environment, a
+  second tool reading a finished run). `runbook run` does not have that behaviour, or has it in a form
+  that no cycle of the suite file states. Decision: it is not ported with the removal of the driver, and
+  no test of the runner named in the row holds it. The reason of the row keeps the class the entry had
+  while the driver still ran it.
+
+## The check
+
+`runbook check` (run by `task check:cycles-suite`, part of `task check`) reads `cycles/tree-suite.yaml`
+and fails when it is not format `loom.tree-suite/1`, repeats a cycle name, has an entry without a
+`name`, or names a seed (`seed: [{from: ...}]`, in `defaults` or in a cycle) that is not under
+`cycles/`. It reads `cycles/old-suite-names.txt` and fails when a cycle of the file is not one of the
+130 names. While this file exists it reads the rows of its tables headed `| entry | state |` and fails
+when a name has no row or more than one, when a row names an entry that is not in the list, when the state of a row is none of the four words
+above (the refusal names the row and the word), when a row
+says converted or pending and the suite file says otherwise, or when a row of another state names a
+cycle that is in the file. Without this file the comparison is skipped and one note says so.
+`RUNBOOK_HOME=<root>` points the check at another tree (the task defaults to this checkout). It also
+checks the rest of the text layout: the parts `runbook doctor` lists, the bindings and the
+instruction files they name, the placeholders of the instruction files, and the view files.
+
+## The same cycles as a Loom tree suite: `cycles/tree-suite.yaml`
+
+`runbook test cycles/tree-suite.yaml --confinement local` runs the file in the `runbook` process
+(Loom's `run_suite`, format `loom.tree-suite/1`); the run holds `runbook` and the bound programs
+only. `task test:cycles-loom` runs it; `task test:cycles-loom ONLY=<name>[,<name>...]` runs the named
+cycles alone.
 
 How the environment switches of the old driver are said in the file, with no environment passed
 through:
@@ -159,7 +103,7 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 37 converted, 17 pending, 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
+130 entries: 37 converted, 17 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
 `scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending); the split of
 the remaining pending entries into those that wait for a story and those that run and still fail was not
 measured again.
@@ -190,7 +134,7 @@ cycles would have to share an opened tree (the format has no member for it).
 
 The entries that test the old driver's own code (the decider's prompt, retries, citations and limits,
 the stops and refusals of a run, the principals, `sdc-run-metrics`) are Rust tests of the runner
-(`runbook/src/loom_run/`) or of `sdc-run-metrics`, so the entry goes with the driver's scripts. The rows
+(`runbook/src/loom_run/`) or of `sdc-run-metrics`, so the entry went with the driver's scripts. The rows
 below say which test holds each one, `held by a Rust test`. Where the runner differs from what the
 cycle expects, the row says what differs and the test holds what the runner does (no such test is `#[ignore]`d);
 the runner names its own exit codes and causes
@@ -236,11 +180,11 @@ is held by the tests named):
 | plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
 | spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
 | replay-sibling | pending | needs the `replay` step (story:tree-replay-command); its scripted replies are seeds now, the replay is not there |
-| pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
+| pool-wait | dropped with the driver | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
 
 ### Re-drive entries (9)
 
-These run `sdc-drive` with `--recorded <recording>` over the recorded model calls, with `--inject`
+These ran `sdc-drive` with `--recorded <recording>` over the recorded model calls, with `--inject`
 and `--on-divergence`. A `loom.tree-suite/1` cycle opens a tree and runs it; it has no recording to
 replay model calls from and no injected rejection, timeout or failed check. The ten replay entries
 (these nine and `replay-recording-clean`) are Rust tests of `runbook run --recorded`
@@ -256,7 +200,7 @@ tests that need a run (`#[ignore]`d in the default step; `replay-recording-clean
 | implement-coverage-default | held by a Rust test | `replay.rs` `implement_coverage_default_is_off` |
 | replay-reject-stop | held by a Rust test | `replay.rs` `replay_reject_stop_ends_recording_diverged_when_the_rework_asks_a_call_the_source_never_made`. The old exit 9 is exit 11 (9 is `denied`) |
 | replay-reject-nearest | held by a Rust test | `replay.rs` `replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuck`. The old driver ended `writer_spent` (exit 4); the tree is `stuck` (exit 3) when the writer's runs are spent |
-| replay-timeout | held by a Rust test, in part | `replay.rs` `replay_timeout_kills_the_call_on_the_virtual_clock_and_the_tree_stops_on_the_unknown_result`: the call is killed on the virtual clock (1500 s). Not given by the engine: the old driver retried the writer and closed; the binding of `change.implement` has no result for exit 124, Loom refuses it (`ResultNotInTable`) and the tree stops `stuck` (exit 3) |
+| replay-timeout | held by a Rust test | In part: `replay.rs` `replay_timeout_kills_the_call_on_the_virtual_clock_and_the_tree_stops_on_the_unknown_result`: the call is killed on the virtual clock (1500 s). Not given by the engine: the old driver retried the writer and closed; the binding of `change.implement` has no result for exit 124, Loom refuses it (`ResultNotInTable`) and the tree stops `stuck` (exit 3) |
 | replay-live-dry | held by a Rust test | `replay.rs` `replay_live_dry_makes_one_unpaid_live_call_and_stops_at_the_cap` (one live call on the adapter `dry`, paid 0, then exit 11 at the cap) |
 | replay-check-fail | held by a Rust test | `replay.rs` `replay_check_fail_fails_tests_run_once_and_the_writer_is_spent_at_the_condition` (`max_runs.implement=2`; the old exit 4 is `stuck`, exit 3) |
 
@@ -264,22 +208,22 @@ tests that need a run (`#[ignore]`d in the default step; `replay-recording-clean
 
 | entry | state | reason |
 |---|---|---|
-| run-stop-decider | not converted | class: a second tool reads a finished run (`run-trial.sh --stop`, then `sdc-finding-kpis`) |
+| run-stop-decider | dropped with the driver | class: a second tool reads a finished run (`run-trial.sh --stop`, then `sdc-finding-kpis`) |
 | run-metrics | held by a Rust test | `driver/tests/run_metrics.rs` `a_run_directory_of_the_loom_runner_with_a_rejected_approval_gives_the_same_figures` (the hand-written `tests/fixtures/loom-run` with a story case in which `merge.approve` sent `change.implement` back once) |
-| rework-pending-rejection | not converted | class: the store is edited between two runs (a case cut at the rejection) |
+| rework-pending-rejection | dropped with the driver | class: the store is edited between two runs (a case cut at the rejection) |
 | decider-later-obligation | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_obligation_only_a_later_step_meets_is_listed_apart_not_open_and_the_prompt_says_so` (on `prepare` and `prompt` with the compiled `sdc-release` and `sdc-direction` IR: a full `decide` of the runner sends an empty position and the case has no `ir.json`) |
-| writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
-| decider-input | held by Rust tests | `runbook/src/loom_run/decider/tests.rs` `a_close_reads_the_published_readme_and_no_aep_file`, `a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git`, `the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool`, `under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person` |
+| writer-not-called | dropped with the driver | class: the store is edited between two runs (a program replaced, a finding dismissed) |
+| decider-input | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_close_reads_the_published_readme_and_no_aep_file`, `a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git`, `the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool`, `under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person` |
 | principals | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_stand_in_names_its_principal_the_run_directory_labels_it_and_no_principal_is_invented` and `a_scripted_decider_takes_the_principal_of_its_answers_from_the_settings`; the refusal of a decision with no principal is the findings tool's (`sdc-findings amend`), not the runner's: the runner runs the printed command and invents no principal |
 | replay-recording-clean | held by a Rust test | `runbook/tests/loom_run/replay.rs` `replay_recording_clean_holds_no_home_path_prompt_or_transcript` (the committed recording holds no home path, no prompt text, no transcript) |
-| efforts | held by Rust tests | `runbook/tests/loom_run/dry.rs`: `efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (the decider's effort and its refused level), `efforts_the_class_effort_goes_to_each_model_node_of_its_class_and_none_given_leaves_the_class_default` (`efforts.<class>.effort` of the settings is `--effort` on every model node of the class in the bindings copy, none where none is set) and `efforts_a_level_outside_the_set_or_a_class_that_is_none_is_refused_by_name_before_the_run_directory_is_made`; `driver/tests/sdc_node.rs` `an_effort_option_is_on_the_dry_command_and_in_the_request_of_a_node_of_every_class` (the dry command of a node of each class shows the level it was given, the class default where none is); `loom_run::bugfix::bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (`#[ignore]`d, run by the slow lane `task test:bugfix-slow`: a real dry run, the dry commands of `bug.dissect`, `test.reproduce` and `change.fix` carry the level of their class); and `a_level_outside_the_set_is_refused_before_the_node_makes_a_call`. The stand-in claude adapter run (the environment of a bound program) is a class of its own |
+| efforts | held by a Rust test | `runbook/tests/loom_run/dry.rs`: `efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (the decider's effort and its refused level), `efforts_the_class_effort_goes_to_each_model_node_of_its_class_and_none_given_leaves_the_class_default` (`efforts.<class>.effort` of the settings is `--effort` on every model node of the class in the bindings copy, none where none is set) and `efforts_a_level_outside_the_set_or_a_class_that_is_none_is_refused_by_name_before_the_run_directory_is_made`; `driver/tests/sdc_node.rs` `an_effort_option_is_on_the_dry_command_and_in_the_request_of_a_node_of_every_class` (the dry command of a node of each class shows the level it was given, the class default where none is); `loom_run::bugfix::bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (`#[ignore]`d, run by the slow lane `task test:bugfix-slow`: a real dry run, the dry commands of `bug.dissect`, `test.reproduce` and `change.fix` carry the level of their class); and `a_level_outside_the_set_is_refused_before_the_node_makes_a_call`. The stand-in claude adapter run (the environment of a bound program) is a class of its own |
 
 ### Trial entries (83)
 
 These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
 with a model adapter's replies scripted. Twenty-six are in the file: seventeen converted and nine
 pending cycles (the scripted-reply entries among them have their replies as seeds; the four bugfix
-cycles are two converted and two pending); the other 57 are not converted. The classes of the 57 and
+cycles are two converted and two pending); the other 57 are held by a Rust test or dropped with the driver. The classes of the 57 and
 of the four bugfix cycles that were in the first count and are in the file now:
 
 - Runbook's decider answers the stops: 32 entries.
@@ -299,10 +243,10 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-scope-final | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_question_that_escalates_under_final_takes_its_default_and_the_log_says_suppressed` |
 | decider-finding | held by a Rust test | `runbook/tests/loom_run/answers.rs` `a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on` |
 | decider-finding-final | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_finding_that_escalates_under_final_takes_the_best_answer_else_its_default` |
-| decider-finding-refused | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-finding-refused | dropped with the driver | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | run-stop | pending | the `stop`, `resume` and `reopen` steps: waits for story:tree-stop-record-and-labels |
-| autopilot | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| trace-reraised | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| autopilot | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| trace-reraised | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-budget-reason | held by a Rust test | `runbook/tests/loom_run/answers.rs` `the_decider_call_cap_ends_the_run_when_the_answers_would_exceed_it`: the stop reason names the step, the case and the cap (cause `decider_cannot_decide`, the runner's name for it) |
 | autopilot-person | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_decider_kind_person_is_refused_by_name_before_any_run_directory_or_call` (exit 2 in the runner, 64 in the driver; no run directory, no call) |
 | autopilot-stop | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `a_decision_the_decider_has_no_reply_for_stops_the_run_naming_step_and_case_with_no_path_in_the_reason` (exit 8, `by: rule:loom-run`, cause `decider_cannot_decide`: the runner's names for exit 7, `rule:autopilot`, `decision_not_takeable`); `the_reason_of_a_stop_at_a_decision_the_decider_cannot_take_names_no_person` (the reason names the step, the case and what could not be decided, and no person) |
@@ -312,43 +256,43 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-invalid-scope | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `three_invalid_replies_to_a_question_take_its_default_as_invalid_reply_default` |
 | decider-escalate-nobest | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_escalate_without_best_is_refused_under_final_and_asked_again` |
 | decider-reject | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `a_rejection_where_the_action_has_no_rejected_result_stops_the_run_naming_step_and_case_and_sends_nothing` (exit 10, outcome `stopped: rejected`, nothing sent to Loom); `a_rejection_without_a_result_to_record_it_names_the_case_and_no_person` (cause `rejected_without_rework_path`, reason `<step> in <case>: …`; the driver's exit 6 is taken by the runner's model-call cap, so the runner's exit is 10) |
-| decider-rework-context | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| decider-rework-model | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-rework-context | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-rework-model | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework | pending | the scripted rejection and approval of `merge.approve` need `approve` with `result` and `reasons`: waits for story:tree-stop-record-and-labels |
 | decider-rework-spent | pending | three scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
-| rework-cap | not converted | class: Runbook's decider answers the stops (`MAX_REJECTIONS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| rework-not-called | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| review-no-rework-prompt | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-cap | dropped with the driver | class: Runbook's decider answers the stops (`MAX_REJECTIONS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-not-called | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| review-no-rework-prompt | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | cite-dark-spot | pending | the intake finding is decided by the decider in the old cycle; here it stops for a person's decision written into `findings.yaml` (gap, no Loom story yet) |
 | cite-fault-sent-back | pending | same: the intake finding stops for a person's decision (gap, no Loom story yet) |
 | autopilot-close | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a5_with_a_model_decider_the_close_is_taken_by_rule_and_the_decider_is_not_asked` (principal `rule:autopilot`, no model call); `at_a5_the_close_through_an_outcome_the_class_does_not_list_is_asked_of_the_model_decider_and_run_as_printed` holds the close of an outcome the close class does not list |
 | autopilot-close-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_close_is_a_persons_and_the_decider_is_not_asked` (the table of `tools/autonomy-levels.json` gives the close to a person at A3: exit 8, no model call; the driver asked the decider there, and a level never widens what its table gives); `at_a4_the_decider_is_asked_for_the_close_rejects_and_the_run_stops_unclosed` holds the decider's rejection of the close where the table gives it (A4: exit 9, nothing closed) |
-| conformance-default-off | rust test | `runbook/tests/loom_run/conformance.rs::conformance_default_off`: a closed run without `--conformance observe` (and with `--conformance off`) writes no `oracle.json` and starts no observer; `--conformance observe` on a closed run writes it (`observe_on_a_closed_run_writes_oracle_json_from_the_run_workspace_through_the_pinned_tool`), the observation of a failure is written into it and never changes the exit (`a_failed_observation_is_written_into_oracle_json_and_the_run_exit_stays`). The entry stays in `cycles/suite.yaml` until the script is deleted |
-| rule-approvals | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-check-failed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-revision-changed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-off | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-a3 | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
-| keep-going-three | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| keep-going-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| keep-going-repeat | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| unstick-end | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| unstick-rerun | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| unstick-invalid | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| unstick-limit | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| unstick-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| reopen-refused-decision | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| conformance-default-off | held by a Rust test | `runbook/tests/loom_run/conformance.rs::conformance_default_off`: a closed run without `--conformance observe` (and with `--conformance off`) writes no `oracle.json` and starts no observer; `--conformance observe` on a closed run writes it (`observe_on_a_closed_run_writes_oracle_json_from_the_run_workspace_through_the_pinned_tool`), the observation of a failure is written into it and never changes the exit (`a_failed_observation_is_written_into_oracle_json_and_the_run_exit_stays`). The entry stays in `cycles/suite.yaml` until the script is deleted |
+| rule-approvals | dropped with the driver | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-check-failed | dropped with the driver | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-revision-changed | dropped with the driver | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-off | dropped with the driver | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-a3 | dropped with the driver | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| keep-going-three | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| keep-going-off | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| keep-going-repeat | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-end | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-rerun | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-invalid | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-limit | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-off | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| reopen-refused-decision | dropped with the driver | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | decider-release-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_does_not_answer_and_the_run_stops_for_a_person_without_calling_the_model` (the table gives the release to a person up to A4); `a_context_the_decider_rejects_at_a3_ends_without_a_rework_path_and_records_nothing` holds the decider's rejection at A3 on a class the table gives it (exit 10). The second run of `sdc-drive decide` in the entry is the engine's |
-| decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| requester-decider | not converted | the port is built: `--goals` and `decider.requester` (`docs/loom-run-decisions.md`); held as fake-Loom tests `requester_decider_*` in `runbook/tests/loom_run/goals.rs`, which test the runner's requester decider alone. The real engine now takes the program of a person action's approval (Loom `70b0e6e0`): `runbook/tests/loom_run/inproc.rs` `a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_and_no_then_runs` runs a declared step with a program and a decider principal through it. What stops the entry is that the suite's `decide:` is a fixed list with no requester decider, as for the other entries of that class |
-| requester-no-ground | not converted | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
-| models | not converted | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
+| decider-release-withheld | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| requester-decider | held by a Rust test | the port is built: `--goals` and `decider.requester` (`docs/loom-run-decisions.md`); held as fake-Loom tests `requester_decider_*` in `runbook/tests/loom_run/goals.rs`, which test the runner's requester decider alone. The real engine now takes the program of a person action's approval (Loom `70b0e6e0`): `runbook/tests/loom_run/inproc.rs` `a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_and_no_then_runs` runs a declared step with a program and a decider principal through it. What stops the entry is that the suite's `decide:` is a fixed list with no requester decider, as for the other entries of that class |
+| requester-no-ground | held by a Rust test | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
+| models | held by a Rust test | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
 | decider-question-reject | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered` |
 | rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
-| scope-unattributed-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| finding-refused-reask | held in part by a Rust test | `runbook/tests/loom_run/answers.rs` `a_request_that_comes_back_a_fourth_time_ends_the_run_naming_it` holds the stop; the refusal text is not put to the decider again (the refusal is the findings tool's) |
-| rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| scope-unattributed-reject | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| finding-refused-reask | held by a Rust test | In part: `runbook/tests/loom_run/answers.rs` `a_request_that_comes_back_a_fourth_time_ends_the_run_naming_it` holds the stop; the refusal text is not put to the decider again (the refusal is the findings tool's) |
+| rework-spent-dropped | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-spent-abandoned | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-invalid-named | converted | |
 | writer-own-error | converted | `questions.answer` records `answer_applied` (`sdc.intake` revision 10: exit 0 empty, exit 1 `refused`) and its binding has `retry_when: {answer_applied: [refused]}`: the refused apply is a retry record, the next run reads its log in `in/feedback.md`; the fixture never fixes the answer, so the run ends after the third refusal (`RunsSpent`, stop at `scope.answer`, exit 3) |
 | implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
@@ -365,15 +309,15 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | coverage-test-missing | converted | same form |
 | coverage-spent | converted | same form; the three runs are the `change.implement` runs that ended with exit 8 (a fourth action finishes with no exit when the allowance is spent) |
 | coverage-reply-retry | converted | the node's own shape check and its second request run in `sdc-node`, so they hold under Loom; the refused reply and the reason in the prompt are read from the call record |
-| review-real-path | not converted | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
-| review-real-path-facts | not converted | same |
-| review-invalid-stop | not converted | same |
-| review-adapter-refused | not converted | same, and the refusal is the exit 64 of `sdc-drive` before a run, not a cycle's outcome |
-| reopen-review-invalid | not converted | same, and a `--reopen` of a stopped run |
+| review-real-path | dropped with the driver | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
+| review-real-path-facts | dropped with the driver | same |
+| review-invalid-stop | dropped with the driver | same |
+| review-adapter-refused | dropped with the driver | same, and the refusal is the exit 64 of `sdc-drive` before a run, not a cycle's outcome |
+| reopen-review-invalid | dropped with the driver | same, and a `--reopen` of a stopped run |
 | bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run |
 | bugfix-not-red | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_reproduced`: the first `repro_run` `not_red` makes `not_reproduced` legitimate and Loom ends the case before the test writer is sent back; the protocol has no claim for "the writer is spent" |
 | bugfix-edited-test | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_fixed`: the first `test_run` is `failed` and Loom ends the case `not_fixed` before `change.fix` is sent back; same missing "writer is spent" |
 | bugfix-never-red | converted | ends `not_reproduced` with no red, no fix and no suite run; Loom ends the case at the first legitimate outcome, after one `test.reproduce` run (the old cycle ran the writer to its allowance) |
-| bugfix-from-ticket | Rust test | `runbook/tests/loom_run/bugfix.rs`: `bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused` (the real helper and bindings, stub adapter, no `--dry`: fixed, tracked files only, base recorded, story, no ticket text on the console or outside `work/`, a dirty worktree refused; `#[ignore]`d, run by the slow lane `task test:bugfix-slow`, needs `driver/target/debug`, 19.7 s); the seed step on a stand-in helper in the gate lane is `a_ticket_seeds_the_root_case_before_the_tree_opens` and `the_ticket_text_reaches_the_work_directory_and_no_other_file_stream_or_event`; the constraints in the fix's prompt are held by `bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (a real run on the adapter `dry`, which writes each prompt: the constraints are in the `change.fix` prompt, a constraint the ticket lacks is not; `#[ignore]`d, run by the same lane `task test:bugfix-slow`, measured 17.1 s at load 44 (this round), 26.1 s and 27.8 s (the reviewer's run), 30.4 s at load 45, and 49 s and 61.5 s at load 130 (earlier runs); the runner ends a test at 60 s (`slow-timeout` 30 s, `terminate-after` 2), so at a load near 130 the lane can fail, and the timeout is not raised; it is out of the default step; the golden `instructions/golden/llm-node/change.fix.ticket.md` also holds the prompt text) |
-| bugfix-pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
-| bugfix-over-time | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
+| bugfix-from-ticket | held by a Rust test | `runbook/tests/loom_run/bugfix.rs`: `bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused` (the real helper and bindings, stub adapter, no `--dry`: fixed, tracked files only, base recorded, story, no ticket text on the console or outside `work/`, a dirty worktree refused; `#[ignore]`d, run by the slow lane `task test:bugfix-slow`, needs `driver/target/debug`, 19.7 s); the seed step on a stand-in helper in the gate lane is `a_ticket_seeds_the_root_case_before_the_tree_opens` and `the_ticket_text_reaches_the_work_directory_and_no_other_file_stream_or_event`; the constraints in the fix's prompt are held by `bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (a real run on the adapter `dry`, which writes each prompt: the constraints are in the `change.fix` prompt, a constraint the ticket lacks is not; `#[ignore]`d, run by the same lane `task test:bugfix-slow`, measured 17.1 s at load 44 (this round), 26.1 s and 27.8 s (the reviewer's run), 30.4 s at load 45, and 49 s and 61.5 s at load 130 (earlier runs); the runner ends a test at 60 s (`slow-timeout` 30 s, `terminate-after` 2), so at a load near 130 the lane can fail, and the timeout is not raised; it is out of the default step; the golden `instructions/golden/llm-node/change.fix.ticket.md` also holds the prompt text) |
+| bugfix-pool-wait | dropped with the driver | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
+| bugfix-over-time | dropped with the driver | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |

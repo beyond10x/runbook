@@ -29,7 +29,7 @@ actions:
     evidence:
       - kind: spec_opened
         subject: epic
-        producer: sdc-drive
+        producer: runbook
         from: effect
         results: {performed: null}
   - action: plan.open
@@ -40,7 +40,7 @@ actions:
     evidence:
       - kind: plan_opened
         subject: epic
-        producer: sdc-drive
+        producer: runbook
         from: effect
         results: {performed: null}
   - action: stories.open
@@ -52,7 +52,7 @@ actions:
     evidence:
       - kind: stories_opened
         subject: epic
-        producer: sdc-drive
+        producer: runbook
         from: effect
         results: {performed: null}
   - action: release.open
@@ -63,6 +63,6 @@ actions:
     evidence:
       - kind: release_opened
         subject: epic
-        producer: sdc-drive
+        producer: runbook
         from: effect
         results: {performed: null}

@@ -1,8 +1,0 @@
-format: sdc.goals/1
-layer: request
-requester: operator
-entries:
-  - {id: request/r1, kind: goal, priority: 1, statement: "A to-do list web app for the operator and a partner.", sources: ["docs/trial-2.md:226"], valid_from: 2026-11-21}
-  - {id: request/r2, kind: constraint, statement: "The app works on the train without a connection.", sources: ["docs/trial-2.md:226"], valid_from: 2026-11-21}
-  - {id: request/r3, kind: principle, priority: 2, statement: "The two people's lists stay on their own devices unless the idea names a server.", sources: ["docs/trial-2.md:226"], valid_from: 2026-11-21}
-  - {id: request/r4, kind: preference, priority: 3, statement: "A question the idea leaves open takes its default and is listed for the person.", sources: ["docs/requester.md:26"], valid_from: 2026-11-21}

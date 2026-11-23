@@ -11,7 +11,7 @@
         "max_runs": 3,
         "node_class": "other",
         "producer": "llm-node",
-        "program": "llm-node.sh bug.dissect",
+        "program": "sdc-node bug.dissect",
         "results": {
           "0": null
         },
@@ -93,7 +93,7 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh test.reproduce",
+        "program": "sdc-node test.reproduce",
         "results": {
           "0": null
         },
@@ -193,7 +193,7 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh change.fix",
+        "program": "sdc-node change.fix",
         "results": {
           "0": null
         },

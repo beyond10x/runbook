@@ -9,7 +9,8 @@
 # protocol file (<id with . and _ as ->@<revision>), every `copy` `from:` is the registration of a
 # protocol file, and a file that binds a program has `program_root: bindings`. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
-# (sdc-check-routes) against docs/reject-routes.md. Then the experiment
+# (sdc-check-routes) against docs/reject-routes.md (exit 1: findings, the script goes on; exit 2: a
+# file it reads is refused, the script prints REFUSED and stops with exit 3). Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
 # experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
@@ -66,8 +67,43 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
         elif $j[0][$a] == null then empty
         elif $y != $d then "\nbindings/'"$name"'.yaml \($a): --instructions \($y | tojson) differs from llm.instructions \($d | tojson) of '"$name"'.bindings.json"
         else empty end' <<< "$acts")
+    # The program and node a run starts are named twice as well: the two leading members of `argv`
+    # in the YAML and in the JSON file (its `{dir}/../../../bindings/` prefix written as the YAML's
+    # path below bindings/) are equal for every action both bind to a program.
+    findings+=$(jq -r --slurpfile j "$b" '
+      def norm: if type == "string" then ltrimstr("{dir}/../../../bindings/") else . end;
+      .[] | .action as $a | select(.executor.argv != null and $j[0][$a].argv != null)
+      | (.executor.argv[:2]) as $y | ($j[0][$a].argv[:2] | map(norm)) as $d
+      | if $y != $d then "\nbindings/'"$name"'.yaml \($a): argv starts \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json starts \($d | tojson)" else empty end' <<< "$acts")
+    # What the route check reads of a binding is named twice: the run reads the YAML, the route
+    # check and the site read the JSON copy. For every action both bind, these are equal: the kinds
+    # it produces, each kind's results by exit code, the subjects of the evidence, `retry_when`
+    # (kind to results), the runs (`max_runs`), whether it is a person's action (`manual`) and
+    # whether it hands off (`handoff`). The YAML names the result of a `from: effect` entry as Loom
+    # does, `performed` for the JSON exit 0 and `rejected` for exit 6 (docs/loom-bindings.md, D31 and
+    # D12); an action with no evidence names no subject in the YAML (D38), so its `subject` is not
+    # compared. A difference makes the check judge a run that does not happen. (The effect of an
+    # action is read from the protocol, not from either copy.)
+    findings+=$(jq -r --slurpfile j "$b" '
+      .[] | .action as $a | select($j[0][$a] != null) | $j[0][$a] as $d
+      | ([.evidence[]?.kind] | sort) as $yk
+      | ([$d.produces] | flatten | map(select(. != null)) | sort) as $dk
+      | ([.evidence[]? | .kind as $k | .from as $from | (.results // {}) | to_entries[]
+          | [$k, (if $from == "effect" then ({"performed": "0", "rejected": "6"}[.key] // .key) else .key end), .value]] | sort) as $yr
+      | ([($d.results // {}) | to_entries[] | .key as $c
+          | if ($dk | length) > 1 then (.value | to_entries[]? | [.key, $c, .value]) else [$dk[0], $c, .value] end] | sort) as $dr
+      | ([.evidence[]?.subject] | unique) as $ys
+      | ([$d.subject] | map(select(. != null)) | unique) as $ds
+      | [["produces", $yk, $dk], ["results", $yr, $dr],
+         (if ($yk + $dk | length) > 0 then ["subject", $ys, $ds] else empty end),
+         ["retry_when", (.retry_when // null), ($d.retry_when // null)],
+         ["max_runs", (.budget.max_runs // null), ($d.max_runs // null)],
+         ["manual", (.executor.kind == "person"), ($d.manual == true)],
+         ["handoff", (.handoff != null), ($d.handoff != null)]][]
+      | select(.[1] != .[2])
+      | "\nbindings/'"$name"'.yaml \($a): \(.[0]) is \(.[1] | tojson), driver/examples/sdc/'"$name"'.bindings.json has \(.[2] | tojson)"' <<< "$acts")
     while IFS= read -r p; do
-      [[ $p =~ ^instructions/.+\.md$ && ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
+      [[ $p =~ ^instructions/.+\.md$&& ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
         findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."
     done < <(
       jq -r '(.[] | (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][]
@@ -150,7 +186,14 @@ fi
 # The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
 # the autopilot where nothing points to a next step; its findings must equal the list in the doc.
 (cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1
-"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || fail=1
+routes=0
+"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || routes=$?
+if [[ $routes -eq 2 ]]; then
+  echo "REFUSED routes: sdc-check-routes refused a file it reads (reasons above); no route was checked"
+  exit 3
+elif [[ $routes -ne 0 ]]; then
+  fail=1
+fi
 # Experiment records (docs/workflow-metrics.md section 7): every record valid, each report, verdict
 # and experiments/INDEX.md current. Needs the driver built (cargo build --bins in driver/).
 exp_bin=${SDC_EXPERIMENT:-$sdc/driver/target/debug/sdc-experiment}

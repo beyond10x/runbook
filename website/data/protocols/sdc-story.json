@@ -63,13 +63,15 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh change.implement",
+        "program": "sdc-node change.implement",
         "results": {
-          "0": null
+          "0": null,
+          "8": "coverage_refused"
         },
         "retry_when": [
           "code_review",
           "conformance_run",
+          "implementation_change",
           "merge_approval"
         ],
         "timeout_s": 1500
@@ -167,7 +169,7 @@
           "search"
         ],
         "producer": "llm-review",
-        "program": "llm-node.sh change.review",
+        "program": "sdc-node change.review",
         "results": {
           "0": "approved",
           "1": "rejected"
@@ -281,7 +283,7 @@
       "effect": "write",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.merge",
+        "producer": "runbook.merge",
         "program": "sdc-tool.sh merge",
         "results": {
           "0": null

@@ -1,5 +1,5 @@
 //! The rule kinds of the decider: `approve` and `reject` answer without a model, and the dry adapter
-//! falls back to the `approve` rule. The reply has the members `decider.sh` printed, in its order.
+//! falls back to the `approve` rule. The reply has the members the decider scripts printed, in this order.
 
 use serde_json::{json, Value};
 

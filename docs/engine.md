@@ -2,7 +2,7 @@
 
 `runbook::engine` is the second implementation of the daemon's `Runtime` trait
 (`runbook/src/runtime.rs`). It runs a case tree through Loom's library calls inside the daemon's
-process. It starts no `b10x-loom`, `loom`, `canon` or `sdc-drive` process; only the bound programs of
+process. It starts no `b10x-loom`, `loom` or `canon` process; only the bound programs of
 the bindings run as processes, started by Loom's runner. Loom is linked as three git dependencies
 pinned by commit (`runbook/Cargo.toml`); Canon comes through Loom (tag `0.11.0`, in `Cargo.lock`).
 The pin and the rows it was read at: `docs/library-entries.md`, "States at `5af3f9c2`".

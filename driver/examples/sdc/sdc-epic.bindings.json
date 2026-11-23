@@ -25,7 +25,7 @@
   "spec.open": {
     "produces": "spec_opened",
     "subject": "epic",
-    "producer": "sdc-drive",
+    "producer": "runbook",
     "results": {
       "0": null
     },
@@ -38,7 +38,7 @@
   "plan.open": {
     "produces": "plan_opened",
     "subject": "epic",
-    "producer": "sdc-drive",
+    "producer": "runbook",
     "results": {
       "0": null
     },
@@ -51,7 +51,7 @@
   "stories.open": {
     "produces": "stories_opened",
     "subject": "epic",
-    "producer": "sdc-drive",
+    "producer": "runbook",
     "results": {
       "0": null
     },
@@ -68,7 +68,7 @@
   "release.open": {
     "produces": "release_opened",
     "subject": "epic",
-    "producer": "sdc-drive",
+    "producer": "runbook",
     "results": {
       "0": null
     },

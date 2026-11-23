@@ -1,7 +1,5 @@
 //! The model's instruction files, read at run time (docs/driver.md, "Instructions"). One renderer
-//! for the Rust binaries that tell a model something (`sdc-reply implement-run`, `sdc-conform`,
-//! `sdc-unstick`); each includes this file with `#[path = "../instructions.rs"] mod instructions;`.
-//! `bindings/tools/llm-node.sh` has the same rules in its function `render`.
+//! for the Rust binaries that tell a model something (`sdc-reply implement-run`, `sdc-conform`); each includes this file with `#[path = "../instructions.rs"] mod instructions;`.
 //!
 //! - A path is `instructions/<...>.md`, relative, with no `..` segment: anything else is refused.
 //! - The files are found as the shell tools find them: the nearest directory above the running
