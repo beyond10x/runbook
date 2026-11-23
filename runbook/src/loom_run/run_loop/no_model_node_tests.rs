@@ -56,7 +56,7 @@ fn decider_world(tag: &str) -> (PathBuf, fake::Fake, PathBuf) {
     std::fs::copy(repo().join("tools/autonomy-levels.json"), root.join("tools/autonomy-levels.json")).unwrap();
     std::fs::write(root.join("driver/examples/sdc/rule-ends.json"), "{}\n").unwrap();
     let settings = serde_json::json!({"autonomy": "A5", "decider": {"kind": "model", "model": "m", "adapter": adapter.display().to_string(), "without_claims": true}});
-    std::fs::write(root.join("settings.json"), settings.to_string()).unwrap();
+    std::fs::write(root.join("settings.toml"), toml::to_string(&settings).unwrap()).unwrap();
     (root, f, marker)
 }
 
@@ -121,7 +121,7 @@ fn a_decider_that_reports_a_cost_in_a_run_opened_without_a_model_node_ends_the_r
     let (root, f) = world("p-decider-cost");
     person_bindings(&root, "scope.approve");
     let settings = serde_json::json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 7, "model_calls": 1}]}});
-    std::fs::write(root.join("settings.json"), settings.to_string()).unwrap();
+    std::fs::write(root.join("settings.toml"), toml::to_string(&settings).unwrap()).unwrap();
     f.answer("tree_run", "1", &fake::tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", approval("scope.approve", "ApproveAction"))), 3);
     let _forced = force(&[ModelNode::Without, ModelNode::Without]);
     let outcome = run(&root, &f);

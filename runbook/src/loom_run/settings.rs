@@ -293,7 +293,7 @@ mod tests {
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
             settings: PathBuf::from("settings.toml"),
-            spend_ledger: PathBuf::from("ledger.json"),
+            spend_ledger: Some(PathBuf::from("ledger.json")),
             cap_micro_usd: 5_000_000,
             max_llm_calls: 100,
             max_wall_seconds: 3600,
