@@ -87,3 +87,45 @@ fn a_release_build_that_prints_another_commit_than_head_is_refused_with_both_com
     assert!(err(&o).contains("000000000000") && err(&o).contains(&head), "both commits are named: {}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
+
+#[allow(dead_code)]
+#[path = "../../build_commit.rs"]
+mod commit_source;
+
+/// The hole the unit names in `build_commit.rs`, and what catches it. The branch HEAD names is moved from another work
+/// tree (`git update-ref`): no file the build watches changes, so cargo compiles nothing and the binary keeps the commit
+/// it was built from. The script compares that commit with HEAD, stops, names both and writes nothing.
+#[test]
+fn a_branch_moved_from_another_work_tree_changes_no_watched_file_and_the_install_refuses_the_binary() {
+    let root = fake_checkout("adv3-moved-elsewhere", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("runbook/Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    git_in(&root, &["add", "runbook/Cargo.toml"]);
+    git_in(&root, &["commit", "-q", "-m", "the crate"]);
+    let built_from = head12(&root);
+    stubs(&root, None, &stub_version(&built_from));
+    let branch = git_in(&root, &["symbolic-ref", "HEAD"]);
+    let manifest = root.join("runbook");
+    let before = commit_source::commit(&manifest);
+    assert_eq!(before.value, built_from);
+    assert!(!before.watch.is_empty());
+    let state = |paths: &[PathBuf]| -> Vec<(PathBuf, Vec<u8>, std::time::SystemTime)> {
+        paths.iter().map(|p| (p.clone(), fs::read(p).unwrap(), fs::metadata(p).unwrap().modified().unwrap())).collect()
+    };
+    let watched = state(&before.watch);
+
+    let other = sandbox.join("other-work-tree");
+    git_in(&root, &["worktree", "add", "-q", "-b", "side", other.to_str().unwrap()]);
+    fs::write(other.join("protocol/more.txt"), "more\n").unwrap();
+    git_in(&other, &["add", "protocol/more.txt"]);
+    git_in(&other, &["commit", "-q", "-m", "made in the other work tree"]);
+    git_in(&other, &["update-ref", &branch, "side"]);
+
+    let head = head12(&root);
+    assert_ne!(head, built_from, "HEAD of the checkout moved");
+    assert_eq!(state(&before.watch), watched, "no watched file changed: cargo compiles nothing");
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains(&built_from) && err(&o).contains(&head), "both commits are named: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}

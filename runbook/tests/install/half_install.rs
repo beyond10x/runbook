@@ -183,3 +183,21 @@ fn an_install_whose_last_rename_fails_keeps_the_marker() {
     assert_ne!(code(&o), 0);
     assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker is gone and the install did not finish: {}", err(&o));
 }
+
+/// A line of the old MANIFEST that names the marker is not removed when it is spelled `share/runbook/INSTALLING`; with
+/// two slashes it is: the names the install keeps for itself are compared as text. The install then stops (a stub `cp`
+/// fails, as on a full disk) and the prefix has no marker.
+#[test]
+fn an_old_manifest_line_that_spells_the_marker_with_two_slashes_does_not_remove_it() {
+    let root = fake_checkout("adv3-manifest-slashes", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    assert_eq!(code(&from_built(&root, &prefix)), 0);
+    let manifest = prefix.join("share/runbook/MANIFEST");
+    let mut lines = fs::read_to_string(&manifest).unwrap();
+    lines.push_str("share/runbook//INSTALLING\n");
+    fs::write(&manifest, lines).unwrap();
+    executable(&sandbox.join("stub-bin/cp"), "#!/bin/sh\necho 'cp: no space left on device' >&2\nexit 1\n");
+    let o = from_built_with(&root, &prefix, &format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()), &[]);
+    assert_ne!(code(&o), 0);
+    assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the install did not finish and the marker is gone: {}", err(&o));
+}

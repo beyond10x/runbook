@@ -243,3 +243,93 @@ fn a_checkout_whose_git_names_another_work_tree_is_refused_and_nothing_is_writte
     assert!(err(&o).contains("top of its work tree"), "{}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
+
+// ---- what is copied ----
+
+/// `git ls-files -z` is turned into lines, so a tracked name with a newline in it becomes two entries: its first line,
+/// taken for a tracked file, and the rest, skipped with a message. With an untracked file of the first line's name
+/// beside it the install copies that file and ends with exit 0.
+#[test]
+fn a_tracked_name_with_a_newline_does_not_let_an_untracked_file_of_its_first_line_into_the_prefix() {
+    let root = fake_checkout("adv3-newline-name", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("protocol/notes\nof-a-run.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a name with a newline"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    fs::write(root.join("protocol/notes"), "left by a person, not tracked\n").unwrap();
+    let o = from_built(&root, &prefix);
+    assert!(
+        !prefix.join("share/runbook/protocol/notes").exists(),
+        "exit {}: the untracked protocol/notes is in the prefix\n{}",
+        code(&o),
+        err(&o)
+    );
+}
+
+/// A tracked file that is a link in the work tree is refused (`what_is_copied.rs`). The check reads the last part of
+/// the path only: with a tracked directory replaced by a link to a directory outside the checkout, the file of the same
+/// name there is copied (`VERSION` then ends in ` dirty`, because git sees the tracked file as deleted).
+#[test]
+fn a_tracked_directory_that_is_a_link_in_the_work_tree_is_not_copied_from_outside_the_checkout() {
+    let root = fake_checkout("adv3-directory-link", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::create_dir_all(root.join("protocol/sub")).unwrap();
+    fs::write(root.join("protocol/sub/x.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a directory"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    fs::create_dir_all(sandbox.join("outside")).unwrap();
+    fs::write(sandbox.join("outside/x.txt"), "a login outside the checkout\n").unwrap();
+    fs::remove_dir_all(root.join("protocol/sub")).unwrap();
+    std::os::unix::fs::symlink(sandbox.join("outside"), root.join("protocol/sub")).unwrap();
+    let o = from_built(&root, &prefix);
+    let copied = fs::read_to_string(prefix.join("share/runbook/protocol/sub/x.txt")).unwrap_or_default();
+    assert!(
+        !copied.contains("a login outside the checkout"),
+        "exit {}: share/runbook/protocol/sub/x.txt holds the bytes of a file outside the checkout ({}): {copied:?}",
+        code(&o),
+        fs::read_to_string(prefix.join("share/runbook/VERSION")).unwrap_or_default().trim()
+    );
+}
+
+/// A submodule in a copied directory is an entry that is neither a file nor a link: it is named and not copied.
+#[test]
+fn a_submodule_in_a_copied_directory_is_named_and_not_copied() {
+    let root = fake_checkout("adv3-submodule", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    let commit = git_in(&root, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(root.join("protocol/sub")).unwrap();
+    git_in(&root, &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},protocol/sub")]);
+    git_in(&root, &["commit", "-q", "-m", "a submodule"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(err(&o).contains("not copying protocol/sub"), "the submodule is named: {}", err(&o));
+    assert!(!prefix.join("share/runbook/protocol/sub").exists());
+}
+
+/// A tab in a tracked name, and a tab or a newline in the target of a tracked link, are refused by name before anything
+/// is written: the list of files is lines with tabs between the fields.
+#[test]
+fn a_tab_in_a_tracked_name_and_a_tab_or_newline_in_a_link_target_are_refused_by_name_and_nothing_is_written() {
+    for (case, name, target, word) in [
+        ("tab-name", "protocol/a\tb.txt", None, "has a tab in its name"),
+        ("tab-target", "protocol/lnk", Some("file.txt\tx"), "whose target has a tab or a newline"),
+        ("newline-target", "protocol/lnk", Some("file.txt\nbindings/file.txt"), "whose target has a tab or a newline"),
+    ] {
+        let root = fake_checkout(&format!("adv3-{case}"), None);
+        let (_sandbox, prefix) = sandbox_of(&root);
+        match target {
+            Some(t) => std::os::unix::fs::symlink(t, root.join(name)).unwrap(),
+            None => fs::write(root.join(name), "x\n").unwrap(),
+        }
+        git_in(&root, &["add", "-A", "protocol"]);
+        git_in(&root, &["commit", "-q", "-m", case]);
+        stubs(&root, None, &stub_version(&head12(&root)));
+        let o = from_built(&root, &prefix);
+        assert_eq!(code(&o), 1, "{case}: {}", err(&o));
+        assert!(err(&o).contains(word), "{case}: {}", err(&o));
+        assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
+    }
+}

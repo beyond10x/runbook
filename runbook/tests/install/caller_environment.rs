@@ -50,3 +50,48 @@ fn cdpath_a_start_file_globignore_posixly_correct_and_the_locale_change_nothing_
         assert_eq!(files_below(&prefix), files_below(&plain), "{shell}");
     }
 }
+
+/// The script sets `LC_ALL=C` for itself. Without that line a name with a byte that is not UTF-8 (a Latin-1 `ä`) is cut
+/// in two by `awk` under a UTF-8 locale of the caller and the install stops at `cp`. The committed case sets a locale
+/// and has only ASCII names, which every locale reads alike.
+#[test]
+fn a_name_that_is_not_utf8_installs_the_same_under_a_utf8_locale_of_the_caller() {
+    use std::os::unix::ffi::OsStrExt;
+    let locales = Command::new("locale").arg("-a").output().map(|o| out(&o)).unwrap_or_default();
+    let Some(locale) = ["de_DE.utf8", "en_US.utf8"].into_iter().find(|l| locales.lines().any(|have| have == *l)) else {
+        eprintln!("no UTF-8 locale with rules of its own on this host ({locales:?}): nothing to hold");
+        return;
+    };
+    let root = fake_checkout("adv3-locale", None);
+    let (sandbox, plain) = sandbox_of(&root);
+    let name = std::ffi::OsStr::from_bytes(b"b\xe4r.txt");
+    fs::write(root.join("protocol").join(name), "latin-1\n").unwrap();
+    fs::write(root.join("protocol/Zebra.txt"), "upper\n").unwrap();
+    fs::write(root.join("protocol/apple.txt"), "lower\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "names a locale reads differently"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    assert_eq!(code(&from_built(&root, &plain)), 0);
+    let under = sandbox.join("under-locale");
+    fs::create_dir_all(&under).unwrap();
+    let o = Command::new("sh")
+        .arg(root.join("scripts/install.sh"))
+        .arg("--prefix")
+        .arg(&under)
+        .args(["--from-built", "debug"])
+        .env_clear()
+        .env("PATH", SYSTEM_PATH)
+        .env("HOME", sandbox.join("home"))
+        .env("LC_ALL", locale)
+        .env("LANG", locale)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{locale}: {}", err(&o));
+    assert_eq!(fs::read(under.join("share/runbook/protocol").join(name)).unwrap(), b"latin-1\n");
+    assert_eq!(
+        fs::read(under.join("share/runbook/MANIFEST")).unwrap(),
+        fs::read(plain.join("share/runbook/MANIFEST")).unwrap(),
+        "{locale}: the same MANIFEST as without a locale"
+    );
+}

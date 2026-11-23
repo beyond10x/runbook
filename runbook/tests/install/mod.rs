@@ -10,6 +10,7 @@
 //! modes, the printed lines, the marker of a half install, the checks of the arguments and the commit.
 
 mod caller_environment;
+mod during_the_build;
 mod guards;
 mod half_install;
 mod installed_path;
