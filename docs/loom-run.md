@@ -158,8 +158,20 @@ ends the run as `error` naming the action and the declared results, before Loom 
 capability-only approval (`kind` `Approve`, no `--action`) has no result to name: its rejection is
 Loom's `--deny`. A `Close` is run as printed when the decider approves it (Loom prints one per
 legitimate outcome; the other outcomes of that case are not asked once one ran) and not run when it
-declines. A `Handoff`'s printed command is `tree run`: it runs as printed through the ledger and
-its output is read like any `tree run`. A printed command that exits non-zero ends the run as
+declines. A `Handoff`'s printed command is `tree run`: it runs through the ledger and its output is
+read like any `tree run`. With no cap named it runs as printed. In a run opened without a model node, with a spend cap or a call cap
+named, it takes one step (`--max-steps 1` replaces any `--max-steps` it carries) so the caps are read between
+two steps, and a printed command that is no `tree run` is not run: the run ends as `error`
+(`every_form_of_a_bound_in_the_printed_command_becomes_one_step`,
+`a_printed_command_that_is_no_plain_tree_run_is_not_run_while_a_cap_is_named`,
+`a_call_cap_alone_or_a_spend_cap_alone_bounds_the_printed_command_to_one_step` and
+`with_no_cap_named_the_printed_command_of_a_handoff_is_run_as_printed` of
+`tests/loom_run/no_model_node_handoff.rs`). In a run opened with a model node the printed command runs as
+printed also under a named cap (`a_handoff_runs_the_printed_tree_run_with_the_confinement_loom_printed` of
+`decisions.rs`, `a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on` of
+`answers.rs`): all its steps spend from one reservation and the caps are read after the call. The bound for
+that run is the story `handoff-under-a-named-cap-runs-one-step-at-a-time`; the ignored measurement is
+`the_printed_tree_run_of_a_handoff_is_bounded_to_one_step_when_a_cap_is_named` of `caps_optional_review.rs`. A printed command that exits non-zero ends the run as
 `error`, with its exit code and the last 1500 characters of its standard error in `outcome.json`;
 the runner does not repair or repeat it.
 
@@ -347,6 +359,11 @@ The decider's own limits are the settings it names: `decider.max_calls` and `dec
 hold as named, and a decider that names none is not limited by the runner (no built-in number of
 calls and no built-in budget per call).
 
+A model decider that names no budget per call (no `decider.max_budget_usd`), under a named cap with a
+ledger, holds all the cap has left for as long as one decider call runs, so a second run on the same
+ledger is stopped with exit 4 meanwhile though nothing is spent yet
+(`a_decider_that_names_no_budget_holds_all_the_cap_has_left_while_it_decides` of `decider.rs`). To
+keep the rest of the cap free for other runs, name a budget per call in `decider.max_budget_usd`.
 ### A run without a model node
 
 The runner decides once, at the opening, whether the run has a model node: after the run's copy of
@@ -418,7 +435,8 @@ Where the cost of a step is read: Loom's `tree status` carries none. A model too
 `<workspace>/.sdc/llm/NNN-<action>/` at the start of a call and a line with `cost_usd` and `record`
 to `.sdc/llm/calls.jsonl` at its end (also `action`, `adapter` and the adapter's `exit`). A directory
 without a matching line, a null cost or an unreadable line fails the run closed and books the whole
-reservation.
+reservation when a spend cap is named; with none named there is no reservation and nothing is booked (the
+call is counted and recorded as unknown, see "A failed model call").
 
 ### A failed model call
 
@@ -427,9 +445,18 @@ cost: it records the action as finished without evidence, the step's retry rule 
 then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of a program end the run
 (the former driver's `program_error`, deleted with it). `runbook run` does the same:
 
-- A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation
-  (the spend rule stays fail-closed), written to `llm-calls.jsonl` with `cost_unknown: true`, and the
-  run goes on; repeated failures run into the spend cap and end as `stopped: spend cap`.
+- A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation when a
+  spend cap is named (the spend rule stays fail-closed), written to `llm-calls.jsonl` with
+  `cost_unknown: true`, and the run goes on; repeated failures run into the spend cap and end as
+  `stopped: spend cap`. With no spend cap named there is no reservation: the call books nothing (not 0 and
+  not a largest number) into the ledger or the total of the run, counts as a call in `llm_calls`, and its
+  line of `llm-calls.jsonl` has `cost_unknown: true` and `cost_usd: null`
+  (`a_call_of_unknown_cost_in_a_run_with_a_ledger_and_no_cap_books_nothing_like_the_largest_number`,
+  `two_calls_of_unknown_cost_in_a_run_without_a_cap_do_not_overflow_the_total_of_the_run`,
+  `a_call_of_unknown_cost_in_a_run_with_a_cap_books_its_reservation_and_says_so` and
+  `a_run_with_a_cap_is_not_starved_by_a_run_without_one_that_shares_its_ledger` of
+  `caps_optional_review.rs`). The total of a run saturates at the largest number a u64 holds and never
+  overflows (`the_total_of_a_run_saturates_and_never_overflows`).
 - A call with exit 126, 127 or 75, a call with exit 0 and no cost, and a call directory with no line
   end the run as `error`, with the reservation booked.
 - A call directory with no line and no `request.json`, whose `status.json` names an exit, is no call:
@@ -612,7 +639,11 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
   backlog: story `spend-cap-with-nothing-left-starts-nothing`. The measurements are ignored cases
   that fail until it is built, `measured_a_spend_cap_of_0_stops_a_run_whose_model_tool_names_no_budget_before_the_first_tree_run`
   (the "otherwise" part) and `measured_after_the_cap_is_passed_no_tree_approve_is_made`, both of
-  `no_model_node_refusals_and_booking.rs`.
+  `no_model_node_refusals_and_booking.rs`. The same holds for a model tool that a bound program wrote into the
+  copy of a run opened without a model node, and for a model node that names no budget under a cap of 0
+  (ignored measurements `a_cap_of_0_starts_no_call_of_a_model_node_that_names_no_budget` and
+  `a_cap_of_0_stops_the_model_tool_that_a_program_wrote_into_the_copy_of_a_run_without_a_model_node` of
+  `caps_optional_review.rs`).
 
 ## The run directory
 
@@ -627,8 +658,7 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
                                    has_model_node (the decision of the opening; true when the run
                                    ended before it was made),
                                    cause (only when outcome is refused: the reason's name in
-                                   snake case, or program_signalled; or
-                                   model_call_without_model_node)
+                                   snake case, or program_signalled)
                   tree-status.json, tree-verify.json
                   protocols/ bindings/ work/ store/ home/
 ```

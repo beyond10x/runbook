@@ -479,8 +479,13 @@ impl RunDirWriter {
         for (k, v) in map {
             line.insert(k, v);
         }
-        // The ledger's number is the one that was booked.
-        line.insert("cost_usd".into(), json!(cost_micro_usd as f64 / 1e6));
+        // The ledger's number is the one that was booked. A call of unknown cost in a run that names
+        // no spend cap books nothing: `cost_usd` is `null` and `cost_unknown` is true.
+        if line.remove("cost_booked") == Some(Value::Bool(false)) {
+            line.insert("cost_usd".into(), Value::Null);
+        } else {
+            line.insert("cost_usd".into(), json!(cost_micro_usd as f64 / 1e6));
+        }
         append_line(&self.path("llm-calls.jsonl"), &Value::Object(line))
     }
 

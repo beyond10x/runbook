@@ -183,7 +183,6 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         login_link: planned_link,
         login_file: login,
         private: None,
-        root_file: None,
     };
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
@@ -271,8 +270,6 @@ struct Runner<'a> {
     login_link: Option<PathBuf>,
     login_file: Option<PathBuf>,
     private: Option<PrivateDir>,
-    /// The root file of the bindings copy that `tree open` was given; the tree manifest must still name it.
-    root_file: Option<PathBuf>,
 }
 
 /// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
@@ -358,7 +355,6 @@ impl Runner<'_> {
             // a run without a model node gives its bound programs no way to the login
             self.login_link = None;
         }
-        self.root_file = Some(root_file.clone());
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         if let Some(goals) = &self.args.ports.goals {
@@ -413,18 +409,23 @@ impl Runner<'_> {
     /// per-call budget of the bindings copy allows (at most what the cap has left), the copy is
     /// limited to it, and what the call spent is booked after it.
     ///
-    /// In a run without a model node nothing is reserved and nothing is booked: the call goes
-    /// through [`Runner::uncosted`], which refuses to start a model program and ends the run when a
-    /// model call turns up in the records.
+    /// With no `--cap-micro-usd` named nothing is held: the call is given the budget the bindings
+    /// name (none when they name none), a call of known cost books that cost, and a call of unknown
+    /// cost books nothing and is recorded as unknown (see [`Runner::held`]).
+    ///
+    /// In a run opened without a model node, with a spend cap or a call cap named, the printed command
+    /// of a handoff takes one step, so the caps are read between two steps. In a run opened with a model
+    /// node it runs as printed (the story `handoff-under-a-named-cap-runs-one-step-at-a-time`).
     fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
         let want = budget::largest_call_budget(&self.bindings_dir)?.or(self.args.cap_micro_usd).unwrap_or(u64::MAX);
         let reservation = self.reserve(want)?;
         if self.args.cap_micro_usd.is_some() {
             budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
         }
+        let one_step = !self.node.has_model_node() && (self.args.cap_micro_usd.is_some() || self.args.max_llm_calls.is_some());
         let result = match handoff {
             None => self.host.step(),
-            Some(answer) => self.host.handoff(answer),
+            Some(answer) => self.host.handoff(answer, one_step),
         };
         let cost_halt = self.book_step(&reservation);
         let result = result?;
@@ -468,6 +469,18 @@ impl Runner<'_> {
         Ok(())
     }
 
+    /// What a call of unknown cost is booked at: its reservation when a spend cap is named (the
+    /// most it could have spent), nothing when none is named. A run with no cap holds no
+    /// reservation, so there is no amount to book, and a number nobody reserved never goes into the
+    /// ledger every other run shares nor into the total of the run.
+    fn held(&self, reservation: &Reservation) -> u64 {
+        if self.args.cap_micro_usd.is_some() {
+            reservation.micro_usd
+        } else {
+            0
+        }
+    }
+
     /// Gives `reservation` back (the ledger's, when the run names one).
     fn release(&mut self, reservation: &Reservation) -> Result<(), Halt> {
         if let Some(ledger) = &self.ledger {
@@ -509,18 +522,26 @@ impl Runner<'_> {
         match self.reader.read_new(&self.workspace) {
             Ok(cost) => {
                 let unknown = cost.unknown.len() as u64;
-                let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
-                let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
+                let held = self.held(reservation);
+                let booked = cost.micro_usd.saturating_add(held.saturating_mul(unknown));
+                let what = match (unknown, self.args.cap_micro_usd.is_some()) {
+                    (0, _) => "step",
+                    (_, true) => "step, cost unknown for a failed call: reservation booked",
+                    (_, false) => "step, cost unknown for a failed call: nothing booked, no cap is named",
+                };
                 self.commit(reservation, what, booked)?;
-                self.spent += booked;
-                self.llm_calls += cost.records.len() as u64 + unknown;
+                self.spent = self.spent.saturating_add(booked);
+                self.llm_calls = self.llm_calls.saturating_add(cost.records.len() as u64 + unknown);
                 for record in cost.records {
                     let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
                     self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
                 }
                 for mut record in cost.unknown {
                     record["cost_unknown"] = Value::Bool(true);
-                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: reservation.micro_usd, record })?;
+                    if self.args.cap_micro_usd.is_none() {
+                        record["cost_booked"] = Value::Bool(false);
+                    }
+                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: held, record })?;
                 }
                 for note in cost.no_call {
                     let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
@@ -530,8 +551,9 @@ impl Runner<'_> {
                 Ok(())
             }
             Err(reason) => {
-                self.commit(reservation, "step, cost unknown: reservation booked", reservation.micro_usd)?;
-                self.spent += reservation.micro_usd;
+                let held = self.held(reservation);
+                self.commit(reservation, "step, cost unknown: reservation booked", held)?;
+                self.spent = self.spent.saturating_add(held);
                 Err(Halt::Failed(reason))
             }
         }
@@ -589,15 +611,16 @@ impl Runner<'_> {
                     return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
-                    self.commit(&reservation, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
-                    self.spent += reservation.micro_usd;
+                    let held = self.held(&reservation);
+                    self.commit(&reservation, "decider, cost unknown: reservation booked", held)?;
+                    self.spent = self.spent.saturating_add(held);
                     return Err(Halt::Failed("the decider answered without a cost".to_owned()));
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
             self.commit(&reservation, "decider", cost)?;
-            self.spent += cost;
-            self.llm_calls += calls;
+            self.spent = self.spent.saturating_add(cost);
+            self.llm_calls = self.llm_calls.saturating_add(calls);
             if cost > 0 || calls > 0 {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }

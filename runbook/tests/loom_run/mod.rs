@@ -1,6 +1,7 @@
 mod answers;
 mod bugfix;
 mod caps_optional;
+mod caps_optional_review;
 mod child_refusal;
 mod conformance;
 mod core;
@@ -18,6 +19,7 @@ mod no_model_node;
 mod no_model_node_committed_bindings;
 mod no_model_node_forms;
 mod no_model_node_guards;
+mod no_model_node_handoff;
 mod no_model_node_levels_and_caps;
 mod no_model_node_limit;
 mod no_model_node_local;
