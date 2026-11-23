@@ -374,7 +374,7 @@ fn real_loom_under_local_with_caps_a_copy_rewritten_to_name_the_model_tool_start
 /// ends the run: `no_model_node_limit.rs`.)
 #[test]
 fn documented_limit_under_local_with_caps_a_model_program_reached_by_a_name_the_rule_does_not_read_starts_without_a_login_and_a_recorded_call_is_booked() {
-    type Setup = Box<dyn Fn(&Lib)>;
+    type Setup = Box<dyn Fn(&Lib) + Sync>;
     let forms: Vec<(&str, bool, Setup)> = vec![
         ("a script of tools/ that builds the name from two parts", true, Box::new(|lib: &Lib| lib.tool("draft-check.sh", "#!/bin/sh\np=sdc-\n\"${p}node\" draft.check\n"))),
         ("a shell word of the argv that builds the name", true, Box::new(|lib: &Lib| lib.bindings(|t| t.replace("argv: [tools/draft-check.sh]", "argv: [sh, -c, 'n=node; \"sdc-$n\" draft.check']")))),
@@ -387,39 +387,48 @@ fn documented_limit_under_local_with_caps_a_model_program_reached_by_a_name_the_
             lib.tool("draft-check.sh", &text);
         })),
     ];
-    let mut wrong: Vec<String> = Vec::new();
-    for (n, (what, records, setup)) in forms.iter().enumerate() {
-        let lib = Lib::new(&format!("unread-{n}"));
-        lib.stand_in(*records);
-        lib.settings(&json!({"login_file": lib.root.join("login/credentials.json").display().to_string()}));
-        setup(&lib);
-        let o = lib.run();
-        let seen = lib.seen(&o);
-        if !lib.marker().exists() {
-            wrong.push(format!("{what}: the program did not start (the limit is gone: say so in the document): {seen}"));
-            continue;
-        }
-        let outcome = lib.outcome();
-        // every start of the program that records is booked once: calls and cost follow the starts
-        let starts = std::fs::read_to_string(lib.marker()).unwrap_or_default().lines().count() as u64;
-        let want = if *records { (0, None, Some(starts), Some(250_000 * starts)) } else { (0, None, Some(0), Some(0)) };
-        let got = (code(&o), outcome["cause"].as_str(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64());
-        let booked = std::fs::read_to_string(lib.root.join("ledger.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["spent_micro_usd"].as_u64());
-        if got != want || outcome["has_model_node"] != false || booked != want.3 {
-            wrong.push(format!("{what}: {seen}"));
-        }
-        let env = std::fs::read_to_string(lib.work().join("env-model.txt")).unwrap_or_default();
-        for needle in ["sk-fake-token-5517", "ANTHROPIC_API_KEY", "/marker-home-dir", "XDG_RUNTIME_DIR", LOGIN_TEXT, "credentials.json"] {
-            if env.contains(needle) {
-                wrong.push(format!("{what}: {needle} is in the environment of the model program"));
-            }
-        }
-        if std::fs::read_to_string(lib.work().join("reach-login.txt")).unwrap_or_default().contains(LOGIN_TEXT) {
-            wrong.push(format!("{what}: the model program read the login file through the private directory"));
-        }
-        assert!(!env.is_empty(), "{what}: the stand-in did not dump its environment");
-    }
+    // the forms run side by side: each has a run directory of its own
+    let results: Vec<Vec<String>> = std::thread::scope(|s| {
+        let handles: Vec<_> = forms.iter().enumerate().map(|(n, (what, records, setup))| s.spawn(move || unread_form(n, what, *records, setup))).collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let wrong: Vec<String> = results.into_iter().flatten().collect();
     assert!(wrong.is_empty(), "the documented limit does not hold as documented:\n{}", wrong.join("\n"));
+}
+
+/// One form of the limit: what is wrong with it, nothing when it holds as documented.
+fn unread_form(n: usize, what: &str, records: bool, setup: &(dyn Fn(&Lib) + Sync)) -> Vec<String> {
+    let mut wrong: Vec<String> = Vec::new();
+    let lib = Lib::new(&format!("unread-{n}"));
+    lib.stand_in(records);
+    lib.settings(&json!({"login_file": lib.root.join("login/credentials.json").display().to_string()}));
+    setup(&lib);
+    let o = lib.run();
+    let seen = lib.seen(&o);
+    if !lib.marker().exists() {
+        wrong.push(format!("{what}: the program did not start (the limit is gone: say so in the document): {seen}"));
+        return wrong;
+    }
+    let outcome = lib.outcome();
+    // every start of the program that records is booked once: calls and cost follow the starts
+    let starts = std::fs::read_to_string(lib.marker()).unwrap_or_default().lines().count() as u64;
+    let want = if records { (0, None, Some(starts), Some(250_000 * starts)) } else { (0, None, Some(0), Some(0)) };
+    let got = (code(&o), outcome["cause"].as_str(), outcome["llm_calls"].as_u64(), outcome["spent_micro_usd"].as_u64());
+    let booked = std::fs::read_to_string(lib.root.join("ledger.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["spent_micro_usd"].as_u64());
+    if got != want || outcome["has_model_node"] != false || booked != want.3 {
+        wrong.push(format!("{what}: {seen}"));
+    }
+    let env = std::fs::read_to_string(lib.work().join("env-model.txt")).unwrap_or_default();
+    for needle in ["sk-fake-token-5517", "ANTHROPIC_API_KEY", "/marker-home-dir", "XDG_RUNTIME_DIR", LOGIN_TEXT, "credentials.json"] {
+        if env.contains(needle) {
+            wrong.push(format!("{what}: {needle} is in the environment of the model program"));
+        }
+    }
+    if std::fs::read_to_string(lib.work().join("reach-login.txt")).unwrap_or_default().contains(LOGIN_TEXT) {
+        wrong.push(format!("{what}: the model program read the login file through the private directory"));
+    }
+    assert!(!env.is_empty(), "{what}: the stand-in did not dump its environment");
+    wrong
 }
 
 /// What a bound program of a run without a model node can reach of the login, under `local` with
