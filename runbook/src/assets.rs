@@ -171,6 +171,26 @@ impl Lookup {
         dirs.iter().map(|d| d.join(name)).find(|p| is_executable(p)).or_else(|| self.which(name))
     }
 
+    /// The `PATH` for this process and the programs it starts, when it runs from an installed prefix (the
+    /// directory beside `bin/` holds `share/runbook/protocol/` and `libexec/`): `<prefix>/libexec` in front of the
+    /// current `PATH`. A bound tool that starts a helper (`sdc-reply`, `sdc-findings`) finds it there: the install
+    /// puts the helpers in `libexec`, not in `bin`, so a `PATH` of `<prefix>/bin` alone does not reach them.
+    /// `None` when there is nothing to change: no installed layout, or `libexec` already on `PATH`.
+    pub fn path_with_libexec(&self) -> Option<OsString> {
+        let prefix = self.exe_dir()?.parent()?;
+        let libexec = prefix.join("libexec");
+        if !libexec.is_dir() || !prefix.join("share").join("runbook").join("protocol").is_dir() {
+            return None;
+        }
+        let current = self.path.clone().unwrap_or_default();
+        let mut dirs: Vec<PathBuf> = std::env::split_paths(&current).collect();
+        if dirs.contains(&libexec) {
+            return None;
+        }
+        dirs.insert(0, libexec);
+        std::env::join_paths(dirs).ok()
+    }
+
     /// `name` on `PATH`.
     pub fn which(&self, name: &str) -> Option<PathBuf> {
         let path = self.path.as_ref()?;
@@ -329,6 +349,23 @@ mod tests {
         t.exe("co/driver/target/debug/sdc-x");
         let a = Assets { root, source: Source::Env };
         assert_eq!(lookup(&t).helper("sdc-x", Some(&a)), None);
+    }
+
+    #[test]
+    fn libexec_goes_in_front_of_the_path_only_from_an_installed_layout() {
+        let t = Dir::new("libexec-path");
+        let mut l = lookup(&t);
+        l.path = Some("/usr/bin:/bin".into());
+        assert_eq!(l.path_with_libexec(), None, "no libexec");
+        let libexec = t.dir("prefix/libexec");
+        assert_eq!(l.path_with_libexec(), None, "a libexec beside bin/ without share/runbook/protocol is not an install");
+        t.dir("prefix/share/runbook/protocol");
+        let want = std::env::join_paths([libexec.clone(), PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap();
+        assert_eq!(l.path_with_libexec(), Some(want));
+        l.path = Some(std::env::join_paths([PathBuf::from("/usr/bin"), libexec]).unwrap());
+        assert_eq!(l.path_with_libexec(), None, "already on PATH");
+        l.path = None;
+        assert!(l.path_with_libexec().is_some(), "no PATH at all: libexec alone");
     }
 
     #[test]

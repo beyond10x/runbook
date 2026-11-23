@@ -1,0 +1,548 @@
+//! `scripts/install.sh --prefix <dir>`: the layout it writes, the refusals, the second install, and an
+//! installed `runbook` that runs from an empty directory with `<prefix>/bin` on `PATH` and nothing else.
+//!
+//! The fast lane makes one prefix from the debug builds (`--from-built debug`) once per test run: a directory
+//! under the target directory keyed by a digest of the script, the built files and the asset sources, made by
+//! the first test that needs it under a file lock and read by the others (nextest runs each test in its own
+//! process, so a global in the process would build it once per test). The slow lane (`task test:install`) runs the
+//! `--release` build into a prefix of its own and the same commands (`slow.rs`).
+
+mod slow;
+
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+use super::{repo, BIN, LAYOUT_DIRS};
+
+/// The programs of `driver/` and `watch/` a run starts: the ones `runbook doctor` requires of every runbook, and the
+/// three that `runbook run` or its tools start besides them.
+const HELPERS: [&str; 11] = [
+    "sdc-answers",
+    "sdc-bugfix",
+    "sdc-check-routes",
+    "sdc-conform",
+    "sdc-conform-adapter",
+    "sdc-decision-request",
+    "sdc-findings",
+    "sdc-node",
+    "sdc-replay",
+    "sdc-reply",
+    "sdc-watch",
+];
+
+const SYSTEM_PATH: &str = "/usr/bin:/bin";
+
+fn script() -> PathBuf {
+    repo().join("scripts/install.sh")
+}
+
+fn built(profile: &str, name: &str) -> PathBuf {
+    let krate = match name {
+        "runbook" => "runbook",
+        "sdc-watch" => "watch",
+        _ => "driver",
+    };
+    repo().join(krate).join("target").join(profile).join(name)
+}
+
+fn out(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stdout).into_owned()
+}
+
+fn err(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stderr).into_owned()
+}
+
+fn code(o: &Output) -> i32 {
+    o.status.code().unwrap_or(-1)
+}
+
+fn scratch(tag: &str) -> PathBuf {
+    let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("install-{tag}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Every file and symbolic link below `dir`, relative, sorted, with its size and mode: what a script that
+/// writes nowhere else leaves unchanged.
+fn listing(dir: &Path) -> Vec<String> {
+    fn walk(dir: &Path, base: &Path, into: &mut Vec<String>) {
+        for e in fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            let rel = p.strip_prefix(base).unwrap().display().to_string();
+            let m = fs::symlink_metadata(&p).unwrap();
+            if m.is_dir() {
+                into.push(format!("{rel}/"));
+                walk(&p, base, into);
+            } else {
+                into.push(format!("{rel} {} {:o}", m.len(), m.permissions().mode() & 0o777));
+            }
+        }
+    }
+    let mut v = Vec::new();
+    walk(dir, dir, &mut v);
+    v.sort();
+    v
+}
+
+fn files_below(dir: &Path) -> BTreeSet<String> {
+    listing(dir).into_iter().filter(|l| !l.ends_with('/')).map(|l| l.rsplitn(3, ' ').last().unwrap().to_owned()).collect()
+}
+
+fn install(script: &Path, prefix: &Path, extra: &[&str]) -> Output {
+    Command::new("sh")
+        .arg(script)
+        .arg("--prefix")
+        .arg(prefix)
+        .args(extra)
+        .env_clear()
+        .env("PATH", SYSTEM_PATH)
+        .env("HOME", prefix.parent().unwrap().join("home"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+// ---- the shared prefix of the fast lane ----
+
+fn stat_line(p: &Path) -> String {
+    let m = fs::metadata(p).unwrap_or_else(|e| panic!("{}: {e} (build the driver binaries and `watch`: `task test:runbook` does)", p.display()));
+    let ns = m.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    format!("{} {} {ns}\n", p.display(), m.len())
+}
+
+fn stat_tree(dir: &Path, into: &mut String) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries {
+        if p.file_name().is_some_and(|n| n == "node_modules" || n == "target" || n == "runs") {
+            continue;
+        }
+        if p.is_dir() {
+            stat_tree(&p, into);
+        } else if let Ok(m) = fs::symlink_metadata(&p) {
+            let ns = m.modified().map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()).unwrap_or(0);
+            into.push_str(&format!("{} {} {ns}\n", p.display(), m.len()));
+        }
+    }
+}
+
+/// The key of the shared prefix: the script, the built files it takes (path, size, time) and the asset sources.
+fn key() -> String {
+    let mut h = Sha256::new();
+    h.update(fs::read(script()).unwrap());
+    h.update(stat_line(Path::new(BIN)));
+    for n in HELPERS {
+        h.update(stat_line(&built("debug", n)));
+    }
+    let mut tree = String::new();
+    for d in ["protocol", "scripts", "driver/examples/sdc", "bindings", "instructions", "views", "cycles", "tools", "ui"] {
+        stat_tree(&repo().join(d), &mut tree);
+    }
+    h.update(tree);
+    h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// The prefix made from the debug builds, built by the first caller under a lock, read by every other.
+fn shared_prefix() -> PathBuf {
+    let base = Path::new(env!("CARGO_TARGET_TMPDIR")).join("install-prefix");
+    fs::create_dir_all(&base).unwrap();
+    let lock = fs::OpenOptions::new().create(true).truncate(false).write(true).open(base.join("lock")).unwrap();
+    lock.lock().unwrap();
+    let key = key();
+    let dir = base.join(&key);
+    if !dir.join("prefix/share/runbook/MANIFEST").is_file() {
+        for e in fs::read_dir(&base).unwrap().flatten() {
+            if e.path().is_dir() {
+                fs::remove_dir_all(e.path()).unwrap();
+            }
+        }
+        let partial = base.join(format!("{key}.partial"));
+        fs::create_dir_all(partial.join("prefix")).unwrap();
+        fs::create_dir_all(partial.join("home")).unwrap();
+        let o = install(&script(), &partial.join("prefix"), &["--from-built", "debug"]);
+        assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+        fs::rename(&partial, &dir).unwrap();
+    }
+    drop(lock);
+    dir.join("prefix")
+}
+
+// ---- running the installed runbook ----
+
+/// `runbook <args>` from `cwd` with `PATH` = `<prefix>/bin` and the system directories, no `RUNBOOK_HOME`.
+pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
+    let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
+    Command::new("runbook").args(args).env_clear().env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+}
+
+/// The same command with the build of the checkout.
+pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
+    Command::new(BIN).args(args).env_clear().env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for e in fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_tree(&e.path(), &target);
+        } else {
+            fs::copy(e.path(), &target).unwrap();
+        }
+    }
+}
+
+/// An empty working directory holding the hand-written runbook (`protocol/`, `bindings/`, `intake.yaml`,
+/// `settings.json`) of `tests/fixtures/install-runbook`.
+pub(crate) fn world(tag: &str) -> PathBuf {
+    let w = scratch(tag);
+    copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/install-runbook"), &w);
+    fs::write(w.join("intake.yaml"), "text: kettle and teacup\n").unwrap();
+    let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": []}});
+    fs::write(w.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+    w
+}
+
+/// The run of the example runbook in `w`, by the command `with`; the `outcome.json` it wrote.
+pub(crate) fn run_example(with: &dyn Fn(&Path, &[&str]) -> Output, w: &Path) -> (Value, String) {
+    let args = [
+        "run",
+        "example",
+        "--run",
+        "r1",
+        "--runs-dir",
+        "runs",
+        "--protocols",
+        "protocol",
+        "--bindings",
+        "bindings",
+        "--root-protocol",
+        "example@1",
+        "--case",
+        "CASE-1",
+        "--intake",
+        "intake.yaml",
+        "--confinement",
+        "local",
+        "--settings",
+        "settings.json",
+        "--spend-ledger",
+        "ledger.json",
+        "--cap-micro-usd",
+        "0",
+        "--max-llm-calls",
+        "1",
+        "--max-wall-seconds",
+        "50",
+    ];
+    let o = with(w, &args);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    let text = fs::read_to_string(w.join("runs/r1/outcome.json")).unwrap_or_else(|e| panic!("no outcome.json: {e}\n{}{}", out(&o), err(&o)));
+    let where_found = fs::read_to_string(w.join("runs/r1/work/where-sdc-reply.txt")).unwrap_or_default();
+    (serde_json::from_str(&text).unwrap(), where_found.trim().to_owned())
+}
+
+/// `outcome.json` without what differs between two runs: times, durations and the paths of the two worlds.
+fn comparable(outcome: &Value, world: &Path) -> String {
+    fn scrub(v: &mut Value, world: &str) {
+        match v {
+            Value::Object(m) => {
+                m.retain(|k, _| !(k.ends_with("_at") || k.ends_with("_ms") || k.ends_with("_seconds") || k == "started" || k == "finished" || k == "elapsed"));
+                m.values_mut().for_each(|x| scrub(x, world));
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| scrub(x, world)),
+            Value::String(s) => *s = s.replace(world, "<world>"),
+            _ => {}
+        }
+    }
+    let mut v = outcome.clone();
+    scrub(&mut v, &world.display().to_string());
+    serde_json::to_string_pretty(&v).unwrap()
+}
+
+// ---- tests ----
+
+#[test]
+fn the_prefix_holds_the_binary_the_helpers_and_the_files_and_its_manifest_lists_every_file_it_wrote() {
+    let prefix = shared_prefix();
+    assert!(Path::new(&prefix.join("bin/runbook")).metadata().unwrap().permissions().mode() & 0o111 != 0);
+    for h in HELPERS {
+        assert!(prefix.join("libexec").join(h).metadata().unwrap().permissions().mode() & 0o111 != 0, "libexec/{h}");
+    }
+    let share = prefix.join("share/runbook");
+    for d in LAYOUT_DIRS {
+        assert!(share.join(d).is_dir(), "share/runbook/{d}");
+    }
+    assert!(share.join("tools/autonomy-levels.json").is_file());
+    assert!(share.join("bindings/tools/sdc-tool.sh").metadata().unwrap().permissions().mode() & 0o111 != 0);
+    let manifest = fs::read_to_string(share.join("MANIFEST")).unwrap();
+    let listed: Vec<&str> = manifest.lines().collect();
+    let mut sorted = listed.clone();
+    sorted.sort();
+    assert_eq!(listed, sorted, "MANIFEST is sorted");
+    assert_eq!(listed.iter().copied().collect::<BTreeSet<_>>(), files_below(&prefix).iter().map(String::as_str).collect::<BTreeSet<_>>(), "MANIFEST lists every file of the prefix, and only those");
+    let version = fs::read_to_string(share.join("VERSION")).unwrap();
+    let said = from_prefix(&prefix, &prefix, &["--version"]);
+    assert_eq!(code(&said), 0);
+    assert_eq!(version.trim(), out(&said).trim(), "VERSION is what `runbook --version` prints");
+    let cargo_version = env!("CARGO_PKG_VERSION");
+    assert!(version.contains(cargo_version), "{version}");
+    let head = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo()).output().unwrap();
+    let head = out(&head).trim().to_owned();
+    assert!(version.contains(&head[..12]), "{version} does not carry the commit {head}");
+}
+
+#[test]
+fn nothing_that_is_not_a_runbook_file_is_copied() {
+    let prefix = shared_prefix();
+    for rel in files_below(&prefix) {
+        let parts: Vec<&str> = rel.split('/').collect();
+        for (i, part) in parts.iter().enumerate() {
+            let is_dir = i + 1 < parts.len();
+            assert!(!(is_dir && part.starts_with('.')), "{rel}: a dot-directory");
+            assert!(!["runs", "target", "node_modules", ".git", ".engineering"].contains(part), "{rel}");
+        }
+        let name = parts.last().unwrap().to_lowercase();
+        assert!(!name.contains("credential") && !name.starts_with("settings") && !name.starts_with(".env"), "{rel}: a login or settings file");
+    }
+}
+
+/// `runbook list` of the prefix from an empty directory: the protocols of the repository, as the checkout lists them.
+pub(crate) fn list_from(prefix: &Path) {
+    let cwd = scratch("list");
+    let o = from_prefix(prefix, &cwd, &["list"]);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    let mine = out(&o);
+    assert!(mine.contains("sdc") && mine.contains("sdc-bugfix"), "{mine}");
+    let theirs = from_checkout(&cwd, &["list"]);
+    assert_eq!(mine, out(&theirs), "the installed list equals the checkout's");
+}
+
+#[test]
+fn the_installed_runbook_lists_the_protocols_from_an_empty_directory() {
+    list_from(&shared_prefix());
+}
+
+#[test]
+fn the_installed_doctor_finds_the_assets_and_the_helpers_in_the_prefix() {
+    doctor_from(&shared_prefix());
+}
+
+/// `runbook doctor` of the prefix from an empty directory: the assets are the installed ones, every layout part
+/// and every helper is found, the helpers in `libexec`.
+pub(crate) fn doctor_from(prefix: &Path) {
+    let cwd = scratch("doctor");
+    let o = from_prefix(prefix, &cwd, &["doctor"]);
+    let text = out(&o);
+    let line = |name: &str| text.lines().find(|l| l.split("  ").map(str::trim).filter(|s| !s.is_empty()).nth(1) == Some(name)).unwrap_or_else(|| panic!("no {name} line:\n{text}\n{}", err(&o))).to_owned();
+    let assets = line("assets");
+    assert!(assets.contains("installed (share/runbook)"), "{assets}");
+    assert!(assets.contains(&prefix.join("bin/../share/runbook").display().to_string()) || assets.contains(&prefix.join("share/runbook").display().to_string()), "{assets}");
+    for part in LAYOUT_DIRS {
+        let l = line(&format!("{part}/"));
+        assert!(l.trim_start().starts_with("pass"), "{l}");
+    }
+    for h in HELPERS {
+        let l = line(h);
+        assert!(l.trim_start().starts_with("pass"), "{l}");
+        assert!(l.contains("libexec"), "{h} is not found in libexec: {l}");
+    }
+}
+
+#[test]
+fn a_run_from_the_prefix_ends_with_the_outcome_of_the_same_run_from_the_checkout_build() {
+    run_from(&shared_prefix());
+}
+
+/// One run with sh programs only from the prefix, and the same command from the checkout build: the same
+/// `outcome.json` but for times and paths.
+pub(crate) fn run_from(prefix: &Path) {
+    let installed = world("run-installed");
+    let checkout = world("run-checkout");
+    let (a, where_a) = run_example(&|cwd, args| from_prefix(prefix, cwd, args), &installed);
+    let (b, where_b) = run_example(&|cwd, args| from_checkout(cwd, args), &checkout);
+    assert_eq!(comparable(&a, &installed), comparable(&b, &checkout));
+    assert_eq!(a["reason"], json!("done"), "{a}");
+    assert!(where_a.ends_with("libexec/sdc-reply"), "a program the run starts finds the helpers of the prefix on PATH: {where_a:?}");
+    assert_eq!(where_b, "", "the checkout build adds nothing to PATH");
+}
+
+// ---- the refusals ----
+
+#[test]
+fn the_script_refuses_a_prefix_that_is_relative_the_root_missing_or_inside_the_cargo_directory_and_writes_nothing() {
+    let w = scratch("refuse");
+    let home = w.join("home");
+    fs::create_dir_all(home.join(".cargo/bin")).unwrap();
+    fs::create_dir_all(w.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink(home.join(".cargo/bin"), w.join("link-to-cargo")).unwrap();
+    let before = listing(&w);
+    let cases: Vec<(String, &str)> = vec![
+        ("relative/prefix".into(), "absolute"),
+        (".".into(), "absolute"),
+        ("/".into(), "root"),
+        (w.join("missing").display().to_string(), "exist"),
+        (home.join(".cargo").display().to_string(), ".cargo"),
+        (home.join(".cargo/bin").display().to_string(), ".cargo"),
+        (format!("{}/", home.join(".cargo/bin").display()), ".cargo"),
+        (w.join("link-to-cargo").display().to_string(), ".cargo"),
+        (w.join("elsewhere/../home/.cargo/bin").display().to_string(), ".cargo"),
+    ];
+    for (prefix, word) in &cases {
+        let o = Command::new("sh")
+            .arg(script())
+            .args(["--prefix", prefix, "--from-built", "debug"])
+            .env_clear()
+            .env("PATH", SYSTEM_PATH)
+            .env("HOME", &home)
+            .current_dir(&w)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(code(&o), 2, "{prefix}: {}{}", out(&o), err(&o));
+        assert!(err(&o).contains(word), "{prefix}: stderr names {word:?}: {}", err(&o));
+        assert_eq!(listing(&w), before, "{prefix}: the refusal wrote something");
+    }
+    for args in [vec![], vec!["--prefix"], vec!["--from-built", "debug"], vec!["--prefix", "/x", "--from-built", "fast"], vec!["--nothing"]] {
+        let o = Command::new("sh").arg(script()).args(&args).env_clear().env("PATH", SYSTEM_PATH).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
+        assert_eq!(code(&o), 2, "{args:?}: {}{}", out(&o), err(&o));
+        assert!(err(&o).contains("usage"), "{args:?}: {}", err(&o));
+    }
+    let o = Command::new("sh").arg(script()).arg("--help").env_clear().env("PATH", SYSTEM_PATH).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(code(&o), 0);
+    assert!(out(&o).contains("--prefix") && out(&o).contains("--from-built"), "{}", out(&o));
+}
+
+/// A tree that has the shape of a checkout, with a shell stub for every built file `--from-built` takes and one
+/// file in each directory the script copies, and a copy of the script in it.
+fn fake_checkout(tag: &str, skip: Option<&str>) -> PathBuf {
+    let root = scratch(tag).join("checkout");
+    fs::create_dir_all(root.join("scripts")).unwrap();
+    fs::copy(script(), root.join("scripts/install.sh")).unwrap();
+    for d in LAYOUT_DIRS.iter().chain(&["tools", "ui/web"]) {
+        fs::create_dir_all(root.join(d)).unwrap();
+        fs::write(root.join(d).join("file.txt"), format!("{d}\n")).unwrap();
+    }
+    fs::write(root.join("ui/server.mjs"), "// the page's server\n").unwrap();
+    fs::write(root.join("ui/package.json"), "{}\n").unwrap();
+    fs::write(root.join("bindings/tools/sdc-tool.sh"), "#!/bin/sh\n").unwrap();
+    fs::set_permissions(root.join("bindings/tools/sdc-tool.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    let stub = "#!/bin/sh\necho \"runbook 9.9.9 (0123456789ab)\"\n";
+    for n in std::iter::once("runbook").chain(HELPERS) {
+        if Some(n) == skip {
+            continue;
+        }
+        let p = built("debug", n);
+        let p = root.join(p.strip_prefix(repo()).unwrap());
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, stub).unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    root
+}
+
+#[test]
+fn a_missing_built_file_with_from_built_is_named_and_nothing_is_written() {
+    let root = fake_checkout("missing-built", Some("sdc-reply"));
+    let sandbox = root.parent().unwrap().to_path_buf();
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    let before = listing(&sandbox);
+    let o = install(&root.join("scripts/install.sh"), &prefix, &["--from-built", "debug"]);
+    assert_ne!(code(&o), 0, "{}{}", out(&o), err(&o));
+    assert!(err(&o).contains("driver/target/debug/sdc-reply"), "{}", err(&o));
+    assert_eq!(listing(&sandbox), before, "a refused install wrote something");
+    let o = install(&root.join("scripts/install.sh"), &prefix, &["--from-built", "release"]);
+    assert_ne!(code(&o), 0);
+    assert!(err(&o).contains("runbook/target/release/runbook"), "the first missing file is named: {}", err(&o));
+}
+
+#[test]
+fn the_script_writes_only_under_the_prefix() {
+    let root = fake_checkout("only-prefix", None);
+    let sandbox = root.parent().unwrap().to_path_buf();
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    let before_root = listing(&root);
+    let before_home = listing(&sandbox.join("home"));
+    let o = install(&root.join("scripts/install.sh"), &prefix, &["--from-built", "debug"]);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    assert_eq!(listing(&root), before_root, "the checkout changed");
+    assert_eq!(listing(&sandbox.join("home")), before_home, "the home directory changed");
+    assert_eq!(fs::read_dir(&sandbox).unwrap().count(), 3, "checkout, home and prefix only");
+    let said = out(&o);
+    assert!(said.contains(&format!("export PATH=\"{}/bin:$PATH\"", prefix.display())), "{said}");
+    assert_eq!(said.lines().filter(|l| l.contains(&format!("{}/bin", prefix.display()))).count(), 3, "three PATH lines: {said}");
+}
+
+#[test]
+fn a_second_install_removes_the_file_a_dropped_helper_left_and_keeps_a_file_the_script_never_wrote() {
+    let root = fake_checkout("second", None);
+    let sandbox = root.parent().unwrap().to_path_buf();
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    let copy = root.join("scripts/install.sh");
+    let o = install(&copy, &prefix, &["--from-built", "debug"]);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    assert!(prefix.join("libexec/sdc-answers").is_file());
+    let manifest = fs::read_to_string(prefix.join("share/runbook/MANIFEST")).unwrap();
+    assert!(manifest.lines().any(|l| l == "libexec/sdc-answers"));
+    fs::write(prefix.join("share/runbook/protocol/mine.txt"), "mine\n").unwrap();
+    fs::write(prefix.join("libexec/foreign"), "foreign\n").unwrap();
+    fs::write(prefix.join("notes.txt"), "notes\n").unwrap();
+    let outside = sandbox.join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("file.txt"), "outside\n").unwrap();
+    let text = fs::read_to_string(&copy).unwrap();
+    let dropped = text.replacen("\nsdc-answers\n", "\n", 1);
+    assert_ne!(text, dropped, "the helper list of the script has a line `sdc-answers`");
+    fs::write(&copy, dropped).unwrap();
+    let o = install(&copy, &prefix, &["--from-built", "debug"]);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    assert!(!prefix.join("libexec/sdc-answers").exists(), "the dropped helper stays");
+    assert!(prefix.join("libexec/sdc-node").is_file());
+    for kept in ["share/runbook/protocol/mine.txt", "libexec/foreign", "notes.txt"] {
+        assert!(prefix.join(kept).is_file(), "{kept} was removed");
+    }
+    let manifest = fs::read_to_string(prefix.join("share/runbook/MANIFEST")).unwrap();
+    assert!(!manifest.lines().any(|l| l == "libexec/sdc-answers"));
+    assert!(!manifest.lines().any(|l| l.ends_with("mine.txt") || l.ends_with("foreign") || l.ends_with("notes.txt")));
+    assert_eq!(files_below(&outside).len(), 1);
+}
+
+#[test]
+fn a_manifest_path_that_leaves_the_prefix_or_goes_through_a_link_is_never_removed() {
+    let root = fake_checkout("links", None);
+    let sandbox = root.parent().unwrap().to_path_buf();
+    let prefix = sandbox.join("prefix");
+    fs::create_dir_all(&prefix).unwrap();
+    fs::create_dir_all(sandbox.join("home")).unwrap();
+    let copy = root.join("scripts/install.sh");
+    assert_eq!(code(&install(&copy, &prefix, &["--from-built", "debug"])), 0);
+    let outside = sandbox.join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        fs::write(outside.join(n), "outside\n").unwrap();
+    }
+    fs::write(sandbox.join("elsewhere.txt"), "elsewhere\n").unwrap();
+    std::os::unix::fs::symlink(&outside, prefix.join("share/runbook/linked")).unwrap();
+    let manifest_path = prefix.join("share/runbook/MANIFEST");
+    let mut manifest = fs::read_to_string(&manifest_path).unwrap();
+    manifest.push_str("share/runbook/linked/a.txt\n../elsewhere.txt\nshare/runbook/../../elsewhere.txt\n/etc/hostname-not-ours\n");
+    fs::write(&manifest_path, manifest).unwrap();
+    let o = install(&copy, &prefix, &["--from-built", "debug"]);
+    assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
+    assert_eq!(files_below(&outside).len(), 3, "a file outside the prefix was removed");
+    assert!(sandbox.join("elsewhere.txt").is_file());
+}

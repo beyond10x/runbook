@@ -96,6 +96,15 @@ tasks:
       - cargo build --locked --bin runbook
       - cargo nextest run --locked --color never --run-ignored only -E 'test(loom_run::bugfix::bugfix_from_ticket_)'
 
+  test:install:
+    desc: "Slow lane of runbook/, not part of `task check`: `scripts/install.sh --prefix runbook/target/install-slow` with the real `--release` build (runbook, the driver programs a run starts, sdc-watch), then the three `#[ignore]`d tests of runbook/tests/install/slow.rs on that prefix: `runbook list`, `runbook doctor` and one run with sh programs only, from an empty directory with `<prefix>/bin` and the system directories on PATH; the fast lane of runbook/tests/install/ does the same on a prefix made from the debug builds. No model call. A release build takes minutes at load: start it in the background and without the slot prefix (cargo takes a slot through the shim)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - mkdir -p runbook/target/install-slow
+      - scripts/install.sh --prefix "$PWD/runbook/target/install-slow"
+      - cd runbook && RUNBOOK_INSTALLED_PREFIX="$PWD/target/install-slow" cargo test --locked --test cli install::slow -- --ignored
+
   test:driver:
     silent: true
     dir: driver

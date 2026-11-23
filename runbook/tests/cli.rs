@@ -8,6 +8,7 @@ mod linked_canon;
 mod canon_cmd;
 mod ess_digest;
 mod loom_run;
+mod install;
 mod reply_lib;
 mod test_suite;
 
@@ -407,14 +408,24 @@ fn version_is_the_repository_version() {
     let manifest = std::fs::read_to_string(repo().join("driver/Cargo.toml")).unwrap();
     let want = manifest.lines().find_map(|l| l.strip_prefix("version = \"").and_then(|r| r.strip_suffix('"'))).unwrap();
     let o = Command::new(BIN).arg("--version").output().unwrap();
-    assert_eq!(stdout(&o).trim(), format!("runbook {want}"));
+    assert_eq!(version_without_commit(&stdout(&o)), format!("runbook {want}"));
+}
+
+/// `runbook <version> (<commit>)` with the commit taken out: the commit is 12 hexadecimal digits of the build's
+/// git checkout, or `unknown` outside one.
+fn version_without_commit(said: &str) -> String {
+    let said = said.trim();
+    let (version, commit) = said.rsplit_once(" (").unwrap_or_else(|| panic!("no commit in {said:?}"));
+    let commit = commit.strip_suffix(')').unwrap_or_else(|| panic!("no closing bracket in {said:?}"));
+    assert!(commit == "unknown" || (commit.len() == 12 && commit.chars().all(|c| c.is_ascii_hexdigit())), "{said:?}");
+    version.to_owned()
 }
 
 #[test]
 fn version_unknown_subcommand_and_help() {
     let o = Command::new(BIN).arg("--version").output().unwrap();
     assert_eq!(o.status.code(), Some(0));
-    assert_eq!(stdout(&o).trim(), format!("runbook {}", env!("CARGO_PKG_VERSION")));
+    assert_eq!(version_without_commit(&stdout(&o)), format!("runbook {}", env!("CARGO_PKG_VERSION")));
     let o = Command::new(BIN).arg("frobnicate").output().unwrap();
     assert_eq!(o.status.code(), Some(64));
     assert!(String::from_utf8_lossy(&o.stderr).contains("Usage:"));
