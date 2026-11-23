@@ -86,7 +86,7 @@ pub struct Args {
     pub intake: String,
     /// The confinement of every bound program.
     pub confinement: Confinement,
-    /// The run settings (JSON): principals, models, budgets, the decider, the login file's path.
+    /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
     pub settings: PathBuf,
     /// The spend ledger shared by every run that counts against the same cap.
     pub spend_ledger: PathBuf,
