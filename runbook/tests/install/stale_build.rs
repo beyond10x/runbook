@@ -1,6 +1,7 @@
 //! A release install takes what the build wrote, and nothing older. A stub stands in for cargo.
 
 use super::*;
+use crate::build_commit::commit_source;
 
 // ---- what the build made ----
 
@@ -87,10 +88,6 @@ fn a_release_build_that_prints_another_commit_than_head_is_refused_with_both_com
     assert!(err(&o).contains("000000000000") && err(&o).contains(&head), "both commits are named: {}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }
-
-#[allow(dead_code)]
-#[path = "../../build_commit.rs"]
-mod commit_source;
 
 /// The hole the unit names in `build_commit.rs`, and what catches it. The branch HEAD names is moved from another work
 /// tree (`git update-ref`): no file the build watches changes, so cargo compiles nothing and the binary keeps the commit

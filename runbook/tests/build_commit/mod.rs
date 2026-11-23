@@ -9,7 +9,7 @@
 
 #[allow(dead_code)]
 #[path = "../../build_commit.rs"]
-mod commit_source;
+pub(crate) mod commit_source;
 mod caller_environment;
 
 mod other_refs;
