@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:runner-source-names-no-runbook
 kind: story
-status: draft
+status: proposed
 title: No shard of runbook names is left, and the check refuses every hit
 summary: The names left in doctor, assets, check, replay and the run directory writer go; the last shards of the ratchet are deleted and the check gets strict.
 tags:
@@ -44,7 +44,9 @@ scope:
   path: runbook/tests/fixtures/doctor
 - confidence: inferred
   path: runbook/tests/source_names
-revision: 11
+revision: 12
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-23T09:57:21Z", actor: "human:operator", revision: 12, executor: "agent:runbook"}
 ---
 ## Outcome
 
