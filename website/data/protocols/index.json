@@ -908,7 +908,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "fdffbfcf34008ee8b545e0635f1b5e4ede13894cc34f240b8c6486ba52e78167"
+      "sha256": "1fc54147689e101e74d5db6555542b04c0374654e40326d44ca9e3fa03c27efc"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -972,7 +972,7 @@
     },
     {
       "path": "docs/releases/0.7.0.md",
-      "sha256": "fd22b486644f082c11f5293a583a66b7f410225586f0fe6a4d780c3afcd355f4"
+      "sha256": "9eb25a1edb25c2e301291565001cb674ea34139b9f019cbc30f2d539aa8afb00"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

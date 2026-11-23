@@ -125,7 +125,8 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
 - New in 0.7.0 over 0.6.0 (nothing is unreleased): the old driver runtime is deleted (`sdc-drive`
   and the trial, cycle and watch scripts are gone; a run is `runbook run`, the package `sdc-drive`
   is `sdc-tools`), a refusal of Loom ends a run `refused` with exit 12 and a named `cause`, and
-  `runbook test` takes `--workers` and `--only` through Loom's selection. No evaluation run was
+  `runbook test` takes `--workers` and `--only` through Loom's selection, and the daemon refuses a
+  `submit-run` that names a missing session as `no-session` before `below-floor`. No evaluation run was
   made on this code ([docs/releases/0.7.0.md](docs/releases/0.7.0.md)).
 - New in 0.6.0 over 0.5.0 (nothing is unreleased): `runbook run` routes decisions by autonomy level
   from `tools/autonomy-levels.json` and `runbook run --recorded <source>` re-drives a case tree from a

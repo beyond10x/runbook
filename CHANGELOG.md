@@ -18,7 +18,7 @@ taken again after a check that failed following a later write. A refusal of Loom
 outcome `refused`, exit 12 and a named `cause`; `runbook test` takes `--workers` and `--only` through
 Loom's selection. Breaking: the package `sdc-drive` is `sdc-tools`; the producer ids of the bindings are
 `runbook`, `runbook.build` and so on; `ConfinementRefused`, `PersonProgramFailed` and `NotAPersonAction`
-were exit 1 and are exit 12; 37 of the 130 entries of the old cycle suite are dropped. No evaluation run
+were exit 1 and are exit 12; a `submit-run` below the daemon's floor that names a missing session is refused `no-session`, no longer `below-floor`; 37 of the 130 entries of the old cycle suite are dropped. No evaluation run
 was made on this code. The longer note is `docs/releases/0.7.0.md`.
 
 ### Added
