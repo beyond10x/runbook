@@ -198,15 +198,30 @@ fn shared_prefix_of(kind: &str, make: &dyn Fn(&Path)) -> PathBuf {
 
 // ---- running the installed runbook ----
 
+/// The toolchain the tests run under, for a child whose `HOME` is a scratch directory. `cargo`, `cargo-clippy` and
+/// `rustfmt` of `/usr/bin` are rustup proxies, and `runbook doctor` starts each: with a scratch `HOME` and the
+/// pinned `rust-toolchain.toml` above it a proxy finds no toolchain and tries to download one (each probe then waits
+/// 5 s for its answer, and a download of 200 MB into `HOME` may follow). The child gets the rustup home of this
+/// process, the toolchain it runs under, and no automatic install.
+fn with_toolchain(cmd: &mut Command) -> &mut Command {
+    let real_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let rustup = std::env::var_os("RUSTUP_HOME").map(PathBuf::from).unwrap_or_else(|| real_home.join(".rustup"));
+    cmd.env("RUSTUP_HOME", rustup).env("RUSTUP_AUTO_INSTALL", "0");
+    if let Some(t) = std::env::var_os("RUSTUP_TOOLCHAIN") {
+        cmd.env("RUSTUP_TOOLCHAIN", t);
+    }
+    cmd
+}
+
 /// `runbook <args>` from `cwd` with `PATH` = `<prefix>/bin` and the system directories, no `RUNBOOK_HOME`.
 pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
     let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
-    Command::new("runbook").args(args).env_clear().env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    with_toolchain(Command::new("runbook").args(args).env_clear()).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 /// The same command with the build of the checkout.
 pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
-    Command::new(BIN).args(args).env_clear().env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    with_toolchain(Command::new(BIN).args(args).env_clear()).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 fn copy_tree(from: &Path, to: &Path) {

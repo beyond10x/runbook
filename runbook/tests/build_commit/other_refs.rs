@@ -16,11 +16,11 @@ fn repository_with(tag: &str, init: &[&str]) -> Option<PathBuf> {
     Some(repo)
 }
 
-/// The build watches the whole directory `refs/heads` and `packed-refs` of the common repository. They change when any
-/// branch of the repository moves, in any worktree, and when refs are packed: cargo then runs `build.rs` again and
-/// compiles the package (seen with the real cargo on a scratch crate), though HEAD of this checkout is where it was.
+/// A branch made in another work tree, a commit on another branch of the repository and `git pack-refs --all` move no
+/// HEAD of this work tree: none of the paths the build watches changes, so cargo does not compile the package again
+/// (seen with the real cargo on a scratch crate). Each state is a step on a linked work tree whose HEAD stays.
 #[test]
-fn what_the_build_watches_changes_when_another_branch_moves_and_head_does_not() {
+fn the_watched_paths_stay_as_they_are_when_another_branch_moves_and_head_does_not() {
     let repo = repository_with("fix2-other-branch", &["init", "-q"]).unwrap();
     let linked = scratch("fix2-other-branch-linked").join("tree");
     git(&repo, &["worktree", "add", "-q", "-b", "side", linked.to_str().unwrap(), "HEAD"]);
