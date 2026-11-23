@@ -376,7 +376,7 @@ mod tests {
     fn a_json_text_is_refused_by_its_content_and_a_table_header_is_not_json() {
         for text in ["{}", "  \n{\"run\": \"r1\"}", "{\"run\": ", "[1, 2]"] {
             let e = parse(text).unwrap_err();
-            assert!(e.contains("TOML") && e.contains("docs/loom-run-settings.md"), "{text}: {e}");
+            assert!(e.contains("JSON") && e.contains("TOML") && e.contains("docs/loom-run-settings.md"), "{text}: {e}");
         }
         assert!(parse("[decider]\nkind = \"rule\"\nverdict = \"approve\"\n").is_ok());
         assert!(parse("").is_ok());

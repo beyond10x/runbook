@@ -287,7 +287,7 @@ fn a_json_settings_file_is_refused_by_its_content_with_the_toml_form_and_the_doc
         ("an array", "settings.toml", "[1, 2]".to_owned()),
     ] {
         let o = run_text(&w, name, &text);
-        assert_refused(&w, &o, what, &["TOML", "docs/loom-run-settings.md"]);
+        assert_refused(&w, &o, what, &["JSON", "TOML", "docs/loom-run-settings.md"]);
         assert!(stderr(&o).contains("--settings"), "{what}: the option is not named: {}", stderr(&o));
     }
 }
