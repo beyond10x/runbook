@@ -26,7 +26,7 @@ check_exits() {
 # a `from: exit` result table of the action, and `exits` is on no other action. Loom refuses an
 # overlap itself; this fails before a run does. Loom reads two classes, `error` and `not_called`, each
 # a list of exit codes: another class, a class that is not a list and an `exits` that is not a
-# # mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
+# mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
 # <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs). The pool list is this repository's:
 # it applies when <root> is the repository this script lies in, or when <root>/bindings/ holds one of
 # the files it names (sdc-story.yaml, sdc-release.yaml, sdc-bugfix.yaml: a copy of this repository's
