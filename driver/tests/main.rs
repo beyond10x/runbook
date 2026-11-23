@@ -5,6 +5,7 @@
 mod answers;
 mod bugfix_languages;
 mod bugfix_prompt;
+mod check_bindings_exits;
 mod conformance;
 mod decision_contract_mutants;
 mod decision_grounds;
@@ -24,3 +25,5 @@ mod run_timeline;
 mod runtime_block;
 mod sdc_node;
 mod unreferenced;
+mod workspace_empty_loom_case;
+mod workspace_layout;

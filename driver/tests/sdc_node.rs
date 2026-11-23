@@ -214,6 +214,11 @@ fn exec(root: &Path, s: &Start, case: &str) -> Run {
 
 /// One start of the program in the run's `work` directory, nothing recorded.
 fn spawn(root: &Path, s: &Start, case: &str) -> std::process::Output {
+    spawn_at(root, s, case, &root.join("work"))
+}
+
+/// The same in the directory `work`, which is the workspace.
+fn spawn_at(root: &Path, s: &Start, case: &str, work: &Path) -> std::process::Output {
     let sub = |t: &str| t.replace("{root}", &root.display().to_string());
     let rest = if s.binding { binding(s.node) } else { vec![] };
     let at = rest.iter().position(|a| a == "--stub").unwrap_or(rest.len());
@@ -221,10 +226,9 @@ fn spawn(root: &Path, s: &Start, case: &str) -> std::process::Output {
     argv.extend_from_slice(&rest[..at]);
     argv.extend(s.extra.iter().map(|a| sub(a)));
     argv.extend_from_slice(&rest[at..]);
-    let work = root.join("work");
     let mut c = Command::new(env!("CARGO_BIN_EXE_sdc-node"));
     c.arg(&argv[0]).arg("--tools-dir").arg(repo().join("bindings/tools")).args(&argv[1..]);
-    c.current_dir(&work).env_clear().env("PATH", path()).env("LOOM_CASE", case);
+    c.current_dir(work).env_clear().env("PATH", path()).env("LOOM_CASE", case);
     for (k, v) in &s.env {
         c.env(k, sub(v));
     }
@@ -1861,4 +1865,93 @@ fn every_node_a_class_names_is_a_node_some_binding_runs() {
         }
     }
     assert!(dead.is_empty(), "node-classes.json names nodes that no binding in bindings/*.yaml has: {dead:?}");
+}
+
+// ---- the workspace is where Loom starts the program ------------------------------------------------
+//
+// Loom (c9b4c177) starts a bound program in the workspace root with PATH, LOOM_CASE, LOOM_TIMEOUT_SECONDS and
+// (for an opened case) LOOM_CASE_NAME, LOOM_PARENT_CASE_NAME; it names no case directory and no store. A suite
+// keeps the workspace in `<scratch>/work/<n>` and the store in `<scratch>/store/<n>`. A workspace is written by
+// a model, so a `work/` directory in it, with a `case.json` look-alike, is ordinary.
+
+/// What a model may leave in the workspace: nothing, an empty `work/`, or a `work/` that looks like the
+/// driver's case directory and carries other facts than the real ones.
+#[derive(Clone, Copy, Debug)]
+enum Decoy {
+    None,
+    EmptyWork,
+    CaseLookAlike,
+}
+
+fn plant(work: &Path, decoy: Decoy) {
+    match decoy {
+        Decoy::None => {}
+        Decoy::EmptyWork => fs::create_dir_all(work.join("work")).unwrap(),
+        Decoy::CaseLookAlike => {
+            put(work, "work/case.json", r#"{"id":"decoy.case","artifacts":{"impl":{"revision":"decoy"},"spec":{"revision":"decoy"}}}"#);
+            put(work, "work/bindings.json", "{}");
+            put(work, "work/events.jsonl", "");
+            put(work, "work/aep/story/other.md", "---\nid: story:other\nsummary: covers nothing.here\n---\n# Other\n");
+            put(work, "work/.sdc/records/rejections/change.review/900.json", r#"{"format":"sdc.rejection/1","decoy":true}"#);
+        }
+    }
+}
+
+/// One run in the layout of a suite: the workspace `<root>/layout/work/1`, its store beside it.
+fn in_suite_layout(name: &str, s: &Start, decoy: Decoy, setup: &dyn Fn(&Path)) -> (PathBuf, std::process::Output) {
+    let root = fresh(name);
+    base_work(&root.join("work"), s.node);
+    setup(&root);
+    let work = root.join("layout/work/1");
+    fs::create_dir_all(work.parent().unwrap()).unwrap();
+    fs::create_dir_all(root.join("layout/store/1")).unwrap();
+    fs::rename(root.join("work"), &work).unwrap();
+    plant(&work, decoy);
+    let o = spawn_at(&root, s, s.case, &work);
+    (work, o)
+}
+
+fn said(o: &std::process::Output) -> String {
+    format!("{}\n{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
+}
+
+#[test]
+fn change_review_in_the_layout_of_a_suite_reads_the_workspace_whatever_work_holds() {
+    for decoy in [Decoy::None, Decoy::EmptyWork, Decoy::CaseLookAlike] {
+        let s = start("change.review").case("sdc.billing.list");
+        let (work, o) = in_suite_layout(&format!("layout-review-{decoy:?}"), &s, decoy, &|root| {
+            review_story(root);
+            review_adapters(root);
+            put(&root.join("work"), ".stub/settings.yaml", REVIEW_SETTINGS);
+            put(&root.join("work"), ".stub/replies/review.yaml", REVIEW_REJECTED);
+        });
+        assert_eq!(o.status.code(), Some(1), "{decoy:?}: {}", said(&o));
+        assert!(work.join(".sdc/records/rejections/change.review/001.json").is_file(), "{decoy:?}: the rejection is kept in the workspace: {}", said(&o));
+        assert!(!work.join("work/.sdc/records/rejections/change.review/001.json").exists(), "{decoy:?}: nothing is written below work/");
+    }
+}
+
+#[test]
+fn a_second_review_in_the_layout_of_a_suite_counts_the_rejection_of_the_workspace_not_the_decoy() {
+    let s = start("change.review").case("sdc.billing.list");
+    let (work, o) = in_suite_layout("layout-review-second", &s, Decoy::CaseLookAlike, &|root| {
+        review_story(root);
+        review_adapters(root);
+        put(&root.join("work"), ".stub/settings.yaml", REVIEW_SETTINGS);
+        put(&root.join("work"), ".stub/replies/review.yaml", REVIEW_REJECTED);
+        put(&root.join("work"), ".sdc/records/rejections/change.review/001.json", r#"{"format":"sdc.rejection/1","real":true}"#);
+    });
+    assert_eq!(o.status.code(), Some(1), "{}", said(&o));
+    assert!(work.join(".sdc/records/rejections/change.review/002.json").is_file(), "the second rejection of the workspace is 002: {}", said(&o));
+}
+
+#[test]
+fn change_implement_in_request_mode_in_the_layout_of_a_suite_finds_its_story_whatever_work_holds() {
+    for decoy in [Decoy::None, Decoy::EmptyWork, Decoy::CaseLookAlike] {
+        let s = start("change.implement").case("sdc.billing.list").with(&["--adapter", "dry"]).env(&REQUEST_ON);
+        let (work, o) = in_suite_layout(&format!("layout-implement-{decoy:?}"), &s, decoy, &|root| implement_story(root));
+        assert_eq!(o.status.code(), Some(0), "{decoy:?}: {}", said(&o));
+        let prompt = fs::read_to_string(work.join(IMPL).join("prompt.md")).unwrap_or_default();
+        assert!(prompt.contains("you have no tools, nothing to read"), "{decoy:?}: {}", said(&o));
+    }
 }

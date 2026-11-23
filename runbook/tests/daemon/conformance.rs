@@ -63,7 +63,7 @@ struct Gate {
 /// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
 const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
 
-const GATE: Gate = Gate { total: 12, executed: 12, passed: 12, skipped: 0 };
+const GATE: Gate = Gate { total: 13, executed: 13, passed: 13, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];

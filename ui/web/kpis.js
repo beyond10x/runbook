@@ -131,7 +131,8 @@ export function computeKpis(cases, run, history, ns, now = Date.now()) {
   // F10 + phase
   const opened = cases.length, done = cases.filter((c) => (c.events || []).some((e) => e.event === 'terminated')).length;
   const ph = phaseStates(cases);
-  const front = ph.find((p) => p.status !== 'done' && p.status !== 'none') || (ph.every((p) => p.status === 'done') ? {label: 'all done'} : ph.find((p) => p.status !== 'done'));
+  const known = ph.filter((p) => p.status !== 'unrecorded');
+  const front = ph.length && !known.some((p) => p.status !== 'none') && known.length < ph.length ? null : (known.find((p) => p.status !== 'done' && p.status !== 'none') || (known.every((p) => p.status === 'done') ? {label: 'all done'} : known.find((p) => p.status !== 'done')));
   kp.push({key: 'progress', ids: 'F10', label: 'Progress', value: opened ? done / opened : null, text: opened ? `${done}/${opened}` : null, unit: 'cases closed',
     parts: [{label: 'phase', text: front?.short || front?.label || null}],
     title: 'F10: cases of the tree that ended (terminated) / cases opened. Phase: the first phase (from the runbook view file) not yet done, derived from Canon claims.'});

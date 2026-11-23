@@ -110,3 +110,50 @@ impl RunObserver for Observer<'_, '_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::calls;
+    use crate::runtime::DecisionRequest;
+    use b10x_loom_tree::{hold, reopen, HoldRequest, ReopenRequest, TreeTime};
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Kinds(Mutex<Vec<(String, Value)>>);
+
+    impl EventSink for Kinds {
+        fn started(&self) {}
+        fn record(&self, kind: &str, record: Value) {
+            self.0.lock().unwrap().push((kind.to_owned(), record));
+        }
+        fn decision_requested(&self, _: DecisionRequest) {}
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn the_lines_of_a_hold_and_its_reopen_are_reported_as_loom_encodes_them() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-suite");
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/tail-hold-test").join(std::process::id().to_string());
+        let _ = std::fs::remove_dir_all(&base);
+        let (store, work) = (base.join("store"), base.join("work"));
+        std::fs::create_dir_all(&work).unwrap();
+        let protocols = fixtures.join("protocol");
+        let bindings = fixtures.join("suites/bindings/suite-demo.yaml");
+        calls::open(&calls::Opening { store: &store, workspace: &work, protocols: &protocols, root: calls::Root::Registration("suite-demo@1"), bindings: &bindings, case: "tail-1" }, || Ok(())).unwrap();
+        hold(&HoldRequest { store: &store, principal: "person:operator", reason: "review", time: TreeTime::Host }).unwrap();
+        reopen(&ReopenRequest { store: &store, principal: "person:operator", time: TreeTime::Host }).unwrap();
+
+        let sink = Kinds::default();
+        let mut tail = LogTail::new(&store, &sink);
+        tail.sync_all().unwrap();
+        assert!(tail.failure.is_none(), "{:?}", tail.failure);
+        let seen = sink.0.lock().unwrap();
+        let kinds: Vec<&str> = seen.iter().map(|(k, _)| k.as_str()).collect();
+        let (recorded, lifted) = (kinds.iter().position(|k| *k == "StopRecorded").expect("StopRecorded is reported"), kinds.iter().position(|k| *k == "StopLifted").expect("StopLifted is reported"));
+        assert!(recorded < lifted, "{kinds:?}");
+        assert_eq!(seen[recorded].1["reason"], "review");
+        assert_eq!(seen[lifted].1["stop"], seen[recorded].1["seq"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

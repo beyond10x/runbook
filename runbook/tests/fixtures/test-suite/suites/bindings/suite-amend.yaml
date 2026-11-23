@@ -1,0 +1,28 @@
+format: loom.bindings/1
+protocol: suite-amend@1
+program_root: bindings
+artifacts:
+  questions: questions.txt
+  requirements: requirements.txt
+actions:
+  - action: requirements.normalise
+    executor:
+      kind: program
+      argv: [tools/amend-normalise.sh]
+  - action: requirements.check
+    executor:
+      kind: program
+      argv: [tools/amend-check.sh]
+    evidence:
+      - kind: requirements_shape
+        subject: requirements
+        producer: amend-check
+        from: exit
+        results: {"0": valid, "5": finding, "*": invalid}
+        upstream: [questions]
+  - action: amend.upstream
+    executor:
+      kind: program
+      argv: [tools/amend-amend.sh]
+    handoff: "decide the open finding, then run again"
+    handoff_when: [tools/amend-wait.sh]
