@@ -664,32 +664,144 @@ fn judge(m: &Member, value: &str, mode: Mode, got: &(Option<i32>, String, String
     bad
 }
 
-struct Cell {
-    member: usize,
-    value: String,
+fn values_of(m: &Member) -> Vec<&'static str> {
+    let mut values: Vec<&'static str> = m.values.to_vec();
+    if m.text {
+        values.extend_from_slice(TEXT);
+    }
+    values.extend_from_slice(m.extra);
+    values
 }
 
-fn cells() -> Vec<Cell> {
-    let mut all = Vec::new();
-    for (i, m) in MEMBERS.iter().enumerate() {
-        let mut values: Vec<&str> = m.values.to_vec();
-        if m.text {
-            values.extend_from_slice(TEXT);
-        }
-        values.extend_from_slice(m.extra);
-        for v in values {
-            all.push(Cell {
-                member: i,
-                value: v.to_string(),
+fn runs_in_table() -> usize {
+    MEMBERS.iter().map(|m| values_of(m).len() * 2).sum()
+}
+
+/// Every cell of one member of the table: its values, each in `--exits` and in the full check, each in a root of its own, on a few
+/// threads. One test per member keeps each test short at any load.
+fn check_member(name: &str) {
+    let index = MEMBERS
+        .iter()
+        .position(|m| m.name == name)
+        .expect("a member of the table");
+    let m = &MEMBERS[index];
+    let work = work().join(format!("member-{index}"));
+    let _ = fs::remove_dir_all(&work);
+    fs::create_dir_all(&work).unwrap();
+    let cut = cut_script(&work);
+    let started = std::time::Instant::now();
+    let values = values_of(m);
+    let next = AtomicUsize::new(0);
+    let red = Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(value) = values.get(i) else { break };
+                let root = cell_root(&work, &i.to_string(), &(m.build)(value), &cut);
+                for mode in [Mode::Exits, Mode::Full] {
+                    let got = run(mode, &root);
+                    let bad = judge(m, value, mode, &got);
+                    if !bad.is_empty() {
+                        let first: Vec<&str> = got.1.lines().chain(got.2.lines()).take(3).collect();
+                        red.lock().unwrap().push(format!(
+                            "{} = {} [{mode:?}]: {} | {}",
+                            m.name,
+                            value,
+                            bad.join("; "),
+                            first.join(" / ")
+                        ));
+                    }
+                }
             });
         }
-    }
-    all
+    });
+    println!(
+        "{}: {} runs in {:.1?}",
+        m.name,
+        values.len() * 2,
+        started.elapsed()
+    );
+    let mut red = red.into_inner().unwrap();
+    red.sort();
+    assert!(
+        red.is_empty(),
+        "{} of {} runs of `{}` are red:\n{}",
+        red.len(),
+        values.len() * 2,
+        m.name,
+        red.join("\n")
+    );
+}
+
+macro_rules! member_tests {
+    ($($test:ident: $name:literal,)*) => {
+        const TESTED: &[&str] = &[$($name),*];
+        $(
+            #[test]
+            fn $test() {
+                check_member($name);
+            }
+        )*
+    };
+}
+
+member_tests! {
+    the_document_takes_every_json_type: "the document",
+    actions_takes_every_json_type: "actions",
+    an_entry_of_actions_takes_every_json_type: "an entry of actions",
+    action_takes_every_json_type: "action",
+    executor_takes_every_json_type: "executor",
+    executor_kind_takes_every_json_type: "executor.kind",
+    executor_argv_takes_every_json_type: "executor.argv",
+    an_element_of_executor_argv_takes_every_json_type: "an element of executor.argv",
+    the_value_after_instructions_takes_every_json_type: "the value after --instructions in executor.argv",
+    arguments_from_takes_every_json_type: "arguments_from",
+    an_element_of_arguments_from_takes_every_json_type: "an element of arguments_from",
+    exits_takes_every_json_type: "exits",
+    exits_error_takes_every_json_type: "exits.error",
+    a_code_in_exits_error_takes_every_json_type: "a code in exits.error",
+    exits_not_called_takes_every_json_type: "exits.not_called",
+    a_code_in_exits_not_called_takes_every_json_type: "a code in exits.not_called of a model node",
+    evidence_takes_every_json_type: "evidence",
+    an_entry_of_evidence_takes_every_json_type: "an entry of evidence",
+    evidence_kind_takes_every_json_type: "evidence.kind",
+    evidence_from_takes_every_json_type: "evidence.from",
+    evidence_subject_takes_every_json_type: "evidence.subject",
+    evidence_results_takes_every_json_type: "evidence.results",
+    a_result_key_read_from_the_exit_takes_every_spelling: "a result key of an entry read from the exit",
+    a_result_key_not_read_from_the_exit_takes_every_spelling: "a result key of an entry not read from the exit",
+    a_result_value_takes_every_json_type: "a result value",
+    retry_when_takes_every_json_type: "retry_when",
+    handoff_takes_every_json_type: "handoff",
+    budget_takes_every_json_type: "budget",
+    budget_max_runs_takes_every_json_type: "budget.max_runs",
+    protocol_takes_every_json_type: "protocol",
+    program_root_takes_every_json_type: "program_root",
+    the_from_of_a_copy_executor_takes_every_json_type: "executor.from of a copy executor",
+}
+
+/// The split loses no cell: the tests above are the members of the table, in its order, and the table holds 436 cells, 872 runs.
+#[test]
+fn the_tests_cover_every_member_and_every_cell_of_the_table() {
+    let names: Vec<&str> = MEMBERS.iter().map(|m| m.name).collect();
+    assert_eq!(
+        names, TESTED,
+        "a member of the table has no test, or a test names none"
+    );
+    assert_eq!(names.len(), 32);
+    let cells: usize = MEMBERS.iter().map(|m| values_of(m).len()).sum();
+    println!(
+        "{} members, {cells} cells, {} runs",
+        names.len(),
+        runs_in_table()
+    );
+    assert_eq!((cells, runs_in_table()), (436, 872));
 }
 
 #[test]
-fn every_member_the_script_reads_takes_every_json_type_without_a_raw_error() {
-    let work = work();
+fn the_base_cell_is_clean_in_both_modes() {
+    let work = work().join("base");
     let _ = fs::remove_dir_all(&work);
     fs::create_dir_all(&work).unwrap();
     let cut = cut_script(&work);
@@ -701,44 +813,4 @@ fn every_member_the_script_reads_takes_every_json_type_without_a_raw_error() {
             "the base cell is not clean for {mode:?}: {out}\n{err}"
         );
     }
-    let cells = cells();
-    let next = AtomicUsize::new(0);
-    let red = Mutex::new(Vec::new());
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .min(20);
-    std::thread::scope(|s| {
-        for _ in 0..threads {
-            s.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::SeqCst);
-                let Some(cell) = cells.get(i) else { break };
-                let m = &MEMBERS[cell.member];
-                let root = cell_root(&work, &i.to_string(), &(m.build)(&cell.value), &cut);
-                for mode in [Mode::Exits, Mode::Full] {
-                    let got = run(mode, &root);
-                    let bad = judge(m, &cell.value, mode, &got);
-                    if !bad.is_empty() {
-                        let first: Vec<&str> = got.1.lines().chain(got.2.lines()).take(3).collect();
-                        red.lock().unwrap().push(format!(
-                            "{} = {} [{mode:?}]: {} | {}",
-                            m.name,
-                            cell.value,
-                            bad.join("; "),
-                            first.join(" / ")
-                        ));
-                    }
-                }
-            });
-        }
-    });
-    let mut red = red.into_inner().unwrap();
-    red.sort();
-    assert!(
-        red.is_empty(),
-        "{} of {} cells are red:\n{}",
-        red.len(),
-        cells.len() * 2,
-        red.join("\n")
-    );
 }
