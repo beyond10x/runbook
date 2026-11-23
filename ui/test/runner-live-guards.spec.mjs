@@ -4,7 +4,9 @@
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {readText} from '../runfiles.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, EXAMPLE_VIEW} from './loom-run-fixture.mjs';
 import {writeLiveRun, startTicks} from './runner-fixture.mjs';
@@ -146,6 +148,26 @@ test('guard: only test code can name the reader of /proc: the server calls runne
   expect(calls.map((l) => l.trim())).toEqual(["import {runnerLiveness} from './runnerlive.mjs';", 'const runner = runnerLiveness(runDir);']);
   const src = fs.readFileSync(path.join(ui, 'runnerlive.mjs'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   expect(src).not.toMatch(/process\.env|process\.argv|import\.meta|child_process|process\.kill/);
+});
+
+test('guard: a runner.json whose size changes between the size check of the read and the read is still read for at most RECORD_LIMIT bytes', async () => {
+  const dir = path.join(root, 'race');
+  fs.mkdirSync(dir, {recursive: true});
+  const file = path.join(dir, 'runner.json');
+  fs.writeFileSync(file, recordText());
+  // a program of the run that makes the file small and 16 MiB (sparse) in turn, as fast as it can
+  const toggler = spawn(process.execPath, ['-e', `const fs = require('node:fs'); const fd = fs.openSync(${JSON.stringify(file)}, 'r+'); console.log('ready'); const end = Date.now() + 20000; while (Date.now() < end) { fs.ftruncateSync(fd, 100); fs.ftruncateSync(fd, 16 * 1048576); }`], {stdio: ['ignore', 'pipe', 'ignore']});
+  try {
+    await new Promise((resolve) => toggler.stdout.once('data', resolve));
+    let over = 0, longest = 0;
+    for (let i = 0; i < 1500; i++) {
+      const t = readText(file, dir, Live.RECORD_LIMIT);
+      if (t != null && t.length > Live.RECORD_LIMIT) { over++; longest = Math.max(longest, t.length); }
+    }
+    expect({over, longest}, 'reads that returned more than RECORD_LIMIT bytes').toEqual({over: 0, longest: 0});
+  } finally {
+    toggler.kill();
+  }
 });
 
 test('guard: readStat takes a pid only as a number whose text is digits', () => {
