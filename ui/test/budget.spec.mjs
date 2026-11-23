@@ -7,7 +7,7 @@
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import gate, {BUDGET} from '../playwright.config.mjs';
 import * as lanes from './lanes.mjs';
 import {slowFiles, bothFiles, wideOnlyFiles, WIDE_ONLY, BOTH, SIZE_EXCEPTIONS, FIXED_WAITS, SPEC_FORM} from './lanes.mjs';
@@ -375,24 +375,81 @@ test('the config matches test files by the one form the lists know, and no file 
 });
 
 // A spec below a directory that is itself named `test` (inside test/, test/fixtures/ or test/recorded/) is no test of the step: the
-// config's pattern starts at test/, and the stray check sees such a file as a file the lists do not know.
+// config's pattern starts at test/. The stray check tells such a file below test/ (its walk reads neither fixtures/ nor recorded/).
 for (const rel of ['sub/test/x.spec.mjs', 'fixtures/a/test/x.spec.mjs', 'recorded/a/test/x.spec.mjs']) {
   test(`the config does not take a spec below a nested directory named test: ${rel}`, () => {
     expect(SPEC_FORM.test(path.join(here, rel)), `Playwright's testMatch takes ${rel}`).toBe(false);
   });
-  test(`the stray check tells a spec below a nested directory named test: ${rel}`, () => {
-    const formMatches = (r) => SPEC_FORM.test(path.join(here, r));
-    expect(formMatches('x.spec.mjs'), 'the form takes a spec directly under test/').toBe(true);
-    expect(strayProblems([rel], formMatches), rel).toHaveLength(1);
-  });
 }
+test('the stray check tells a spec below a nested directory named test: sub/test/x.spec.mjs', () => {
+  const rel = 'sub/test/x.spec.mjs';
+  const formMatches = (r) => SPEC_FORM.test(path.join(here, r));
+  expect(formMatches('x.spec.mjs'), 'the form takes a spec directly under test/').toBe(true);
+  expect(strayProblems([rel], formMatches), rel).toHaveLength(1);
+});
 
 // The live calls of the two checks above stay whole: a case that replaces the assertion line itself is no case of a clean tree,
 // so the text of this file is read. The patterns are regular expressions, so that this case does not contain what it looks for.
+// Each call is a statement that starts its own line: a call in a comment or in a string does not hold it.
+const LIVE_SLEEP_CALL = /^\s*expect\(sleepProblems\(textOf\(files\), FIXED_WAITS\)\)\.toEqual\(\[\]\);$/m;
+const LIVE_STRAY_CALL = /^\s*expect\(strayProblems\(testFiles\(\), formMatches\)\)\.toEqual\(\[\]\);$/m;
 test('the live sleep check and the live stray check of this file are called whole', () => {
   const src = text('budget.spec.mjs');
-  expect(src).toMatch(/expect\(sleepProblems\(textOf\(files\), FIXED_WAITS\)\)\.toEqual\(\[\]\);/);
-  expect(src).toMatch(/expect\(strayProblems\(testFiles\(\), formMatches\)\)\.toEqual\(\[\]\);/);
+  expect(src).toMatch(LIVE_SLEEP_CALL);
+  expect(src).toMatch(LIVE_STRAY_CALL);
+});
+test('the two live calls of this file are statements that start a line, not a comment or a string', () => {
+  const calls = [
+    ['expect(sleepProblems(textOf(files), FIXED_WAITS)).toEqual([]);', LIVE_SLEEP_CALL],
+    ['expect(strayProblems(testFiles(), formMatches)).toEqual([]);', LIVE_STRAY_CALL],
+  ];
+  for (const [live, pattern] of calls) {
+    expect(`    ${live}\n`, 'a statement of its own line').toMatch(pattern);
+    expect(`    // ${live}\n`, 'commented out').not.toMatch(pattern);
+    expect(`    const x = \`${live}\`;\n`, 'in a template string').not.toMatch(pattern);
+  }
+});
+
+// The form of a spec file is `^<escaped test directory>/[^/]+\.spec\.mjs$`. The cases below hold its three parts: the start, the
+// escape of the directory and the name.
+test('the spec form takes a spec directly under test/ and not one below a chain that repeats the test directory', () => {
+  expect(SPEC_FORM.test(path.join(here, 'x.spec.mjs')), 'directly under test/').toBe(true);
+  expect(SPEC_FORM.test(path.join(here, here, 'x.spec.mjs')), 'the directory repeated below itself').toBe(false);
+});
+
+// The pattern is built from the directory, so a directory with a character a regular expression reads must still match itself and
+// nothing else. A copy of lanes.mjs sits in a directory per character (in the git-ignored fixtures/), is imported there, and its
+// SPEC_FORM is asked about a file directly in that directory, one below it and a sibling the character would read as a pattern.
+for (const ch of ['.', '*', '+', '?', '^', '$', '(', ')', '[', ']', '{', '}', '|', ' ']) {
+  test(`the spec form of a test directory named with ${JSON.stringify(ch)} takes its own spec and no other`, async () => {
+    const base = path.join(here, 'fixtures');
+    fs.mkdirSync(base, {recursive: true});
+    const dir = fs.mkdtempSync(path.join(base, `form-a${ch}b-`));
+    try {
+      fs.copyFileSync(path.join(here, 'lanes.mjs'), path.join(dir, 'lanes.mjs'));
+      const copy = await import(`${pathToFileURL(path.join(dir, 'lanes.mjs')).href}?c=${encodeURIComponent(ch)}`);
+      expect(copy.SPEC_FORM.test(path.join(dir, 'x.spec.mjs')), 'its own spec').toBe(true);
+      expect(copy.SPEC_FORM.test(path.join(dir, 'sub', 'x.spec.mjs')), 'one below').toBe(false);
+      const sibling = path.join(base, path.basename(dir).replace(`a${ch}b`, 'aXb'), 'x.spec.mjs');
+      expect(copy.SPEC_FORM.test(sibling), `a sibling the character would read as a pattern: ${sibling}`).toBe(false);
+    } finally {
+      fs.rmSync(dir, {recursive: true, force: true});
+    }
+  });
+}
+
+test('the spec form wants a name and a literal .spec.mjs: no name, or another character for the dot, is no test', () => {
+  expect(SPEC_FORM.test(path.join(here, 'x.spec.mjs')), 'a name and a literal dot').toBe(true);
+  for (const rel of ['.spec.mjs', 'x-spec.mjs', 'xspec.mjs', 'x_spec.mjs']) expect(SPEC_FORM.test(path.join(here, rel)), rel).toBe(false);
+});
+
+const FIXTURE_PLAYER = 'fixture-run.mjs';
+test('the README counts the sleep call sites of the fixture player as the file has them', () => {
+  const readme = fs.readFileSync(path.join(here, '..', 'README.md'), 'utf8');
+  const said = Number((readme.match(/`test\/fixture-run\.mjs`[^.]*?holds (\d+) `sleep\(/) || [])[1]);
+  const calls = (text(FIXTURE_PLAYER).match(/\bsleep\(/g) || []).length;
+  expect(said, 'the README states a number').toBeGreaterThan(0);
+  expect(calls, `the README says ${said} sleep( call sites`).toBe(said);
 });
 
 const LATER = 'const later = (ms) => new Promise((r) => setTimeout(r, ms));\nawait later(250);';
