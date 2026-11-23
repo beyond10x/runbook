@@ -294,28 +294,6 @@ fn the_settings_file_must_agree_with_the_way_the_options_name() {
     assert!(!rig.run_dir("r1").exists());
 }
 
-#[test]
-fn the_records_of_a_run_keep_their_bytes_when_the_input_is_toml() {
-    // `tests/fixtures/run-records/` holds the `settings.json` and the `run-settings.jsonl` that the
-    // build before this change (the JSON input) wrote for the same settings in the same order, run in
-    // process on this fixture runbook; `at` is the one member of a line that is a clock reading.
-    let rig = Rig::new("records");
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/run-records");
-    std::fs::write(rig.root.join("settings.toml"), std::fs::read(fixtures.join("input.toml")).unwrap()).unwrap();
-    let o = rig.run(&rig.args("r1", 1_000_000));
-    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
-    let dir = rig.run_dir("r1");
-    let made = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-    let want = std::fs::read_to_string(fixtures.join("settings.json")).unwrap();
-    assert_eq!(made, want, "settings.json differs from the one the JSON input made");
-    let line = std::fs::read_to_string(dir.join("run-settings.jsonl")).unwrap();
-    let start = line.find("\"at\":\"").unwrap() + "\"at\":\"".len();
-    let end = start + line[start..].find('"').unwrap();
-    let masked = format!("{}AT{}", &line[..start], &line[end..]);
-    let want = std::fs::read_to_string(fixtures.join("run-settings.jsonl")).unwrap();
-    assert_eq!(masked, want, "run-settings.jsonl differs from the one the JSON input made");
-}
-
 // ---- the runs ----
 
 #[test]

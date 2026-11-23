@@ -466,3 +466,44 @@ fn the_login_path_is_replaced_in_the_record_and_the_record_stays_json() {
     assert_eq!(first["loom"]["confinement"], "local");
     assert!(first.get("loom_sha256").is_none(), "{first}");
 }
+
+/// `tests/fixtures/run-records/` holds the `settings.json` and the `run-settings.jsonl` that the build
+/// before the TOML input wrote for one set of settings, in that order, run in process (`settings.json`,
+/// `run-settings.jsonl`), and the same two records for a child Loom (`*-child.*`: `sha256` of the binary
+/// in `loom`, the case and the protocol of this rig). The two records are written when a run starts,
+/// so a child Loom of the fake binary is enough to read them: no run in process.
+#[test]
+fn the_records_of_a_run_keep_their_bytes_when_the_input_is_toml() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/run-records");
+    let read = |name: &str| std::fs::read_to_string(fixtures.join(name)).unwrap();
+    // the two sets of records differ in `loom`, `case` and `root_protocol` and in nothing else
+    for (library, child) in [("settings.json", "settings-child.json"), ("run-settings.jsonl", "run-settings-child.jsonl")] {
+        let strip = |name: &str| {
+            let mut v: Value = serde_json::from_str(&read(name)).unwrap();
+            for member in ["loom", "case", "root_protocol"] {
+                v.as_object_mut().unwrap().remove(member);
+            }
+            v
+        };
+        assert_eq!(strip(library), strip(child), "{library} and {child} differ in more than the child's members");
+    }
+
+    let w = World::new(&tag("records"));
+    w.one_decision_tree();
+    let sha = w.fake.sha256();
+    let input = read("input.toml");
+    assert!(input.contains("in_process = true\n"), "the input is the form for a library");
+    std::fs::write(w.root.join("settings.toml"), input.replace("in_process = true\n", &format!("loom_sha256 = \"{sha}\"\n"))).unwrap();
+    let mut args = w.args("r1", 1_000_000);
+    let at = args.iter().position(|x| x == "--max-wall-seconds").unwrap();
+    args[at + 1] = "120".into();
+    let o = w.run(&args);
+    let dir = w.run_dir("r1");
+    let made = std::fs::read_to_string(dir.join("settings.json")).unwrap_or_else(|e| panic!("no settings.json: {e}: {}", stderr(&o)));
+    assert_eq!(made.replace(&sha, "SHA"), read("settings-child.json"), "settings.json differs from the one the JSON input made");
+    let line = std::fs::read_to_string(dir.join("run-settings.jsonl")).unwrap();
+    let start = line.find("\"at\":\"").unwrap() + "\"at\":\"".len();
+    let end = start + line[start..].find('"').unwrap();
+    let masked = format!("{}AT{}", &line[..start], &line[end..]);
+    assert_eq!(masked.replace(&sha, "SHA"), read("run-settings-child.jsonl"), "run-settings.jsonl differs from the one the JSON input made");
+}
