@@ -192,17 +192,33 @@ fn custom_tag(v: &serde_yaml::Value) -> Option<String> {
     }
 }
 
-/// A bindings file as Loom's reader takes it: no value carries a tag but a core tag, and a file
-/// with one is refused whole (`a YAML value without a tag`).
+/// The first key in `v`, at any depth, that Loom's reader refuses whatever its mapping: the text
+/// `<<` (a merge key) and a key that is a list or a mapping.
+fn refused_key(v: &serde_yaml::Value) -> Option<&'static str> {
+    use serde_yaml::Value as Y;
+    match v {
+        Y::Sequence(s) => s.iter().find_map(refused_key),
+        Y::Mapping(m) => m.iter().find_map(|(k, v)| match k {
+            Y::String(s) if s == "<<" => Some("a merge key (<<) is not supported"),
+            Y::Sequence(_) | Y::Mapping(_) => Some("a key that is not a scalar is not supported"),
+            _ => refused_key(v),
+        }),
+        _ => None,
+    }
+}
+
+/// A bindings file as Loom's reader takes it: no value carries a tag but a core tag, no key is `<<`
+/// or a list or a mapping, and a file with one is refused whole (`a YAML value without a tag`).
 fn read_bindings_yaml(path: &Path) -> Result<Value, String> {
     parse_bindings_yaml(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
 }
 
 fn parse_bindings_yaml(text: &str) -> Result<Value, String> {
     let doc = serde_yaml::from_str::<serde_yaml::Value>(text).map_err(|e| e.to_string())?;
-    match custom_tag(&doc) {
-        Some(tag) => Err(format!("a YAML value without a tag (found {tag})")),
-        None => Ok(yaml_to_json(doc)),
+    match (custom_tag(&doc), refused_key(&doc)) {
+        (Some(tag), _) => Err(format!("a YAML value without a tag (found {tag})")),
+        (None, Some(key)) => Err(key.to_string()),
+        (None, None) => Ok(yaml_to_json(doc)),
     }
 }
 
@@ -845,12 +861,13 @@ mod tests {
     /// What `rework_limit` is, as Loom's decoder reads it (`Node::as_i64`: only a YAML integer from
     /// 1 to `i64::MAX`), and the value as Loom shows it. `scripts/check-bindings.sh --budget` takes
     /// the same table (`driver/tests/check_bindings_budget.rs`).
-    const LIMITS: [(&str, Option<&str>); 21] = [
+    const LIMITS: [(&str, Option<&str>); 22] = [
         ("2", None),
         ("+2", None),
         ("0x2", None),
         ("9223372036854775807", None),
         ("2.0", Some("2")),
+        ("!!float 2", Some("2")),
         ("1e0", Some("1")),
         ("1e3", Some("1000")),
         ("9223372036854775808", Some("9223372036854775808")),
@@ -893,6 +910,26 @@ mod tests {
         assert_eq!(parse_bindings_yaml(in_key).unwrap_err(), "a YAML value without a tag (found !bar)");
         let core = "format: loom.bindings/1\nactions:\n  - action: a.write\n    budget: {runs_per: rejection, rework_limit: !!int 2}\n";
         assert!(parse_bindings_yaml(core).is_ok(), "a core tag is read into its value");
+    }
+
+    /// Loom's reader refuses a `<<` merge key and a key that is a list or a mapping wherever they are
+    /// in the document, whether or not the mapping is a budget: the five forms below are the ones its
+    /// decoder at the pin refused when they were measured.
+    #[test]
+    fn a_bindings_file_with_a_merge_key_or_a_complex_key_is_refused_as_loom_refuses_it() {
+        let head = "format: loom.bindings/1\nactions:\n  - action: a.write\n";
+        for (what, text, words) in [
+            ("merge_budget_limit", "    budget: {runs_per: rejection, <<: {rework_limit: 2}}\n", "a merge key (<<)"),
+            ("merge_budget_zero", "    budget: {runs_per: rejection, <<: {rework_limit: 0}}\n", "a merge key (<<)"),
+            ("merge_budget_unrelated", "    budget: {runs_per: rejection, rework_limit: 2, <<: {max_runs: 4}}\n", "a merge key (<<)"),
+            ("merge_in_action", "    <<: {max_x: 1}\n    budget: {runs_per: rejection, rework_limit: 2}\n", "a merge key (<<)"),
+            ("complex_key", "    budget: {runs_per: rejection, rework_limit: 2, ? [a]: 1}\n", "a key that is not a scalar"),
+        ] {
+            let err = parse_bindings_yaml(&format!("{head}{text}")).unwrap_err();
+            assert!(err.contains(words), "{what}: {err}");
+        }
+        let plain = format!("{head}    budget: {{runs_per: rejection, rework_limit: 2, \"a<<\": 1, 3: x}}\n");
+        assert!(parse_bindings_yaml(&plain).is_ok(), "a key that holds << is no merge key");
     }
 
     /// An integer past 64 bits is no YAML value to Loom's reader or to this one (both read it as a

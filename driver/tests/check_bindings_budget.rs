@@ -84,12 +84,13 @@ fn each_budget_defect_loom_refuses_at_load_is_a_named_line() {
 /// nothing else: a float, an exponent form, a number past `i64::MAX`, a quoted number and `.inf`
 /// are refused) and the value as Loom shows it. `runbook check` takes the same table
 /// (`runbook/src/check.rs`).
-const LIMITS: [(&str, Option<&str>); 22] = [
+const LIMITS: [(&str, Option<&str>); 23] = [
     ("2", None),
     ("+2", None),
     ("0x2", None),
     ("9223372036854775807", None),
     ("2.0", Some("2")),
+    ("!!float 2", Some("2")),
     ("1e0", Some("1")),
     ("1e3", Some("1000")),
     ("9223372036854775808", Some("9223372036854775808")),
@@ -168,6 +169,56 @@ fn a_rework_limit_with_a_tag_that_is_not_a_core_tag_is_refused() {
     refused("tag-foo", "!foo 2");
     let o = check("tag-int", &action(PROGRAM, "{runs_per: rejection, rework_limit: !!int 2}", RETRY));
     assert_eq!(o.status.code(), Some(0), "{}", said(&o).0);
+}
+
+/// Loom's reader refuses a `<<` merge key and a key that is a list or a mapping wherever they are in
+/// the document, whether or not the mapping is a budget: the five forms below are the ones its
+/// decoder at the pin refused when they were measured. The script names the file and reads no budget.
+#[test]
+fn a_document_with_a_merge_key_or_a_complex_key_is_refused_by_its_file() {
+    let in_action = format!("  - action: a.write\n    <<: {{max_x: 1}}\n    executor: {PROGRAM}\n    budget: {{runs_per: rejection, rework_limit: 2}}\n{RETRY}");
+    for (name, body, words) in [
+        ("merge-budget-limit", action(PROGRAM, "{runs_per: rejection, <<: {rework_limit: 2}}", RETRY), "a merge key (<<)"),
+        ("merge-budget-zero", action(PROGRAM, "{runs_per: rejection, <<: {rework_limit: 0}}", RETRY), "a merge key (<<)"),
+        ("merge-budget-unrelated", action(PROGRAM, "{runs_per: rejection, rework_limit: 2, <<: {max_runs: 4}}", RETRY), "a merge key (<<)"),
+        ("merge-in-action", in_action, "a merge key (<<)"),
+        ("complex-key", action(PROGRAM, "{runs_per: rejection, rework_limit: 2, ? [a]: 1}", RETRY), "a key that is not a scalar"),
+    ] {
+        let o = check(name, &body);
+        let (out, err) = said(&o);
+        assert_eq!(o.status.code(), Some(1), "{name}: {out}\n{err}");
+        assert!(out.contains(&format!("FAIL budget\n  bindings/fixture.yaml: holds {words}")), "{name}: {out}\n{err}");
+        assert!(!out.contains("good.action") && !err.contains("jq:") && !err.contains("yq:") && !err.contains("Error"), "{name}: {out}\n{err}");
+    }
+    let o = check("merge-text", &action(PROGRAM, "{runs_per: rejection, rework_limit: 2}\n    note: \"<<\"", RETRY));
+    assert_eq!(o.status.code(), Some(0), "a value that reads << is no merge key: {}", said(&o).0);
+}
+
+/// A document that holds more than 100000 values once its aliases are expanded is refused by its
+/// file, and an alias is not expanded to find that out: the nested form below expands to far more
+/// than the bound and ends in under 10 s. A list of 1000 values, 98 aliases of it and plain values
+/// are exactly 100000 values with the good action, and one more value is refused.
+#[test]
+fn a_document_of_more_than_100000_values_after_aliases_is_refused_without_expanding_them() {
+    let mut bomb = String::from("x-a0: &a0 [x, x, x, x, x, x, x, x, x]\n");
+    for i in 1..=8 {
+        bomb += &format!("x-a{i}: &a{i} [{}]\n", vec![format!("*a{}", i - 1); 9].join(", "));
+    }
+    let start = std::time::Instant::now();
+    let o = check("alias-bomb", &bomb);
+    let (out, err) = said(&o);
+    assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
+    assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
+    assert!(out.contains("bindings/fixture.yaml: holds more than 100000 values, aliases expanded"), "{out}\n{err}");
+    let thousand = format!("[{}]", vec!["0"; 1000].join(","));
+    let doc = |plain: usize| format!("a: &a {thousand}\np: [{},{}]\n", vec!["*a"; 98].join(","), vec!["0"; plain].join(","));
+    // the good action holds 11 values, `a` 1001 (the list and its 1000), `p` itself 1 and its 98
+    // aliases 98098: 99111 and the plain values
+    let o = check("alias-100000", &doc(889));
+    assert_eq!(o.status.code(), Some(0), "{}", said(&o).0);
+    let o = check("alias-100001", &doc(890));
+    assert_eq!(o.status.code(), Some(1), "{}", said(&o).0);
+    assert!(said(&o).0.contains("holds more than 100000 values"), "{}", said(&o).0);
 }
 
 /// Loom's reader takes a hex, octal and binary integer and bounds it at `i64::MAX`: one form each

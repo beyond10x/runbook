@@ -71,6 +71,35 @@ else
   echo "pass exits"
 fi
 }
+refused_document() {
+# Why Loom's reader refuses the bindings file $1 whole, whatever its budgets hold: a `<<` merge key
+# or a key that is a list or a mapping anywhere in it, or more than 100000 values once its aliases
+# are expanded (counted on the file as written, aliases not followed: a document that expands past
+# the bound is never expanded here). The reader's bound of 1 MiB of text is not checked.
+  local f=$1 counts values
+  counts=$(yq -o=json -I=0 '[.. | select(tag == "!!map") | keys | .[] | select(tag == "!!seq" or tag == "!!map")] | length, ([.. | select(tag == "!!map") | keys | .[] | select(. == "<<")] | length)' "$f" | paste -sd' ')
+  case $counts in
+    "" | "0 0") ;;
+    0\ *) echo "holds a merge key (<<), which is not supported"; return 0 ;;
+    *) echo "holds a key that is not a scalar, which is not supported"; return 0 ;;
+  esac
+  values=$(yq -o=json -I=0 '[[... | path], [... | tag], [... | anchor], [... | alias]]' "$f" | jq -r '
+    def put($s): if (.stack | length) > 0 then .stack[-1].sum += $s else .total += $s end;
+    def close: .stack[-1] as $f | .stack |= .[:-1] | ($f.sum + 1) as $s
+      | (if $f.a != "" then .anchors[$f.a] = $s else . end) | put($s);
+    . as [$p, $t, $a, $l]
+    | [range(0; $p | length) | select(. + 1 >= ($p | length) or $p[. + 1] != $p[.])] as $values
+    | reduce $values[] as $i ({stack: [], anchors: {}, total: 0};
+        ($p[$i] | length) as $d
+        | until((.stack | length) == 0 or .stack[-1].d < $d; close)
+        | if $t[$i] == "!!map" or $t[$i] == "!!seq" then .stack += [{d: $d, sum: 0, a: $a[$i]}]
+          elif $t[$i] == "" then put(.anchors[$l[$i]] // 1)
+          else put(1) | if $a[$i] != "" then .anchors[$a[$i]] = 1 else . end end)
+    | until((.stack | length) == 0; close) | if .total > 100000 then 100001 else .total end')
+  if [[ -n $values && $values -gt 100000 ]]; then
+    echo "holds more than 100000 values, aliases expanded"
+  fi
+}
 check_budget() {
 # The `budget` of every action (docs/loom-bindings.md, "The budget"): `runs_per` is `case` or
 # `rejection`, `rework_limit` a whole number from 1, `rework_on` a non-empty map of evidence kinds
@@ -81,11 +110,20 @@ check_budget() {
 # one line for the first defect of an action. `rework_limit` is read as Loom reads it, from the
 # text of the scalar and not from a number: only an integer from 1 to 9223372036854775807 (written
 # in decimal, 0x, 0o or 0b) is one, so 2.0, 1e3, .inf, a number past that and a quoted 2 are
-# refused, each as Loom shows it (`is 2`, `is 1000`, `is inf`). An alias is expanded first, as Loom
+# refused, each as Loom shows it (`is 2`, `is 1000`, `is inf`). A file `refused_document` names is
+# refused whole by that line and its budgets are not read. An alias is expanded next, as Loom
 # expands it, and a mapping is an object whatever keys it holds: the text of each scalar travels in
 # a list beside the actions, never as a member of a mapping of the file. `check-bindings.sh --budget <root>` runs this check
 # alone over <root>/bindings/*.yaml (driver/tests/check_bindings_budget.rs).
-budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "limits": [.actions[] | ((select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map") | {"tag": tag, "text": ("" + .)}) // null)], "actions": (((.actions[] | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= null) | .actions)}' bindings/*.yaml | jq -rn '
+budget_files=()
+budget_refused=""
+while IFS= read -r f; do
+  why=$(cd "$sdc" && refused_document "$f")
+  if [[ -n $why ]]; then budget_refused+="$f: $why"$'\n'; else budget_files+=("$f"); fi
+done < <(cd "$sdc" && printf '%s\n' bindings/*.yaml)
+budget_findings=""
+if [[ ${#budget_files[@]} -gt 0 ]]; then
+budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "limits": [.actions[] | ((select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map") | {"tag": tag, "text": ("" + .)}) // null)], "actions": (((.actions[] | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= null) | .actions)}' "${budget_files[@]}" | jq -rn '
   def shown: if . == null then "null" elif type == "string" then tojson elif type == "array" then "a list" elif type == "object" then "an object" else tostring end;
   def intform: test("^\\+?(0|[1-9][0-9]*)$") or test("^\\+?(0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+)$");
   def inrange: sub("^\\+"; "") as $t
@@ -158,6 +196,8 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "li
          end)
     ] | .[0] // empty
   | "\($f) \($a.action): \(.)"')
+fi
+budget_findings=$(printf '%s%s' "$budget_refused" "$budget_findings")
 if [[ -n $budget_findings ]]; then
   echo "FAIL budget"; echo "$budget_findings" | sed 's/^/  /'; fail=1
 else
