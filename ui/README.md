@@ -404,6 +404,8 @@ a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each 
 and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
 `meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
+Each spec of the test step is in one list of `test/lanes.mjs`: `WIDE_ONLY` (runs at 1600x1000 only, with the reason in five words) or `BOTH` (runs at 1600x1000 and 1280x800; today `screens`). The Playwright config reads the list: the laptop project ignores the wide-only files, so a spec that does not need a second size costs no skipped entry. `test/budget.spec.mjs` fails for a spec in no list or in two, and for a wide-only spec that names a viewport, a position, a size, a screenshot or a visibility check without an entry (with its reason) in `SIZE_EXCEPTIONS`. A spec waits for an event, never for a fixed time: `settled(page)` (`test/settled.mjs`) returns when fonts are loaded and the finite animations have ended; `fixture-run.mjs` stops at the file named by `SDC_FIXTURE_HOLD` until a test writes it. A beforeAll that needs several fixture runs or servers starts them at once (`playFixtures` in `test/fixtures.mjs`, `Promise.all` over `startServer`).
+
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
 `stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
 inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
