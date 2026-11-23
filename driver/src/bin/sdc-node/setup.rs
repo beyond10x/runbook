@@ -286,7 +286,8 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
         return Err(die(format!("llm-node: {node} could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document"), 126));
     };
     let dir = work.join(".sdc/loom-feedback").join(sha16(doc));
-    let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| !d.exists()).cloned();
+    // "Was there before" is asked of the path itself, not of what a link points at: a dangling link is there.
+    let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| d.symlink_metadata().is_err()).cloned();
     let _ = fs::create_dir_all(&dir);
     let logs: Vec<&Ov> = parsed.get("logs").map(Ov::items).unwrap_or_default();
     let blobs: Vec<&str> = logs.iter().filter_map(|l| l.get("blob_sha256").and_then(is_blob)).collect();
