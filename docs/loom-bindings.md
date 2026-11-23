@@ -167,18 +167,26 @@ an `executor` that is present and no mapping (`executor:` with no value too), an
 list, `evidence` that is no list of mappings, a `results` that is no mapping, and a result key read from
 the exit that is no exit code (plain digits for a number from 0 to 255: `+1`, `01`, `256` and `1` with a
 final newline are refused) are each refused by one line that names the file (and the action where there
-is one), exit 1; the other files are still checked. Of every member the script reads, an absent or null
-value counts as absent and any other value must have the type the check needs: `false` is not an empty
+is one), exit 1; the other files are still checked. Of every member the script reads from a YAML bindings
+file, an absent or null value counts as absent and any other value must have the type the check needs: `false` is not an empty
 list. The full `scripts/check-bindings.sh` refuses the same shapes in the bindings file of a protocol under
 `FAIL <name>`, and there also an element of `executor.argv` or of `arguments_from` that is no string, an
-`arguments_from` that is no list and a `budget` that is no mapping; its registrations step reads a file of
-any shape without a message of `yq`, and fails the script when it cannot read a file. Every member
-the script reads, with each JSON type in it (null, false, true, a number, a string, an empty string, a
-list, an empty list, a mapping, an empty mapping; for text and keys also a final newline, a leading `+`, a
-leading zero, a number of 26 digits), ends in exit 0 or 1 with a line that names the file, never in a
-message of `jq` or `yq`; the table is in `driver/tests/check_bindings_exits_value_table.rs`. Text that is
-no YAML ends the check with the message of `yq`, which names the file. A root given as a relative path may
-start with a dash. A copy of
+`arguments_from` that is no list and a `budget` that is no mapping; its registrations step reads a bindings
+file of any shape that `yq` can write as JSON without a message of `yq`, and fails the script when it
+cannot read a file. Every member the script reads from the YAML bindings file of a protocol, with each JSON
+type in it (null, false, true, a number, a string, an empty string, a list, an empty list, a mapping, an
+empty mapping; for text and keys also a final newline, a leading `+`, a leading zero, a number of 26
+digits), ends in exit 0 or 1 with a `FAIL` line that names the file, never in a raw message of `jq` or
+`yq`; the table is in `driver/tests/check_bindings_exits_value_table.rs`, one test per member. Outside
+that, and unchanged from before: YAML that `yq` cannot write as JSON (`.inf`, a key that is a list) ends
+the check with the message of `yq`, exit 1, with no `FAIL` line and no file named; a bindings file of more
+than one YAML document gives a raw message of `jq` in the full check; the JSON copies under
+`driver/examples/` and the protocol files that the registrations step reads are not checked for the type
+of their members, and a member of the wrong type there ends the check in a message of `jq` (exit 5). The
+backlog story `check-bindings-refuses-every-file-by-name` holds these; three ignored cases in
+`driver/tests/check_bindings_exits_unwritable_yaml_json_copies_and_protocol_ids.rs` measure them. Text that
+is no YAML ends the check with the message of `yq`, which names the file. A root given as a relative path
+may start with a dash. A copy of
 this repository's bindings elsewhere is this repository only while it holds one of the three named files.
 That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
