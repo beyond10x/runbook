@@ -43,6 +43,16 @@ test('a file over the limit of readText is not read', () => {
   expect(readText(path.join(run, 'work', 'a.txt'), run, 5)).toBeNull();
 });
 
+test('a file with more than one name is not read as text, whoever asks', () => {
+  const two = path.join(root, 'two');
+  put(path.join(two, 'one.txt'), 'two names\n');
+  fs.linkSync(path.join(two, 'one.txt'), path.join(two, 'other.txt'));
+  expect(readText(path.join(two, 'one.txt'), two)).toBeNull();
+  expect(readText(path.join(two, 'other.txt'), two)).toBeNull();
+  put(path.join(two, 'single.txt'), 'one name\n');
+  expect(readText(path.join(two, 'single.txt'), two)).toBe('one name\n');
+});
+
 test('a work/ that is a link is no root: only a real work/ directory of the run is served', () => {
   const linked = path.join(root, 'linked');
   fs.mkdirSync(path.join(linked, 'store'), {recursive: true});

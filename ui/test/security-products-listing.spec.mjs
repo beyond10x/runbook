@@ -10,11 +10,15 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {startServer} from './serve.mjs';
 import {writeProductsRun} from './products-fixture.mjs';
-import {fixtureRoot, ask} from './security-products-lib.mjs';
+import {fileURLToPath} from 'node:url';
+import {listFiles} from '../products.mjs';
+import {ask} from './security-products-lib.mjs';
 
-const root = fixtureRoot('security-products-listing');
+// the large trees are built outside test/ (Playwright walks test/ at every start) and removed when the file is done
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '.pw-fixtures', 'security-products-listing');
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own servers, one viewport'));
 test.beforeAll(({}, info) => { if (info.project.name === 'wide') fs.rmSync(root, {recursive: true, force: true}); });
+test.afterAll(() => { fs.rmSync(root, {recursive: true, force: true}); });
 
 async function listing(name, build) {
   const runs = path.join(root, name);
@@ -49,6 +53,28 @@ test('inv 6: eight links that point back at their own directory are listed in at
   });
   expect(r.hung, 'no answer in 25 s for the listing of a directory with eight links to itself').toBe(false);
   expect(r.ms, `one listing took ${r.ms} ms`).toBeLessThan(5000);
+});
+
+test('inv 6: a directory is read an entry at a time and the read stops at the entry bound, not at the end of the directory', () => {
+  test.setTimeout(60000);
+  const run = path.join(root, 'entries', 'r');
+  writeProductsRun(run);
+  const many = path.join(run, 'work', 'many');
+  fs.mkdirSync(many, {recursive: true});
+  const names = Array.from({length: 25000}, (_, i) => `f${String(i).padStart(5, '0')}.txt`).join('\n');
+  spawnSync('xargs', ['-n', '5000', 'touch'], {cwd: many, input: names});
+  let read = 0;
+  const real = fs.opendirSync;
+  fs.opendirSync = (p, ...rest) => {
+    const d = real(p, ...rest);
+    if (path.basename(String(p)) !== 'many') return d;
+    return new Proxy(d, {get: (t, k) => (k === 'readSync' ? () => { read++; return t.readSync(); } : typeof t[k] === 'function' ? t[k].bind(t) : t[k])});
+  };
+  let out;
+  try { out = listFiles(run, [path.join(run, 'work')]); } finally { fs.opendirSync = real; }
+  expect(out.truncated).toBe(true);
+  expect(read, `${read} entries read from a directory of 25000`).toBeGreaterThan(0);
+  expect(read, `${read} entries read from a directory of 25000`).toBeLessThanOrEqual(20001);
 });
 
 test('inv 6: a tree of 20000 empty directories is listed in at most 5 s', async () => {

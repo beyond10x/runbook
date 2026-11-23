@@ -77,6 +77,11 @@ test('inv 1: a plain-named link to a directory outside the run, or to a dot-dire
     NO_LEAK(r, rel);
     expect([403, 404], rel).toContain(r.status);
   }
+  // a request that names no dot is answered as any other path that is not served: the answer does not say what the target is
+  const viaLink = await ask(base, fileUrl(0, `${E}/cachelink/token.txt`));
+  const elsewhere = await ask(base, fileUrl(0, 'store/none.txt'));
+  expect(viaLink.json.error).not.toMatch(/dot/i);
+  expect(viaLink.json.error).toBe(elsewhere.json.error);
   const list = await ask(base, '/api/products?source=0');
   NO_LEAK(list, 'listing');
   expect(list.json.files.map((f) => f.path).filter((p) => /outdir|cachelink|token|secret|\.cache|\.hidden/.test(p))).toEqual([]);

@@ -61,6 +61,8 @@ const runRealOf = (abs, root) => {
   try { return fs.realpathSync.native(run); } catch { return null; }
 };
 
+// A regular file with more than one name is refused as in readRegular (a hard link may be a file outside the run, and only
+// its link count tells), for every caller: the answer is null, as for an absent file.
 // The text of a regular file of a run, or null (absent, refused, or over `limit` bytes: a file over it is not read at
 // all, so no request can make the server hold more than that). The limit is the size of the largest file of its kind that
 // the page reads; the default is the most any file of a run it reads can be.
@@ -74,7 +76,7 @@ export function readText(p, root, limit = TEXT_LIMIT) {
     if (o.fd == null) return null;
     fd = o.fd;
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > limit) return null;
+    if (!st.isFile() || st.nlink > 1 || st.size > limit) return null;
     return fs.readFileSync(fd, 'utf8');
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }

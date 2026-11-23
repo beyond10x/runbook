@@ -101,7 +101,9 @@ export function fileAnswer(runDir, rel, roots = [path.join(runDir, 'work')]) {
   const r = readRegular(abs, {root: runDir, limit: LIMIT, accept: (real) => refusalOf(scope, real)});
   if (r.state === 'missing') return no(404, 'no such file in the run');
   if (r.state === 'refused') {
-    if (r.why === 'not served') return no(404, r.reason);
+    // the request named no dot (see above): when the real path has one, the answer is the one of any path not served, and
+    // does not say what the target is
+    if (r.why === 'not served') return no(404, r.reason === DOT_MSG ? OUTSIDE_WORK : r.reason);
     if (r.why === 'unverified') return no(403, 'the system cannot name the opened file, so it is not read');
     if (r.why === 'leaves the run') return no(403, 'the file leaves the run (a link that points outside it): it is not read');
     if (r.why === 'more than one link') return no(403, 'the file has more than one link (a hard link may be a file outside the run): it is not read');
