@@ -24,6 +24,7 @@ mod no_model_node_local;
 mod no_model_node_login_trace;
 mod no_model_node_manifest_status;
 mod no_model_node_real_level;
+mod no_model_node_refusals_and_booking;
 mod pages;
 mod replay;
 mod replay_boundaries;
