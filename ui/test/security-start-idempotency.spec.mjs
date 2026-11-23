@@ -1,35 +1,14 @@
 // Security review, pass 1, of the unit daemon-page-starts-a-run: one filled form is one run. The idempotency key
 // belongs to the filled form: it stays the same for a press repeated after an answer that did not arrive and
 // changes when the daemon answered (accepted or refused) or when the runbook, the intake or the confinement changed.
-// One daemon for the file (stub runtime, no token, floor linux) on 127.0.0.1:0, shared by its tests: each test counts
+// The shared daemon of page-daemon.mjs (stub runtime, no token, floor linux) on 127.0.0.1:0, shared by its tests: each test counts
 // the runs it adds. Invented texts; no model call.
-// The state directory lies under SEC_SCRATCH when it is set (the reviewer's scratch), else under node_modules.
+// Its state directory is page-daemon.mjs's, one per worker.
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
-import fs from 'node:fs';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {pageDaemon} from './page-daemon.mjs';
 
 const expect = plain.configure({timeout: 15000});
-const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
-let s, dir, n0;
-
-function start(name, args = [], env = {}) {
-  return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state'), ...args], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
-    let out = '', err = '';
-    const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
-    proc.stderr.on('data', (d) => { err += d; });
-    proc.stdout.on('data', (d) => {
-      out += d;
-      const m = out.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/);
-      if (m) { clearTimeout(timer); proc.removeAllListeners('exit'); resolve({proc, base: m[1]}); }
-    });
-    proc.on('exit', (code) => { clearTimeout(timer); reject(new Error(`runbook exited with ${code}: ${err}${out}`)); });
-  });
-}
+let s, n0;
 
 const runs = () => fetch(`${s.base}/daemon/views/runs`).then((r) => r.json()).then((j) => j.rows);
 const added = async () => (await runs()).length - n0;
@@ -38,17 +17,12 @@ const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  expect(fs.existsSync(bin), `${bin} is missing`).toBe(true);
-  const root = process.env.SEC_SCRATCH || path.join(ui, 'node_modules');
-  fs.mkdirSync(root, {recursive: true});
-  dir = fs.mkdtempSync(path.join(root, '.pw-start-idempotency-'));
-  s = await start('idempotency');
+  s = await pageDaemon('open');
 });
 test.beforeEach(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   n0 = (await runs()).length;
 });
-test.afterAll(() => { if (s?.proc.exitCode == null) s?.proc.kill(); if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
 
 async function form(page) {
   await page.goto(`${s.base}/`);
@@ -201,3 +175,58 @@ test('presses after answers that did not arrive keep the key while the content i
   expect(new Set(sent.map((b) => b.idempotency_key)).size).toBe(5);
   expect(await added(), 'every command was lost before the daemon took it').toBe(0);
 });
+
+// What is not the whole answer of the command keeps the key: the answers of the HTTP layer (the command was not looked at,
+// so the earlier press is not marked as possibly taken), a failure of the daemon and a body that is not JSON (the
+// command may have been taken, so a change of content afterwards shows the note).
+const KEEPS = [
+  ['401', {status: 401, json: {refused: 'unauthorized', message: 'a bearer token is required'}}, false],
+  ['403', {status: 403, json: {refused: 'forbidden', message: 'this request is not for this daemon'}}, false],
+  ['500', {status: 500, json: {error: 'internal error'}}, true],
+  ['a body that is not JSON', {status: 202, contentType: 'text/plain', body: 'not json at all'}, true],
+];
+for (const [kind, answer, taken] of KEEPS) {
+  test(`an answer that is ${kind} keeps the key of the form: the same content pressed again carries the same key, and a change of content ${taken ? 'shows' : 'does not show'} the note`, async ({page}) => {
+    const sent = [];
+    page.on('request', (r) => { if (isStart(r)) sent.push(JSON.parse(r.postData())); });
+    await form(page);
+    await page.locator('#st-intake').fill(`an invented intake answered with ${kind}`);
+    // press 1 and press 3 get the answer, press 2 is the daemon's, press 4 never reaches it
+    let n = 0;
+    await page.route('**/daemon/commands/submit-run', (route) => {
+      n += 1;
+      if (n === 1 || n === 3) return route.fulfill(answer);
+      if (n === 4) return route.abort('connectionreset');
+      return route.continue();
+    });
+    const token = async () => { if (await page.locator('#st-token').isVisible()) await page.locator('#st-token').fill('a-token-typed-after-an-answer-0123456789'); };
+    const enabled = () => expect(page.locator('#st-start')).toBeEnabled();
+    await page.click('#st-start');
+    await expect.poll(() => sent.length).toBe(1);
+    await enabled();
+    await token();
+    await Promise.all([page.waitForResponse((r) => isStart(r.request()) && r.status() === 202), page.click('#st-start')]);
+    await expect(page.locator('#startdlg')).toHaveJSProperty('open', false);
+    expect(sent[1].idempotency_key, `the answer ${kind} ended the key`).toBe(sent[0].idempotency_key);
+    expect(await added()).toBe(1);
+
+    // a new form: the answer, then other content, whose press is lost
+    await page.click('#startbtn');
+    await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
+    await expect(page.locator('#st-intake')).toBeFocused();
+    await page.locator('#st-confinement').selectOption('linux');
+    await page.locator('#st-intake').fill(`a second invented intake answered with ${kind}`);
+    await page.click('#st-start');
+    await expect.poll(() => sent.length).toBe(3);
+    await enabled();
+    await token();
+    await page.locator('#st-intake').fill(`a third invented intake after ${kind}`);
+    await page.click('#st-start');
+    await expect.poll(() => sent.length).toBe(4);
+    await expect(page.locator('#st-msg')).toContainText('could not be reached');
+    expect(sent[3].idempotency_key).not.toBe(sent[2].idempotency_key);
+    if (taken) await expect(page.locator('#st-maybe')).toContainText('may have started a run');
+    else await expect(page.locator('#st-maybe')).toHaveText('');
+    expect(await added()).toBe(1);
+  });
+}

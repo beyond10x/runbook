@@ -1,37 +1,14 @@
 // Security review, pass 1, of the unit daemon-page-starts-a-run: the token field of the start form.
-// One daemon for the file, with a token (stub runtime, floor linux) on 127.0.0.1:0, shared by its tests: each test
+// The shared daemon of page-daemon.mjs, with a token (stub runtime, floor linux) on 127.0.0.1:0, shared by its tests: each test
 // counts the runs it adds. Invented texts; no model call. The log of the daemon holds the output of every test, so
 // the test that reads it holds the whole file to it.
-// The state directory lies under SEC_SCRATCH when it is set (the reviewer's scratch), else under node_modules.
+// Its state directory is page-daemon.mjs's, one per worker.
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
-import fs from 'node:fs';
-import {randomBytes} from 'node:crypto';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {pageDaemon, TOKEN} from './page-daemon.mjs';
 
 const expect = plain.configure({timeout: 15000});
-const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
-const TOKEN = `tok-${randomBytes(24).toString('hex')}`;
 const WRONG = 'not-the-token-of-this-daemon-0123456789';
-let s, dir, n0;
-
-function start(name, args = [], env = {}) {
-  return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state'), ...args], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
-    let out = '', err = '';
-    const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
-    proc.stderr.on('data', (d) => { err += d; });
-    proc.stdout.on('data', (d) => {
-      out += d;
-      const m = out.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/);
-      if (m) { clearTimeout(timer); proc.removeAllListeners('exit'); resolve({proc, base: m[1], log: () => out + err}); }
-    });
-    proc.on('exit', (code) => { clearTimeout(timer); reject(new Error(`runbook exited with ${code}: ${err}${out}`)); });
-  });
-}
+let s, n0;
 
 const runs = () => fetch(`${s.base}/daemon/views/runs`, {headers: {authorization: `Bearer ${TOKEN}`}}).then((r) => r.json()).then((j) => j.rows);
 const added = async () => (await runs()).length - n0;
@@ -40,17 +17,12 @@ const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  expect(fs.existsSync(bin), `${bin} is missing`).toBe(true);
-  const root = process.env.SEC_SCRATCH || path.join(ui, 'node_modules');
-  fs.mkdirSync(root, {recursive: true});
-  dir = fs.mkdtempSync(path.join(root, '.pw-start-token-'));
-  s = await start('token', [], {RUNBOOK_TOKEN: TOKEN});
+  s = await pageDaemon('token');
 });
 test.beforeEach(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   n0 = (await runs()).length;
 });
-test.afterAll(() => { if (s?.proc.exitCode == null) s?.proc.kill(); if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
 
 // the login of the page (the read cookie), then the start form with a runbook and an intake
 async function form(page) {

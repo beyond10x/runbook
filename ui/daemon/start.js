@@ -5,9 +5,10 @@
 //
 // What the page sends: POST /daemon/commands/submit-run, Content-Type: application/json, an idempotency_key
 // that belongs to one filled form, and Authorization: Bearer <token> when the daemon has a token. The key is
-// made when the form is first sent; it stays the same for a press repeated after an answer that did not arrive
-// (a network error, a reset), so the daemon's replay rule returns the first run and no second one starts; it
-// changes when the daemon answered (accepted or refused) and when the runbook, the intake or the confinement
+// made when the form is first sent; it stays the same for a press repeated after an answer that is not the
+// command's whole answer (a network error, a reset, a body cut or not JSON, an answer of the HTTP layer, a 5xx), so
+// the daemon's replay rule returns the first run and no second one starts; it changes when the daemon answered the
+// command with a named outcome (accepted or refused), read whole, and when the runbook, the intake or the confinement
 // changed (the page then says that the earlier press may have started a run). The cookie of the login is for
 // reads: the command is sent without credentials. The token lives in the variable T.token of this module and
 // nowhere else: not in a cookie, not in any storage of the browser, not in the URL, the history state or the
@@ -128,9 +129,7 @@ function paint(reset = false) {
 
 // The daemon's refusal as one line: its name, its status and its text. A refused command has the body
 // {outcome, error, payload}; an answer of the HTTP layer (401, 400, 415) has {refused, message}.
-async function refusal(r) {
-  let body = null;
-  try { body = await r.json(); } catch { /* not JSON */ }
+function refusal(r, body) {
   const name = body?.outcome || body?.refused || r.statusText || 'refused';
   const why = REFUSED[body?.outcome] || body?.message || body?.error || '';
   return `${name} (${r.status})${why ? `: ${why}` : ''}`;
@@ -157,36 +156,49 @@ async function start() {
   const key = keyFor(runbook, intake, level);
   T.busy = true;
   say(true, 'Sending the run to the daemon…');
+  let r = null;
+  let body = null;
   try {
-    const r = await fetch(PATH, {
+    r = await fetch(PATH, {
       method: 'POST',
       credentials: 'omit',
       headers: {'content-type': 'application/json', ...(T.token !== null ? {authorization: `Bearer ${T.token}`} : {})},
       body: JSON.stringify({runbook_id: runbook, intake, confinement: level, idempotency_key: key.value}),
     });
-    T.busy = false;
-    // the daemon answered, accepted or refused: its key is used up
-    T.key = null;
-    if (!r.ok) {
-      if (r.status === 401) { T.token = null; T.needs = true; }
-      return say(false, await refusal(r));
-    }
-    const run = (await r.json())?.published?.[0]?.payload?.run_id;
-    if (!run) return say(false, 'The daemon took the run but named none.');
-    T.msg = null;
-    T.maybe = false;
-    $('st-intake').value = '';
-    paint();
-    forget();
-    dlg.close();
-    if (openRun) await openRun(String(run));
+    // the whole body: a body that is cut on the way or is not JSON throws here, and the key stays
+    body = await r.json();
   } catch {
-    // no answer: the daemon may have taken the run, and the key stays for the next press of this form; the text
-    // of the engine's error is not shown, since an engine may put the request into it
-    T.busy = false;
-    key.lost = true;
-    say(false, 'The daemon could not be reached, so the page does not know whether it took the run. Press Start again with the same content: at most one run is started.');
+    // r is null (no answer) or the body is unreadable; the text of the engine's error is not shown, since an
+    // engine may put the request into it
+    body = null;
   }
+  T.busy = false;
+  // Which answers end the key of this filled form: only an answer of the command itself, read whole and JSON, that
+  // names its outcome ({outcome: 'submitted'}, {outcome: 'no-runbook'}, ...): the daemon looked at the command, so
+  // the key is used up whether it accepted or refused. Every other answer keeps it, so that the next press with
+  // the same content sends the same key and the daemon's replay rule gives the first run back: no answer at all
+  // (a network error, a reset), a body that is cut or is not JSON, an answer of the HTTP layer (401, 403, 400,
+  // 415: the command was not looked at) and a failure of the daemon's own (5xx). The earlier press is marked as
+  // possibly taken (key.lost) unless the HTTP layer refused it before the command: the note about it then stays on
+  // the form for as long as the content changes.
+  const named = typeof body?.outcome === 'string' && body.outcome !== '';
+  if (named) T.key = null;
+  else if (!(r && [400, 401, 403, 415].includes(r.status))) key.lost = true;
+  if (!r) return say(false, 'The daemon could not be reached, so the page does not know whether it took the run. Press Start again with the same content: at most one run is started.');
+  if (!named && r.ok) return say(false, 'The answer of the daemon could not be read, so the page does not know whether it took the run. Press Start again with the same content: at most one run is started.');
+  if (!r.ok) {
+    if (r.status === 401) { T.token = null; T.needs = true; }
+    return say(false, `${refusal(r, body)}${named || !key.lost ? '' : ' Press Start again with the same content: at most one run is started.'}`);
+  }
+  const run = body.published?.[0]?.payload?.run_id;
+  if (!run) return say(false, 'The daemon took the run but named none.');
+  T.msg = null;
+  T.maybe = false;
+  $('st-intake').value = '';
+  paint();
+  forget();
+  dlg.close();
+  if (openRun) await openRun(String(run));
 }
 
 async function open() {
@@ -196,7 +208,9 @@ async function open() {
   await probe();
   try { T.floor = (await rowsOf(CONFIGURATION))[0]?.confinement_floor ?? null; } catch { T.floor = null; }
   try { T.rows = await rowsOf(RUNBOOKS); } catch (e) { T.rows = []; T.msg = {ok: false, text: `The list of runbooks could not be read: ${e.message}`}; }
-  paint(true);
+  // not a reset: a level or a runbook the person picked since the first paint stays picked, when the floor and the
+  // list just read still offer it (a level below the floor just read is dropped and Start stays disabled)
+  paint();
   $('st-intake').focus();
 }
 

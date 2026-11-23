@@ -1,33 +1,12 @@
 // Security review, pass 1, of the unit daemon-page-starts-a-run: what the start form shows is text, and the
-// floor is the daemon's. A daemon of its own (stub runtime, no token, floor linux) on 127.0.0.1:0. The rows of
+// floor is the daemon's. The shared daemon of page-daemon.mjs (stub runtime, no token, floor linux) on 127.0.0.1:0. The rows of
 // a view and the refusals are answered by the test where the stub cannot make them hostile; invented texts.
-// The state directory lies under SEC_SCRATCH when it is set (the reviewer's scratch), else under node_modules.
+// Its state directory is page-daemon.mjs's, one per worker.
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
-import fs from 'node:fs';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {pageDaemon} from './page-daemon.mjs';
 
 const expect = plain.configure({timeout: 15000});
-const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
-let s, dir, n0;
-
-function start(name, args = [], env = {}) {
-  return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state'), ...args], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
-    let out = '', err = '';
-    const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
-    proc.stderr.on('data', (d) => { err += d; });
-    proc.stdout.on('data', (d) => {
-      out += d;
-      const m = out.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/);
-      if (m) { clearTimeout(timer); proc.removeAllListeners('exit'); resolve({proc, base: m[1], log: () => out + err}); }
-    });
-    proc.on('exit', (code) => { clearTimeout(timer); reject(new Error(`runbook exited with ${code}: ${err}${out}`)); });
-  });
-}
+let s, n0;
 
 const rows = (view, q = '') => fetch(`${s.base}/daemon/views/${view}${q}`).then((r) => r.json()).then((j) => j.rows);
 const added = async () => (await rows('runs')).length - n0;
@@ -39,17 +18,12 @@ const made = (page) => page.evaluate(() => ({ran: window.__ran ?? null, nodes: d
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own daemon: one project is enough'));
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  expect(fs.existsSync(bin), `${bin} is missing`).toBe(true);
-  const root = process.env.SEC_SCRATCH || path.join(ui, 'node_modules');
-  fs.mkdirSync(root, {recursive: true});
-  dir = fs.mkdtempSync(path.join(root, '.pw-start-content-'));
-  s = await start('content');
+  s = await pageDaemon('open');
 });
 test.beforeEach(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   n0 = (await rows('runs')).length;
 });
-test.afterAll(() => { if (s?.proc.exitCode == null) s?.proc.kill(); if (dir) fs.rmSync(dir, {recursive: true, force: true}); });
 
 function watch(page) {
   const problems = [];
