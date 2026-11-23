@@ -147,7 +147,14 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
     match v {
         Y::Null => Value::Null,
         Y::Bool(b) => Value::Bool(b),
-        Y::Number(n) => serde_json::to_value(n).unwrap_or(Value::Null),
+        Y::Number(n) => match serde_json::to_value(&n) {
+            Ok(Value::Null) | Err(_) => {
+                // inf and NaN are no JSON number: `shown` says them as Loom does.
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                Value::Object(Map::from_iter([("$float".to_string(), Value::String(f.to_string()))]))
+            }
+            Ok(v) => v,
+        },
         Y::String(s) => Value::String(s),
         Y::Sequence(s) => Value::Array(s.into_iter().map(yaml_to_json).collect()),
         Y::Mapping(m) => {
@@ -299,7 +306,9 @@ fn shown(v: &Value) -> String {
         Value::Null => "null".into(),
         Value::String(s) => format!("{s:?}"),
         Value::Array(_) => "a list".into(),
+        Value::Object(m) if m.len() == 1 && m.get("$float").is_some_and(Value::is_string) => m["$float"].as_str().unwrap_or_default().to_string(),
         Value::Object(_) => "an object".into(),
+        Value::Number(n) if n.is_f64() => n.as_f64().unwrap_or_default().to_string(),
         other => other.to_string(),
     }
 }
@@ -802,5 +811,95 @@ mod tests {
         }
         let found = budget_findings("{kind: open, name: c, bindings: c.yaml}", "    budget: {max_runs: 3}\n");
         assert_eq!(found, Vec::<String>::new(), "max_runs is read on every executor");
+    }
+
+    /// What `rework_limit` is, as Loom's decoder reads it (`Node::as_i64`: only a YAML integer from
+    /// 1 to `i64::MAX`), and the value as Loom shows it. `scripts/check-bindings.sh --budget` takes
+    /// the same table (`driver/tests/check_bindings_budget.rs`).
+    const LIMITS: [(&str, Option<&str>); 19] = [
+        ("2", None),
+        ("+2", None),
+        ("0x2", None),
+        ("9223372036854775807", None),
+        ("2.0", Some("2")),
+        ("1e0", Some("1")),
+        ("1e3", Some("1000")),
+        ("9223372036854775808", Some("9223372036854775808")),
+        (".inf", Some("inf")),
+        ("-.inf", Some("-inf")),
+        (".nan", Some("NaN")),
+        ("2.5", Some("2.5")),
+        ("0", Some("0")),
+        ("-1", Some("-1")),
+        ("007", Some("\"007\"")),
+        ("\"2\"", Some("\"2\"")),
+        ("null", Some("null")),
+        ("true", Some("true")),
+        ("[2]", Some("a list")),
+    ];
+
+    #[test]
+    fn a_rework_limit_is_a_whole_number_as_loom_reads_one_and_is_shown_as_loom_shows_it() {
+        for (value, shown) in LIMITS {
+            let found = budget_findings(PROGRAM, &format!("    budget: {{runs_per: rejection, rework_limit: {value}}}\n{RETRY}"));
+            match shown {
+                None => assert_eq!(found, Vec::<String>::new(), "rework_limit {value}"),
+                Some(shown) => assert_eq!(found, [format!("bindings/x.yaml: a.write: budget.rework_limit is {shown}; it is a whole number from 1")], "rework_limit {value}"),
+            }
+        }
+    }
+
+    /// An integer past 64 bits is no YAML value to Loom's reader or to this one (both read it as a
+    /// 128-bit integer and have no value for it): the file is refused as it is read, naming the
+    /// number, and `check` reports "does not parse". `scripts/check-bindings.sh` names the member.
+    #[test]
+    fn an_integer_past_64_bits_is_refused_with_the_file_as_loom_refuses_it() {
+        let text = "format: loom.bindings/1\nactions:\n  - action: a.write\n    budget: {runs_per: rejection, rework_limit: 99999999999999999999}\n";
+        let err = serde_yaml::from_str::<serde_yaml::Value>(text).unwrap_err().to_string();
+        assert!(err.contains("99999999999999999999") && err.contains("invalid type"), "{err}");
+    }
+
+    #[test]
+    fn the_member_a_non_program_executor_does_not_take_is_named_with_the_kind_in_capitals() {
+        let budget = "    budget: {runs_per: rejection}\n    retry_when:\n      code_review: [rejected]\n";
+        for (executor, kind) in [("{kind: agent, adapter: claude-code, model: m}", "Agent"), ("{kind: open, name: c, bindings: c.yaml}", "Open"), ("{kind: copy, evidence: e, from: p@1}", "Copy")] {
+            let found = budget_findings(executor, budget);
+            assert_eq!(found, [format!("bindings/x.yaml: a.write: budget.runs_per belongs to the Program and Person executors, not {kind}")]);
+        }
+    }
+
+    #[test]
+    fn a_rework_on_entry_that_is_empty_or_no_string_is_named_by_its_place() {
+        for (item, words) in [("\"\"", "is empty"), ("3", "is 3; it is a string"), ("[x]", "is a list; it is a string"), ("null", "is null; it is a string")] {
+            let found = budget_findings(PROGRAM, &format!("    budget: {{runs_per: rejection, rework_on: {{code_review: [{item}]}}}}\n{RETRY}"));
+            assert_eq!(found, [format!("bindings/x.yaml: a.write: budget.rework_on.code_review[0] {words}")], "{item}");
+        }
+    }
+
+    /// A rework_on list that is none is named with the shown value (a list, an object, a number).
+    #[test]
+    fn a_rework_on_kind_that_is_no_list_is_named_with_what_it_is() {
+        for (value, shown) in [("3", "3"), ("rejected", "\"rejected\""), ("{a: b}", "an object")] {
+            let found = budget_findings(PROGRAM, &format!("    budget: {{runs_per: rejection, rework_on: {{code_review: {value}}}}}\n{RETRY}"));
+            assert_eq!(found, [format!("bindings/x.yaml: a.write: budget.rework_on.code_review is {shown}; it is a list of strings")], "{value}");
+        }
+    }
+
+    /// What the check does not refuse today, though Loom does (the review of the unit
+    /// `loom-pin-d8944d49`, note 4): a `budget` that is no object, a member Loom does not know or
+    /// that sits in the wrong place, a `retry_when` result that is empty text, and a person without a
+    /// principal. This holds the behaviour as it is, so a change that adds one is seen here.
+    #[test]
+    fn the_check_does_not_yet_refuse_what_loom_refuses_beyond_the_rework_members() {
+        for (what, executor, rest) in [
+            ("a budget that is no object", PROGRAM, "    budget: 5\n"),
+            ("a budget that is null", PROGRAM, "    budget: null\n"),
+            ("a member Loom does not know", PROGRAM, "    budget: {rework_limt: 2}\n"),
+            ("a budget member that sits beside the budget", PROGRAM, "    rework_limit: 2\n"),
+            ("a retry_when result that is empty text", PROGRAM, "    budget: {runs_per: rejection}\n    retry_when:\n      code_review: [\"\"]\n"),
+            ("a person without a principal", "{kind: person}", "    budget: {runs_per: rejection}\n    retry_when:\n      merge_approval: [rejected]\n"),
+        ] {
+            assert_eq!(budget_findings(executor, rest), Vec::<String>::new(), "{what}");
+        }
     }
 }

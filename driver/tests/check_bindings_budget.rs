@@ -79,3 +79,50 @@ fn each_budget_defect_loom_refuses_at_load_is_a_named_line() {
         assert!(!out.contains("good.action") && !err.contains("jq:"), "{name}: {out}\n{err}");
     }
 }
+
+/// What `rework_limit` is as Loom's decoder reads it (a YAML integer from 1 to `i64::MAX` and
+/// nothing else: a float, an exponent form, a number past `i64::MAX`, a quoted number and `.inf`
+/// are refused) and the value as Loom shows it. `runbook check` takes the same table
+/// (`runbook/src/check.rs`).
+const LIMITS: [(&str, Option<&str>); 20] = [
+    ("2", None),
+    ("+2", None),
+    ("0x2", None),
+    ("9223372036854775807", None),
+    ("2.0", Some("2")),
+    ("1e0", Some("1")),
+    ("1e3", Some("1000")),
+    ("9223372036854775808", Some("9223372036854775808")),
+    ("99999999999999999999", Some("99999999999999999999")),
+    (".inf", Some("inf")),
+    ("-.inf", Some("-inf")),
+    (".nan", Some("NaN")),
+    ("2.5", Some("2.5")),
+    ("0", Some("0")),
+    ("-1", Some("-1")),
+    ("007", Some("\"007\"")),
+    ("\"2\"", Some("\"2\"")),
+    ("null", Some("null")),
+    ("true", Some("true")),
+    ("[2]", Some("a list")),
+];
+
+#[test]
+fn a_rework_limit_is_a_whole_number_as_loom_reads_one_and_is_shown_as_loom_shows_it() {
+    for (n, (value, shown)) in LIMITS.into_iter().enumerate() {
+        let o = check(&format!("limit-{n}"), &action(PROGRAM, &format!("{{runs_per: rejection, rework_limit: {value}}}"), RETRY));
+        let (out, err) = said(&o);
+        match shown {
+            None => {
+                assert_eq!(o.status.code(), Some(0), "rework_limit {value}: {out}\n{err}");
+                assert!(out.contains("pass budget"), "rework_limit {value}: {out}\n{err}");
+            }
+            Some(shown) => {
+                assert_eq!(o.status.code(), Some(1), "rework_limit {value}: {out}\n{err}");
+                assert!(out.contains("FAIL budget"), "rework_limit {value}: {out}\n{err}");
+                assert!(out.contains(&format!("bindings/fixture.yaml a.write: budget.rework_limit is {shown}; it is a whole number from 1")), "rework_limit {value}: {out}\n{err}");
+                assert!(!out.contains("good.action") && !err.contains("jq:") && !err.contains("yq:") && !err.contains("Error"), "rework_limit {value}: {out}\n{err}");
+            }
+        }
+    }
+}
