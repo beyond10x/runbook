@@ -608,9 +608,12 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
 ### What the spend cap promises
 
 A spend cap that is named and has nothing left starts nothing that may spend: no `tree run`, no
-handoff and no `tree approve`. "Nothing left" is the cap minus what was booked and what is reserved
-(over all runs of the ledger when the run names one, over the run's own total when it does not). A
-run that names no spend cap is never stopped by this.
+handoff, no `tree approve`, no program of an answers file and no conformance observation. "Nothing
+left" is the cap minus what was booked and what is reserved (over all runs of the ledger when the run
+names one, over the run's own total when it does not). A run that names no spend cap is never stopped
+by this. The limit beside the promise: a model that a bound program reaches by a name no text of the
+copy holds is outside it (see the limit of the rule under "A run without a model node";
+`the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_the_caps_count_nothing_it_does_by_itself`).
 
 - Before a `tree run` the reservation finds the cap with nothing left and the run ends
   `stopped: spend cap` (exit 4), whatever the bindings name. For a model tool that names its budget
@@ -634,6 +637,31 @@ run that names no spend cap is never stopped by this.
 - After the cap is passed the printed command of a handoff is not run
   (`after_the_cap_is_passed_the_printed_command_of_a_handoff_is_not_run`), and a decider that costs
   something is not asked (`a_decider_that_costs_something_is_not_asked_after_the_cap_is_passed`).
+- No program of an answers file is started once the cap is passed, wherever in its sequence that
+  happens: not the `requests` program after a step took the cap
+  (`guard_the_requests_program_of_an_answers_file_is_not_started_when_the_step_took_the_cap`), and
+  neither `apply` nor `then` after the decider's own cost took it
+  (`the_programs_of_an_answers_file_are_not_started_once_the_deciders_own_cost_took_the_cap`). A
+  program that already ran stays run: the check is before each program, so the first one that finds
+  nothing left is not started and the decision stays open (`guard_the_programs_of_an_answers_file_run_while_the_cap_has_room`
+  holds the other side). A decider whose own cost takes the cap stops the approve
+  (`guard_a_decider_whose_own_cost_takes_the_cap_is_followed_by_no_tree_approve`); the run
+  directory exists and the run is not resumed: a new run on the same ledger finds what is left.
+- The call cap is held the same way: once `--max-llm-calls` is reached no `tree approve` and no
+  program of an answers file is started
+  (`the_call_cap_reached_by_a_step_starts_no_tree_approve_for_the_decision_that_step_printed`; the run
+  ends `stopped: llm calls`, exit 6).
+- After a run closed, the conformance observation (`--conformance observe`, a model writes the
+  tables, 1 to 3 USD per product) is started only when something is left. It reserves from the cap
+  what the cap has left and books what its record names (the reservation when the record names
+  none, or cannot be written). With nothing left it is not started: the end of the run says
+  `conformance: not observed (spend cap: <spent> of <cap> micro USD spent, nothing left)` and the run
+  keeps the exit it had, 0 for a run that closed, because the observation decides nothing
+  (`a_run_that_closes_with_nothing_left_starts_no_conformance_observation`,
+  `a_run_that_closes_with_room_left_observes_and_books_what_its_record_names`,
+  `an_observation_of_unknown_cost_books_its_reservation`). With no cap named it is started as it
+  always was (`with_no_cap_named_the_observation_after_a_close_is_started`). The reservation is the
+  amount the cap has left; the observation's own tool does not stop at it.
 - With no spend cap named the same step books past what would have been a cap and its decision is
   answered (`with_no_cap_named_a_decision_after_a_costly_step_is_answered`).
 
