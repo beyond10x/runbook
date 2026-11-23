@@ -268,3 +268,47 @@ test('an action name over MAX_ACTION is cut and counted once per record, one of 
   expect(w.cutStrings).toBe(1);
   expect(w.groups.map((g) => g.actions.map((a) => a.length))).toEqual([[MAX_ACTION], [MAX_ACTION]]);
 });
+
+test('a name counts characters, not UTF-16 units: an action name and a path of the bound in four-byte characters are kept, one more is cut or refused', () => {
+  const astral = '\u{1F600}';
+  expect(cleanRel(astral.repeat(MAX_PATH))).toEqual({rel: astral.repeat(MAX_PATH)});
+  expect(cleanRel(astral.repeat(MAX_PATH + 1))).toBeNull();
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2, action: astral.repeat(MAX_ACTION)}), change(0, 'b.txt', {text: 'b\n', step: 3, action: astral.repeat(MAX_ACTION + 1)})]});
+  for (const f of ['a.txt', 'b.txt']) fs.writeFileSync(path.join(dir, 'work', f), `${f[0]}\n`);
+  const w = answerOf(dir, readSeeded(dir), listOf(dir));
+  expect(w.cutStrings).toBe(1);
+  expect(w.groups.map((g) => g.actions.map((a) => [...a].length))).toEqual([[MAX_ACTION], [MAX_ACTION]]);
+});
+
+test('a changed set of work roots with the same list folds the list again', () => {
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2}), change(0, 'b.txt', {text: 'b\n', step: 2, root: 'case/work'})]});
+  fs.writeFileSync(path.join(dir, 'work/a.txt'), 'a\n');
+  fs.mkdirSync(path.join(dir, 'case/work'), {recursive: true});
+  fs.writeFileSync(path.join(dir, 'case/work/b.txt'), 'b\n');
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  const at = (roots) => paths(writtenOf({runDir: dir, roots: roots.map((r) => path.join(dir, r)), seeded, changes: list, finished: finishedSteps(dir)}));
+  expect(at(['work'])).toEqual(['work/a.txt']);
+  expect(at(['work', 'case/work'])).toEqual(['case/work/b.txt', 'work/a.txt']);
+});
+
+test('a replaced seed record with the same list shows the marks of the new record', () => {
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2})]});
+  fs.writeFileSync(path.join(dir, 'work/a.txt'), 'a\n');
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  expect(paths(answerOf(dir, seeded, list))).toEqual(['work/a.txt']);
+  const replaced = {...seeded, files: new Map([...seeded.files, ['work/a.txt', sha('a\n')]])};
+  expect(paths(answerOf(dir, replaced, list)), 'a is now an input of the seed').toEqual([]);
+});
+
+test('a run directory that is gone between the listing and the answer refuses its names and throws nothing', () => {
+  const dir = fresh({written: [], extra: [change(0, 'a.txt', {text: 'a\n', step: 2})]});
+  fs.writeFileSync(path.join(dir, 'work/a.txt'), 'a\n');
+  const seeded = readSeeded(dir);
+  const list = listOf(dir);
+  expect(paths(answerOf(dir, seeded, list))).toEqual(['work/a.txt']);
+  fs.rmSync(dir, {recursive: true});
+  const w = answerOf(dir, seeded, list);
+  expect([paths(w), w.leftOut, w.gone]).toEqual([[], 1, 0]);
+});

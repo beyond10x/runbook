@@ -237,6 +237,7 @@ function recordLists(products) {
   if (products.gone) body.append(h('p', 'prod-note', `${plural(products.gone, 'file', 'files')} a record names ${products.gone === 1 ? 'is' : 'are'} no longer in the run`));
   if (products.refusedRecords) body.append(h('p', 'prod-note', `${plural(products.refusedRecords, 'change record names', 'change records name')} a path outside the run's work/ directory: not listed, not opened`));
   if (products.cutStrings) body.append(h('p', 'prod-note', `${plural(products.cutStrings, 'action name is', 'action names are')} cut to ${products.maxAction} characters`));
+  if (products.linkCut) body.append(h('p', 'prod-note prod-cut', `${plural(products.linkCut, 'name passes', 'names pass')} more than ${products.maxLinks} links: not listed, the inspector resolves no more than that for one name`));
   if (products.recordsStopped) body.append(h('p', 'prod-note prod-cut', `the list of file changes was read to record ${products.recordsStopped.read} only: ${products.recordsStopped.why}`));
   out.push(body);
   const inputs = products.inputs || {trees: [], files: 0};
@@ -288,7 +289,7 @@ function lists(c, products, src) {
 }
 
 export function renderProducts(host, {c, products, src, daemon}) {
-  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}:${f.mark}:${f.step}`), products?.basis, products?.basisNote, products?.notShown, products?.gone, products?.refusedRecords, products?.cutStrings, products?.recordsStopped?.cause, products?.recordsStopped?.read, products?.inputs, products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
+  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}:${f.mark}:${f.step}`), products?.basis, products?.basisNote, products?.notShown, products?.gone, products?.refusedRecords, products?.cutStrings, products?.linkCut, products?.recordsStopped?.cause, products?.recordsStopped?.read, products?.inputs, products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
   if (host.firstChild?.__sig === sig) return;
   const root = h('div', 'prod');
   root.__sig = sig;

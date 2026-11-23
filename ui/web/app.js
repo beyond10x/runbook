@@ -296,7 +296,7 @@ function render() {
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
   patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
-  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom)));
+  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom), S.liveData?.fs?.recordsStopped));
   patch($('#tree'), renderTree(cases, ns, now));
   const last = lastSeq(c);
   const at = S.atSeq ?? last;

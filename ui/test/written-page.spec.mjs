@@ -161,3 +161,18 @@ test('an action name that was cut and a list of changes that was not read to its
   await expect(note).toContainText('the records after them are not read');
   await expect(page.locator('#panel .prod-group .prod-file')).toHaveCount(2);
 });
+
+test('the feed of file changes says, as the tab does, that the list was not read to its end, as text', async ({page}) => {
+  await page.setViewportSize({width: 1600, height: 1000});
+  await page.goto(`${base2}/`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  const note = page.locator('#feed .fd-cut');
+  await expect(note).toHaveCount(1);
+  await expect(note).toContainText('read to record 203 only');
+  await expect(note).toContainText('the records after them are not read');
+  expect(await note.locator('*').count()).toBe(0);
+  await page.goto(`${base}/?run=seeded`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  await expect(page.locator('#feed .fd-list')).toBeVisible();
+  await expect(page.locator('#feed .fd-cut')).toHaveCount(0);
+});

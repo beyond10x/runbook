@@ -299,17 +299,24 @@ is compared by time:
   only names that lie in the run and are not there.
 - The answer of `/api/products` has `basis`: `records` (as above: `groups` by step, each with its `actions`
   and `files`; `files` flat in the same order; `inputs` `{trees, files}`; `total`, `shown`, `notShown`,
-  `truncated`, `cut`, `leftOut`, `gone`, `refusedRecords`, `cutStrings`, `maxAction`, `recordsStopped`) or `listing` (an older run, one without
+  `truncated`, `cut`, `leftOut`, `gone`, `linkCut`, `maxLinks`, `refusedRecords`, `cutStrings`, `maxAction`, `recordsStopped`) or `listing` (an older run, one without
   `--watch`, or a seed record that is incomplete: every file under `work/` as before, and `basisNote` says
   why). The products are not cut by depth; the page lists at most 500 and says how many are not shown. Every string of a record
   that enters the answer has a bound, and the answer says when it cut one: an action name is cut at `maxAction` (256)
-  characters and counted in `cutStrings` (`cut: "strings"`), a path longer than 1024 characters is not listed and is
-  counted in `refusedRecords`. The server keeps at most 100 000 records of `fs/changes.jsonl` for one run (the variable
-  `SDC_UI_MAX_RECORDS` sets it lower, for a test), and it keeps the state of the records with them, so an answer for a run
+  characters (a character of more than 16 bits counts one, and the cut never falls inside one) and counted in
+  `cutStrings` (`cut: "strings"`), a path longer than 1024 characters is not listed and is counted in `refusedRecords`.
+  An answer resolves at most `maxLinks` (8) link components of one name; a name past it is left out like a name behind a
+  link that leaves the run, and is counted in `linkCut` besides `leftOut` (`cut: "links"`). The server keeps at most
+  100 000 records of `fs/changes.jsonl` for one run and at most 64 MiB of their lines, without the diff (the variables
+  `SDC_UI_MAX_RECORDS` and `SDC_UI_MAX_RECORD_BYTES` set them, for a test; a value that is not a whole number of at least 1
+  is the default), and it keeps the state of the records with them, so an answer for a run
   that did not change reads no record again; each answer still looks at the files it lists. When the reader stops before
-  the end of that file (a line longer than 32 MiB or bytes with no line end in a whole chunk, or the 100 000 records)
-  the answer has `recordsStopped` `{cause: "line" | "records", read, offset, size, why}`, `truncated: true` and
-  `cut: "records"`; a file the reader cannot take one record from is answered as `listing` with the reason.
+  the end of that file (a line longer than 32 MiB or bytes with no line end in a whole chunk, the 100 000 records or the
+  64 MiB) the answer has `recordsStopped` `{cause: "line" | "records" | "bytes", read, offset, size, why}`,
+  `truncated: true` and `cut: "records"`; a file the reader cannot take one record from is answered as `listing` with the
+  reason. The live feed is cut at the same bound: `/api/live` carries the same `recordsStopped` in `fs` (the feed and the
+  File changes tab show it as a note), and `/api/fschange` answers a change after the last record the list holds as
+  `404` "past the bound" with `recordsStopped`, never as "no such change".
 - The file the product line names is the last file the last finished step wrote (`via: last-written`),
   never a file of an input tree; a view's `product` or the runbook's own file is refused when it is an
   unchanged seeded file. For an older run the newest Markdown file is taken, but not one inside a tree with
