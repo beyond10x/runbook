@@ -73,8 +73,21 @@ export function waitOf(c) {
 // and no lock, so the page never says a run is live: `history` (a case store of the old driver) is not live,
 // and a step started there and never finished is 'gone'; any other state says nothing: 'unknown'.
 export function liveState(c, live) {
-  if (live?.liveness?.state === 'history') return {state: 'gone', why: live.liveness.why};
+  if (live?.liveness?.state === 'history' || live?.liveness?.state === 'not_live') return {state: 'gone', why: live.liveness.why};
   return {state: 'unknown'};
+}
+
+// What the runner's own record says (server.mjs livenessOf, runnerlive.mjs): the process that runs the run is alive and a
+// step is in flight ('running'), alive with none ('between'), or not there ('not_live'). `step` is the last action that
+// started: {action, case, try, at (seconds), source, role}. null for a run without the record: then the page says nothing
+// about a live process, as before.
+export function procOf(live) {
+  const l = live?.liveness;
+  if (!l || !['running', 'between', 'not_live'].includes(l.state)) return null;
+  const s = l.step && typeof l.step === 'object' ? l.step : null;
+  const str = (v) => (typeof v === 'string' && v ? v : null);
+  const t = s && Number.isFinite(s.at) ? s.at * 1000 : null;
+  return {state: l.state, why: str(l.why) || '', pid: l.runner?.pid ?? null, step: s ? {action: str(s.action), case: str(s.case), try: Number.isFinite(s.try) ? s.try : null, t, source: str(s.source)} : null};
 }
 
 // Pair calls in progress with what they serve: an agent call with the in-flight action of the same
@@ -132,7 +145,10 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
   }
   const root = cases.find((c) => !c.parent) || cases[0];
   const term = root?.events.find((e) => e.event === 'terminated');
-  const stuck = cases.filter((c) => { const l = lastVerdictish(c); return l && ['stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent'].includes(l.event); });
+  // A run with the runner's record: `step_budget_spent` is Loom's answer to every `tree run --max-steps 1` (the budget of
+  // that one step is spent: `stop: BudgetSpent`), so it is the end of a step and not a stop of the case.
+  const proc = procOf(live);
+  const stuck = cases.filter((c) => { const l = lastVerdictish(c); return l && ['stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent'].includes(l.event) && !(proc && l.event === 'step_budget_spent'); });
   const terminable = cases.filter((c) => lastVerdictish(c)?.event === 'terminable' && !c.events.some((e) => e.event === 'terminated'));
   const between = cases.filter((c) => {
     const l = c.events[c.events.length - 1];
@@ -141,12 +157,19 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
   // a run stopped on purpose (run-stopped.json): said as such, whatever it was doing at the stop
   const stopped = run?.stopped && !isNaN(Date.parse(run.stopped.at)) ? {...run.stopped, t: Date.parse(run.stopped.at)} : null;
   let mode = stopped ? 'stopped' : running.length ? 'running' : gone.length ? 'gone' : waiting.length ? 'waiting' : stalled.length ? 'stalled' : term ? 'closed' : stuck.length ? 'stuck' : terminable.length ? 'terminable' : between.length ? 'between' : 'idle';
+  // the runner's own record decides what a run that nothing else settles is doing
+  if (proc && !stopped && !term && mode !== 'closed') {
+    if (proc.state === 'running') mode = 'running';
+    else if (proc.state === 'between' && ['gone', 'idle', 'between'].includes(mode)) mode = 'between';
+    else if (proc.state === 'not_live' && ['running', 'gone', 'idle', 'between'].includes(mode)) mode = 'notlive';
+  }
   const lastT = Math.max(0, ...cases.map((c) => Math.max(0, ...Object.values(c.times || {}))));
   // no stop record and not closed: the runner records no live process, so nothing says the run moves and
   // its clocks stand at the last event (the page's clock is that time)
   const lastAt = lastT || Math.max(0, ...cases.flatMap((c) => c.events.map((e) => Date.parse(e.at) || 0))) || null;
-  const idle = !stopped && !term && mode !== 'closed' && lastAt ? {t: lastAt} : null;
-  return {mode, stopped, idle, autopilot: autopilot(run?.settings), liveness: live?.liveness?.state || 'unknown', running, gone, runner, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
+  // a live runner's clocks run: only a run nothing is known to move stands at its last event
+  const idle = !stopped && !term && mode !== 'closed' && !(proc && proc.state !== 'not_live') && lastAt ? {t: lastAt} : null;
+  return {mode, proc, stopped, idle, autopilot: autopilot(run?.settings), liveness: live?.liveness?.state || 'unknown', running, gone, runner, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
     steps: cases.reduce((n, c) => n + c.events.filter((e) => e.event === 'action_finished').length, 0)};
 }
 function lastVerdictish(c) {
@@ -392,6 +415,24 @@ export function stallText(stall) {
   return `No step can run: ${x.action} used its ${x.max} runs${x.error ? ` (last error: ${x.error})` : ` (its last run exited ${x.exit}; no error recorded)`}`;
 }
 
+// The runner's record in a card: what it is doing, plain text. The case and the action are run content.
+function procCard(st, now) {
+  const p = st.proc, s = p.step;
+  const line = (verb, cls, main, sub, time) => `<div class="nc idle k-driver${cls}" data-key="rest:proc:${st.mode}"${s?.case ? ` data-goto="${esc(caseRel(st, s.case))}"` : ''} title="${esc('runner.json and events.jsonl of the run directory')}">${orb('driver', st.mode === 'running')}<div class="nc-main"><div class="nc-1"><span class="nc-verb${cls ? ' bad' : ''}">${esc(verb)}</span>${main}</div>
+      <div class="nc-2"><span class="nc-x">${esc(sub)}</span></div></div>${time}</div>`;
+  const act = s?.action ? `<b class="nc-act">${esc(s.action)}</b>${s.case ? `<span class="nc-in">in</span><span class="nc-case">${esc(s.case)}</span>` : ''}` : '';
+  if (st.mode === 'running') {
+    return line('Running', '', act || `<b class="nc-act">a step</b>`, `The runner (pid ${p.pid}) started it${s?.try != null ? `, try ${s.try}` : ''}${s?.source === 'step_call' ? '; the runner does not know which action it is' : ''}.`,
+      s?.t != null ? `<div class="nc-time"><span class="tk" data-since="${s.t}">${fmtDur(now - s.t)}</span><span class="nc-since">since ${clock(s.t)}</span></div>` : '');
+  }
+  if (st.mode === 'notlive') {
+    return line('Not live', ' k-stuck', s ? `<span class="nc-in">last started</span>${act || `<b class="nc-act">a step</b>`}` : '<span class="nc-in">no action was started</span>', `${p.why || 'Nothing runs this run.'}`,
+      s?.t != null ? `<div class="nc-time"><span class="tk">${fmtDur(now - s.t)}</span><span class="nc-since">since ${clock(s.t)}</span></div>` : '');
+  }
+  return line('Between steps', '', '', `The runner (pid ${p.pid}) is alive and no action is in flight.`, '');
+}
+const caseRel = (st, id) => { const c = [st.root, ...st.between].find((x) => x && x.id === id); return c ? c.rel : st.root?.rel || ''; };
+
 function restCard(st, now) {
   const root = st.root;
   if (st.mode === 'stopped') {
@@ -410,6 +451,7 @@ function restCard(st, now) {
       <div class="nc-3"><span class="nc-why">Not a decision: the driver says it waits on ${esc(stallRule()?.action)}, but no ${esc(stallRule()?.noun || "record")} has status ${esc(stallRule()?.needs_person || "needs_person")}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since ${clock(t)}</span></div>` : ''}</div>`).join('');
   }
   const last = st.lastT;
+  if (st.proc && (st.mode === 'running' || st.mode === 'between' || st.mode === 'notlive')) return procCard(st, now);
   if (st.mode === 'closed') {
     return `<div class="nc idle k-done" data-key="rest:closed" data-goto="${esc(root.rel)}">${orb('done')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Closed</span><b class="nc-act">${esc(root.id)}</b><span class="nc-in">ended</span><span class="nc-out">${esc(st.term.outcome)}</span></div>
       <div class="nc-2"><span class="nc-x">Nothing running and nothing waiting.</span><span class="nc-dim">${st.steps} steps${last ? ` · last change ${ago(last, now)}` : ''}</span></div></div></div>`;
@@ -483,7 +525,7 @@ export function nowSay(st) {
   if (!st.idle) return said;
   // a started step in a run that is not live already says so
   if (st.mode === 'gone') return {head: said.head, sub: said.sub.replace(/^a started step never finished, the run is not live/, (m) => `${m}, last activity ${clock(st.idle.t)}`)};
-  const idle = `${st.liveness === 'history' ? 'not live' : 'live state unknown'}, last activity ${clock(st.idle.t)}`;
+  const idle = `${st.liveness === 'history' || st.liveness === 'not_live' ? 'not live' : 'live state unknown'}, last activity ${clock(st.idle.t)}`;
   return {head: said.head, sub: said.sub ? `${idle} · ${said.sub}` : idle};
 }
 function sayNow(st) {
@@ -512,6 +554,13 @@ function sayNow(st) {
   }
   if (st.mode === 'stalled') return {head: stallText(st.stalled[0].stall), sub: st.stalled.length > 1 ? `${st.stalled.length} cases` : ''};
   if (st.mode === 'closed') return {head: `Closed${st.term?.outcome ? `: ended ${st.term.outcome}` : ''}`, sub: ''};
+  if (st.proc && st.mode === 'running') {
+    const s = st.proc.step;
+    const mins = s?.t != null ? Math.max(0, Math.floor((st.now - s.t) / 60000)) : null;
+    return {head: s?.t != null ? `${s.action ?? 'A step'} running since ${clock(s.t)}, ${mins} min` : `${s?.action ?? 'A step'} running`, sub: [s?.case, s?.try != null ? `try ${s.try}` : null, n ? `${n} waiting` : null].filter(Boolean).join(' · ')};
+  }
+  if (st.proc && st.mode === 'notlive') return {head: st.proc.step ? `Not live: last started ${st.proc.step.action ?? 'a step'}` : 'Not live: no action was started', sub: st.proc.why};
+  if (st.proc && st.mode === 'between') return {head: 'Between steps', sub: 'the runner is alive, no action is in flight'};
   const head = {running: `${st.running.length} running`, gone: 'Nothing running', terminable: 'Nothing running', between: 'Between steps', idle: 'Nothing running'}[st.mode];
   const sub = st.mode === 'gone' ? `a started step never finished, the run is not live${n ? ` · ${n} waiting` : ''}` : st.mode === 'running' && n ? `${n} waiting${mine && !st.autopilot ? ` on you` : ''}` : '';
   return {head, sub};
@@ -534,6 +583,8 @@ export function nowBar(st) {
   const holder = (w) => (w.kind === 'decider' ? `Decider ${w.record?.model || ''}`.trim() : w.holder?.label || 'a person');
   let step;
   if (st.mode === 'stopped') step = wasLines(st)[0]?.text.replace(/^was /, 'Was ') || 'Nothing was running or waiting';
+  else if (st.proc && st.mode === 'running' && !st.running.length) step = `${st.proc.step?.action ?? 'a step'}${st.proc.step?.case ? ` in ${st.proc.step.case}` : ''}`;
+  else if (st.proc && st.mode === 'notlive' && !st.gone.length) step = st.proc.step ? `Last started ${st.proc.step.action ?? 'a step'}` : 'No action was started';
   else if (st.running.length) step = st.running.map((r) => `${r.action} · ${KIND_LABEL[r.kind] || r.kind}${r.kind === 'llm' && r.exec?.model ? ` ${r.exec.model}` : ''}`).join(' and ');
   else if (st.gone.length) step = `${st.gone[0].action}: started, never finished, the run is not live`;
   else if (st.waiting.length) step = `${st.waiting[0].action || st.waiting[0].verdict.replace(/_/g, ' ')} · held by ${holder(st.waiting[0])}${st.waiting.length > 1 ? ` (+${st.waiting.length - 1})` : ''}`;

@@ -1,6 +1,6 @@
 [package]
 name = "runbook"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 publish = false
 
@@ -21,6 +21,7 @@ uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
 sdc_tools = { path = "../driver", package = "sdc-tools" }
+b10x-loom-intake-slice = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
 b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
 b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
 b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }

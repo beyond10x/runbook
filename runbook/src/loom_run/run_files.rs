@@ -1,11 +1,12 @@
 //! The files of this unit in the run directory: `settings.json`, `events.jsonl` (one JSON object
 //! per event), `outcome.json`, `tree-status.json` and `tree-verify.json`.
 
-use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
+use crate::loom_run::events::{Cap, CostSource, Event, EventSink, StartSource};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Writes R1's files as events arrive.
 pub struct BasicFiles {
@@ -35,16 +36,48 @@ pub fn relative_text(run_dir: &Path, text: &str) -> String {
 }
 
 /// Writes `bytes` to `path` through a temporary file and a rename, so a reader never sees half a file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+///
+/// The run directory is written by the programs of a run too (`--confinement local`), so no name in it is trusted: the
+/// temporary file is created as new (`O_EXCL`: nothing at the name is followed, opened or written through) under a dot
+/// name the writer chooses for this one write, and the rename replaces whatever lies at `path`, a link or a pipe too. A
+/// name that is taken is not used: the next one is tried.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let leaf = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut last = String::new();
+    for _ in 0..16 {
+        let tmp = path.with_file_name(format!(".{leaf}.{}.{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
+        let mut file = match OpenOptions::new().write(true).create_new(true).mode(0o644).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&tmp) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last = format!("{}: {e}", tmp.display());
+                continue;
+            }
+            Err(e) => return Err(format!("{}: {e}", tmp.display())),
+        };
+        let written = file.write_all(bytes).and_then(|()| file.flush()).map_err(|e| format!("{}: {e}", tmp.display()));
+        drop(file);
+        let renamed = written.and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display())));
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        return renamed;
+    }
+    Err(last)
 }
 
 /// The JSON object of one event: `{"at": secs, "event": "<name>", ...}`.
 pub fn event_json(at_secs: u64, event: &Event) -> Value {
     let (name, fields) = match event {
         Event::RunStarted { run, settings } => ("run_started", json!({"run": run, "settings": settings})),
+        Event::ActionStarted { source, role, case, action, try_number } => {
+            let source = match source {
+                StartSource::ProgramStart => "program_start",
+                StartSource::StepCall => "step_call",
+            };
+            ("action_started", json!({"source": source, "role": role, "case": case, "action": action, "try": try_number}))
+        }
         Event::StepMade { index, exit, stop, steps } => ("step_made", json!({"index": index, "exit": exit, "stop": stop, "steps": steps})),
         Event::DecisionAsked { decision } => ("decision_asked", json!({"decision": decision})),
         Event::DecisionAnswered { decision, approve, principal, cost_micro_usd, model_calls } => (
@@ -138,4 +171,54 @@ pub fn write_tree_files(run_dir: &Path, status_stdout: Option<&[u8]>, verify_exi
     });
     let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
     write_atomic(&run_dir.join("tree-verify.json"), text.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir(tag: &str) -> PathBuf {
+        let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("run-files-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn mkfifo(path: &Path) {
+        let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0, "mkfifo {}", path.display());
+    }
+
+    #[test]
+    fn write_atomic_writes_past_a_pipe_and_a_link_at_the_old_temporary_name_and_replaces_what_lies_at_the_name() {
+        let d = dir("atomic");
+        let outside = d.join("outside.txt");
+        std::fs::write(&outside, "keep\n").unwrap();
+        mkfifo(&d.join("a.tmp"));
+        write_atomic(&d.join("a.json"), b"one\n").unwrap();
+        assert_eq!(std::fs::read_to_string(d.join("a.json")).unwrap(), "one\n");
+        std::fs::remove_file(d.join("a.tmp")).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("a.tmp")).unwrap();
+        write_atomic(&d.join("a.json"), b"two\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
+        // a link and a pipe at the name itself are replaced, not written through
+        std::fs::remove_file(d.join("a.json")).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("a.json")).unwrap();
+        write_atomic(&d.join("a.json"), b"three\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
+        assert!(std::fs::symlink_metadata(d.join("a.json")).unwrap().is_file());
+        std::fs::remove_file(d.join("a.json")).unwrap();
+        mkfifo(&d.join("a.json"));
+        write_atomic(&d.join("a.json"), b"four\n").unwrap();
+        assert_eq!(std::fs::read_to_string(d.join("a.json")).unwrap(), "four\n");
+    }
+
+    #[test]
+    fn write_atomic_leaves_no_temporary_file_after_a_write_that_fails() {
+        let d = dir("failed");
+        std::fs::create_dir(d.join("a.json")).unwrap();
+        assert!(write_atomic(&d.join("a.json"), b"x\n").is_err());
+        let names: Vec<String> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["a.json".to_owned()]);
+    }
 }

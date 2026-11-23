@@ -44,15 +44,30 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
   at the stop; the run picker and the case tree mark it; its open decisions show greyed in the
   drawer; the inspector takes none of them.
-- Whether a run is live: `runbook run` writes `settings.json` when it starts and `run-stopped.json`
-  or a `status.json` with state `closed` when it ends, and no pid or lock record, so nothing in a
-  run directory tells a live run from one that was killed. The server reads those files only and
-  never looks a process up. An ended run is stopped or closed (above). A run directory with
-  `settings.json` and no end record is "live state unknown": the Now band and the run picker say
-  so, and every clock stands at the last event, including the waiting time. A case store an older
-  runtime left (no `settings.json`) is history: reported "not live", and a step it started and
-  never finished is shown as "Not live", not running. `/api/live` carries this as `liveness`
-  (`ended`, `unknown` or `history`).
+- Whether a run is live: `runbook run` writes `settings.json` when it starts, `run-stopped.json` or a
+  `status.json` with state `closed` when it ends, and `runner.json` (its pid, the start time the kernel gave it,
+  and `closed_at`) with an `action_started` line in `events.jsonl` for each action that starts
+  (`docs/loom-run-directory.md`, "The runner and the step in flight"). An ended run is stopped or closed (above).
+  A run with `runner.json` is one of three, by `ui/runnerlive.mjs`: **running** (the runner lives and an action
+  started after its last step ended: the band says "<action> running since <time>, <n> min", the minutes
+  ticking), **between steps** (the runner lives and no action is in flight: "Between steps"; a case whose last
+  Loom event is `step_budget_spent` is not "Stopped" then, that event ends every `tree run --max-steps 1`) or
+  **not live** (the record is closed, or no process of that pid has that start time, or the process has ended and its
+  parent has not yet collected it, state `Z` or `X`: "Not live: last started <action>", and a step it started is not
+  shown running; the clocks stand at the last event). The server asks the kernel one thing, whether
+  `/proc/<pid>/stat` field 22 equals `start_ticks` (and field 3 is no `Z` or `X`): it reads that file, sends no
+  signal and needs no permission beyond the read of `/proc`; a read that fails for another reason than "no such
+  process" makes the run unknown, with that reason in `liveness.why` of `/api/live` (the page says "live state unknown" and shows no reason). The run files are read through the checked open as
+  every other. `runner.json` and the start lines are what files of the run directory claim: under `--confinement
+  local` a program of the run can write them, so they are read as text and a claim, nothing acts on them, a
+  `runner.json` over 4 KiB, or one that is not a regular file, has more than one name or is not a record, is not read (unknown; `liveness.why` says which), and the `action`, `case` and `source` of a start line are cut to 256
+  characters. A run directory with `settings.json`, no end record and no `runner.json` (an older runner)
+  is "live state unknown", as before: the Now band and the run picker say so and every clock stands at the last
+  event, including the waiting time. A case store an older runtime left (no `settings.json`) is history:
+  reported "not live", and a step it started and never finished is shown as "Not live", not running.
+  `/api/live` carries this as `liveness` (`ended`, `running`, `between`, `not_live`, `unknown` or `history`;
+  with `runner` {pid, started_at, closed_at} and `step` {action, case, try, at, source, role}
+  for `running`, `between` and `not_live`).
 - `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
   holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
   "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
@@ -366,10 +381,10 @@ Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `t
 ## Where "now" comes from
 
 - In flight: a case's `action_started` without a later `action_finished`.
-- Whether the run is live: see "Whether a run is live" above. The runner writes no pid and no lock,
-  so the Now band never says a run is live. A run directory of the runner with no end record says
-  "live state unknown"; a case store of an older runtime says "not live", and a step it started and
-  never finished shows as "Not live", not running.
+- Whether the run is live: see "Whether a run is live" above. A run with the runner's record says
+  running, between steps or not live; a run directory of an older runner with no end record says "live
+  state unknown"; a case store of an older runtime says "not live", and a step it started and never
+  finished shows as "Not live", not running.
 - Since when: `observed.jsonl` beside each `events.jsonl` (`sdc.observed/1`: index, event, action,
   observed_at, pid), matched by line index to the events (and by `event` when the line has it);
   the card says "driver observed_at". Without it, the server's clock of each event line (the mtime
@@ -414,7 +429,9 @@ and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`
 `meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
-`stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
+`stall-model.spec.mjs` test the derivations without a browser; `runner-live-model.spec.mjs` does it for the three
+states of a run with the runner's record, and `runner-live.spec.mjs` serves hand-made live runs (`runner-fixture.mjs`) and holds the
+server's answer and the page's three texts at the wide size. `test/read-only.spec.mjs` proves the
 inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
 an option of the removed acts exits 2, and a Decisions drawer shows the line on where a decision is
 answered and no control that acts; its last test holds the mode: the page says "watch", has no
