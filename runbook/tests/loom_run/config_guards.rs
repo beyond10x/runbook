@@ -286,6 +286,7 @@ fn the_file_has_no_key_for_the_floor_of_the_daemon() {
         let o = rig.run(&rig.root, &["config", "--config", &file.display().to_string()]);
         assert_eq!(code(&o), 2, "{text}: {}{}", out(&o), err(&o));
         assert!(err(&o).contains(&file.display().to_string()) && !err(&o).contains("\"local\""), "{text}: {}", err(&o));
+        assert!(err(&o).contains("not a key of runbook.toml"), "the key is refused by the file's own key check, not by a reader further down: {text}: {}", err(&o));
     }
     let file = rig.put("floor-serve.toml", "min_confinement = \"local\"\n");
     let o = rig.run(
