@@ -305,10 +305,17 @@ code, and the files of the run with their content. It reads and acts on nothing.
   dot-directory (a `case` with a dot component is 404, as for the file route); it is read through the
   same bounded regular-files reader, at most 200000 bytes of it, and a file over that is 404, not read
   whole.
+- A path the request names without a dot, whose real path has one (a link into a dot-directory), is
+  answered as any path that is not served (404, "only a file under a `work/` directory of the run is
+  served"); the answer does not say what the target is.
 - The other reads of the server's own are bounded too: a file read as text (`readText`) over its limit is
-  not read at all (the default is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
+  not read at all, and a regular file with more than one link is not read (`null`, as an absent file), for
+  every caller (`console.txt`, `expected-llm-calls.txt`, the events, the case files; the default limit is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
   64 KiB). The reads of the run's own small control files (`settings.json`, `events.jsonl`, case
-  state) keep the default bound; no smaller size is defined for them.
+  state) keep the default bound; no smaller size is defined for them. Three reads open a file of a run
+  themselves and have neither the link-count check nor the limit of `readText`: the first 64 KiB of
+  `events.jsonl` (the protocol of a case), and `fs/changes.jsonl` read from the offset the page has seen and
+  by position for one change.
 - An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
   page draws at most 24 levels of it (`cut at depth 24`).
 - A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
