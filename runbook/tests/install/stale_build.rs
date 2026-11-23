@@ -97,7 +97,7 @@ mod commit_source;
 /// it was built from. The script compares that commit with HEAD, stops, names both and writes nothing.
 #[test]
 fn a_branch_moved_from_another_work_tree_changes_no_watched_file_and_the_install_refuses_the_binary() {
-    let root = fake_checkout("adv3-moved-elsewhere", None);
+    let root = fake_checkout("moved-elsewhere", None);
     let (sandbox, prefix) = sandbox_of(&root);
     fs::write(root.join("runbook/Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
     git_in(&root, &["add", "runbook/Cargo.toml"]);
@@ -127,5 +127,26 @@ fn a_branch_moved_from_another_work_tree_changes_no_watched_file_and_the_install
     let o = from_built(&root, &prefix);
     assert_eq!(code(&o), 1, "{}", err(&o));
     assert!(err(&o).contains(&built_from) && err(&o).contains(&head), "both commits are named: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// A checkout whose refs are in the reftable format cannot be installed: the build says the commit `unknown` there (it
+/// has no file to watch for HEAD), and HEAD is a commit. The script stops, names both and writes nothing.
+#[test]
+fn a_reftable_checkout_is_refused_because_the_binary_cannot_name_its_commit() {
+    let root = fake_tree("reftable");
+    let init = Command::new("git").args(["init", "-q", "--ref-format=reftable"]).current_dir(&root).env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").output().unwrap();
+    if !init.status.success() {
+        eprintln!("this git has no --ref-format=reftable: nothing checked");
+        return;
+    }
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "a reftable checkout"]);
+    stubs(&root, None, &stub_version("unknown"));
+    let (_sandbox, prefix) = sandbox_of(&root);
+    let head = head12(&root);
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("unknown") && err(&o).contains(&head), "both are named: {}", err(&o));
     assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }

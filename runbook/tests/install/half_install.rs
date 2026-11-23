@@ -184,12 +184,12 @@ fn an_install_whose_last_rename_fails_keeps_the_marker() {
     assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker is gone and the install did not finish: {}", err(&o));
 }
 
-/// A line of the old MANIFEST that names the marker is not removed when it is spelled `share/runbook/INSTALLING`; with
-/// two slashes it is: the names the install keeps for itself are compared as text. The install then stops (a stub `cp`
-/// fails, as on a full disk) and the prefix has no marker.
+/// A line of the old MANIFEST that names the marker removes nothing, spelled `share/runbook/INSTALLING` or with two
+/// slashes: a spelling the script does not write is never compared as text with the names the install keeps for itself.
+/// The install then stops (a stub `cp` fails, as on a full disk) and the marker is still there.
 #[test]
 fn an_old_manifest_line_that_spells_the_marker_with_two_slashes_does_not_remove_it() {
-    let root = fake_checkout("adv3-manifest-slashes", None);
+    let root = fake_checkout("manifest-slashes", None);
     let (sandbox, prefix) = sandbox_of(&root);
     assert_eq!(code(&from_built(&root, &prefix)), 0);
     let manifest = prefix.join("share/runbook/MANIFEST");
@@ -200,4 +200,43 @@ fn an_old_manifest_line_that_spells_the_marker_with_two_slashes_does_not_remove_
     let o = from_built_with(&root, &prefix, &format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()), &[]);
     assert_ne!(code(&o), 0);
     assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the install did not finish and the marker is gone: {}", err(&o));
+}
+
+/// A line of the old MANIFEST that is not in the form this script writes (an empty part, `.` or `..` as a part, a
+/// leading `/`) removes nothing and is named on standard error, with the reason; a line in the form is still removed.
+#[test]
+fn an_old_manifest_line_that_is_not_in_the_form_the_script_writes_removes_nothing_and_is_named() {
+    let root = fake_checkout("manifest-form", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    assert_eq!(code(&from_built(&root, &prefix)), 0);
+    fs::write(prefix.join("share/runbook/protocol/dropped.txt"), "from an older install\n").unwrap();
+    let odd = [
+        "share/runbook//INSTALLING",
+        "share/runbook/protocol//file.txt",
+        "share/runbook/./protocol/file.txt",
+        "share/runbook/protocol/../protocol/file.txt",
+        "/share/runbook/protocol/file.txt",
+        "share/runbook/protocol/",
+    ];
+    let manifest = prefix.join("share/runbook/MANIFEST");
+    let mut text = fs::read_to_string(&manifest).unwrap();
+    text.push_str("share/runbook/protocol/dropped.txt\n");
+    for line in odd {
+        text.push_str(line);
+        text.push('\n');
+    }
+    fs::write(&manifest, text).unwrap();
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    for line in odd {
+        assert!(
+            err(&o).lines().any(|l| l.contains(&format!("not removing {line}:")) && l.contains("form")),
+            "{line} is named with the reason: {}",
+            err(&o)
+        );
+        assert!(!err(&o).contains(&format!("removed {line} ")), "{line} removed something: {}", err(&o));
+    }
+    assert!(err(&o).contains("removed share/runbook/protocol/dropped.txt"), "a line in the form is still removed: {}", err(&o));
+    assert!(!prefix.join("share/runbook/protocol/dropped.txt").exists());
+    assert!(!prefix.join("share/runbook/INSTALLING").exists(), "the install finished");
 }

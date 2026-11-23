@@ -7,9 +7,9 @@ fn version_of(prefix: &Path) -> String {
     fs::read_to_string(prefix.join("share/runbook/VERSION")).unwrap()
 }
 
-/// A clean checkout gives `VERSION` = what the binary prints; a tracked file of a copied directory that differs from
-/// HEAD adds ` dirty`, and the bytes installed are those of the work tree, not of HEAD. An untracked file there and a
-/// change outside the copied directories add no mark.
+/// A clean checkout gives `VERSION` = what the binary prints; any tracked file of the checkout that differs from HEAD
+/// (in a copied directory or outside them) adds ` dirty`, and the bytes installed are those of the work tree, not of
+/// HEAD. An untracked file adds no mark.
 #[test]
 fn version_names_head_and_a_tracked_change_adds_one_word_and_installs_the_work_tree_bytes() {
     let root = fake_checkout("fix2-dirty", None);
@@ -25,9 +25,11 @@ fn version_names_head_and_a_tracked_change_adds_one_word_and_installs_the_work_t
     git_in(&root, &["commit", "-q", "-m", "readme"]);
     stubs(&root, None, &stub_version(&head12(&root)));
     let clean = stub_version(&head12(&root));
+    assert_eq!(code(&from_built(&root, &prefix)), 0);
+    assert_eq!(version_of(&prefix), format!("{clean}\n"), "an untracked file");
     fs::write(root.join("README.md"), "changed, and still outside\n").unwrap();
     assert_eq!(code(&from_built(&root, &prefix)), 0);
-    assert_eq!(version_of(&prefix), format!("{clean}\n"), "an untracked file and a change outside the copied directories");
+    assert_eq!(version_of(&prefix), format!("{clean} dirty\n"), "a tracked file outside the copied directories differs from HEAD");
 
     fs::write(root.join("protocol/file.txt"), "edited and not committed\n").unwrap();
     let second = sandbox.join("second/prefix");
@@ -41,11 +43,11 @@ fn version_names_head_and_a_tracked_change_adds_one_word_and_installs_the_work_t
 }
 
 /// `VERSION` names HEAD as the commit the binary was built from and marks a work tree that differs with ` dirty`. The
-/// mark looks at the copied directories only: with an uncommitted change in a tracked source of the binary
-/// (`runbook/src/`, `runbook/Cargo.lock`) the prefix says it is HEAD as it stands.
+/// mark covers every tracked file of the checkout, not only the copied directories: with an uncommitted change in a
+/// tracked source of the binary (`runbook/src/`, `runbook/Cargo.lock`) the prefix does not say it is HEAD as it stands.
 #[test]
 fn version_has_a_dirty_mark_when_a_tracked_source_of_the_binary_differs_from_head() {
-    let root = fake_checkout("adv3-dirty-source", None);
+    let root = fake_checkout("dirty-source", None);
     let (_sandbox, prefix) = sandbox_of(&root);
     fs::create_dir_all(root.join("runbook/src")).unwrap();
     fs::write(root.join("runbook/src/main.rs"), "fn main() {}\n").unwrap();

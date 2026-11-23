@@ -246,12 +246,11 @@ fn a_checkout_whose_git_names_another_work_tree_is_refused_and_nothing_is_writte
 
 // ---- what is copied ----
 
-/// `git ls-files -z` is turned into lines, so a tracked name with a newline in it becomes two entries: its first line,
-/// taken for a tracked file, and the rest, skipped with a message. With an untracked file of the first line's name
-/// beside it the install copies that file and ends with exit 0.
+/// `git ls-files -z` is read as lines, and a tracked name with a newline in it must not become two entries (its first
+/// line taken for a tracked file): with an untracked file of the first line's name beside it, that file is never copied.
 #[test]
 fn a_tracked_name_with_a_newline_does_not_let_an_untracked_file_of_its_first_line_into_the_prefix() {
-    let root = fake_checkout("adv3-newline-name", None);
+    let root = fake_checkout("newline-name", None);
     let (_sandbox, prefix) = sandbox_of(&root);
     fs::write(root.join("protocol/notes\nof-a-run.txt"), "tracked\n").unwrap();
     git_in(&root, &["add", "-A", "protocol"]);
@@ -267,12 +266,11 @@ fn a_tracked_name_with_a_newline_does_not_let_an_untracked_file_of_its_first_lin
     );
 }
 
-/// A tracked file that is a link in the work tree is refused (`what_is_copied.rs`). The check reads the last part of
-/// the path only: with a tracked directory replaced by a link to a directory outside the checkout, the file of the same
-/// name there is copied (`VERSION` then ends in ` dirty`, because git sees the tracked file as deleted).
+/// A tracked file that is a link in the work tree is refused (above). So is a tracked directory replaced by a link to a
+/// directory outside the checkout: the file of the same name there is never copied.
 #[test]
 fn a_tracked_directory_that_is_a_link_in_the_work_tree_is_not_copied_from_outside_the_checkout() {
-    let root = fake_checkout("adv3-directory-link", None);
+    let root = fake_checkout("directory-link", None);
     let (sandbox, prefix) = sandbox_of(&root);
     fs::create_dir_all(root.join("protocol/sub")).unwrap();
     fs::write(root.join("protocol/sub/x.txt"), "tracked\n").unwrap();
@@ -296,7 +294,7 @@ fn a_tracked_directory_that_is_a_link_in_the_work_tree_is_not_copied_from_outsid
 /// A submodule in a copied directory is an entry that is neither a file nor a link: it is named and not copied.
 #[test]
 fn a_submodule_in_a_copied_directory_is_named_and_not_copied() {
-    let root = fake_checkout("adv3-submodule", None);
+    let root = fake_checkout("submodule", None);
     let (_sandbox, prefix) = sandbox_of(&root);
     let commit = git_in(&root, &["rev-parse", "HEAD"]);
     fs::create_dir_all(root.join("protocol/sub")).unwrap();
@@ -318,7 +316,7 @@ fn a_tab_in_a_tracked_name_and_a_tab_or_newline_in_a_link_target_are_refused_by_
         ("tab-target", "protocol/lnk", Some("file.txt\tx"), "whose target has a tab or a newline"),
         ("newline-target", "protocol/lnk", Some("file.txt\nbindings/file.txt"), "whose target has a tab or a newline"),
     ] {
-        let root = fake_checkout(&format!("adv3-{case}"), None);
+        let root = fake_checkout(case, None);
         let (_sandbox, prefix) = sandbox_of(&root);
         match target {
             Some(t) => std::os::unix::fs::symlink(t, root.join(name)).unwrap(),
@@ -332,4 +330,56 @@ fn a_tab_in_a_tracked_name_and_a_tab_or_newline_in_a_link_target_are_refused_by_
         assert!(err(&o).contains(word), "{case}: {}", err(&o));
         assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
     }
+}
+
+/// A tracked directory that is a link in the work tree is refused by the name of a file below it, before anything is
+/// written: the prefix holds nothing.
+#[test]
+fn a_tracked_directory_that_is_a_link_in_the_work_tree_is_refused_by_name_and_nothing_is_written() {
+    let root = fake_checkout("directory-link-named", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::create_dir_all(root.join("protocol/sub")).unwrap();
+    fs::write(root.join("protocol/sub/x.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a directory"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    fs::create_dir_all(sandbox.join("outside")).unwrap();
+    fs::write(sandbox.join("outside/x.txt"), "outside\n").unwrap();
+    fs::remove_dir_all(root.join("protocol/sub")).unwrap();
+    std::os::unix::fs::symlink(sandbox.join("outside"), root.join("protocol/sub")).unwrap();
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("protocol/sub/x.txt") && err(&o).contains("protocol/sub"), "{}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// A tracked name with a newline is refused by name, as a tab is, and nothing is written.
+#[test]
+fn a_tracked_name_with_a_newline_is_refused_by_name_and_nothing_is_written() {
+    let root = fake_checkout("newline-named", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("protocol/notes\nof-a-run.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a name with a newline"]);
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("has a newline in its name"), "{}", err(&o));
+    assert!(err(&o).contains("protocol/notes"), "the name is given: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// A sparse checkout leaves tracked files out of the work tree. The install stops with the name of the first one and
+/// says sparse, so that the reason is known; nothing is written.
+#[test]
+fn a_sparse_checkout_is_refused_by_the_name_of_a_missing_file_and_says_sparse() {
+    let root = fake_checkout("sparse", None);
+    let (_sandbox, prefix) = sandbox_of(&root);
+    git_in(&root, &["sparse-checkout", "set", "--no-cone", "/protocol/", "/bindings/", "/instructions/", "/views/", "/cycles/", "/ui/", "/driver/", "/scripts/"]);
+    assert!(!root.join("tools/file.txt").exists(), "the sparse checkout left tools/ out");
+    let o = from_built(&root, &prefix);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("tools/file.txt"), "{}", err(&o));
+    assert!(err(&o).contains("sparse"), "{}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
 }

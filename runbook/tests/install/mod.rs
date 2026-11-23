@@ -19,6 +19,7 @@ mod refused_prefixes;
 mod rules;
 mod slow;
 mod stale_build;
+mod usage_text;
 mod version_file;
 mod what_is_copied;
 

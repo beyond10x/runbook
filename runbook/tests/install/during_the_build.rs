@@ -55,14 +55,13 @@ const GIT_AS_TEST: &str = "git -c user.name=test -c user.email=test@example.org 
 
 // ---- the checkout changes while the build runs ----
 
-/// The script lists the files to copy and their modes before the build and copies after it; the commit check after the
-/// build compares the built `runbook` with HEAD as it is then. A commit made in the checkout while `watch/` or
-/// `driver/` builds (minutes of a release build) passes that check: `runbook` is built from the new HEAD. The prefix
-/// then names the new HEAD in `VERSION`, without ` dirty`, and holds the file list and the modes of the old one: a
-/// file the new HEAD tracks is missing, and a file it tracks as executable is 644.
+/// The script lists the files to copy and their modes before the build and copies after it. A commit made in the
+/// checkout while `watch/` or `driver/` builds (minutes of a release build) builds `runbook` from the new HEAD: the
+/// prefix must never name the new HEAD in `VERSION`, without ` dirty`, with the file list and the modes of the old one
+/// (a file the new HEAD tracks missing, a file it tracks as executable at 644).
 #[test]
 fn a_commit_made_while_the_build_runs_never_gives_a_prefix_that_names_the_new_head_with_the_files_of_the_old_one() {
-    let root = fake_checkout("adv3-commit-during", None);
+    let root = fake_checkout("commit-during", None);
     let (sandbox, prefix) = sandbox_of(&root);
     let before = head12(&root);
     let during = format!(
@@ -88,11 +87,11 @@ fn a_commit_made_while_the_build_runs_never_gives_a_prefix_that_names_the_new_he
 }
 
 /// The same window, another change: a tracked file is replaced by a link to a file outside the checkout while the build
-/// runs. The check "is in the work tree as a file" was made before the build; `cp` follows the link after it, and the
-/// bytes of the file outside the checkout are in the prefix.
+/// runs. The check "is in the work tree as a file" is made again right before the copy: the bytes of the file outside
+/// the checkout are never in the prefix.
 #[test]
 fn a_tracked_file_that_becomes_a_link_while_the_build_runs_is_not_copied_from_outside_the_checkout() {
-    let root = fake_checkout("adv3-link-during", None);
+    let root = fake_checkout("link-during", None);
     let (sandbox, prefix) = sandbox_of(&root);
     fs::write(sandbox.join("login.json"), "{\"token\": \"a login outside the checkout\"}\n").unwrap();
     let during = "rm -f \"$1/protocol/file.txt\"\nln -s \"$1/../login.json\" \"$1/protocol/file.txt\"\n";
@@ -109,7 +108,7 @@ fn a_tracked_file_that_becomes_a_link_while_the_build_runs_is_not_copied_from_ou
 /// first, not written through.
 #[test]
 fn a_link_at_the_place_of_the_build_log_is_not_written_through() {
-    let root = fake_checkout("adv3-build-log", None);
+    let root = fake_checkout("build-log", None);
     let (sandbox, prefix) = sandbox_of(&root);
     let outside = sandbox.join("outside.txt");
     fs::write(&outside, "kept\n").unwrap();
@@ -122,4 +121,61 @@ fn a_link_at_the_place_of_the_build_log_is_not_written_through() {
     let o = release_install_during(&root, &sandbox, &prefix, "");
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert_eq!(fs::read_to_string(&outside).unwrap(), "kept\n", "the file the links pointed at");
+}
+
+/// The same window as above, and the rule the script keeps: the commit it read before it took the list of files is the
+/// commit it installs. HEAD read again after the build is another: the install stops with exit 1, names both commits,
+/// and writes nothing.
+#[test]
+fn a_commit_made_while_the_build_runs_stops_the_install_naming_both_commits_and_writes_nothing() {
+    let root = fake_checkout("during-commit-named", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    let before = head12(&root);
+    let during = format!(
+        "r=$1\n\
+        echo 'new in HEAD' > \"$r/protocol/new-in-head.txt\"\n\
+        git -C \"$r\" add protocol/new-in-head.txt\n\
+        {GIT_AS_TEST} -C \"$r\" commit -q -m 'made while the build runs'\n"
+    );
+    let o = release_install_during(&root, &sandbox, &prefix, &during);
+    let head = head12(&root);
+    assert_ne!(before, head, "the commit was made while the build ran: {}", err(&o));
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains(&before) && err(&o).contains(&head), "both commits are named: {}", err(&o));
+    assert_eq!(listing(&prefix), Vec::<String>::new(), "nothing is written");
+}
+
+/// A tracked file that is a link when it is about to be copied, and was a file when the list was taken, stops the
+/// install with its name. The marker stays: the install had begun.
+#[test]
+fn a_file_that_changed_kind_while_the_build_runs_stops_the_install_with_its_name_and_the_marker_stays() {
+    let root = fake_checkout("during-kind-named", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::write(sandbox.join("outside.txt"), "outside\n").unwrap();
+    let during = "rm -f \"$1/protocol/file.txt\"\nln -s \"$1/../outside.txt\" \"$1/protocol/file.txt\"\n";
+    let o = release_install_during(&root, &sandbox, &prefix, during);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("protocol/file.txt"), "the file is named: {}", err(&o));
+    assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker stays: {}", err(&o));
+    assert!(!prefix.join("share/runbook/protocol/file.txt").exists(), "nothing is copied from outside the checkout");
+}
+
+/// The same for a directory above a tracked file: replaced by a link while the build runs, the file below it is named
+/// and not copied.
+#[test]
+fn a_directory_that_became_a_link_while_the_build_runs_stops_the_install_with_the_file_below_it_and_the_marker_stays() {
+    let root = fake_checkout("during-directory-named", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::create_dir_all(root.join("protocol/sub")).unwrap();
+    fs::write(root.join("protocol/sub/x.txt"), "tracked\n").unwrap();
+    git_in(&root, &["add", "-A", "protocol"]);
+    git_in(&root, &["commit", "-q", "-m", "a directory"]);
+    fs::create_dir_all(sandbox.join("outside")).unwrap();
+    fs::write(sandbox.join("outside/x.txt"), "outside\n").unwrap();
+    let during = "rm -rf \"$1/protocol/sub\"\nln -s \"$1/../outside\" \"$1/protocol/sub\"\n";
+    let o = release_install_during(&root, &sandbox, &prefix, during);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert!(err(&o).contains("protocol/sub/x.txt"), "the file below the link is named: {}", err(&o));
+    assert!(prefix.join("share/runbook/INSTALLING").is_file(), "the marker stays: {}", err(&o));
+    assert!(!prefix.join("share/runbook/protocol/sub/x.txt").exists(), "nothing is copied from outside the checkout");
 }

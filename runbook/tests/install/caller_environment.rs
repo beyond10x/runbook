@@ -62,7 +62,7 @@ fn a_name_that_is_not_utf8_installs_the_same_under_a_utf8_locale_of_the_caller()
         eprintln!("no UTF-8 locale with rules of its own on this host ({locales:?}): nothing to hold");
         return;
     };
-    let root = fake_checkout("adv3-locale", None);
+    let root = fake_checkout("utf8-locale", None);
     let (sandbox, plain) = sandbox_of(&root);
     let name = std::ffi::OsStr::from_bytes(b"b\xe4r.txt");
     fs::write(root.join("protocol").join(name), "latin-1\n").unwrap();
