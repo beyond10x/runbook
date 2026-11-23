@@ -239,13 +239,14 @@ function lists(c, products, src) {
   if (!files.length) fl.append(h('p', 'prod-note', 'the run has written no file under work/ yet'));
   const hid = (products?.hiddenDirectories || 0) + (products?.hiddenFiles || 0);
   if (hid) fl.append(h('p', 'prod-hidden', `${hid} ${hid === 1 ? 'entry whose name starts with a dot is' : 'entries whose name starts with a dot are'} not listed (a tool's cache or login is neither listed nor served)`));
-  if (products?.truncated) fl.append(h('p', 'prod-note', `the list is cut: ${{files: 'the run holds more files than the page lists', directories: 'the run holds more directories than the page walks', entries: 'the run holds more entries than the page walks'}[products.cut] || 'the run holds more than the page lists'}`));
+  if (products?.leftOut) fl.append(h('p', 'prod-note', `${products.leftOut} ${products.leftOut === 1 ? 'file is' : 'files are'} not listed: a file with more than one link, or a link the inspector does not follow, is neither listed nor served`));
+  if (products?.truncated) fl.append(h('p', 'prod-note', `the list is cut: ${{files: 'the run holds more files than the page lists', directories: 'the run holds more directories than the page walks', entries: 'the run holds more entries than the page walks', depth: 'a directory lies deeper than the page walks'}[products.cut] || 'the run holds more than the page lists'}`));
   root.append(fl);
   return root;
 }
 
 export function renderProducts(host, {c, products, src, daemon}) {
-  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}`), products?.hiddenDirectories, products?.hiddenFiles, daemon, products?.served]);
+  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}`), products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
   if (host.firstChild?.__sig === sig) return;
   const root = h('div', 'prod');
   root.__sig = sig;

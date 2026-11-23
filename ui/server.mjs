@@ -20,8 +20,8 @@ import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
-import {registerRun, runPath, leavesRun, readText, readJson, statOf, exists, statSig, listDir} from './runfiles.mjs';
-import {fileAnswer, listFiles, productOf, outputOf, limitDepth} from './products.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -100,6 +100,8 @@ function readEvents(dir) {
 // (a run of `runbook run` writes no case.json, docs/loom-run-directory.md). Only the head of the log is read
 // (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
 const HEAD_BYTES = 65536;
+// the most of a blob of fs/blobs/ that the page diffs or parses for its meaning, and of a blob it shows
+const DIFF_BLOB_LIMIT = 8 * 1048576, BLOB_SHOWN = 200000;
 function openedProtocol(dir) {
   const file = runPath(path.join(dir, 'events.jsonl'));
   if (!file) return null;
@@ -624,7 +626,7 @@ function fsChange(runDir, seq) {
   const r = JSON.parse(buf.toString('utf8'));
   if (c.late.has(seq)) r.attribution = c.late.get(seq);
   if (!r.diff && !r.binary && !r.too_large && !(r.op === 'rename' && r.before === r.after)) {
-    const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h)) : null);
+    const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h), undefined, DIFF_BLOB_LIMIT) : null);
     const a = blob(r.before), b = blob(r.after);
     if (a != null || b != null) { r.diff = unifiedDiff(a, b, r.from_path || r.path, r.path); r.diff_source = 'computed by the inspector from fs/blobs'; }
   }
@@ -636,7 +638,7 @@ function fsChange(runDir, seq) {
 // before and after from fs/blobs; code is classified by its path alone.
 function changeMeaning(runDir, r) {
   if (classify(r.path).cls === 'code') return meaningOf(r, null, null);
-  const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h)) : null);
+  const blob = (h) => (h && /^[0-9a-f]{64}$/.test(h) ? readText(path.join(runDir, 'fs', 'blobs', h), undefined, DIFF_BLOB_LIMIT) : null);
   const m = meaningOf(r, blob(r.before), blob(r.after));
   return m;
 }
@@ -651,7 +653,7 @@ function workFacts(src) {
       const st = statOf(p);
       if (!st) continue;
       if (st.isDirectory()) walkMd(p, `${rel}/${n}`, depth + 1);
-      else if (n.endsWith('.md') && st.size < 65536) files.push({path: `${rel}/${n}`.replace(/^\//, ''), text: readText(p) || ''});
+      else if (n.endsWith('.md') && st.size < 65536) files.push({path: `${rel}/${n}`.replace(/^\//, ''), text: readText(p, undefined, 65536) || ''});
     }
   };
   for (const r of rootsOf(src)) for (const sub of ['aep', '.engineering/planning']) walkMd(path.join(r, 'work', sub), `${path.relative(src.path, r) || '.'}/work/${sub}`, 0);
@@ -676,7 +678,7 @@ function productsOf(src) {
   const listing = listFiles(runDir, [...new Set(roots)], artifacts);
   const {view, runbook, protocols} = viewOf(src);
   const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
-  return {served: true, product: productOf({runDir, files: listing.files, view, ids}), ...listing};
+  return {served: true, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
 }
 
 function liveInfo(src) {
@@ -971,8 +973,11 @@ function handle(req, res, url) {
     const rel = url.searchParams.get('case') || '.';
     const hash = url.searchParams.get('hash') || '';
     if (!/^[0-9a-f]{64}$/.test(hash) || rel.includes('..')) return send(res, 400, {error: 'bad request'});
-    const t = readText(path.join(src.path, rel, 'blobs', hash), runDirOf(src));
-    return send(res, t == null ? 404 : 200, t == null ? 'not found' : t.slice(0, 200000), 'text/plain; charset=utf-8');
+    // the one check of the other routes: the blob is a regular file with one link, directly in a blobs/ of the run, by the real
+    // path of the open file, under no dot-directory; at most BLOB_SHOWN bytes of it are read
+    const dir = path.join(src.path, rel, 'blobs');
+    const r = readRegular(path.join(dir, hash), {root: runDirOf(src), limit: BLOB_SHOWN, accept: inDirectory(runDirOf(src), dir)});
+    return send(res, r.state === 'ok' ? 200 : 404, r.state === 'ok' ? r.bytes.toString('utf8') : 'not found', 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);
   const abs = path.join(here, 'web', file);

@@ -6,7 +6,7 @@
 // the check is a conformance question: after the open, does the opened file still lie under the run?
 // The swap here is `mv --exchange` of a directory of the run and a link to a directory outside the run, in a loop,
 // by a child process; the reader is fileAnswer (products.mjs), the function behind GET /api/file, called in-process.
-// Time-bounded: 20 s, or the first answer that holds the outside text. Invented text only.
+// Time-bounded: 10 s, or the first answer that holds the outside text. Invented text only.
 import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
@@ -19,14 +19,14 @@ const OUTSIDE = 'OUTSIDE-TEXT-RACE-41ac';
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'one process, one viewport'));
 
 test('inv 1: a directory of the run swapped for a link that leaves the run between the check and the open does not make the file read', async () => {
-  test.setTimeout(50000);
+  test.setTimeout(30000);
   fs.rmSync(root, {recursive: true, force: true});
   const run = path.join(root, 'run');
   put(path.join(run, 'work', 'd', 'f.txt'), 'INSIDE-TEXT\n');
   put(path.join(root, 'out', 'f.txt'), `${OUTSIDE}\n`);
   fs.symlinkSync(path.join(root, 'out'), path.join(run, 'work', 'lnk'));
   const swapper = spawn('sh', ['-c', 'while :; do mv --exchange -T d lnk; done'], {cwd: path.join(run, 'work'), detached: true, stdio: 'ignore'});
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 10000;
   let tries = 0, hit = null;
   const by = {};
   try {

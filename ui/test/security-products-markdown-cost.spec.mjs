@@ -69,9 +69,8 @@ test('inv 4: a table of 500 columns and 2000 rows of one pipe each (about 6 KB) 
   expect(r.nodes, `${r.chars} characters of input made ${r.nodes} nodes in ${r.ms} ms`).toBeLessThan(20 * r.chars);
 });
 
-test('inv 4: the other shapes of the story (nested emphasis, backtick runs, brackets, deep lists, a long single line) stay under 5 s', async ({page}) => {
-  test.setTimeout(60000);
-  const shapes = {
+// one test per shape: each is rendered in its own page and no test is near the bound of one test
+const shapes = {
     nestedEmphasis: () => `${'*a '.repeat(20000)}${'a* '.repeat(20000)}`,
     backtickRuns: () => Array.from({length: 400}, (_, i) => `${'`'.repeat(i % 60 + 1)}[`).join('').repeat(8),
     bracketsInBackticks: () => `[${'`a`'.repeat(30000)}]`,
@@ -84,11 +83,13 @@ test('inv 4: the other shapes of the story (nested emphasis, backtick runs, brac
     manyHeadings: () => '# h\n'.repeat(30000),
     manyFences: () => '```\n'.repeat(30000),
     manyQuotes: () => '> a\n'.repeat(30000),
-  };
-  for (const [name, build] of Object.entries(shapes)) {
+};
+for (const [name, build] of Object.entries(shapes)) {
+  test(`inv 4: the shape ${name} stays under 5 s`, async ({page}) => {
+    test.setTimeout(30000);
     const r = await render(page, build);
     expect(r.chars, name).toBeLessThanOrEqual(LIMIT);
     expect(r.error, name).toBeNull();
     expect(r.ms, `${name}: ${r.chars} characters: ${r.ms} ms`).toBeLessThan(5000);
-  }
-});
+  });
+}

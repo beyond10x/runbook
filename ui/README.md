@@ -282,18 +282,33 @@ code, and the files of the run with their content. It reads and acts on nothing.
   the file that was checked (its real path from the kernel is the checked path): a directory on the way
   that is swapped for a link between the check and the open does not make another file read. A regular file
   with more than one link (a hard link may be a file outside the run, and only its link count tells) is
-  refused (403) and not listed.
+  refused (403) and not listed. The check is made on the open descriptor's own real path (the kernel's
+  name for it): the file route, the listing, the output route and the blob route each ask it whether that
+  path may be served before a byte is read. Where the system cannot give that name (no `/proc`) the file is
+  not read (403, `unverified`): the read fails closed.
 - The file route and the listing serve only what lies under a `work/` directory of the run, by name and by
   real path: the run's `work/` and the `work/` of each of its cases. A path outside them (`settings.json`,
-  `store/...`, `llm-calls.jsonl`) is 404, as a link in `work/` that points at one is. Evidence records and
-  the output of an action have their own routes.
+  `store/...`, `llm-calls.jsonl`) is 404, as a link in `work/` that points at one is. A `work/` is a root
+  only when its real path is `<real parent>/work`, a real directory directly in a real directory of the
+  run: a `work/` that is a link (to the run directory, to `store/`, anywhere) is no root, and serves and
+  lists nothing. Evidence records and the output of an action have their own routes.
 - The listing is bounded in every direction: it lists a file by `lstat`, does not descend a link to a
-  directory, visits each real directory once, and stops at 500 files, 2000 directories or 20000 entries
-  of any kind; the answer says it was cut (`truncated`, `cut`: `files`, `directories` or `entries`) and the
-  page says by what.
+  directory, visits each real directory once, reads a directory an entry at a time (a directory of a
+  million entries costs no more than the bound), and stops at 500 files, 2000 directories or 20000 entries
+  of any kind; a directory deeper than 6 levels is not entered. The answer says it was cut (`truncated`,
+  `cut`: `files`, `directories`, `entries` or `depth`) and the page says by what. A file that is not
+  listed because it has more than one link, or is a link that is not served, is counted (`leftOut`) and the
+  page says how many. The page names as the product only a file the file route serves.
 - The run log of a case is read through the same type check, in pieces from its end, at most 8 MiB of it.
   An action finish that is not in that part answers "not found within the last 8 MiB of the run log". The
-  blob must be a file of the run's `store/blobs/` by its real path, under no dot-directory.
+  blob (`/api/blob`) must be a file of the run's `store/blobs/` by its real path, with one link, under no
+  dot-directory (a `case` with a dot component is 404, as for the file route); it is read through the
+  same bounded regular-files reader, at most 200000 bytes of it, and a file over that is 404, not read
+  whole.
+- The other reads of the server's own are bounded too: a file read as text (`readText`) over its limit is
+  not read at all (the default is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
+  64 KiB). The reads of the run's own small control files (`settings.json`, `events.jsonl`, case
+  state) keep the default bound; no smaller size is defined for them.
 - An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
   page draws at most 24 levels of it (`cut at depth 24`).
 - A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
@@ -306,8 +321,8 @@ code, and the files of the run with their content. It reads and acts on nothing.
   elements from text and never assigns markup; raw HTML in a file stays text; an image is a link with its alt
   text and loads nothing; a link opens only when it is an http or https address (a new tab, no opener) or a
   path inside the run (opened in the panel); any other address is shown as text with its address. Its cost is
-  bounded: a line of white space costs one pass, a document makes at most 30000 elements (the rest is shown
-  as plain text with a line that says so), and a table has at most 50 columns, 500 rows and 5000 cells.
+  bounded: a line of white space costs one pass, a document makes at most 30000 elements, list items
+  included (the rest is shown as plain text with a line that says so), and a table has at most 50 columns, 500 rows and 5000 cells.
 - An action's exit code is shown as recorded. Its output is the one blob the run keeps (standard output
   followed by standard error), tail of 4096 bytes. `runbook run` records no start, end or duration of an
   action, only a whole-second span for its step (`observed.jsonl`): the page says "not recorded by this

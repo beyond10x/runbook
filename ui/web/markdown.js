@@ -281,6 +281,7 @@ function list(lines, i, parent, ctx, depth) {
   const root = el(ordered ? 'ol' : 'ul');
   if (ordered && Number(first[2].replace(/\D/g, '')) !== 1) root.setAttribute('start', String(Number(first[2].replace(/\D/g, ''))));
   while (i < lines.length) {
+    if (over()) break; // the items count against the node bound; blocks() shows the rest as plain text
     const m = ITEM.exec(lines[i]);
     if (!m || m[1].length !== base && !(m[1].length <= base + 1 && m[1].length >= base) || /^\d/.test(m[2]) !== ordered) break;
     const content = m[1].length + m[2].length + (m[3].length > 4 ? 1 : Math.max(1, m[3].length));

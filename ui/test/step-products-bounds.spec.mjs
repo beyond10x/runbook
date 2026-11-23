@@ -100,6 +100,15 @@ test('a regular file with more than one link is neither served nor listed', asyn
   expect(list.files.map((f) => f.path).join('\n')).not.toContain('hard.txt');
 });
 
+test('files the listing leaves out because of their links are counted, in the answer and in the page', async ({page}) => {
+  const src = await sourceIndex(base, 'main');
+  const list = (await ask(base, `/api/products?source=${src}`)).json;
+  expect(list.leftOut).toBeGreaterThanOrEqual(2); // hard.txt and settings-link.json
+  await page.goto(`${base}/?run=main`);
+  await page.locator('#tabs button[data-tab=products]').click({timeout: 20000});
+  await expect(page.locator('#panel .prod-note', {hasText: 'more than one link'})).toBeVisible({timeout: 20000});
+});
+
 test('the listing does not descend a link to a directory', async () => {
   const src = await sourceIndex(base, 'main');
   const list = (await ask(base, `/api/products?source=${src}`)).json;

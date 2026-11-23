@@ -7,6 +7,7 @@
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {startServer} from './serve.mjs';
 import {writeProductsRun} from './products-fixture.mjs';
 import {fixtureRoot, ask} from './security-products-lib.mjs';
@@ -31,7 +32,9 @@ test('inv 6: a directory of 30000 files is listed in at most 5 s, 500 of them', 
   test.setTimeout(60000);
   const r = await listing('files', (work) => {
     fs.mkdirSync(path.join(work, 'many'), {recursive: true});
-    for (let i = 0; i < 30000; i++) fs.writeFileSync(path.join(work, 'many', `f${String(i).padStart(5, '0')}.txt`), '');
+    // 30000 files made by a few processes, not by 30000 calls of the test
+    const names = Array.from({length: 30000}, (_, i) => `f${String(i).padStart(5, '0')}.txt`).join('\n');
+    spawnSync('xargs', ['-n', '5000', 'touch'], {cwd: path.join(work, 'many'), input: names});
   });
   expect(r.hung).toBe(false);
   expect(r.json.files.length).toBeLessThanOrEqual(500);
@@ -51,7 +54,10 @@ test('inv 6: eight links that point back at their own directory are listed in at
 test('inv 6: a tree of 20000 empty directories is listed in at most 5 s', async () => {
   test.setTimeout(60000);
   const r = await listing('dirs', (work) => {
-    for (let i = 0; i < 25; i++) for (let j = 0; j < 20; j++) for (let k = 0; k < 40; k++) fs.mkdirSync(path.join(work, `d${i}`, `e${j}`, `g${k}`), {recursive: true});
+    const dirs = [];
+    for (let i = 0; i < 25; i++) for (let j = 0; j < 20; j++) for (let k = 0; k < 40; k++) dirs.push(`d${i}/e${j}/g${k}`);
+    fs.mkdirSync(work, {recursive: true});
+    spawnSync('xargs', ['-n', '4000', 'mkdir', '-p'], {cwd: work, input: dirs.join('\n')});
   });
   expect(r.hung).toBe(false);
   expect(r.ms, `one listing took ${r.ms} ms`).toBeLessThan(5000);

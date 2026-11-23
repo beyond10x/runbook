@@ -10,7 +10,7 @@ const runDirs = new Set();
 // a run directory the server was given or found; the owner of a path is the longest one it lies under
 export const registerRun = (dir) => { runDirs.add(path.resolve(dir)); };
 
-const within = (child, root) => child === root || child.startsWith(root + path.sep);
+export const within = (child, root) => child === root || child.startsWith(root + path.sep);
 
 function ownerOf(abs) {
   let best = null;
@@ -42,16 +42,18 @@ export function leavesRun(p, root) {
 // way that is swapped for a link between the two is followed (O_NOFOLLOW guards the last component only). After the
 // open, the kernel's own name for the descriptor must be the path that was checked: a file that is somewhere else,
 // inside the run or not, is not the file the check saw and is not read.
-const fdPath = (fd) => { try { return fs.realpathSync.native(`/proc/self/fd/${fd}`); } catch { return null; } };
+// The name is read from the kernel; where it cannot be read (no /proc) the open is not trusted and the read is refused.
+export const fdPath = (fd) => { try { return fs.realpathSync.native(`/proc/self/fd/${fd}`); } catch { return null; } };
 
-// {fd} for an open descriptor of `real`, or {why: 'leaves the run' | 'changed'}
-function openChecked(real, runReal, flags) {
+// {fd, real} for an open descriptor of `real` whose own name is `real`, or {why: 'leaves the run' | 'changed' |
+// 'unverified'}. `real` of the answer is the descriptor's name, the one name every later check is made on.
+function openChecked(real, runReal, flags, nameOf = fdPath) {
   const fd = fs.openSync(real, flags);
-  let now = fdPath(fd);
-  if (now == null) { try { now = fs.realpathSync.native(real); } catch { now = null; } }
-  if (now === real) return {fd};
+  const now = nameOf(fd);
+  if (now === real) return {fd, real: now};
   fs.closeSync(fd);
-  return {why: now != null && !within(now, runReal) ? 'leaves the run' : 'changed'};
+  if (now == null) return {why: 'unverified'};
+  return {why: !within(now, runReal) ? 'leaves the run' : 'changed'};
 }
 const runRealOf = (abs, root) => {
   const run = root ? path.resolve(root) : ownerOf(abs);
@@ -59,7 +61,11 @@ const runRealOf = (abs, root) => {
   try { return fs.realpathSync.native(run); } catch { return null; }
 };
 
-export function readText(p, root) {
+// The text of a regular file of a run, or null (absent, refused, or over `limit` bytes: a file over it is not read at
+// all, so no request can make the server hold more than that). The limit is the size of the largest file of its kind that
+// the page reads; the default is the most any file of a run it reads can be.
+export const TEXT_LIMIT = 64 * 1048576;
+export function readText(p, root, limit = TEXT_LIMIT) {
   const real = runPath(p, root);
   if (!real) return null;
   let fd = null;
@@ -67,7 +73,8 @@ export function readText(p, root) {
     const o = openChecked(real, runRealOf(path.resolve(p), root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
     if (o.fd == null) return null;
     fd = o.fd;
-    if (!fs.fstatSync(fd).isFile()) return null;
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > limit) return null;
     return fs.readFileSync(fd, 'utf8');
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
@@ -110,7 +117,11 @@ export const typeOf = (st) => TYPES.find(([m]) => st[m]())?.[1] ?? (st.isFile() 
 // After the open the descriptor must still be the checked file (see openChecked), and a regular file with more than
 // one link is refused: a hard link to a file outside the run looks like a file of the run by its path, only its
 // link count tells.
-export function readRegular(p, {root, limit = 1048576, tail = false, end = null} = {}) {
+// `accept(real)` is asked once, with the descriptor's own real path, after the open and before a byte is read: a string
+// is the reason the file is not served (answer {state: 'refused', why: 'not served', reason}), null lets it through.
+// It is the one place a caller says where a file may lie, because it is asked about the file that is open, not about
+// a path computed before. `nameOf` is the kernel's name for a descriptor (a test supplies one that cannot answer).
+export function readRegular(p, {root, limit = 1048576, tail = false, end = null, accept = null, nameOf = fdPath} = {}) {
   const abs = path.resolve(p);
   const real = runPath(abs, root);
   if (!real) {
@@ -122,9 +133,11 @@ export function readRegular(p, {root, limit = 1048576, tail = false, end = null}
   if (!st.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(st)};
   let fd = null;
   try {
-    const o = openChecked(real, runRealOf(abs, root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
-    if (o.fd == null) return o.why === 'leaves the run' ? {state: 'refused', why: 'leaves the run'} : {state: 'missing'};
+    const o = openChecked(real, runRealOf(abs, root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW, nameOf);
+    if (o.fd == null) return o.why === 'leaves the run' || o.why === 'unverified' ? {state: 'refused', why: o.why} : {state: 'missing'};
     fd = o.fd;
+    const reason = accept ? accept(o.real) : null;
+    if (reason) return {state: 'refused', why: 'not served', reason};
     const now = fs.fstatSync(fd);
     if (!now.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(now)};
     if (now.nlink > 1) return {state: 'refused', why: 'more than one link', type: 'file'};

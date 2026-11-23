@@ -6,7 +6,7 @@
 // type, and the page builds nodes from it (web/markdown.js).
 import fs from 'node:fs';
 import path from 'node:path';
-import {runPath, statOf, readRegular, runRel, hasDotPart, dotName, underAny} from './runfiles.mjs';
+import {runPath, readRegular, hasDotPart, dotName, within} from './runfiles.mjs';
 
 export const LIMIT = 1048576; // the display limit of one file, in bytes
 export const TAIL = 4096; // the tail of an action's output, in bytes
@@ -52,9 +52,37 @@ export function utf8Text(buf, {cutStart = false, cutEnd = false} = {}) {
   try { return new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(part); } catch { return null; }
 }
 
+// ---- where a file may lie -------------------------------------------------------------------------------
+// The one place that says which files of a run are served. A file is served when its REAL path is under the real path of a
+// work/ directory of the run (the run's own and each case's), under no dot-directory. A work/ counts only when it is a real
+// directory called work in a real directory of the run: a work/ that is a link to anything else is no root, so the run
+// directory or store/ cannot be made a root by replacing it. The check is made on the descriptor's own real path after the
+// open (the `accept` of readRegular), never on a path computed before it, and the listing and the product use the same function.
+const DOT_MSG = 'a name that starts with a dot is neither listed nor served';
+const OUTSIDE_WORK = 'only a file under a work/ directory of the run is served';
+export function scopeOf(runDir, roots) {
+  let runReal = null;
+  try { runReal = fs.realpathSync.native(runDir); } catch { return {runReal: null, roots: []}; }
+  const real = [];
+  for (const lex of roots) {
+    const rr = runPath(lex, runDir), parent = runPath(path.dirname(lex), runDir);
+    if (rr != null && parent != null && rr === path.join(parent, 'work') && !hasDotPart(path.relative(runReal, rr))) real.push({lex, real: rr});
+  }
+  return {runReal, roots: real};
+}
+// why a file with this real path is not served, or null
+export const refusalOf = (scope, real) => (scope.runReal == null || !within(real, scope.runReal) ? OUTSIDE_WORK : hasDotPart(path.relative(scope.runReal, real)) ? DOT_MSG : scope.roots.some((r) => within(real, r.real)) ? null : OUTSIDE_WORK);
+// the same for a file that must lie directly in one directory of the run (the blobs of a case, its run log)
+export function inDirectory(runDir, dir) {
+  let runReal = null;
+  try { runReal = fs.realpathSync.native(runDir); } catch { /* no run directory */ }
+  const rel = path.relative(runDir, dir);
+  const home = runReal && !rel.startsWith('..') ? path.join(runReal, rel) : null;
+  return (real) => (home == null || path.dirname(real) !== home || hasDotPart(path.relative(runReal, real)) ? 'not a file directly in the directory it must be in' : null);
+}
+
 // ---- one file ------------------------------------------------------------------------------------
 // {status, body} for GET /api/file: `rel` is a path relative to the run directory.
-const OUTSIDE_WORK = 'only a file under a work/ directory of the run is served';
 export function fileAnswer(runDir, rel, roots = [path.join(runDir, 'work')]) {
   const no = (status, error, extra = {}) => ({status, body: {error, path: typeof rel === 'string' ? rel : null, ...extra}});
   if (typeof rel !== 'string' || rel === '') return no(400, 'the request names no path: name a path relative to the run directory');
@@ -63,19 +91,18 @@ export function fileAnswer(runDir, rel, roots = [path.join(runDir, 'work')]) {
   const parts = rel.split('/').filter((n) => n !== '' && n !== '.');
   if (!parts.length) return no(400, 'the request names no path: name a path relative to the run directory');
   if (parts.includes('..')) return no(400, 'the path leaves the run');
-  if (parts.some(dotName)) return no(404, 'a name that starts with a dot is neither listed nor served');
+  if (parts.some(dotName)) return no(404, DOT_MSG);
   const abs = path.join(runDir, ...parts);
-  // what is served lies under a work/ directory of the run, by its name and by its real path: a link in work/ that
-  // points at settings.json or at store/ is served no more than the file it points at
+  // by its name it lies under a work/ directory (a cheap answer for the paths that never could), and by its real path
+  // it must too, which readRegular asks about the open descriptor
   if (!roots.some((r) => abs === r || abs.startsWith(r + path.sep))) return no(404, OUTSIDE_WORK);
-  // a link inside the run that points at a dot-directory of the run is served no more than the directory is
-  const real = runRel(abs, runDir);
-  if (real != null && hasDotPart(real)) return no(404, 'a name that starts with a dot is neither listed nor served');
-  const realAbs = real != null ? runPath(abs, runDir) : null;
-  if (realAbs != null && !underAny(realAbs, roots, runDir)) return no(404, OUTSIDE_WORK);
-  const r = readRegular(abs, {root: runDir, limit: LIMIT});
+  const scope = scopeOf(runDir, roots);
+  if (!scope.roots.length) return no(404, OUTSIDE_WORK);
+  const r = readRegular(abs, {root: runDir, limit: LIMIT, accept: (real) => refusalOf(scope, real)});
   if (r.state === 'missing') return no(404, 'no such file in the run');
   if (r.state === 'refused') {
+    if (r.why === 'not served') return no(404, r.reason);
+    if (r.why === 'unverified') return no(403, 'the system cannot name the opened file, so it is not read');
     if (r.why === 'leaves the run') return no(403, 'the file leaves the run (a link that points outside it): it is not read');
     if (r.why === 'more than one link') return no(403, 'the file has more than one link (a hard link may be a file outside the run): it is not read');
     return no(415, `not a regular file (${r.type}): it is not opened`, {type: r.type});
@@ -88,8 +115,8 @@ export function fileAnswer(runDir, rel, roots = [path.join(runDir, 'work')]) {
 
 // ---- the files of a run --------------------------------------------------------------------------
 // The result line of a step file (`result: valid`), or null: the first `result:` line of a short text file.
-function resultOf(abs, runDir) {
-  const r = readRegular(abs, {root: runDir, limit: RESULT_BYTES});
+function resultOf(abs, runDir, scope) {
+  const r = readRegular(abs, {root: runDir, limit: RESULT_BYTES, accept: (real) => refusalOf(scope, real)});
   if (r.state !== 'ok') return null;
   const text = utf8Text(r.bytes, {cutEnd: r.cut});
   const m = text == null ? null : /^result:[ \t]*(.*?)[ \t]*$/m.exec(text);
@@ -99,19 +126,26 @@ function resultOf(abs, runDir) {
 // The regular files under `roots` (the run's work/ and the work/ of each case), with their size, time, format
 // and, for a `.txt` step file, its result. `artifacts` maps a path to the name of the artifact it holds.
 // The walk is bounded in every direction: it stops at MAX_FILES files, MAX_DIRS directories and MAX_ENTRIES entries of
-// any kind, and says which (`cut`: 'files' | 'directories' | 'entries', else null). It does not descend a link to a
-// directory, whatever it points at, so a link back into its own directory costs nothing; it lists by lstat, and
-// visits each real directory once. A link to a file is listed when the file is under a root and is the run's own; a
-// file with more than one link is not listed (see readRegular).
+// any kind, and says which (`cut`: 'files' | 'directories' | 'entries'), and a directory below MAX_DEPTH levels is not
+// entered and is said (`cut`: 'depth'); a directory is read an entry at a time, so one of a million entries costs no more
+// than the bound. It does not descend a link to a directory, whatever it points at, so a link back into its own directory
+// costs nothing; it lists by lstat, and visits each real directory once. It starts only from the roots of `scopeOf` (a
+// work/ that is a link is no root). A link to a file is listed when the file is served (`refusalOf`); a file that is
+// not listed because it has more than one link, or is a link that is not served, is counted in `leftOut`.
 export function listFiles(runDir, roots, artifacts = new Map()) {
+  const scope = scopeOf(runDir, roots);
   const files = [], seen = new Set(), visited = new Set();
-  let hiddenDirectories = 0, hiddenFiles = 0, cut = null, dirs = 0, entries = 0;
+  let hiddenDirectories = 0, hiddenFiles = 0, leftOut = 0, cut = null, deeper = false, dirs = 0, entries = 0;
   const walk = (dir, real, depth) => {
     if (visited.has(real)) return;
     visited.add(real);
     if (++dirs > MAX_DIRS) { cut ??= 'directories'; return; }
-    let names;
-    try { names = fs.readdirSync(real).sort(); } catch { return; }
+    const names = [];
+    try {
+      const d = fs.opendirSync(real);
+      try { for (let e = d.readSync(); e && names.length <= MAX_ENTRIES - entries; e = d.readSync()) names.push(e.name); } finally { d.closeSync(); }
+    } catch { return; }
+    names.sort();
     for (const n of names) {
       if (cut) return;
       if (files.length >= MAX_FILES) { cut = 'files'; return; }
@@ -120,48 +154,50 @@ export function listFiles(runDir, roots, artifacts = new Map()) {
       let st;
       try { st = fs.lstatSync(rp); } catch { continue; }
       if (dotName(n)) { if (st.isDirectory()) hiddenDirectories++; else hiddenFiles++; continue; }
-      if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(p, rp, depth + 1); continue; }
+      if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(p, rp, depth + 1); else deeper = true; continue; }
       if (st.isSymbolicLink()) {
-        const target = runPath(p, runDir), rel = runRel(p, runDir);
-        if (target == null || rel == null || hasDotPart(rel) || !underAny(target, roots, runDir)) continue;
+        const target = runPath(p, runDir);
+        if (target == null || refusalOf(scope, target)) { leftOut++; continue; }
         try { st = fs.statSync(target); } catch { continue; }
       }
-      if (!st.isFile() || st.nlink > 1) continue;
+      if (!st.isFile()) continue;
+      if (st.nlink > 1) { leftOut++; continue; }
       const rel = posix(path.relative(runDir, p));
       if (seen.has(rel)) continue;
       seen.add(rel);
-      files.push({path: rel, size: st.size, mtime: Math.round(st.mtimeMs), format: formatOf(n), result: /\.txt$/i.test(n) && st.size <= 65536 ? resultOf(p, runDir) : null, artifact: artifacts.get(rel) ?? null});
+      files.push({path: rel, size: st.size, mtime: Math.round(st.mtimeMs), format: formatOf(n), result: /\.txt$/i.test(n) && st.size <= 65536 ? resultOf(p, runDir, scope) : null, artifact: artifacts.get(rel) ?? null});
     }
   };
-  for (const r of roots) {
-    const real = runPath(r, runDir), rel = runRel(r, runDir);
-    if (real != null && rel != null && !hasDotPart(rel)) walk(r, real, 0);
-  }
+  for (const r of scope.roots) walk(r.lex, r.real, 0);
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return {files, hiddenDirectories, hiddenFiles, truncated: cut != null, cut};
+  cut ??= deeper ? 'depth' : null;
+  return {files, hiddenDirectories, hiddenFiles, leftOut, truncated: cut != null, cut};
 }
 
 // ---- the product of a run -------------------------------------------------------------------------
 // In this order: the view's `product` (a path relative to the run, checked when the view is loaded); else
 // work/<runbook>/<runbook>.md for the runbook's id; else the Markdown files directly under work/ and one level
-// below, the newest first. `via` says which rule named it.
+// below, the newest first. `via` says which rule named it. A file is named only when the file route would serve it:
+// a regular file with one link that `refusalOf` lets through.
 const ID = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-function regular(runDir, rel) {
+function servable(runDir, rel, scope) {
   if (hasDotPart(rel)) return false;
-  const abs = path.join(runDir, rel);
-  const real = runRel(abs, runDir);
-  return real != null && !hasDotPart(real) && statOf(abs, runDir)?.isFile() === true;
+  const real = runPath(path.join(runDir, rel), runDir);
+  if (real == null || refusalOf(scope, real)) return false;
+  try { const st = fs.statSync(real); return st.isFile() && st.nlink <= 1; } catch { return false; }
 }
-export function productOf({runDir, files, view, ids}) {
+export function productOf({runDir, roots = [path.join(runDir, 'work')], files, view, ids}) {
+  const scope = scopeOf(runDir, roots);
   if (typeof view?.product === 'string') {
     const p = view.product.split('/').filter((n) => n !== '' && n !== '.').join('/');
-    if (regular(runDir, p)) return {via: 'view', path: p, missing: false, note: 'named by the view'};
-    return {via: 'view', path: p, missing: true, note: `the view names ${p}; this run has not written it`};
+    if (servable(runDir, p, scope)) return {via: 'view', path: p, missing: false, note: 'named by the view'};
+    const there = runPath(path.join(runDir, p), runDir) != null;
+    return {via: 'view', path: p, missing: true, note: there ? `the view names ${p}; the inspector does not serve it (only a file under a work/ directory, with one link)` : `the view names ${p}; this run has not written it`};
   }
   for (const id of ids) {
     if (!ID.test(id)) continue;
     const p = `work/${id}/${id}.md`;
-    if (regular(runDir, p)) return {via: 'runbook-file', path: p, missing: false, note: `work/<runbook>/<runbook>.md for the runbook ${id}`};
+    if (servable(runDir, p, scope)) return {via: 'runbook-file', path: p, missing: false, note: `work/<runbook>/<runbook>.md for the runbook ${id}`};
   }
   const md = files.filter((f) => f.format === 'markdown' && /^work\/([^/]+\/)?[^/]+$/.test(f.path)).sort((a, b) => b.mtime - a.mtime || (a.path < b.path ? -1 : 1));
   if (md.length) return {via: 'newest-markdown', path: md[0].path, missing: false, note: 'the newest Markdown file under work/', others: md.slice(1, 6).map((f) => ({path: f.path, mtime: f.mtime}))};
@@ -184,10 +220,11 @@ const MIB = 1048576;
 // at most LOG_WINDOW of it; a log that fits is read whole and the line is the k-th from the start. Answers
 // {line} | {why}.
 function actionFinishLine(file, runDir, k, fromEnd) {
+  const accept = inDirectory(runDir, path.dirname(file));
   const lines = [];
   let end = Infinity, carry = Buffer.alloc(0), read = 0;
   for (;;) {
-    const r = readRegular(file, {root: runDir, limit: CHUNK, end});
+    const r = readRegular(file, {root: runDir, limit: CHUNK, end, accept});
     if (r.state === 'missing') return {why: 'the run directory holds no Loom run log of this case'};
     if (r.state === 'refused') return {why: 'the Loom run log of this case is not a regular file inside the run'};
     read += r.bytes.length;
@@ -228,16 +265,10 @@ export function outputOf({runDir, caseDir, storeDir, caseId, events, seq}) {
     digest = found.line.blob_digest; blobs = path.join(storeDir, 'blobs'); stream = OUTPUT_STREAM;
   } else return no('this action finish names no output');
   if (!DIGEST.test(String(digest))) return no('the digest the run log names is not a SHA-256');
-  // the blob is a file of the blobs/ directory of the run, by its real path, and under no dot-directory
-  let runReal = null;
-  try { runReal = fs.realpathSync.native(runDir); } catch { /* no run directory */ }
-  const where = path.relative(runDir, blobs);
+  // the blob is a file of the blobs/ directory of the run, by the real path of the open descriptor, under no dot-directory
   const blobPath = path.join(blobs, digest);
-  const real = runPath(blobPath, runDir);
-  const home = runReal && !where.startsWith('..') ? path.join(runReal, where) : null;
-  const refused = `the blob ${digest.slice(0, 12)}… is not a regular file inside the run's ${posix(where)}/`;
-  if (real != null && (home == null || path.dirname(real) !== home || hasDotPart(path.relative(runReal, real)))) return no(refused);
-  const r = readRegular(blobPath, {root: runDir, limit: TAIL, tail: true});
+  const refused = `the blob ${digest.slice(0, 12)}… is not a regular file inside the run's ${posix(path.relative(runDir, blobs))}/`;
+  const r = readRegular(blobPath, {root: runDir, limit: TAIL, tail: true, accept: inDirectory(runDir, blobs)});
   if (r.state === 'missing') return no(`the blob ${digest.slice(0, 12)}… the run log names is not in the run`);
   if (r.state === 'refused') return no(refused);
   let text = utf8Text(r.bytes, {cutStart: r.cut});
