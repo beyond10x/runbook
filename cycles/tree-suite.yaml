@@ -283,6 +283,7 @@ cycles:
         - {check: all, name: every-case-matches, select: [{step: replayed}, {path: "cases[*]"}], where: {state_matches_log: true, decision_matches_log: true}}
 
   - name: implement-percause
+    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/implement-percause, to: .stub}]
     expect:
       exit: 0

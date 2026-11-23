@@ -131,13 +131,12 @@ runs of an action are spent").
 and the merge approval send the writer back and each gives it three more runs; a failed
 `conformance_run` and a refused coverage (`implementation_change: [coverage_refused]`) are in
 `retry_when` only, so they use the runs of the window; the third rejection ends the run (the writer
-runs once and after each of the first two rejections). The value 2 is what the two entries of
-`cycles/tree-suite.yaml` that hold it (`decider-rework-spent`: three rejections, then exit 4;
-`rework-fresh-allowance`: two rejections, then four writer runs and exit 0) ask for by Loom's rules:
-at 2 the third rejection is the last and the second leaves a run; at 3 a fourth run follows the third
-rejection. The two entries were run alone at 2 and at 3 and end the same way at both (the stub of the
-writer made no new revision for a second rejection with the same reasons; `docs/cycles-suite.md`),
-so the value is not told apart by a run of the entries here, and both stay `pending`.
+runs once and after each of the first two rejections). The value 2 follows Loom's rules for the two
+entries of `cycles/tree-suite.yaml` that hold it (`decider-rework-spent`: three rejections, then exit 4;
+`rework-fresh-allowance`: two rejections, then four writer runs and exit 0): at 2 the third rejection is
+the last, at 3 a fourth run follows it. No run has told 2 from 3: both entries ended the same way at both
+(before the change of the stub) and, after it, on Loom's 60 s bound (`docs/cycles-suite.md`); a run at low
+load settles them, and both stay `pending` until then.
 
 ## Written in the YAML, carried out by Loom later
 
