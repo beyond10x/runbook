@@ -76,9 +76,12 @@ fi
 if [[ $node == change.review ]]; then
   mkdir -p "$cwd/out"
   # The request names no case directory under Loom (it gives none): sdc-reply takes the records of
-  # the workspace, which is the directory this adapter runs in, `work` beside its parent.
+  # the workspace, which is the directory this adapter runs in: named by itself, or by its parent
+  # when it is that parent's `work` (the layout of a case directory).
   review_case_dir=$(jq -r .case_dir "$1")
-  [[ -n $review_case_dir || -z ${LOOM_CASE:-} ]] || review_case_dir=$PWD/..
+  if [[ -z $review_case_dir && -n ${LOOM_CASE:-} ]]; then
+    if [[ $PWD/../work -ef $PWD ]]; then review_case_dir=$PWD/..; else review_case_dir=$PWD; fi
+  fi
   p=$("${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" rejections --case-dir "$review_case_dir" --action change.review | jq length)
   jq -n --argjson r "${SDC_REVIEW_REPLIES:-"{}"}" --argjson p "${p:-0}" --argjson n "$(jq '.review_attempt // 1' "$1")" '
     ($r.rounds // [] | .[$p] // last) | if type == "array" then (.[$n - 1] // last) else . end

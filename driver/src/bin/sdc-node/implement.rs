@@ -11,6 +11,7 @@ use crate::util::{chomp, die, env_set, now_utc, run_split, run_to_file, Out, R};
 use crate::Ctx;
 use sdc_tools::reply::coverage::{check_coverage_text, coverage_stub, story_arg, story_requirements, work_arg};
 use sdc_tools::reply::implement::{self, INLINE_CAP};
+use sdc_tools::reply::records::case_dir_of;
 use sdc_tools::reply::schemas::coverage_schema;
 use serde_json::{json, Value};
 use std::fs;
@@ -191,7 +192,7 @@ pub fn refuse_uncovered(c: &Ctx) -> i32 {
 pub fn request_call(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize, built: &Built, req: &Request, feedback: bool, rework_limit: &str) -> R<i32> {
     let started = now_utc(false);
     let story = c.names().1;
-    let case_dir = env_set("SDC_CASE_DIR").map_or_else(|| c.work.join(".."), PathBuf::from);
+    let case_dir = env_set("SDC_CASE_DIR").map_or_else(|| case_dir_of(&c.work), PathBuf::from);
     let args = |adapter: Option<PathBuf>, assemble_only: bool| implement::RunArgs {
         rec: rec.to_path_buf(),
         cwd: cwd.to_path_buf(),

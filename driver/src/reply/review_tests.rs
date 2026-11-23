@@ -437,3 +437,16 @@ fn a_record_names_a_tree_that_is_there_and_a_plain_kind() {
     assert!(facts.write_record("../x", "impl", "x").unwrap_err().contains("no record kind"));
     assert!(facts.write_record("a/b", "impl", "x").is_err());
 }
+
+#[test]
+fn a_workspace_that_is_not_the_work_of_a_case_directory_is_found_from_both_names() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-scratch/review-inputs/layouts");
+    let _ = fs::remove_dir_all(&root);
+    let (old, split) = (root.join("old/case/work"), root.join("split/work/1"));
+    fs::create_dir_all(&old).unwrap();
+    fs::create_dir_all(&split).unwrap();
+    assert_eq!(case_work(&old.join("..")), old.join("../work"));
+    assert_eq!(case_work(&split), split);
+    assert_eq!(case_dir_of(&old), old.join(".."));
+    assert_eq!(case_dir_of(&split), split);
+}
