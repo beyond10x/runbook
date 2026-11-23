@@ -97,6 +97,19 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
+| `runbooks` | none | the runbooks the daemon can start, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
+
+The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
+command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
+the runbooks of `--runbook-home` that have a `protocol/<name>.protocol.yaml` and a
+`bindings/<name>.yaml`, the version being the revision of the root protocol. Under the stub runtime
+they are its scripts (the presets and `stub-decision`) and the entries of `--runbook-dir`: a
+directory `<name>/` or a file `<name>.protocol.yaml` with a plain name (letters, digits, `-`, `_`,
+`.`, no leading dot). A name is listed once. A row has a name and a version only: no path of the host
+is in it. The view sits behind the same token check as every route; it is a read, so the cookie of
+the web UI's login opens it. It is a view and no new command: the language cannot read a file system,
+so the specification declares the entity `Runbook` that no command creates, and the daemon fills the
+rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
@@ -302,6 +315,22 @@ Without `--ui`, `GET /` is `404`.
   principal (the daemon's own, see "Running the daemon"). The daemon bounds it like `client` and `idempotency_key`: at
   most 200 characters, and a longer one is refused `400` with the message `answered_by is longer than
   200 characters`, before the request is looked up (it stays open). The form allows 100.
+- Two modes. The header names the mode of the page: "watch" when the inspector `ui/server.mjs` serves
+  it (it only reads: no start form, no token field, every `POST` is `405`) and "operate" when the daemon
+  serves it (start a run, take a decision). Operate adds the button "Start a run" (`ui/daemon/start.js`,
+  loaded only when the daemon named itself, like `decide.js`). Its form takes a runbook from
+  `GET /daemon/views/runbooks`, the intake as text and the confinement, and Start sends `submit-run`:
+  `POST /daemon/commands/submit-run`, JSON, `Authorization: Bearer <token>` when the daemon has a token,
+  no cookie, `runbook_id`, `intake`, `confinement` and a fresh `idempotency_key` for each press. The
+  levels offered start at the daemon's floor (`confinement_floor` of `GET /daemon/views/configuration`),
+  and the floor is the preset; a level below it is not sent (the daemon refuses it anyway: `below-floor`).
+  The token follows the rules of the answer above and is held in its own variable of the page's memory (the
+  form asks for it once beside its own button). The new run is read back from the answer
+  (`published[0].payload.run_id`), appears in the run list and is selected. A refusal is shown as its
+  name and status (`no-runbook (422)`, `intake-too-large (422)`, `401`) with its text, and the form keeps
+  what was typed. Under the stub runtime (the `runtime` of the rows) the form says that the run is
+  scripted and nothing is executed. The text of an intake, a runbook name and a refusal reaches the
+  page as text nodes (`textContent`), never as markup.
 - What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
   `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
   the events of every run; the feed of the selected run is the events of that run. The Decisions drawer

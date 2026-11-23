@@ -7,6 +7,12 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Added
+
+- The daemon has a view `runbooks` (`GET /daemon/views/runbooks`; ESS entity `Runbook`, view `Runbooks`, `docs/daemon-api.md`): the runbooks it can start, by name, version and runtime, from `--runbook-home` under `--runtime loom` and from the stub's scripts and `--runbook-dir` under the stub runtime, behind the daemon's one token check. No new command; no path of the host is in a row.
+- The page of `runbook serve --ui` starts a run: the button "Start a run" opens a form (`ui/daemon/start.js`) with a runbook from that view, the intake as text and a confinement that is never below the daemon's floor, and Start sends `submit-run` with a fresh idempotency key and the token from the page's memory. The new run is listed and selected; a refusal is shown with its name; under the stub runtime the form says that the run is scripted and nothing is executed.
+- The header of the page names its mode: "watch" when the inspector `ui/server.mjs` serves it (read only: no start form, no token field, `405` to a `POST`) and "operate" when the daemon serves it (`ui/test/daemon-start.spec.mjs`, `ui/test/read-only.spec.mjs`).
+
 ### Changed
 
 - The package `sdc-drive` is renamed `sdc-tools` (`driver/Cargo.toml`; the library is still `sdc_tools`, `runbook` depends on it as `sdc-tools`); its lock files change by the package name only. The helper programs keep their names (`sdc-node`, `sdc-reply`, `sdc-findings`, `sdc-bugfix` and the rest).
