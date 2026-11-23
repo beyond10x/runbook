@@ -13,7 +13,7 @@ relations:
 scope:
 - confidence: cited
   path: cycles
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T22:25:54Z", actor: "human:operator", revision: 4, executor: "agent:runbook", correlation: "d613-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T22:25:55Z", actor: "human:operator", revision: 5, executor: "agent:runbook", correlation: "d613-2026-11-22"}
@@ -40,7 +40,10 @@ could not run ends the run as `ProgramError` and records nothing; it is no longe
 - Each program binding of `bindings/*.yaml` carries `exits.error`: `[75, 126, 127]`, and
   `[69, 70, 75, 126, 127]` on the bindings `bindings/PENDING.md` lists for the pool wait.
 - Each model-node binding carries `exits.not_called` with one code, and `sdc-node` under Loom
-  (`LOOM_CASE` set) exits with that code where it prints "not called" today.
+  (`LOOM_CASE` set) exits with that code where it prints "not called" today. One exception: the
+  renewal of a derived tree by `spec.author` prints "not called" and exits 0 (with the not-called
+  code the cycle `spec-own-default` ends stuck), so it counts as one run against `budget.max_runs`;
+  `docs/loom-bindings.md` says so.
 - A test binds a program that exits 75: the run ends `ProgramError`, the run log holds no result
   for the node, `max_runs` is not reduced. A second test does the same for the not-called code.
 - The D36, D37 and pool-wait entries leave `bindings/PENDING.md`; `scripts/check-bindings.sh`
