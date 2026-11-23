@@ -7,6 +7,17 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
+The inspector has a Products tab, Loom `c9b4c177` is linked and the bindings state their exits. The tab lists
+the files a step left under `work/` and shows one as text; a model node that was not called no longer counts
+against `budget.max_runs`; each of the 50 program bindings has `exits.error` and each of the 14 model nodes
+`exits.not_called: [79]`, which `scripts/check-bindings.sh` checks; `runbook test` takes `--cycle-timeout` and
+`--list`. Breaking: `sdc-node` exits 79, not 0, where it prints "not called"; a bindings file of a user's own
+without `exits` has no exit class under Loom; a cycle of a suite works in `<scratch>/work/<n>` and keeps its tree
+in `<scratch>/store/<n>`; `runbook test` prints a `slowest:` line. No evaluation run was made on this code. The
+longer note is `docs/releases/0.8.0.md`.
+
 ### Added
 
 - The daemon has a view `runbooks` (`GET /daemon/views/runbooks`; ESS entity `Runbook`, view `Runbooks`, `docs/daemon-api.md`): the runbooks it can start, by name, version and runtime, from `--runbook-home` under `--runtime loom` and from the stub's scripts and `--runbook-dir` under the stub runtime, behind the daemon's one token check. No new command; no path of the host is in a row.
