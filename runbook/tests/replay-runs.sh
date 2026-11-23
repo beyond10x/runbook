@@ -27,9 +27,9 @@ scenario() {
     shift
     dir=$work/$name
     mkdir -p "$dir"
-    echo '{}' > "$dir/settings.json"
+    : > "$dir/settings.toml"
     env -i PATH="$drv:$PATH" HOME="$HOME" "$bin" run sdc --run "$name" --runs-dir "$dir/runs" \
-        --intake "$intake" --confinement local --settings "$dir/settings.json" \
+        --intake "$intake" --confinement local --settings "$dir/settings.toml" \
         --spend-ledger "$dir/ledger.json" --cap-micro-usd 100000000 --max-llm-calls 100 \
         --max-wall-seconds 600 --recorded "$rec" "$@" > "$dir/stdout.txt" 2> "$dir/stderr.txt"
     printf '{"code": %s}\n' "$?" > "$dir/done.json"
