@@ -136,7 +136,7 @@ mod tests {
     fn a_write_that_finds_every_name_taken_ends_with_an_error_that_names_a_path_in_the_directory_and_writes_nothing_outside() {
         let d = dir("all-taken");
         let outside = outside(&d);
-        for n in 0..NAMES_TRIED {
+        for n in 0..16 {
             std::fs::hard_link(&outside, temporary(&d, "a.json", n)).unwrap();
         }
         let before = names(&d);
@@ -148,13 +148,24 @@ mod tests {
     }
 
     #[test]
-    fn a_write_tries_as_many_names_as_the_bound_names() {
+    fn a_write_that_finds_fifteen_names_taken_uses_the_sixteenth() {
         let d = dir("last-free");
-        for n in 0..NAMES_TRIED - 1 {
+        for n in 0..15 {
             std::fs::create_dir(temporary(&d, "a.json", n)).unwrap();
         }
         write_atomic(&d.join("a.json"), b"one\n").unwrap();
         assert_eq!(std::fs::read_to_string(d.join("a.json")).unwrap(), "one\n");
+    }
+
+    #[test]
+    fn a_write_whose_rename_fails_leaves_no_temporary_file() {
+        let d = dir("rename-fails");
+        std::fs::create_dir(d.join("a.json")).unwrap();
+        std::fs::write(d.join("a.json").join("inside"), "x").unwrap();
+        let before = names(&d);
+        let e = write_atomic(&d.join("a.json"), b"one\n").unwrap_err();
+        assert!(e.contains(&d.join("a.json").display().to_string()), "{e}");
+        assert_eq!(names(&d), before, "the temporary file of the failed write is removed");
     }
 
     #[test]
