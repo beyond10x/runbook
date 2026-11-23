@@ -350,10 +350,11 @@ fn within(home: &Path, tag: &str) -> (Result<(), String>, PathBuf) {
 fn every_way_out_of_the_home_is_refused_before_the_first_write_and_names_nothing_outside() {
     use std::os::unix::ffi::OsStrExt;
     let up = "../".repeat(40);
-    fn mk(f: impl Fn(&Path, &Path) + 'static) -> Box<dyn Fn(&Path, &Path)> {
+    type Make = Box<dyn Fn(&Path, &Path)>;
+    fn mk(f: impl Fn(&Path, &Path) + 'static) -> Make {
         Box::new(f)
     }
-    let cases: Vec<(&str, Box<dyn Fn(&Path, &Path)>)> = vec![
+    let cases: Vec<(&str, Make)> = vec![
         ("file link", mk(|h, o| std::os::unix::fs::symlink(o.join("secret.txt"), h.join("bindings/tools/l")).unwrap())),
         ("directory link", mk(|h, o| std::os::unix::fs::symlink(o, h.join("bindings/tools/l")).unwrap())),
         (
