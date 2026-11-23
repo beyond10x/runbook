@@ -532,15 +532,15 @@ commands:
         when_related: {via: input.daemon_id, exists: false}
         error: sdc.daemon.NoSuchDaemon
         summary: "No daemon was started under this id: nothing was submitted."
+      - name: no-session
+        when_related: {via: input.session_id, exists: false}
+        error: sdc.daemon.NoSuchSession
+        summary: "A session was named and none has that name: nothing was submitted."
       - name: below-floor
         when: {confinement: {in: [local]}}
         when_related: {via: input.daemon_id, predicate: confinement_floor == linux}
         error: sdc.daemon.BelowConfinementFloor
         summary: "The daemon's floor is linux and the confinement is local: nothing was submitted."
-      - name: no-session
-        when_related: {via: input.session_id, exists: false}
-        error: sdc.daemon.NoSuchSession
-        summary: "A session was named and none has that name: nothing was submitted."
       - name: session-closed
         when_related: {via: input.session_id, predicate: state == Closed}
         error: sdc.daemon.SessionClosedToRuns
