@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 mod amend;
+mod notcalled;
 mod workers;
 
 const MARKER: &str = "RUNBOOK_TEST_MARKER";

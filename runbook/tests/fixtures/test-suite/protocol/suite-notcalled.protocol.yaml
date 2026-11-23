@@ -1,0 +1,35 @@
+format: protocol/1
+protocol:
+  id: suite.notcalled
+  revision: 1
+  description: >-
+    The state of run 1 of record parity-loom-strong-4, in small. A check refuses a specification and the writer is due again through its retry rule; the finding it would answer waits for a person, so the writer is not called and ends with its not-called exit; an amend step hands the case to the person. The case ends authored once the writer has produced the specification.
+artifacts:
+  spec: {}
+  findings: {}
+evidence_kinds:
+  spec_check: {}
+  spec_done: {}
+claims:
+  spec.checked:
+    true_when:
+      evidence: {kind: spec_check, subject: spec, result: ok}
+  spec.authored:
+    true_when:
+      evidence: {kind: spec_done, subject: spec, result: ok}
+actions:
+  spec.author:
+    effect: write
+    may_produce:
+      - evidence: spec_done
+  spec.check:
+    effect: read
+    may_produce:
+      - evidence: spec_check
+  amend.upstream:
+    effect: write
+    may_produce:
+      - evidence: spec_check
+outcomes:
+  authored:
+    requires: {claim: spec.authored}
