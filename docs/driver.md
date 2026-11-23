@@ -689,6 +689,22 @@ rejection that cannot be recorded, or that sends no writer back, and has no end 
 with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
 it was opened with, so a run started before a protocol change does not gain the new actions.
 
+The ledger of the stub's numbering (`.sdc/rework-seen`, the stand-in model program `sdc-node`): one line
+`<approval> <id>` for each rejection it numbered, written in the tree before the note and read by every
+later start. It is a file of the stub, not of the product, written in the work directory under `.sdc/`, and it
+is part of the tree the writer leaves, so it enters a revision that covers that tree: a diff of two such
+revisions shows the file with one added line for each rework, beside the note (`.rework`, or the comment
+in the YAML or Markdown file); a reviewer reads it as the stub's bookkeeping. A revision of one artifact
+file (the subject `requirements.yaml`, say) is of that file, which holds the note and not the ledger. Only Loom's run writes it (the driver numbers a rework from its own
+rejection record), so the parity listing leaves this one path out (`docs/parity.md`, the rework
+ledger). The number counts what the ledger and the document hold: with the ledger gone (a tree that is
+rebuilt or cleaned between two reworks) the count starts again from the records of the document. An
+evidence id is taken as its first line, so one id is one ledger line. The ledger is opened as a regular
+file of one name inside the work directory and without following a link: a link, a directory, a FIFO, a
+file with a second name or a `.sdc` that is a link ends the stub (exit 126, one line on standard error
+that names `.sdc/rework-seen`), and so does an error of reading or writing it; no note is written and
+nothing is written through the link. A missing ledger is the first rejection and no error.
+
 **A refused release** (2026-11-21, `docs/protocol-notes.md`). `release.publish` is approved by the
 capability `release.approve`: no `rejected` result, no writer. The release's other end is
 `withheld`, which requires the decision `explicitly_withheld`; Canon admits that decision from any
