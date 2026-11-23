@@ -4988,6 +4988,114 @@
       "tree": "44e05a37d6c44266849231212b75efabda0bee54",
       "tree_note": "tag 0.5.0 at main 44e05a3: 0.4.1 (da86a8f) with the merges of the runner on the Loom engine (runbook run in process, runbook test, the decider and every model node in Rust, the options of the old launcher but the replay), the record of 0.4.1 and the preparation",
       "version": "0.5.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "34f84cf",
+          "effect": "none",
+          "experiment": null,
+          "line": "the ESS pins move from 0.97.3 to 0.97.4; the committed suites are byte-identical"
+        },
+        {
+          "commit": "199f311",
+          "effect": "none",
+          "experiment": null,
+          "line": "the inspector applies a view file to a run of runbook run, whose protocol is in the opened event"
+        },
+        {
+          "commit": "17c00ab",
+          "effect": "none",
+          "experiment": null,
+          "line": "the inspector reads a good end from the view file and draws the graph of a run of runbook run from its copies"
+        },
+        {
+          "commit": "81f2612",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook canon validate, compile, check, simulate and evaluate run the linked Canon library, and runbook doctor needs no canon binary"
+        },
+        {
+          "commit": "658ecf4",
+          "effect": "none",
+          "experiment": null,
+          "line": "the run inspector reads a run and starts no driver; every read of a run file goes through one path check"
+        },
+        {
+          "commit": "da85428",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run routes decisions by autonomy level from a table it reads once before the first action"
+        },
+        {
+          "commit": "8a56f36",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run --recorded re-drives a case tree from a recording, with a live cap that counts a call from its start"
+        },
+        {
+          "commit": "ff0579c",
+          "effect": "none",
+          "experiment": null,
+          "line": "Loom 70b0e6e0 is linked, and scope.answer is a person step with a program"
+        },
+        {
+          "commit": "652c032",
+          "effect": "none",
+          "experiment": null,
+          "line": "the effort per node class reaches sdc-node"
+        },
+        {
+          "commit": "56579cc",
+          "effect": "none",
+          "experiment": null,
+          "line": "the decision contract refuses a letter nobody offered, an escalation to a principal who is not eligible, a repeated option letter and an empty record id"
+        },
+        {
+          "commit": "c68ca14",
+          "effect": "none",
+          "experiment": null,
+          "line": "the record parity-loom-strong-4 ended, 0 of 3 runs delivered, all three stopped stuck; its verdict is descriptive"
+        }
+      ],
+      "date": "2026-11-23",
+      "experiments": [],
+      "id": "0.6.0",
+      "kind": "release",
+      "label": "0.6.0",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; no record of experiments/ names a run on it.",
+        "The record parity-loom-strong-4 ran on the head of line 2 (9be5098), not on this tree, and is not listed here; it is descriptive and decides nothing, and no parity verdict between the old driver and Loom exists.",
+        "The old driver is still in this tree; its deletion is not in this release."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "3c40ef21e1bb7ba8e77e3b89e889543a5d149875",
+      "tree_note": "tag 0.6.0 at main 3c40ef2: 0.5.0 (44e05a3) with the merges of the ESS 0.97.4 pins, the inspector fixes, line 2 of the Loom runner (routing by autonomy level, runbook run --recorded, runbook canon, the read-only inspector, Loom 70b0e6e0), the end of the record parity-loom-strong-4 and the preparation",
+      "version": "0.6.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -5975,7 +6083,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "2aea11f471e53595663366957fe240f96e54bed0eaff32a82d147d0e6d9fd629"
+      "sha256": "d7bf78d3562c50f17ed81ec11ba3b00f1e295e0de32a5dea046369bdd374c3cd"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",

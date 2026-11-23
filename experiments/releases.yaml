@@ -526,3 +526,50 @@ entries:
   limits:
   - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.
   - The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists.
+- id: 0.6.0
+  kind: release
+  version: 0.6.0
+  label: 0.6.0
+  short: autonomy routing, replay
+  date: 2026-11-23
+  tree: 3c40ef21e1bb7ba8e77e3b89e889543a5d149875
+  tree_note: 'tag 0.6.0 at main 3c40ef2: 0.5.0 (44e05a3) with the merges of the ESS 0.97.4 pins, the inspector fixes, line 2 of the Loom runner (routing by autonomy level, runbook run --recorded, runbook canon, the read-only inspector, Loom 70b0e6e0), the end of the record parity-loom-strong-4 and the preparation'
+  experiments: []
+  changes:
+  - commit: 34f84cf
+    line: the ESS pins move from 0.97.3 to 0.97.4; the committed suites are byte-identical
+    effect: none
+  - commit: 199f311
+    line: the inspector applies a view file to a run of runbook run, whose protocol is in the opened event
+    effect: none
+  - commit: 17c00ab
+    line: the inspector reads a good end from the view file and draws the graph of a run of runbook run from its copies
+    effect: none
+  - commit: 81f2612
+    line: runbook canon validate, compile, check, simulate and evaluate run the linked Canon library, and runbook doctor needs no canon binary
+    effect: none
+  - commit: 658ecf4
+    line: the run inspector reads a run and starts no driver; every read of a run file goes through one path check
+    effect: none
+  - commit: da85428
+    line: runbook run routes decisions by autonomy level from a table it reads once before the first action
+    effect: none
+  - commit: 8a56f36
+    line: runbook run --recorded re-drives a case tree from a recording, with a live cap that counts a call from its start
+    effect: none
+  - commit: ff0579c
+    line: Loom 70b0e6e0 is linked, and scope.answer is a person step with a program
+    effect: none
+  - commit: 652c032
+    line: the effort per node class reaches sdc-node
+    effect: none
+  - commit: 56579cc
+    line: the decision contract refuses a letter nobody offered, an escalation to a principal who is not eligible, a repeated option letter and an empty record id
+    effect: none
+  - commit: c68ca14
+    line: the record parity-loom-strong-4 ended, 0 of 3 runs delivered, all three stopped stuck; its verdict is descriptive
+    effect: none
+  limits:
+  - No run has used this tree and the release claims no measured change; no record of experiments/ names a run on it.
+  - The record parity-loom-strong-4 ran on the head of line 2 (9be5098), not on this tree, and is not listed here; it is descriptive and decides nothing, and no parity verdict between the old driver and Loom exists.
+  - The old driver is still in this tree; its deletion is not in this release.

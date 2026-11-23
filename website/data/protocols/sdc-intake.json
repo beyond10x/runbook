@@ -1180,8 +1180,8 @@
   },
   "source": {
     "path": "protocol/sdc-intake.protocol.yaml",
-    "tag": "0.5.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.5.0/protocol/sdc-intake.protocol.yaml"
+    "tag": "0.6.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.6.0/protocol/sdc-intake.protocol.yaml"
   },
   "stem": "sdc-intake",
   "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3).",

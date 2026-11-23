@@ -26,6 +26,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 | [0.4.1](#041) | release | 2026-11-22 | `da86a8f` | no experiment yet | no run | - | - |
 | [0.5.0](#050) | release | 2026-11-22 | `44e05a3` | no experiment yet | no run | - | - |
+| [0.6.0](#060) | release | 2026-11-23 | `3c40ef2` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -494,6 +495,34 @@ Limits of this measurement:
 
 - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.
 - The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists.
+
+## 0.6.0
+
+Release, 2026-11-23. Tree: `3c40ef2` (tag 0.6.0 at main 3c40ef2: 0.5.0 (44e05a3) with the merges of the ESS 0.97.4 pins, the inspector fixes, line 2 of the Loom runner (routing by autonomy level, runbook run --recorded, runbook canon, the read-only inspector, Loom 70b0e6e0), the end of the record parity-loom-strong-4 and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `34f84cf` | the ESS pins move from 0.97.3 to 0.97.4; the committed suites are byte-identical | no run metric affected |
+| `199f311` | the inspector applies a view file to a run of runbook run, whose protocol is in the opened event | no run metric affected |
+| `17c00ab` | the inspector reads a good end from the view file and draws the graph of a run of runbook run from its copies | no run metric affected |
+| `81f2612` | runbook canon validate, compile, check, simulate and evaluate run the linked Canon library, and runbook doctor needs no canon binary | no run metric affected |
+| `658ecf4` | the run inspector reads a run and starts no driver; every read of a run file goes through one path check | no run metric affected |
+| `da85428` | runbook run routes decisions by autonomy level from a table it reads once before the first action | no run metric affected |
+| `8a56f36` | runbook run --recorded re-drives a case tree from a recording, with a live cap that counts a call from its start | no run metric affected |
+| `ff0579c` | Loom 70b0e6e0 is linked, and scope.answer is a person step with a program | no run metric affected |
+| `652c032` | the effort per node class reaches sdc-node | no run metric affected |
+| `56579cc` | the decision contract refuses a letter nobody offered, an escalation to a principal who is not eligible, a repeated option letter and an empty record id | no run metric affected |
+| `c68ca14` | the record parity-loom-strong-4 ended, 0 of 3 runs delivered, all three stopped stuck; its verdict is descriptive | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; no record of experiments/ names a run on it.
+- The record parity-loom-strong-4 ran on the head of line 2 (9be5098), not on this tree, and is not listed here; it is descriptive and decides nothing, and no parity verdict between the old driver and Loom exists.
+- The old driver is still in this tree; its deletion is not in this release.
 
 ## Experiments in no entry
 
