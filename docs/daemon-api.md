@@ -327,14 +327,20 @@ Without `--ui`, `GET /` is `404`.
   `GET /daemon/views/runbooks`, the intake as text and the confinement, and Start sends `submit-run`:
   `POST /daemon/commands/submit-run`, JSON, `Authorization: Bearer <token>` when the daemon has a token,
   no cookie, `runbook_id`, `intake`, `confinement` and an `idempotency_key` that belongs to one filled form: the page
-  makes it when the form is first sent and sends the same key for a press repeated after an answer that did
-  not arrive (a network error, a reset), so the daemon's replay rule (`already-submitted`) returns the first
-  run and no second one starts; the key changes when the daemon answered (accepted or refused) and when the
-  runbook, the intake or the confinement changed (the page then says that the earlier press may have
+  makes it when the form is first sent and sends the same key for a press repeated after an answer that is not
+  the command's whole answer (a network error, a reset, a body that is cut or is not JSON, an answer of the
+  HTTP layer such as `401`, `403`, `400` or `415`, a `5xx`), so the daemon's replay rule (`already-submitted`)
+  returns the first run and no second one starts; the key changes only when the daemon answered the command
+  with a named outcome (`submitted`, `already-submitted` or a refusal such as `no-runbook`), read whole, and
+  when the runbook, the intake or the confinement changed (the page then says that the earlier press may have
   started a run: look in the list of runs). The levels offered start at the daemon's floor
   (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
-  level, Start stays disabled until then, and the form says what the floor is (`--confinement` has no
-  default anywhere in this product); a level below the floor is not sent (the daemon refuses it anyway:
+  level, Start stays disabled until then, and the form says what the floor is. The form presets no level; the
+  command does: a `submit-run` without the member `confinement` runs at `linux` (the specification says so in
+  the summary of `sdc.daemon.ConfinementLevel`, `ess/domains/daemon.yaml`: "The default of a submit is linux
+  (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
+  the person picked while the form was still reading the floor and the list stays picked when the floor just
+  read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
   `below-floor`). A token that a header cannot carry (a character above U+00FF, a control character) is
   forgotten at once, the form asks for it again and says that the token cannot be sent; closing the form
   (Close, Escape, a successful start) empties the token field.
