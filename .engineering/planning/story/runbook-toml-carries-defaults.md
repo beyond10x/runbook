@@ -4,7 +4,7 @@ id: story:runbook-toml-carries-defaults
 kind: story
 status: active
 title: 'runbook run starts with a runbook and an intake: runbook.toml carries the defaults'
-summary: A runbook.toml found by the binary states defaults for every option and setting of a run; confinement and caps have no built-in default.
+summary: A runbook.toml found by the binary states defaults for every option and setting of a run; the confinement has no built-in default, and caps are optional.
 tags:
 - backlog-2026-11-23
 relations:
@@ -25,7 +25,7 @@ scope:
   path: runbook/src/loom_run/settings.rs
 - confidence: cited
   path: runbook/src/main.rs
-revision: 10
+revision: 12
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T01:45:49Z", actor: "human:operator", revision: 2, executor: "agent:runbook", correlation: "operator-2026-11-23-run-defaults"}
 - {from: "proposed", to: "active", at: "2026-11-23T01:45:49Z", actor: "human:operator", revision: 3, executor: "agent:runbook", correlation: "operator-2026-11-23-run-defaults"}
@@ -60,10 +60,11 @@ efforts. An option on the command line still wins.
 - Built-in defaults exist only where a wrong value does no harm: the directory of the runs
   (`runs/` beside the file), the name of the run (generated, unique, printed), the spend ledger
   (in the directory of the runs).
-- No built-in default for the confinement, the spend cap, the call cap and the wall time: the file
-  or an option states them, and a run without them is refused with the name of the missing value
-  and the line to add. A value of the file never lowers a confinement that an option or the
-  daemon's floor sets. The cap fails closed as today.
+- No built-in default for the confinement and the wall time: the file or an option states them, and
+  a run without them is refused with the name of the missing value and the line to add. A value of
+  the file never lowers a confinement that an option or the daemon's floor sets.
+- The spend cap, the call cap and the spend ledger are optional (`story:caps-are-optional`): none
+  named, in an option or in the file, means no limit; a named cap stops the run when reached.
 - A login file is named by path in the file, never by content; the file is refused when it holds a
   token or a key (the names the push scan knows).
 - With a file that states the four values, `runbook run sdc --intake idea.txt --dry` starts a dry
