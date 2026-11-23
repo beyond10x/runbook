@@ -43,6 +43,19 @@ content changed: `store/<root>/` (the driver's case store layout, made from Loom
 `ChildOpened` lines), `tree-status.json` when it exists, the bindings and protocols copies, and
 `work/findings.yaml`.
 
+One writer writes every record of the run directory once the first program of the run has started
+(`runbook/src/loom_run/record_write.rs`): a whole file is made as a new temporary file, under a dot name the runner
+chooses for that write (its process id and a counter), opened without following a link and without waiting for a reader,
+and replaces the record by a rename; a line is appended only to a regular file with one name, opened the same way. A
+program of the run can write this directory (`--confinement local`), so a name it took (a link, a pipe, a directory, a
+second name of a file outside the run) is never opened for writing: the writer takes the next of 16 temporary names, and
+when all 16 are taken, or the file to append to is not a regular file with one name, the run ends within seconds with an
+error that names a file in the run directory, and nothing is written outside the run. This holds for `status.json`,
+`run-stopped.json`, `loom/`, `store/<root>/`, the append-only records, `runner.json`, `outcome.json`, the tree records and
+the files of the decider's calls (`decider/`, `decider-cases/`). The writer does not write what is made before the first
+program starts (`settings.json`, the first `events.jsonl`, the bindings and protocols copies, `fs/watch.log`) and Loom's
+own files (`store/runlog-case-*.jsonl`, `store/case-*.json`), which Loom writes.
+
 Nothing sensitive is written: a string that starts with the run directory's path is written relative
 to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`, `/tmp/`, `/var/`,
 `/run/user/`, `/dev/shm/`) is written as `<absolute path removed>`, and the value of a member whose
@@ -120,7 +133,9 @@ start time. A run directory without `runner.json` (an older runner) keeps the an
 
 `runner.json` and the `action_started` lines are what files of the run directory claim: under `--confinement local` a
 program of the run can write them, so the answer is a reading of those files and of `/proc/<pid>/stat`, shown as text,
-and nothing decides on it. A `runner.json` over 4 KiB (a record is about 150 bytes) is not read: the run is *unknown*.
+and nothing decides on it. A read of a file of a run by the inspector holds its limit in the read itself: it takes at most
+the limit plus one byte from the one checked descriptor, whatever size the file has at that moment, and a file that
+needs more is answered as a file over the limit (not read), never as its first bytes. A `runner.json` over 4 KiB (a record is about 150 bytes) is not read: the run is *unknown*.
 `start_ticks` of 0 or below is no start time: the run is *not live*. A read of `/proc/<pid>/stat` that fails for another
 reason than "no such process" makes the run *unknown*, with that reason, and never "not live". The `action`, `case` and
 `source` of a start line are cut to 256 characters in the answer and the band, at a character, never inside one.
