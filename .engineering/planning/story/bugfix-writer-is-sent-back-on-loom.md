@@ -2,13 +2,27 @@
 format: aep.planning-md/3
 id: story:bugfix-writer-is-sent-back-on-loom
 kind: story
-status: draft
+status: active
 title: A writer of a bug-fix run on Loom is sent back before the case ends
 summary: A reproduction that is not red and a test run that failed send the writer back within its budget; the case ends not_reproduced or not_fixed only when the writer is spent.
 relations:
 - decomposes: epic:ticket-to-merge-request-on-a-real-repository
 - depends_on: story:bugfix-keeps-the-output-of-a-failed-check
-revision: 1
+scope:
+- confidence: cited
+  path: bindings/sdc-bugfix.yaml
+- confidence: cited
+  path: cycles/tree-suite.yaml
+- confidence: cited
+  path: docs/bugfix.md
+- confidence: cited
+  path: docs/cycles-suite.md
+- confidence: cited
+  path: protocol/sdc-bugfix.protocol.yaml
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-23T17:09:07Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-23T17:09:08Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
 ---
 ## What is known
 
