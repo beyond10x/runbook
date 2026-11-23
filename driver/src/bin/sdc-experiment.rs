@@ -2027,65 +2027,72 @@ fn loom_in_process(settings: &BTreeMap<String, String>) -> bool {
     settings.get("loom.in_process").is_some_and(|x| x == "true")
 }
 
-/// The settings file of a `loom` run (`runbook.loom-run-settings/1`): the record's settings that
-/// `runbook run` reads, nested by their dotted keys so the run can record them as
-/// `run-settings.jsonl` under the record's own names. `loom.bin` is not in it (an argument). The
+/// The settings file of a `loom` run (`runbook.loom-run-settings/1`, TOML, `docs/loom-run-settings.md`):
+/// the record's settings that `runbook run` reads, each in the one place the file has for it (the
+/// record's `loom.confinement` is the file's `confinement`, and so on) while the run records them
+/// as `run-settings.jsonl` under the record's own names. `loom.bin` is not in it (an argument). The
 /// login file is a path, only when the record names one; `redact` puts the setting's name in its
-/// place for printing.
-fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: bool, base: &dyn Fn(&str) -> Option<String>) -> Result<J, String> {
-    let mut doc = json!({"format": "runbook.loom-run-settings/1", "run": name, "decider": {}, "loom": {}});
-    let put = |doc: &mut J, path: &[&str], v: J| {
-        let mut at = doc;
-        for k in &path[..path.len() - 1] {
-            at = &mut at[*k];
-        }
-        at[path[path.len() - 1]] = v;
-    };
+/// place for printing. A text is quoted and escaped by the TOML library and a number must be a whole
+/// number of 64 bits: one that is not is refused, never written as another value.
+fn loom_settings_toml(name: &str, settings: &BTreeMap<String, String>, redact: bool, base: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
+    use toml::{Table, Value as T};
     let get = |k: &str| settings.get(k).cloned().unwrap_or_default();
-    let num = |k: &str| get(k).parse::<u64>().map(J::from).unwrap_or(J::Null);
-    for c in ["writer", "implement", "review", "other"] {
-        put(&mut doc, &["models", c, "model"], json!(get(&format!("models.{c}.model"))));
+    let text = |k: &str| T::String(get(k));
+    let num = |k: &str| -> Result<T, String> {
+        let raw = get(k);
+        raw.parse::<u64>().ok().and_then(|n| i64::try_from(n).ok()).map(T::Integer)
+            .ok_or_else(|| format!("refused: {k} is {raw:?}, not a whole number of 64 bits, so the settings file cannot hold it"))
+    };
+    let mut top = Table::new();
+    top.insert("format".into(), T::String("runbook.loom-run-settings/1".into()));
+    top.insert("run".into(), T::String(name.into()));
+    top.insert("autonomy".into(), text("autonomy"));
+    if let Some(x) = settings.get("adapter") {
+        top.insert("adapter".into(), T::String(x.clone()));
+    }
+    top.insert("max_llm_calls".into(), num("max_llm_calls")?);
+    top.insert("max_wall_seconds".into(), num("max_wall_seconds")?);
+    if loom_in_process(settings) {
+        top.insert("in_process".into(), T::Boolean(true));
+    } else {
+        top.insert("loom_sha256".into(), text("loom.sha256"));
+    }
+    top.insert("confinement".into(), text("loom.confinement"));
+    top.insert("cap_micro_usd".into(), num("loom.cap_micro_usd")?);
+    if let Some(l) = settings.get("loom.login_file") {
+        let v = if redact { "<loom.login_file>".to_string() } else { expand_home(l, base)? };
+        top.insert("login_file".into(), T::String(v));
     }
     // The decider: `kind` as the record says it. A model decider also says that Loom's output holds
     // no claims (`without_claims`: the run makes no claim about claims it does not have). The
     // principal of its answers is not written: the runner derives it from the kind.
     let kind = get("decider.kind");
-    put(&mut doc, &["decider", "kind"], json!(kind));
+    let mut decider = Table::new();
+    decider.insert("kind".into(), T::String(kind.clone()));
     if kind == "rule" {
-        put(&mut doc, &["decider", "verdict"], json!(get("decider.verdict")));
+        decider.insert("verdict".into(), text("decider.verdict"));
     } else {
-        put(&mut doc, &["decider", "model"], json!(get("decider.model")));
-        put(&mut doc, &["decider", "without_claims"], json!(true));
-        for k in ["decider.escalate", "decider.adapter"] {
-            if let Some(x) = settings.get(k) {
-                put(&mut doc, &["decider", &k["decider.".len()..]], json!(x));
+        decider.insert("model".into(), text("decider.model"));
+        decider.insert("without_claims".into(), T::Boolean(true));
+        for k in ["escalate", "adapter"] {
+            if let Some(x) = settings.get(&format!("decider.{k}")) {
+                decider.insert(k.into(), T::String(x.clone()));
             }
         }
         if settings.contains_key("decider.max_decider_calls") {
-            put(&mut doc, &["decider", "max_decider_calls"], num("decider.max_decider_calls"));
+            decider.insert("max_decider_calls".into(), num("decider.max_decider_calls")?);
         }
     }
-    put(&mut doc, &["autonomy"], json!(get("autonomy")));
-    if let Some(x) = settings.get("adapter") {
-        put(&mut doc, &["adapter"], json!(x));
-    }
+    top.insert("decider".into(), T::Table(decider));
     if let Some(x) = settings.get("review.adapter") {
-        put(&mut doc, &["review", "adapter"], json!(x));
+        top.insert("review".into(), T::Table(Table::from_iter([("adapter".to_string(), T::String(x.clone()))])));
     }
-    put(&mut doc, &["max_llm_calls"], num("max_llm_calls"));
-    put(&mut doc, &["max_wall_seconds"], num("max_wall_seconds"));
-    if loom_in_process(settings) {
-        put(&mut doc, &["loom", "in_process"], json!(true));
-    } else {
-        put(&mut doc, &["loom", "sha256"], json!(get("loom.sha256")));
+    let mut models = Table::new();
+    for c in ["writer", "implement", "review", "other"] {
+        models.insert(c.into(), T::Table(Table::from_iter([("model".to_string(), text(&format!("models.{c}.model")))])));
     }
-    put(&mut doc, &["loom", "confinement"], json!(get("loom.confinement")));
-    put(&mut doc, &["loom", "cap_micro_usd"], num("loom.cap_micro_usd"));
-    if let Some(l) = settings.get("loom.login_file") {
-        let v = if redact { "<loom.login_file>".to_string() } else { expand_home(l, base)? };
-        put(&mut doc, &["loom", "login_file"], json!(v));
-    }
-    Ok(doc)
+    top.insert("models".into(), T::Table(models));
+    toml::to_string(&top).map_err(|e| format!("refused: the settings file cannot be written: {}", e.to_string().lines().next().unwrap_or("").chars().take(160).collect::<String>()))
 }
 
 /// The idea file of a `loom` run: `text: <the input's text>`, the shape of `work/idea.yaml`.
@@ -2135,7 +2142,7 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     }
     add("--intake", files.join("idea.yaml").display().to_string());
     add("--confinement", g("loom.confinement"));
-    add("--settings", files.join("settings.json").display().to_string());
+    add("--settings", files.join("settings.toml").display().to_string());
     add("--spend-ledger", runs_dir.join(format!("{id}.loom-spend.json")).display().to_string());
     add("--cap-micro-usd", g("loom.cap_micro_usd"));
     add("--max-llm-calls", g("max_llm_calls"));
@@ -2436,7 +2443,7 @@ struct RunPlan {
 struct LoomFiles {
     dir: PathBuf,
     idea: String,
-    settings: J,
+    settings: String,
 }
 
 fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
@@ -2484,7 +2491,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                 let s = &s;
                 let files = loom_launch_dir(&builds, &id, &p.name);
                 let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &input, &base)?;
-                let settings = loom_settings_json(&p.name, s, redact, &base)?;
+                let settings = loom_settings_toml(&p.name, s, redact, &base)?;
                 RunPlan { env: loom_env(&base, &build), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
             }
             "free-agent" => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: free_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
@@ -2517,8 +2524,15 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                         println!("  login: loom.login_file is set (named in the settings file; the launcher never reads it)");
                     }
                     println!("  idea file: {}", l.dir.join("idea.yaml").display());
-                    println!("  settings file: {}", l.dir.join("settings.json").display());
-                    println!("  settings {}", l.settings);
+                    println!("  settings file: {}", l.dir.join("settings.toml").display());
+                    println!("  settings:");
+                    for line in l.settings.lines() {
+                        if line.is_empty() {
+                            println!();
+                        } else {
+                            println!("    {line}");
+                        }
+                    }
                 }
                 None => {
                     for (k, v) in rp.env.iter().filter(|(k, _)| k.starts_with("SDC_")) {
@@ -2572,7 +2586,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             let write = |name: &str, text: String| fs::create_dir_all(&l.dir).and_then(|()| fs::write(l.dir.join(name), text))
                 .map_err(|e| (1, format!("cannot write {}: {e}", l.dir.join(name).display())));
             write("idea.yaml", l.idea.clone())?;
-            write("settings.json", serde_json::to_string_pretty(&l.settings).unwrap_or_default() + "\n")?;
+            write("settings.toml", l.settings.clone())?;
         }
         // sdc-free-agent writes free-agent.json; `runbook run` makes the run directory itself.
         let marker = if free { dir.join("free-agent.json") } else { dir.clone() };
@@ -2949,17 +2963,115 @@ targets:
         s.insert("decider.kind".into(), "model".into());
         s.insert("autonomy".into(), "A5".into());
         let base = |k: &str| (k == "HOME").then(|| "/h".to_string());
-        let doc = loom_settings_json("r1", &s, false, &base).unwrap();
-        assert_eq!(doc["models"]["implement"]["model"], "i");
-        assert_eq!(doc["loom"]["cap_micro_usd"], 7);
-        assert_eq!(doc["max_llm_calls"], 9);
-        assert!(doc["loom"].get("login_file").is_none() && doc["loom"].get("bin").is_none(), "{doc}");
+        let read = |s: &BTreeMap<String, String>, redact: bool| -> toml::Table { toml::from_str(&loom_settings_toml("r1", s, redact, &base).unwrap()).unwrap() };
+        let doc = read(&s, false);
+        assert_eq!(doc["models"]["implement"]["model"].as_str(), Some("i"));
+        assert_eq!(doc["cap_micro_usd"].as_integer(), Some(7));
+        assert_eq!(doc["max_llm_calls"].as_integer(), Some(9));
+        assert!(!doc.contains_key("login_file") && !doc.contains_key("loom") && !doc.contains_key("bin"), "{doc}");
         s.insert("loom.login_file".into(), "~/.marker/login.json".into());
-        assert_eq!(loom_settings_json("r1", &s, false, &base).unwrap()["loom"]["login_file"], "/h/.marker/login.json");
-        assert_eq!(loom_settings_json("r1", &s, true, &base).unwrap()["loom"]["login_file"], "<loom.login_file>");
-        assert!(loom_settings_json("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
+        assert_eq!(read(&s, false)["login_file"].as_str(), Some("/h/.marker/login.json"));
+        assert_eq!(read(&s, true)["login_file"].as_str(), Some("<loom.login_file>"));
+        assert!(loom_settings_toml("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
         let env = loom_env(&|k: &str| (k == "PATH" || k == "SDC_RUNS_DIR").then(|| "x".to_string()), Path::new("/b"));
         assert_eq!(env, [("PATH".to_string(), "/b/driver/target/debug:x".to_string())]);
+    }
+
+    /// A record's settings that set every member the writer knows, each text with a quote, a
+    /// backslash, an apostrophe and a letter outside ASCII, in `odd`.
+    fn every_member(odd: &str, in_process: bool, kind: &str) -> BTreeMap<String, String> {
+        let mut s: BTreeMap<String, String> = [
+            ("models.writer.model", odd), ("models.implement.model", odd), ("models.review.model", odd), ("models.other.model", odd),
+            ("decider.model", odd), ("decider.escalate", odd), ("decider.adapter", odd), ("decider.verdict", odd), ("adapter", odd),
+            ("review.adapter", odd), ("autonomy", odd), ("loom.confinement", odd), ("loom.sha256", odd), ("loom.login_file", odd),
+            ("decider.max_decider_calls", "40"), ("max_llm_calls", "9"), ("max_wall_seconds", "60"), ("loom.cap_micro_usd", "7"),
+        ]
+        .iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        s.insert("decider.kind".into(), kind.into());
+        if in_process {
+            s.insert("loom.in_process".into(), "true".into());
+        }
+        s
+    }
+
+    #[test]
+    fn every_member_of_the_settings_file_reads_back_as_the_value_written() {
+        let odd = "a\"b\\c'd\u{e9}\u{4e2d}";
+        let base = |k: &str| (k == "HOME").then(|| "/h".to_string());
+        for (in_process, kind) in [(false, "model"), (true, "model"), (false, "rule")] {
+            let s = every_member(odd, in_process, kind);
+            let text = loom_settings_toml("r1", &s, false, &base).unwrap();
+            let doc: toml::Table = toml::from_str(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+            let at = |path: &[&str]| -> toml::Value {
+                let mut v = toml::Value::Table(doc.clone());
+                for k in path {
+                    v = v.get(*k).unwrap_or_else(|| panic!("{path:?} is not in\n{text}")).clone();
+                }
+                v
+            };
+            let text_of = |path: &[&str]| at(path).as_str().map(str::to_owned).unwrap_or_else(|| panic!("{path:?} is no text in\n{text}"));
+            assert_eq!(text_of(&["format"]), "runbook.loom-run-settings/1");
+            assert_eq!(text_of(&["run"]), "r1");
+            for role in ["writer", "implement", "review", "other"] {
+                assert_eq!(text_of(&["models", role, "model"]), odd, "models.{role}.model");
+            }
+            assert_eq!(text_of(&["autonomy"]), odd);
+            assert_eq!(text_of(&["adapter"]), odd);
+            assert_eq!(text_of(&["review", "adapter"]), odd);
+            assert_eq!(text_of(&["decider", "kind"]), kind);
+            if kind == "rule" {
+                assert_eq!(text_of(&["decider", "verdict"]), odd);
+            } else {
+                assert_eq!(text_of(&["decider", "model"]), odd);
+                assert_eq!(text_of(&["decider", "escalate"]), odd);
+                assert_eq!(text_of(&["decider", "adapter"]), odd);
+                assert_eq!(at(&["decider", "max_decider_calls"]).as_integer(), Some(40));
+                assert_eq!(at(&["decider", "without_claims"]).as_bool(), Some(true));
+            }
+            assert_eq!(at(&["max_llm_calls"]).as_integer(), Some(9));
+            assert_eq!(at(&["max_wall_seconds"]).as_integer(), Some(60));
+            assert_eq!(at(&["cap_micro_usd"]).as_integer(), Some(7));
+            assert_eq!(text_of(&["confinement"]), odd);
+            assert_eq!(text_of(&["login_file"]), odd);
+            if in_process {
+                assert_eq!(at(&["in_process"]).as_bool(), Some(true));
+                assert!(!doc.contains_key("loom_sha256"), "{text}");
+            } else {
+                assert_eq!(text_of(&["loom_sha256"]), odd);
+                assert!(!doc.contains_key("in_process"), "{text}");
+            }
+            assert!(!doc.contains_key("loom"), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_login_path_with_a_quote_a_backslash_and_a_letter_outside_ascii_is_the_committed_odd_path_fixture() {
+        // `runbook/tests/fixtures/loom-run-settings-odd-path.toml` is read by the runner's reader too
+        // (`runbook/src/loom_run/settings.rs`): the two crates agree on this text, byte for byte.
+        let mut s: BTreeMap<String, String> = [
+            ("models.writer.model", "claude-sonnet-5-5"), ("models.implement.model", "claude-sonnet-5-5"), ("models.review.model", "claude-sonnet-5-5"),
+            ("models.other.model", "claude-sonnet-5-5"), ("decider.model", "claude-opus-5-5"), ("decider.kind", "model"), ("decider.escalate", "final"),
+            ("decider.adapter", "claude-cli"), ("decider.max_decider_calls", "40"), ("adapter", "metaharness"), ("review.adapter", "claude-cli"),
+            ("autonomy", "A5"), ("max_llm_calls", "100"), ("max_wall_seconds", "3600"), ("loom.confinement", "local"), ("loom.cap_micro_usd", "5000000"),
+            ("loom.sha256", "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567"),
+        ]
+        .iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        s.insert("loom.login_file".into(), "/opt/we\"ird\\dir/\u{fc}n\u{ef}/login.json".into());
+        let text = loom_settings_toml("lx.low.1", &s, false, &|_: &str| None).unwrap();
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../runbook/tests/fixtures/loom-run-settings-odd-path.toml");
+        let committed = fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(text, committed);
+    }
+
+    #[test]
+    fn a_number_that_is_not_a_whole_number_is_refused_by_the_writer_and_not_written_as_a_null() {
+        let base = |_: &str| None;
+        for bad in ["", "x", "1.5", "-3", "18446744073709551616", "9223372036854775808"] {
+            let mut s = every_member("x", false, "model");
+            s.insert("loom.cap_micro_usd".into(), bad.into());
+            let e = loom_settings_toml("r1", &s, false, &base).unwrap_err();
+            assert!(e.contains("loom.cap_micro_usd"), "{bad:?}: {e}");
+        }
     }
 
     #[test]

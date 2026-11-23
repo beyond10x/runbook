@@ -267,22 +267,22 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | setting | meaning | becomes |
 |---|---|---|
 | `loom.bin` | the `b10x-loom` binary, absolute or `~/…` (the launcher's `HOME`; a record holds no home path) | `--loom`; never recorded by a run |
-| `loom.sha256` | 64 hex digits; `runbook run` refuses another binary | `--loom-sha256`, `settings.json` |
-| `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook run` with no `--loom`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | no `--loom` option; `settings.json` records `in_process: true` and the pinned `commit` of the library |
-| `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given |
-| `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `settings.json`; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
-| `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `settings.json` `models.<class>.model` |
-| `decider.kind` | `model` (one model call per decision) or `rule` (`decider.verdict` answers every decision); a scripted decider is a test double of the runner and no setting of a record | `settings.json` `decider.kind`; the principal of the answers is `decider:model` or `decider:<verdict>`, derived by the runner and never written |
-| `decider.model` | the model of a `model` decider | `settings.json` `decider.model`; with a model decider the file also holds `decider.without_claims: true` (Loom's output holds no claims) |
-| `decider.verdict` | `approve` or `reject`, of a `rule` decider | `settings.json` `decider.verdict` |
-| `decider.escalate`, `decider.max_decider_calls`, `decider.adapter` | optional, of a `model` decider: what an `escalate` reply does (`final` or `stop`), the most decider calls, its adapter | the same keys of `settings.json` |
-| `autonomy` | `A0` to `A5`; the decider answers only at `A5` | `settings.json` `autonomy` |
-| `adapter`, `review.adapter` | optional: `metaharness` or `claude-cli` for the model nodes, `claude-cli` for the review | the same keys of `settings.json` |
+| `loom.sha256` | 64 hex digits; `runbook run` refuses another binary | `--loom-sha256`, `loom_sha256` of the settings file (`settings.json` of the run records `loom.sha256`) |
+| `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook run` with no `--loom`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | no `--loom` option; `in_process = true` in the settings file; `settings.json` of the run records `in_process: true` and the pinned `commit` of the library |
+| `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given, and `confinement` of the settings file |
+| `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `cap_micro_usd` of the settings file; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
+| `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `models.<class>.model` of the settings file |
+| `decider.kind` | `model` (one model call per decision) or `rule` (`decider.verdict` answers every decision); a scripted decider is a test double of the runner and no setting of a record | `decider.kind` of the settings file; the principal of the answers is `decider:model` or `decider:<verdict>`, derived by the runner and never written |
+| `decider.model` | the model of a `model` decider | `decider.model` of the settings file; with a model decider the file also holds `decider.without_claims = true` (Loom's output holds no claims) |
+| `decider.verdict` | `approve` or `reject`, of a `rule` decider | `decider.verdict` of the settings file |
+| `decider.escalate`, `decider.max_decider_calls`, `decider.adapter` | optional, of a `model` decider: what an `escalate` reply does (`final` or `stop`), the most decider calls, its adapter | the same keys of the settings file |
+| `autonomy` | `A0` to `A5`; the decider answers only at `A5` | `autonomy` of the settings file |
+| `adapter`, `review.adapter` | optional: `metaharness` or `claude-cli` for the model nodes, `claude-cli` for the review | the same keys of the settings file |
 | `max_llm_calls` | cap on model calls of one run (as for `sdc`) | `--max-llm-calls` |
 | `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here) | `--max-wall-seconds` |
-| `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `settings.json` `loom.login_file` only; see below |
+| `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `login_file` of the settings file only; see below |
 
-The file is `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
+The file is TOML (`settings.toml`), `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
 programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the unit gets (the build's
 `driver/target/debug` first), not from `decider.reply_bin`; `jq` and `yq` (the shell programs of the
 bindings) must be on the login's `PATH` and `run` refuses to start without them.
@@ -304,7 +304,7 @@ runners puts each runner's own settings in its variants' `settings` and the shar
 **`run --print`** for a `loom` run prints, besides the unit name, `description:` (the record and the
 run, never a setting), `env NAME=value` for each variable the unit gets, the idea file and the
 settings file it will write (under `<builds-dir>/../launch/<id>/<run>/`, outside the run directory,
-which `runbook run` creates and refuses to find), the settings the file will hold, and the
+which `runbook run` creates and refuses to find), the settings the file will hold (the line `settings:` and then the file as it is, each line indented by four spaces), and the
 command, one line:
 
 ```

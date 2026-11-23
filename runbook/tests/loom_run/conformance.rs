@@ -54,8 +54,8 @@ impl Rig {
     }
 
     fn answers(&self, answers: &[Value], max_call: u64) {
-        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": max_call, "answers": answers}});
-        std::fs::write(self.root.join("settings.json"), serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+        let settings = json!({"in_process": true, "confinement": "local", "decider": {"kind": "scripted", "max_call_micro_usd": max_call, "answers": answers}});
+        std::fs::write(self.root.join("settings.toml"), super::core::toml_text(&settings)).unwrap();
     }
 
     fn run_dir(&self, name: &str) -> PathBuf {
@@ -68,7 +68,7 @@ impl Rig {
         a.extend(
             [
                 &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-demo@1", "--case", "ROOT-1", "--intake",
-                &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.json"), "--spend-ledger", &r("ledger.json"), "--cap-micro-usd",
+                &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.toml"), "--spend-ledger", &r("ledger.json"), "--cap-micro-usd",
                 &cap.to_string(), "--max-llm-calls", "100", "--max-wall-seconds", "120",
             ]
             .map(String::from),

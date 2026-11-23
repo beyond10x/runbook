@@ -765,7 +765,7 @@ mod tests {
         }
         std::fs::write(root.join("protocols/sdc.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc\n  revision: 8\n").unwrap();
         std::fs::write(root.join("bindings/sdc.yaml"), "format: loom.bindings/1\n").unwrap();
-        std::fs::write(root.join("settings.json"), "{}").unwrap();
+        std::fs::write(root.join("settings.toml"), "").unwrap();
         let f = fake::Fake::new(&root.join("fake"));
         f.open_ok();
         (root, f)
@@ -783,7 +783,7 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
-            settings: root.join("settings.json"),
+            settings: root.join("settings.toml"),
             spend_ledger: root.join("ledger.json"),
             cap_micro_usd: 1_000_000,
             max_llm_calls: 100,

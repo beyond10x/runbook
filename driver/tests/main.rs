@@ -35,6 +35,8 @@ mod run_metrics;
 mod run_timeline;
 mod runtime_block;
 mod sdc_node;
+mod settings_record_order;
+mod settings_record_text;
 mod unreferenced;
 mod workspace_empty_loom_case;
 mod workspace_layout;
