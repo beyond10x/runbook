@@ -335,8 +335,8 @@ A cap that is named stops the run when it is reached, as before:
 - `--cap-micro-usd <n>` stops the run `stopped: spend cap` (exit 4) when a call has no budget left
   to reserve; `--max-llm-calls <n>` stops it `stopped: llm calls` (exit 6) when the recorded calls
   reach `n`. A named 0 means spend nothing, or call nothing: the run starts and the first call that may cost
-  is stopped (`caps_of_0_under_local_start_and_stop_at_the_first_model_call`; the exceptions of a
-  cap of 0 are under "What the spend cap does not promise");
+  is stopped (`caps_of_0_under_local_start_and_stop_at_the_first_model_call`); what "has nothing left"
+  stops is under "What the spend cap promises";
 - `--cap-micro-usd` without `--spend-ledger` is counted in the run itself: the sum of what the
   run booked is compared with the cap, and no file is written. It guards one run, not all runs that
   share a ledger (`a_cap_without_a_ledger_is_counted_in_the_run_and_stops_it_at_the_cap`, and in the
@@ -605,6 +605,38 @@ The run ends as `error` (exit 1) when: a ledger that was named is unreadable or 
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
 a model step has no cost record, `tree status` is refused, or an event sink fails.
 
+### What the spend cap promises
+
+A spend cap that is named and has nothing left starts nothing that may spend: no `tree run`, no
+handoff and no `tree approve`. "Nothing left" is the cap minus what was booked and what is reserved
+(over all runs of the ledger when the run names one, over the run's own total when it does not). A
+run that names no spend cap is never stopped by this.
+
+- Before a `tree run` the reservation finds the cap with nothing left and the run ends
+  `stopped: spend cap` (exit 4), whatever the bindings name. For a model tool that names its budget
+  option and for one that names none, with a cap above 0 that earlier steps booked whole
+  (`a_cap_above_0_that_earlier_steps_booked_whole_starts_no_further_tree_run`); with no ledger
+  (`a_cap_counted_in_the_run_itself_that_is_booked_whole_starts_no_further_tree_run`); with a cap of 0
+  and a model node that names no budget (`a_cap_of_0_starts_no_call_of_a_model_node_that_names_no_budget`);
+  with a cap of 0 and a model node that the decider makes (a re-drive and `--conformance observe` make
+  one the same way, `model_node.rs`; `a_cap_of_0_starts_no_tree_run_of_a_run_that_has_a_model_node_by_its_decider`);
+  and with a cap of 0 and a model tool that names its budget (`a_run_with_a_model_node_stops_at_a_spend_cap_of_0_before_the_first_tree_run`).
+- A run in which nothing can spend is not stopped by a cap of 0: no model node at the opening, no model
+  tool in its copy of the bindings now, nothing booked or counted yet
+  (`a_cap_of_0_does_not_stop_a_run_in_which_nothing_can_spend`). It is stopped when a bound program has
+  written a model tool into the copy, before the step that would run it
+  (`a_cap_of_0_stops_the_model_tool_that_a_program_wrote_into_the_copy_of_a_run_without_a_model_node`),
+  and once it has booked anything (`after_the_cap_is_passed_no_tree_approve_is_made`).
+- After the cap is passed no `tree approve` is made, for an action and for a close
+  (`after_the_cap_is_passed_no_tree_approve_is_made`, `after_the_cap_is_passed_a_close_is_not_approved`).
+  The decision stays open: it is asked, never answered, and the outcome and the events say the spend cap
+  ended the run (`after_the_cap_is_passed_the_decision_stays_open_and_the_records_say_the_cap_ended_the_run`).
+- After the cap is passed the printed command of a handoff is not run
+  (`after_the_cap_is_passed_the_printed_command_of_a_handoff_is_not_run`), and a decider that costs
+  something is not asked (`a_decider_that_costs_something_is_not_asked_after_the_cap_is_passed`).
+- With no spend cap named the same step books past what would have been a cap and its decision is
+  answered (`with_no_cap_named_a_decision_after_a_costly_step_is_answered`).
+
 ### What the spend cap does not promise
 
 - A call can end above its budget, and so the ledger above the cap. The budget of a call is the
@@ -627,23 +659,9 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
   leaves 0.30 of 1.00; a stale 1.00 leaves none and the run stops before its first call) and
   `after_a_sigkill_the_next_run_on_the_same_ledger_finds_less_left_not_more` (a real SIGKILL on a
   running call, then a second run on the same ledger).
-- A named cap of 0 stops a run before its first `tree run` only when the bindings copy
-  names a `--max-budget-usd` above 0. A step is stopped for lack of money only when the amount it
-  wants is above 0, and that amount is the largest `--max-budget-usd` the copy names, or the cap
-  itself when it names none (an option of 0 wants 0 as well). With a cap of 0 and no such option
-  (a model tool declared without it, or a form the scan cannot read) the amount wanted is 0: the step
-  starts, what it records is booked above the cap, and the call cap (`--max-llm-calls`, exit 6) ends
-  the run. Every `sdc-node` binding under `bindings/` names the option, so the committed bindings do
-  not reach this. A decision that the step which passed the cap printed is answered by one
-  `tree approve` when the decider costs nothing, after which the run ends (exit 4). The behaviour is
-  backlog: story `spend-cap-with-nothing-left-starts-nothing`. The measurements are ignored cases
-  that fail until it is built, `measured_a_spend_cap_of_0_stops_a_run_whose_model_tool_names_no_budget_before_the_first_tree_run`
-  (the "otherwise" part) and `measured_after_the_cap_is_passed_no_tree_approve_is_made`, both of
-  `no_model_node_refusals_and_booking.rs`. The same holds for a model tool that a bound program wrote into the
-  copy of a run opened without a model node, and for a model node that names no budget under a cap of 0
-  (ignored measurements `a_cap_of_0_starts_no_call_of_a_model_node_that_names_no_budget` and
-  `a_cap_of_0_stops_the_model_tool_that_a_program_wrote_into_the_copy_of_a_run_without_a_model_node` of
-  `caps_optional_review.rs`).
+- What one step records is booked whole, whatever its amount: nothing bounds the amount a program writes into its
+  record, so a step can book past the cap. The guard above stops the next call, not the one that booked
+  (`under_local_what_one_step_records_is_booked_whole_and_no_tree_run_follows_the_cap`).
 
 ## The run directory
 
