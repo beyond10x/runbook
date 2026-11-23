@@ -97,7 +97,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
-| `runbooks` | none | the runbooks the daemon can start, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
+| `runbooks` | none | the runbooks a `submit-run` of this daemon accepts, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -105,7 +105,11 @@ the runbooks of `--runbook-home` that have a `protocol/<name>.protocol.yaml` and
 `bindings/<name>.yaml`, the version being the revision of the root protocol. Under the stub runtime
 they are its scripts (the presets and `stub-decision`) and the entries of `--runbook-dir`: a
 directory `<name>/` or a file `<name>.protocol.yaml` with a plain name (letters, digits, `-`, `_`,
-`.`, no leading dot). A name is listed once. A row has a name and a version only: no path of the host
+`.`, no leading dot). A name is listed once. Under the stub runtime the view lists every entry of
+`--runbook-dir` and every script of the stub, and an entry of `--runbook-dir` that the stub has no
+script for is accepted: its run is `Submitted` and then ends `FailedToStart` with the reason `the stub
+has no script for runbook <name>` (the stub plays scripts and reads no runbook of the directory). Only
+the runtime `loom` runs what the view lists. A row has a name and a version only: no path of the host
 is in it. The view sits behind the same token check as every route; it is a read, so the cookie of
 the web UI's login opens it. It is a view and no new command: the language cannot read a file system,
 so the specification declares the entity `Runbook` that no command creates, and the daemon fills the
@@ -321,9 +325,18 @@ Without `--ui`, `GET /` is `404`.
   loaded only when the daemon named itself, like `decide.js`). Its form takes a runbook from
   `GET /daemon/views/runbooks`, the intake as text and the confinement, and Start sends `submit-run`:
   `POST /daemon/commands/submit-run`, JSON, `Authorization: Bearer <token>` when the daemon has a token,
-  no cookie, `runbook_id`, `intake`, `confinement` and a fresh `idempotency_key` for each press. The
-  levels offered start at the daemon's floor (`confinement_floor` of `GET /daemon/views/configuration`),
-  and the floor is the preset; a level below it is not sent (the daemon refuses it anyway: `below-floor`).
+  no cookie, `runbook_id`, `intake`, `confinement` and an `idempotency_key` that belongs to one filled form: the page
+  makes it when the form is first sent and sends the same key for a press repeated after an answer that did
+  not arrive (a network error, a reset), so the daemon's replay rule (`already-submitted`) returns the first
+  run and no second one starts; the key changes when the daemon answered (accepted or refused) and when the
+  runbook, the intake or the confinement changed (the page then says that the earlier press may have
+  started a run: look in the list of runs). The levels offered start at the daemon's floor
+  (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
+  level, Start stays disabled until then, and the form says what the floor is (`--confinement` has no
+  default anywhere in this product); a level below the floor is not sent (the daemon refuses it anyway:
+  `below-floor`). A token that a header cannot carry (a character above U+00FF, a control character) is
+  forgotten at once, the form asks for it again and says that the token cannot be sent; closing the form
+  (Close, Escape, a successful start) empties the token field.
   The token follows the rules of the answer above and is held in its own variable of the page's memory (the
   form asks for it once beside its own button). The new run is read back from the answer
   (`published[0].payload.run_id`), appears in the run list and is selected. A refusal is shown as its
