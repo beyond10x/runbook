@@ -5,9 +5,12 @@
 //! under the target directory keyed by a digest of the script, the built files and the asset sources, made by
 //! the first test that needs it under a file lock and read by the others (nextest runs each test in its own
 //! process, so a global in the process would build it once per test). The slow lane (`task test:install`) runs the
-//! `--release` build into a prefix of its own and the same commands (`slow.rs`).
+//! `--release` build into a prefix of its own and the same commands, and the acceptance run `runbook run sdc --dry`
+//! on the prefix of the fast lane (`slow.rs`). `guards.rs` and `rules.rs` hold the cases of what is copied, the
+//! modes, the printed lines, the marker of a half install, the checks of the arguments and the commit.
 
 mod guards;
+mod rules;
 mod slow;
 
 use serde_json::{json, Value};
@@ -276,7 +279,18 @@ fn the_prefix_holds_the_binary_the_helpers_and_the_files_and_its_manifest_lists_
     let prefix = shared_prefix();
     assert!(Path::new(&prefix.join("bin/runbook")).metadata().unwrap().permissions().mode() & 0o111 != 0);
     for h in HELPERS {
-        assert!(prefix.join("libexec").join(h).metadata().unwrap().permissions().mode() & 0o111 != 0, "libexec/{h}");
+        assert!(
+            prefix
+                .join("libexec/runbook")
+                .join(h)
+                .metadata()
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o111
+                != 0,
+            "libexec/runbook/{h}"
+        );
     }
     let share = prefix.join("share/runbook");
     for d in LAYOUT_DIRS {
@@ -299,21 +313,6 @@ fn the_prefix_holds_the_binary_the_helpers_and_the_files_and_its_manifest_lists_
     let head = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo()).output().unwrap();
     let head = out(&head).trim().to_owned();
     assert!(version.contains(&head[..12]), "{version} does not carry the commit {head}");
-}
-
-#[test]
-fn nothing_that_is_not_a_runbook_file_is_copied() {
-    let prefix = shared_prefix();
-    for rel in files_below(&prefix) {
-        let parts: Vec<&str> = rel.split('/').collect();
-        for (i, part) in parts.iter().enumerate() {
-            let is_dir = i + 1 < parts.len();
-            assert!(!(is_dir && part.starts_with('.')), "{rel}: a dot-directory");
-            assert!(!["runs", "target", "node_modules", ".git", ".engineering"].contains(part), "{rel}");
-        }
-        let name = parts.last().unwrap().to_lowercase();
-        assert!(!name.contains("credential") && !name.starts_with("settings") && !name.starts_with(".env"), "{rel}: a login or settings file");
-    }
 }
 
 /// `runbook list` of the prefix from an empty directory: the protocols of the repository, as the checkout lists them.
@@ -346,7 +345,16 @@ pub(crate) fn doctor_from(prefix: &Path) {
     let line = |name: &str| text.lines().find(|l| l.split("  ").map(str::trim).filter(|s| !s.is_empty()).nth(1) == Some(name)).unwrap_or_else(|| panic!("no {name} line:\n{text}\n{}", err(&o))).to_owned();
     let assets = line("assets");
     assert!(assets.contains("installed (share/runbook)"), "{assets}");
-    assert!(assets.contains(&prefix.join("bin/../share/runbook").display().to_string()) || assets.contains(&prefix.join("share/runbook").display().to_string()), "{assets}");
+    assert!(
+        assets.contains(&prefix.join("bin/../share/runbook").display().to_string())
+            || assets.contains(&prefix.join("share/runbook").display().to_string()),
+        "{assets}"
+    );
+    let install = line("install");
+    assert!(
+        install.trim_start().starts_with("pass") && install.contains("whole"),
+        "a whole prefix passes the install line: {install}"
+    );
     for part in LAYOUT_DIRS {
         let l = line(&format!("{part}/"));
         assert!(l.trim_start().starts_with("pass"), "{l}");
@@ -354,7 +362,10 @@ pub(crate) fn doctor_from(prefix: &Path) {
     for h in HELPERS {
         let l = line(h);
         assert!(l.trim_start().starts_with("pass"), "{l}");
-        assert!(l.contains("libexec"), "{h} is not found in libexec: {l}");
+        assert!(
+            l.contains("libexec/runbook"),
+            "{h} is not found in libexec/runbook: {l}"
+        );
     }
 }
 
@@ -372,7 +383,10 @@ pub(crate) fn run_from(prefix: &Path) {
     let (b, where_b) = run_example(&|cwd, args| from_checkout(cwd, args), &checkout);
     assert_eq!(comparable(&a, &installed), comparable(&b, &checkout));
     assert_eq!(a["reason"], json!("done"), "{a}");
-    assert!(where_a.ends_with("libexec/sdc-reply"), "a program the run starts finds the helpers of the prefix on PATH: {where_a:?}");
+    assert!(
+        where_a.ends_with("libexec/runbook/sdc-reply"),
+        "a program the run starts finds the helpers of the prefix on PATH: {where_a:?}"
+    );
     assert_eq!(where_b, "", "the checkout build adds nothing to PATH");
 }
 
@@ -422,9 +436,66 @@ fn the_script_refuses_a_prefix_that_is_relative_the_root_missing_or_inside_the_c
     assert!(out(&o).contains("--prefix") && out(&o).contains("--from-built"), "{}", out(&o));
 }
 
-/// A tree that has the shape of a checkout, with a shell stub for every built file `--from-built` takes and one
-/// file in each directory the script copies, and a copy of the script in it.
-fn fake_checkout(tag: &str, skip: Option<&str>) -> PathBuf {
+/// `git <args>` in `dir` with an identity of its own, for a fake checkout.
+pub(crate) fn git_in(dir: &Path, args: &[&str]) -> String {
+    let o = Command::new("git")
+        .args([
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.org",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "git {args:?}: {}", err(&o));
+    out(&o).trim().to_owned()
+}
+
+/// The version line of the stub programs of a fake checkout whose commit is `commit`: what `runbook --version` prints.
+pub(crate) fn stub_version(commit: &str) -> String {
+    format!("runbook 9.9.9 ({commit})")
+}
+
+/// The shell stub of a program that prints `version` for `--version` (`--from-built` runs the one of `runbook`).
+pub(crate) fn write_stub(path: &Path, version: &str) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, format!("#!/bin/sh\necho \"{version}\"\n")).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A tree that has the shape of a checkout: one file in each directory the script copies, a copy of the script, and
+/// a shell stub for every built file `--from-built` takes. In a git work tree of its own, committed: what the script
+/// copies is what git tracks, and the stubs print the commit of HEAD. See `fake_archive` for the same without git.
+pub(crate) fn fake_checkout(tag: &str, skip: Option<&str>) -> PathBuf {
+    let root = fake_tree(tag);
+    git_in(&root, &["init", "-q"]);
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "fake checkout"]);
+    let head: String = git_in(&root, &["rev-parse", "HEAD"])
+        .chars()
+        .take(12)
+        .collect();
+    stubs(&root, skip, &stub_version(&head));
+    root
+}
+
+/// The same tree without git (an unpacked source archive); its stubs print the commit `unknown`.
+pub(crate) fn fake_archive(tag: &str) -> PathBuf {
+    let root = fake_tree(tag);
+    stubs(&root, None, &stub_version("unknown"));
+    root
+}
+
+fn fake_tree(tag: &str) -> PathBuf {
     let root = scratch(tag).join("checkout");
     fs::create_dir_all(root.join("scripts")).unwrap();
     fs::copy(script(), root.join("scripts/install.sh")).unwrap();
@@ -435,19 +506,25 @@ fn fake_checkout(tag: &str, skip: Option<&str>) -> PathBuf {
     fs::write(root.join("ui/server.mjs"), "// the page's server\n").unwrap();
     fs::write(root.join("ui/package.json"), "{}\n").unwrap();
     fs::write(root.join("bindings/tools/sdc-tool.sh"), "#!/bin/sh\n").unwrap();
-    fs::set_permissions(root.join("bindings/tools/sdc-tool.sh"), fs::Permissions::from_mode(0o755)).unwrap();
-    let stub = "#!/bin/sh\necho \"runbook 9.9.9 (0123456789ab)\"\n";
+    fs::set_permissions(
+        root.join("bindings/tools/sdc-tool.sh"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    root
+}
+
+/// The built files of the debug profile, as stubs, except `skip`.
+pub(crate) fn stubs(root: &Path, skip: Option<&str>, version: &str) {
     for n in std::iter::once("runbook").chain(HELPERS) {
         if Some(n) == skip {
             continue;
         }
-        let p = built("debug", n);
-        let p = root.join(p.strip_prefix(repo()).unwrap());
-        fs::create_dir_all(p.parent().unwrap()).unwrap();
-        fs::write(&p, stub).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        write_stub(
+            &root.join(built("debug", n).strip_prefix(repo()).unwrap()),
+            version,
+        );
     }
-    root
 }
 
 #[test]
@@ -496,11 +573,11 @@ fn a_second_install_removes_the_file_a_dropped_helper_left_and_keeps_a_file_the_
     let copy = root.join("scripts/install.sh");
     let o = install(&copy, &prefix, &["--from-built", "debug"]);
     assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
-    assert!(prefix.join("libexec/sdc-answers").is_file());
+    assert!(prefix.join("libexec/runbook/sdc-answers").is_file());
     let manifest = fs::read_to_string(prefix.join("share/runbook/MANIFEST")).unwrap();
-    assert!(manifest.lines().any(|l| l == "libexec/sdc-answers"));
+    assert!(manifest.lines().any(|l| l == "libexec/runbook/sdc-answers"));
     fs::write(prefix.join("share/runbook/protocol/mine.txt"), "mine\n").unwrap();
-    fs::write(prefix.join("libexec/foreign"), "foreign\n").unwrap();
+    fs::write(prefix.join("libexec/runbook/foreign"), "foreign\n").unwrap();
     fs::write(prefix.join("notes.txt"), "notes\n").unwrap();
     let outside = sandbox.join("outside");
     fs::create_dir_all(&outside).unwrap();
@@ -511,14 +588,23 @@ fn a_second_install_removes_the_file_a_dropped_helper_left_and_keeps_a_file_the_
     fs::write(&copy, dropped).unwrap();
     let o = install(&copy, &prefix, &["--from-built", "debug"]);
     assert_eq!(code(&o), 0, "{}{}", out(&o), err(&o));
-    assert!(!prefix.join("libexec/sdc-answers").exists(), "the dropped helper stays");
-    assert!(prefix.join("libexec/sdc-node").is_file());
-    for kept in ["share/runbook/protocol/mine.txt", "libexec/foreign", "notes.txt"] {
+    assert!(
+        !prefix.join("libexec/runbook/sdc-answers").exists(),
+        "the dropped helper stays"
+    );
+    assert!(prefix.join("libexec/runbook/sdc-node").is_file());
+    for kept in [
+        "share/runbook/protocol/mine.txt",
+        "libexec/runbook/foreign",
+        "notes.txt",
+    ] {
         assert!(prefix.join(kept).is_file(), "{kept} was removed");
     }
     let manifest = fs::read_to_string(prefix.join("share/runbook/MANIFEST")).unwrap();
-    assert!(!manifest.lines().any(|l| l == "libexec/sdc-answers"));
-    assert!(!manifest.lines().any(|l| l.ends_with("mine.txt") || l.ends_with("foreign") || l.ends_with("notes.txt")));
+    assert!(!manifest.lines().any(|l| l == "libexec/runbook/sdc-answers"));
+    assert!(!manifest
+        .lines()
+        .any(|l| l.ends_with("mine.txt") || l.ends_with("foreign") || l.ends_with("notes.txt")));
     assert_eq!(files_below(&outside).len(), 1);
 }
 
