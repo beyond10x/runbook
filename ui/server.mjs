@@ -729,7 +729,7 @@ function loadCase(src, entry) {
     tree: path.relative(src.path, root) || '.',
     observed: observed != null,
     timeSource,
-    scope: waitsOnScope(events) ? scopeQuestions({dir: d, bindings, events}) : null,
+    scope: waitsOnScope(events) ? scopeQuestions({dir: d, bindings, events}, runDirOf(src)) : null,
     stall: amendStall({dir: d, bindings, events, id: caseJson.id || path.basename(d)}, runDirOf(src)),
     id: caseJson.id || path.basename(d),
     dir: d,
@@ -805,7 +805,7 @@ function runInfo(src) {
     for (const n of listDir(path.join(runDir, 'traces'))) if (n.endsWith('.jsonl')) parseJsonBlocks(readText(path.join(runDir, 'traces', n)) || '', 'traces/' + n, llm);
   }
   const expected = readText(path.join(runDir, 'expected-llm-calls.txt'));
-  const decisions = jsonl(path.join(runDir, 'decisions.jsonl')).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'none'}));
+  const decisions = jsonl(path.join(runDir, 'decisions.jsonl'), runDir).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'none'}));
   return {runDir, hasLog: !!log, commands, llm: llm.slice(0, 2000), expected, decisions, console: readText(path.join(runDir, 'console.txt')), stopped: stoppedOf(runDir), settings: settingsOf(runDir)};
 }
 

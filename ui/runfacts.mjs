@@ -6,11 +6,11 @@
 // artifacts and no program. YAML is read with the reader the inspector already uses for `work/questions.yaml`
 // (`yq`, decisions.mjs); nothing here adds a dependency. A part that cannot be read is named in `parts`, and the
 // page says "not available for this run" for it.
-// Every read of a file of the run goes through ./runfiles.mjs (`listDir`, `statOf`, `runPath`): a copy that is
+// Every read of a file of the run goes through ./runfiles.mjs (`listDir`, `statOf`, and the text read through the checked open that is given to `yq` on standard input): a copy that is
 // a link leaving the run is not listed, not statted and not handed to `yq`.
 import path from 'node:path';
 import {yamlJson} from './decisions.mjs';
-import {listDir, statOf, runPath} from './runfiles.mjs';
+import {listDir, statOf} from './runfiles.mjs';
 
 // the registration stem of a protocol id: `.` and `_` written as `-` (runbook/src/loom_run/run_dir.rs `stem`)
 const stem = (id) => String(id ?? '').replace(/[._]/g, '-');
@@ -27,8 +27,7 @@ export function runFacts(runDir) {
   const facts = {protocols: [], bindings: [], unreadable: []};
   for (const [dir, list] of [[pdir, facts.protocols], [bdir, facts.bindings]]) {
     for (const n of yamlFiles(dir, runDir)) {
-      const real = runPath(path.join(dir, n), runDir);
-      const doc = real ? yamlJson(real) : null;
+      const doc = yamlJson(path.join(dir, n), runDir);
       if (doc && typeof doc === 'object' && !Array.isArray(doc)) list.push(doc); else facts.unreadable.push(`${path.basename(dir)}/${n}`);
     }
   }

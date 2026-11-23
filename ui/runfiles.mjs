@@ -80,8 +80,8 @@ export function readText(p, root, limit = TEXT_LIMIT) {
     return fs.readFileSync(fd, 'utf8');
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
-export const readJson = (p, fallback = null) => {
-  const text = readText(p);
+export const readJson = (p, fallback = null, root) => {
+  const text = readText(p, root);
   if (text == null) return fallback;
   try { return JSON.parse(text) ?? fallback; } catch { return fallback; }
 };
