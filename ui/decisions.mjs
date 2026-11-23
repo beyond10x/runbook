@@ -5,7 +5,7 @@
 // event (awaiting_person, awaiting_authority) and the open scope-changing questions of the artifact
 // the runbook's view names (decisions.scope_answer). Which action, artifact and fields a
 // runbook has is its view (web/view.js, `decisions`); this file knows the runtime's records only.
-import {readText, readJson, leavesRun, exists} from './runfiles.mjs';
+import {readText, readJson, leavesRun, exists, hasDotPart, within} from './runfiles.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -39,23 +39,30 @@ function refs(p, out = {claims: [], evidence: []}) {
   return out;
 }
 // A file of the run only: a link that leaves the run (the work directory itself, or the artifact) is no artifact.
-function artifactPath(c, name) {
+// Every read below has the run as its root (`runDir`): a file whose real path is not under the run is read as absent.
+function artifactPath(c, name, runDir) {
   const rel = c.bindings?.$artifacts?.[name];
   const work = path.join(c.dir, 'work');
-  if (!rel || !exists(work)) return null;
+  if (!rel || !exists(work, runDir)) return null;
   const abs = path.resolve(work, rel);
-  return abs.startsWith(work + path.sep) && !leavesRun(abs) ? abs : null;
+  return abs.startsWith(work + path.sep) && !hasDotPart(path.relative(work, abs)) && !leavesRun(abs, runDir) ? abs : null;
 }
-export function yamlJson(file) {
-  try { return JSON.parse(execFileSync('yq', ['-o=json', '.', file], {encoding: 'utf8', timeout: 10000})); } catch { return null; }
+// The value of YAML text, or null. The text is given to `yq` on standard input: no program opens a file of a run by its
+// name, so what is parsed is the text that was read through the checked open. A parse failure is an absent value and
+// `yq`'s own messages (which name a file) go nowhere.
+export function yamlOf(text) {
+  if (typeof text !== 'string') return null;
+  try { return JSON.parse(execFileSync('yq', ['-o=json', '.'], {input: text, encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'ignore']})); } catch { return null; }
 }
-function readArtifact(c, name) {
-  const abs = artifactPath(c, name);
+// the YAML file of a run read once through the checked open (root: the run), then parsed
+export const yamlJson = (file, runDir) => yamlOf(readText(file, runDir));
+function readArtifact(c, name, runDir) {
+  const abs = artifactPath(c, name, runDir);
   if (!abs) return {name, missing: true};
-  const text = readText(abs);
+  const text = readText(abs, runDir);
   if (text == null) return {name, path: c.bindings.$artifacts[name], missing: true};
   // the revision the run records for a file: t + 16 hex digits of its sha256
-  return {name, path: c.bindings.$artifacts[name], text: text.slice(0, 200000), sha: sha(text), work_revision: `t${sha(text).slice(0, 16)}`, json: /\.ya?ml$/.test(abs) ? yamlJson(abs) : null,
+  return {name, path: c.bindings.$artifacts[name], text: text.slice(0, 200000), sha: sha(text), work_revision: `t${sha(text).slice(0, 16)}`, json: /\.ya?ml$/.test(abs) ? yamlOf(text) : null,
     revision: c.case?.artifacts?.[name]?.revision};
 }
 
@@ -107,13 +114,13 @@ export function waitsOnScope(events) {
 }
 // the scope-changing questions of a case's scope artifact; `awaiting` is a question still open
 // (an answer with no principal waits for the approval, which names it)
-export function scopeQuestions(c) {
+export function scopeQuestions(c, runDir) {
   const cfg = scopeAnswer();
   if (!cfg) return null;
-  const file = artifactPath(c, cfg.artifact);
-  const text = file && readText(file);
+  const file = artifactPath(c, cfg.artifact, runDir);
+  const text = file && readText(file, runDir);
   if (text == null) return null;
-  const j = yamlJson(file);
+  const j = yamlOf(text);
   const questions = (j?.[cfg.list] || []).map((q) => questionOf(cfg, q)).filter((q) => q.scope).map(({scope, ...q}) => q);
   return {path: c.bindings.$artifacts[cfg.artifact], sha: sha(text), questions};
 }
@@ -129,8 +136,8 @@ export function amendStall(c, runDir) {
   const rule = stallRule();
   const v = lastVerdict(c.events || []);
   if (!rule || !v || v.event !== 'awaiting_person' || !(v.next || []).some((n) => n?.action === rule.action)) return null;
-  const file = artifactPath(c, rule.artifact);
-  const j = file ? yamlJson(file) : null;
+  const file = artifactPath(c, rule.artifact, runDir);
+  const j = file ? yamlJson(file, runDir) : null;
   const needsPerson = (j?.[rule.list] || []).filter((f) => f?.[rule.status || 'status'] === (rule.needs_person || 'needs_person')).length;
   if (needsPerson) return {needsPerson, exhausted: []};
   const exhausted = [];
@@ -145,16 +152,23 @@ export function amendStall(c, runDir) {
 function lastLine(text) {
   return (text || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^metaharness: the transcript was written by/.test(l)).at(-1) || null;
 }
+// Both names come from the run's own records, so both are held: the record directory under the run (with no dot part in
+// its name), the step log under the case's blobs/. A name that leaves its root is read as absent.
 function lastError(c, action, fin, runDir) {
   if (runDir) {
-    const calls = jsonl(path.join(runDir, 'llm-calls.jsonl')).filter((r) => r.action === action && (!r.case || r.case === c.id));
+    const calls = jsonl(path.join(runDir, 'llm-calls.jsonl'), runDir).filter((r) => r.action === action && (!r.case || r.case === c.id));
     const rec = calls.at(-1)?.record;
-    if (rec) {
-      const dir = path.isAbsolute(rec) ? rec : path.join(runDir, rec);
-      for (const f of ['apply.log', 'stderr.txt']) { const l = lastLine(readText(path.join(dir, f))); if (l) return l; }
+    if (typeof rec === 'string' && rec) {
+      const dir = path.resolve(runDir, rec);
+      if (within(dir, path.resolve(runDir)) && !hasDotPart(path.relative(runDir, dir))) {
+        for (const f of ['apply.log', 'stderr.txt']) { const l = lastLine(readText(path.join(dir, f), runDir)); if (l) return l; }
+      }
     }
   }
-  if (fin?.log) { const l = lastLine(readText(path.join(c.dir, 'blobs', fin.log))); if (l) return l; }
+  if (typeof fin?.log === 'string' && fin.log) {
+    const blobs = path.resolve(c.dir, 'blobs'), file = path.resolve(blobs, fin.log);
+    if (within(file, blobs) && !hasDotPart(path.relative(blobs, file))) { const l = lastLine(readText(file, c.dir)); if (l) return l; }
+  }
   return null;
 }
 
@@ -175,7 +189,7 @@ export function inbox(ctx) {
         if (cap === scopeAction()) {
           // One act for the person: each question still unanswered carries the approval, and the
           // answer that leaves none unanswered records it.
-          scope = scopeQuestions(c);
+          scope = scopeQuestions(c, ctx.runDir);
           const waiting = (scope?.questions || []).filter((q) => q.awaiting);
           for (const q of waiting) {
             asked.add(q.id);
@@ -185,10 +199,10 @@ export function inbox(ctx) {
           }
           if (waiting.length) continue;
         }
-        items.push({...base, id: `approve:${c.rel}:${n.action}`, kind: 'approve', capability: cap, manual: !!b.manual, subject, revision, artifact: subject ? readArtifact(c, subject) : null,
+        items.push({...base, id: `approve:${c.rel}:${n.action}`, kind: 'approve', capability: cap, manual: !!b.manual, subject, revision, artifact: subject ? readArtifact(c, subject, ctx.runDir) : null,
           upstream: (b.upstream || []).map((u) => ({name: u, revision: c.case?.artifacts?.[u]?.revision})),
           unlocks: b.produces ? unlocks(c, b.produces) : null, produces: b.produces || null, scope,
-          grant: [readJson(path.join(c.dir, 'authority.json'))].flat().find((g) => g && g.capability === cap) || null});
+          grant: [readJson(path.join(c.dir, 'authority.json'), null, ctx.runDir)].flat().find((g) => g && g.capability === cap) || null});
       } else {
         // not a decision: the stall action with no record for a person (the Now band says why nothing runs)
         if (n.action === stallAction() && amendStall(c, ctx.runDir)?.needsPerson === 0) continue;
@@ -196,11 +210,11 @@ export function inbox(ctx) {
       }
     }
     const sc = scopeAnswer();
-    const qfile = sc ? artifactPath(c, sc.artifact) : null;
-    if (qfile && !seenFiles.has(qfile) && exists(qfile)) {
+    const qfile = sc ? artifactPath(c, sc.artifact, ctx.runDir) : null;
+    if (qfile && !seenFiles.has(qfile) && exists(qfile, ctx.runDir)) {
       seenFiles.add(qfile);
-      const text = readText(qfile);
-      const j = yamlJson(qfile);
+      const text = readText(qfile, ctx.runDir);
+      const j = yamlOf(text);
       for (const raw of j?.[sc.list] || []) {
         const q = questionOf(sc, raw);
         if (!q.awaiting || !q.scope || asked.has(q.id)) continue;
@@ -217,9 +231,9 @@ export function inbox(ctx) {
 // (runs/<run>/decisions.jsonl); any other principal is a person.
 // who a principal is (web/principal.js): person, decider, rule, legacy ("human" without an id), agent; null when none
 export const whoKind = (p) => { const k = principalOf(p).kind; return k === 'none' ? null : k; };
-export function jsonl(file) {
+export function jsonl(file, root) {
   const out = [];
-  for (const l of (readText(file) || '').split('\n')) { if (!l.trim()) continue; try { out.push(JSON.parse(l)); } catch { /* a line mid-write */ } }
+  for (const l of (readText(file, root) || '').split('\n')) { if (!l.trim()) continue; try { out.push(JSON.parse(l)); } catch { /* a line mid-write */ } }
   return out;
 }
 const asList = (x) => (Array.isArray(x) ? x : x == null || x === '' ? [] : [x]);
@@ -237,7 +251,7 @@ export function decisionRecord(r) {
 }
 export function history(ctx) {
   const out = [];
-  for (const r of jsonl(path.join(ctx.runDir, 'decisions.jsonl'))) out.push({src: 'decisions.jsonl', ...decisionRecord(r)});
+  for (const r of jsonl(path.join(ctx.runDir, 'decisions.jsonl'), ctx.runDir)) out.push({src: 'decisions.jsonl', ...decisionRecord(r)});
   const seenFiles = new Set();
   const steps = [];
   for (const c of ctx.cases) {
@@ -251,10 +265,10 @@ export function history(ctx) {
       }
     }
     const sc = scopeAnswer();
-    const qfile = sc ? artifactPath(c, sc.artifact) : null;
-    if (!qfile || seenFiles.has(qfile) || !exists(qfile)) continue;
+    const qfile = sc ? artifactPath(c, sc.artifact, ctx.runDir) : null;
+    if (!qfile || seenFiles.has(qfile) || !exists(qfile, ctx.runDir)) continue;
     seenFiles.add(qfile);
-    for (const q of yamlJson(qfile)?.[sc.list] || []) {
+    for (const q of yamlJson(qfile, ctx.runDir)?.[sc.list] || []) {
       if (!q[sf(sc, 'answered_by')]) continue;
       out.push({src: c.bindings.$artifacts[sc.artifact], at: q[sf(sc, 'answered_at')] || null, principal: q[sf(sc, 'answered_by')], case: c.id, what: q[sf(sc, 'id')], question: q[sf(sc, 'question')],
         decision: q[sf(sc, 'answer')], reasons: asList(q[sf(sc, 'reason')] ?? q[sf(sc, 'reasons')]), status: q[sf(sc, 'status')], scope: !!(sc.flag && q[sc.flag])});
@@ -262,7 +276,7 @@ export function history(ctx) {
   }
   // acts an earlier version of this page recorded (the page takes none now); an approve joins its event row
   const secs = (t) => Date.parse(t || '') / 1000;
-  for (const r of jsonl(path.join(ctx.runDir, 'ui-actions.jsonl'))) {
+  for (const r of jsonl(path.join(ctx.runDir, 'ui-actions.jsonl'), ctx.runDir)) {
     if (r.action === 'continue-finished' || r.action === 'check') continue;
     const cs = r.case ? path.basename(r.case) : null;
     if (r.action === 'approve' && r.exit === 0) {

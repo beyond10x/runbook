@@ -81,7 +81,8 @@ export function feedItems(cases, live, history, facts) {
   return out;
 }
 
-export function renderFeed(items, filter, now = Date.now(), fsOn = true) {
+// loom: the run is one of `runbook run` (its cases carry parts.loom): without fs/changes.jsonl the run was started without --watch
+export function renderFeed(items, filter, now = Date.now(), fsOn = true, loom = false) {
   const counts = Object.fromEntries(CLASSES.map((c) => [c, items.filter((x) => x.cls === c).length]));
   const shown = items.filter((x) => !filter || x.cls === filter).slice(0, 120);
   const chips = `<div class="fd-chips" data-key="chips"><button class="fchip${!filter ? ' on' : ''}" data-feed="" data-key="fc:all">All<i>${items.length}</i></button>${CLASSES.map((c) => `<button class="fchip c-${c}${filter === c ? ' on' : ''}${counts[c] ? '' : ' zero'}" data-feed="${c}" data-key="fc:${c}" title="${esc(CLASS_LABEL[c])}">${esc(CLASS_LABEL[c])}<i>${counts[c]}</i></button>`).join('')}</div>`;
@@ -94,6 +95,6 @@ export function renderFeed(items, filter, now = Date.now(), fsOn = true) {
       ${x.more?.length ? `<div class="fd-m">${esc(x.more[0])}${x.more.length > 1 ? ` <i>+${x.more.length - 1}</i>` : ''}</div>` : ''}${files}
       <div class="fd-2">${x.case ? `<span class="fd-c">${esc(x.case.split('.').slice(-1)[0])}</span>` : ''}${x.action ? `<span class="fd-a">${esc(x.action)}</span>` : ''}<span class="fd-w w-${esc(x.who?.kind || 'none')}">${esc(x.who?.label || '—')}</span>${tt}</div></div>`;
   }).join('');
-  const src = fsOn ? '' : `<p class="fd-note" data-key="fdnote">No <code>fs/changes.jsonl</code> in this run: revisions and decisions from the case store; what changed inside a revision is not recorded.</p>`;
-  return `<div class="fd-h" data-key="fdh"><span class="fd-title">What changed</span><span class="muted">newest first</span></div>${chips}${src}<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="What changed, newest first">${rows || `<p class="muted fd-empty">Nothing ${filter ? `of class ${esc(CLASS_LABEL[filter])} ` : ''}yet.</p>`}</div>`;
+  const src = fsOn ? '' : loom ? `<p class="fd-note" data-key="fdnote">Changes were not recorded for this run: it was started without <code>--watch</code>. <code>runbook run … --watch</code> records every file change of the run in <code>fs/changes.jsonl</code>.</p>` : `<p class="fd-note" data-key="fdnote">No <code>fs/changes.jsonl</code> in this run: revisions and decisions from the case store; what changed inside a revision is not recorded.</p>`;
+  return `<div class="fd-h" data-key="fdh"><span class="fd-title">What changed</span><span class="muted">newest first</span></div>${chips}${src}<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="What changed, newest first">${rows || (!fsOn && loom ? '' : `<p class="muted fd-empty">Nothing ${filter ? `of class ${esc(CLASS_LABEL[filter])} ` : ''}yet.</p>`)}</div>`;
 }
