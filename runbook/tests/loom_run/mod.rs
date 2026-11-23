@@ -9,6 +9,7 @@ mod dry;
 mod fake;
 mod flags;
 mod gateway;
+mod gateway_hardening;
 mod goals;
 mod held;
 mod inproc;
