@@ -670,7 +670,7 @@ fn settings_are_checked_and_unknown_keys_are_refused_by_name() {
     assert!(reason(ask_with(refusing.as_ref(), &w, &approve_action(&w), 0, &env_with_path())).contains("no decider configured"));
     let err = |decider: Value| from_settings(&settings(&w, decider)).err().expect("refused");
     assert!(err(json!({"colour": "blue"})).contains("decider.colour"));
-    assert!(err(json!({"program": "decider.sh"})).contains("decider.program"), "the decider is not a program of the bindings copy");
+    assert!(err(json!({"program": "some-program"})).contains("decider.program"), "the decider is not a program of the bindings copy");
     assert!(err(json!({"model": ""})).contains("decider.model"));
     assert!(err(json!({"escalate": "sometimes"})).contains("decider.escalate"));
     assert!(err(json!({"effort": "extreme"})).contains("decider.effort"));
@@ -710,6 +710,79 @@ fn the_login_path_reaches_the_adapter_environment_only_and_is_redacted_from_what
     let w = world("r2-nologin", &valid("0.1"));
     ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
     assert!(!std::fs::read_to_string(first_record(&w).join("env.txt")).unwrap().contains("SDC_CLAUDE_CREDENTIALS"));
+}
+
+/// A `claude` that calls no model: it needs the login in its config home, writes the
+/// decision and prints the result line.
+const STANDIN_CLAUDE: &str = r#"#!/bin/sh
+f="$CLAUDE_CONFIG_DIR/.credentials.json"
+[ -f "$f" ] || { echo login-absent >&2; exit 9; }
+mkdir -p out && printf '%s\n' '{"decision":"approve","reasons":["ok"],"cites":[]}' > out/decision.json
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"session_id":"s","usage":{"input_tokens":0,"output_tokens":0},"result":"ok","terminal_reason":"completed","structured_output":{"decision":"approve","reasons":["ok"],"cites":[]}}'
+"#;
+
+/// The two tests of `driver/tests/questions_check.rs` that started the real claude-cli
+/// adapter under the environment the model decider gets (PATH, HOME, the login) were deleted with
+/// `decider.sh`; every other test of this file puts a script of its own in the adapter's place.
+#[test]
+fn the_real_claude_cli_adapter_finds_the_login_under_the_environment_the_decider_gives_it() {
+    let w = world("adv-claude-login", "#!/bin/sh\n");
+    let real = repository_root().join("bindings/tools/llm-adapter-claude-cli.sh");
+    let bin = w.run.join("standin-bin");
+    write_exe(&bin.join("claude"), STANDIN_CLAUDE);
+    let mut s = settings(&w, json!({"adapter": real.display().to_string(), "retries": 0}));
+    s["login_file"] = json!(w.login.display().to_string());
+    let env = vec![("PATH".to_owned(), format!("{}:{SYSTEM_PATH}", bin.display()))];
+    let decider = from_settings(&s).unwrap();
+    let verdict = ask_with(decider.as_ref(), &w, &approve_action(&w), 250_000, &env);
+    match verdict {
+        Verdict::Answer { approve, .. } => assert!(approve, "{verdict:?}"),
+        other => panic!("the real adapter did not find its login: {other:?}"),
+    }
+    let secret = w.login.display().to_string();
+    let rec = first_record(&w);
+    for kept in ["decider-stderr.txt", "reply.json", "decide-request.json", "loom-decision.json", "response.json", "status.json", "request.json", "prompt.md"] {
+        let text = std::fs::read_to_string(rec.join(kept)).unwrap_or_default();
+        assert!(!text.contains(&secret), "{kept} holds the login path");
+    }
+    // The mutant: no login file in the settings. The same adapter then finds none and the call fails.
+    let w = world("adv-claude-nologin", "#!/bin/sh\n");
+    write_exe(&w.run.join("standin-bin/claude"), STANDIN_CLAUDE);
+    let s = settings(&w, json!({"adapter": real.display().to_string(), "retries": 0}));
+    let env = vec![("PATH".to_owned(), format!("{}:{SYSTEM_PATH}", w.run.join("standin-bin").display()))];
+    let decider = from_settings(&s).unwrap();
+    let verdict = ask_with(decider.as_ref(), &w, &approve_action(&w), 250_000, &env);
+    assert!(matches!(verdict, Verdict::CannotDecide { .. }), "a call with no login must not answer: {verdict:?}");
+}
+
+/// Not the eight files the case above names, but every file under the run
+/// directory after the real adapter ran with a login: none holds the login path.
+#[test]
+fn no_file_under_the_run_directory_holds_the_login_path() {
+    let w = world("adv-claude-login-walk", "#!/bin/sh\n");
+    let real = repository_root().join("bindings/tools/llm-adapter-claude-cli.sh");
+    let bin = w.run.join("standin-bin");
+    write_exe(&bin.join("claude"), STANDIN_CLAUDE);
+    let mut s = settings(&w, json!({"adapter": real.display().to_string(), "retries": 0}));
+    s["login_file"] = json!(w.login.display().to_string());
+    let env = vec![("PATH".to_owned(), format!("{}:{SYSTEM_PATH}", bin.display()))];
+    let decider = from_settings(&s).unwrap();
+    let verdict = ask_with(decider.as_ref(), &w, &approve_action(&w), 250_000, &env);
+    assert!(matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    let secret = w.login.display().to_string();
+    let mut stack = vec![w.run.clone()];
+    let mut holders = Vec::new();
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if std::fs::read(&p).is_ok_and(|b| String::from_utf8_lossy(&b).contains(&secret)) {
+                holders.push(p.strip_prefix(&w.run).unwrap().display().to_string());
+            }
+        }
+    }
+    assert!(holders.is_empty(), "files that hold the login path: {holders:?}");
 }
 
 // --- the rule decider --------------------------------------------------------------------------------

@@ -40,7 +40,7 @@ pub fn runner(level: Confinement) -> Result<Arc<dyn TestRunner>, String> {
         Confinement::Local => EngineConfinement { adapter: ConfinementAdapter::Local, local_reason: Some(UNCONFINED_FLAG_REASON.to_owned()), cgroup_root: None },
         Confinement::Linux => EngineConfinement { adapter: ConfinementAdapter::Linux, local_reason: None, cgroup_root: None },
     };
-    EngineRunner::open(&confinement).map(|r| Arc::new(r) as Arc<dyn TestRunner>).map_err(|e| format!("the confinement level {} is refused: {e}", level.as_str()))
+    EngineRunner::open(&confinement).map(|r| Arc::new(r) as Arc<dyn TestRunner>).map_err(|e| format!("ConfinementRefused: the confinement level {} is refused: {e}", level.as_str()))
 }
 
 /// The `--confinement` value of `tree run` a level is.
@@ -129,8 +129,8 @@ pub fn run(
     settings: &RunSettings,
     observer: Option<&mut dyn b10x_loom_tree::RunObserver>,
     cancel: Option<&AtomicBool>,
-) -> Result<Ran, String> {
-    let ran = run_tree(store, catalog, settings, observer, cancel).map_err(|e| e.to_string())?;
+) -> Result<Ran, super::refusal::Refusal> {
+    let ran = run_tree(store, catalog, settings, observer, cancel).map_err(|e| super::refusal::Refusal::of(&e))?;
     let document = b10x_loom_tree::run_json(&ran);
     Ok(Ran { stop: ran.stop, case: ran.case, steps: ran.steps, detail: ran.detail, document, decisions: ran.decisions })
 }

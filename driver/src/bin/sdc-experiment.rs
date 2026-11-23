@@ -437,7 +437,7 @@ const OPTIONAL_LOOM: [&str; 16] = ["conformance", "loom.login_file", "loom.in_pr
     "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
-/// What the shell programs the bindings run (`llm-node.sh`, `sdc-tool.sh`, the adapters) need on
+/// What the shell programs the bindings run (`sdc-tool.sh`, the adapters) need on
 /// `PATH`; the decider of `runbook run` starts none of them.
 const LOOM_TOOLS: [&str; 2] = ["jq", "yq"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];

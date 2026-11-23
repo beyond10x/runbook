@@ -12,12 +12,12 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
 1. **Authority grants bound to a case revision and a principal.**
    `canon-authority/1` has only `capability` and `decision` (`documents.md:116-121`);
    `canon-decisions/1` already has `principal` and `case_revision` (`documents.md:140-148`).
-   Today a grant given at spec r1 still holds at r2 (`sdc/docs/driver.md:110-112`).
+   Today a grant given at spec r1 still holds at r2 (`sdc/docs/driver.md:146-148`).
    Related draft story: `capability-scope` (status: draft). Land both in one story (inferred).
 
 2. **Usefulness in `canon-decision/1`.** Per admissible action: does some kind it may produce lack
    an applicable record at the current revision. The driver re-derives this (`sdc/driver/src/main.rs:162-176`)
-   and its first run looped on an admissible, useless action (`driver.md:56-57`).
+   and its first run looped on an admissible, useless action (`driver.md:91-92`).
    Canon's design lists "useful missing evidence" (`canon-protocol-calculus-design.md:282-291`).
    No story found.
 
@@ -42,7 +42,7 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
 
 7. **Pure argument validator exported from the Canon library.** The dialect is Canon's;
    `protocol.md:92` leaves checking to every runner, so each reimplements a partial one
-   (`main.rs:240-254`, `driver.md:224`).
+   (`main.rs:240-254`, `driver.md:259`).
 
 8. **Optional, low value:** an explicit "absent" artifact revision (`output.txt:34`).
 
@@ -78,5 +78,5 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
 ## Not Canon (for orientation)
 
 - Child-case runtime (open child on `case_open`, write `case_outcome` back): Loom, not Canon.
-  Blocks the SDC run at `story.open` (`driver.md:214-216`).
+  Blocks the SDC run at `story.open` (`driver.md:249-251`).
 - Move each binding's `until` claim into the SDC protocols' preconditions: SDC edit.

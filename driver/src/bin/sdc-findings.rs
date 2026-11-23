@@ -55,7 +55,7 @@ fn is_open(s: &str) -> bool {
     s == "open" || s == "needs_person"
 }
 
-/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it, keep-going's
+/// A decider's principal (`decider:<kind>`), as the removed driver wrote it, keep-going's
 /// forced default (`rule:keep-going`, D142) or run.unstick's (`agent:unstick`, D147): taken in a
 /// decider's place and checked as its are.
 fn is_decider(principal: &str) -> bool {
@@ -474,7 +474,7 @@ fn trace_kind(rid: &str, decision: &str) -> &'static str {
 /// A resolved program finding raised again (`h`, the hit as computed now): the decision on it was
 /// applied and should have removed it, so this is a defect of that apply, never a new question.
 /// The finding waits (needs_person, decision taken off) with `reraised` {decision, decided_by,
-/// says}; scripts/run-trial.sh stops the run `finding_reraised` on it.
+/// says}; the removed driver stopped the run `finding_reraised` on it.
 fn reraise(f: &mut Value, h: &Value) {
     let mut r = Mapping::new();
     r.insert(s("decision"), f.get("decision").cloned().unwrap_or(Value::Null));
@@ -1386,7 +1386,7 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         let (decision, decided_by, basis);
         if status == "needs_person" {
             decision = scalar(&f["decision"]);
-            // The decision carries the principal that took it: `decider:<kind>` (scripts/run-trial.sh)
+            // The decision carries the principal that took it: `decider:<kind>` (as the removed driver wrote it)
             // or `person:<id>` (a person's edit names them). Without one nobody is recorded as
             // having decided: the decision is not applied and the finding keeps waiting.
             let by = st(&f, "decided_by");

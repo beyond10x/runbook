@@ -14,7 +14,7 @@ directories `free-agent-0.1.0-sonnet-{1,2,3}`, not in git). Scores, evidence and
   stories, the implementation, a self-review) and the stack: Rust 2021, standard library only, a
   daemon that serves a web UI and a JSON API with `std::net::TcpListener`, port and data file as
   arguments, tests per command, `Taskfile.yml`, README. The SDC's implement node gets the same
-  stack wording from its binding (`driver/examples/sdc/tools/llm-node.sh:382-384` at the
+  stack wording from its binding (lines 382-384 of the model-node script of `driver/examples/sdc/tools/` at the
   baseline's tree 4468bfd).
 
 ## Procedure
@@ -129,7 +129,7 @@ Only mixed-1 changed (18 to 20).
 ## Where the harness lives
 
 `eval/quality/`: `AGENTS.md:26` maps `eval/` to the eval runner described in
-`docs/eval-design.md`, and decision D13 (`docs/eval-design.md:627`) keeps the KPI suite in
+`docs/eval-design.md`, and decision D13 (`docs/eval-design.md:633`) keeps the KPI suite in
 `sdc/eval/` for now. `eval-design.md` names no product-quality harness; this is the nearest home.
 Run: `npm install` in `eval/quality/`, then with `QUALITY_DIR=<scratch>` (default: the parent of the
 harness directory, where these runs had it): `node blind.mjs <runs> $QUALITY_DIR`;

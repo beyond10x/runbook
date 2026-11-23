@@ -30,22 +30,6 @@ runbook_resolve() {
   runbook=$bin
   export RUNBOOK_BIN=$bin
 }
-# Legacy, for the scripts that the removal of the old driver deletes (run-trial.sh,
-# run-finding-cycles.sh, run-full-cycle.sh) and `sdc-drive --canon`: `canon` is a one-line program
-# that runs `runbook canon`. Nothing else calls it; it goes with those scripts.
-canon_resolve() {
-  local root shim
-  if [[ -n ${CANON:-} ]]; then canon=$CANON; return 0; fi
-  runbook_resolve || return 1
-  root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-  shim=$root/target/canon-shim
-  mkdir -p "$shim"
-  printf '#!/bin/sh\nexec "%s" canon "$@"\n' "$runbook" > "$shim/canon.$$"
-  chmod +x "$shim/canon.$$"
-  mv -f "$shim/canon.$$" "$shim/canon"
-  canon=$shim/canon
-  export CANON=$canon
-}
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
 
 set -euo pipefail

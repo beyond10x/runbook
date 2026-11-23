@@ -10,7 +10,7 @@ Release carries the notes only.
 
 One version for the repository, written in these files and nowhere else:
 
-- `driver/Cargo.toml` (`sdc-drive`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
+- `driver/Cargo.toml` (`sdc-tools`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
   (`sdc-goals`), `runbook/Cargo.toml` (`runbook`, the command; it prints the version with
   `--version`), and the `sdc-*` or `runbook` package entry of each crate's `Cargo.lock`;
 - `ui/package.json` and the root entry of `ui/package-lock.json`;
@@ -103,7 +103,7 @@ over `git ls-files` and prints the files of `scripts/`, `bindings/`, `instructio
 other tracked text file refers to; it exits 1 when there are any. A file refers to another by its
 path, by a path relative to its own directory or crate, by a directory plus a name below it, by
 `mod x;`, or as a Cargo target. The history files (`.engineering/`, `experiments/`, `CHANGELOG.md`,
-`docs/releases/`) do not count as referrers. A directory that a program reads as a whole is a line
+`docs/releases/`, and `docs/progress.md` and `docs/progress.json`, which `sdc-experiment progress` writes from the experiment records) do not count as referrers. A directory that a program reads as a whole is a line
 of `driver/unreferenced-whole.txt` (`<dir> <referrer> <reason>`); a file that stays unreferenced on
 purpose is a line of `driver/unreferenced-keep.txt` (`<path> <reason>`), and the check refuses a
 line whose file is gone or is referred to now. Before a deletion,

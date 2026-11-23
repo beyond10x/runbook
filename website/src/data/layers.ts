@@ -1,7 +1,7 @@
 /**
  * The layers and components Runbook is built on, with what each supplies today. The layering is
- * `docs/layers.md` § 3; every statement cites this repository at tag 0.1.1 or the component's
- * public README. Written by hand: these are claims about other repositories, not generated data.
+ * `docs/layers.md` § 3; every statement cites this repository at tag 0.1.1, the file on `main`
+ * where it says what holds now (`now`), or the component's public README. Written by hand: these are claims about other repositories, not generated data.
  */
 
 export type Use = 'used' | 'partly' | 'not-yet' | 'planned';
@@ -33,6 +33,11 @@ export interface Layer {
 const sdc = (path: string, lines?: string): Cite => ({
   label: lines ? `${path}:${lines}` : path,
   href: `https://github.com/beyond10x/runbook/blob/0.1.1/${path}${lines ? `#L${lines.replace('-', '-L')}` : ''}`,
+});
+
+const now = (path: string): Cite => ({
+  label: path,
+  href: `https://github.com/beyond10x/runbook/blob/main/${path}`,
 });
 
 const readme = (repo: string, lines: string): Cite => ({
@@ -67,7 +72,7 @@ export const COMPONENTS: Component[] = [
     use: 'used',
     supplies: [
       {text: 'Nine protocol/1 documents, one bindings file per protocol and the tools they bind.', cite: sdc('AGENTS.md', '18-20')},
-      {text: 'The driver sdc-drive, which today also holds the runtime parts listed under Loom.', cite: sdc('docs/driver.md', '42-45')},
+      {text: 'The driver, which at release 0.1.1 also held the runtime parts listed under Loom; they are deleted since and the runtime is Loom\'s.', cite: sdc('docs/driver.md', '42-45')},
     ],
   },
   {
@@ -84,7 +89,7 @@ export const COMPONENTS: Component[] = [
       {text: 'canon simulate, pinned at release 0.10.0 (commit 2c7a1ea6); each report is compared with the committed one.', cite: sdc('docs/releases/0.1.1.md', '23-26')},
     ],
     temporary: [
-      {text: 'The driver calls canon evaluate as a subprocess and keeps the case as plain files; Canon is meant to be a library inside Loom\'s governor.', cite: sdc('docs/driver.md', '50-51')},
+      {text: 'At release 0.1.1 the driver called canon evaluate as a subprocess and kept the case as plain files; that runtime is deleted. Now no canon process is started: Canon is a library of the runbook crate.', cite: now('docs/loom-run.md')},
     ],
   },
   {
@@ -94,12 +99,12 @@ export const COMPONENTS: Component[] = [
     site: 'https://beyond10x.github.io/loom/',
     is: 'The agent runtime: it runs governed agents, and b10x-loom-sdk is its library for building on it.',
     isCite: readme('loom', '3-5'),
-    use: 'not-yet',
+    use: 'used',
     supplies: [
-      {text: 'Not used yet. Runbook is meant to run as an application on Loom.', cite: sdc('docs/layers.md', '51')},
+      {text: 'The runtime of a case: runbook run runs a case tree through Loom, as a library in its own process or through the b10x-loom binary.', cite: now('docs/loom-run.md')},
     ],
     temporary: [
-      {text: 'Child cases (case_open to case_outcome) and the roadmap.read copy are built in the driver as a temporary copy of what Loom must provide, marked TEMPORARY in driver/src/main.rs.', cite: sdc('docs/driver.md', '42-45')},
+      {text: 'Child cases (case_open to case_outcome) and the roadmap.read copy were built in the driver at release 0.1.1 as a temporary copy of what Loom must provide, marked TEMPORARY in driver/src/main.rs; the copy is deleted since.', cite: sdc('docs/driver.md', '42-45')},
     ],
   },
   {
@@ -109,9 +114,9 @@ export const COMPONENTS: Component[] = [
     site: 'https://beyond10x.github.io/substrate/',
     is: 'The execution data plane: confined workspaces, bounded processes and sessions, durable operations, leases and observed state.',
     isCite: readme('substrate', '3-4'),
-    use: 'not-yet',
+    use: 'partly',
     supplies: [
-      {text: 'Not used yet: Runbook bypasses it completely. Confinement and process start are meant to reach Runbook through Loom.', cite: sdc('docs/layers.md', '33-34')},
+      {text: 'Reached through Loom: runbook run --confinement substrate uses Substrate\'s linux adapter; --confinement local is unconfined and declared insecure.', cite: now('docs/loom-run.md')},
     ],
   },
   {

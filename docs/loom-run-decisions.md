@@ -9,32 +9,31 @@ and carries the model, turn and budget settings of the run. Loom commit `5af3f9c
 
 ## The decisions table
 
-The driver (`scripts/run-trial.sh`, `bindings/tools/decider.sh`) hands a decider these kinds of
+The former driver handed a decider these kinds of
 decision. The last two columns say whether Loom can ask the kind as a `decisions[]` entry at the
 pinned commit, and what a run does with it. A kind Loom cannot ask is not answered by a path made up
 for it: the run ends or the step never exists.
 
 | Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `runbook run` does |
 |---|---|---|---|---|
-| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a rejection of an action that declares no `rejected` result stops the run `stopped: rejected` (exit 10, cause `rejected_without_rework_path`, the reason `<step> in <case>: …`), and an approval of a result the action does not declare ends it `error`. The driver's `approved_on_checks` (three invalid replies and every check true: approved) is not in the runner: Loom's `decisions[]` holds no claim values to check, and an approval nobody validly gave stays `CannotDecide`, so the run stops for a person |
+| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | the model decider (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a rejection of an action that declares no `rejected` result stops the run `stopped: rejected` (exit 10, cause `rejected_without_rework_path`, the reason `<step> in <case>: …`), and an approval of a result the action does not declare ends it `error`. The driver's `approved_on_checks` (three invalid replies and every check true: approved) is not in the runner: Loom's `decisions[]` holds no claim values to check, and an approval nobody validly gave stays `CannotDecide`, so the run stops for a person |
 | approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |
 | escalate (decider reply) | the reply's `best` | `best` approve or reject | not a Loom entry: a reply | `escalate: final` takes `best` (reject when absent), as the driver's `escalation_suppressed`; `escalate: stop` ends in `CannotDecide {reason: "reserved for a person: …"}` |
 | question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none: the action lists no results, so the printed command has no `--result` and no `--reasons-file` | with `tools/answers.yaml` declaring the action (the committed bindings do): one request per open question, one decider call each at A5, the answer written into the workspace by the file's `apply` program, then the file's `then` program takes the step and the printed `tree approve` runs with the decider's principal. The answer text is in the work file, in `decisions.jsonl` and in the decider's record, not in Loom's approval. Without the declaration: `CannotDecide` ("scope.answer is a step whose outcome is a person's text …") and the copy keeps `person:owner` |
 | question: `questions.answer` | | | No: a model node (class `other`) in the bindings, not a decision | runs as a node |
 | finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Reachable as the `Handoff` of `amend.upstream`: a finding that needs a person is a request of the answers file's `requests` program | one request per such finding, one decider call each; the `apply` program writes the answer as the finding's `decision` and `decided_by`, then the printed `tree run` runs. A finding the driver would re-raise (`reraised`) ends the run `error`, as it stops the driver. What Loom cannot do (refuse a finding) stays in `bindings/PENDING.md` |
 | close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | at A5 a close through an outcome the close class lists (`operating`) is taken by `rule:autopilot`: no decider call, no model call, the printed `tree close` runs. Any other close is asked as `type close` with the printed outcome where the table gives the close to the decider (A4; A5 for an outcome the class does not list); approve runs the printed `tree close`, decline runs nothing and the same close that comes back ends the run `denied`; the other outcomes of that case are not asked after one ran |
-| handoff | a writer's handoff text | none | Yes: kind `Handoff`, the printed command is `tree run --store … --confinement …` | a scripted approval runs the printed `tree run` through the ledger; `decider.sh` has no reply for it, so a program decider ends `CannotDecide` ("kind Handoff …"); a handoff that comes back after its command ran is an `error` |
+| handoff | a writer's handoff text | none | Yes: kind `Handoff`, the printed command is `tree run --store … --confinement …` | a scripted approval runs the printed `tree run` through the ledger; the decider has no reply for it, so a program decider ends `CannotDecide` ("kind Handoff …"); a handoff that comes back after its command ran is an `error` |
 | an unknown kind | | | whatever Loom adds | `CannotDecide` ("kind X not known") |
 | withhold, run.unstick, keep-going | the driver's own routes after a decision | | Not reachable through `tree` today: Loom has no such steps | a run has none of them; the first stop is the stop |
-| rework after a rejected person step | the driver's rework route | | Reachable at Loom `5af3f9c2`: the rejection is the step's named result and the writer's `retry_when` sends it back with the reasons in `LOOM_RETRY_FEEDBACK` | the rejection runs as above; the writer runs again (bindings `retry_when: {<evidence kind>: [rejected]}`, `llm-node.sh` writes the reasons into `in/feedback.md`) |
+| rework after a rejected person step | the driver's rework route | | Reachable at Loom `5af3f9c2`: the rejection is the step's named result and the writer's `retry_when` sends it back with the reasons in `LOOM_RETRY_FEEDBACK` | the rejection runs as above; the writer runs again (bindings `retry_when: {<evidence kind>: [rejected]}`, `sdc-node` writes the reasons into `in/feedback.md`) |
 | `SDC_RULE_APPROVALS` (rule approvals with claims) | claims of the position | | Not reachable through `tree` today: Loom's `decisions[]` holds no claim values | not mapped |
 | budget overrun, limit hit | | | not Loom entries: the runner's own stops (R1's ledger and caps) | outcome `stopped`, not a decision |
 
 Notes.
 
-- The decider runs inside the runner (`runbook/src/loom_run/decider/`; `bindings/tools/decider.sh` is
-  no longer started and stays for the old driver's scripts). It has the driver's mode only. There is no
-  Loom mode: the decider builds the request it reads (`case_dir` with `case.json` and a link `work` to the run's workspace) from the entry and
+- The decider runs inside the runner (`runbook/src/loom_run/decider/`). It builds the request it
+  reads (`case_dir` with `case.json` and a link `work` to the run's workspace) from the entry and
   Loom's case file. `case.json` holds the case and the artifacts Loom's store knows with their
   revisions.
 - The decider's `claims` are not in Loom's output. The model prompt tells the model to read the
@@ -123,9 +122,8 @@ decider itself needs no `jq`, `yq`, `rsync` or `bash`: it renders the prompt, co
 resolves the cites and checks the reply in the runner, with the library of `sdc-reply`
 (`driver/src/reply/`). The files of the call (`request.json`, `prompt.md`, `reply-schema.json`,
 `response.json`, `status.json`, `cwd/in/`, `cwd/out/decision.json`) and the reply are the bytes
-`decider.sh` wrote; the slow lane `task test:decider-parity` compares them, the requester's too.
-The `requester` kind of `decider.sh` is `decider.requester: true` (see "The requester decider"
-below). The decider finds `instructions/decider/` by
+the former shell decider wrote (the slow lane that compared them is gone with it). The requester
+kind is `decider.requester: true` (see "The requester decider" below). The decider finds `instructions/decider/` by
 walking up from the bindings copy's tools directory: the copy puts `instructions/` beside it. The
 login's path is removed from every stderr line the decider keeps (`<login file>`), and it is in no
 argument, no file of the run directory but the link, and no result.
@@ -167,7 +165,7 @@ of the actions and of the work files are the file's and its programs'.
 | Key | Meaning |
 |---|---|
 | `action`, `on` | the action id and the kind of Loom's decision (`ApproveAction` or `Handoff`) |
-| `requests` | a program that prints one JSON object per line: `type` (`question` or `finding`), `id`, a member of that name holding the object (`default`, and for a finding `options`), and optionally `subject`, `path`, `capability`, passed to `decider.sh` as the request members of the driver |
+| `requests` | a program that prints one JSON object per line: `type` (`question` or `finding`), `id`, a member of that name holding the object (`default`, and for a finding `options`), and optionally `subject`, `path`, `capability`, passed to the decider as its request members |
 | `apply` | a program that writes one answer into the workspace; words may hold `{id}`, `{answer}`, `{principal}`, `{case}`, `{type}` |
 | `then` | optional, run once after the last answer; words may hold `{principal}`, `{case}` |
 
@@ -188,8 +186,8 @@ What a run does for a declared action, at `autonomy: A5` with a model or rule de
    request's default (`fallback: invalid_reply_default`) and `stop` ends the run. An escalation
    under `final` takes the default of a question and the `best` of a finding (else its default),
    with `suppressed: true`; under `stop` the run ends for a person with the decider's reasons. A
-   rejection ends the run. These are the driver's `decide` rules (`scripts/run-trial.sh`, lines
-   804 to 905; `answer_questions`, 1122 to 1148; `decide_findings`, 1150 to 1227).
+   rejection ends the run. These were the former driver's `decide` rules; the runner keeps them
+   (`runbook/src/loom_run/decider/`).
 4. Runs `apply` for the answer, then `then`, then the printed command, with the decider's principal
    (`decider:<kind>`) in `--principal`. The same request coming back after three answers ends the
    run `error`: the `apply` program did not take the answer.
@@ -253,9 +251,7 @@ settings change them.
 ## Checks
 
 - Fast: `cargo test --locked --bin runbook loom_run::decider` and `loom_run::bindings_copy` (the
-  fake adapter is a script the test writes, the rules run in the runner; no model). The slow lane
-  `task test:decider-parity` runs `decider.sh` and the Rust decider on the same cases and compares
-  the bytes; it goes with `decider.sh`.
+  fake adapter is a script the test writes, the rules run in the runner; no model).
 - That Loom reads the copy (slow lane, needs the pinned `b10x-loom`): `RUNBOOK_LOOM_BIN=<b10x-loom>
   cargo test --locked --bin runbook -- --ignored loads_in_loom`. The test registers the protocols,
   makes a copy with the model, turn, budget, adapter and principal rewrites, runs `tree open` on it

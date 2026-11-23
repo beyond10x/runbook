@@ -18,7 +18,7 @@
   },
   "spec.author": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "spec.author"
     ],
     "produces": "spec_source",

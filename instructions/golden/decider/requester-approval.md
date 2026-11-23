@@ -7,6 +7,7 @@ Inputs:
 - in/aep/initiative/roadmap.md
 - in/idea.yaml
 - in/dissection.yaml
+- in/goals.yaml
 - in/decisions.json (your earlier decisions in this run)
 
 Choose the option (or, for a question, a short answer of your own) that the entries of

@@ -7,8 +7,8 @@
 //! Each case starts the program as Loom does (`--tools-dir`, the binding's options, `LOOM_CASE`,
 //! the arguments on standard input) on a workspace the case lays out, and compares what it did,
 //! its exit code, both streams and every file it wrote or removed, with `tests/expected/<case>.txt`.
-//! The expectations were written from the runs of the shell code of `bindings/tools/llm-node.sh`,
-//! which the program equalled byte for byte before the script's Loom mode was removed;
+//! The expectations were written from the runs of the model-step shell script that the program
+//! replaced, which the program equalled byte for byte before that script was deleted;
 //! SDC_BLESS_EXPECTED=1 rewrites them from the program. The Loom-mode prompts are held byte for
 //! byte against `instructions/golden/llm-node/`, the step log lines against
 //! `instructions/golden/node-log/` (SDC_BLESS_PROMPTS=1 rewrites the goldens).
@@ -22,11 +22,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-
-const NODES: [&str; 7] = ["idea.dissect", "questions.write", "requirements.normalise", "spec.author", "test.reproduce", "bug.dissect", "change.fix"];
-
-/// The nodes of the planning store and of the review.
-const STORE_NODES: [&str; 6] = ["vision.write", "roadmap.write", "plan.decompose", "context.default", "questions.answer", "change.review"];
 
 /// The files whose bytes a YAML writer lays out its own way, digested as documents:
 /// the stub's findings, and `context.yaml` where context.default merged the decisions of a person
@@ -805,26 +800,6 @@ fn a_stub_setting_that_does_not_exist_is_refused() {
     assert_eq!(r.code, Some(64), "{r:#?}");
 }
 
-#[test]
-fn the_script_refuses_loom_mode_and_names_the_program() {
-    let work = fresh("script-refuses-loom").join("work");
-    for node in NODES.iter().chain(STORE_NODES.iter()).chain(["change.implement"].iter()) {
-        let o = Command::new(repo().join("bindings/tools/llm-node.sh"))
-            .args([node, "--model", "m"])
-            .current_dir(&work)
-            .env_clear()
-            .env("PATH", path())
-            .env("LOOM_CASE", "IDEA-1.x")
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
-        let err = String::from_utf8_lossy(&o.stderr);
-        assert_eq!(o.status.code(), Some(126), "{node}: {err}");
-        assert!(err.contains("under Loom the model step is the program sdc-node"), "{node}: {err}");
-    }
-    assert!(fs::read_dir(&work).unwrap().next().is_none(), "the script wrote into the workspace");
-}
-
 // ---- the nodes of the planning store ------------------------------------------------------------
 
 /// An adapter that writes the given files into the call's out/ and answers with a response.
@@ -1575,6 +1550,32 @@ pub(crate) fn loom_prompt(node: &str) -> String {
     }
 }
 
+/// What the writer reads as `in/feedback.md` when checks sent it back (the driver's feedback file):
+/// the headings, the fences, the tail of a long log, the line for a check with no output and for a
+/// log that is missing, and the rejection of a person.
+#[test]
+fn the_feedback_file_of_a_writer_sent_back_by_checks_is_its_golden_byte_for_byte() {
+    let long_log: String = (1..=90).map(|i| format!("slot: job {i} queued\nrunning line {i}\n")).collect();
+    let root = fresh("golden-feedback-checks");
+    base_work(&root.join("work"), "change.fix");
+    put(&root, "rejection.json", r#"{"format":"sdc.rejection/1","approval":"change.approve","revision":"abc123","principal":"person:reviewer","count":1,"reasons":["The refusal of an empty title is missing."],"subject":"change"}"#);
+    put(&root, "tests.log", &long_log);
+    put(&root, "quiet.log", "slot: job 3 queued\nslot: job 3 running\n");
+    let at = |name: &str| format!("{}/{name}", root.display());
+    let records = json!([
+        {"kind": "tests", "result": "fail", "action": "tests.run", "exit": 1, "log": at("tests.log")},
+        {"kind": "approval", "result": "rejected", "action": "change.approve", "exit": 6, "log": at("rejection.json")},
+        {"kind": "lint", "result": "invalid", "action": null, "exit": null, "log": at("quiet.log")},
+        {"kind": "gate", "result": "fail", "action": "gate.run", "exit": 2, "log": at("missing.log")},
+    ]);
+    put(&root, "feedback.json", &records.to_string());
+    let mut s = start("change.fix").with(&["--adapter", "true"]).env(&FEEDBACK_ENV);
+    s.stdin = r#"{"domain":"todo"}"#.into();
+    spawn(&root, &s, "sdc.todo.list");
+    let p = root.join("work/.sdc/llm/001-change.fix/cwd/in/feedback.md");
+    compare("feedback", "checks", &fs::read_to_string(&p).unwrap_or_else(|_| panic!("no feedback.md at {}", p.display())));
+}
+
 #[test]
 fn the_prompt_of_change_fix_with_a_ticket_is_its_golden_byte_for_byte() {
     compare("llm-node", "change.fix.ticket", &prompt("fix-ticket", "change.fix", &ticket, &[]));
@@ -1800,4 +1801,29 @@ fn the_implement_nothing_recorded_line_is_its_golden_byte_for_byte() {
     let r = implement("").with(&["--adapter", "{root}/adapters/req-exits"]).env(&REQUEST_ON).run("log-implement-nothing");
     assert!(!r.stdout.is_empty(), "{r:#?}");
     compare("node-log", "implement.nothing-recorded", &r.stdout);
+}
+
+/// `bindings/tools/node-classes.json` gives each class the nodes it covers. A node
+/// that no binding names is data of something deleted (the class `unstick` and its node
+/// `run.unstick` outlived `sdc-unstick` and `run-trial.sh`).
+#[test]
+fn every_node_a_class_names_is_a_node_some_binding_runs() {
+    let classes: serde_json::Value = serde_json::from_str(&fs::read_to_string(repo().join("bindings/tools/node-classes.json")).unwrap()).unwrap();
+    let mut live = String::new();
+    for e in fs::read_dir(repo().join("bindings")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_some_and(|x| x == "yaml") {
+            live.push_str(&fs::read_to_string(&p).unwrap());
+        }
+    }
+    let token = |n: &str| live.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))).any(|t| t == n);
+    let mut dead = Vec::new();
+    for (class, nodes) in classes["classes"].as_object().unwrap() {
+        for n in nodes.as_array().unwrap().iter().filter_map(|n| n.as_str()) {
+            if !token(n) {
+                dead.push(format!("{class}: {n}"));
+            }
+        }
+    }
+    assert!(dead.is_empty(), "node-classes.json names nodes that no binding in bindings/*.yaml has: {dead:?}");
 }

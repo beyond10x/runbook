@@ -159,7 +159,7 @@ fn implement_coverage_default_is_off() {
     let mut all = Vec::new();
     files(&r.dir.join("store"), &mut all);
     assert!(all.iter().all(|f| !f.ends_with("impl/.sdc/coverage.json")));
-    let refused = all.iter().filter(|f| f.to_string_lossy().contains("/blobs/")).any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("sdc-drive: postcondition")));
+    let refused = all.iter().filter(|f| f.to_string_lossy().contains("/blobs/")).any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("sdc-reply check-coverage")));
     assert!(!refused, "no postcondition refusal");
 }
 
@@ -194,8 +194,7 @@ fn replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuc
     assert!(stopped["replay"]["calls"]["reused"].as_u64().unwrap() >= 1, "{stopped}");
     assert_eq!(stopped["replay"]["label"], "re-driven: with reused replies");
     let last = r.lines("run-settings.jsonl").pop().unwrap();
-    assert_eq!(last["unstick"]["on"], false, "{last}");
-    assert_eq!(last["replay"]["unstick"]["on"], false, "{last}");
+    assert!(last.get("unstick").is_none() && last["replay"].get("unstick").is_none(), "{last}");
 }
 
 /// Suite entry `replay-timeout`. The exit is the timeout of the virtual clock; what the old driver

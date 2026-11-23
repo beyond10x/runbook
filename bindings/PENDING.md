@@ -23,7 +23,7 @@ from its YAML file must have a line here.
 - `sdc-story.bindings.json:14` `*` `{dir}` in every `argv` (6 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-release.bindings.json:7` `*` `{dir}` in every `argv` (5 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-bugfix.bindings.json:10` `*` `{dir}` in every `argv` (8 bindings) — D13 — G1, wave 2 — none, as above.
-- `sdc-intake.bindings.json:11` `*` program-error exits 75, 126, 127 (driver `program_error`, `driver/src/main.rs:579-581`) on all 9 program bindings — D36 — G1, wave 2 — the member is drafted in `story:bound-program-contract` (`exits: {error: [...]}`), not in Loom's loader; the list each binding states: `[75, 126, 127]`.
+- `sdc-intake.bindings.json:11` `*` program-error exits 75, 126, 127 (the former driver's `program_error`, deleted) on all 9 program bindings — D36 — G1, wave 2 — the member is drafted in `story:bound-program-contract` (`exits: {error: [...]}`), not in Loom's loader; the list each binding states: `[75, 126, 127]`.
 - `sdc-direction.bindings.json:12` `*` program-error exits on all 6 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
 - `sdc-epic.bindings.json:13` `spec.gate` program-error exits — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
 - `sdc-spec.bindings.json:20` `*` program-error exits on all 8 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.

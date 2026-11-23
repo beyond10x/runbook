@@ -1,6 +1,6 @@
 [package]
 name = "runbook"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 publish = false
 
@@ -19,10 +19,10 @@ sha2 = "0.10"
 uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
-sdc_tools = { path = "../driver", package = "sdc-drive" }
-b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "70b0e6e0f41c15cbb91a1c6fe0b548aafe86ef6d" }
-b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "70b0e6e0f41c15cbb91a1c6fe0b548aafe86ef6d" }
-b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "70b0e6e0f41c15cbb91a1c6fe0b548aafe86ef6d" }
+sdc_tools = { path = "../driver", package = "sdc-tools" }
+b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
+b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
+b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
 b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
 
 [workspace]

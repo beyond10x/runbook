@@ -6,7 +6,7 @@
   "bugfix.open": {
     "produces": "bugfix_opened",
     "subject": "report",
-    "producer": "sdc-drive",
+    "producer": "runbook",
     "results": {
       "0": null
     },

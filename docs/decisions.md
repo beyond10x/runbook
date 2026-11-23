@@ -27,8 +27,8 @@ Examples: `decision/examples/`.
 | `beyond10x/decider` (private) | learns which decisions a small model can take; its decision record is one choice in a session | not this: it consumes decisions |
 | SDC `docs/autonomy-levels.md` | levels A0 to A5 (`:36-42`, `:205-213`), a holder per decision class (`:229-257`), escalation mode (`:385-387`), eval runs at A5 (`:454-459`) | the record of one decision |
 | SDC `questions.yaml` (`runs/trial-todo-1/store/IDEA-1/work/questions.yaml:1-10`) | question, options, default, answer, `answered_by` | grounds; the default has no reason |
-| SDC `decider.sh` (`bindings/tools/decider.sh:50-75`, `:119-133`, `:179`) | a reply with `reasons` and `cites` (item ids, checked to exist); since `:119-133` the decider sees only the claims of the action's precondition (approval) or the outcome's condition (close) | citations to a line or a revision; the claims it reads are not citable |
-| SDC `runs/trial-todo-1/decisions.jsonl` and `decider/NNN-*/` | 5 real decider decisions (below), written by `run-trial.sh:135-185` | the request; options; a case revision for a close |
+| SDC's shell decider (its script lines 50-75, 119-133, 179) | a reply with `reasons` and `cites` (item ids, checked to exist); since its lines 119-133 the decider sees only the claims of the action's precondition (approval) or the outcome's condition (close) | citations to a line or a revision; the claims it reads are not citable |
+| SDC `runs/trial-todo-1/decisions.jsonl` and `decider/NNN-*/` | 5 real decider decisions (below), written by the trial script (lines 135-185) | the request; options; a case revision for a close |
 
 ## The entity
 
@@ -54,7 +54,7 @@ A `DecisionRequest` holds:
   the free answer), and one sentence on how. `idea` was added because the decider cites dissection
   items (`d1` to `d4`); `goals` for the requester side (`requester.md` § 2).
 - **Who decides**: the run's autonomy level (A0 to A5), the decision class (13 request classes,
-  the rows of `autonomy-levels.md:244-256`; the `escalation` row is not a request class, see
+  the rows of `autonomy-levels.md:245-257`; the `escalation` row is not a request class, see
   Escalate below), the **holder** for that class at that level, the eligible principals (handed
   in by the host), and whose inbox it is in (`addressed_to`).
 - **The decision**: option, or for a question request a free answer (`decided_answer`; both of
@@ -82,7 +82,7 @@ Commands: `Request`, `Recommend`, `Decide`, `TakeRecommendation`, `RecordProduce
 `DecisionRequests` (everything).
 
 Escalate moves an existing request; it never opens one. It sets the holder to P, the cell of the
-`escalation` row (`autonomy-levels.md:257`), so a decider can no longer decide it. From a decider
+`escalation` row (`autonomy-levels.md:258`), so a decider can no longer decide it. From a decider
 or a rule (holders D→P, R, R∧D→P) it is an escalation, and under R∧D→P the decider's veto. Under
 P and P+ it is a person passing the request on to someone else, also from Escalated; a P+
 request becomes P, which has the same guards, and keeps its recommendation. The person it names
@@ -106,7 +106,7 @@ as input (`at`, `decided_at`); neither reads a clock. Both are refused (`NotDue`
 
 ### Who decides: the holder
 
-The run's level and the request's class give the holder (`autonomy-levels.md:242-257`; per-run
+The run's level and the request's class give the holder (`autonomy-levels.md:243-258`; per-run
 overrides and the order of holders `:297-320`). The request stores the holder; the guards read it,
 not the level.
 
@@ -124,13 +124,13 @@ Under a final holder (`decider_final`, `rule_and_decider_final`) a decider resul
 missing, failed, or withheld by the grounding check decides the denying option, or ends the run
 where no option denies; `escalation_suppressed` records the cause. A rule verdict withheld by the
 grounding check under `rule_and_decider` counts as no recommendation and the request goes to a
-person; under `rule_and_decider_final` the run ends (`autonomy-levels.md:277-282`).
+person; under `rule_and_decider_final` the run ends (`autonomy-levels.md:279-284`).
 
 A listed person may decide whatever the holder (lowering is always allowed, `:311`). Silence
 taking a strong default is not in `autonomy-levels.md`; it is kept as a person-facing option and
 can only take the recommendation. `TakeRecommendation` takes only a strong recommendation, for
 every principal kind; a person who wants a weak or moderate one chooses its option through
-`Decide`. Today `run-trial.sh` sends every class to one decider
+`Decide`. Then the trial script sent every class to one decider
 (`autonomy-levels.md:448-450`): A0 is `SDC_DECIDER=person`, A5 is `SDC_DECIDER=model
 SDC_DECIDER_ESCALATE=final`, and A1 to A4 need per-class routing that is not built.
 
@@ -215,36 +215,36 @@ proposals were written to the session scratch directory.
 | 004 release.publish | escalate | refused, exit 1 | no option proposed: an escalation yields no recommendation, and the request goes to a person with the reasons as context. Grounds r1-r3 resolve |
 | 005 close | approve | refused, exit 1 | the record carries no case revision (`revision: null` in `decide-request.json`), so the decision is not bound to what it closed. Its 10 grounds (r1-r3, q1-q3, d1-d4) resolve; with the case revision filled in (`c2`) it passes |
 
-Two things the records show the decider cannot cite yet: the claims it is given (`decider.sh:119-133`,
+Two things the records show the decider cannot cite yet: the claims it is given (lines 119-133 of the shell decider,
 such as `roadmap.valid`, `tests.pass`) are named in its reasons but are not citable ids; they
 should become `evidence_record` grounds (`record_id` of the evidence behind each claim, or
 `artifact_revision`). And a close needs the case revision in its request.
 
-Since `sdc-reply` (`driver.md`, "Decider replies") the decider cites in three of these forms: an
+Since `sdc-reply` (`docs/loom-run-decisions.md`) the decider cites in three of these forms: an
 id (the claims it is given included), `artifact_revision` with an entry (`context@<rev>#platform`)
 and `path_line` (`context.yaml:13-14`); each is resolved before the reply is taken. Claims are
 still ids, not `evidence_record` grounds.
 
 ## How the parts use it
 
-- **Driver** (`sdc-drive`). Where `run` stops with `awaiting_authority` or `awaiting_person`
-  (`driver.md:119-127`), each entry of `next` becomes one `Request`: the action, the capability,
-  the subject and its revision are in that entry. A handoff question (`driver.md:112-114`)
+- **Driver** (the driver). Where `run` stops with `awaiting_authority` or `awaiting_person`
+  (`driver.md:154-162`), each entry of `next` becomes one `Request`: the action, the capability,
+  the subject and its revision are in that entry. A handoff question (`driver.md:147-149`)
   becomes one request per open scope-changing question, its options and default taken from
   `questions.yaml`. The class comes from the action (`autonomy-levels.md:244-256`), the holder
   from the run's level. When the subject moves, the driver supersedes the open request. After a
   decision it follows the order of "What a decided request produces" below.
-- **Decider** (`SDC_DECIDER`, `run-trial.sh:20-33`). `person` is holder P. `approve` and `reject`
+- **Decider** (`SDC_DECIDER`, lines 20-33 of the trial script). `person` is holder P. `approve` and `reject`
   are rule deciders: they `Decide` the approving or refusing option where the holder allows a
   decider. `model` (formerly `haiku`) gets the subject, the requirements and only the claims the decision turns on
-  (`decider.sh:119-133`), and returns an option, reasons and cites; the driver turns cites into
+  (lines 119-133 of the shell decider), and returns an option, reasons and cites; the driver turns cites into
   grounds and runs the grounding check. Under P+ the result becomes the recommendation only;
   under R∧D the decider takes the rule's verdict through `TakeRecommendation` or vetoes it
   (`Escalate` under R∧D→P, `Decide` on the denying option under R∧D*); under D→P it may `Decide`
   or `Escalate`; under D* an escalation is suppressed and `best` is decided. The escalation reuse
-  of `run-trial.sh:139-143` becomes rule 4, keyed by `question_key`. Each decided request is one
-  `decisions.jsonl` line, which KPI H2 (`kpis.md:123`), R8 (`kpis.md:87`) and R21/R22
-  (`autonomy-levels.md:499-500`) count and `beyond10x/decider` can learn from.
+  of lines 139-143 of the trial script becomes rule 4, keyed by `question_key`. Each decided request is one
+  `decisions.jsonl` line, which KPI H2 (`kpis.md:128`), R8 (`kpis.md:92`) and R21/R22
+  (`autonomy-levels.md:503-504`) count and `beyond10x/decider` can learn from.
 - **UI inbox** (`ui/decisions.mjs`, `ui/README.md:42-51`). The inbox is
   `OpenDecisionsForPrincipal(operator)`: per request the question, the options with cost and
   consequence, the recommendation with its strength, and each ground as a link that opens the
@@ -257,10 +257,10 @@ still ids, not `evidence_record` grounds.
 
 | unblocks | Canon record | AEP |
 |---|---|---|
-| approval of a `manual` action (`context.approve`, `vision.approve`, `roadmap.approve`) | the approval evidence (`canon-evidence/1`, kind `*_approval`, producer = principal, subject revision = the request's), through `sdc-drive approve --action` (`driver.md:216-220`) | `approval-record` with `decides: <artifact>` when the subject is a planning artifact |
+| approval of a `manual` action (`context.approve`, `vision.approve`, `roadmap.approve`) | the approval evidence (`canon-evidence/1`, kind `*_approval`, producer = principal, subject revision = the request's), through the driver's `approve --action` (`driver.md:251-255`) | `approval-record` with `decides: <artifact>` when the subject is a planning artifact |
 | approval of a capability (`change.merge`, `release.approve`) | an `AuthorityDecision` (`canon-authority/1`): `granted` or `denied`, with `principal` and `case_revision` once story:authority-revision-binding lands (`authority-revision-binding.md:46-53`); a bound deny lapses at the next case revision (`:181`) | `approval-record` |
-| outcome that requires a decision (close) | an `ExplicitDecision` (`canon-decisions/1`): decision, outcome, principal, case revision; the driver has no command for it yet (`driver.md:221-222`). The option "leave it untaken" produces no record | none |
-| interview question | a new revision of `questions.yaml` with `answer` and `answered_by` (`run-trial.sh:209-212`); Canon sees it through the next `questions.check` evidence | none |
+| outcome that requires a decision (close) | an `ExplicitDecision` (`canon-decisions/1`): decision, outcome, principal, case revision; the driver has no command for it yet (`driver.md:256-257`). The option "leave it untaken" produces no record | none |
+| interview question | a new revision of `questions.yaml` with `answer` and `answered_by` (lines 209-212 of the trial script); Canon sees it through the next `questions.check` evidence | none |
 | an Open or Escalated request that blocks a planning artifact | none | `decision-blocker` (open), cleared when the request is Decided |
 
 Record ids (`ProducedRecord.record`): the evidence id for `canon-evidence/1`,
@@ -307,7 +307,7 @@ The operator, 2026-11-21: Commission is no longer a repository of its own; it mo
 - **Loom** (runtime; holds Commission's `AuthorityProvider` and suspension, `loom/AGENTS.md:28-32`,
   `:314-330`):
   - the types (`sdc.decision`, moved from `sdc/ess/`) and the resolver: preset ⊕ overrides ⊕
-    admitted ceilings into one holder per class (`autonomy-levels.md:297-320`);
+    admitted ceilings into one holder per class (`autonomy-levels.md:299-322`);
   - in Loom a decision class is an identifier validated against the classes document the host
     passes in; `budget_overrun` and `limit_hit` are Loom built-ins. The `escalation` row of the
     class table is not a request class: Escalate moves the existing request, and the row gives
@@ -388,7 +388,7 @@ of it. Same case, same bytes (no clock; keys print sorted). Tested on a trial-2 
   the option's text, `produces: artifact_revision`, `admits: [scope.answer]`
   (`ess/domains/decision.yaml:86-105`).
 - Unblocks: kind `question`, action and capability `scope.answer`, the action the run takes after
-  the answer (`docs/trial-2.md:168-185`; `bindings/tools/sdc-tool.sh:286-298`).
+  the answer (`docs/trial-2.md:168-185`; `bindings/tools/sdc-tool.sh:285-297`).
 - Recommendation: the question's default, strength `weak`, proposed by `rule`, one ground of source
   `idea` citing the question's dissection item as `work/dissection.yaml:<first line>-<last line>`
   with `default_reason` as its `how`. The tool runs `tools/decision-grounds.sh` on it

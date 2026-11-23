@@ -15,9 +15,10 @@
 //! 3. `instructions`: each `{{placeholder}}` is `{{[a-z_]+}}`; a file nothing names is reported.
 //!    `instructions/golden/` (rendered prompts kept as test data) is left out of both.
 //! 4. `views`: each `views/*.view.json` parses, is an object and has `"format": "runbook.view/1"`.
-//! 5. `cycles`: `cycles/suite.yaml` parses, has `runbook.cycles/1`, unique ids, a known state per
-//!    entry and the fixtures each entry names; and, while `scripts/run-finding-cycles.sh` exists,
-//!    the ids and states equal the script's `expected` and `pending` arrays.
+//! 5. `cycles`: `cycles/tree-suite.yaml` parses, has `loom.tree-suite/1`, unique cycle names and
+//!    the seeds each cycle names; each name is one of the 130 entries of the old suite, listed in
+//!    `cycles/old-suite-names.txt`; and, while `docs/cycles-suite.md` exists, its table has one row
+//!    per listed entry, and a row that says converted or pending is a cycle of the suite file.
 
 use crate::assets::LAYOUT;
 use serde_json::{json, Map, Value};
@@ -25,10 +26,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub const VIEW_FORMAT: &str = "runbook.view/1";
-pub const CYCLES_FORMAT: &str = "runbook.cycles/1";
-pub const CYCLE_STATES: [&str; 3] = ["expected", "pending", "unlisted"];
-pub const CYCLES_SUITE: &str = "cycles/suite.yaml";
-pub const CYCLES_SCRIPT: &str = "scripts/run-finding-cycles.sh";
+pub const CYCLES_FORMAT: &str = "loom.tree-suite/1";
+pub const CYCLES_SUITE: &str = "cycles/tree-suite.yaml";
+pub const CYCLES_NAMES: &str = "cycles/old-suite-names.txt";
+pub const CYCLES_TABLE: &str = "docs/cycles-suite.md";
 
 const LAYOUT_FIX: &str = "restore it in the asset root: it holds every part of the text layout, as the repository does";
 
@@ -79,17 +80,18 @@ struct Seen {
     instructions: usize,
     views: usize,
     cycles: usize,
-    script: Option<usize>,
+    table: Option<usize>,
 }
 
 impl Seen {
     fn line(&self) -> String {
-        let script = match self.script {
-            Some(n) => format!(", {n} compared with {CYCLES_SCRIPT}"),
-            None => format!(", not compared ({CYCLES_SCRIPT} absent)"),
+        let table = match self.table {
+            Some(n) => format!(", {n} compared with {CYCLES_TABLE}"),
+            None => format!(", not compared ({CYCLES_TABLE} absent)"),
         };
+
         format!(
-            "{} bindings files and {} JSON bindings, {} instruction files, {} views, {} cycles{script}",
+            "{} bindings files and {} JSON bindings, {} instruction files, {} views, {} cycles{table}",
             self.yaml, self.json, self.instructions, self.views, self.cycles
         )
     }
@@ -363,8 +365,9 @@ fn instructions(root: &Path, r: &mut Report, seen: &mut Seen) {
         }
     }
     // What can name an instruction file: the bindings (both forms), the programs of the bindings,
-    // the Rust sources of the driver (`driver/src`, where `sdc-reply`, `sdc-conform` and
-    // `sdc-unstick` read theirs) and the other instruction files. A file is reported only when
+    // the Rust sources of the driver crate (`driver/src`, where `sdc-reply` and `sdc-conform`
+    // read theirs) and of the runner (`runbook/src`, where its deciders read theirs), and the other
+    // instruction files. A file is reported only when
     // none of them holds its name as a whole token; a name a program builds at run time would not
     // be seen (none does today).
     let mut corpus: Vec<(String, String)> = Vec::new();
@@ -373,6 +376,7 @@ fn instructions(root: &Path, r: &mut Report, seen: &mut Seen) {
         .chain(files_ending(&root.join("driver/examples/sdc"), ".bindings.json"))
         .chain(files_below(&root.join("bindings/tools"), "", &[]))
         .chain(files_below(&root.join("driver/src"), ".rs", &[]))
+        .chain(files_below(&root.join("runbook/src"), ".rs", &[]))
     {
         if let Ok(t) = std::fs::read_to_string(&p) {
             corpus.push((rel(root, &p), t));
@@ -443,50 +447,60 @@ fn views(root: &Path, r: &mut Report, seen: &mut Seen) {
 
 // --------------------------------------------------------------------------------------- cycles
 
-/// The (id, state) pairs of the `expected` and `pending` arrays of the script, in order. An array is
-/// `expected=(`, `expected+=(`, `pending=(` or `pending+=(` up to the next `)`, wherever it stands in
-/// the text (a conditional append counts); words are separated by white space. A word that is not
-/// a plain cycle id is returned in the second list.
-pub fn script_arrays(text: &str) -> (Vec<(String, &'static str)>, Vec<String>) {
-    let mut pairs = Vec::new();
-    let mut odd = Vec::new();
-    let b = text.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        let mut hit = None;
-        for (word, state) in [("expected", "expected"), ("pending", "pending")] {
-            if b[i..].starts_with(word.as_bytes()) && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_')) {
-                let mut j = i + word.len();
-                if text[j..].starts_with('+') {
-                    j += 1;
-                }
-                if text[j..].starts_with("=(") {
-                    hit = Some((j + 2, state));
-                }
-            }
+/// The state words of the table of `docs/cycles-suite.md` that say the entry is a cycle of the
+/// suite file: `converted` runs as expected, `pending` is marked `pending: true`.
+const TABLE_IN_SUITE: [&str; 2] = ["converted", "pending"];
+
+/// The four words the `state` cell of a row of `docs/cycles-suite.md` may say, as the page defines them.
+const TABLE_STATES: [&str; 4] = ["converted", "pending", "held by a Rust test", "dropped with the driver"];
+
+/// The ids of the list of old entries: one per line, a line of white space or `#` is skipped.
+fn names_of(text: &str) -> Vec<String> {
+    text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).map(String::from).collect()
+}
+
+/// The `(entry, state)` rows of the tables of `docs/cycles-suite.md` headed `| entry | state |`.
+pub fn table_rows(text: &str) -> Vec<(String, String)> {
+    let mut rows = Vec::new();
+    let mut in_table = false;
+    for line in text.lines() {
+        if !line.starts_with('|') {
+            in_table = false;
+            continue;
         }
-        match hit {
-            Some((start, state)) => {
-                let end = text[start..].find(')').map_or(text.len(), |e| start + e);
-                for w in text[start..end].split_whitespace() {
-                    if w.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.')) {
-                        pairs.push((w.to_string(), state));
-                    } else {
-                        odd.push(w.to_string());
-                    }
-                }
-                i = end;
-            }
-            None => i += 1,
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        if cells.len() >= 2 && cells[0] == "entry" && cells[1] == "state" {
+            in_table = true;
+            continue;
+        }
+        if in_table && cells.len() >= 2 && !cells[0].starts_with("---") {
+            rows.push((cells[0].to_string(), cells[1].to_string()));
         }
     }
-    (pairs, odd)
+    rows
+}
+
+/// The seeds a `loom.tree-suite/1` document names: `(cycle or "defaults", from)`.
+fn suite_seeds(doc: &Value) -> Vec<(String, Value)> {
+    let mut out = Vec::new();
+    let mut take = |who: &str, v: &Value| {
+        for s in v.get("seed").and_then(Value::as_array).into_iter().flatten() {
+            out.push((who.to_string(), s.get("from").cloned().unwrap_or(Value::Null)));
+        }
+    };
+    if let Some(d) = doc.get("defaults") {
+        take("defaults", d);
+    }
+    for e in doc.get("cycles").and_then(Value::as_array).into_iter().flatten() {
+        take(e.get("name").and_then(Value::as_str).unwrap_or("?"), e);
+    }
+    out
 }
 
 fn cycles(root: &Path, r: &mut Report, seen: &mut Seen) {
     let suite_path = root.join(CYCLES_SUITE);
     if !suite_path.is_file() {
-        r.add("cycles", CYCLES_SUITE, "is missing", "restore cycles/suite.yaml (docs/cycles-suite.md)");
+        r.add("cycles", CYCLES_SUITE, "is missing", "restore cycles/tree-suite.yaml (docs/cycles-suite.md)");
         return;
     }
     let doc = match read_yaml(&suite_path) {
@@ -505,87 +519,83 @@ fn cycles(root: &Path, r: &mut Report, seen: &mut Seen) {
         return;
     };
     seen.cycles = entries.len();
-    let mut states: BTreeMap<String, String> = BTreeMap::new();
+    let mut in_suite: BTreeMap<String, bool> = BTreeMap::new();
     let mut dup = BTreeSet::new();
     for (n, e) in entries.iter().enumerate() {
-        let Some(id) = e.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
-            r.add("cycles", CYCLES_SUITE, format!("entry {} has no `id`", n + 1), "give each cycle an `id:`");
+        let Some(name) = e.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+            r.add("cycles", CYCLES_SUITE, format!("entry {} has no `name`", n + 1), "give each cycle a `name:`");
             continue;
         };
-        match e.get("state").and_then(Value::as_str) {
-            Some(s) if CYCLE_STATES.contains(&s) => {
-                if states.insert(id.to_string(), s.to_string()).is_some() {
-                    dup.insert(id.to_string());
-                }
-            }
-            other => {
-                r.add("cycles", CYCLES_SUITE, format!("cycle {id} has state {}, not one of {}", other.map_or("none".to_string(), |s| format!("\"{s}\"")), CYCLE_STATES.join(", ")), "set `state:` to one of them (docs/cycles-suite.md)");
-                if states.insert(id.to_string(), String::new()).is_some() {
-                    dup.insert(id.to_string());
-                }
-            }
-        }
-        for p in e.pointer("/stub/fixtures").map(|f| f.as_array().cloned().unwrap_or_default()).unwrap_or_default() {
-            match p.as_str() {
-                Some(s) if !s.starts_with('/') && !has_dotdot(s) && root.join(s).exists() => {}
-                Some(s) => r.add("cycles", CYCLES_SUITE, format!("cycle {id}: fixture {s} does not exist under the asset root"), "restore the fixture or name the one the cycle uses"),
-                None => r.add("cycles", CYCLES_SUITE, format!("cycle {id}: a fixture name is not a string ({p})"), "name each fixture as a path string"),
-            }
+        if in_suite.insert(name.to_string(), e.get("pending").and_then(Value::as_bool) == Some(true)).is_some() {
+            dup.insert(name.to_string());
         }
     }
-    for id in &dup {
-        r.add("cycles", CYCLES_SUITE, format!("cycle id {id} appears more than once"), "keep one entry per id");
+    for name in &dup {
+        r.add("cycles", CYCLES_SUITE, format!("cycle name {name} appears more than once"), "keep one entry per name");
     }
-    let script_path = root.join(CYCLES_SCRIPT);
-    if !script_path.is_file() {
-        r.notes.push(format!("{CYCLES_SCRIPT} does not exist: the ids and states of {CYCLES_SUITE} are not compared with it"));
-        return;
+    for (who, from) in suite_seeds(&doc) {
+        match from.as_str() {
+            Some(s) if !s.starts_with('/') && !has_dotdot(s) && root.join("cycles").join(s).exists() => {}
+            Some(s) => r.add("cycles", CYCLES_SUITE, format!("cycle {who}: seed {s} does not exist under cycles/"), "restore the seed or name the one the cycle uses"),
+            None => r.add("cycles", CYCLES_SUITE, format!("cycle {who}: a seed has no `from` path string ({from})"), "name each seed's `from` as a path string"),
+        }
     }
-    let script = match std::fs::read_to_string(&script_path) {
-        Ok(t) => t,
-        Err(e) => {
-            r.add("cycles", CYCLES_SCRIPT, format!("cannot be read: {e}"), "make it a readable file");
+    let names_path = root.join(CYCLES_NAMES);
+    let names = match std::fs::read_to_string(&names_path) {
+        Ok(t) => names_of(&t),
+        Err(_) => {
+            r.add("cycles", CYCLES_NAMES, "is missing or unreadable", "restore the committed list of the 130 entries of the old suite, one name per line");
             return;
         }
     };
-    let (pairs, odd) = script_arrays(&script);
-    for w in odd {
-        r.add("cycles", CYCLES_SCRIPT, format!("a word of the expected or pending arrays is not a plain cycle id: {w}"), "write each cycle id as a plain word, so the suite can be compared with it");
+    let listed: BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    if listed.len() != names.len() {
+        r.add("cycles", CYCLES_NAMES, "names an entry more than once", "keep one line per entry");
     }
-    if pairs.is_empty() {
-        r.add("cycles", CYCLES_SCRIPT, "holds no `expected` or `pending` arrays of cycle ids", "keep the arrays the suite is compared with, or update the check");
+    for name in in_suite.keys().filter(|n| !listed.contains(n.as_str())) {
+        r.add("cycles", CYCLES_SUITE, format!("cycle {name} is not an entry of {CYCLES_NAMES}"), "add its name to the list and a row for it to docs/cycles-suite.md");
+    }
+    let table_path = root.join(CYCLES_TABLE);
+    let Ok(table) = std::fs::read_to_string(&table_path) else {
+        r.notes.push(format!("{CYCLES_TABLE} does not exist: the entries of {CYCLES_NAMES} are not compared with it"));
         return;
+    };
+    let rows = table_rows(&table);
+    seen.table = Some(listed.len());
+    let mut rowed: BTreeMap<&str, &str> = BTreeMap::new();
+    for (name, state) in &rows {
+        if rowed.insert(name, state).is_some() {
+            r.add("cycles", CYCLES_TABLE, format!("entry {name} has more than one row"), "keep one row per entry");
+        }
+        if !listed.contains(name.as_str()) {
+            r.add("cycles", CYCLES_TABLE, format!("entry {name} is not in {CYCLES_NAMES}"), "take the row out, or add the name to the list");
+        }
     }
-    let mut script_states: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for (id, st) in &pairs {
-        script_states.entry(id).or_default().insert(st);
+    for name in names.iter().filter(|n| !rowed.contains_key(n.as_str())) {
+        r.add("cycles", CYCLES_TABLE, format!("entry {name} of {CYCLES_NAMES} has no row"), "add a row for it: what holds it now");
     }
-    seen.script = Some(script_states.len());
-    let mut unlisted = 0;
-    for (id, st) in &states {
-        if st == "unlisted" {
-            unlisted += 1;
-            if script_states.contains_key(id.as_str()) {
-                r.add("cycles", CYCLES_SUITE, format!("cycle {id} is unlisted but the script lists it in its arrays"), "set its state to the array it is in");
-            }
+    for (name, state) in rowed {
+        let pending = in_suite.get(name).copied();
+        if !TABLE_STATES.contains(&state) {
+            r.add(
+                "cycles",
+                CYCLES_TABLE,
+                format!("entry {name}: the state \"{state}\" is none of {}", TABLE_STATES.join(", ")),
+                "write one of those words in the state cell and any qualification in the third cell",
+            );
             continue;
         }
-        match script_states.get(id.as_str()) {
-            None => r.add("cycles", CYCLES_SUITE, format!("cycle {id} ({st}) is in the suite, not in the arrays of {CYCLES_SCRIPT}"), format!("add it to the {st} array of the script, or take it out of the suite")),
-            Some(s) if !s.contains(st.as_str()) => r.add(
+        match (state, pending) {
+            ("converted", Some(false)) | ("pending", Some(true)) => {}
+            (s, _) if TABLE_IN_SUITE.contains(&s) => r.add(
                 "cycles",
-                CYCLES_SUITE,
-                format!("cycle {id} is {st} in the suite and {} in {CYCLES_SCRIPT}", s.iter().copied().collect::<Vec<_>>().join(" and ")),
-                format!("set its state to {} in the suite, or move the id between the arrays of the script", s.iter().next().unwrap()),
+                CYCLES_TABLE,
+                format!("entry {name} is {s} in the table and {} in {CYCLES_SUITE}", match pending { None => "not there", Some(true) => "pending", Some(false) => "converted" }),
+                "make the table and the suite file say the same",
             ),
-            Some(_) => {}
+            (s, Some(_)) => r.add("cycles", CYCLES_TABLE, format!("entry {name} is a cycle of {CYCLES_SUITE} and its row says {s}"), "say converted or pending, or take the cycle out of the suite file"),
+            _ => {}
         }
-    }
-    for id in script_states.keys().filter(|id| !states.contains_key(**id)) {
-        r.add("cycles", CYCLES_SUITE, format!("cycle {id} is in the arrays of {CYCLES_SCRIPT}, not in the suite"), "add an entry for it to cycles/suite.yaml, or take it out of the script");
-    }
-    if unlisted > 0 {
-        r.notes.push(format!("{unlisted} cycles of {CYCLES_SUITE} are unlisted: the script runs them outside both arrays and they are not compared"));
     }
 }
 
@@ -639,11 +649,13 @@ mod tests {
     }
 
     #[test]
-    fn the_arrays_of_the_script_are_read_wherever_they_stand() {
-        let t = "expected=(a b\n  c)\nx() { :; }\n  expected+=(d)\npending=(e f)\nif x; then expected+=(g $h); fi\nunexpected=(z)\n";
-        let (p, odd) = script_arrays(t);
-        let got: Vec<String> = p.iter().map(|(i, s)| format!("{i}:{s}")).collect();
-        assert_eq!(got, ["a:expected", "b:expected", "c:expected", "d:expected", "e:pending", "f:pending", "g:expected"]);
-        assert_eq!(odd, ["$h"]);
+    fn the_rows_of_the_entry_tables_are_read_and_other_tables_are_not() {
+        let t = "| entry | why |\n|---|---|\n| a, b | waits |\n\n| entry | state | reason |\n|---|---|---|\n| c | converted | |\n| d | held by a Rust test | `x` |\n\ntext\n| e | pending | not a table of entries |\n";
+        assert_eq!(table_rows(t), [("c".to_string(), "converted".to_string()), ("d".to_string(), "held by a Rust test".to_string())]);
+    }
+
+    #[test]
+    fn the_list_of_old_entries_skips_blank_and_comment_lines() {
+        assert_eq!(names_of("a\n\n# note\n  b  \n"), ["a", "b"]);
     }
 }

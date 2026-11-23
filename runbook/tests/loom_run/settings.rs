@@ -101,7 +101,7 @@ fn the_login_file_is_given_once_and_the_deciders_program_is_the_runners() {
         |v| v["login_file"] = json!("/somewhere/else"),
         "login_file and loom.login_file",
     );
-    refused("program", |v| v["decider"]["program"] = json!("/opt/decider.sh"), "decider.program");
+    refused("program", |v| v["decider"]["program"] = json!("/opt/decider"), "decider.program");
     refused("principal", |v| v["decider"]["principal"] = json!("person:owner"), "decider.principal");
 }
 

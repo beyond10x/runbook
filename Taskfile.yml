@@ -96,15 +96,6 @@ tasks:
       - cargo build --locked --bin runbook
       - cargo nextest run --locked --color never --run-ignored only -E 'test(loom_run::bugfix::bugfix_from_ticket_)'
 
-  test:decider-parity:
-    desc: "Slow lane of runbook/, not part of `task check`: every case (rule approve and reject, the dry and stub adapters, a scripted adapter that writes a fixed out/decision.json: valid, invalid JSON, missing cites, escalate with and without best; on an approval, a question, a finding and a close; and the requester agent on an approval, a close and a question: an option, a free answer, no ground under stop and final, refused grounds, a missing reply, the dry adapter) runs once through bindings/tools/decider.sh and once through the Rust decider, and the reply, the standard error and every file of the call directory must be equal byte for byte after the times are masked; it prints `cases compared N, differences D` and fails on D above 0. DECIDER_PARITY_ONLY=<text> runs the cases whose name has it. The fixtures are invented text; the lane and its fixtures (runbook/src/loom_run/decider/parity.rs, parity_cases.rs) are deleted with decider.sh. Needs jq, yq, rsync; builds the driver for sdc-reply and the goals crate for sdc-goals; makes no model call; start it in the background, without the slot prefix."
-    env:
-      SLOT_TIMEOUT: 30m
-    cmds:
-      - cd driver && cargo build --locked --bins
-      - cd goals && cargo build --locked
-      - cd runbook && cargo test --locked --bin runbook loom_run::decider::parity::the_rust_decider -- --ignored --nocapture
-
   test:driver:
     silent: true
     dir: driver
@@ -178,18 +169,18 @@ tasks:
         docs-site|experiments/INDEX.md experiments/releases.yaml
         docs-site|docs/progress.json docs/img/progress.svg docs/check-output.txt
         docs-site|.engineering/planning/story/x.md README.md website/docs/run-it.md
-        code|driver/src/main.rs
+        code|driver/src/bin/sdc-node.rs
         code|Taskfile.yml
         code|.github/workflows/pages.yml
         code|docs/img/other.svg
         code|README.md driver/src/lib.rs
-        code|website/docs/index.md scripts/run-trial.sh
+        code|website/docs/index.md scripts/check-bindings.sh
         planning|docs/x.md
         code|instructions/x.md
         code|instructions/golden/decider/x.md README.md
         code|bindings/tools/sdc-tool.sh
         code|bindings/PENDING.md
-        code|cycles/suite.yaml
+        code|cycles/tree-suite.yaml
         code|views/sdc.view.json
         code|
         CASES
@@ -200,7 +191,7 @@ tasks:
         exit $fail
 
   check:cycles-suite:
-    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/suite.yaml against the expected and pending arrays of scripts/run-finding-cycles.sh."
+    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/tree-suite.yaml against the list of the old entries (cycles/old-suite-names.txt) and the table of docs/cycles-suite.md."
     cmds:
       - cd runbook && cargo build --locked --quiet --bin runbook
       - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
@@ -306,13 +297,6 @@ tasks:
         dir=generated/conformance
         printf 'sources %s\nsuite %s\n' "$(task --silent --taskfile ../Taskfile.yml ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
         echo "written ess/$dir/suite.json and ess/$dir/DIGEST"
-
-  cycles:only:
-    desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."
-    requires:
-      vars: [SCRATCH, NAMES]
-    cmds:
-      - scripts/run-finding-cycles.sh "{{.SCRATCH}}" --only "{{.NAMES}}"
 
   check:protocols:
     desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).

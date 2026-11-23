@@ -1,4 +1,4 @@
-//! The start of a node under Loom (lines 62-150 of `llm-node.sh`): the arguments on standard
+//! The start of a node under Loom: the arguments on standard
 //! input, the options after the action name, the `.stub` directory of the workspace, the retry
 //! feedback document.
 

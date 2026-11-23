@@ -608,11 +608,8 @@ pub use routing::Routing;
 mod tests;
 #[cfg(test)]
 mod requester_tests;
-// The slow lane `task test:decider-parity` (decider.sh against this decider), deleted with decider.sh.
 #[cfg(test)]
-mod parity;
-#[cfg(test)]
-mod parity_cases;
+mod golden;
 
 /// The directory above the bindings copy's tools directory that holds `instructions/`: the nearest
 /// directory, the tools directory itself first, that has one.

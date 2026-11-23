@@ -178,19 +178,23 @@ fn planning_history_and_the_data_files_do_not_count_as_referrers() {
     let t = tree(
         "history",
         &[
-            (".engineering/planning/story/x.md", "scripts/a.sh scripts/b.sh scripts/c.sh scripts/d.sh\n"),
+            (".engineering/planning/story/x.md", "scripts/a.sh scripts/b.sh scripts/c.sh scripts/d.sh scripts/e.sh scripts/f.sh\n"),
             ("CHANGELOG.md", "scripts/a.sh\n"),
             ("docs/releases/1.md", "scripts/b.sh\n"),
             ("experiments/r.yaml", "scripts/c.sh\n"),
+            ("docs/progress.md", "scripts/e.sh\n"),
+            ("docs/progress.json", "scripts/f.sh\n"),
             ("docs/live.md", "scripts/d.sh\n"),
             ("scripts/a.sh", ""),
             ("scripts/b.sh", ""),
             ("scripts/c.sh", ""),
             ("scripts/d.sh", ""),
+            ("scripts/e.sh", ""),
+            ("scripts/f.sh", ""),
         ],
     );
     let o = run(&t, &[]);
-    assert_eq!(o.lines(), ["scripts/a.sh", "scripts/b.sh", "scripts/c.sh"]);
+    assert_eq!(o.lines(), ["scripts/a.sh", "scripts/b.sh", "scripts/c.sh", "scripts/e.sh", "scripts/f.sh"]);
 }
 
 #[test]

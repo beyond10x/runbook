@@ -1,6 +1,6 @@
 /**
  * Facts for the context page (website/docs/context.mdx) that the generated protocol data does not
- * hold: the input list and the reply form of three model nodes, as tools/llm-node.sh builds them,
+ * hold: the input list and the reply form of three model nodes, as the model-node script of the pinned commit builds them,
  * and the layers of one node's context. Every entry cites the line it was read from, on the commit
  * pinned in SRC.
  */
@@ -135,7 +135,7 @@ export const LAYERS: Layer[] = [
     name: 'Instruction',
     holds: 'A fixed preamble ("one step", "no shell", "programs check what you write") and the task text of this node.',
     owner: 'binding',
-    lever: 'the node’s entry in tools/llm-node.sh, the tool the binding names',
+    lever: 'at the pinned commit, the node’s entry in the model-node script (cited); today, the instruction files under instructions/ that the node’s binding names',
     cite: {path: NODE, lines: '540-559'},
   },
   {
