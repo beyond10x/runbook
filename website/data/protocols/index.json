@@ -890,7 +890,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "f25095e9e94bc04bc50546099285e6c5edff963550cc4c1ffcdb7f1ac418e185"
+      "sha256": "3df104f6b0ea6141680ac5ccf00655ddd08f342419c1e874d721af7773889183"
     },
     {
       "path": "bindings/tools/node-classes.json",

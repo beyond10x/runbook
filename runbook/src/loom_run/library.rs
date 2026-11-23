@@ -221,8 +221,8 @@ mod tests {
     fn a_level_the_library_does_not_offer_is_refused_by_name() {
         assert_eq!(check_level(Confinement::Local, &[Level::Local]), Ok(Level::Local));
         let refusal = check_level(Confinement::Substrate, &[Level::Local]).unwrap_err();
-        assert!(refusal.contains("substrate") && refusal.contains("local"), "{refusal}");
-        assert_eq!(check_level(Confinement::Substrate, &[Level::Local, Level::Linux]), Ok(Level::Linux));
+        // the whole text: `docs/loom-run.md` states it and `tests/loom_run/pages.rs` reads the same literal
+        assert_eq!(refusal, "--confinement substrate is not a level the library can give here: it offers local (the linux level needs a cgroup this process may delegate)");        assert_eq!(check_level(Confinement::Substrate, &[Level::Local, Level::Linux]), Ok(Level::Linux));
     }
 
     #[test]
