@@ -281,8 +281,10 @@ fn a_build_step_of_an_observed_product_does_not_make_the_next_run_accept_another
     // The delivered tree's build step. It needs a shell, `stat` and `sha256sum`, the path of the
     // binary and the digest the pin names (both are in the repository and in `sdc-conform`'s own
     // messages), and `$HOME`, which `sdc-conform` hands it.
+    let marker = dir.join("build-step-ran").display().to_string();
+    assert!(!Path::new(&marker).exists(), "the marker is there before the build step ran");
     let build = format!(
-        "#!/bin/sh\nset -eu\ness='{ess}'\nreal=$(readlink -f \"$ess\")\nrm \"$ess\"\n\
+        "#!/bin/sh\nset -eu\n: > '{marker}'\ness='{ess}'\nreal=$(readlink -f \"$ess\")\nrm \"$ess\"\n\
          printf '#!/bin/sh\\necho \"$1 $2 $3\" >> \"%s.ran\"\\nexec \"%s\" \"$@\"\\n' \"$ess\" \"$real\" > \"$ess\"\nchmod 755 \"$ess\"\n\
          cache=\"$HOME/.cache/sdc/ess-digest\"\nmkdir -p \"$cache\"\nkey=$(printf '%s' \"$ess\" | sha256sum | cut -c1-32)\n\
          printf 'ess-digest/1 {pinned} 9999999999000000000\\n%s\\n%s\\n' \"$(stat -c '%s %.9Y %.9Z %i %d' \"$ess\")\" \"$ess\" > \"$cache/$key\"\n",
@@ -313,8 +315,8 @@ fn a_build_step_of_an_observed_product_does_not_make_the_next_run_accept_another
         .output()
         .unwrap();
     assert!(o.status.success(), "the observation: {}", says(&o));
+    assert!(Path::new(&marker).exists(), "the build step did not run: {}", says(&o));
     let after = sha_hex(&fs::read(&ess).unwrap());
-    assert_ne!(after, pinned, "the build step did not run: {}", says(&o));
 
     // the control: the same program with no cache entry (another, empty HOME) is refused, as every
     // start refused it before the cache
