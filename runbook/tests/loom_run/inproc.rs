@@ -598,3 +598,125 @@ fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
     assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("not_a_person_action")), "{outcome}");
     assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
 }
+
+// ---- the allowance of runs after a rejection (`budget.runs_per: rejection`) ----
+
+/// The writer of the fixture bound with `members` more lines under its executor (4 spaces each).
+fn writer_binding(rig: &Rig, members: &str) {
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let anchor = "      argv: [tools/draft-write.sh]\n";
+    assert!(text.contains(anchor), "the writer was not found: {text}");
+    std::fs::write(&file, text.replacen(anchor, &format!("{anchor}{members}"), 1)).unwrap();
+}
+
+fn reject(reasons: &str) -> Value {
+    json!({"approve": false, "reasons": reasons, "cost_micro_usd": 0})
+}
+
+/// The `refusal` of every `ActionFinished` line of the run's logs that names `RunsSpent`.
+fn runs_spent_refusals(rig: &Rig, name: &str) -> Vec<String> {
+    let store = rig.run_dir(name).join("store");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&store).unwrap().flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if !file.starts_with("runlog-case-") {
+            continue;
+        }
+        for line in std::fs::read_to_string(entry.path()).unwrap().lines() {
+            let line: Value = serde_json::from_str(line).unwrap();
+            if let Some(text) = line["refusal"].as_str().filter(|t| t.starts_with("RunsSpent:")) {
+                found.push(text.to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// The writer's `rework_limit` bounds the rejections it answers: with 2, the writer runs three times
+/// (the first run and one after each of the first two rejections) and the third rejection is
+/// answered by Loom's `RunsSpent` in its first text, naming the rejection and who made it. The
+/// runner ends the run `stuck` (exit 3, cause `stuck`): Loom's refusal is no reason of a tree call.
+#[test]
+fn a_rejection_past_the_rework_limit_ends_the_run_stuck_with_the_first_runs_spent_text() {
+    let rig = Rig::new("rework-limit");
+    writer_binding(&rig, "    budget: {max_runs: 3, runs_per: rejection, rework_limit: 2, rework_on: {draft_review: [rejected]}}\n");
+    rig.answers(&[reject("first"), reject("second"), reject("third"), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 3, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "stuck", "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "stuck", "{stopped}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\ndraft\ndraft\n", "the writer ran three times: once, and once after each of two rejections");
+    let answered: Vec<Value> = rig.events("r1").into_iter().filter(|e| e["event"] == "decision_answered").collect();
+    assert_eq!(answered.len(), 3, "three rejections were answered and the fourth answer was never asked for: {answered:?}");
+    let refusals = runs_spent_refusals(&rig, "r1");
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    let text = &refusals[0];
+    assert!(text.contains("draft.write was rejected 3 times in case "), "{text}");
+    assert!(text.contains(", the latest ") && text.contains(" by reviewer; its budget.rework_limit is 2"), "{text}");
+}
+
+/// The second text: the runs since the latest rejection reach `max_runs` without another rejection.
+/// The first check passes the (empty) draft and the review rejects it; the rework then writes, and
+/// every check fails what it wrote. A failed check is in `retry_when` and not in `rework_on`, so it
+/// sends the writer back and opens no window: two runs fill the window of 2, and the third is
+/// refused naming the rejection it counts from. Same end as the first text: `stuck`, exit 3, cause
+/// `stuck`.
+#[test]
+fn a_full_window_after_a_rejection_ends_the_run_stuck_with_the_second_runs_spent_text() {
+    let rig = Rig::new("rework-window");
+    writer_binding(&rig, "    budget: {max_runs: 2, runs_per: rejection, rework_limit: 5, rework_on: {draft_review: [rejected]}}\n");
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let retry_when = "    retry_when:\n      draft_review: [rejected]\n";
+    assert!(text.contains(retry_when), "the retry_when was not found: {text}");
+    std::fs::write(&file, text.replacen(retry_when, &format!("{retry_when}      draft_check: [invalid]\n"), 1)).unwrap();
+    let check = rig.root.join("fx/bindings/tools/draft-check.sh");
+    std::fs::write(&check, "#!/bin/sh\nn=$(cat checks.txt 2>/dev/null || echo 0)\necho $((n + 1)) > checks.txt\n[ \"$n\" = 0 ]\n").unwrap();
+    rig.answers(&[reject("first"), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 3, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "stuck", "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "stuck", "{stopped}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\ndraft\n", "the two runs of the window after the rejection");
+    let refusals = runs_spent_refusals(&rig, "r1");
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    let text = &refusals[0];
+    assert!(text.contains("draft.write has run 2 times in case "), "{text}");
+    assert!(text.contains(" since the rejection ") && text.contains(" by reviewer, its budget.max_runs is 2"), "{text}");
+}
+
+/// What Loom refuses at the opening, by name: each of these ends the run `refused` (exit 12, cause
+/// `bindings_refused`) with the refusal's text, and no program ran.
+#[test]
+fn the_rework_members_loom_refuses_end_the_run_refused_by_name_before_any_program_runs() {
+    let original = "      argv: [tools/draft-write.sh]\n    retry_when:\n      draft_review: [rejected]\n";
+    let head = "      argv: [tools/draft-write.sh]\n";
+    let retry_when = "    retry_when:\n      draft_review: [rejected]\n";
+    for (what, members, listed, want) in [
+        ("runs_per rejection with a retry_when that lists no result", "    budget: {runs_per: rejection}\n", false, "budget.runs_per"),
+        ("rework_on a pair retry_when does not list", "    budget: {runs_per: rejection, rework_on: {draft_check: [invalid]}}\n", true, "budget.rework_on"),
+        ("rework_limit beside runs_per case", "    budget: {runs_per: case, rework_limit: 2}\n", true, "budget.rework_limit"),
+        ("an empty rework_on", "    budget: {runs_per: rejection, rework_on: {}}\n", true, "budget.rework_on"),
+        ("a runs_per that is neither case nor rejection", "    budget: {runs_per: window}\n", true, "budget.runs_per"),
+        ("a rework_limit of 0", "    budget: {runs_per: rejection, rework_limit: 0}\n", true, "budget.rework_limit"),
+    ] {
+        let rig = Rig::new("rework-refused");
+        let file = rig.root.join("fx/bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(original), "the writer was not found: {text}");
+        let tail = if listed { retry_when } else { "" };
+        std::fs::write(&file, text.replacen(original, &format!("{head}{members}{tail}"), 1)).unwrap();
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        assert_eq!(code(&o), 12, "{what}: {}", stderr(&o));
+        let outcome = rig.outcome("r1");
+        assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{what}: {outcome}");
+        let reason = outcome["reason"].as_str().unwrap_or_default();
+        assert!(reason.contains("InvalidBudget") && reason.contains(want), "{what}: {outcome}");
+        assert!(!rig.work("r1").join("draft.txt").exists(), "{what}: a program ran after the opening was refused");
+    }
+}
