@@ -238,9 +238,9 @@ impl Rig {
             .unwrap()
     }
 
-    /// The run log lines of the root case of the cycle that ran, and the observations of its store.
-    fn store(&self) -> (Vec<Value>, Vec<Value>) {
-        let store = self.dir.join("scratch/1/store");
+    /// The run log lines of the root case of the cycle at `position` in the suite file (a cycle keeps the number of its position under `--only`), and the observations of its store.
+    fn store(&self, position: usize) -> (Vec<Value>, Vec<Value>) {
+        let store = self.dir.join(format!("scratch/store/{position}"));
         let log = std::fs::read_dir(&store)
             .unwrap()
             .flatten()
@@ -315,7 +315,7 @@ fn a_bound_program_that_exits_75_ends_the_run_program_error_and_records_nothing_
         "{}",
         text(&o)
     );
-    let (lines, observations) = rig.store();
+    let (lines, observations) = rig.store(1);
     let line = finished(&lines);
     let refusal = line["refusal"].as_str().unwrap_or_default();
     assert!(
@@ -360,7 +360,7 @@ fn a_bound_program_that_exits_the_not_called_code_records_nothing_and_no_run_is_
         "{}",
         text(&o)
     );
-    let (lines, observations) = rig.store();
+    let (lines, observations) = rig.store(2);
     let line = finished(&lines);
     assert!(
         line["refusal"].is_null(),

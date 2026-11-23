@@ -16,7 +16,7 @@ fn help_names_workers_its_default_and_its_range() {
         "one after another unless asked: {help}"
     );
     assert!(help.contains("1 to 64"), "{help}");
-    assert!(help.contains("SubstrateWorkersUnserved"), "{help}");
+    assert!(help.contains("SubstrateWorkersUnserved") && help.contains("More than 16"), "{help}");
 }
 
 #[test]
@@ -43,14 +43,15 @@ fn two_workers_run_two_cycles_beside_each_other_and_print_them_in_suite_order() 
 }
 
 #[test]
-fn more_than_one_worker_under_substrate_is_refused_as_loom_gives_it_before_anything_is_written() {
+fn more_than_sixteen_workers_under_substrate_are_refused_as_loom_gives_it_before_anything_is_written(
+) {
     let rig = Rig::new("workers-substrate");
     let scratch = rig.scratch();
     let suite = rig.suite("meet.suite.yaml");
     let o = rig.run(&[
         suite.to_str().unwrap(),
         "--workers",
-        "2",
+        "17",
         "--scratch",
         scratch.to_str().unwrap(),
         "--confinement",
@@ -59,8 +60,8 @@ fn more_than_one_worker_under_substrate_is_refused_as_loom_gives_it_before_anyth
     assert_eq!(o.status.code(), Some(2), "{}\n{}", out(&o), err(&o));
     assert!(
         err(&o).contains("SubstrateWorkersUnserved")
-            && err(&o).contains("story:suite-runs-cycles-under-one-cgroup-root"),
-        "{}",
+            && err(&o).contains("a Substrate driver runs at most 16 executions at once"),
+        "Loom's refusal reaches the user unchanged: {}",
         err(&o)
     );
     assert_eq!(out(&o), "");
@@ -68,7 +69,7 @@ fn more_than_one_worker_under_substrate_is_refused_as_loom_gives_it_before_anyth
     let o = rig.run(&[
         suite.to_str().unwrap(),
         "--workers",
-        "1",
+        "16",
         "--scratch",
         scratch.to_str().unwrap(),
         "--confinement",
@@ -77,7 +78,7 @@ fn more_than_one_worker_under_substrate_is_refused_as_loom_gives_it_before_anyth
     assert_eq!(
         o.status.code(),
         Some(2),
-        "one worker under substrate reaches the level's own refusal: {}",
+        "16 workers under substrate are within Loom's bound and reach the level's own refusal: {}",
         err(&o)
     );
     assert!(

@@ -20,9 +20,9 @@ uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
 sdc_tools = { path = "../driver", package = "sdc-tools" }
-b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
-b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
-b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "db2726ff78440b8187cf956dd84e0847986e7e96" }
+b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "c9b4c1777c646afdfae843dae691da36859f56ee" }
+b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "c9b4c1777c646afdfae843dae691da36859f56ee" }
+b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "c9b4c1777c646afdfae843dae691da36859f56ee" }
 b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
 
 [workspace]
