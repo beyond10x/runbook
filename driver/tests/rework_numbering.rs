@@ -549,3 +549,59 @@ fn a_second_start_with_the_same_document_rewrites_its_copy() {
     assert_eq!(fs::read_to_string(&file).unwrap(), first);
     assert!(fs::symlink_metadata(&file).unwrap().file_type().is_file());
 }
+
+/// The ledger edge forms: the bytes kept and the id the next rework gets.
+fn ledger_edge(tag: &str, before: &[u8], second_note: &str, after: &[u8]) {
+    let mut case = Case::new(tag);
+    fs::create_dir_all(case.work().join(".sdc")).unwrap();
+    fs::write(case.ledger(), before).unwrap();
+    let text = case.start(&one("e1", "r1"));
+    assert!(text.ends_with(&note(second_note)), "{tag}: {text}");
+    assert_eq!(fs::read(case.ledger()).unwrap(), after, "{tag}: the ledger bytes");
+    let again = case.start(&one("e2", "r2"));
+    assert!(again.ends_with(&note(&format!(" {}", if second_note.is_empty() { 2 } else { second_note.trim().parse::<usize>().unwrap() + 1 }))), "{tag}: {again}");
+}
+
+#[test]
+fn a_ledger_of_no_bytes_is_the_first_rejection_and_starts_no_blank_line() {
+    ledger_edge("edge-empty", b"", "", b"requirements.check e1\n");
+}
+
+#[test]
+fn a_ledger_of_one_newline_is_kept_and_the_id_follows_it() {
+    ledger_edge("edge-newline", b"\n", "", b"\nrequirements.check e1\n");
+}
+
+#[test]
+fn a_ledger_with_crlf_lines_counts_its_id_and_keeps_its_bytes() {
+    ledger_edge("edge-crlf", b"requirements.check e0\r\n", " 2", b"requirements.check e0\r\nrequirements.check e1\n");
+}
+
+#[test]
+fn a_ledger_whose_last_line_is_spaces_without_a_newline_is_ended_before_the_id() {
+    ledger_edge("edge-spaces", b"requirements.check e0\n   ", " 2", b"requirements.check e0\n   \nrequirements.check e1\n");
+}
+
+#[test]
+fn a_ledger_of_a_megabyte_keeps_its_bytes_and_numbers_the_next_id() {
+    let mut big = Vec::new();
+    for i in 0..45_000 {
+        big.extend_from_slice(format!("other.approval x{i:08}\n").as_bytes());
+    }
+    big.extend_from_slice(b"requirements.check e0\n");
+    assert!(big.len() > 1_000_000);
+    let mut after = big.clone();
+    after.extend_from_slice(b"requirements.check e1\n");
+    let start = std::time::Instant::now();
+    ledger_edge("edge-megabyte", &big, " 2", &after.clone());
+    assert!(start.elapsed().as_secs() < 30, "{:?}", start.elapsed());
+}
+
+#[test]
+fn a_ledger_of_one_line_of_a_megabyte_without_a_newline_is_ended_before_the_id() {
+    let mut big = b"requirements.check ".to_vec();
+    big.extend(std::iter::repeat_n(b'a', 1_000_000));
+    let mut after = big.clone();
+    after.extend_from_slice(b"\nrequirements.check e1\n");
+    ledger_edge("edge-longline", &big, " 2", &after);
+}
