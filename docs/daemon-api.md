@@ -291,6 +291,13 @@ Without `--ui`, `GET /` is `404`.
   `index.html`), allowed by its hash and no other; its code writes `style="..."` attributes into its markup,
   so attributes may carry inline styles and a `<style>` element may not; `data:` images are for the arrow
   in `style.css`.
+- What a step produced. The page has a Products tab and a product line (`ui/web/products.js`,
+  `ui/web/markdown.js`, embedded like every file of `ui/web/`). Served by the inspector (`ui/server.mjs`) they list
+  the evidence records, the actions and the files of a run and open each one; the daemon's API has no view of
+  the files, evidence records or action output of a run yet, so served here the tab and the line say "the
+  daemon serves no files of a run yet" and list nothing. Nothing in them is made up. Run content never becomes
+  markup of the page: the page builds nodes from the text, and the policy above (`script-src 'self'`,
+  `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced").
 - Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
   token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
   `Authorization` header with a page load, so it hands the token over once: the `401` of a page load

@@ -41,6 +41,7 @@ const EMPTY = {
   '/api/view-info': null,
   '/api/run': {proc: null, settings: null, hasLog: false, runDir: ''},
   '/api/workfacts': {files: []},
+  '/api/products': {served: false},
 };
 
 // The open decision requests of the selected run, from the daemon's view open-decisions (rows as the daemon

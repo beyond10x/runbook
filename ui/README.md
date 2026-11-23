@@ -131,15 +131,23 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   class and says so; its diff is the record. The Now band and the Changes tab show the same meaning
   for each change. A run without `fs/changes.jsonl` shows what the store still says: each artifact
   revision with its action (the content of a revision is not recorded), the AEP transitions from
-  the final front matter, and the decisions.
+  the final front matter, and the decisions. A run of `runbook run` without `fs/changes.jsonl` (started
+  without `--watch`, `docs/cli.md`) says "Changes were not recorded for this run" and names `--watch`,
+  which records every file change of the run in `<run>/fs/changes.jsonl`; "Nothing" is said only when
+  that file exists and is empty.
 - **Changes** (right panel tab): every file change of the run from `fs/changes.jsonl`
   (docs/fs-changes.md), on a time strip and grouped by the action that made it, with the tool call
   and the attribution basis (`exact`: inside one driver action; `inferred`: matched to one agent
   tool call by time; `call`: in an agent or decider call's directory outside any action). A late
   `sdc.fs-attribution/1` line supplies the tool of an earlier change. Click a file for its
   syntax-highlighted diff (Rust, TS/JS, YAML, JSON, Markdown, shell, TOML); ← and → step through.
-- **Phase strip** (top): the SDC phases of `docs/phases.md`, each derived from Canon claims of the
-  case tree, never from a stored phase. Click a phase to open the claim that holds it back.
+- **Phase strip** (top): the phases of the runbook's view (the SDC phases of `docs/phases.md` for the SDC
+  runbook), each derived from Canon claims of the
+  case tree, never from a stored phase. Click a phase to open the claim that holds it back. A run of
+  `runbook run` writes no `evaluations/*.json` and no claim count, so for it the strip, the case tree and
+  the Metrics tile say "claims not recorded for this run" in place of a count; a count shows only when
+  evaluations exist. The case header and the event list show the protocol revision of the `opened`
+  event, and no "r" when the event has none.
 - **Case tree** (left): every case and its state (open, running, awaiting a person or authority,
   stuck, ended with an outcome).
 - **Graph** (centre): the selected case's protocol. Artifacts → actions → evidence kinds → claims
@@ -218,6 +226,14 @@ Members (all optional but `format`):
   not delivered") when the view lists good ends and not this one; neutral (a diamond, "ended:
   <outcome>", no red) when there is no view, or the view has no `good_outcomes`. A run that was
   stopped (`run-stopped.json`) is "stopped", whatever the view says.
+- `product`: the main file a run of the runbook produces, one string: a path relative to the run directory
+  (`"product": "work/example/example.md"`). The page links it under the header, one click from the first
+  screen. It is refused where the view is checked (the server start and `runbook check`) when it is not a
+  string, is empty, is absolute, leaves the run (`..`) or has a component that starts with a dot. Without
+  the member the page takes `work/<runbook>/<runbook>.md` when the run has it, else the Markdown files
+  directly under `work/` and one level below, the newest first, and says which rule named the file. A
+  view that names a file the run has not written says "the view names <path>; this run has not written
+  it".
 - `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
   `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
   (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).
@@ -255,6 +271,97 @@ runbook's view. `test/view.spec.mjs` runs a second runbook (`test/second-runbook
 `triage.ticket`, a record `asks.yaml` and a decision of its own) on servers of free ports with no view,
 a two-phase view and a view that does not cover it; it also checks that no route takes an answer, and
 refuses a view with an unknown member.
+
+## What a step produced: the Products tab
+
+The Products tab of the panel (and the product line under the header) shows what the steps of a run
+produced: the evidence records of the case with every field and nested value, the actions with their exit
+code, and the files of the run with their content. It reads and acts on nothing.
+
+- Routes, all GET and behind the guard of every route (a Host that is not this server's is 421):
+  `/api/products?source=N` (the files under the run's `work/` and the `work/` of each case, with size,
+  format and, for a `.txt` step file, its `result:` line; the product and the rule that named it; how many
+  entries were left out), `/api/file?source=N&path=P` (one file: its text in a JSON member, or its size and
+  type), `/api/output?source=N&case=C&seq=S` (the tail of an action's output). Every answer is JSON with
+  `X-Content-Type-Options: nosniff`; no file is served as a type a browser renders.
+- Every read goes through the run-path check of `runfiles.mjs`: the real path lies under the run. The type
+  is read before the file is opened and only a regular file is read: a directory, a named pipe, a socket
+  and a device are refused (415, with the type) and never opened; a link that leaves the run is refused
+  (403). A path that is absolute or climbs out (`..`) is 400. After the open, the descriptor must still be
+  the file that was checked (its real path from the kernel is the checked path): a directory on the way
+  that is swapped for a link between the check and the open does not make another file read. A regular file
+  with more than one link (a hard link may be a file outside the run, and only its link count tells) is
+  refused (403) and not listed. The check is made on the open descriptor's own real path (the kernel's
+  name for it): the file route, the listing, the output route and the blob route each ask it whether that
+  path may be served before a byte is read. Where the system cannot give that name (no `/proc`) the file is
+  not read (403, `unverified`): the read fails closed.
+- The file route and the listing serve only what lies under a `work/` directory of the run, by name and by
+  real path: the run's `work/` and the `work/` of each of its cases. A path outside them (`settings.json`,
+  `store/...`, `llm-calls.jsonl`) is 404, as a link in `work/` that points at one is. A `work/` is a root
+  only when its real path is `<real parent>/work`, a real directory directly in a real directory of the
+  run: a `work/` that is a link (to the run directory, to `store/`, anywhere) is no root, and serves and
+  lists nothing. Evidence records and the output of an action have their own routes.
+- The listing is bounded in every direction: it lists a file by `lstat`, does not descend a link to a
+  directory, visits each real directory once, reads a directory an entry at a time (a directory of a
+  million entries costs no more than the bound), and stops at 500 files, 2000 directories or 20000 entries
+  of any kind; a directory deeper than 6 levels is not entered. The answer says it was cut (`truncated`,
+  `cut`: `files`, `directories`, `entries` or `depth`) and the page says by what. A file that is not
+  listed because it has more than one link, or is a link that is not served, is counted (`leftOut`) and the
+  page says how many. The page names as the product only a file the file route serves.
+- The run log of a case is read through the same type check, in pieces from its end, at most 8 MiB of it.
+  An action finish that is not in that part answers "not found within the last 8 MiB of the run log". The
+  blob (`/api/blob`) must be a file of the run's `store/blobs/` by its real path, with one link, under no
+  dot-directory (a `case` with a dot component is 404, as for the file route); it is read through the
+  same bounded regular-files reader, at most 200000 bytes of it, and a file over that is 404, not read
+  whole.
+- A path the request names without a dot, whose real path has one (a link into a dot-directory), is
+  answered as any path that is not served (404, "only a file under a `work/` directory of the run is
+  served"); the answer does not say what the target is.
+- The other reads of the server's own are bounded too: a file read as text (`readText`) over its limit is
+  not read at all, and a regular file with more than one link is not read (`null`, as an absent file), for
+  every caller (`console.txt`, `expected-llm-calls.txt`, the events, the case files; the default limit is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
+  64 KiB). The reads of the run's own small control files (`settings.json`, `events.jsonl`, case
+  state) keep the default bound; no smaller size is defined for them. The three reads that need a part of
+  a file go through the same checked open as the blob and the file route (`readRegular` of `runfiles.mjs`:
+  one descriptor, its real path under the run, a regular file, one link), on the one descriptor: the first
+  64 KiB of a case's `events.jsonl` (its protocol), `fs/changes.jsonl` from the offset the page has seen (in
+  chunks of 32 MiB), and one change of it by its position. A file that fails the check is read as absent
+  (`fs.present` is false; the change is 404). No read of a file of a run opens it any other way; the files
+  the server reads without that check are not files of a run (the checkout's protocols, docs and
+  experiment records, the files of `--view` and `--clock`, the page's own files). A position (`at`) is a
+  whole number of bytes from the start, else nothing is read; a position at or past the end is an empty
+  window. The reads of the decisions (`decisions.mjs`) have the run as root, the step log of a failed
+  action the case's `blobs/`, and a name with a dot part is refused; the record a writer names (`llm-calls.jsonl`)
+  is read only under the run. No program opens a file of a run by its name: the text of a YAML file is read
+  once through the checked open and given to `yq` on standard input, and `yq`'s messages are not shown.
+  `test/runfiles-inventory.spec.mjs` holds the list of the calls that open, read or list a file.
+- An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
+  page draws at most 24 levels of it (`cut at depth 24`).
+- A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
+  for the file route, also through a link and an encoded dot; the listing says how many entries it left out.
+  There is no switch to show them.
+- A file over 1 MiB is shown cut at 1 MiB with its full byte count. A file that is not UTF-8 text (a NUL
+  byte or bytes that are not UTF-8) is shown by its size and type only. JSON is shown indented, YAML and text
+  as written, Markdown rendered.
+- The Markdown renderer (`web/markdown.js`) is code of this repository with no dependency. It builds
+  elements from text and never assigns markup; raw HTML in a file stays text; an image is a link with its alt
+  text and loads nothing; a link opens only when it is an http or https address (a new tab, no opener) or a
+  path inside the run (opened in the panel); any other address is shown as text with its address. Its cost is
+  bounded: a line of white space costs one pass, a document makes at most 30000 elements, list items
+  included (the rest is shown as plain text with a line that says so), and a table has at most 50 columns, 500 rows and 5000 cells.
+- An action's exit code is shown as recorded. Its output is the one blob the run keeps (standard output
+  followed by standard error), tail of 4096 bytes. `runbook run` records no start, end or duration of an
+  action, only a whole-second span for its step (`observed.jsonl`): the page says "not recorded by this
+  run" and shows the span of the step. It shows standard output and standard error as one stream: the run
+  does not keep them apart. The blob of a run of `runbook run` is found through Loom's own run log
+  (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
+  projected events do not carry the digest.
+- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The daemon's API has no
+  view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
+
+Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
 ## Where "now" comes from
 
