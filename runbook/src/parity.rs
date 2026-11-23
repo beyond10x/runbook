@@ -23,6 +23,14 @@ const EXCLUDED_DIRS: [&str; 3] = ["target", "node_modules", ".git"];
 /// `product_tree[.sdc/records/**]`).
 const TRANSPORT_DIRS: [&str; 2] = [".sdc/loom-feedback", ".sdc/records"];
 
+/// The one file only the Loom side has: the ledger of the evidence ids of a person's rejections
+/// that the stand-in model program (`sdc-node`) keeps in the tree to number its reworks, written
+/// only when `LOOM_RETRY_FEEDBACK` names rejection records, which only Loom sets. The driver
+/// numbers a rework from its own rejection record and writes no such file. Left out of the listing
+/// of both runtimes by this path alone (rule `product_tree[.sdc/rework-seen]`); no other file
+/// under `.sdc/` is.
+const LOOM_ONLY_FILES: [&str; 1] = [".sdc/rework-seen"];
+
 /// The kind of the record a child's outcome leaves in its parent (both readers name it so; the
 /// summary holds no other mark of the action that opened the child).
 const OUTCOME_KIND: &str = "case_outcome";
@@ -165,6 +173,7 @@ const RULES: &[Rule] = &[
     rule("product_tree[].path", How::Value, "the set of files: a path missing on one side is a difference", "--product-tree, else workspace", "the directory walked as the driver's work/ is"),
     rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's sdc-node copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
     rule("product_tree[.sdc/records/**]", How::Never, "the record files `sdc-reply record` writes into the workspace for the inputs of change.review, since Loom gives a program no case store; the driver keeps the same facts in its case store and writes no file; the log of a test run in them carries the test order and the elapsed time of that run: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
+    rule("product_tree[.sdc/rework-seen]", How::Never, "the ledger of the evidence ids of a person's rejections that Loom's sdc-node writes into the workspace to number its reworks (it is part of the revision the writer makes); the driver numbers a rework from its own rejection record and writes no file: a file only the Loom side has, and not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written; this one path, no other file under .sdc/"),
     rule("product_tree[].sha256", How::Digest, "compared only with --product-digests (a stub run is deterministic, a model run is not); stamps like 2026-11-20T12:00:00Z in text files are read as <time> (aep writes the wall clock into planning files)", "--product-tree, else workspace", "the same digest of the same file"),
 ];
 
@@ -530,6 +539,9 @@ fn walk_product(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) -> 
                 continue;
             }
             let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+            if LOOM_ONLY_FILES.contains(&rel.as_str()) {
+                continue;
+            }
             let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
             out.insert(rel, sha256_hex(&without_times(bytes)));
         }

@@ -84,7 +84,7 @@ child's `case_outcome` record, is described under "Known differences of the two 
   `plan.decompose` run names the same three kinds in `retry_of`. The listing of the product tree
   leaves out everything under `.sdc/loom-feedback/`, on both sides, where the summary is written
   (`walk_product`); it is the transport of feedback, not product. Another directory under `.sdc/` is
-  listed as before, except `.sdc/records/`.
+  listed as before, except `.sdc/records/` and the one file `.sdc/rework-seen`.
 - Record files (`product_tree[.sdc/records/**]`). Under Loom a bound program gets its working
   directory and no case store, so `sdc-tool.sh` writes the records that the inputs of `change.review`
   read (a test run's log, the gate's log) with `sdc-reply record` into `.sdc/records/` of the
@@ -93,6 +93,16 @@ child's `case_outcome` record, is described under "Known differences of the two 
   so two runs of the same cycle differ in it (the child and the library run of `task
   test:loom-in-process` differed in `.sdc/records/conformance_run/<16 hex>.log`, 2026-11-22). The
   listing of the product tree leaves out `.sdc/records/` on both sides, like `.sdc/loom-feedback/`.
+- The rework ledger (`product_tree[.sdc/rework-seen]`). Under Loom the stand-in model program
+  (`sdc-node`) numbers a person's nth rejection of one approval in its note by the evidence ids of
+  the rejections it numbered before, and keeps them in `.sdc/rework-seen` of the tree, one
+  `<approval> <id>` per line (`docs/driver.md`, "The ledger of the stub's numbering"). It writes the file
+  only when `LOOM_RETRY_FEEDBACK` names rejection records, which only Loom sets; the driver numbers a
+  rework from its own rejection record and writes no file, so a run that rejects a person step lists
+  this one file on Loom's side only. The file is part of the revision the writer makes (it is in the
+  tree of that revision). The listing of the product tree leaves out this one path on both sides, where
+  the summary is written (`walk_product`, `LOOM_ONLY_FILES`); the rule names the path and not `.sdc/`,
+  so any other file under `.sdc/` is listed as before.
 
 A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
 lies below a member it lists) is not compared, and `compare` names it on a line
@@ -244,6 +254,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `product_tree[].path` | the root case's `work/` | --product-tree, else workspace | the directory walked as the driver's work/ is |
 | `product_tree[.sdc/loom-feedback/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
 | `product_tree[.sdc/records/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
+| `product_tree[.sdc/rework-seen]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written; this one path, no other file under .sdc/ |
 | `product_tree[].sha256` | the root case's `work/` | --product-tree, else workspace | the same digest of the same file |
 
 Where the seven values come from now (each row of the table above names its source): the six
