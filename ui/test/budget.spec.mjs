@@ -109,19 +109,26 @@ test('every reason of WIDE_ONLY, BOTH and SIZE_EXCEPTIONS is one to five words, 
   }
 });
 
-test('the reason of a variable sleep, a window and a why in FIXED_WAITS is one to five words', () => {
+test('the reason of a variable sleep in FIXED_WAITS is one to five words', () => {
+  const variable = (entries) => Object.fromEntries(Object.entries(entries).filter(([, e]) => 'variable' in e).map(([f, e]) => [f, e.variable]));
+  expect(Object.keys(variable(FIXED_WAITS)).length).toBeGreaterThan(0);
+  expect(reasonProblems({FIXED_WAITS: variable(FIXED_WAITS)})).toEqual([]);
+  for (const e of Object.values(FIXED_WAITS)) {
+    expect(Number.isInteger(e.calls) && e.calls >= 1).toBe(true);
+    expect(Number.isInteger(e.ms) && e.ms >= 0).toBe(true);
+  }
+  expect(reasonProblems({FIXED_WAITS: variable({'a.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop'}})})).toEqual([]);
+  for (const why of ['one two three four five six', '', '  ']) expect(reasonProblems({FIXED_WAITS: variable({'a.mjs': {calls: 1, ms: 0, variable: why}})})).toHaveLength(1);
+});
+
+test('the reason of a window and a why in FIXED_WAITS is one to five words, and a reason that is no text or has tabs is told, not thrown', () => {
   const reasons = (entries, key) => Object.fromEntries(Object.entries(entries).filter(([, e]) => key in e).map(([f, e]) => [f, e[key]]));
-  for (const key of ['variable', 'window', 'why']) {
+  for (const key of ['window', 'why']) {
     expect(Object.keys(reasons(FIXED_WAITS, key)).length, key).toBeGreaterThan(0);
     expect(reasonProblems({FIXED_WAITS: reasons(FIXED_WAITS, key)}), key).toEqual([]);
     expect(reasonProblems({FIXED_WAITS: reasons({'a.mjs': {calls: 1, ms: 0, [key]: 'retry pause of a loop'}}, key)})).toEqual([]);
     for (const why of ['one two three four five six', '', '  ']) expect(reasonProblems({FIXED_WAITS: reasons({'a.mjs': {calls: 1, ms: 0, [key]: why}}, key)})).toHaveLength(1);
   }
-  for (const e of Object.values(FIXED_WAITS)) {
-    expect(Number.isInteger(e.calls) && e.calls >= 1).toBe(true);
-    expect(Number.isInteger(e.ms) && e.ms >= 0).toBe(true);
-  }
-  // a reason is no text, or a non-text reason is told and not thrown
   for (const why of [7, null, undefined, {}, ['a']]) expect(() => reasonProblems({L: {'a.mjs': why}}), String(why)).not.toThrow();
   expect(reasonProblems({L: {'a.mjs': 7}})).toEqual(['L a.mjs: a reason that is no text']);
   expect(reasonProblems({L: {'a.spec.mjs': 'a\tb\tc\td\te\tf'}})).toHaveLength(1);
@@ -264,7 +271,7 @@ test('a call site of a helper that the live FIXED_WAITS names as variable, raise
   }
 });
 
-test('the files the sleep check reads are the gate specs and every file they import by a relative path (./, ../, any directory), each once', () => {
+test('the files the sleep check reads are the gate specs and the helper modules they import, by relative imports', () => {
   const files = {
     'a.spec.mjs': "import {x} from './b.mjs';\nimport y from './c.mjs'; // import z from './d.mjs'",
     'b.mjs': "export {k} from './e.mjs';\nconst l = await import('./a.spec.mjs');",
