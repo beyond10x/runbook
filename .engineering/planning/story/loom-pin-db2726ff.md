@@ -20,7 +20,7 @@ scope:
   path: runbook
 - confidence: cited
   path: ui
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T23:10:41Z", actor: "human:operator", revision: 8, executor: "agent:runbook", correlation: "pin-db2726ff"}
 - {from: "proposed", to: "active", at: "2026-11-22T23:10:42Z", actor: "human:operator", revision: 9, executor: "agent:runbook", correlation: "pin-db2726ff"}
@@ -57,7 +57,8 @@ replay steps run.
   by every reader of a run log (the inspector's server and the daemon included) without an error.
 - A test, with no model call, holds the state of run 2: an action runs, a second action writes,
   one `evaluated` line follows, a check exits non-zero and the first action's handoff check
-  passes; the run takes the first action again and does not end `Stuck`.
+  exits non-zero too (Loom offers a handoff only on exit 0); the run takes the first action again
+  and does not end `Stuck`.
 - `runbook test <suite>` has an option for the number of cycles run beside each other (Loom's
   `workers`), default 1, refused above 1 under a confinement Loom does not serve it for, and
   `--only` if Loom's `only` member serves it; `runbook test --help` says so.
