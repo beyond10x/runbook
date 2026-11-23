@@ -171,6 +171,10 @@ test('the feed of file changes says, as the tab does, that the list was not read
   await expect(note).toContainText('read to record 203 only');
   await expect(note).toContainText('the records after them are not read');
   expect(await note.locator('*').count()).toBe(0);
+  await page.locator('#tabs button[data-tab=changes]').click();
+  const tabNote = page.locator('#panel .fd-cut');
+  await expect(tabNote).toHaveCount(1);
+  await expect(tabNote).toContainText('read to record 203 only');
   await page.goto(`${base}/?run=seeded`);
   await expect(page.locator('#product')).toBeVisible({timeout: 20000});
   await expect(page.locator('#feed .fd-list')).toBeVisible();

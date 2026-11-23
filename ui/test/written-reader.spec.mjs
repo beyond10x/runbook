@@ -319,6 +319,21 @@ test('a reader that stopped at the record bound does not read the file again whi
   expect(grown.json.recordsStopped).toMatchObject({cause: 'records', read: 250});
 });
 
+test('a reader that stopped at the bytes bound does not read the file again while it is only longer', async () => {
+  test.setTimeout(60000);
+  const dir = await bulk('stoppedbytes', {SDC_UI_MAX_RECORD_BYTES: '100000'}, 'N'.repeat(8000));
+  const first = await products('stoppedbytes');
+  expect(first.json.recordsStopped, JSON.stringify(first.json.recordsStopped)).toMatchObject({cause: 'bytes'});
+  const before = readBytes('stoppedbytes');
+  for (let i = 0; i < 5; i++) await products('stoppedbytes');
+  expect(readBytes('stoppedbytes') - before, 'bytes the server read for five answers about a file stopped at the bytes bound').toBeLessThan(200000);
+  append(dir, [change(5000, 'bulk/more.txt', {text: 'm\n', step: 11})]);
+  const beforeGrown = readBytes('stoppedbytes');
+  const grown = await products('stoppedbytes');
+  expect(grown.json.recordsStopped).toMatchObject({cause: 'bytes', read: first.json.recordsStopped.read});
+  expect(readBytes('stoppedbytes') - beforeGrown, 'bytes the server read for the answer after the file grew (about 2 000 000 if it read the rest again)').toBeLessThan(200000);
+});
+
 test('a stop that the growth of the file resolves is no longer reported', async () => {
   test.setTimeout(60000);
   const dir = await make('stopgrows', {written: []}, (d) => {
@@ -392,6 +407,20 @@ test('100 000 products of a run cost an answer 500 looks at the host and a secon
 });
 
 // ---- the page ------------------------------------------------------------------------------------------------------------
+
+test('the Products tab says in text that a name passed more links than the bound and was not listed', async ({page}) => {
+  test.setTimeout(60000);
+  await make('pagelinks', {written: [], extra: []}, (d) => {
+    fs.symlinkSync('.', path.join(d, 'work/l'));
+    put(path.join(d, 'work/deep.txt'), 'd\n');
+    append(d, [change(900, `${'l/'.repeat(30)}deep.txt`, {text: 'd\n', step: 3})]);
+  });
+  await page.setViewportSize({width: 1600, height: 1000});
+  await page.goto(`${servers.pagelinks.url}/?run=run`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  await page.locator('#tabs button[data-tab=products]').click();
+  await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(1);
+});
 
 test('an action name that is markup and is cut inside it is shown as text, with the note', async ({page}) => {
   test.setTimeout(60000);
