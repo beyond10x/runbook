@@ -705,7 +705,9 @@ line on standard error that names `.sdc/rework-seen`), and so does an error of r
 note is written. `.sdc`, `.sdc/loom-feedback` and the directory of the copy are checked before the copy
 of the retry feedback is written under `.sdc/loom-feedback/`, so nothing is written through a link at
 any of them, and the files of the copy are made new: a link at one of them is removed and never
-followed. A path is checked,
+followed. The check ends a start that is going to write (the node is called); a start that ends
+"not called" (exit 79) writes nothing under `.sdc`, checks nothing there and is not ended by a link
+at it. A path is checked,
 then opened: a `.sdc` swapped between the check and the open by a second writer is not covered. A stub
 that failed ends with its own exit code, and a ledger error is printed. A missing ledger is the first
 rejection and no error. A last line without a newline is ended by the next append.
