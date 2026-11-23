@@ -792,6 +792,40 @@ impl Daemon {
             .collect()
     }
 
+    /// The view `Runbooks` (wire name `runbooks`): the runtime's own runbooks and the entries of
+    /// `--runbook-dir`, each name once (the runtime's row wins), by name. A name is listed only when
+    /// `runbook_known` accepts it, and a row holds a name, a version and the runtime, never a path.
+    pub fn runbooks(&self) -> Vec<Value> {
+        let kind = self.inner.runtime.kind();
+        let mut by_name: BTreeMap<String, Option<String>> = BTreeMap::new();
+        if let Some(dir) = &self.inner.cfg.runbook_dir {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let Ok(file) = entry.file_name().into_string() else { continue };
+                let name = match file.strip_suffix(".protocol.yaml") {
+                    Some(stem) if entry.path().is_file() => stem.to_string(),
+                    _ if entry.path().is_dir() => file,
+                    _ => continue,
+                };
+                if self.runbook_known(&name, None) {
+                    by_name.insert(name, None);
+                }
+            }
+        }
+        for info in self.inner.runtime.runbooks() {
+            by_name.insert(info.name, info.version);
+        }
+        by_name
+            .into_iter()
+            .map(|(name, version)| {
+                let mut m = Map::new();
+                m.insert("runbook_id".into(), json!(name));
+                put(&mut m, "runbook_version", &version);
+                m.insert("runtime".into(), json!(kind));
+                Value::Object(m)
+            })
+            .collect()
+    }
+
     // ---- the host's facts ----
 
     fn runbook_known(&self, name: &str, version: Option<&str>) -> bool {

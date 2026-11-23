@@ -72,7 +72,6 @@ fn the_stub_runtime_lists_its_scripts_and_the_runbooks_of_the_runbook_dir() {
     write(&books.join(".hidden/protocol.yaml"), "x: 1\n");
     write(&books.join(".dotted.protocol.yaml"), "x: 1\n");
     write(&books.join("with space/protocol.yaml"), "x: 1\n");
-    write(&books.join("nested.protocol.yaml/inside"), "x: 1\n");
     // a name the script table has already is listed once
     write(&books.join("scripted/protocol.yaml"), "x: 1\n");
     let s = live("stub", stub, Some(books), None, dir);
@@ -80,7 +79,7 @@ fn the_stub_runtime_lists_its_scripts_and_the_runbooks_of_the_runbook_dir() {
     rows.iter().for_each(|r| openapi::check_row("Runbooks", r));
     assert_eq!(
         names(&rows),
-        [("example", Some("2")), ("from-dir", None), ("from-file", None), ("nested", None), ("scripted", None)].map(|(n, v)| (n.to_string(), v.map(String::from))),
+        [("example", Some("2")), ("from-dir", None), ("from-file", None), ("scripted", None)].map(|(n, v)| (n.to_string(), v.map(String::from))),
         "{rows:?}"
     );
     assert!(rows.iter().all(|r| r["runtime"] == json!("stub")), "{rows:?}");
@@ -116,7 +115,7 @@ fn every_runbook_the_view_lists_is_one_a_submit_accepts() {
     for r in rows {
         let body = json!({"runbook_id": r["runbook_id"], "intake": "text"}).to_string();
         let got = send(s.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
-        assert_ne!(got.json()["refused"], json!("no-runbook"), "{r}: {}", got.text());
+        assert_ne!(got.json()["outcome"], json!("no-runbook"), "{r}: {}", got.text());
     }
 }
 

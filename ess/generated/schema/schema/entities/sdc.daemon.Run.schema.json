@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/entities/sdc.daemon.Run.schema.json",
   "title": "Run",
-  "description": "One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended.",
+  "description": "One run of a runbook on the daemon:its inputs as submitted, its confinement, where it stands and how it ended.",
   "x-ess-name": "sdc.daemon.Run",
   "x-ess-kind": "entity",
   "type": "object",
@@ -84,7 +84,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:587b3d837a2cacb66e15a7ac1315b67022f84939090b1914d34e4bce883655d3",
+    "contract_digest": "slice-sha256/2:00aeab3d735ad25b777e0d5a25a77da508cf36a34ee438a7a3a69ced9e3631c0",
     "regenerate": "ess generate"
   },
   "$defs": {

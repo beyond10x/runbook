@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.Runbook.schema.json",
+  "title": "Runbook",
+  "description": "A runbook the daemon can start, as its host lists it: a script of the stub runtime, a runbook of the runbook home (runbook serve --runbook-home, runtime loom) or a runbook of --runbook-dir. The daemon reads the list from the host when a client asks for the view Runbooks; the language cannot read a file system, so no command of the specification creates or changes a row, and a client reads the list only.",
+  "x-ess-name": "sdc.daemon.Runbook",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "runbook_id": {
+      "$ref": "#/$defs/sdc.daemon.RunbookName"
+    },
+    "runbook_version": {
+      "$ref": "#/$defs/sdc.daemon.RunbookVersion",
+      "description": "The version the runtime has for the runbook (for the runbook home, the revision of its root protocol); absent when the host names none."
+    },
+    "runtime": {
+      "$ref": "#/$defs/sdc.daemon.RuntimeKind"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.Runbook.State"
+    }
+  },
+  "required": [
+    "runbook_id",
+    "runtime",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e443d3724e01b2ec6bf754b73a866538d7a60c2608fe40bddca6874b9d984f57",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.Runbook.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Runbook.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Listed"
+      ]
+    },
+    "sdc.daemon.RunbookName": {
+      "title": "RunbookName",
+      "description": "The name of a runbook in the list the view Runbooks gives: the text a client puts into the runbook_id of a SubmitRun. A type of its own, not RunbookId, because a row of that list names a runbook the daemon can start and is not a reference of a run to it.",
+      "x-ess-name": "sdc.daemon.RunbookName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunbookVersion": {
+      "title": "RunbookVersion",
+      "description": "The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.",
+      "x-ess-name": "sdc.daemon.RunbookVersion",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RuntimeKind": {
+      "title": "RuntimeKind",
+      "description": "The runtime that runs the daemon's runs (runbook serve --runtime): stub is scripted and executes nothing; loom runs the runbook through Loom's library entry in the daemon's process.",
+      "x-ess-name": "sdc.daemon.RuntimeKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "stub",
+        "loom"
+      ]
+    }
+  }
+}

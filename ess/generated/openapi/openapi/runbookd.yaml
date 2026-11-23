@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:d2e8015d10187e0d7f9a724776420818ed977a46e2441c6dc9f350279068792d
+# contract digest slice-sha256/2:c4dc448b46e25c3bc5fa3d0a41efb544195cebb3c9a9175681a1a6646b9c719b
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:d2e8015d10187e0d7f9a724776420818ed977a46e2441c6dc9f350279068792d
+    contract_digest: slice-sha256/2:c4dc448b46e25c3bc5fa3d0a41efb544195cebb3c9a9175681a1a6646b9c719b
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -550,6 +550,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.RunDetail.Response'
+  /daemon/views/runbooks:
+    get:
+      operationId: sdc.daemon.Runbooks
+      summary: Runbooks
+      description: 'The runbooks the daemon can start, by name and version, in order of name: GET /daemon/views/runbooks. A name in this view is one a SubmitRun accepts (its runbook_known fact is true). The view names runbooks only: no path of the host is in a row.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.Runbooks`, a projection of `sdc.daemon.Runbook`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.Runbooks.Response'
   /daemon/views/runs:
     get:
       operationId: sdc.daemon.Runs
@@ -1776,12 +1791,47 @@ components:
       x-ess-name: sdc.daemon.RunbookId
       x-ess-kind: newtype
       type: string
+    sdc.daemon.RunbookName:
+      title: RunbookName
+      description: 'The name of a runbook in the list the view Runbooks gives: the text a client puts into the runbook_id of a SubmitRun. A type of its own, not RunbookId, because a row of that list names a runbook the daemon can start and is not a reference of a run to it.'
+      x-ess-name: sdc.daemon.RunbookName
+      x-ess-kind: newtype
+      type: string
     sdc.daemon.RunbookVersion:
       title: RunbookVersion
       description: 'The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.'
       x-ess-name: sdc.daemon.RunbookVersion
       x-ess-kind: newtype
       type: string
+    sdc.daemon.Runbooks.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.Runbooks`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.Runbooks.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.Runbooks.Row:
+      title: Runbooks row
+      description: 'The runbooks the daemon can start, by name and version, in order of name: GET /daemon/views/runbooks. A name in this view is one a SubmitRun accepts (its runbook_known fact is true). The view names runbooks only: no path of the host is in a row.'
+      x-ess-name: sdc.daemon.Runbooks
+      x-ess-kind: view-row
+      type: object
+      properties:
+        runbook_id:
+          $ref: '#/components/schemas/sdc.daemon.RunbookName'
+        runbook_version:
+          $ref: '#/components/schemas/sdc.daemon.RunbookVersion'
+        runtime:
+          $ref: '#/components/schemas/sdc.daemon.RuntimeKind'
+      required:
+      - runbook_id
+      - runtime
+      additionalProperties: false
     sdc.daemon.Runs.Response:
       additionalProperties: false
       description: The rows of `sdc.daemon.Runs`.
@@ -1983,6 +2033,15 @@ components:
       - confinement
       - submitted_at
       additionalProperties: false
+    sdc.daemon.RuntimeKind:
+      title: RuntimeKind
+      description: 'The runtime that runs the daemon''s runs (runbook serve --runtime): stub is scripted and executes nothing; loom runs the runbook through Loom''s library entry in the daemon''s process.'
+      x-ess-name: sdc.daemon.RuntimeKind
+      x-ess-kind: enum
+      type: string
+      enum:
+      - stub
+      - loom
     sdc.daemon.Session.State:
       title: State
       x-ess-name: sdc.daemon.Session.State
@@ -2629,7 +2688,7 @@ x-ess-entities:
     - value.count <= 200
   sdc.daemon.Run:
     title: Run
-    description: 'One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended.'
+    description: One run of a runbook on the daemon:its inputs as submitted, its confinement, where it stands and how it ended.
     x-ess-name: sdc.daemon.Run
     x-ess-kind: entity
     type: object
@@ -2791,10 +2850,44 @@ x-ess-entities:
     additionalProperties:
       type: string
     x-ess-map-key: String
+  sdc.daemon.Runbook:
+    title: Runbook
+    description: 'A runbook the daemon can start, as its host lists it: a script of the stub runtime, a runbook of the runbook home (runbook serve --runbook-home, runtime loom) or a runbook of --runbook-dir. The daemon reads the list from the host when a client asks for the view Runbooks; the language cannot read a file system, so no command of the specification creates or changes a row, and a client reads the list only.'
+    x-ess-name: sdc.daemon.Runbook
+    x-ess-kind: entity
+    type: object
+    properties:
+      runbook_id:
+        $ref: '#/x-ess-entities/sdc.daemon.RunbookName'
+      runbook_version:
+        $ref: '#/x-ess-entities/sdc.daemon.RunbookVersion'
+        description: The version the runtime has for the runbook (for the runbook home, the revision of its root protocol); absent when the host names none.
+      runtime:
+        $ref: '#/x-ess-entities/sdc.daemon.RuntimeKind'
+      state:
+        $ref: '#/x-ess-entities/sdc.daemon.Runbook.State'
+    required:
+    - runbook_id
+    - runtime
+    - state
+    additionalProperties: false
+  sdc.daemon.Runbook.State:
+    title: State
+    x-ess-name: sdc.daemon.Runbook.State
+    x-ess-kind: enum
+    type: string
+    enum:
+    - Listed
   sdc.daemon.RunbookId:
     title: RunbookId
     description: 'The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon''s --runbook-dir.'
     x-ess-name: sdc.daemon.RunbookId
+    x-ess-kind: newtype
+    type: string
+  sdc.daemon.RunbookName:
+    title: RunbookName
+    description: 'The name of a runbook in the list the view Runbooks gives: the text a client puts into the runbook_id of a SubmitRun. A type of its own, not RunbookId, because a row of that list names a runbook the daemon can start and is not a reference of a run to it.'
+    x-ess-name: sdc.daemon.RunbookName
     x-ess-kind: newtype
     type: string
   sdc.daemon.RunbookVersion:
@@ -2803,6 +2896,15 @@ x-ess-entities:
     x-ess-name: sdc.daemon.RunbookVersion
     x-ess-kind: newtype
     type: string
+  sdc.daemon.RuntimeKind:
+    title: RuntimeKind
+    description: 'The runtime that runs the daemon''s runs (runbook serve --runtime): stub is scripted and executes nothing; loom runs the runbook through Loom''s library entry in the daemon''s process.'
+    x-ess-name: sdc.daemon.RuntimeKind
+    x-ess-kind: enum
+    type: string
+    enum:
+    - stub
+    - loom
   sdc.daemon.Session:
     title: Session
     description: A named group of runs of one client. Open until the client closes it; a closed session takes no new run and keeps the runs it has.

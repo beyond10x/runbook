@@ -39,6 +39,14 @@ impl Confinement {
     }
 }
 
+/// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime
+/// has for it, when it names one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunbookInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
 /// Everything a run is started with.
 #[derive(Clone, Debug)]
 pub struct StartRequest {
@@ -120,6 +128,12 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// Whether the runtime has a runbook of this name (and version).
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool;
+
+    /// The runbooks this runtime has, each one a name `knows_runbook` accepts. Order does not matter.
+    fn runbooks(&self) -> Vec<RunbookInfo>;
+
+    /// The runtime's name as the view `runbooks` gives it: `stub` or `loom`.
+    fn kind(&self) -> &'static str;
 
     /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that
     /// is a run that could not start. The `cancel` flag is checked between steps.
