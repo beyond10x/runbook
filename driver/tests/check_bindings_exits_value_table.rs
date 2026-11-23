@@ -207,9 +207,7 @@ const MEMBERS: &[Member] = &[
         extra: &[],
         names_action: true,
         expect: |v, m| {
-            if is_null(v) || strings_only(v) {
-                Either
-            } else if v == "[1]" && m == Mode::Exits {
+            if is_null(v) || strings_only(v) || (v == "[1]" && m == Mode::Exits) {
                 Either
             } else {
                 Refuse
