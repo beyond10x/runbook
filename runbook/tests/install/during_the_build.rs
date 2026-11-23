@@ -53,7 +53,7 @@ fn release_install_during_at(root: &Path, sandbox: &Path, prefix: &Path, during:
     cmd.arg(root.join("scripts/install.sh"))
         .arg("--prefix")
         .arg(prefix)
-        .env_clear()
+        .env_clear().envs(NO_SYSTEM_GIT)
         .env("PATH", format!("{}:{SYSTEM_PATH}", sandbox.join("stub-bin").display()))
         .env("HOME", sandbox.join("home"))
         .env("DURING", sandbox.join("during.sh"))

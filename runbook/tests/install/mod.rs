@@ -52,6 +52,13 @@ const HELPERS: [&str; 11] = [
 
 const SYSTEM_PATH: &str = "/usr/bin:/bin";
 
+/// Added to every `install.sh` command that runs after `env_clear()`: git of the child reads no system configuration
+/// file. `env_clear()` and a scratch `HOME` hide the user's configuration only; a system file of the machine
+/// (`safe.directory = *`, `core.fsmonitor`, `core.hooksPath`, a credential helper) still applies, and a case that
+/// needs "git refuses this checkout for its owner" was red on a forge runner image that trusts every directory and
+/// green on a host without that file. A case that needs a system file sets `GIT_CONFIG_SYSTEM` instead.
+const NO_SYSTEM_GIT: [(&str, &str); 1] = [("GIT_CONFIG_NOSYSTEM", "1")];
+
 fn script() -> PathBuf {
     repo().join("scripts/install.sh")
 }
@@ -134,7 +141,7 @@ fn install(script: &Path, prefix: &Path, extra: &[&str]) -> Output {
         .arg("--prefix")
         .arg(prefix)
         .args(extra)
-        .env_clear()
+        .env_clear().envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", prefix.parent().unwrap().join("home"))
         .stdin(Stdio::null())
@@ -713,7 +720,7 @@ fn executable(path: &Path, text: &str) {
 
 fn from_built_with(root: &Path, prefix: &Path, path: &str, vars: &[(&str, &Path)]) -> Output {
     let mut cmd = Command::new("sh");
-    cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(prefix).args(["--from-built", "debug"]).env_clear().env("PATH", path).env("HOME", prefix.parent().unwrap().join("home")).stdin(Stdio::null());
+    cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("PATH", path).env("HOME", prefix.parent().unwrap().join("home")).stdin(Stdio::null());
     for (k, v) in vars {
         cmd.env(k, v);
     }

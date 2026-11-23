@@ -23,7 +23,7 @@ fn a_git_checkout_whose_git_cannot_be_asked_never_gives_its_untracked_files_to_t
         fs::write(root.join("protocol/notes-of-a-run.txt"), "left by a person\n").unwrap();
         stubs(&root, None, &stub_version("unknown"));
         let mut cmd = Command::new("sh");
-        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().env("HOME", sandbox.join("home")).stdin(Stdio::null());
+        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
         if case.starts_with("another") {
             cmd.env("PATH", SYSTEM_PATH).env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
         } else {
@@ -131,7 +131,7 @@ fn a_git_checkout_whose_git_cannot_be_asked_is_refused_with_the_reason_and_what_
         fs::write(root.join("tools/id_ed25519"), "a key\n").unwrap();
         stubs(&root, None, &stub_version("unknown"));
         let mut cmd = Command::new("sh");
-        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().env("HOME", sandbox.join("home")).stdin(Stdio::null());
+        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
         match case {
             "owner" => {
                 cmd.env("PATH", SYSTEM_PATH).env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
@@ -155,6 +155,39 @@ fn a_git_checkout_whose_git_cannot_be_asked_is_refused_with_the_reason_and_what_
         assert!(err(&o).contains("nothing was written") || err(&o).contains("install from a source archive"), "{case}: no remedy in: {}", err(&o));
         assert!(err(&o).contains(said), "{case}: the reason is not named: {}", err(&o));
         assert_eq!(listing(&prefix), Vec::<String>::new(), "{case}: nothing is written");
+    }
+}
+
+/// A machine whose system git configuration trusts every directory (`safe.directory = *`: the forge's runner image)
+/// answers for a checkout of another owner, so the install goes on as for any checkout: exit 0, the tracked files are
+/// copied and the untracked ones (a settings file, a key) are not. The refusal above holds only where git refuses.
+#[test]
+fn a_checkout_of_another_owner_that_the_system_git_configuration_trusts_is_installed_with_its_tracked_files_only() {
+    let root = fake_checkout("fix2-owner-trusted", None);
+    let (sandbox, prefix) = sandbox_of(&root);
+    fs::write(root.join("bindings/settings.json"), "{\"login_file\": \"/somewhere/login.json\"}\n").unwrap();
+    fs::write(root.join("tools/id_ed25519"), "a key\n").unwrap();
+    stubs(&root, None, &stub_version(&head12(&root)));
+    let system = sandbox.join("system-gitconfig");
+    fs::write(&system, "[safe]\n\tdirectory = *\n").unwrap();
+    let o = Command::new("sh")
+        .arg(root.join("scripts/install.sh"))
+        .arg("--prefix")
+        .arg(&prefix)
+        .args(["--from-built", "debug"])
+        .env_clear()
+        .env("HOME", sandbox.join("home"))
+        .env("PATH", SYSTEM_PATH)
+        .env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+        .env("GIT_CONFIG_SYSTEM", &system)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let share = prefix.join("share/runbook");
+    assert!(share.join("protocol/file.txt").is_file(), "a tracked file is copied");
+    for untracked in ["bindings/settings.json", "tools/id_ed25519"] {
+        assert!(!share.join(untracked).exists(), "{untracked} is not tracked and is not in the prefix");
     }
 }
 
@@ -519,7 +552,7 @@ fn a_tracked_link_whose_target_begins_with_a_dash_is_installed_with_that_target_
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear()
+        .env_clear().envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", sandbox.join("home"))
         .current_dir(&cwd)

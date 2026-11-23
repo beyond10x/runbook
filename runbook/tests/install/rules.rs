@@ -278,7 +278,7 @@ fn modes_come_from_the_index_whatever_the_work_tree_or_the_umask_say() {
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear()
+        .env_clear().envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", prefix.parent().unwrap().join("home"))
         .stdin(Stdio::null())
