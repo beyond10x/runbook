@@ -15,8 +15,7 @@
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
 # experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
-repo=$(cd "$(dirname "$0")/.." && pwd -P)
-sdc=$repo
+sdc=$(cd "$(dirname "$0")/.." && pwd -P)
 fail=0
 check_exits() {
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
@@ -28,23 +27,21 @@ check_exits() {
 # a list of exit codes: another class, a class that is not a list and an `exits` that is not a
 # mapping are refused by a named line. `check-bindings.sh --exits <root>` runs this check alone over
 # <root>/bindings/*.yaml (driver/tests/check_bindings_exits.rs). The pool list is this repository's:
-# it applies when <root> is the repository this script lies in, or when <root>/bindings/ holds one of
-# the files it names (sdc-story.yaml, sdc-release.yaml, sdc-bugfix.yaml: a copy of this repository's
-# bindings); a root that is neither is the runbook of another repository, whose programs are checked
-# by the binding itself: an argv with `--pool-wait` wants `exits.error` [69, 70, 75, 126, 127], one
-# without it [75, 126, 127].
-own_repo=false
-[[ $sdc == "$repo" ]] && own_repo=true
+# it applies when <root>/bindings/ holds one of the files it names (sdc-story.yaml, sdc-release.yaml,
+# sdc-bugfix.yaml), and by nothing else (not by where this script lies: another repository may hold
+# a copy of it); a root with none of them is the runbook of another repository, whose programs are
+# checked by the binding itself: an argv with `--pool-wait` wants `exits.error`
+# [69, 70, 75, 126, 127], one without it [75, 126, 127].
 if ! compgen -G "$sdc/bindings/*.yaml" > /dev/null; then
   exit_findings="$sdc: no bindings/*.yaml"
 else
-exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actions? // null)}' bindings/*.yaml | jq -rn --argjson own_repo "$own_repo" '
+exit_findings=$(cd "$sdc" && yq -o=json -I=0 '{"f": filename, "actions": (.actions? // null)}' bindings/*.yaml | jq -rn '
   ["bindings/sdc-story.yaml:tests.run", "bindings/sdc-release.yaml:acceptance.run",
    "bindings/sdc-bugfix.yaml:repro.run", "bindings/sdc-bugfix.yaml:tests.run", "bindings/sdc-bugfix.yaml:gate.run"] as $pools
   | [inputs] as $all
   | ([$all[] | select((.actions | type) == "array")]) as $docs
   | ([$pools[] | split(":")[0]] | unique) as $poolfiles
-  | ($own_repo or ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null))) as $own
+  | ([$docs[].f] | any(. as $f | $poolfiles | index($f) != null)) as $own
   | (if $own then $pools else [] end) as $pools
   | ($all[] | select((.actions | type) != "array") | "\(.f): not a bindings file, it is no mapping with an actions list"),
   ($pools[] | select(. as $p | [$docs[] | .f as $f | .actions[] | "\($f):\(.action)"] | index($p) | not)

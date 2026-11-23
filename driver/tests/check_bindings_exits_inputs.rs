@@ -51,11 +51,10 @@ fn script_tree(name: &str) -> PathBuf {
 }
 
 #[test]
-fn the_located_script_is_found_by_a_relative_start_a_dot_root_and_a_linked_tree() {
+fn a_tree_with_a_copy_of_the_script_is_another_runbook_for_a_relative_start_a_dot_root_and_a_linked_tree() {
     let root = script_tree("located");
     let want = |s: &Said, how: &str| {
-        assert_eq!(s.code, Some(1), "{how}: {}\n{}", s.out, s.err);
-        assert!(s.out.contains("bindings/sdc-story.yaml:tests.run: a binding that waits for the build pool is not in bindings/"), "{how}: {}\n{}", s.out, s.err);
+        assert_eq!((s.code, s.out.as_str()), (Some(0), "pass exits\n"), "{how}: {}", s.err);
     };
     for dot in [".", "./"] {
         let o = Command::new("bash").current_dir(&root).arg("scripts/check-bindings.sh").arg("--exits").arg(dot).output().unwrap();

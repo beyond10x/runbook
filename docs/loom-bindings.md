@@ -145,9 +145,9 @@ over its time"). The tool exits 69 and 70 in both modes; under Loom neither maps
 more.
 
 `scripts/check-bindings.sh --exits <root>` runs the exits check alone over `<root>/bindings/*.yaml`.
-The list of the five pool bindings is this repository's: it applies when `<root>` is the repository the
-script lies in, or when `<root>/bindings/` holds one of the files it names (`sdc-story.yaml`,
-`sdc-release.yaml`, `sdc-bugfix.yaml`, as a copy of this repository's bindings does). For any other root,
+The list of the five pool bindings is this repository's: it applies when `<root>/bindings/` holds one of
+the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`), and by nothing else; where
+the script lies does not count, another repository may hold a copy of it. For any other root,
 the runbook of another repository, the option asks nothing about the build pool and checks the root's own
 files by the binding itself: every `program` binding states `exits.error`, `[75, 126, 127]`, or
 `[69, 70, 75, 126, 127]` when its argv holds `--pool-wait`; a model node (`sdc-node`) also states
@@ -157,6 +157,8 @@ and `exits` is on no other executor. A binding that lacks it gets one named line
 binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
 the root, and a file that is no mapping with an `actions` list by one line that names the file. A copy of
 this repository's bindings elsewhere is this repository only while it holds one of the three named files.
+That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
+and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
 
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5 and 8, the exits of the check tools) and

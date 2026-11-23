@@ -208,21 +208,38 @@ fn script_tree(name: &str, leave: impl Fn(&std::path::Path, &str)) -> Output {
 }
 
 #[test]
-fn the_repository_the_script_lies_in_loses_no_pool_check_when_the_named_files_are_removed() {
+fn a_tree_that_holds_a_copy_of_the_script_and_none_of_the_named_files_is_another_runbook() {
     let o = script_tree("script-tree-removed", |_, _| {});
     let (out, err) = said(&o);
-    assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
-    for p in ["sdc-story.yaml:tests.run", "sdc-release.yaml:acceptance.run", "sdc-bugfix.yaml:gate.run"] {
-        assert!(out.contains(&format!("bindings/{p}: a binding that waits for the build pool is not in bindings/")), "{out}\n{err}");
-    }
+    assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{err}");
 }
 
 #[test]
-fn the_repository_the_script_lies_in_loses_no_pool_check_when_the_named_files_are_emptied() {
+fn a_tree_that_holds_a_copy_of_the_script_and_the_named_files_emptied_is_another_runbook() {
     let o = script_tree("script-tree-emptied", |dir, f| fs::write(dir.join(f), "").unwrap());
     let (out, err) = said(&o);
+    assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{err}");
+}
+
+/// The full check, cut before its cargo steps (at the registrations), over a tree that has the compiled protocol and
+/// the JSON bindings of `sdc-story` and the YAML bindings of this repository less `sdc-story.yaml`.
+#[test]
+fn the_full_check_fails_when_a_bindings_file_of_a_protocol_is_missing() {
+    let root = own_root("full-check-missing");
+    fs::remove_file(root.join("bindings/sdc-story.yaml")).unwrap();
+    let from = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    for (dir, file) in [("driver/examples/sdc", "sdc-story.bindings.json"), ("protocol/compiled", "sdc-story.ir.json")] {
+        fs::create_dir_all(root.join(dir)).unwrap();
+        fs::copy(from.join(dir).join(file), root.join(dir).join(file)).unwrap();
+    }
+    let text = fs::read_to_string(script()).unwrap();
+    let cut = text.split("# The registrations of bindings/*.yaml").next().unwrap();
+    fs::create_dir_all(root.join("scripts")).unwrap();
+    fs::write(root.join("scripts/check-bindings.sh"), format!("{cut}exit $fail\n")).unwrap();
+    let o = Command::new("bash").arg(root.join("scripts/check-bindings.sh")).output().unwrap();
+    let (out, err) = said(&o);
     assert_eq!(o.status.code(), Some(1), "{out}\n{err}");
-    assert!(out.contains("a binding that waits for the build pool is not in bindings/"), "{out}\n{err}");
+    assert!(out.contains("FAIL sdc-story\n  no bindings/sdc-story.yaml\n"), "{out}\n{err}");
 }
 
 #[test]
