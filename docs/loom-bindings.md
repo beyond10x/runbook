@@ -103,7 +103,7 @@ proposed order of Loom's open stories, 2026-11-21).
 - A `person`'s record produced by the approving principal, not the literal `person:owner`: `story:tree-run-command`, wave 2.
 - `budget.max_runs`, counted since the case's last arrival as the driver does (D24): `story:run-caps-per-arrival`, wave 6.
 
-`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`70b0e6e0`) runs
+`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`db2726ff`) runs
 them. On a step with retry records it sets `LOOM_RETRY_FEEDBACK` on the bound program's child to the
 path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 (`crates/loom-bindings/src/retry.rs:14-17`, `:34`, `:36` of Loom).
