@@ -861,6 +861,21 @@ impl Daemon {
         threads.push(handle);
     }
 
+    /// A run the runtime failed on while it waited on decisions can only end from Running: its open
+    /// requests are withdrawn (as a cancel does) and the run is Running again.
+    fn leave_wait(&self, run_id: &str) {
+        let mut st = self.st();
+        if st.run(run_id).map(|r| r.state) != Some(RunState::WaitingOnDecision) {
+            return;
+        }
+        let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
+        for request_id in open {
+            let _ = withdraw_decision_locked(&mut st, &request_id);
+        }
+        drop(st);
+        let _ = self.resume_run(run_id);
+    }
+
     fn run_thread(&self, request: StartRequest, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
         if let (Some(from), false) = (&request.context_dir, cancel.load(Ordering::SeqCst)) {
@@ -884,6 +899,7 @@ impl Daemon {
                 Ok(Finish::Cancelled) => {}
                 Err(f) if sink.started.load(Ordering::SeqCst) => {
                     let _ = self.record_run_event(&run_id, "runbook.runtime-failed", json!({"reason": f.reason}));
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, "runtime-failure");
                 }
                 Err(f) => {
