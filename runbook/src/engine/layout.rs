@@ -48,20 +48,28 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
     Ok(Resolved { protocol_dir, bindings, protocol_id, revision })
 }
 
-/// The runbook `name` in the first of `homes` that has its protocol file (the order of
-/// `runbooks::load`: the configured directories, then the built-in home), or why the last one has not.
+/// The runbook `name` in the one of `homes` that has its protocol file (`runbooks::locate`: a name that is
+/// in two homes is refused by its name, never taken from the configured one), or why the last home has not.
 pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Result<Resolved, String> {
     if !plain(name) {
         return Err(format!("{name:?} is not a runbook name"));
     }
-    let home = crate::runbooks::locate(homes, name).or_else(|| homes.last().cloned()).ok_or_else(|| "no runbook home".to_owned())?;
+    let home = match crate::runbooks::locate(homes, name)? {
+        Some(home) => home,
+        None => homes.last().cloned().ok_or_else(|| "no runbook home".to_owned())?,
+    };
     resolve(&home, name, version)
 }
 
-/// The runbooks of every home, each name once, the first home's row winning.
+/// The runbooks of every home, each name once: the configured homes in order, then the last home (the
+/// built-in one), and a name that the last home has is listed from it, never from a configured home.
 pub fn list_in(homes: &[PathBuf]) -> Vec<RunbookInfo> {
-    let mut seen = std::collections::BTreeSet::new();
-    homes.iter().flat_map(|h| list(h)).filter(|r| seen.insert(r.name.clone())).collect()
+    let Some((built_in, configured)) = homes.split_last() else { return Vec::new() };
+    let built = list(built_in);
+    let mut seen: std::collections::BTreeSet<String> = built.iter().map(|r| r.name.clone()).collect();
+    let mut rows: Vec<RunbookInfo> = configured.iter().flat_map(|h| list(h)).filter(|r| seen.insert(r.name.clone())).collect();
+    rows.extend(built);
+    rows
 }
 
 /// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the
