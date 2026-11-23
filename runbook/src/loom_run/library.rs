@@ -1,5 +1,5 @@
 //! Loom as a library in this process: the calls of `runbook::engine::calls`, the same ones the
-//! daemon's engine makes. No `b10x-loom`, `loom`, `canon` or `sdc-drive` process is started; only
+//! daemon's engine makes. No `b10x-loom`, `loom` or `canon` process is started; only
 //! the bound programs run as processes, started by Loom's runner with the environment Loom itself
 //! gives them (`docs/loom-run.md`, "The environment of a bound program").
 //!
@@ -9,6 +9,7 @@ use crate::loom_run::host::{Answer, Call, Halt, LoomHost, Opening};
 use crate::loom_run::{Confinement, Outcome};
 use b10x_loom_tree::{RunSettings, TestRunner};
 use runbook::engine::calls;
+use runbook::engine::refusal;
 use runbook::engine::Parsed;
 use runbook::runtime::Confinement as Level;
 use serde_json::Value;
@@ -116,8 +117,15 @@ impl<'a> LibraryHost<'a> {
         self.catalog.as_ref().ok_or_else(|| Halt::Failed("the tree is not open".to_owned()))
     }
 
+    /// A refusal of Loom's call `what`. Loom words a refusal `<Reason>: ...`: one that leads with a
+    /// reason of the pinned Loom ends the run `refused` with that reason as its cause; any other
+    /// failure (a document that did not parse, a file that did not open) fails the run closed.
     fn refused(&self, what: &str, why: String) -> Halt {
-        Halt::Failed(format!("Loom refused {what}: {why}"))
+        let text = format!("Loom refused {what}: {why}");
+        match refusal::named(&why) {
+            Some(reason) => Halt::Done(Outcome::Refused { cause: refusal::cause(reason), reason: text, loom_exit: None, stderr_tail: None }),
+            None => Halt::Failed(text),
+        }
     }
 }
 
@@ -146,7 +154,9 @@ impl LoomHost for LibraryHost<'_> {
             return Err(Halt::Done(Outcome::StoppedSignal));
         }
         let catalog = self.catalog()?;
-        let ran = calls::run(&self.store, catalog, &self.settings, None, Some(self.cancel)).map_err(|e| self.refused("tree run", e))?;
+        let ran = calls::run(&self.store, catalog, &self.settings, None, Some(self.cancel)).map_err(|refusal| {
+            Halt::Done(Outcome::Refused { cause: refusal.cause(), reason: format!("Loom refused tree run: {refusal}"), loom_exit: None, stderr_tail: None })
+        })?;
         let code = calls::stop_status(ran.stop);
         if code == 5 && ran.steps == 0 && self.cancel.load(Ordering::SeqCst) {
             return Err(Halt::Done(Outcome::StoppedSignal));
@@ -175,7 +185,7 @@ impl LoomHost for LibraryHost<'_> {
         let principal = self.principal_of(a)?;
         let parsed = Parsed { deny: a.deny, result: a.result.map(str::to_owned), reasons: None, reasons_file: a.reasons_file.map(Path::to_path_buf) };
         let catalog = self.catalog()?;
-        calls::apply(&self.store, catalog, &decision, &parsed, &principal).map_err(|e| self.refused(&format!("the answer to a decision of kind {}", a.kind), e))
+        calls::apply(&self.store, catalog, &decision, &parsed, &principal, &self.settings.runner).map_err(|e| self.refused(&format!("the answer to a decision of kind {}", a.kind), e))
     }
 
     fn runs_handoff(&self) -> bool {
@@ -211,8 +221,8 @@ mod tests {
     fn a_level_the_library_does_not_offer_is_refused_by_name() {
         assert_eq!(check_level(Confinement::Local, &[Level::Local]), Ok(Level::Local));
         let refusal = check_level(Confinement::Substrate, &[Level::Local]).unwrap_err();
-        assert!(refusal.contains("substrate") && refusal.contains("local"), "{refusal}");
-        assert_eq!(check_level(Confinement::Substrate, &[Level::Local, Level::Linux]), Ok(Level::Linux));
+        // the whole text: `docs/loom-run.md` states it and `tests/loom_run/pages.rs` reads the same literal
+        assert_eq!(refusal, "--confinement substrate is not a level the library can give here: it offers local (the linux level needs a cgroup this process may delegate)");        assert_eq!(check_level(Confinement::Substrate, &[Level::Local, Level::Linux]), Ok(Level::Linux));
     }
 
     #[test]

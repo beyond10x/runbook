@@ -29,7 +29,7 @@ pub(super) fn read_approval(request: &DecisionRequest<'_>, bindings: Option<&Pat
     let kind = text_member(decision, "kind").ok_or("the decision has no kind")?;
     if !APPROVAL_KINDS.contains(&kind) {
         return Err(match kind {
-            "Handoff" => "kind Handoff: a writer's handoff text names work for a person; the printed `tree run` changes nothing until that work is done, and the decider has no reply for it".to_owned(),
+            "Handoff" => "kind Handoff: the decider has no reply for a writer's handoff; the printed `tree run` changes nothing until the work the handoff names is done".to_owned(),
             other => format!("kind {other} not known"),
         });
     }
@@ -48,8 +48,8 @@ pub(super) fn read_approval(request: &DecisionRequest<'_>, bindings: Option<&Pat
             answers::FILE
         ));
     }
-    let subject = text_member(decision, "subject").ok_or("the decision names no subject (member `subject` absent): decider.sh cannot say what is decided")?.to_owned();
-    let revision = text_member(decision, "revision").ok_or("the decision names no revision (member `revision` absent): decider.sh cannot say which revision is decided")?.to_owned();
+    let subject = text_member(decision, "subject").ok_or("the decision names no subject (member `subject` absent): the decider cannot say what is decided")?.to_owned();
+    let revision = text_member(decision, "revision").ok_or("the decision names no revision (member `revision` absent): the decider cannot say which revision is decided")?.to_owned();
     let path = match text_member(decision, "path") {
         None => None,
         Some(path) => {
@@ -95,7 +95,7 @@ pub(super) fn case_artifacts(decision: &Value, case: &str) -> Vec<(String, Strin
         .unwrap_or_default()
 }
 
-/// The directory `decider.sh` takes as `case_dir`: `case.json` (`id` from the decision's `case`,
+/// The directory the decider takes as `case_dir`: `case.json` (`id` from the decision's `case`,
 /// `artifacts` from Loom's case file and the decision's own subject) and `work` (a link to the
 /// workspace). Under `<run dir>/decider-cases/<case>/`.
 pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) -> Result<PathBuf, String> {
@@ -151,8 +151,7 @@ pub(super) fn cost_micro(reply: &Value) -> Option<u64> {
     (usd.is_finite() && usd >= 0.0).then(|| (usd * 1_000_000.0).round() as u64)
 }
 
-/// The request `decider.sh` reads (`decider.sh <kind> <request.json>`; its header names the
-/// members), built from the decision entry: `type` approval, the case directory, the subject, and
+/// The request the decider reads, built from the decision entry: `type` approval, the case directory, the subject, and
 /// an empty `position` (Loom's output holds no claim values).
 pub(super) fn decide_request(approval: &Approval, case_dir: &Path, record_dir: &Path, retry: Option<(u64, String)>) -> Value {
     let mut request = json!({

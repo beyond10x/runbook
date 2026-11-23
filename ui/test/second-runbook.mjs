@@ -7,7 +7,7 @@
 //   writeSecondRunbook(runDir)   writes runDir/store/{T-1,T-2,T-3} and runDir/fs/changes.jsonl, returns runDir/store
 //     T-1  the ticket and its reply
 //     T-2  waiting on the action ticket.ask (a person answers the open ask a1)
-//     T-3  an open ask b1 and no wait (answered by the page's act, written with the view's field names)
+//     T-3  an open ask b1 and no wait (its answer would be written with the view's field names)
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -21,7 +21,7 @@ export const SECOND = {
 };
 
 // A view of this runbook (format runbook.view/1) with two phases, two file rules, a parser of its own for asks.yaml,
-// two tool programs and the decision a person takes: answer an ask (fields, statuses and the action are its own).
+// and the decision a person takes: answer an ask (fields, statuses and the action are its own).
 export const SECOND_VIEW = {
   format: 'runbook.view/1',
   runbook: 'triage',
@@ -49,17 +49,14 @@ export const SECOND_VIEW = {
       },
     },
   },
-  tool_owners: {always: ['hoist'], continue: ['crane'], tools: []},
   decisions: {
     scope_answer: {
       action: SECOND.ask.action,
-      check: SECOND.ask.check,
       artifact: 'asks',
       list: 'asks',
       flag: 'needs_owner',
       fields: {question: 'text', answer: 'reply', answered_by: 'replied_by', answered_at: 'replied_at'},
       statuses: {open: 'pending', accepted: 'agreed', changed: 'edited'},
-      refused_answerers: ['bot'],
     },
   },
 };

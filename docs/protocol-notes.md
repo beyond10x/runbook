@@ -20,7 +20,7 @@ lists the open obligations (what is missing) and the admissible actions (what is
 stage, as `cases/*/decision.json` show.
 
 The root case's artifacts are `idea`, `goals` and `roadmap` (`sdc.protocol.yaml:7-14`). `goals` is
-the requester's resolved goals document, `work/goals.yaml`, put there by `scripts/run-trial.sh
+the requester's resolved goals document, `work/goals.yaml`, put there by `runbook run
 --goals FILE` (`docs/requester.md`, "How a run receives it"); `sdc.intake` and `sdc.direction`
 declare it too (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`) and read the same
 file through the shared `work/`. It is an input only: no claim, invalidation or child opening names
@@ -151,7 +151,7 @@ log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
 **Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
 approval record and no `rejected` result: the same treatment (`release_approval` with a manual
 `release.approve`) gives 98,304 states, past the bound of 65,536 that Canon enforced when this was
-written. The pinned Canon (`driver/canon-pin.json`) enforces no such bound: it checks `sdc.story`
+written. The pinned Canon (`runbook/Cargo.lock`) enforces no such bound: it checks `sdc.story`
 at 196,608 states and `sdc.intake` at 98,304 with no finding. Dropping the capability to fit the
 bound would leave authority resting on a manual record alone, which is not allowed. A refused release
 therefore records nothing in the case; the tools stop such a run with a named cause
@@ -246,8 +246,8 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
   make; the writer is admissible in each such state. A rejected approval is the same.
 - **A failed check only another case revises (a2 on `roadmap`, `spec`, 6 findings).** The child
   waits on a revision another protocol writes; no change.
-- **A lasting denial (d).** The driver refuses a capability decided twice
-  (`driver/src/main.rs:1590-1597`), so a denial stands for the case. Per denial, what a real
+- **A lasting denial (d).** The former driver refused a capability decided twice
+  (its code, deleted), so a denial stood for the case. Per denial, what a real
   case does next:
   - sdc.direction, `owner.approve` denied (2 findings): no other holder and no outcome in the
     case; the tree goes on through the root's `abandoned` decision, or a revised idea, which
@@ -262,9 +262,9 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
   protocol change; the walk is Canon's to fix. `intake.open` produces two records, its
   `intake_opened` and, through `case_open`, the child's `case_outcome`; its precondition
   `intake.opened is unknown` closes it after the first. The walk adds one record per step, so the
-  state with `intake_opened` and no `case_outcome` has no step left. The runtime writes the
-  `case_outcome` record (`open`) in the same step that opens the child (`open_children`,
-  `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
+  state with `intake_opened` and no `case_outcome` has no step left. The former driver wrote the
+  `case_outcome` record (`open`) in the same step that opened the child (`open_children`,
+  its code, deleted) and rewrote its result when the child ended, so a real case never
   holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
   sdc.epic's opening actions.
 
@@ -281,16 +281,15 @@ difference fails with a unified diff and
 terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
 `e81f970d`, the commit of Canon's release tag `0.11.0` (`2c7a1ea6`, tag `0.10.0`, until 2026-11-22; before it, until
 SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
-protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
-`${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
-`PATH`). Every script resolves the same pinned binary (`canon_resolve` in `scripts/evaluate-cases.sh`):
-`CANON`, else that cache; it refuses unless `canon --version` equals `driver/canon-pin.json`, and
-`runbook doctor` compares the version with the pin too.
+protocols are byte-equal on both). Canon is the library the `runbook` crate links, not a binary: every script
+runs `runbook canon <subcommand>` (`runbook_resolve` in `scripts/evaluate-cases.sh` finds or builds it;
+`runbook/src/canon_cmd.rs`), and the pin is the `b10x-canon` entry of `runbook/Cargo.lock`, which
+`CANON_REV` must be a prefix of; `runbook doctor` reads its Canon pin from the same lock file.
 
 - Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
   `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the
   protocol and the reason in the commit body.
-- A new Canon release: put the commit of its tag in `CANON_REV`, then `--repin` if a report
+- A new Canon release: move the `b10x-canon` tag in `runbook/Cargo.toml` and the lock, put the commit of its tag in `CANON_REV`, then `--repin` if a report
   changes; Canon's next waves change simulate's output, so the reports move with them.
 - `SDC_SIMULATE=off` skips the step with a printed line (no network).
 - The pinned reports are a ratchet, not a verdict: every protocol still exits 1 with findings

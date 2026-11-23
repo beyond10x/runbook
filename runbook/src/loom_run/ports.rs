@@ -1,4 +1,4 @@
-//! The options of the six ports of the old driver's launcher (`scripts/run-trial.sh`) as `runbook
+//! The options of the six ports of the removed driver's launcher as `runbook
 //! run` takes them, parsed into [`Ports`]. Each port has its own file with one function that
 //! refuses the port's options until the port is built: `dry.rs`, `replay.rs`, `bugfix.rs`,
 //! `goals.rs`, `watch.rs`, `conformance.rs`. Building a port replaces the body of its function and
@@ -12,11 +12,6 @@ pub type Refusal = (u8, String);
 
 /// The exit code of a usage error.
 pub const USAGE: u8 = 64;
-
-/// The refusal of an option whose port is not built.
-pub fn not_built(option: &str) -> Refusal {
-    (USAGE, format!("{option} is not built yet"))
-}
 
 /// What to do with a call that has no recorded reply (`--on-divergence`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

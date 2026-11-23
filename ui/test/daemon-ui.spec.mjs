@@ -112,3 +112,24 @@ test('a run that is submitted while the page is open appears in the list and its
   await expect.poll(() => page.locator('#feed .fd-row').evaluateAll((els, want) => els.every((e) => e.dataset.run === want), id)).toBe(true);
   await expect(page.locator('#feed')).toContainText('runbook.submitted');
 });
+
+// story inspector-shows-step-products: the page of the daemon has the same panels. The daemon's API has no view of
+// the files, the evidence or the actions of a run, so the panels say that, in place of a list that is empty.
+test('the daemon page has the Products panel and the product line, and says the daemon serves no files of a run yet', async ({page}) => {
+  const problems = [];
+  page.on('pageerror', (e) => problems.push(`pageerror ${e.message}`));
+  page.on('console', (m) => { if (m.type() === 'error') problems.push(`console ${m.text()}`); });
+  await page.goto(`${base}/`);
+  await expect(page.locator('#live')).toHaveClass(/\bon\b/);
+  await pick(page, runs[0]);
+  await expect(page.locator('#product')).toContainText('the daemon serves no files of a run yet');
+  await expect(page.locator('#product .prod-link')).toHaveCount(0);
+  await page.locator('#tabs button[data-tab=products]').click();
+  await expect(page.locator('#panel .prod .prod-note')).toContainText('the daemon serves no files, evidence records or action output of a run yet');
+  await expect(page.locator('#panel .prod-file')).toHaveCount(0);
+  expect(problems).toEqual([]);
+  const served = await fetch(`${base}/markdown.js`);
+  expect(served.status).toBe(200);
+  expect(served.headers.get('content-type')).toContain('text/javascript');
+  expect((await fetch(`${base}/products.js`)).status).toBe(200);
+});

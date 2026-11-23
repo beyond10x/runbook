@@ -1,6 +1,6 @@
 //! The `goals` port of `runbook run` (`--goals`): the requester's goals document is copied, before
-//! the tree opens, to `work/goals.yaml` of the run (what `scripts/run-trial.sh` did for the root
-//! case, lines 104 to 118 and 395). With `decider.requester` in the settings, the decider answers
+//! the tree opens, to `work/goals.yaml` of the run (what the removed driver did for the root
+//! case). With `decider.requester` in the settings, the decider answers
 //! the decisions of the requester-side classes from that file (`decider/requester.rs`).
 
 use super::ports::{Ports, Refusal, USAGE};

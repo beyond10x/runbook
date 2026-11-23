@@ -1,8 +1,8 @@
 //! The requester decider (`decider.requester: true` of a model decider, principal
 //! `decider:requester`): a decision of a requester-side class (`driver/examples/sdc/
 //! decision-classes.json`) is answered from the requester's goals document, `work/goals.yaml`
-//! (`--goals`), by one model call of its own. What the driver did with `decider.sh requester`
-//! (`scripts/run-trial.sh`, `decide`, lines 799 to 822) is done here, file for file: the same
+//! (`--goals`), by one model call of its own. What the removed driver did for the requester
+//! is done here, file for file: the same
 //! call directory, the same inputs under `in/`, the same reply.
 //!
 //! The text the model reads is in `instructions/decider/requester*.md`; this file holds none. The
@@ -25,40 +25,7 @@ use std::path::{Path, PathBuf};
 pub(super) const PRINCIPAL: &str = "decider:requester";
 /// The person a request that the requester cannot answer is addressed to (`SDC_REQUESTER_PERSON`).
 const REQUESTER_PERSON: &str = "person:requester";
-const CLASSES_FILE: &str = "driver/examples/sdc/decision-classes.json";
 const DRY_WHY: &str = "dry run: no LLM was called; the approve rule decided";
-
-/// The decision class of a decision (`decision-classes.json`, `sdc.decision-classes/1`) and the side
-/// it belongs to.
-pub(super) struct Route {
-    pub(super) class: String,
-    pub(super) side: String,
-}
-
-/// The class of a request of `kind` (`approval`, `question`, `finding` or `close`) on `action`: a
-/// question is a `scope_changing_answer`, a finding a `finding`, a close a `close`, an approval the
-/// first class that lists the action (`<protocol>/<action>`), else `approval`. A class that is not
-/// in the file is on the delivering side.
-pub(super) fn route(root: &Path, kind: &str, action: &str) -> Result<Route, String> {
-    let file = root.join(CLASSES_FILE);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("the requester decider needs {CLASSES_FILE} above the bindings copy: {}", e.kind()))?;
-    let doc: Value = serde_json::from_str(&text).map_err(|_| format!("{CLASSES_FILE} is not JSON"))?;
-    let classes = doc["classes"].as_object().ok_or_else(|| format!("{CLASSES_FILE} has no classes"))?;
-    let class = match kind {
-        "question" => "scope_changing_answer".to_owned(),
-        "finding" => "finding".to_owned(),
-        "close" => "close".to_owned(),
-        _ => {
-            let tail = format!("/{action}");
-            classes
-                .iter()
-                .find(|(_, v)| v["actions"].as_array().is_some_and(|a| a.iter().filter_map(Value::as_str).any(|x| x.ends_with(&tail))))
-                .map_or_else(|| "approval".to_owned(), |(k, _)| k.clone())
-        }
-    };
-    let side = classes.get(&class).and_then(|c| c["side"].as_str()).unwrap_or("delivering").to_owned();
-    Ok(Route { class, side })
-}
 
 /// Adds to a request body what the requester reads of the run: the class and side, the level, and
 /// the decisions log of the run (its own earlier decisions are read from there).
@@ -77,9 +44,11 @@ impl super::NativeDecider {
         if !self.requester {
             return Ok(None);
         }
-        let root = super::instructions_root(&run_dir.join("bindings").join("tools")).ok_or(super::NO_INSTRUCTIONS)?;
-        let found = route(&root, kind, action)?;
-        Ok((found.side == "requester").then_some(found.class))
+        // The classes are the run's table as it was read before the first action (`pin_routing`), not
+        // the file as a bound program may have left it.
+        let table = self.routing(run_dir)?;
+        let class = table.class_of(kind, action);
+        Ok((table.side_of(&class) == "requester").then_some(class))
     }
 
     /// The principal of an answer: the requester's when it answered, else the decider's.
@@ -153,7 +122,7 @@ fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<(
 
 /// The request of an approval or a close, with the question and the two options rendered from the
 /// instruction files.
-fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level: &str) -> Result<Value, String> {
+pub(super) fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level: &str) -> Result<Value, String> {
     let close = req["type"] == "close";
     let (question, a, b) = if close {
         let outcome = raw(&req["outcome"]);

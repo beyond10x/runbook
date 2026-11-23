@@ -34,9 +34,9 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 |---|---|
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
-| `submit-run` | `NoSuchRunbook`, `IntakeTooLarge` (over 1,048,576 bytes), `ContextOutsideRoots`, `NoSuchDaemon`, `BelowConfinementFloor`, `NoSuchSession`, `SessionClosedToRuns` |
+| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
-| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `NoSuchRun`, `RunNotWaiting`, `DecisionAlreadyAnswered` |
+| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting` |
 
 Notes for a caller:
 
@@ -49,7 +49,8 @@ Notes for a caller:
   outcome is `already-submitted`, status 202 (not a refusal: a retry after a lost answer gets the
   answer it lost). The first run's id is data in the body, the `run_id` of the event it publishes
   (`published[0].payload.run_id`, event `SubmitReplayed`), and the `Location` header names the run
-  too (`/daemon/views/run?run_id=<id>`, the same header a first submit has).
+  too (`/daemon/views/run?run_id=<id>`, the same header a first submit has). A key over the limit is
+  not an outcome of `submit-run`: it is refused `400` before every outcome, `IntakeTooLarge` included.
 - The intake limit is 1,048,576 bytes of UTF-8, counted by the daemon's handler. The specification
   counts characters (`intake.count`), which is the weaker bound: a text of at most 1,048,576
   characters can still be over the limit in bytes, and the handler refuses it `IntakeTooLarge`.
@@ -254,12 +255,12 @@ nothing. The stub runtime always answers `gone`.
 
 ## The web UI
 
-`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` are compiled into the
-binary at build time (`runbook/build.rs` lists the directory, so a file added there is embedded by the
+`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` and `ui/daemon/` (the code that answers a decision, which the inspector `ui/server.mjs` does not serve) are compiled into the
+binary at build time (`runbook/build.rs` lists the two directories, so a file added there is embedded by the
 next build); the daemon reads nothing from disk to serve them, and it needs no `ui/` directory beside it.
 Without `--ui`, `GET /` is `404`.
 
-- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` (`/app.js`,
+- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` or `ui/daemon/` (`/app.js`,
   `/fonts/inter-variable-latin.woff2`). A path is looked up exactly as sent: a directory, `..` and
   any encoded form of either answer `404`, and so does a path that is not in the list. A write method on a
   file answers `405`.
@@ -273,6 +274,13 @@ Without `--ui`, `GET /` is `404`.
   `index.html`), allowed by its hash and no other; its code writes `style="..."` attributes into its markup,
   so attributes may carry inline styles and a `<style>` element may not; `data:` images are for the arrow
   in `style.css`.
+- What a step produced. The page has a Products tab and a product line (`ui/web/products.js`,
+  `ui/web/markdown.js`, embedded like every file of `ui/web/`). Served by the inspector (`ui/server.mjs`) they list
+  the evidence records, the actions and the files of a run and open each one; the daemon's API has no view of
+  the files, evidence records or action output of a run yet, so served here the tab and the line say "the
+  daemon serves no files of a run yet" and list nothing. Nothing in them is made up. Run content never becomes
+  markup of the page: the page builds nodes from the text, and the policy above (`script-src 'self'`,
+  `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced").
 - Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
   token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
   `Authorization` header with a page load, so it hands the token over once: the `401` of a page load
@@ -340,15 +348,15 @@ for tests only: no option, environment variable or request sets it.
 
 The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
 may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
-failure cannot hide behind them. Now: 12 scenarios of the daemon (3 more are of `sdc.decision`, out of
-the daemon's domain), 12 executed, 12 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
+failure cannot hide behind them. Now: 13 scenarios of the daemon (10 more are of `sdc.decision`, out of
+the daemon's domain), 13 executed, 13 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
 (before the clock: 10 executed, 10 passed, 2 skipped for an exact instant each). Before part C4 it was
 4 passed and 6 failed: two differences between the
 specification and the daemon, which the specification now states (the daemon's first event of a run,
 and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrphanedRun`; see
 "Client commands"). The same suite passes on the interpreted target of ESS
 (`ess verify conform run --target interpreted --path ess --suite ess/generated/conformance/authored.json
---report-format 2`): 15 of 15 scenarios, as before.
+--report-format 2`): 23 of 23 scenarios (13 of `sdc.daemon`, 10 of `sdc.decision`).
 
 The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is committed as
 `ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.97.3 makes it in about 30 s (0.97.1 took 1048 s and did not finish in 1800 s).

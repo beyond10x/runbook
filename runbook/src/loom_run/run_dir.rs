@@ -544,7 +544,7 @@ impl RunDirWriter {
         Ok(())
     }
 
-    fn ended(&mut self, at: u64, outcome: &str, reason: Option<&str>) -> Result<(), String> {
+    fn ended(&mut self, at: u64, outcome: &str, reason: Option<&str>, named: Option<&str>) -> Result<(), String> {
         if outcome == "ended" {
             self.end = Some(EndNote { tree_outcome: reason.map(String::from) });
         }
@@ -566,17 +566,31 @@ impl RunDirWriter {
             }
             return Ok(());
         }
-        let cause = match outcome {
+        let cause = match (outcome, named) {
+            ("refused", Some(cause)) => cause,
+            (outcome, _) => Self::cause_of(outcome),
+        };
+        let reason = match reason {
+            // The reason of a rejection names the step and the case first, as the driver's did.
+            Some(r) if cause == "rejected_without_rework_path" => r.to_owned(),
+            Some(r) => format!("{outcome}: {r}"),
+            None => outcome.to_string(),
+        };
+        self.write_stop(at, cause, &reason)
+    }
+
+    /// The cause `run-stopped.json` names for an outcome label that carries no cause of its own.
+    fn cause_of(outcome: &str) -> &'static str {
+        match outcome {
             "stuck" => "stuck",
             "stopped: spend cap" => "spend_cap",
             "stopped: wall time" => "wall_time_spent",
             "stopped: llm calls" => "llm_calls_spent",
             "stopped: signal" => "signal",
             "stopped: decider" => "decider_cannot_decide",
+            "stopped: rejected" => "rejected_without_rework_path",
             _ => "error",
-        };
-        let reason = reason.map_or_else(|| outcome.to_string(), |r| format!("{outcome}: {r}"));
-        self.write_stop(at, cause, &reason)
+        }
     }
 
     /// The outcome of the root case as its run log tells it.
@@ -854,7 +868,7 @@ impl EventSink for RunDirWriter {
                 self.project((self.last_at.min(at_secs), at_secs))?;
                 self.store_loom_files()
             }
-            Event::Ended { outcome, reason, .. } => self.ended(at_secs, outcome, reason.as_deref()),
+            Event::Ended { outcome, reason, cause, .. } => self.ended(at_secs, outcome, reason.as_deref(), cause.as_deref()),
         }
     }
 }

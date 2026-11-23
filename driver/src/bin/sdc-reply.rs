@@ -38,9 +38,9 @@
 //! replies with a coverage document, per requirement the story carries (review_scope's story
 //! requirements) `built` with the file and line that builds it and a test, or `not_built` with a
 //! reason. `coverage --schema` prints its reply schema; `check-coverage --shape` checks a reply
-//! against it (llm-node.sh asks again with the reason, at most twice); llm-node.sh puts a valid one
+//! against it (`sdc-node` asks again with the reason, at most twice); `sdc-node` puts a valid one
 //! at `impl/.sdc/coverage.json`. Without `--shape`, `check-coverage` is the implement binding's
-//! `postcondition`, run by sdc-drive right after the writer: exit 1 refuses the revision, naming
+//! `postcondition`, run after the writer (by `sdc-node` under Loom): exit 1 refuses the revision, naming
 //! the requirement ids (missing, named twice, not built, a file not in the tree, a line outside
 //! its file, a test the test sources lack); nothing is recorded and the writer is sent back.
 //! `coverage-stub` writes the stub implementer's document. review-inputs copies the document to
@@ -55,7 +55,7 @@
 //! `{<class>: {adapter, source, json_schema, nodes}}`; exit 64 (stderr names the class and
 //! the adapter) when a class's adapter cannot take a schema.
 //!
-//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/`. With
+//! change.review (`sdc-node`): `review-inputs` writes the review's inputs into `in/`. With
 //! SDC_REVIEW_MODE unset or `session` (the default) they are the story, its acceptance lines, the
 //! requirements it delivers and those no story covers, the covered commands, the whole change tree,
 //! its diff against the mainline and the gate and test logs. With `facts` (story:review-minimal-facts)
@@ -71,7 +71,8 @@
 //!
 //! Where the facts come from (`Facts`): the old driver's case directory (`case.json`, the event
 //! log, the evidence and the blobs) or, with `LOOM_CASE` set, record files of the workspace
-//! (`<case-dir>/work/.sdc/records/`; Loom gives a bound program its working directory and nothing
+//! (`.sdc/records/` of the directory the program was started in, the workspace, whatever `--case-dir`
+//! names; Loom gives a bound program its working directory and nothing
 //! else). The revision of an artifact is then the digest of its tree (`impl`, `spec`); the log of
 //! the conformance run and of the gate is `<kind>/<digest>.log`, written by `sdc-reply record
 //! --kind <kind> --tree <tree> --log <file>` from the tools of tests.run and spec.gate; the
@@ -79,7 +80,7 @@
 //! `citable`, `resolve`, `schema`, `rejections`, `review-inputs` and `check-review` read them
 //! through the same functions in both modes; no `<artifact>@<revision>` cite resolves under Loom.
 //!
-//! The call dir holds the inputs the model was shown (`in/`), as tools/decider.sh writes them.
+//! The call dir holds the inputs the model was shown (`in/`), as the decider of `runbook run` writes them.
 //! Citable (the forms of sdc.decision.Citation, ess/domains/decision.yaml, docs/decisions.md):
 //! - an id: a requirement, dissection item, question or finding id of the case's `work/`, a
 //!   context field (`context.<field>`), or a claim id of `in/checks.json`;
@@ -92,7 +93,7 @@
 //! `citable` prints the enumerable set (ids, every artifact entry two levels deep, every non-empty
 //! line of a Markdown input), the artifacts, and one example of each form from the actual input.
 //! `resolve` prints one line per cite with its form and value (exit 0 when all resolve, else 1).
-//! `schema` prints the reply schema of tools/decider.sh: `decision` an enum of the admissible
+//! `schema` prints the reply schema of the decider of `runbook run`: `decision` an enum of the admissible
 //! decisions, `cites` an enum of the citable set, `answer` the options of a rule finding.
 //! `reply_schema` and `citable_set` are the parts another LLM node's schema can reuse.
 use std::fs;

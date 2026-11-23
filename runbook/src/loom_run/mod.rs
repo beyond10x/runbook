@@ -146,6 +146,14 @@ pub const EXIT_SIGNAL: u8 = 7;
 pub const EXIT_DECIDER: u8 = 8;
 /// Exit code: the decider denied a decision and the tree stopped on it again.
 pub const EXIT_DENIED: u8 = 9;
+/// Exit code: the decider rejected a decision and nothing records a rejection (the old driver's exit 6,
+/// cause `rejected_without_rework_path`; 6 is the model-call cap here).
+pub const EXIT_REJECTED: u8 = 10;
+/// Exit code: a re-drive of a recording (`--recorded`) reached a call the recording has no reply for.
+pub const EXIT_DIVERGED: u8 = 11;
+/// Exit code: Loom refused a call of the run by a named reason (`TreeStopped`, `ConfinementRefused`,
+/// `PersonProgramFailed`, ...): the cause in `outcome.json` and `run-stopped.json` is the reason's name.
+pub const EXIT_LOOM_REFUSED: u8 = 12;
 
 /// How a run ended; the `outcome` of `outcome.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,6 +170,9 @@ pub enum Outcome {
     StoppedLlmCalls,
     /// SIGTERM or SIGINT.
     StoppedSignal,
+    /// The decider rejected a decision and the action declares no result that records a rejection:
+    /// there is no rework path (cause `rejected_without_rework_path`).
+    StoppedRejected { reason: String },
     /// The decider answered "cannot decide".
     StoppedDecider { reason: String },
     /// Anything that failed closed.
@@ -171,9 +182,23 @@ pub enum Outcome {
     LoomFailed { reason: String, exit: Option<i32>, stderr_tail: String },
     /// The decider denied a decision and the tree stopped on the same decision again.
     Denied { action: String },
+    /// A re-drive of a recording reached a call the recording has no reply for (policy `stop`, a spent live cap).
+    Diverged { reason: String },
+    /// Loom refused a call of the run by a named reason: `cause` is the reason's snake-case name
+    /// (`engine::refusal::cause`), `reason` Loom's text. A child's refusal also has the exit code and
+    /// the tail of standard error.
+    Refused { cause: &'static str, reason: String, loom_exit: Option<i32>, stderr_tail: Option<String> },
 }
 
 impl Outcome {
+    /// The named cause of the outcome, when it has one beyond its label.
+    pub fn cause(&self) -> Option<&'static str> {
+        match self {
+            Outcome::Refused { cause, .. } => Some(cause),
+            _ => None,
+        }
+    }
+
     /// The text written as `outcome` in `outcome.json`.
     pub fn label(&self) -> &'static str {
         match self {
@@ -184,16 +209,19 @@ impl Outcome {
             Outcome::StoppedLlmCalls => "stopped: llm calls",
             Outcome::StoppedSignal => "stopped: signal",
             Outcome::StoppedDecider { .. } => "stopped: decider",
+            Outcome::StoppedRejected { .. } => "stopped: rejected",
             Outcome::Error { .. } => "error",
             Outcome::LoomFailed { .. } => "error",
             Outcome::Denied { .. } => "denied",
+            Outcome::Diverged { .. } => "stopped: recording diverged",
+            Outcome::Refused { .. } => "refused",
         }
     }
 
     /// The reason text of the outcome, when it has one.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            Outcome::StoppedDecider { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } => Some(reason),
+            Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } | Outcome::Refused { reason, .. } => Some(reason),
             Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
             _ => None,
@@ -210,8 +238,55 @@ impl Outcome {
             Outcome::StoppedLlmCalls => EXIT_LLM_CALLS,
             Outcome::StoppedSignal => EXIT_SIGNAL,
             Outcome::StoppedDecider { .. } => EXIT_DECIDER,
+            Outcome::StoppedRejected { .. } => EXIT_REJECTED,
             Outcome::Error { .. } | Outcome::LoomFailed { .. } => EXIT_ERROR,
             Outcome::Denied { .. } => EXIT_DENIED,
+            Outcome::Diverged { .. } => EXIT_DIVERGED,
+            Outcome::Refused { .. } => EXIT_LOOM_REFUSED,
         }
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+    use b10x_loom_tree::model::TreeRefusalReason;
+    use runbook::engine::refusal::{cause, REASONS};
+
+    /// A run that Loom refused by a named reason ends `refused`, exit 12, and the reason's own name
+    /// is its cause: every reason of the pinned Loom, none through a catch-all.
+    #[test]
+    fn a_refusal_of_loom_ends_the_run_refused_with_its_reason_as_the_cause() {
+        let mut causes = std::collections::BTreeSet::new();
+        for reason in REASONS {
+            let outcome = Outcome::Refused { cause: cause(reason), reason: format!("{reason:?}: x"), loom_exit: None, stderr_tail: None };
+            assert_eq!((outcome.label(), outcome.exit_code(), outcome.cause()), ("refused", EXIT_LOOM_REFUSED, Some(cause(reason))), "{reason:?}");
+            assert!(outcome.reason().is_some_and(|r| r.starts_with(&format!("{reason:?}"))));
+            assert!(causes.insert(cause(reason)));
+        }
+        for named in [TreeRefusalReason::TreeStopped, TreeRefusalReason::ConfinementRefused, TreeRefusalReason::PersonProgramFailed] {
+            assert!(causes.contains(cause(named)), "{named:?}");
+        }
+        assert_eq!(Outcome::Error { reason: "x".into() }.cause(), None);
+    }
+
+    #[test]
+    fn the_exit_codes_are_all_different() {
+        let outcomes = [
+            Outcome::Ended { tree_outcome: None },
+            Outcome::Error { reason: String::new() },
+            Outcome::Stuck,
+            Outcome::StoppedSpendCap,
+            Outcome::StoppedWallTime,
+            Outcome::StoppedLlmCalls,
+            Outcome::StoppedSignal,
+            Outcome::StoppedDecider { reason: String::new() },
+            Outcome::Denied { action: String::new() },
+            Outcome::StoppedRejected { reason: String::new() },
+            Outcome::Diverged { reason: String::new() },
+            Outcome::Refused { cause: "tree_stopped", reason: String::new(), loom_exit: None, stderr_tail: None },
+        ];
+        let codes: std::collections::BTreeSet<u8> = outcomes.iter().map(Outcome::exit_code).collect();
+        assert_eq!(codes.len(), outcomes.len(), "{codes:?}");
     }
 }

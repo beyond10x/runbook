@@ -44,7 +44,7 @@ test.beforeAll(async ({}, info) => {
     const r = spawnSync('node', ['test/fixture-run.mjs', s, path.join(runs, s), '1000'], {cwd: ui, encoding: 'utf8'});
     if (r.status !== 0) throw new Error(`fixture ${s}: ${r.stderr}`);
   }
-  ({url: base, proc: srv} = await startServer(['--principal', 'operator', '--write-only', path.join(runs, 'person', 'store'), ...Object.keys(SRC).map((s) => path.join(runs, s, 'store'))]));
+  ({url: base, proc: srv} = await startServer([...Object.keys(SRC).map((s) => path.join(runs, s, 'store'))]));
 });
 
 async function open(page, s) {
@@ -108,14 +108,13 @@ test('UXF-019: the right panel is a full-screen sheet opened from Details, never
   expect.soft(await page.locator('#right').isVisible(), 'closed again').toBe(false);
 });
 
-test('UXF-020: the Decisions drawer and the change dialog are full-screen sheets, Close and Approve in view', async ({page}) => {
+test('UXF-020: the Decisions drawer and the change dialog are full-screen sheets, Close in view and the line that says where a decision is answered', async ({page}) => {
   await open(page, 'person');
   await page.locator('#now').getByRole('button', {name: 'Decide'}).click();
   await expect(page.locator('body.drawer-open')).toBeVisible();
   await page.waitForTimeout(450);
   expect.soft(await sheetProblems(page, '#drawer', '#drclose'), 'the drawer is a full-screen sheet').toEqual([]);
-  const approve = page.locator('#drawer .dcard .btn.primary').first();
-  await expect.soft(approve).toBeInViewport({ratio: 1});
+  await expect.soft(page.locator('#drawer #decide-at')).toBeInViewport({ratio: 1});
   expect.soft(await horizontalOverflow(page).then((o) => o.wide), 'nothing in the drawer runs past the screen').toEqual([]);
   await snap(page, 'drawer');
   await page.locator('#drclose').click();

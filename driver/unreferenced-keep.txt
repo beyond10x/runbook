@@ -24,3 +24,4 @@ eval/reports/20261120T231540Z.txt unexamined, listed by the first run
 eval/reports/20261120T232046Z.json unexamined, listed by the first run
 eval/reports/20261120T232814Z.json unexamined, listed by the first run
 eval/reports/20261120T232814Z.txt unexamined, listed by the first run
+instructions/decider/input-checks.md the decider reads it by name when it renders the inputs of a decision (runbook/src/loom_run/decider/inputs.rs)

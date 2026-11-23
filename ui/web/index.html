@@ -31,12 +31,13 @@ try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia(window
     <button id="decbtn" class="decbtn" title="pending person decisions"><span>Decisions</span><b id="deccount">0</b></button>
     <span id="live" class="live connecting"><i></i><span>Connecting</span></span>
   </div>
-  <div id="nowbar" role="group" aria-label="Run state and current step"></div><button id="railbtn" aria-controls="right" title="the panel: Explain, Autonomy, Security, Metrics, Changes, Events, Run log">Details</button>
+  <div id="nowbar" role="group" aria-label="Run state and current step"></div><button id="railbtn" aria-controls="right" title="the panel: Explain, Autonomy, Security, Metrics, Changes, Products, Events, Run log">Details</button>
 
 </header>
 <section id="kpis" aria-label="Run KPIs"></section>
 <section id="now" aria-label="What runs now" aria-live="polite"></section>
 <section id="view-note" aria-label="Runbook view" role="note"></section>
+<section id="product" aria-label="Product of the run" hidden></section>
 <section id="phases" aria-label="Runbook phases"></section>
 <main>
   <aside id="left">
@@ -59,13 +60,12 @@ try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia(window
   </section>
   <aside id="right">
     <nav id="tabs">
-      <button data-tab="explain">Explain</button><button data-tab="autonomy">Autonomy</button><button data-tab="security">Security</button><button data-tab="metrics">Metrics</button><button data-tab="changes">Changes</button><button data-tab="events">Events</button><button data-tab="run">Run log</button><button id="rpclose" class="rp-x" title="collapse the panel" aria-label="collapse the panel"><svg viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button data-tab="explain">Explain</button><button data-tab="autonomy">Autonomy</button><button data-tab="security">Security</button><button data-tab="metrics">Metrics</button><button data-tab="changes">Changes</button><button data-tab="products">Products</button><button data-tab="events">Events</button><button data-tab="run">Run log</button><button id="rpclose" class="rp-x" title="collapse the panel" aria-label="collapse the panel"><svg viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </nav>
     <div id="panel"></div>
   </aside>
 </main>
 <div id="scrim"></div><aside id="drawer" aria-label="Decisions"></aside>
-<div id="toast"></div>
 <dialog id="modal"><form method="dialog"><div class="mh"><h3></h3><button class="ib wide">Close</button></div><pre></pre></form></dialog>
 <dialog id="diffdlg" aria-label="File change"><div class="dwrap"></div></dialog>
 <script type="module" src="app.js"></script>

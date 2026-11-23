@@ -188,7 +188,7 @@ the runtime honours it (`../loom-sdk-and-agent-node.md:170-172`).
   attack success on AgentDojo 39.9 % → 1.0 % (§ 8.1). CaMeL solves 77 % of AgentDojo tasks "with
   provable security" against 84 % undefended (abstract).
 - Needs: the binding (`../loom-sdk-and-agent-node.md:183`) and Substrate profiles
-  (`../layers.md:140-142`).
+  (`../layers.md:148-150`).
 - Guarantees: exactly what the enforcer enforces. A tool list did not enforce GitHub permissions in
   hand-built setups (`DISTILLATION.md:3359-3361`); a static task-independent deny list let the
   injected effect through in 46/75 runs against 47/75 with none (`papers/2609.08371.md:60-66`).
@@ -407,7 +407,7 @@ Per mined fact *(inferred application of ADR 0083)*:
 | action `a` only touched one resource class | Canon protocol | capability scope (ADR 0083) |
 | tool names, argument patterns | Loom binding | `sandbox.tools.allow/deny` per action (`../loom-sdk-and-agent-node.md:260`) |
 | files read | Loom binding | `inputs.files` |
-| hosts reached | Loom binding | `egress` by aperture name; a binding selects among configured apertures, never declares one (`../layers.md:128-131, 222-225`) |
+| hosts reached | Loom binding | `egress` by aperture name; a binding selects among configured apertures, never declares one (`../layers.md:136-139, 222-225`) |
 | tokens, cost, steps used | Loom binding | `budget` at an observed quantile |
 | credentials used | Mandate | a narrower ceiling (`mandate/README.md:20`) |
 

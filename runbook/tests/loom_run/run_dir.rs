@@ -227,7 +227,7 @@ impl World {
         self.ev(T0 + 131, Event::TreeStored { status_exit: 0, verify_exit: 0 });
         self.ev(
             T0 + 131,
-            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), loom_exit: None, stderr_tail: None, exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3 },
+            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), cause: None, loom_exit: None, stderr_tail: None, exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3 },
         );
     }
 }
@@ -242,7 +242,7 @@ fn status_doc(dir: &Path) -> Value {
         "store": format!("{}/store", dir.display()), "workspace": format!("{}/work", dir.display()), "root": ROOT,
         "cases": [
             {"case": ROOT, "protocol": "sdc@8", "protocol_id": "sdc", "protocol_revision": "8", "revision": 2, "outcome": "operating",
-             "open_obligations": [], "stop_next": [], "evidence": [ev("ev-open", "intake_opened", "", "sdc-drive", "intake.open")],
+             "open_obligations": [], "stop_next": [], "evidence": [ev("ev-open", "intake_opened", "", "sdc-node", "intake.open")],
              "runs": [{"action": "intake.open", "attempt": 1, "exit": 0, "retried": false, "retry_of": []}], "approvals": [], "copies": [],
              "case_file": format!("{}/store/case-x.json", dir.display()), "run_log": format!("{}/store/runlog-x.jsonl", dir.display())},
             {"case": CHILD, "name": "intake", "parent": ROOT, "protocol": "sdc-intake@9", "protocol_id": "sdc-intake", "protocol_revision": "9",
@@ -636,7 +636,7 @@ fn a_run_stopped_by_the_spend_cap_is_finished_not_closed_and_not_delivered() {
     w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
     w.ev(
         T0 + 96,
-        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 },
+        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 },
     );
     let m = read_run(&w.dir).unwrap();
     assert_eq!((m.finished, m.closed, m.delivered, m.clean), (true, false, false, false));
@@ -657,6 +657,55 @@ fn a_run_stopped_by_the_spend_cap_is_finished_not_closed_and_not_delivered() {
     // What was spent before the stop stays in the record.
     assert_eq!(m.llm_calls, Some(2));
     assert!(near(m.cost_usd, 0.2), "{}", m.cost_usd);
+}
+
+#[test]
+fn a_hold_and_a_reopen_in_a_run_log_are_read_without_a_change_to_what_the_run_shows() {
+    let _t = Timed::start("a_hold_and_a_reopen_in_a_run_log_are_read_without_a_change_to_what_the_run_shows");
+    let end = |w: &mut World| {
+        let status = status_doc(&w.dir);
+        put(&w.dir.join("tree-status.json"), &status.to_string());
+        w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
+        w.ev(T0 + 96, Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 });
+    };
+    let mut plain = World::new("no-hold", &settings());
+    plain.first_steps();
+    end(&mut plain);
+    let mut held = World::new("hold", &settings());
+    held.first_steps();
+    held.root(vec![
+        rl(0, "StopRecorded", json!({"principal": "operator", "reason": "the budget is under review"})),
+        rl(0, "StopLifted", json!({"principal": "operator", "stop": 4})),
+    ]);
+    held.child(vec![rl(0, "StopRecorded", json!({"principal": "operator", "reason": "x"}))]);
+    end(&mut held);
+    let (a, b) = (read_run(&plain.dir).unwrap(), read_run(&held.dir).unwrap());
+    assert_eq!(b.malformed, 0);
+    assert_eq!((b.finished, b.end_kind.as_str(), b.stop_cause.as_deref()), (a.finished, a.end_kind.as_str(), a.stop_cause.as_deref()));
+    assert_eq!(b.cases.len(), a.cases.len());
+    assert_eq!(b.llm_calls, a.llm_calls);
+}
+
+#[test]
+fn a_run_ended_on_a_refusal_of_loom_names_the_refusal_as_its_cause() {
+    let _t = Timed::start("a_run_ended_on_a_refusal_of_loom_names_the_refusal_as_its_cause");
+    for (name, cause) in [("tree_stopped", "tree_stopped"), ("confinement_refused", "confinement_refused"), ("person_program_failed", "person_program_failed")] {
+        let mut w = World::new(&format!("refused-{name}"), &settings());
+        w.first_steps();
+        let status = status_doc(&w.dir);
+        put(&w.dir.join("tree-status.json"), &status.to_string());
+        w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
+        w.ev(
+            T0 + 96,
+            Event::Ended { outcome: "refused".into(), reason: Some(format!("Loom refused tree run: {name}")), cause: Some(cause.into()), loom_exit: None, stderr_tail: None, exit_code: 12, steps: 5, spent_micro_usd: 0, llm_calls: 2 },
+        );
+        let m = read_run(&w.dir).unwrap();
+        assert_eq!((m.finished, m.closed, m.delivered), (true, false, false), "{name}");
+        assert_eq!(m.stop_cause.as_deref(), Some(cause), "{name}");
+        let stop = json_opt(&w.dir.join("run-stopped.json")).unwrap();
+        assert_eq!(stop["cause"], cause);
+        assert!(stop["reason"].as_str().unwrap().contains(name), "{stop}");
+    }
 }
 
 #[test]

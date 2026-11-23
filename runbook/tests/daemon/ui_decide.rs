@@ -135,14 +135,14 @@ fn a_decision_is_answered_by_json_only() {
 /// The file the page sends commands from. It is plain text of the page: what it must not touch is
 /// found by reading it, and a Playwright test (`ui/test/daemon-decide.spec.mjs`) looks at the browser.
 fn decide_js() -> String {
-    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/web/decide.js")).expect("ui/web/decide.js")
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/daemon/decide.js")).expect("ui/daemon/decide.js")
 }
 
 #[test]
 fn the_page_keeps_the_token_in_memory_and_writes_no_markup() {
     let js = decide_js();
     for banned in ["localStorage", "sessionStorage", "indexedDB", "document.cookie", "history.", "location.", "innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "setAttribute('style'", "XMLHttpRequest"] {
-        assert!(!js.contains(banned), "ui/web/decide.js uses {banned}");
+        assert!(!js.contains(banned), "ui/daemon/decide.js uses {banned}");
     }
     // a command carries the bearer and JSON, and never the cookie
     assert!(js.contains("authorization") && js.contains("application/json") && js.contains("credentials: 'omit'"), "the command's headers");

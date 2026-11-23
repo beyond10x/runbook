@@ -1,5 +1,5 @@
 // Lenses over the same data: phases, autonomy, security, metrics.
-import {actorOf, ACTOR_LABEL, principalKind, caseState, evalAt, claimHistory, caseMetrics, describeEvent, seqOfEvidence} from './model.js';
+import {actorOf, ACTOR_LABEL, principalKind, caseState, evalAt, claimHistory, caseMetrics, describeEvent, seqOfEvidence, claimsRecorded, CLAIMS_NOT_RECORDED} from './model.js';
 import {principalOf, autopilot, actorLabel, runSettings} from './principal.js';
 import {phaseItems, phaseStages, absentStages} from './view.js';
 
@@ -29,8 +29,10 @@ export function phaseStates(cases) {
   return phaseDefs(cases).map((ph) => {
     const cs = byP[ph.p] || [];
     if (!cs.length) return {...ph, status: 'none', detail: `no ${ph.p} case yet`, cases: []};
+    // a phase over cases of a run of the runner that wrote no evaluation has no claims count: it says so, never 0/0
+    const unrec = cs.every((c) => !claimsRecorded(c));
     let truths = 0, total = 0, invalidated = 0;
-    const lines = [];
+    const lines = unrec ? [CLAIMS_NOT_RECORDED] : [];
     for (const c of cs) {
       const ev = evalAt(c, null);
       for (const cl of ph.claims) {
@@ -49,7 +51,7 @@ export function phaseStates(cases) {
     }
     const waiting = cs.find((c) => ['awaiting_authority', 'awaiting_person'].includes(caseState(c).state));
     const stuck = cs.find((c) => caseState(c).state === 'stuck');
-    let status = total && truths === total ? 'done' : truths ? 'partial' : 'active';
+    let status = unrec ? 'unrecorded' : total && truths === total ? 'done' : truths ? 'partial' : 'active';
     if (status !== 'done' && waiting && !openSeen.has(ph.p)) status = 'waiting';
     if (status !== 'done') openSeen.add(ph.p);
     if (status !== 'done' && stuck) status = 'stuck';
@@ -66,11 +68,11 @@ export function renderPhases(cases, active = new Map()) {
   const st = phaseStates(cases);
   const byId = new Map(st.map((p) => [p.id, p]));
   const firstOpen = st.find((p) => p.status !== 'done')?.id;
-  const word = (p) => (p.status === 'none' ? '—' : p.status === 'done' ? 'done' : p.status === 'waiting' ? 'needs you' : p.status === 'stuck' ? 'stuck' : `${p.truths}/${p.total}`);
+  const word = (p) => (p.status === 'none' ? '—' : p.status === 'unrecorded' ? 'not recorded' : p.status === 'done' ? 'done' : p.status === 'waiting' ? 'needs you' : p.status === 'stuck' ? 'stuck' : `${p.truths}/${p.total}`);
   const stages = (phaseItems().length ? phaseStages() : [['Protocols', st.map((p) => p.id)]]).map(([name, ids]) => {
     const ps = ids.map((id) => byId.get(id));
     const done = ps.filter((p) => p.status === 'done').length;
-    return `<div class="stage" data-key="st:${esc(name)}" style="flex-grow:${ps.length}"><div class="stage-h"><span>${esc(name)}</span><span class="stage-n">${done}/${ps.length}</span></div><div class="stage-row">${ps.map((p) => `<button data-key="ph:${esc(p.id)}" class="phase ph-${p.status}${p.id === firstOpen ? ' ph-front' : ''}${active.has(p.id) ? ` ph-live lk-${active.get(p.id).kind}` : ''}" data-phase="${esc(p.id)}" data-v="${p.status}:${p.truths}" title="${esc(`${p.label}${p.doc ? ` — ${p.doc}` : ''}\nDerived from ${p.p} claims: ${p.claims.join(', ')}\n${p.detail}${active.has(p.id) ? `\nnow ${active.get(p.id).verb} ${active.get(p.id).action} in ${active.get(p.id).case}` : ''}`)}"><span class="rail"><span class="pdot"></span></span><span class="pl">${esc(p.short || p.label)}</span><span class="ps">${active.has(p.id) ? `<span class="ps-live">${esc(active.get(p.id).verb)}</span>` : esc(p.source || word(p))}${p.invalidated ? `<span class="inv" title="a TRUE claim of this phase was invalidated ${p.invalidated}× by a revision"> ↺${p.invalidated}</span>` : ''}</span></button>`).join('')}</div></div>`;
+    return `<div class="stage" data-key="st:${esc(name)}" style="flex-grow:${ps.length}"><div class="stage-h"><span>${esc(name)}</span><span class="stage-n">${ps.some((p) => p.status === 'unrecorded') && ps.every((p) => ['unrecorded', 'none'].includes(p.status)) ? CLAIMS_NOT_RECORDED : `${done}/${ps.length}`}</span></div><div class="stage-row">${ps.map((p) => `<button data-key="ph:${esc(p.id)}" class="phase ph-${p.status}${p.id === firstOpen ? ' ph-front' : ''}${active.has(p.id) ? ` ph-live lk-${active.get(p.id).kind}` : ''}" data-phase="${esc(p.id)}" data-v="${p.status}:${p.truths}" title="${esc(`${p.label}${p.doc ? ` — ${p.doc}` : ''}\n${p.status === 'unrecorded' ? '' : `Derived from ${p.p} claims: ${p.claims.join(', ')}\n`}${p.detail}${active.has(p.id) ? `\nnow ${active.get(p.id).verb} ${active.get(p.id).action} in ${active.get(p.id).case}` : ''}`)}"><span class="rail"><span class="pdot"></span></span><span class="pl">${esc(p.short || p.label)}</span><span class="ps">${active.has(p.id) ? `<span class="ps-live">${esc(active.get(p.id).verb)}</span>` : esc(p.source || word(p))}${p.invalidated ? `<span class="inv" title="a TRUE claim of this phase was invalidated ${p.invalidated}× by a revision"> ↺${p.invalidated}</span>` : ''}</span></button>`).join('')}</div></div>`;
   }).join('');
   const t = absentStages().map((x) => {
     if (cases.some((c) => new RegExp(x.protocol_pattern).test(c.case?.protocol || ''))) return '';
@@ -86,18 +88,16 @@ export function humanNext(cases, meta) {
     const s = caseState(c);
     if (s.state !== 'awaiting_authority' && s.state !== 'awaiting_person') continue;
     if (Array.isArray(s.next) && s.next.some((n) => n && n.command)) {
-      for (const n of s.next) out.push({case: c, action: n.action, why: n.decides || `${n.action}: ${s.label}`, cmd: n.command, from: 'the driver (verdict event `next`)'});
+      for (const n of s.next) out.push({case: c, action: n.action, why: n.decides || `${n.action}: ${s.label}`, cmd: n.command, from: 'the run (verdict event `next`)'});
       continue;
     }
     const ev = evalAt(c, null);
-    const base = `${meta.drive} --canon ${meta.canon} --case-dir ${c.dir} approve --at $(date -u +%FT%TZ)`;
     for (const [a, x] of Object.entries(ev?.actions || {})) {
       const b = c.bindings?.[a] || {};
       if (x.status === 'approval-required') {
-        for (const r of x.reasons || []) if (r.capability) out.push({case: c, action: a, why: `${a} is approval-required: capability ${r.capability} has decision ${r.decision}`, cmd: `${base} --capability ${r.capability} --principal <you>${b.manual ? ` --action ${a}` : ''}`});
+        for (const r of x.reasons || []) if (r.capability) out.push({case: c, action: a, why: `${a} is approval-required: capability ${r.capability} has decision ${r.decision}`, cmd: null});
       } else if (x.status === 'admissible' && b.manual && s.state === 'awaiting_person') {
-        const cap = c.ir.actions[a]?.requires?.[0]?.capability;
-        out.push({case: c, action: a, why: `${a} is admissible and bound \`manual\`: a person takes it`, cmd: `${base}${cap ? ` --capability ${cap}` : ''} --principal <you> --action ${a}`});
+        out.push({case: c, action: a, why: `${a} is admissible and bound \`manual\`: a person takes it`, cmd: null});
       }
     }
     if (!out.some((o) => o.case === c)) out.push({case: c, action: null, why: s.label, cmd: null});
@@ -349,7 +349,7 @@ export function renderMetrics(cases, run, meta, selected) {
     const m = sel.m;
     const truths = sel.c.events.filter((e) => e.event === 'evaluated' && sel.c.evaluations[e.file]).map((e) => Object.values(sel.c.evaluations[e.file].claims || {}).filter((v) => v.value === 'true').length);
     h += `<div class="sect">Selected · ${esc(sel.c.id)}</div><div class="tiles">
-      ${tile('Claims TRUE', `${truths[truths.length - 1] ?? 0}<small>/${m.claims}</small>`, '', truths, 'claims TRUE at each stored evaluation; a dip is an invalidation', 'true')}
+      ${claimsRecorded(sel.c) ? tile('Claims TRUE', `${truths[truths.length - 1] ?? 0}<small>/${m.claims}</small>`, '', truths, 'claims TRUE at each stored evaluation; a dip is an invalidation', 'true') : tile('Claims TRUE', '<span class="na">not recorded</span>', '', null, `${CLAIMS_NOT_RECORDED}: the runner writes no evaluations/*.json`, 'true')}
       ${tile('States', m.states?.toLocaleString(), 'S1', null, m.stateSource)}
       ${tile('Check findings', m.findings, 'S3–S7', null, 'canon check findings for this protocol revision')}
       ${tile('Actions', `${m.actions}<small> · ${m.llmActions} LLM</small>`, '', null, `${m.personActions} person, ${m.reviewActions} review`)}

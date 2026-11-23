@@ -65,7 +65,7 @@ on in its variant (`settings`, a launch setting of `sdc-experiment`, `LAUNCH` in
 the default only after its record's verdict held (step 6). With every switch at its default a run
 does what main did before these changes: the `<switch>-default` cycles read one re-drive of the
 committed stub recording (run `switches-default`) with every call recorded, none diverged and no
-prompt digest changed (`scripts/run-finding-cycles.sh`).
+prompt digest changed (held by the Rust tests of `runbook/tests/loom_run/replay.rs`, `task test:replay`; `docs/cycles-suite.md`).
 
 | Switch | Values (default first) | Setting | Turns on | Record | Cycles (default; on) |
 |---|---|---|---|---|---|

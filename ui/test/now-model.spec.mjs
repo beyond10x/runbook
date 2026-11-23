@@ -1,6 +1,6 @@
 // The in-flight derivation of web/now.js, on hand-made cases: no server, no browser.
 import {test, expect} from '@playwright/test';
-import {inFlight, nowState, waitOf, recentSteps, executorOf, phaseOf, parseDiff, fmtDur, fmtAgo, changesFor, driverState, renderNow, renderChanges, renderDiff, toolText} from '../web/now.js';
+import {inFlight, nowState, waitOf, recentSteps, executorOf, phaseOf, parseDiff, fmtDur, fmtAgo, changesFor, liveState, renderNow, renderChanges, renderDiff, toolText} from '../web/now.js';
 import {highlightLine, langOf} from '../web/highlight.js';
 import {unifiedDiff} from '../udiff.mjs';
 import {useSdcView} from './sdc-view.mjs';
@@ -11,7 +11,7 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure func
 const ir = {protocol: {id: 'sdc.story', revision: 1},
   actions: {'change.implement': {may_produce: [{evidence: 'change_built'}]}, 'tests.run': {may_produce: [{evidence: 'tests_result'}]}, 'change.merge': {requires: [{capability: 'owner.approve'}], may_produce: [{evidence: 'merge_record'}]}},
   claims: {'change.built': {true_when: {evidence: {kind: 'change_built', subject: 'impl'}}}, 'tests.pass': {true_when: {evidence: {kind: 'tests_result', subject: 'impl'}}}, 'change.merged': {true_when: {evidence: {kind: 'merge_record', subject: 'impl'}}}}};
-const bindings = {'change.implement': {argv: ['/x/tools/llm-node.sh', 'change.implement'], llm: {model: 'claude-haiku-5-5', max_turns: 30}, subject: 'impl'},
+const bindings = {'change.implement': {argv: ['/x/tools/agent-node', 'change.implement'], llm: {model: 'claude-haiku-5-5', max_turns: 30}, subject: 'impl'},
   'tests.run': {argv: ['/x/tools/sdc-tool.sh', 'run-tests'], subject: 'impl'}, 'change.merge': {argv: ['/x/tools/sdc-tool.sh', 'merge'], subject: 'impl'}, 'spec.copy': {copy: {kind: 'spec_source', from: 'IDEA-1.spec'}}};
 const mk = (id, events, extra = {}) => ({id, rel: id, depth: extra.parent ? 1 : 0, parent: extra.parent || null, ir, bindings, case: {protocol: 'sdc.story', artifacts: {impl: {revision: 'tabc123'}}}, evidence: {}, evaluations: {}, times: {}, events: events.map((e, i) => ({seq: i, at: '2026-11-21T10:00:00Z', ...e})), ...extra});
 
@@ -60,7 +60,7 @@ test('two cases running the same agent action pair with their calls in start ord
 });
 
 test('a wait names who, for what capability and subject; a decider call in progress takes it', () => {
-  const next = [{action: 'change.merge', command: 'sdc-drive --case-dir /s/S1 approve --at "$(date)" --capability owner.approve --principal operator --action change.merge', decides: 'approve impl revision tabc123 (read /s/S1/work/impl)'}];
+  const next = [{action: 'change.merge', command: 'a-runner --case-dir /s/S1 approve --at "$(date)" --capability owner.approve --principal operator --action change.merge', decides: 'approve impl revision tabc123 (read /s/S1/work/impl)'}];
   const a = mk('S1', [{event: 'opened'}, {event: 'awaiting_authority', next}], {times: {1: 3000}});
   const w = waitOf(a);
   expect(w.asks[0]).toMatchObject({action: 'change.merge', capability: 'owner.approve', principal: 'operator', subject: 'impl', revision: 'tabc123', handoff: false});
@@ -98,44 +98,39 @@ test('just finished: newest first, with observed durations, else the LLM call’
   expect(recentSteps([b], null, 1)[0]).toMatchObject({dur: 2500, durSrc: 'driver observed_at'});
 });
 
-const drv = (extra = {}) => ({file: false, pid: null, started_at: null, argv: null, alive: false, lock_pid: null, lock_alive: false, observed: false, ...extra});
 const started = (id, extra = {}) => mk(id, [{event: 'opened'}, {event: 'action_started', action: 'tests.run', argv: bindings['tests.run'].argv}], {tree: 'S', times: {1: 2000}, ...extra});
 
-test('driver state: driver.json with a live pid, a dead pid, a lock only, observed without a file, an old run', () => {
+test('liveness: only a case store of the old runtime is not live; anything else says nothing', () => {
   const c = started('S');
-  const live = (d) => ({drivers: {S: d}});
-  expect(driverState(c, live(drv({file: true, pid: 77, started_at: '2026-11-21T10:00:00.000Z', alive: true, argv: ['sdc-drive', 'run']})))).toMatchObject({state: 'attached', pid: 77, started: Date.parse('2026-11-21T10:00:00.000Z'), via: 'driver.json'});
-  expect(driverState(c, live(drv({file: true, pid: 77, alive: false})))).toMatchObject({state: 'gone', why: 'driver.json names pid 77, which is not running'});
-  expect(driverState(c, live(drv({lock_pid: '5', lock_alive: true, observed: true})))).toMatchObject({state: 'attached', pid: '5', via: 'lock'});
-  expect(driverState(c, live(drv({observed: true})))).toMatchObject({state: 'gone'});
-  expect(driverState(c, live(drv()))).toEqual({state: 'unknown'});
-  expect(driverState(c, {})).toEqual({state: 'unknown'});
-  expect(driverState(c, {drivers: {}})).toEqual({state: 'unknown'});
+  expect(liveState(c, {liveness: {state: 'history', why: 'a case store of the old driver: nothing runs it'}})).toMatchObject({state: 'gone', why: 'a case store of the old driver: nothing runs it'});
+  expect(liveState(c, {liveness: {state: 'unknown', why: 'the runner writes no record of a live process'}})).toEqual({state: 'unknown'});
+  expect(liveState(c, {liveness: {state: 'ended'}})).toEqual({state: 'unknown'});
+  expect(liveState(c, {})).toEqual({state: 'unknown'});
+  expect(liveState(c, null)).toEqual({state: 'unknown'});
 });
 
-test('a started step with a gone driver is not running; with a live or unknown driver it is', () => {
+test('a started step of a run that is not live is not running; with an unknown liveness the page says unknown', () => {
   const a = started('S');
-  const gone = nowState([a], {records: [], drivers: {S: drv({file: true, pid: 9, alive: false})}});
+  const hist = {records: [], liveness: {state: 'history', why: 'a case store of the old driver: nothing runs it'}};
+  const gone = nowState([a], hist);
   expect(gone.mode).toBe('gone');
   expect(gone.running).toEqual([]);
-  expect(gone.gone.map((r) => [r.c.id, r.action, r.driver.state])).toEqual([['S', 'tests.run', 'gone']]);
-  expect(nowState([a], {records: [], drivers: {S: drv({observed: true})}}).mode).toBe('gone');
-  const up = nowState([a], {records: [], drivers: {S: drv({file: true, pid: 9, alive: true})}});
-  expect(up.mode).toBe('running');
-  expect(up.driver.attached).toHaveLength(1);
+  expect(gone.gone.map((r) => [r.c.id, r.action, r.runner.state])).toEqual([['S', 'tests.run', 'gone']]);
+  expect(gone.liveness).toBe('history');
+  const unk = nowState([a], {records: [], liveness: {state: 'unknown', why: 'the runner writes no record of a live process'}});
+  expect(unk.mode).toBe('running');
+  expect(unk.runner.gone).toEqual([]);
+  expect(unk.liveness).toBe('unknown');
   const old = nowState([a], {records: []});
   expect(old.mode).toBe('running');
-  expect(old.driver).toEqual({attached: [], gone: []});
   const html = (st) => renderNow(st, 9000);
-  expect(html(gone)).toContain('Driver gone');
-  expect(html(gone)).not.toContain('no driver attached');
-  expect(html(gone)).toMatch(/a started step has no live driver, last activity [\d: APM]+/);
+  expect(html(gone)).toContain('Not live');
+  expect(html(gone)).toMatch(/a started step never finished, the run is not live, last activity [\d: APM]+/);
   expect(html(gone)).not.toContain('>Running<');
-  expect(html(up)).toContain('driver attached');
-  expect(html(up)).toContain('>Running<');
-  const o = html(old);
-  expect(o).toContain('>Running<');
-  expect(o).not.toContain('now-drv');
+  expect(html(unk)).toContain('>Running<');
+  expect(html(unk)).toMatch(/live state unknown, last activity [\d: APM]+/);
+  expect(html(unk)).not.toContain('driver attached');
+  expect(html(unk)).not.toContain('Not live');
 });
 
 test('the observed start of a step dates it, and says where the time came from', () => {
@@ -164,7 +159,7 @@ test('an agent call joins its case by request.json.case when present, else by ac
 });
 
 test('a wait on scope.answer names the question it belongs to', () => {
-  const next = [{action: 'scope.answer', command: 'sdc-drive --case-dir /s/S1 approve --at "$(date)" --capability scope.answer --principal operator --action scope.answer', decides: 'approve questions revision tq1 (read /s/S1/work/questions.yaml)'}];
+  const next = [{action: 'scope.answer', command: 'a-runner --case-dir /s/S1 approve --at "$(date)" --capability scope.answer --principal operator --action scope.answer', decides: 'approve questions revision tq1 (read /s/S1/work/questions.yaml)'}];
   const scope = {questions: [{id: 'q2', question: 'Who may cancel an invoice?', status: 'open', answer: null, answered_by: null, awaiting: true},
     {id: 'q4', question: 'Which currency?', status: 'changed', answer: 'EUR', answered_by: null, awaiting: false}]};
   const a = mk('S1', [{event: 'opened'}, {event: 'awaiting_authority', next}], {scope, times: {1: 3000}});

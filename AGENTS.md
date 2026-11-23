@@ -13,26 +13,28 @@
   with child cases: idea, intake, direction, epic, spec, plan, story, release (`docs/protocol-notes.md:3-16`).
 - The stage is derived from facts (files in the repository, recorded run results), never from a
   stored phase; a passing ESS gate marks the spec complete (`docs/phases.md:3-6`, `:34-35`).
-- `sdc-drive` (`driver/`) runs one case tree on Canon: it reads `canon-decision/1`, runs the tool
-  bound to one admissible action, records `canon-evidence/1`, evaluates again (`docs/driver.md:3-6`).
+- `runbook run` (`runbook/src/loom_run/`) runs one case tree through Loom on Canon: it reads
+  `canon-decision/1`, runs the tool bound to one admissible action, records `canon-evidence/1`,
+  evaluates again (`docs/loom-run.md`; `docs/driver.md:3-11`).
 - An LLM is only ever one action's executor; its output is an artifact revision, never evidence
-  and never the next state (`docs/driver.md:5-6`).
-- Runbook is an application on Loom; the driver's runtime parts are a temporary copy of what Loom
-  must provide (`docs/layers.md:51`; `docs/driver.md:43-45`).
+  and never the next state (`docs/driver.md:3-11`).
+- Runbook is an application on Loom, and Loom is the runtime: the driver's temporary copy of it is
+  deleted, and `driver/` is the crate `sdc-tools` of the bound programs and tools (`docs/layers.md`,
+  "State now"; `docs/driver.md`, "Now").
 
 ## Where Runbook is going
 
 - The target (the operator, 2026-11-22): one prebuilt `runbook` binary that links Canon and Loom as
-  crates and needs no `canon`, `b10x-loom` or `sdc-drive` at run time. `runbook run` runs a case in
+  crates and needs no `canon` or `b10x-loom` at run time. `runbook run` runs a case in
   process; `runbook serve` (also `runbookd`) is a daemon for many runs with an API specified in ESS,
   SSE events, MCP and the embedded UI.
 - Each run has a confinement level (default confined) and the daemon has a floor below which it
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
-- The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
-  `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`; the runner no longer starts `decider.sh`, it is for the driver until then) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The pinned Loom
-  commit is `5b3142c7` (branch `wave/2026-11-21-w7` of the engine, on the forge), for the child binary of `runbook run --loom` and for the library the
-  crate links. A run of `stub-cycle` through `runbook loom-run` (the former name of `runbook run`) on `5af3f9c2`
+- The driver runtime (its main file, the trial and cycles scripts, the model-node and decider
+  shell tools) is deleted: a run on Loom matched the driver's (`story:parity-run-on-loom`), then
+  `story:driver-runtime-removed` removed it. `runbook run` is the way to run a case. The pinned Loom
+  commit is `c9b4c1777c646afdfae843dae691da36859f56ee` (`c9b4c177`; Loom 0.59.0, branch `wave/2026-11-21-w7` of the engine, on the forge, in no tag; it replaced `db2726ff`), for the library the
+  crate links; the child binary of `runbook run --loom` is still the one of `70b0e6e0` (`docs/loom-run.md`). A run of `stub-cycle` through `runbook loom-run` (the former name of `runbook run`) on `5af3f9c2`
   (`--confinement local`, scripted approvals, no model) compared `parity: identical` with the
   driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
   with a model. The first equal comparison was made against `2c0a6f48` (`docs/parity.md`, "First
@@ -43,23 +45,23 @@
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
-- `bindings/` the nine bindings in Loom's `loom.bindings/1`, not run yet (the driver runs `driver/examples/sdc/*.bindings.json`); `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`). `bindings/tools/` the programs both formats run (`sdc-tool.sh`, `llm-node.sh` (the old driver only: under Loom the model step is `sdc-node`), the adapters, `decider.sh`, `node-classes.json`): driver mode, or Loom mode when `LOOM_CASE` is set.
-- `instructions/` the model's instruction texts, one file per prompt part (`<action>.md`, `shared/`, `decider/`), read and filled by `sdc-node` (Loom), `bindings/tools/llm-node.sh` (the old driver) and `decider.sh` (the runner's own decider, `runbook/src/loom_run/decider/`, reads `decider/` too), and, for `change.implement.request.*`, `conformance.table*` and `run.unstick*`, by the Rust binaries `sdc-reply implement-run`, `sdc-conform` and `sdc-unstick` through `driver/src/instructions.rs`; `golden/` holds the prompt each makes on stub inputs, checked byte for byte by `driver/tests/bugfix_prompt.rs` (`docs/driver.md`, "Instructions").
-- `cycles/` the finding cycles as data: `cycles/suite.yaml` lists every cycle of `scripts/run-finding-cycles.sh` with its state; `task check:cycles-suite` runs `runbook check`, which holds the two equal and checks the rest of the text layout (bindings, instruction files, views).
+- `bindings/` the nine bindings in Loom's `loom.bindings/1`, run by `runbook run`; `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`). `driver/examples/sdc/*.bindings.json` are the source of the documentation site's data. `bindings/tools/` the programs the bindings run (`sdc-tool.sh`, the adapters, `node-classes.json`): Loom mode when `LOOM_CASE` is set; the model step is the program `sdc-node`.
+- `instructions/` the model's instruction texts, one file per prompt part (`<action>.md`, `shared/`, `decider/`), read and filled by `sdc-node` and by the runner's own decider (`runbook/src/loom_run/decider/`, reads `decider/` too), and, for `change.implement.request.*` and `conformance.table*`, by the Rust binaries `sdc-reply implement-run` and `sdc-conform` through `driver/src/instructions.rs`; `golden/` holds the prompt each makes on stub inputs, checked byte for byte by `driver/tests/bugfix_prompt.rs` (`docs/driver.md`, "Instructions").
+- `cycles/` the finding cycles as data: `cycles/tree-suite.yaml`, run by `runbook test` (`task test:cycles-loom`; `docs/cycles-suite.md`); `task check:cycles-suite` runs `runbook check`, which checks the text layout (bindings, instruction files, views).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive`, with the library `sdc_tools` (`driver/src/lib.rs`; `driver/src/reply/` holds what `sdc-reply` does, `runbook` links it) (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess and `driver/canon-pin.json` the Canon that Runbook calls (`canon_resolve` in `scripts/evaluate-cases.sh` checks the version; no script builds or enters a Canon checkout).
+- `driver/` Rust crate `sdc-tools`, with the library `sdc_tools` (`driver/src/lib.rs`; `driver/src/reply/` holds what `sdc-reply` does, `runbook` links it) (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess; the Canon that Runbook calls is the library `runbook` links (`runbook canon`, `runbook/src/canon_cmd.rs`; the pin is `runbook/Cargo.lock`; no script builds or enters a Canon checkout).
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
-- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version`, `runbook parity` (`src/parity.rs`: summarize, compare, approvals; `docs/parity.md`) and `runbook run` (`src/loom_run/`; in this process, `here.rs` is its option list, and `--detach` is the daemon client; the same code was first the subcommand `loom-run`: the loop, the caps and the spend ledger, the decider, the answers file `bindings/tools/answers.yaml` (`answers.rs`, `decider/ask.rs`, `run_loop/declared.rs`, the program `driver/src/bin/sdc-answers.rs`; given through the host, so the same on the child and in the library), the copy of the bindings, the private directory of the login link, the run directory writer; `docs/loom-run.md`, `docs/loom-run-settings.md`, `docs/loom-run-directory.md`, `docs/loom-run-decisions.md`; tests in `runbook/tests/loom_run/` against a fake `b10x-loom`; with no `--loom` it runs through Loom as a library, with the gate tests in `runbook/tests/loom_run/inproc.rs`; the slow lanes are `task test:loom-real` against the real binary and `task test:loom-in-process` comparing the two ways). `ui` and the other commands are not built (`story:runbook-cli-skeleton`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version`, `runbook parity` (`src/parity.rs`: summarize, compare, approvals; `docs/parity.md`) and `runbook run` (`src/loom_run/`; in this process, `here.rs` is its option list, and `--detach` is the daemon client; the same code was first the subcommand `loom-run`: the loop, the caps and the spend ledger, the decider, the answers file `bindings/tools/answers.yaml` (`answers.rs`, `decider/ask.rs`, `run_loop/declared.rs`, the program `driver/src/bin/sdc-answers.rs`; given through the host, so the same on the child and in the library), the copy of the bindings, the private directory of the login link, the run directory writer; `docs/loom-run.md`, `docs/loom-run-settings.md`, `docs/loom-run-directory.md`, `docs/loom-run-decisions.md`; tests in `runbook/tests/loom_run/` against a fake `b10x-loom`; with no `--loom` it runs through Loom as a library, with the gate tests in `runbook/tests/loom_run/inproc.rs`; the slow lanes are `task test:loom-real` against the real binary, `task test:loom-in-process` comparing the two ways and `task test:replay`, the nine tests of `runbook/tests/loom_run/replay.rs` that read the six re-drives of `runbook run --recorded` made once by the nextest setup step `replay-runs`, and `task test:bugfix-slow`, the two `#[ignore]`d bug-fix tests of `runbook/tests/loom_run/bugfix.rs`). `ui` and the other commands are not built (`story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
-- `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
+- `views/` the view file each runbook ships for the inspector: phases, file kinds, decisions (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
-- `eval/` eval runner, adversaries, levels, reports (`docs/eval-design.md`).
+- `eval/` levels, personas, quality checks and reports; the scripts that drove the old driver are deleted, and `reports/` and `baseline.json` are the record of its evaluation, not ported (`eval/README.md`, `docs/eval-design.md`).
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
-- `scripts/` check, evaluate, trial and full-cycle scripts.
+- `scripts/` check and evaluate scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
-- `docs/` design notes and research results; start with `phases.md`, `driver.md`, `orchestration.md`.
+- `docs/` design notes and research results; start with `phases.md`, `loom-run.md`, `orchestration.md`.
 - `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
 - `.engineering/planning/` the AEP planning store.
 
@@ -71,7 +73,7 @@
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
 - The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
-- The `runbook` crate tests run as `slot task test:runbook` (cargo-nextest, `runbook/.config/nextest.toml`; the forge runs the same task in `.github/workflows/pages.yml` for a code change): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `runbook/tests/cli.rs` is the one integration-test binary (the daemon's tests are modules under `runbook/tests/daemon/`). The daemon reads one clock (`runbook/src/clock.rs`): a test that needs an exact instant builds the daemon in process with `Daemon::start_with_clock` and a `SetClock`; no option, environment variable or request sets a clock. Both test tasks pass `--color never` to every nextest call whose log they parse (the forge sets `CARGO_TERM_COLOR=always` through `dtolnay/rust-toolchain`); `task check:ci-paths` fails when a nextest call of `Taskfile.yml` lacks it.
+- The `runbook` crate tests run as `slot task test:runbook` (cargo-nextest, `runbook/.config/nextest.toml`; the forge runs the same task in `.github/workflows/pages.yml` for a code change): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `runbook/tests/cli.rs` is the one integration-test binary (the daemon's tests are modules under `runbook/tests/daemon/`). The daemon reads one clock (`runbook/src/clock.rs`): a test that needs an exact instant builds the daemon in process with `Daemon::start_with_clock` and a `SetClock`; no option, environment variable or request sets a clock. Both test tasks pass `--color never` to every nextest call whose log they parse (the forge sets `CARGO_TERM_COLOR=always` through `dtolnay/rust-toolchain`); `task check:ci-paths` fails when a nextest call of `Taskfile.yml` lacks it. `test:runbook` puts a trap `ess` (`scripts/host-tool-traps/ess`, exit 127) first on the `PATH` of its tests, so a test that reaches the host's `ess` fails on this host as it does on the forge: a test brings its own stand-in `ess` and its own `PATH` (`exit_classes` does).
 - The engine (`runbook/src/engine/`, `docs/engine.md`) is the Loom runtime of the daemon: library calls into the pinned Loom (`runbook/Cargo.toml`, `rev`), the per-run store under the daemon's state directory, no Loom or Canon process. The gate-lane tests are `runbook/tests/daemon/engine.rs` over `runbook/tests/fixtures/engine-runbook/`; the slow lane is `task test:engine-real`. Cargo reaches Loom through its forge URL; a local build that needs a clone uses `GIT_CONFIG_*` `url.<clone>.insteadOf` in the shell only, never a `[patch]` or a path in a committed file.
 - MCP (`runbook mcp`, `runbook serve --mcp`; `runbook/src/mcp/`, `docs/mcp.md`) is a face of the command layer: a tool calls `api::routes::command_answer` or `view_answer` and returns the route's body, and its input schema is derived from the OpenAPI document, never typed by hand; a new tool is a row in `mcp/tools.rs`.
 - The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
@@ -80,7 +82,7 @@
   A test child (server, fixture player, daemon) is started with `spawnChild` or `startServer` of `ui/test/child.mjs` and `ui/test/serve.mjs`, never with `spawn`: it ends with its parent, also after SIGKILL (`ui/test/guard.mjs`, `ui/test/child.spec.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
-  confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is
+  confinement and process start (`docs/layers.md:55-60`). A capability missing in one of them is
   requested from that repository's session, not patched here. Record the request in
   `docs/canon-requests.md` or the planning store (stories marked blocked upstream).
 - Planning lives in `.engineering/planning/` and changes only through the `aep` CLI
@@ -94,17 +96,17 @@
   `scripts/check-bindings.sh` refuses a mismatch.
   `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
-  a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
+  a change to a protocol, the Canon pin in `runbook/Cargo.lock` or the script, run `scripts/check-protocols.sh --record`
   and commit the ledger; `task check:protocols:slow` regenerates it in full and compares bytes.
   The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
   and result fields, so a hand edit of a result fails it. CI runs the slow lane
-  (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
+  (`.github/workflows/protocols.yml`) when `protocol/**`, `runbook/Cargo.lock`, `runbook/src/canon_cmd.rs` or the script changed.
 - After a merge, `scripts/check-bindings.sh` runs before the push (build the driver first): a merge
   can leave `website/data/protocols/index.json` stale without a conflict.
-- The full cycle run starts as a systemd unit, which has `LANG=de_DE.UTF-8` on this host. A tool
-  that reads a number printed by bash or a program does not depend on the decimal separator
-  (`EPOCHREALTIME` holds a comma there). A cycle that passes in a terminal and fails in the unit is
-  checked for the locale first.
+- A run that `sdc-experiment run` starts is a systemd unit, which has `LANG=de_DE.UTF-8` on this
+  host. A tool that reads a number printed by bash or a program does not depend on the decimal
+  separator (`EPOCHREALTIME` holds a comma there). A run that passes in a terminal and fails in the
+  unit is checked for the locale first.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the
@@ -113,14 +115,20 @@
 - No `/home/<name>/` path in any committed file: write repository-relative paths, sibling-relative
   paths (`../canon/…`) in docs, and `$HOME`-based or argument paths in scripts.
 - A run that cannot continue (a defect that needs a code change, a missing capability, or a
-  decision nobody will take) is stopped at once by whoever finds it, with
-  `SDC_PRINCIPAL=<principal> scripts/run-trial.sh <run> --stop "<reason and the fix it waits on>"`.
+  decision nobody will take) is stopped at once by whoever finds it. A run of an experiment record
+  is stopped with
+  `sdc-experiment stop <record | id> --run <run name> --reason "<reason and the fix it waits on>"`
+  (it writes that run's stop record and stops its unit; without `--run` it does so for every open
+  run of the record and sets the record `abandoned`; `docs/workflow-metrics.md`). Any other
+  `runbook run` is stopped with SIGTERM or SIGINT (it ends as `stopped: signal`, exit 7;
+  `docs/loom-run.md`).
   No run is left waiting when no person or agent is working on it. Demo and fixture runs are never
   listed beside real runs without a label (the operator, 2026-11-21).
-- Trial runs use `--autopilot --keep-going` to collect every defect of a run (`defects.jsonl`)
-  before the fixes are made in one batch. A forced run (`forced N` in `status.json` and the
-  closed line) is evidence for defects and never counts as an end-to-end pass; the pass is a
-  later run without the flag (the operator, 2026-11-21).
+- Keep-going (the driver's option to collect every defect of a run in `defects.jsonl`) is not
+  ported: `runbook run` has none. A forced run of the
+  former driver (`forced N` in `status.json` and the closed line) is evidence for defects and never
+  counts as an end-to-end pass; the pass is a later run without the flag (the operator,
+  2026-11-21).
 - A real run belongs to an experiment record `experiments/<id>.yaml` (`docs/workflow-metrics.md`
   § 7), whose report and `experiments/INDEX.md` account for it. The operator, 2026-11-21: "make
   sure to organize these trials in a somewhat scientific and organized, manageable and scaling

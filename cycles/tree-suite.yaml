@@ -159,10 +159,9 @@ cycles:
           is: "1 constraint (r3), 0 dropped, 0 untraced"
 
   - name: scope-answer
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}]
     decide:
-      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+      - {take: approve, case: root.intake, action: scope.answer, principal: "person:owner", optional: true}
     expect:
       exit: 0
       outcome: operating
@@ -171,7 +170,7 @@ cycles:
     pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}]
     decide:
-      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+      - {take: approve, case: root.intake, action: scope.answer, principal: "person:owner", optional: true}
     expect:
       exit: 0
       checks:
@@ -188,7 +187,7 @@ cycles:
     pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}, {from: seeds/findings/intake-person.yaml, to: .stub/finding.yaml}]
     decide:
-      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+      - {take: approve, case: root.intake, action: scope.answer, principal: "person:owner", optional: true}
     expect:
       exit: 0
       checks:
@@ -262,8 +261,18 @@ cycles:
           select: [{files: {in: work, glob: ".sdc/llm/002-spec.author/cwd/in/feedback.md"}}, {follow: file}, {as: text}]
           where: {".": {contains: "unmet outcome obligation"}}
 
-  - name: replay-sibling
+  - name: spec-person-wait
     pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/spec-interp-unsupported, to: .stub}, {from: seeds/findings/spec-person.yaml, to: .stub/finding.yaml}, {from: seeds/stub/settings/spec-author.yaml, to: .stub/settings.yaml}]
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: none, name: no-finding-waits-for-a-person, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[*]"}], where: {status: needs_person}}
+        - {check: count, name: spec-called-after-the-decision, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: spec.author}}], is: 2}
+        - {check: count, name: writer-not-stopped, select: [{log: {case: billing.spec, event: Stopped}}], is: 0}
+
+  - name: replay-sibling
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/story-second.yaml, to: .stub/finding.yaml}, {from: seeds/fixtures/plan-two-stories.json, to: .stub/plan-two-stories.json}, {from: seeds/stub/settings/plan-decompose.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/fixture-stub-plan-two-stories.yaml, to: .stub/replies/fixture-stub.yaml}]
     steps:
       - {do: open}
@@ -300,7 +309,6 @@ cycles:
         - {check: count, name: normalised-three-times, select: [{log: {case: intake, event: ActionFinished}}, {where: {action: requirements.normalise}}], is: 3}
 
   - name: decider-rework
-    pending: true
     decide:
       - {take: approve, case: billing.invoices, capability: change.merge, result: rejected, reasons: ["the server binds only to 127.0.0.1, so a partner on another device cannot open it"], principal: "person:owner"}
     expect:
@@ -331,17 +339,16 @@ cycles:
         - {check: sequence, name: rejected-rejected-approved, select: [{records: {case: billing.invoices, kind: merge_approval}}, {path: result}], is: [rejected, rejected, approved]}
 
   - name: run-stop
-    pending: true
     steps:
       - {do: open}
       - {do: run, rounds: 1, exit: 3}
       - {do: stop, name: stopped}
-      - {do: resume, exit: {not: 0}}
+      - {do: resume, exit: {not: 0}, refusal: TreeStopped}
       - {do: reopen, name: reopened}
       - {do: run, rounds: 1, exit: 3}
     expect:
       checks:
-        - {check: exists, name: stop-recorded, select: [{files: {in: store, glob: "run-stopped.*.json"}}]}
+        - {check: exists, name: stop-recorded, select: [{log: {case: ".", event: StopRecorded}}]}
 
   - name: bugfix-full
     protocol: sdc-bugfix@1

@@ -28,13 +28,11 @@
 //   human    the person stop of `person` as a legacy run: every principal and answered_by is "human",
 //            without an id
 // Static scenarios (nothing is played; two cases have an action started and never finished):
-//   gone         driver.json names a pid that is not running
-//   gone-nofile  no driver.json, while observed.jsonl exists
-//   legacy       neither file: a run written before the driver's observation files
-// The played scenarios (agent, two, decider) write what the driver and the adapters now write
-// beside the old files: `observed.jsonl` next to each events.jsonl (sdc.observed/1), `driver.json`
-// in the tree root while the script runs (sdc.driver/1), `case` in the call's request.json and a
-// `status.json` (sdc.call-status/1). `person` is written without them, as an older driver did.
+//   gone         observed.jsonl beside each events.jsonl
+//   legacy       no observed.jsonl, in a run directory of the runner (settings.json, no end record)
+// The played scenarios (agent, two, decider) write `observed.jsonl` next to each events.jsonl
+// (sdc.observed/1), `case` in the call's request.json and a `status.json` (sdc.call-status/1).
+// `person` is written without them, as an older runtime did.
 // speed: 1 plays gaps between events as recorded, capped at 2.5 s (default 1).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,15 +59,14 @@ const TWO = {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 24, 'IDEA-1.todolist.spec': 
 const SCEN = {
   agent: {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 30, 'IDEA-1.todolist.storage': 7, 'IDEA-1.todolist.release': 'drop'}, active: ['IDEA-1.todolist.storage'], signals: true},
   two: {...TWO, signals: true},
-  changes: {...TWO},
+  changes: {...TWO, runner: true},
   decider: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true},
   person: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
   autopilot: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true, principal: 'decider:haiku'},
   human: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], principal: 'human'},
   stopped: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
-  gone: {...TWO, still: 'dead-driver'},
-  'gone-nofile': {...TWO, still: 'observed-only'},
-  legacy: {...TWO, still: 'none'},
+  gone: {...TWO, still: 'observed'},
+  legacy: {...TWO, still: 'none', runner: true},
 };
 if (!SCEN[scenario] || !targetArg) {
   console.error(`usage: fixture-run.mjs <${Object.keys(SCEN).join('|')}> <target-run-dir> [speed]`);
@@ -185,26 +182,24 @@ if (scenario === 'stopped') {
   fs.writeFileSync(path.join(part, 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: sec(stopAt), by: 'operator', reason: 'stopped to look at the context before the decider takes it', verdict_at_stop: 'awaiting_person', case: 'IDEA-1.direction'}, null, 2) + '\n');
 }
 
-// ---- what the driver now writes: observed.jsonl, driver.json -------------------------------------------
+// ---- what the driver wrote beside the events: observed.jsonl ------------------------------------------
 const iso = (t) => new Date(t).toISOString();
 const observe = (dir, index, e, t = Date.now()) => fs.appendFileSync(path.join(dir, 'observed.jsonl'),
   JSON.stringify({format: 'sdc.observed/1', index, event: e.event, action: e.action ?? null, observed_at: iso(t), pid: process.pid}) + '\n');
-const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid;
-const rootCase = [...caseDirs.entries()].find(([, d]) => path.basename(path.dirname(d)) === 'store')?.[1];
-const driverJson = (pid) => JSON.stringify({format: 'sdc.driver/1', pid, started_at: iso(Date.now() - 20000), argv: ['sdc-drive', '--canon', 'canon', '--case-dir', rootCase ? rootCase.replace(part, target) : '', 'run', '--at', '2026-11-21T10:00:00Z']}) + '\n';
 if (sc.still) {
   // the events of the active cases, dated by the driver about three minutes ago
   if (sc.still !== 'none') for (const id of sc.active) {
     const evs = lines(path.join(caseDirs.get(id), 'events.jsonl')).map((l) => JSON.parse(l));
     evs.forEach((e, i) => observe(caseDirs.get(id), i, e, Date.now() - 190000 + i * 40));
   }
-  if (sc.still === 'dead-driver') fs.writeFileSync(path.join(rootCase, 'driver.json'), driverJson(deadPid()));
 }
 if (sc.signals) for (const id of sc.active) {
   // the events already on disk when the playing starts were observed a few seconds ago
   lines(path.join(caseDirs.get(id), 'events.jsonl')).forEach((l, i) => observe(caseDirs.get(id), i, JSON.parse(l), Date.now() - 8000 + i * 40));
 }
 fs.renameSync(part, target);
+// a played run (and the scenarios marked runner) stands for a run of `runbook run`: its settings.json, and no end record, so nothing says whether it is live
+if (sc.signals || sc.runner) fs.writeFileSync(path.join(target, 'settings.json'), '{}\n');
 for (const [id, d] of caseDirs) caseDirs.set(id, d.replace(part, target));
 const signals = !!sc.signals;
 const append = (id, line) => {
@@ -213,11 +208,6 @@ const append = (id, line) => {
   fs.appendFileSync(path.join(dir, 'events.jsonl'), line + '\n');
   if (signals) observe(dir, index, JSON.parse(line));
 };
-if (signals) {
-  const root = [...caseDirs.values()].find((d) => path.basename(path.dirname(d)) === 'store');
-  fs.writeFileSync(path.join(root, 'driver.json'), driverJson(process.pid));
-  process.on('exit', () => fs.rmSync(path.join(root, 'driver.json'), {force: true}));
-}
 // the last step: what the exit leaves, then done
 if (GATE) process.on('exit', () => { settle(); fs.writeFileSync(path.join(GATE, 'at'), 'done'); });
 const calls = fs.existsSync(path.join(SRC, 'llm-calls.jsonl')) ? lines(path.join(SRC, 'llm-calls.jsonl')).map((l) => JSON.parse(l)) : [];

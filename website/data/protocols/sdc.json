@@ -7,7 +7,7 @@
       "effect": "write",
       "executor": {
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.intake",
         "results": {
           "0": null
@@ -62,7 +62,7 @@
       "effect": "write",
       "executor": {
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.direction",
         "results": {
           "0": null
@@ -112,7 +112,7 @@
       "executor": {
         "each": "epics",
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.epic",
         "results": {
           "0": null
@@ -755,8 +755,8 @@
   },
   "source": {
     "path": "protocol/sdc.protocol.yaml",
-    "tag": "0.5.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.5.0/protocol/sdc.protocol.yaml"
+    "tag": "0.8.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.8.0/protocol/sdc.protocol.yaml"
   },
   "stem": "sdc",
   "summary": "Take an idea, from three words to a short paragraph, through the software delivery cycle (docs/phases.md).",

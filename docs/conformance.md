@@ -13,10 +13,11 @@ conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 n
 ```
 
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
-scenarios`. `scripts/run-trial.sh` calls it after a close when `SDC_CONFORMANCE=observe` (off by default since 0.1.4, for its cost; an experiment record turns it on with the launch setting `conformance: observe`; skipped on a recorded
-re-drive, whose recording holds no table call).
-`runbook run --conformance observe` does the same after a run that ended closed (`off` is the
-default; a run that stopped, or a failure of the observation, changes no exit). The workspace is
+scenarios`. It is off by default (since 0.1.4, for its cost; an experiment record turns it on with
+the launch setting `conformance: observe`). `runbook run --conformance observe` runs it after a run
+that ended closed (`off` is the default; a run that stopped prints `not observed (the run did not
+close: <label>)`, and neither that nor a failure of the observation changes the exit;
+`runbook/src/loom_run/run_loop.rs`, `runbook/src/loom_run/conformance.rs`). The workspace is
 the run's `work/`, whatever the root case is called, and the code is the library the program is the
 command line of (`driver/src/conform.rs`, `runbook/src/loom_run/conformance.rs`). It runs ess
 through `bindings/tools/sdc-tool.sh ess`, which pins the release, not through the pinned binary
@@ -135,7 +136,7 @@ a success before its refusal is a session the table did not carry: the table's f
 ## The route table and the node that writes it
 
 The node `conformance.table` (class other) is a fresh model session started after the run, through
-the LLM adapter contract of `llm-node.sh` (`SDC_CONFORMANCE_ADAPTER`, else `SDC_LLM_ADAPTER`, else
+the LLM adapter contract of the model node (`sdc-node`) (`SDC_CONFORMANCE_ADAPTER`, else `SDC_LLM_ADAPTER`, else
 `claude-cli`). Its working directory holds copies of the delivered tree (`product/`), the
 specification (`spec/`) and the compiled IR (`ir.json`); its operations are `dir.list`,
 `file.read` and `search` only. It has no stake in the implementation and the implementing node gets
@@ -311,13 +312,13 @@ the suite was never counted) for a run with no counted table; `not observed` wit
 
 ## The ess pin
 
-`driver/ess-pin.json` pins ess 0.97.3 (tag `0.97.3`, commit `cd9698fd65`): per platform the
+`driver/ess-pin.json` pins ess 0.97.4 (tag `0.97.4`, commit `b076ef00be`): per platform the
 release archive's sha256 (as in the release's `SHA256SUMS`) and the unpacked binary's. The binary is
 `ESS_BIN` when set, else `$SDC_ESS_CACHE`, `$XDG_CACHE_HOME/sdc/ess` or `$HOME/.cache/sdc/ess`,
 then `<version>/<target>/ess`; it is refused unless its sha256 and `--version` match the pin.
 `sdc-conform ess-install [--archive <file>]` downloads (or takes) the archive, checks its sha256,
-unpacks the binary and checks it. Canon is pinned by version and commit in `driver/canon-pin.json`:
-the scripts take `CANON` or the cached pinned install and refuse a different `canon --version`.
+unpacks the binary and checks it. Canon is the library `runbook` links, pinned in `runbook/Cargo.lock`:
+the scripts run `runbook canon`, so no `canon` binary is needed.
 
 ## Limits
 

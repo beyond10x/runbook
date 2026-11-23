@@ -13,6 +13,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]
+    exits: {error: [75, 126, 127]}
     timeout_seconds: 1800
     evidence:
       - kind: ess_gate
@@ -24,6 +25,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, change.implement, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.implement.md","coverage":"instructions/change.implement.coverage.md","coverage_inputs":"instructions/change.implement.coverage.inputs.md"}', --stub, stub-tree, impl, impl]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 1500
     retry_when:
@@ -42,6 +44,7 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, story-tests, impl, --action, tests.run, --pool-wait, "1200"]
+    exits: {error: [69, 70, 75, 126, 127]}
     timeout_seconds: 3000
     evidence:
       - kind: conformance_run
@@ -54,6 +57,7 @@ actions:
     executor:
       kind: program
       argv: [sdc-node, change.review, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --operations, "dir.list,file.read,search", --instructions, '{"task":"instructions/change.review.md","inputs":"instructions/change.review.inputs.md","coverage_inputs":"instructions/change.review.coverage.inputs.md","coverage_note":"instructions/change.review.coverage-note.md","facts":"instructions/change.review.facts.md","facts_inputs":"instructions/change.review.facts.inputs.md"}', --stub, review-change]
+    exits: {error: [75, 126, 127], not_called: [79]}
     budget: {max_runs: 3}
     timeout_seconds: 900
     evidence:
@@ -76,16 +80,18 @@ actions:
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, merge, --action, change.merge]
+    exits: {error: [75, 126, 127]}
     evidence:
       - kind: merge_record
         subject: change
-        producer: sdc-drive.merge
+        producer: runbook.merge
         from: exit
         results: {"0": null}
   - action: amend.upstream
     executor:
       kind: program
       argv: [tools/sdc-tool.sh, amend, story, --action, amend.upstream]
+    exits: {error: [75, 126, 127]}
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

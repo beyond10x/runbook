@@ -3,17 +3,22 @@
 //   runbook      the runbook's name
 //   protocols    [regular expression]: the protocol ids of the runbook, which runs this view covers (without it: the
 //                protocols of its phases)
+//   good_outcomes [outcome]: the outcomes of its protocols that are a good end of a run. A closed run whose outcome is
+//                listed is good and one whose outcome is not listed is bad; without the member a closed run is neutral
+//                ("ended: <outcome>"), unless the runner's own status.json says delivered: true
+//   product      the file that is the main product of a run of the runbook: one string, a path relative to the run
+//                directory (`work/<runbook>/<runbook>.md`). The page links it from the run's first screen. Not absolute,
+//                not empty, never leaving the run, no component that starts with a dot (a tool's cache or login)
 //   phases       {stages: [name], items: [{id, stage, label, short?, protocol, claims, doc?, has_source?,
 //                root_outcome?}], absent?: [{stage, steps, protocol_pattern, note}]}
 //   file_kinds   {rules: [{match, flags?, class, kind}], artifacts: {artifact name: class},
 //                parsers?: {kind: parser}}   a parser says what a change of a file of that kind means:
 //                {type: "keyed-list", ...} or {type: "document", ...}, see ui/README.md
-//   tool_owners  {always, driver, continue: [program], tools: [{argv0, subcommands: [{match, needs}]}]}
-//   decisions    {scope_answer?, stall?, context?, continue?}: which decisions a person can take
+//   decisions    {scope_answer?, stall?}: which decisions a person takes, as the page shows them (it answers none)
 // The server serves the view of a run at /api/view?source=N (null without one); the page and the server both
 // call setView. A view with a member this file does not know is refused with a message that names it.
 // Without a view: phases are one flat list of the protocols found in the store, a file's label is its
-// name (class code), no tool has an owner, no decision is offered but the approvals the store itself
+// name (class code), no tool has an owner, the decisions shown are the approvals the store itself
 // asks for. No dependencies; runs in the page and in node.
 export const VIEW_FORMAT = 'runbook.view/1';
 
@@ -40,6 +45,8 @@ export const VIEW_SCHEMA = T.obj({
   format: T.str,
   runbook: T.str,
   protocols: T.strs,
+  good_outcomes: T.strs,
+  product: T.str,
   phases: T.obj({
     stages: T.strs,
     items: T.arr(T.obj({id: T.str, stage: T.str, label: T.str, short: T.str, protocol: T.str, claims: T.strs, doc: T.str, has_source: T.bool, root_outcome: T.str})),
@@ -50,15 +57,9 @@ export const VIEW_SCHEMA = T.obj({
     artifacts: T.map(T.str),
     parsers: T.map({t: 'typed', by: {'keyed-list': KEYED_LIST, document: DOCUMENT}}),
   }),
-  tool_owners: T.obj({
-    always: T.strs, driver: T.strs, continue: T.strs,
-    tools: T.arr(T.obj({argv0: T.str, subcommands: T.arr(T.obj({match: T.str, needs: T.strs}))})),
-  }),
   decisions: T.obj({
-    scope_answer: T.obj({action: T.str, check: T.str, artifact: T.str, list: T.str, flag: ident, fields: RECORD_FIELDS, statuses: T.obj({open: T.str, accepted: T.str, changed: T.str}), refused_answerers: T.strs}),
+    scope_answer: T.obj({action: T.str, artifact: T.str, list: T.str, flag: ident, fields: RECORD_FIELDS, statuses: T.obj({open: T.str, accepted: T.str, changed: T.str})}),
     stall: T.obj({action: T.str, artifact: T.str, list: T.str, noun: T.str, status: ident, needs_person: T.str}),
-    context: T.obj({artifact: T.str, field_pattern: T.str, changed: T.str, fields: T.obj({value: ident, status: ident, reason: ident})}),
-    continue: T.obj({script: T.str, runs_dir: T.str, env: T.map(T.str)}),
   }),
 });
 
@@ -91,6 +92,20 @@ function check(v, s, path, out) {
   if (s.re && !s.re.test(v)) out.push(`${path}: "${v}" is not ${s.what}`);
 }
 
+// What is wrong with the `product` of a view: it is a path relative to the run directory that stays in the run and
+// names nothing the inspector never serves (a component that starts with a dot).
+export function productProblems(p) {
+  const at = `product: ${JSON.stringify(p)}`;
+  if (p === '') return ['product: is empty'];
+  if (/[\0\\]/.test(p)) return [`${at} holds a character that no path of a run holds (NUL or a backslash)`];
+  if (p.startsWith('/')) return [`${at} is absolute: the product is a path relative to the run directory`];
+  const parts = p.split('/').filter((n) => n !== '' && n !== '.');
+  if (!parts.length) return ['product: is empty'];
+  if (parts.includes('..')) return [`${at} leaves the run`];
+  if (parts.some((n) => n.startsWith('.'))) return [`${at} has a component that starts with a dot: a tool's cache or login is never listed or served`];
+  return [];
+}
+
 // What is wrong with a view, one line each: a member this inspector does not know (the line names it and
 // where it stands), a member of the wrong type, a regular expression that does not compile. [] when none.
 export function checkView(v) {
@@ -98,6 +113,7 @@ export function checkView(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return ['the view is not an object'];
   if (v.format !== VIEW_FORMAT) return [`format is ${JSON.stringify(v.format)}, not ${VIEW_FORMAT}`];
   check(v, VIEW_SCHEMA, '', out);
+  if (typeof v.product === 'string') out.push(...productProblems(v.product));
   const re = (p, s, flags) => { try { new RegExp(s, flags); } catch (e) { out.push(`${p}: not a regular expression (${e.message})`); } };
   (Array.isArray(v.file_kinds?.rules) ? v.file_kinds.rules : []).forEach((r, i) => typeof r?.match === 'string' && re(`file_kinds.rules[${i}].match`, r.match, r.flags));
   (Array.isArray(v.phases?.absent) ? v.phases.absent : []).forEach((r, i) => typeof r?.protocol_pattern === 'string' && re(`phases.absent[${i}].protocol_pattern`, r.protocol_pattern));
@@ -157,13 +173,8 @@ export function fileKindOf(path) {
 export const artifactClassOf = (name) => cur().V?.file_kinds?.artifacts?.[name] || null;
 export const parserOf = (kind) => cur().V?.file_kinds?.parsers?.[kind] || null;
 
-export const toolOwners = () => cur().V?.tool_owners || null;
-export const runbookName = () => (typeof cur().V?.runbook === 'string' ? cur().V.runbook : null);
-
-// the decisions a person can take in this runbook (null each without a view or a member)
+// the decisions a person takes in this runbook, as the page shows them (null each without a view or a member)
 export const scopeAnswer = () => cur().V?.decisions?.scope_answer || null;
 export const stallRule = () => cur().V?.decisions?.stall || null;
-export const contextRule = () => cur().V?.decisions?.context || null;
-export const continueRule = () => cur().V?.decisions?.continue || null;
 // the kind of file the questions of a decision are written in (feed: a change of it is a question asked or answered)
 export const questionsKind = () => scopeAnswer()?.artifact || null;

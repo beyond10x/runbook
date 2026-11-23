@@ -1,5 +1,4 @@
-//! The apply step of the five nodes whose store is not a plain copy (lines 833-883 of
-//! `llm-node.sh`): `vision.write`, `roadmap.write`, `plan.decompose` through `aep`, and
+//! The apply step of the five nodes whose store is not a plain copy: `vision.write`, `roadmap.write`, `plan.decompose` through `aep`, and
 //! `context.default` and `questions.answer` on the case's own YAML. `jq` and `yq` are not started:
 //! what the script read with them is read here from parsed documents, with their edge behaviour
 //! where it shows (a field that is absent is `null`, an unreadable document is empty text).

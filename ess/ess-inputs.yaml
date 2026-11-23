@@ -1,5 +1,5 @@
 format: ess-inputs/2
-requires: ess 0.97.3
+requires: ess 0.97.4
 specification:
   - system.yaml
   - components.yaml
@@ -9,6 +9,13 @@ scenarios:
   - scenarios/merge-a4-rule-and-decider.yaml
   - scenarios/merge-a5-veto.yaml
   - scenarios/question-free-answer.yaml
+  - scenarios/decision-option-not-offered.yaml
+  - scenarios/decision-escalate-to-an-ineligible-principal-is-refused.yaml
+  - scenarios/decision-duplicate-option-letters-are-refused.yaml
+  - scenarios/decision-empty-record-id-is-refused.yaml
+  - scenarios/decision-empty-record-id-on-an-unknown-request.yaml
+  - scenarios/decision-option-not-offered-by-a-decider-or-a-rule.yaml
+  - scenarios/decision-option-not-offered-in-a-weak-recommendation.yaml
   - scenarios/daemon-submit-and-run-to-an-outcome.yaml
   - scenarios/daemon-submit-below-the-floor-is-refused.yaml
   - scenarios/daemon-decision-is-answered-and-the-run-resumes.yaml
@@ -21,3 +28,4 @@ scenarios:
   - scenarios/daemon-context-outside-the-roots-is-refused.yaml
   - scenarios/daemon-an-answer-is-judged-by-its-request-before-its-run.yaml
   - scenarios/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned.yaml
+  - scenarios/daemon-a-missing-session-is-refused-before-the-floor.yaml

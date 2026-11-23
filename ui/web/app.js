@@ -1,8 +1,8 @@
 import {renderGraph} from './graph.js';
 import {renderExplain} from './explain.js';
 import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates, esc} from './lenses.js';
-import {setView, scopeAnswer} from './view.js';
-import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
+import {setView} from './view.js';
+import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS, protocolRevisionOf, claimsRecorded, CLAIMS_NOT_RECORDED} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
 import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
@@ -11,8 +11,11 @@ import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 import {api, openEvents, daemonView, daemon} from './source.js';
-import {renderDaemonDrawer} from './decide.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
+import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
+// the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
+// has no such file, and a page the daemon served loads it only because the daemon named itself
+const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -21,7 +24,7 @@ const PHONE = matchMedia(window.SDC_PHONE);
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
-  inbox: {items: [], write: false, principal: null}, drawer: q0.get('drawer') === '1', form: {}, editing: null, busy: null, results: {}, proc: null, dirty: false, toast: null,
+  inbox: {items: []}, drawer: q0.get('drawer') === '1',
   liveData: null, offset: 0, diff: null,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
   panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
@@ -66,7 +69,24 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
-async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
+// the files of the run and the rule that named its product (what a step produced: web/products.js); the daemon's
+// adapter answers {served: false}
+async function loadProducts(force) {
+  const now = Date.now();
+  if (S.productsSrc !== S.src) { S.products = null; S.productsAt = 0; }
+  if (!force && S.productsSrc === S.src && now - S.productsAt < (S.panel && S.tab === 'products' ? 1500 : 10000)) return;
+  S.productsSrc = S.src; S.productsAt = now;
+  S.products = await api(`/api/products?source=${S.src}`).catch(() => null);
+}
+// the Products tab is built outside patch(): what a run holds never becomes markup (web/products.js)
+function mountProducts(c) {
+  const p = $('#panel');
+  if (p.dataset.tab !== 'products') { p.dataset.tab = 'products'; p.scrollTop = 0; p.replaceChildren(); }
+  p.__html = null;
+  renderProducts(p, {c, products: S.products, src: S.src, daemon});
+}
+bindProducts({refresh: () => render(), open: (view) => { showProduct(view); openPanel('products'); render(); }});
+async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
 async function loadFacts() { S.facts = await api(`/api/workfacts?source=${S.src}`).catch(() => ({files: []})); }
@@ -174,7 +194,8 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
-  await loadTree(); await loadRun(); await loadLive(); if (daemon) await loadInbox(); pickFollow(); render();
+  showProduct({kind: 'list'});
+  await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
 document.addEventListener('click', (ev) => {
   const t = ev.target;
@@ -202,6 +223,12 @@ document.addEventListener('keydown', (ev) => {
     if (el?.dataset.exp) toggleExp(el.dataset.exp); else if (el?.dataset.pick) selectSource(Number(el.dataset.pick));
   }
 }, true);
+
+// the case header's line: protocol, protocol revision (only when the run says one), case revision (only when there is one), evidence
+function headParts(c, ev) {
+  const rev = protocolRevisionOf(c), crev = ev?.explanation?.computed_from?.case?.revision || c.case.revision;
+  return [esc(c.case.protocol), rev != null ? `protocol r${esc(rev)}` : '', crev != null && crev !== '' ? `case ${esc(crev)}` : '', `${Object.keys(c.evidence).length} evidence records`].filter(Boolean).join(' · ');
+}
 
 function render() {
   const src = S.sources[S.src];
@@ -231,7 +258,10 @@ function render() {
     patch($('#tree'), dv?.tree ?? `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
     $('#graph').innerHTML = '';
     patch($('#gtitle'), '');
-    patch($('#panel'), '');
+    renderProductBar($('#product'), {products: S.products, daemon});
+    if (S.panel && S.tab === 'products') mountProducts(null);
+    else { if ($('#panel').dataset.tab === 'products') $('#panel').dataset.tab = ''; patch($('#panel'), ''); }
+    document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
     patch($('#timeline'), '');
     return;
   }
@@ -251,17 +281,18 @@ function render() {
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
   else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); patch($('#nowbar'), renderNowBar(ns)); }
   patch($('#view-note'), viewNote());
+  renderProductBar($('#product'), {products: S.products, daemon});
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
   patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
-  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present));
+  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom)));
   patch($('#tree'), renderTree(cases, ns, now));
   const last = lastSeq(c);
   const at = S.atSeq ?? last;
   const st = caseState(c);
-  patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>${S.atSeq != null ? `<span class="pill past">past · event ${at} of ${last}</span>` : ''}</div><div class="gt-sub">${esc(c.case.protocol)} · protocol r${esc(c.ir?.protocol?.revision)} · case ${esc(ev?.explanation?.computed_from?.case?.revision || c.case.revision)} · ${Object.keys(c.evidence).length} evidence records</div>`);
+  patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>${S.atSeq != null ? `<span class="pill past">past · event ${at} of ${last}</span>` : ''}</div><div class="gt-sub">${headParts(c, ev)}</div>`);
   if (c.ir) {
     const host = $('#graph');
     const live = graphLive(ns, c);
@@ -272,7 +303,7 @@ function render() {
     const hint = $('#ghint');
     const wide = PHONE.matches && host.scrollWidth > host.clientWidth + 1;
     if (hint.hidden === wide) hint.hidden = !wide;
-  } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
+  } else $('#graph').innerHTML = `<p class="muted pad">${c.parts?.loom ? `The graph is not available for this run: ${esc(c.parts.protocol?.why || 'the run wrote no protocol of this case')}.` : 'no ir.json in this case'}</p>`;
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);
   if (PHONE.matches) { $('#panel').setAttribute('tabindex', '0'); $('#panel').setAttribute('role', 'region'); $('#panel').setAttribute('aria-label', 'Panel'); }
@@ -280,6 +311,8 @@ function render() {
   if (!S.panel) return;
   const scope = S.scopeCase ? c.id : null;
   const p = $('#panel');
+  if (S.tab === 'products') return mountProducts(c);
+  if (p.dataset.tab === 'products') p.dataset.tab = '';
   let html = '';
   if (S.tab === 'explain') html = renderExplain(c, S.node, ev, S.atSeq);
   else if (S.tab === 'autonomy') html = scopeBox() + renderAutonomy(cases, S.run, S.meta, scope, S.inbox?.history);
@@ -307,7 +340,7 @@ function renderTree(cases, st, now) {
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
       <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
-      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span><span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span></div></div>`;
+      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span>${claimsRecorded(x) ? `<span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span>` : `<span class="cnt nr-cnt" title="${CLAIMS_NOT_RECORDED}">claims not recorded</span>`}</div></div>`;
   }).join('');
 }
 
@@ -337,7 +370,7 @@ function renderEvents(c, at) {
 
 function renderDecisions() {
   const n = S.inbox.items.length;
-  const tag = S.inbox.tag || (S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads');
+  const tag = S.inbox.tag || 'Canon decides · the run records · this page only reads';
   // the header may cut it (a stub run's label takes its room): the title keeps it readable
   if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
@@ -350,8 +383,6 @@ function renderDecisions() {
     if (daemon) renderDaemonDrawer(S, $('#drawer')); else patch($('#drawer'), renderDrawer(S));
     // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
     if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
-    const pl = $('#proclog');
-    if (pl) pl.scrollTop = pl.scrollHeight;
   }
   // focus follows the work: opening the drawer moves focus to its first decision control, closing it
   // back to the control that opened it
@@ -361,48 +392,12 @@ function renderDecisions() {
     first?.focus({preventScroll: false});
   } else if (!S.drawer && S.drawerWas && S.drawerFrom?.isConnected) S.drawerFrom.focus({preventScroll: true});
   S.drawerWas = S.drawer;
-  const t = $('#toast');
-  t.className = S.toast ? `show ${S.toast.ok ? 'ok' : 'bad'}` : '';
-  if (S.toast) patch(t, esc(S.toast.text));
-}
-
-async function doAct(kind, el) {
-  const item = S.inbox.items.find((i) => i.id === el.dataset.item);
-  let body;
-  if (kind === 'approve') body = {kind, rel: item.rel, action: item.action, revision: item.revision, sha: item.artifact?.sha};
-  else if (kind === 'answer') {
-    const key = `q:${item.rel}:${item.qid}`;
-    const pick = S.form[`${key}:pick`] ?? item.default;
-    body = {kind, rel: item.rel, qid: item.qid, sha: item.sha, revision: item.revision, answer: pick === '__other' ? (S.form[`${key}:other`] || '').trim() : pick};
-  } else if (kind === 'context') {
-    const key = `ctx:${item.rel}:${el.dataset.field}`;
-    const cur = item.artifact?.json?.[el.dataset.field]?.value;
-    body = {kind, rel: item.rel, field: el.dataset.field, value: (S.form[`${key}:value`] ?? cur ?? '').trim(), note: (S.form[`${key}:note`] || '').trim(), sha: item.artifact?.sha, revision: item.revision};
-  } else body = {kind: 'continue'};
-  const id = item?.id || 'continue';
-  S.busy = id;
-  schedule();
-  let r;
-  try {
-    r = await fetch(`/api/act?source=${S.src}`, {method: 'POST', headers: {'content-type': 'application/json', 'x-sdc-ui': '1'}, body: JSON.stringify(body)}).then((x) => x.json());
-  } catch (e) { r = {ok: false, error: String(e)}; }
-  S.busy = null;
-  const msg = {approve: `Approved ${item?.subject || ''} ${item?.revision || ''}`, answer: `Answered ${item?.qid}${r.approved ? ` as ${r.answered_by} · ${item.approval?.capability || scopeAnswer()?.action} approved` : ''}`, context: `Changed ${body.field}`, continue: `Started ${String(r.argv?.[0] || 'the run').split('/').pop()} (pid ${r.pid})`}[kind];
-  S.results[id] = r.ok ? {ok: true, msg, output: r.output} : {ok: false, error: r.error || 'refused', output: r.output};
-  S.toast = r.ok ? {ok: true, text: msg + (kind !== 'continue' ? ' · Continue run when you are done deciding' : '')} : {ok: false, text: r.error || 'refused'};
-  clearTimeout(S.toastT);
-  S.toastT = setTimeout(() => { S.toast = null; schedule(); }, 6000);
-  if (r.ok) { if (kind !== 'continue') S.dirty = true; else S.dirty = false; S.editing = null; }
-  await loadInbox();
-  if (kind === 'continue') await loadRun();
-  schedule();
 }
 
 function renderRun() {
   const r = S.run;
-  const live = S.proc?.tail?.length ? `<div class="sect">Continue run · ${esc(S.proc.name)} <span class="muted">${S.proc.running ? 'running' : `exited ${esc(S.proc.exit)}`}</span></div><pre class="proc">${esc(S.proc.tail.slice(-200).join('\n'))}</pre>` : '';
-  if (!r || !r.hasLog) return live + `<p class="muted">No run.log next to the store (${esc(r?.runDir)}).</p>`;
-  return live + `<div class="sect">run.log <span class="muted">${esc(r.runDir)}</span></div>${r.console ? `<pre class="pred">${esc(r.console)}</pre>` : ''}
+  if (!r || !r.hasLog) return `<p class="muted">No run.log next to the store (${esc(r?.runDir)}).</p>`;
+  return `<div class="sect">run.log <span class="muted">${esc(r.runDir)}</span></div>${r.console ? `<pre class="pred">${esc(r.console)}</pre>` : ''}
     <div class="cmds">${r.commands.map((c, i) => `<details data-key="cmd${i}" class="cmdrow"><summary><span class="n">${i + 1}</span><code>${esc(c.cmd.replace(/--case-dir \S+/, (m) => (m.length > 60 ? '--case-dir …' + m.slice(-40) : m)))}</code>${c.verdict ? `<span class="pill">${esc(c.verdict)}</span>` : ''}<span class="muted">exit ${esc(c.exit)}</span></summary><pre class="pred">${esc(c.out)}</pre></details>`).join('')}</div>`;
 }
 
@@ -487,6 +482,15 @@ document.addEventListener('click', async (ev) => {
     if (row) { row.scrollIntoView({block: 'center'}); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
     return;
   }
+  // a link from the explanation to what a step produced: an evidence record, an action
+  const opn = t.closest('a[data-open]');
+  if (opn) {
+    ev.preventDefault();
+    if (opn.dataset.case && opn.dataset.case !== S.sel && S.cases.has(opn.dataset.case)) selectCase(opn.dataset.case);
+    showProduct(opn.dataset.open === 'evidence' ? {kind: 'evidence', id: opn.dataset.id} : {kind: 'action', seq: Number(opn.dataset.aseq)});
+    openPanel('products');
+    return render();
+  }
   const gr = t.closest('[data-grounds]');
   if (gr && !t.closest('[data-fs]')) { ev.preventDefault(); return openGrounds(Number(gr.dataset.grounds)); }
   const fsEl = t.closest('[data-fs]');
@@ -503,11 +507,6 @@ document.addEventListener('click', async (ev) => {
     return render();
   }
   if (t.closest('#drclose') || t.id === 'scrim') { S.drawer = false; return render(); }
-  const actEl = t.closest('[data-act]');
-  if (actEl && !actEl.disabled) { ev.preventDefault(); return doAct(actEl.dataset.act, actEl); }
-  const editEl = t.closest('[data-edit]');
-  if (editEl && !editEl.disabled) { S.editing = editEl.dataset.edit; return render(); }
-  if (t.closest('[data-cancel]')) { S.editing = null; return render(); }
   const node = t.closest('[data-id]');
   if (node && t.closest('#graph')) { S.node = S.node === node.dataset.id ? null : node.dataset.id; if (S.node) openPanel('explain'); return render(); }
   const a = t.closest('a,[data-case],[data-seq],[data-phase],[data-tab],[data-node]');
@@ -544,12 +543,6 @@ document.addEventListener('click', async (ev) => {
 });
 document.addEventListener('input', (ev) => {
   if (ev.target.id === 'scrub') return setIdx(Number(ev.target.value));
-  const f = ev.target.dataset?.form;
-  if (f) {
-    S.form[f] = ev.target.value;
-    if (/:other$/.test(f)) S.form[f.replace(/:other$/, ':pick')] = '__other';
-    if (ev.target.type === 'radio' || /:other$/.test(f)) schedule();
-  }
 });
 document.addEventListener('change', async (ev) => {
   const id = ev.target.id;
@@ -606,6 +599,8 @@ async function drain() {
       if (full || cases.length) await loadTree(full ? null : cases);
       if (run) await loadRun();
       if (live) await loadLive();
+      // never waited for: the page shows the run first and the product line when the files are read
+      if (full || cases.length || run || live) loadProducts(full).then(schedule);
       if (full || cases.length || run) await loadInbox();
     }
     S.lastChange = new Date();
@@ -634,22 +629,8 @@ function connect() {
     drain();
   });
   es.onerror = () => { S.live = 'reconnecting'; schedule(); };
-  es.addEventListener('proc', (m) => {
-    const d = JSON.parse(m.data);
-    if (d.source !== S.src) return;
-    S.proc = S.proc && S.proc.name === d.name && S.proc.running ? S.proc : {name: d.name, running: true, exit: null, tail: []};
-    S.proc.tail = [...(S.proc.tail || []), ...d.lines].slice(-400);
-    schedule();
-  });
-  es.addEventListener('procend', (m) => {
-    const d = JSON.parse(m.data);
-    if (d.source !== S.src || !S.proc) return;
-    S.proc.running = false; S.proc.exit = d.exit;
-    pending.full = true; drain();
-  });
   // a run that appeared under --runs, a run stopped or resumed, or one that started or ended: the run picker follows
   es.addEventListener('sources', () => { pending.sources = true; drain(); });
-  es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 
 (async () => {
@@ -662,6 +643,7 @@ function connect() {
   await loadTree();
   await loadRun();
   await loadLive();
+  loadProducts(true).then(schedule);
   if (q0.get('case')) { S.sel = q0.get('case'); S.follow = false; } else pickFollow();
   if (q0.get('node')) S.node = q0.get('node');
   if (q0.get('at')) S.atSeq = Number(q0.get('at'));

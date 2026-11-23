@@ -433,11 +433,11 @@ const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
 /// `loom` settings that are optional: the path of the login file the model adapter reads, the way
 /// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
 /// deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 11] = ["conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
-    "decider.adapter", "adapter", "review.adapter", "flags.dry"];
+const OPTIONAL_LOOM: [&str; 16] = ["conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+    "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
-/// What the shell programs the bindings run (`llm-node.sh`, `sdc-tool.sh`, the adapters) need on
+/// What the shell programs the bindings run (`sdc-tool.sh`, the adapters) need on
 /// `PATH`; the decider of `runbook run` starts none of them.
 const LOOM_TOOLS: [&str; 2] = ["jq", "yq"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
@@ -449,24 +449,25 @@ const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry
 /// Why a setting of the old driver is refused for a `loom` variant, or `None` when it is no
 /// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
 fn loom_refusal(key: &str) -> Option<&'static str> {
-    if let Some(why) = port_recorded(key) {
-        return Some(why);
-    }
     Some(match key {
         "implement_mode" | "review_mode" | "implement_coverage" | "rule_approvals" =>
             "it is a switch of the old driver and Loom's bindings carry no such switch",
-        k if k.starts_with("efforts.") => "no argument of bindings/tools/llm-node.sh carries an effort in Loom mode, so the class defaults of tools/node-classes.json apply",
+        k if k.starts_with("efforts.") => "the record format does not carry an effort to the runner yet (the runner takes `efforts` in its settings), so the class defaults of tools/node-classes.json apply",
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
         _ => return None,
     })
 }
 
-/// The refusal of `flags.recorded` (and with it the replay flags) until `runbook run` replays a
-/// recording; the port removes this function.
-// port: recorded
-fn port_recorded(key: &str) -> Option<&'static str> {
-    (key == "flags.recorded").then_some("`runbook run` has no --recorded or other replay flag yet")
-}
+/// The replay settings of a `loom` variant and the option of `runbook run` each one is: `flags.recorded`
+/// (a run directory, absolute or a name under the runs directory, or a recording) re-drives it; the
+/// others only go with it.
+const REPLAY_FLAGS: [(&str, &str); 5] = [
+    ("flags.recorded", "--recorded"),
+    ("flags.on_divergence", "--on-divergence"),
+    ("flags.live_adapter", "--live-adapter"),
+    ("flags.live_cap", "--live-cap"),
+    ("flags.source_tree", "--source-tree"),
+];
 
 /// The refusal of an input kind a loom variant cannot start from. A `seed` input is a bug-fix case
 /// that `runbook run --bugfix <seed directory>` opens (root `BUG-1` on `sdc-bugfix`); an `idea` input
@@ -515,6 +516,13 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     one_of("decider.adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
     one_of("review.adapter", &["claude-cli"], p, "claude-cli (the only review adapter expressible under Loom)");
     one_of("flags.dry", &["true"], p, "'true' (leave it out for a run that calls models)");
+    one_of("flags.on_divergence", &["stop", "nearest", "live"], p, "stop, nearest or live");
+    if let Some(k) = REPLAY_FLAGS.iter().skip(1).map(|(k, _)| *k).find(|k| v.settings.contains_key(*k)).filter(|_| !v.settings.contains_key("flags.recorded")) {
+        p.push(format!("variant {:?}: {k} goes with flags.recorded (`runbook run --recorded`)", v.id));
+    }
+    if v.settings.get("flags.recorded").is_some_and(|x| x.is_empty()) {
+        p.push(format!("variant {:?}: flags.recorded must name a run directory or a recording", v.id));
+    }
     if v.settings.contains_key("flags.dry") {
         for k in ["adapter", "decider.adapter"].iter().filter(|k| v.settings.contains_key(**k)) {
             p.push(format!("variant {:?}: {k} is not set with flags.dry: `runbook run --dry` runs every model node and a model decider on the adapter dry", v.id));
@@ -549,7 +557,7 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
         }
     }
     let whole = |k: &str| v.settings.get(k).is_none_or(|x| x.parse::<u64>().is_ok_and(|n| n >= 1));
-    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds", "decider.max_decider_calls"] {
+    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds", "decider.max_decider_calls", "flags.live_cap"] {
         if !whole(k) {
             p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
         }
@@ -1113,7 +1121,7 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
             };
             for (k, x) in &v.settings {
                 // A loom run records the adapters too; it never records the binary's path or the login's.
-                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) } else { NOT_RECORDED.contains(&k.as_str()) };
+                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) || REPLAY_FLAGS.iter().any(|(f, _)| f == k) } else { NOT_RECORDED.contains(&k.as_str()) };
                 if skipped {
                     continue;
                 }
@@ -2138,6 +2146,16 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     if settings.get("flags.dry").is_some_and(|x| x == "true") {
         v.push("--dry".into());
     }
+    let mut replay: Vec<String> = Vec::new();
+    for (key, option) in REPLAY_FLAGS {
+        if let Some(value) = settings.get(key) {
+            // The recorded run is named by a path, or by its name under the runs directory.
+            let value = if key == "flags.recorded" && !Path::new(value).is_absolute() { runs_dir.join(value).display().to_string() } else { value.clone() };
+            replay.push(option.into());
+            replay.push(value);
+        }
+    }
+    v.extend(replay);
     Ok(v)
 }
 

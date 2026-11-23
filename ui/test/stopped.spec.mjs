@@ -39,7 +39,7 @@ test.beforeAll(async ({}, info) => {
   fixture('stopped', 'stopped');
   fixture('person', 'held');
   fs.copyFileSync(path.join(runs, 'stopped', 'run-settings.jsonl'), path.join(runs, 'held', 'run-settings.jsonl'));
-  ({url: base, proc: srv} = await startServer(['--write', '--principal', 'operator', path.join(runs, 'person', 'store'), '--runs', runs]));
+  ({url: base, proc: srv} = await startServer([path.join(runs, 'person', 'store'), '--runs', runs]));
   sources = await (await fetch(base + '/api/sources')).json();
 });
 
@@ -90,14 +90,13 @@ test('the open decision of a stopped run is shown greyed in the drawer and is no
     await expect(cards.first()).toBeVisible();
     expect(await cards.count()).toBe(await page.locator('#drawer .dcard.stopped').count());
     await expect(cards.first().locator('.dstop')).toHaveText('run stopped');
-    for (const b of await page.locator('#drawer .dcard button.btn').all()) await expect(b).toBeDisabled();
+    await expect(page.locator('#drawer .dcard button, #drawer .dcard input, #drawer .dcard textarea')).toHaveCount(0);
     await expect(page.locator('#decbtn')).not.toHaveClass(/\bhas\b/);
     await page.screenshot({path: path.join(shots, `${vp.name}-stopped-drawer.png`)});
   }
   const item = ib.items.find((i) => i.kind === 'approve');
-  const r = await request.post(`${base}/api/act?source=${s}`, {headers: {'x-sdc-ui': '1'}, data: {kind: 'approve', rel: item.rel, action: item.action, revision: item.revision, sha: item.artifact?.sha}});
-  expect(r.status()).toBe(409);
-  expect((await r.json()).error).toMatch(/^refused: the run was stopped by operator/);
+  const r = await request.post(`${base}/api/act?source=${s}`, {headers: {'x-sdc-ui': '1'}, data: {kind: 'approve', rel: item.rel, action: item.action, revision: item.revision}});
+  expect(r.status()).toBe(405);
   expect(fs.existsSync(path.join(runs, 'stopped', 'ui-actions.jsonl'))).toBe(false);
 });
 
@@ -110,7 +109,7 @@ test('waiting on a person while a decider holds the decisions is a failed KPI wi
     await expect(tile).toHaveClass(/\bfail\b/);
     await expect(tile.locator('.k-f0')).toHaveText('should be 0');
     const stop = tile.locator('.k-stop').first();
-    // no driver attached: the open wait on direction ends at the last event, so the longest stop is an earlier one
+    // nothing says the run is live: the open wait on direction ends at the last event, so the longest stop is an earlier one
     const kase = (await stop.locator('.ks-c').textContent()).trim();
     await expect(stop.locator('.ks-a')).toHaveText(/\S/);
     await expect(stop.locator('.ks-d')).toHaveText(/^\d+:\d\d$/);
@@ -120,8 +119,8 @@ test('waiting on a person while a decider holds the decisions is a failed KPI wi
     await expect(card.locator('.nc-hold')).toContainText('run-settings.jsonl');
     await expect(card.locator('.nc-hold')).not.toContainText('not recorded');
     await expect(page.locator('#now .now-s')).toHaveText('Held by the decider: it decides when the run continues');
-    // no stop record and no driver attached: said, and every clock stands at the last event
-    await expect(page.locator('#now .now-sub')).toHaveText(/^no driver attached, last activity [\d: APM]+$/);
+    // no stop record and no live run: said, and every clock stands at the last event
+    await expect(page.locator('#now .now-sub')).toHaveText(/^not live, last activity [\d: APM]+$/);
     const clocks = () => page.locator('#now .tk, #kpis .kt.k-time').allTextContents();
     const before = await clocks();
     await page.waitForTimeout(2100);

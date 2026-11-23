@@ -29,8 +29,9 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 `--detach`. The settings file has one format, `runbook.loom-run-settings/1`
 (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every `tree run` (`local` is
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
-1 error, 2 refused before anything was written, 3 stuck, 4 to 9 stopped (spend cap, wall time, model
-calls, signal, decider, denied), 64 usage. The subcommand was called `loom-run` before; this is the
+1 error, 2 refused before anything was written, 3 stuck, 4 to 11 stopped (spend cap, wall time, model
+calls, signal, decider, denied, rejected, recording diverged), 12 refused by Loom during the run
+(`refused`, the reason is the cause), 64 usage. The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
 A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
@@ -57,7 +58,7 @@ One of two (`--loom` without `--loom-sha256`, or the reverse, is refused with ex
 | Way | Options | What runs |
 |---|---|---|
 | child | `--loom <bin> --loom-sha256 <hex>` | the binary, one `b10x-loom` call at a time, as below |
-| library | neither `--loom` nor `--loom-sha256` | the Loom this binary links (a git dependency pinned to one commit), called in this process; no `b10x-loom`, `loom`, `canon` or `sdc-drive` process is started, only the bound programs |
+| library | neither `--loom` nor `--loom-sha256` | the Loom this binary links (a git dependency pinned to one commit), called in this process; no `b10x-loom`, `loom` or `canon` process is started, only the bound programs |
 
 The loop, the decider, the budget, the spend ledger, the settings, the copy of the bindings, the
 private directory and the run directory files exist once (`src/loom_run/run_loop.rs`); they reach
@@ -235,7 +236,7 @@ record directory, which is inside the run directory:
 |---|---|---|---|
 | `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude`; the whole config home moves, as it is the directory `claude` is given | `<private dir>/config-home.XXXXXX` | the adapter on exit; after a SIGKILL the runner |
 | `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes a home (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` and `TMPDIR` to it for the metaharness process alone, so metaharness's scratch root (its own copy of the login in its config home) lies there too | `<private dir>/h.XXXXXX`, the scratch root `<private dir>/h.XXXXXX/.tmpXXXXXX` | metaharness removes its scratch root when it ends, the adapter the home on exit, also after a failed call or SIGTERM; after a SIGKILL the runner |
-| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `sdc-node`, so the adapter of the first or second row | as its adapter | as its adapter |
+| the model decider (in the runner) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `sdc-node`, so the adapter of the first or second row | as its adapter | as its adapter |
 
 `PrivateDir` removes its directory with everything in it when the run ends (a normal end, an error,
 SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
@@ -264,7 +265,33 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 | model calls | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
-Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 64 usage.
+An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `refused` (exit 12, see below) with Loom's text, as every refusal of Loom by a named reason does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
+
+#### A refusal of Loom by a named reason (Loom `db2726ff`)
+
+A call of the run that Loom refuses by a reason of `TreeRefusalReason` (`runbook/src/engine/refusal.rs`) ends the run `refused`, exit 12. The reason's name in snake case is the `cause` in `outcome.json` (key `cause`, present only for this outcome), in the `ended` line of `events.jsonl`, and in `run-stopped.json`; `reason` holds Loom's text, which leads with the reason's own name (`TreeStopped: ...`). `cause` is one name per reason, 29 of them (`runbook/src/engine/refusal.rs` matches every reason with no catch-all, so a reason a later Loom adds stops the build). The ones this pin brought, and what they are in a run:
+
+| Loom's reason | cause | when |
+|---|---|---|
+| `TreeStopped` | `tree_stopped` | `tree hold` is in force: `run_tree` writes nothing and refuses. The run's store keeps the hold; `tree reopen` lifts it |
+| `ConfinementRefused` | `confinement_refused` | no runner is admitted for the bound programs, the cgroup root is held by another run of the process, or the cgroup root cannot be used |
+| `PersonProgramFailed` | `person_program_failed` | the program of a person action ended badly (see above) |
+| `TreeAlreadyStopped`, `TreeNotStopped`, `StopUnusable` | `tree_already_stopped`, `tree_not_stopped`, `stop_unusable` | refusals of `hold` and `reopen`, which no `runbook` command calls; named all the same |
+
+Exit 2 and exit 12 are both a refusal and differ in when it happens. Exit 2 is a refusal before a run directory exists: nothing is written and there is no `outcome.json`. The refusals of `runbook run` that are exit 2 are: `--loom` without `--loom-sha256`, or the reverse (`--loom and --loom-sha256 go together`); a `--loom` binary whose sha256 is not the one named; a confinement level the library cannot give (below); a `--run` that is not a plain name; a `--root-protocol` that is not `name@revision` or that the protocol directory does not register; a settings file that cannot be read or that disagrees with the options; an intake that cannot be read or is empty; no asset root when `--bindings` or `--protocols` is not given and `RUNBOOK_HOME` is not set; a `--bindings` that is not a directory; a run directory that already exists; `--watch` without the helper `sdc-watch`; a bug-fix option without the helper `sdc-bugfix`. A missing or invalid option is not exit 2: it is exit 64 (`--confinement`, `--run` and the other required options, and an option that needs another, such as `--recorded`'s). Exit 12 is Loom refusing a call of a run that has started: the run directory exists and `outcome.json` holds the cause.
+
+What each path does:
+
+- A library run (the default) that is asked for `--confinement substrate` on a host that offers no linux level is exit 2, in the words `--confinement substrate is not a level the library can give here: it offers local (the linux level needs a cgroup this process may delegate)` (`check_level` of `library.rs`). It is not a reason of a tree call: it has no `cause` and its text does not lead with `ConfinementRefused:`. That prefix is on the text of the confinement level `runbook test` and the engine's runner refuse (`calls::runner`).
+- In a library run every refusal of `tree open` that leads with a reason name (`BindingsRefused`, `ProtocolRefused`, `StoreNotEmpty`, `UnknownProtocol`, and the rest of the causes below) is exit 12 with that reason's cause, where it was exit 1 `error` before the pin; so is a refusal of `tree run` and of an answer. A library run runs no handoff (`library.rs`: the handoff of a decision is not a call there), so a refused handoff is exit 12 with `--loom` only (next bullet). Refusals of `tree status` and `tree verify` after the run has ended stay exit 1 `error`, with no cause: the outcome of the run is already decided, and Loom's text is in `reason`.
+- A child `b10x-loom` (`--loom`) that refuses prints `b10x-loom: tree refused: <Reason>: ...`. The runner reads that line after `tree open`, `tree run`, the printed command of an answer and the handoff, so the same cause and exit 12 arise with `--loom`, with the child's exit code and the tail of its standard error in `outcome.json`. A child that exits non-zero with no such line is a failed call: exit 1 `error`, no cause.
+- A refusal that is no reason of a tree call (a failure of the runner's own files, a document that does not parse) stays exit 1 `error`.
+
+The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a_tree`, `store_not_empty`, `workspace_unusable`, `bindings_refused`, `agent_not_run_yet`, `unknown_protocol`, `invalid_revision`, `invalid_instant`, `case_not_in_tree`, `case_terminated`, `outcome_not_legitimate`, `not_a_person_action`, `confinement_refused`, `store_unreadable`, `log_refused`, `stored_protocol_changed`, `duplicate_protocol`, `protocol_refused`, `protocol_link_leaves_directory`, `protocol_not_in_directory`, `no_protocol_files`, `unknown_status_format`, `handoff_check_failed`, `person_program_failed`, `tree_stopped`, `tree_already_stopped`, `tree_not_stopped` and `stop_unusable`; a test (`runbook/tests/loom_run/pages.rs`) holds this page to the list of `runbook/src/engine/refusal.rs`. The one cause that is no reason is `program_signalled` (below). `ProgramSignalled` (a program ended by a signal; exit 137 gives it) is not a reason of a tree call: Loom writes it into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled`, with Loom's text as the reason, instead of `stuck` (exit 3). A signalled program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on.
+
+The run log has two new kinds, `StopRecorded` (the principal and the reason of a hold) and `StopLifted` (the principal and the `seq` of the hold it lifts). The run directory's reader (`run_dir.rs`), the daemon's tail (`engine/tail.rs`, through Loom's reader) and the driver tools (`sdc-replay`) take both without error, each with a test. The run directory's projection (`events.jsonl`) skips both kinds, so they are not events of a run; the inspector reads that projected `events.jsonl` (never the run log `runlog-case-*.jsonl`) and so never meets them.
+
+Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 12 `refused` (Loom refused a call by a named reason; cause the reason), 64 usage.
 
 ### The spend ledger
 
@@ -290,7 +317,7 @@ reservation.
 The old driver does not end a run for a model call that exits with a number other than 0 and has no
 cost: it records the action as finished without evidence, the step's retry rule decides (`max_runs`,
 then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of a program end the run
-(`driver/src/main.rs`, `program_error`). `runbook run` does the same:
+(the former driver's `program_error`, deleted with it). `runbook run` does the same:
 
 - A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation
   (the spend rule stays fail-closed), written to `llm-calls.jsonl` with `cost_unknown: true`, and the
@@ -324,12 +351,118 @@ It sets three things before the run opens and keeps every required option requir
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
 - A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
   needed). A dry call still counts against `--max-llm-calls`.
+- The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
+  `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
+  of `sdc-node`, else the class default of `node-classes.json`. The two adapters that take an effort
+  (`metaharness`, `claude-cli`) pass it on as `--effort`; the adapter `dry` builds the metaharness
+  command, so it shows it. A level outside `low`, `medium`, `high`, `xhigh`, `max` is refused before
+  the run directory is made.
+- A dry call writes the prompt it would have sent to `prompt.md` of its call directory
+  (`work/.sdc/llm/<NNN>-<action>/`, `docs/loom-run-directory.md`): the program `sdc-node` composes
+  it before it starts the adapter.
 
 Every command a dry call would have run is printed on standard output as
 `  would run: metaharness <arguments>` (the prompt as `"$(cat <prompt file>)"`) and appended to
 `dry-commands.txt` of the run directory. `settings.json` and the first line of `run-settings.jsonl`
 carry `dry: true` and `stand_in: "runbook run --dry"`: the run is no evaluation's. The tests are in
 `runbook/tests/loom_run/dry.rs`.
+
+### A recorded run
+
+`--recorded <source>` re-drives the case tree with every model call and every decider call answered
+from a recording (a directory of `sdc-replay pack`, `driver/examples/sdc/fixtures/recorded/stub` is
+one) or from a run directory of this runner or of the old driver, by the adapter half of
+`sdc-replay`. No model is called and no login file is read. Options: `--on-divergence stop|nearest|live`
+(default `stop`), `--live-adapter`, `--live-cap`, `--inject <fault>` (repeatable: `reject@<decision>#<n>[=<reason>]`,
+`timeout@<case>/<action>#<n>`, `check-fail@<action>#<n>`), `--set k=v` (conditions: `max_runs.<name>`,
+`timeout_s.<name>`), `--take-recorded <actions>` and `--source-tree <commit>`;
+each of them without `--recorded` is exit 64 (`<option> needs --recorded <source>`), as is a source that
+is no directory. The adapter reads `replay/plan.json` and `replay/calls.jsonl` of the run directory
+at each call. Under `--confinement local` a bound program can write them, and `local` is unconfined
+(see above); under `--confinement substrate` the run directory is out of a bound program's reach.
+
+- The plan of `sdc-replay prepare` becomes settings of the run: the source's autonomy and decider
+  (on the adapter `sdc-replay`), and under `replay` the adapter of each model node (`sdc-replay`
+  for a node the source sent to a model, `stub` for the others), the principal that the story
+  digests were recorded under (`--principal` of `sdc-node` and `sdc-tool.sh`) and the conditions
+  of each action. The runner passes a bound program no environment, so it hands the adapter the
+  path of the run's `replay/plan.json`: `sdc-node` takes it as `--replay-plan` (in the argv of each
+  replayed node of the bindings copy) and sets `SDC_REPLAY` for its adapter, and the runner's
+  decider takes it from `decider.replay_plan` and sets `SDC_REPLAY` in the adapter's environment.
+  The adapter searches no directory: a `replay/plan.json` inside `work/` is never read. The settings
+  file may not name `adapter` or `replay` (the run is refused and the key named); `replay` without
+  `--recorded` is refused too, exit 2 before the run directory is made, naming the key and the
+  option, and the one adapter a re-drive takes is `sdc-replay`.
+- Conditions are written into the bindings copy (`bindings_copy.rs`): `max_runs` is the binding's
+  `budget.max_runs`, `timeout_s` its `timeout_seconds`, and a wrap of the argv (a program the plan names, as for `check-fail`) goes before it.
+- After every step the runner reads `replay/diverged.json`. A call that has no recorded reply
+  under `stop` (or no reply to reuse, or a live call over `--live-cap`, which fails closed) ends the
+  run as `stopped: recording diverged`, exit 11, cause `recording_diverged` in `run-stopped.json`
+  and `outcome.json`, with the first divergence as the reason (`diverged.json` keeps the first).
+  Exit 9 is `denied`, so the old driver's 9 for a divergence is 11 here. `nearest` reuses the
+  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`. The cap
+  `--live-cap` counts a live call from its start: the adapter appends a line with `"phase":
+  "started"` to `replay/calls.jsonl`, under a lock of that file, before it starts the live program,
+  and the call's own line (`"phase": "finished"`) when the program has ended, so a live call that is
+  ended before it finishes still counts and two adapter processes at a cap of 1 start one live
+  program between them; a line without a phase (an older log) is a finished call. The log is read
+  as bytes, line by line, and a line that is not valid UTF-8 or not a JSON object (a cut-off last
+  line included) counts as one started live call, so a log that cannot be read in full never lifts
+  the cap; the adapter writes a newline first when the last line of the log has none; a log that
+  exists and cannot be opened is refused. `replay.calls.unreadable_lines` is their number. The
+  request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
+  setting that differs from the recorded effort diverges at the first call, as a changed model
+  does (intended). The inputs are compared by digest after what differs between two runs is masked
+  (run directories, home paths, instants, revisions, seconds), and so is the version label of the
+  pinned ESS in the header line of the conformance log (the first line of that shape in
+  `in/tests.txt`, below its preamble, and in no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
+  passed`; it is rewritten to the label the committed recording was packed with, `0.97.3`, so the
+  recording's digests hold): a new ESS pin does not diverge a recording, a changed test name does.
+  A recording packed by an older `sdc-replay` at another label holds the digest of its own label
+  and diverges at `in/tests.txt` (the mask is not widened to meet it). The divergence message names
+  the label as the cause, and says to pack the recording again, only when that is proven: the
+  digest of the current text, unmasked, is the recorded one. Otherwise it says that `in/tests.txt`
+  changed and, as its own sentence, that a recording packed before the label was masked diverges
+  there for that reason alone; the recording holds digests only, so it cannot tell that case from a
+  changed test at the committed label, and the message gives no advice.
+- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live (started),
+  live_unfinished, diverged, paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
+  `rounds.jsonl` and each call's mode into `llm-calls.jsonl`.
+- `sdc-replay` reads a Loom run directory: the run log `store/runlog-case-<hex>.jsonl` and the
+  per-case `events.jsonl` that the run directory projects. Arrival and try of a call: arrival 1 at
+  the first `Evaluated` line of a case; a later arrival is a change of `case_revision` between two
+  `Evaluated` lines with no `ActionFinished` or `ChildClosed` between them (a rejection that sends
+  a writer back is not an arrival of its own); try is the number of finished runs since the last
+  arrival (not exits 126, 127, 75, 69, 70) plus 1. A decider call is keyed by case, name, arrival
+  and try, and its own `in/decision.json` and `in/checks.json` are Loom's and are not compared.
+  Recordings of the old driver replay as before.
+- Differences from the old launcher, each by what the engine does: the old exit 4 `writer_spent` is
+  `stuck` (exit 3); a timed-out call (exit 124) is not retried, because the binding of
+  `change.implement` has no result for it and Loom refuses it (`ResultNotInTable`), so the tree stops
+  `stuck` (`--inject timeout@...`); `--set max_rejections`, `review_retries` and `unstick`, and
+  `max_llm_calls` and `max_wall_seconds` (use the runner's options), are refused with a line;
+  no `review_mode` setting is recorded; `--take-recorded` needs a run directory, not a packed
+  recording; `--source-tree` is passed to `sdc-replay prepare` as before.
+- The committed recording `driver/examples/sdc/fixtures/recorded/stub` was packed again from a run
+  of this runner (source tree `a9ca39348b84`, `calls/` unchanged): the old one no longer replayed
+  strictly, because the ess pin moved (0.97.0 to 0.97.3) and `diff` orders in the C locale. The old
+  launcher diverges identically on `in/tests.txt`, so this was a defect already present.
+
+The tests are in `runbook/tests/loom_run/replay.rs`. A re-drive takes about 70 Loom steps, so no
+test makes one, and the nine tests that read a run are the slow lane `task test:replay`, not the
+default test step (they are `#[ignore]`d; the default `cargo nextest run` starts no setup step). The
+lane runs them with `--run-ignored only` on the nextest profile `replay`, whose setup step
+`replay-runs` (`runbook/.config/nextest.toml`, `runbook/tests/replay-runs.sh`) makes the six runs
+once, all at once, in `${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests` (cargo refuses
+a crate below the `[workspace]` of `runbook/`, so not under `target/`; runs older than 120 minutes
+are removed), and the tests read them (`RUNBOOK_REPLAY_RUNS`); a test takes 0.01 s to 0.05 s. The
+setup step may take 300 s, a test 60 s. The lane needs `driver/target/debug` built (the task builds
+it). A run is about 64 Loom rounds and 25 CPU seconds (measured 2026-11-22: the six together 150
+CPU seconds; setup 88 s wall at host load 70 to 90, 116 s at load 40 to 50 on a later run, and
+over 180 s at load 100 to 127). The tests that need no run stay in the default step: the option
+refusals (`runbook/tests/loom_run/flags.rs`), the settings and the reading of `diverged.json`
+(unit tests in `runbook/src/loom_run/replay.rs`), the clean recording, the indexer on the
+committed recording and the plan-only settings (`replay.rs` of the tests), each under 0.1 s.
 
 ### Fail closed
 
@@ -369,7 +502,9 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
                                    binary's path)
                   events.jsonl     one object per event: {"at": seconds, "event": "...", ...}
                   outcome.json     runbook.loom-run-outcome/1: outcome, reason, loom_exit_code,
-                                   stderr_tail, exit_code, steps, spent_micro_usd, llm_calls
+                                   stderr_tail, exit_code, steps, spent_micro_usd, llm_calls,
+                                   cause (only when outcome is refused: the reason's name in
+                                   snake case, or program_signalled)
                   tree-status.json, tree-verify.json
                   protocols/ bindings/ work/ store/ home/
 ```
@@ -400,14 +535,18 @@ summarized with `runbook parity summarize --loom-run` and compared with the comm
 `runbook/tests/loom_run/inproc.rs` runs `runbook run` with Loom as a library on the small `sh` fixture runbook of the
 engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and with no `b10x-loom`:
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
-cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
+cap, a sample of `/proc` that finds no `b10x-loom` or `canon` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
-(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5b3142c7` from
-`~/.local/state/runbook/loom/5b3142c7/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
+(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `70b0e6e0` from
+`~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
-compare --product-digests`, which has to end `parity: identical`.
+compare --product-digests`, which has to end `parity: identical`. The lane is not moved with the pin
+to `c9b4c177` (nor was it to `db2726ff`): its child binary and the sha256 it is pinned to
+(`CHILD_LOOM_SHA256` in `runbook/tests/loom_run/slow.rs`) are those of `70b0e6e0`, and no `b10x-loom`
+of `c9b4c177` was built for this change, so the lane still compares a library of `c9b4c177` with a
+child of `70b0e6e0`. A later change builds the child at `c9b4c177`, names its sha256 and moves the
+three places together.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
-(`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
-no `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh`.
+(`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts), and nothing else.

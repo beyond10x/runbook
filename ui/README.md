@@ -1,11 +1,14 @@
 # Runbook run inspector
 
-The run inspector of Runbook: a web view of an `sdc-drive` case store. It shows where each case
-stands in the phases of the software delivery cycle (SDC), the first runbook, and in its Canon
-protocol, why (claims down to evidence records, excluded records and the revision that excluded
-them), what is admissible next, who acted (program, LLM, person, decider), what each agent step was
-allowed to do and did, and run metrics. It updates live while a run writes the store. With
-`--write` it is also where a person takes the run's decisions.
+The run inspector of Runbook: a read-only web view of a run directory (a `runbook run` directory, or
+a case store an older runtime left). It shows where each case stands in the phases of the software
+delivery cycle (SDC), the first runbook, and in its Canon protocol, why (claims down to evidence
+records, excluded records and the revision that excluded them), what is admissible next, who acted
+(program, LLM, person, decider), what each agent step was allowed to do and did, and run metrics. It
+updates live while a run writes its directory. It acts on nothing: it starts no program, takes no
+decision and sends no command to the daemon. A decision is answered with `runbook decide <run>
+<request> <answer>` or on the page of `runbook serve --ui`; `runbook runs decisions <run>` lists the
+open ones. Every place that would offer the act says so in one line.
 
 ## Start
 
@@ -15,6 +18,14 @@ node server.mjs --port 7490 ../runs/trial-todo-1/store ../runs/full-cycle-1/stor
 
 Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, from this directory, `task serve`.
 
+- The server listens on 127.0.0.1 and answers a request whose `Host` is `127.0.0.1:<port>`,
+  `localhost:<port>` or `[::1]:<port>` (the daemon's own set), with no `Origin` or the same one;
+  any other `Host` or `Origin` is refused with 421 before a route. A request it cannot parse is
+  answered 400 and one that fails inside a route 500; the process goes on.
+- A file of a run is read only when its real path lies under the real path of the run directory
+  (`runfiles.mjs`): a link that leaves the run is not followed, not listed and not served
+  (`/api/blob` answers 404); a link that stays inside is. `web/` is everything the server serves;
+  the code that answers a decision lives in `daemon/decide.js`, which only the daemon serves.
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
@@ -24,10 +35,16 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
   at the stop; the run picker and the case tree mark it; its open decisions show greyed in the
-  drawer, and the server refuses to take them (continuing the run stays possible).
-- A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
-  `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
-  every clock stands at the last event, including the waiting time.
+  drawer; the inspector takes none of them.
+- Whether a run is live: `runbook run` writes `settings.json` when it starts and `run-stopped.json`
+  or a `status.json` with state `closed` when it ends, and no pid or lock record, so nothing in a
+  run directory tells a live run from one that was killed. The server reads those files only and
+  never looks a process up. An ended run is stopped or closed (above). A run directory with
+  `settings.json` and no end record is "live state unknown": the Now band and the run picker say
+  so, and every clock stands at the last event, including the waiting time. A case store an older
+  runtime left (no `settings.json`) is history: reported "not live", and a step it started and
+  never finished is shown as "Not live", not running. `/api/live` carries this as `liveness`
+  (`ended`, `unknown` or `history`).
 - `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
   holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
   "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
@@ -39,9 +56,9 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   behalf"; `rule:<name>` and `decider:approve|reject` are "rule <name>"; `human` without an id is
   "recorded as human (principal not recorded)", never a person.
 - The server needs Node 22 and nothing else, and listens on 127.0.0.1 only.
-- Without `--write` it never writes anything. With `--write` the Decisions drawer can act on every
-  store, with `--write-only STORE` (repeatable) on those stores only; the principal is `operator`
-  unless `--principal NAME` says otherwise.
+- The server never writes anything and starts no program. Every request that is not a GET or HEAD
+  answers 405, and an option it does not know (`--write`, `--principal` and `--write-only` of earlier
+  versions) is refused with exit code 2. There is no route, token field or proxy to the daemon.
 - LLM calls, tokens, cost and tool calls come from `llm-calls.jsonl` next to the store; decider
   decisions from `decisions.jsonl` there. Panels without data say "not recorded yet".
 
@@ -54,13 +71,15 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   collapsible group per experiment (most recent first; open: the most recent one and the one of the
   run on screen) and "Unassigned" for the runs of none. An experiment's head gives its id, its
   purpose (the record's `purpose` or `title`), its variants with their number of runs ("low ×3 ·
-  high ×2", or "3 variants × 3") and how many of its ended runs passed clean (closed and delivered,
+  high ×2", or "3 variants × 3") and how many of its ended runs passed clean (closed with a good end,
   nothing forced or unstuck); its rows go by variant, then ordinal, each tagged "variant #n". A run
   belongs to an experiment by its `experiment.json` (`sdc.experiment-run/1`: `experiment`,
   `variant`, `ordinal`, `tree_commit`, …) or by its directory name in an experiment record's
   `variants[].runs` (`experiments/<id>.yaml` of the checkout served; `--experiments DIR`,
   repeatable, reads others); a run in two records is a row in each. Each row has the run's name, its state (running; closed
-  with its outcome; closed, not delivered; stopped with its cause; not running), when it started
+  with its outcome and a check when it is a good end; closed, not delivered, with a cross, when the
+  view lists good ends and not this one; "ended: <outcome>" with a diamond and no colour when
+  nothing says whether it is a good end, see `good_outcomes`; stopped with its cause; not running), when it started
   (absolute on hover), how long it ran (ticking while it runs), cost and LLM calls, the models in
   short ("decider Opus · work Sonnet") and reopen, forced and unstuck counts from `status.json`.
   The search filters on name, state, outcome, stop cause, model, experiment id and variant, every
@@ -103,15 +122,23 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   class and says so; its diff is the record. The Now band and the Changes tab show the same meaning
   for each change. A run without `fs/changes.jsonl` shows what the store still says: each artifact
   revision with its action (the content of a revision is not recorded), the AEP transitions from
-  the final front matter, and the decisions.
+  the final front matter, and the decisions. A run of `runbook run` without `fs/changes.jsonl` (started
+  without `--watch`, `docs/cli.md`) says "Changes were not recorded for this run" and names `--watch`,
+  which records every file change of the run in `<run>/fs/changes.jsonl`; "Nothing" is said only when
+  that file exists and is empty.
 - **Changes** (right panel tab): every file change of the run from `fs/changes.jsonl`
   (docs/fs-changes.md), on a time strip and grouped by the action that made it, with the tool call
   and the attribution basis (`exact`: inside one driver action; `inferred`: matched to one agent
   tool call by time; `call`: in an agent or decider call's directory outside any action). A late
   `sdc.fs-attribution/1` line supplies the tool of an earlier change. Click a file for its
   syntax-highlighted diff (Rust, TS/JS, YAML, JSON, Markdown, shell, TOML); ← and → step through.
-- **Phase strip** (top): the SDC phases of `docs/phases.md`, each derived from Canon claims of the
-  case tree, never from a stored phase. Click a phase to open the claim that holds it back.
+- **Phase strip** (top): the phases of the runbook's view (the SDC phases of `docs/phases.md` for the SDC
+  runbook), each derived from Canon claims of the
+  case tree, never from a stored phase. Click a phase to open the claim that holds it back. A run of
+  `runbook run` writes no `evaluations/*.json` and no claim count, so for it the strip, the case tree and
+  the Metrics tile say "claims not recorded for this run" in place of a count; a count shows only when
+  evaluations exist. The case header and the event list show the protocol revision of the `opened`
+  event, and no "r" when the event has none.
 - **Case tree** (left): every case and its state (open, running, awaiting a person or authority,
   stuck, ended with an outcome).
 - **Graph** (centre): the selected case's protocol. Artifacts → actions → evidence kinds → claims
@@ -127,34 +154,20 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   (approvals and what they are bound to, independent producers, allowed vs did per agent step),
   Metrics, Events, Run log.
 - **Decisions** (header button, count of what waits for you): every pending approval of the tree
-  (the driver's `next` entries) with the revision and artifact to review and what approving makes
-  true, every open scope-changing question, and the history of decisions taken. Acts:
-  - Approve runs the driver's own `sdc-drive approve --capability … --principal … --action …`.
-  - Answer is one act with the person's principal. While the run waits on a `scope.answer`
-    approval (`questions.shaped`, capability `scope.answer`; the tool is
-    `sdc-tool.sh scope-answer <principal>`), each pending question is a card showing that approval.
-    The answer is written with its status (`accepted` or `changed`) and without `answered_by`;
-    with the last open question the server runs `sdc-drive step --action questions.check`, then
-    `sdc-drive approve --capability scope.answer --principal <principal> --action scope.answer`,
-    and the driver's tool sets `answered_by: <principal>`. Writing the name first would settle the
-    check and Canon would drop `scope.answer`. A person who edits the file instead gets the approve
-    card, which lists the questions and does the same check and approve. Without a pending
-    `scope.answer` the answer is written with `answered_by: <principal>` as before. The principal
-    cannot be `non-interactive` (the server exits 2).
-  - Change writes a `context.yaml` field: value, status `changed`, reason `<principal>, <date>`.
-  - Continue run starts `scripts/run-trial.sh <run>` in the background and streams its output.
+  (the `next` entries of the last verdict) with the revision and artifact to review and what
+  approving makes true, every open scope-changing question with its options and default, and the
+  history of decisions taken. The drawer is read-only: it has no Approve, Answer, Change or
+  Continue control, and one line at the top says where a decision is answered (`runbook serve
+  --ui`, `runbook decide <run> <request> <answer>`, `runbook runs decisions <run>`). The Now
+  band's waiting card has a Decide button that only opens this drawer.
 
   An approval over a structured artifact (`context.yaml`: fields with value, status and reason)
-  reads as one decision: "One decision over N fields", who holds it, what taking it does and the one
-  Approve control come first, then each field with its value, reason and state (default kept,
-  accepted or changed by whom) and, when a decider decided it, what its reply says per field (else
-  "approved as a whole"). Opening the drawer puts the focus on that control.
+  reads as one decision: "One decision over N fields", who holds it and what taking it does come
+  first, then each field with its value, reason and state (default kept, accepted or changed by
+  whom) and, when a decider decided it, what its reply says per field (else "approved as a whole").
 
-  Every act goes through `POST /api/act` (whitelisted kinds, an argv, never a shell string), is
-  refused when the revision on screen is no longer the current one, and is appended to
-  `runs/<run>/ui-actions.jsonl`. An act that would start the driver or a tool is refused, and starts
-  nothing, when a program it needs is not on the server's PATH or not built (yq, jq, `sdc-drive`,
-  canon, and per tool subcommand ess, aep, slot); the drawer names what is missing.
+  A server of an earlier version wrote `runs/<run>/ui-actions.jsonl` for the acts it took. The page
+  still reads that file in an old run, as history, and no longer writes it.
 
 URL parameters for links: `source`, `case` (path below the store, for example
 `IDEA-1/children/IDEA-1.intake`), `node` (for example `claim:dissection.valid`), `at` (event seq),
@@ -170,6 +183,19 @@ server loads every `views/*.view.json` of the checkout; `--no-view` loads none. 
 the first view that covers it, so one server can hold runs of different runbooks. The page reads the
 view of the run on screen from `/api/view?source=N` (`null` without one) and what is missing from
 `/api/view-info?source=N` (`protocols`, `file`, `runbook`, `missing`).
+The protocol of a case is read from its `case.json` (`protocol`), else from the `opened` event that starts its
+`events.jsonl`, so a run of `runbook run`, which writes no `case.json`, gets its view too
+(`test/view-loom-store.spec.mjs`).
+
+The graph of a case of `runbook run` is built from what the runner copied into the run directory, read
+with `yq` as `work/questions.yaml` is (`runfacts.mjs`): the protocol's artifacts and actions
+(`protocols/*.protocol.yaml`) and the bindings copy (`bindings/*.yaml`, `loom.bindings/1`: each
+action's executor, the placement of each artifact). The store's own `ir.json` and `bindings.json` hold
+only the effect of each action and the person and copy actions. An action is drawn as an action, an
+artifact as an artifact with the path the run placed it at. A part that cannot be read (no
+`protocols/` copy, no `bindings/` copy, no `yq`) says "not available for this run" (a chip on the
+action, a line in place of the graph), never "unbound"; "unbound" is said only of an action that a
+readable bindings copy does not bind (`test/graph-any-runbook.spec.mjs`).
 
 A view is checked when the server starts: a member the inspector does not know, or one of the wrong
 type, refuses the start with a message that names it (`decisions.scope_answer.escalate: view member
@@ -181,6 +207,24 @@ Members (all optional but `format`):
 - `runbook`: its name. `protocols`: regular expressions of its protocol ids; the view covers a run
   when one case of the run has such a protocol. Without `protocols` the protocols of `phases.items`
   count, and a view without either covers every run.
+- `good_outcomes`: the outcomes of the runbook's protocols that are a good end of a run, for example
+  `"good_outcomes": ["operating", "delivered"]` (the SDC view). A good end is declared, never guessed
+  from the SDC outcomes. A Canon `protocol/1` outcome has a `description` and `requires` and no
+  class (`deny_unknown_fields`), and the runner's `status.json` says `delivered: true` only for
+  `operating`, `fixed` and `delivered`, so the view is where a runbook says it. A closed run is
+  shown in one of three states, in the run picker and wherever the run's end is named: good (a check)
+  when `status.json` says `delivered: true` or the view lists its outcome; bad (a cross, "closed ·
+  not delivered") when the view lists good ends and not this one; neutral (a diamond, "ended:
+  <outcome>", no red) when there is no view, or the view has no `good_outcomes`. A run that was
+  stopped (`run-stopped.json`) is "stopped", whatever the view says.
+- `product`: the main file a run of the runbook produces, one string: a path relative to the run directory
+  (`"product": "work/example/example.md"`). The page links it under the header, one click from the first
+  screen. It is refused where the view is checked (the server start and `runbook check`) when it is not a
+  string, is empty, is absolute, leaves the run (`..`) or has a component that starts with a dot. Without
+  the member the page takes `work/<runbook>/<runbook>.md` when the run has it, else the Markdown files
+  directly under `work/` and one level below, the newest first, and says which rule named the file. A
+  view that names a file the run has not written says "the view names <path>; this run has not written
+  it".
 - `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
   `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
   (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).
@@ -188,24 +232,16 @@ Members (all optional but `format`):
   direction, decision or code, a `kind`, or `$basename`; the first rule that matches wins),
   `artifacts` (an artifact name of the protocols to its class) and `parsers` (a `kind` of a rule to
   what a change of such a file means, below).
-- `tool_owners`: the programs an act needs on the server's PATH: `always`, `driver` (an act that
-  starts the driver), `continue` (the whole run), and per `tools` entry (`argv0`, matched on the
-  binding's program) the `needs` of each `subcommands` entry (`match` on the first argument).
-- `decisions`: which decisions a person can take.
+- `decisions`: which decisions the page shows as a person's; the page answers none of them.
   - `scope_answer`: a question a person answers and the approval that goes with it. `action` (its
-    capability is named like it), `check` (the action that records the changed artifact), `artifact`
-    (a name of the case's artifacts), `list` (the key of the records in that file), `flag` (the
-    record's field that marks a question for a person), `fields` (the file's names for `id`, `item`,
-    `question`, `options`, `default`, `status`, `answer`, `answered_by`, `answered_at`, `reason`;
-    the file's own names when a field is not listed), `statuses` (the file's words for `open`,
-    `accepted`, `changed`) and `refused_answerers` (names the program refuses as an answerer).
+    capability is named like it), `artifact` (a name of the case's artifacts), `list` (the key of
+    the records in that file), `flag` (the record's field that marks a question for a person),
+    `fields` (the file's names for `id`, `item`, `question`, `options`, `default`, `status`,
+    `answer`, `answered_by`, `answered_at`, `reason`; the file's own names when a field is not
+    listed) and `statuses` (the file's words for `open`, `accepted`, `changed`).
   - `stall`: a wait on `action` with no record in `artifact`'s `list` whose `status` is
     `needs_person` is not a decision (the Now band says why nothing runs); `noun` is the word the
     sentence uses.
-  - `context`: a field of the `artifact` a person may change (`field_pattern`, the word `changed`
-    for its status, `fields` for the names of `value`, `status`, `reason`).
-  - `continue`: the `script` that continues a run (relative to the checkout), the `runs_dir` the run
-    must be in, and the `env` it gets (`{principal}` is the server's principal).
 
 A parser (`file_kinds.parsers.<kind>`) says what a change of a file of that kind means, in sentences.
 Two types read it. `keyed-list`: records with an id, in a list under `list` (or a map, `as: "map"`);
@@ -220,29 +256,117 @@ sections; `entries` (`word`, `sections`, `summary`: where its entries are named)
 sentence for a new file). A kind with no parser is read as its top-level keys.
 
 Without a view the page still works: one stage "Protocols" with one phase per protocol found in the
-store, every file labelled by its path (class code), no decision of the runbook, and only the driver
-and canon binaries checked; a note above the phases says which view is missing (the protocols found,
+store, every file labelled by its path (class code), and no decision of the runbook; a note above the phases says which view is missing (the protocols found,
 `--view FILE`). The same holds for a run no loaded view covers: it is never shown with another
 runbook's view. `test/view.spec.mjs` runs a second runbook (`test/second-runbook.mjs`, protocol
 `triage.ticket`, a record `asks.yaml` and a decision of its own) on servers of free ports with no view,
-a two-phase view, a view that does not cover it, and a write server whose answer is stored with the
-view's own field names; it also refuses a view with an unknown member.
+a two-phase view and a view that does not cover it; it also checks that no route takes an answer, and
+refuses a view with an unknown member.
+
+## What a step produced: the Products tab
+
+The Products tab of the panel (and the product line under the header) shows what the steps of a run
+produced: the evidence records of the case with every field and nested value, the actions with their exit
+code, and the files of the run with their content. It reads and acts on nothing.
+
+- Routes, all GET and behind the guard of every route (a Host that is not this server's is 421):
+  `/api/products?source=N` (the files under the run's `work/` and the `work/` of each case, with size,
+  format and, for a `.txt` step file, its `result:` line; the product and the rule that named it; how many
+  entries were left out), `/api/file?source=N&path=P` (one file: its text in a JSON member, or its size and
+  type), `/api/output?source=N&case=C&seq=S` (the tail of an action's output). Every answer is JSON with
+  `X-Content-Type-Options: nosniff`; no file is served as a type a browser renders.
+- Every read goes through the run-path check of `runfiles.mjs`: the real path lies under the run. The type
+  is read before the file is opened and only a regular file is read: a directory, a named pipe, a socket
+  and a device are refused (415, with the type) and never opened; a link that leaves the run is refused
+  (403). A path that is absolute or climbs out (`..`) is 400. After the open, the descriptor must still be
+  the file that was checked (its real path from the kernel is the checked path): a directory on the way
+  that is swapped for a link between the check and the open does not make another file read. A regular file
+  with more than one link (a hard link may be a file outside the run, and only its link count tells) is
+  refused (403) and not listed. The check is made on the open descriptor's own real path (the kernel's
+  name for it): the file route, the listing, the output route and the blob route each ask it whether that
+  path may be served before a byte is read. Where the system cannot give that name (no `/proc`) the file is
+  not read (403, `unverified`): the read fails closed.
+- The file route and the listing serve only what lies under a `work/` directory of the run, by name and by
+  real path: the run's `work/` and the `work/` of each of its cases. A path outside them (`settings.json`,
+  `store/...`, `llm-calls.jsonl`) is 404, as a link in `work/` that points at one is. A `work/` is a root
+  only when its real path is `<real parent>/work`, a real directory directly in a real directory of the
+  run: a `work/` that is a link (to the run directory, to `store/`, anywhere) is no root, and serves and
+  lists nothing. Evidence records and the output of an action have their own routes.
+- The listing is bounded in every direction: it lists a file by `lstat`, does not descend a link to a
+  directory, visits each real directory once, reads a directory an entry at a time (a directory of a
+  million entries costs no more than the bound), and stops at 500 files, 2000 directories or 20000 entries
+  of any kind; a directory deeper than 6 levels is not entered. The answer says it was cut (`truncated`,
+  `cut`: `files`, `directories`, `entries` or `depth`) and the page says by what. A file that is not
+  listed because it has more than one link, or is a link that is not served, is counted (`leftOut`) and the
+  page says how many. The page names as the product only a file the file route serves.
+- The run log of a case is read through the same type check, in pieces from its end, at most 8 MiB of it.
+  An action finish that is not in that part answers "not found within the last 8 MiB of the run log". The
+  blob (`/api/blob`) must be a file of the run's `store/blobs/` by its real path, with one link, under no
+  dot-directory (a `case` with a dot component is 404, as for the file route); it is read through the
+  same bounded regular-files reader, at most 200000 bytes of it, and a file over that is 404, not read
+  whole.
+- A path the request names without a dot, whose real path has one (a link into a dot-directory), is
+  answered as any path that is not served (404, "only a file under a `work/` directory of the run is
+  served"); the answer does not say what the target is.
+- The other reads of the server's own are bounded too: a file read as text (`readText`) over its limit is
+  not read at all, and a regular file with more than one link is not read (`null`, as an absent file), for
+  every caller (`console.txt`, `expected-llm-calls.txt`, the events, the case files; the default limit is 64 MiB; the diff of blobs reads at most 8 MiB per file, the work facts
+  64 KiB). The reads of the run's own small control files (`settings.json`, `events.jsonl`, case
+  state) keep the default bound; no smaller size is defined for them. The three reads that need a part of
+  a file go through the same checked open as the blob and the file route (`readRegular` of `runfiles.mjs`:
+  one descriptor, its real path under the run, a regular file, one link), on the one descriptor: the first
+  64 KiB of a case's `events.jsonl` (its protocol), `fs/changes.jsonl` from the offset the page has seen (in
+  chunks of 32 MiB), and one change of it by its position. A file that fails the check is read as absent
+  (`fs.present` is false; the change is 404). No read of a file of a run opens it any other way; the files
+  the server reads without that check are not files of a run (the checkout's protocols, docs and
+  experiment records, the files of `--view` and `--clock`, the page's own files). A position (`at`) is a
+  whole number of bytes from the start, else nothing is read; a position at or past the end is an empty
+  window. The reads of the decisions (`decisions.mjs`) have the run as root, the step log of a failed
+  action the case's `blobs/`, and a name with a dot part is refused; the record a writer names (`llm-calls.jsonl`)
+  is read only under the run. No program opens a file of a run by its name: the text of a YAML file is read
+  once through the checked open and given to `yq` on standard input, and `yq`'s messages are not shown.
+  `test/runfiles-inventory.spec.mjs` holds the list of the calls that open, read or list a file.
+- An evidence record nested deeper than 64 levels is cut by the server at load (`cut at depth 64`), and the
+  page draws at most 24 levels of it (`cut at depth 24`).
+- A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
+  for the file route, also through a link and an encoded dot; the listing says how many entries it left out.
+  There is no switch to show them.
+- A file over 1 MiB is shown cut at 1 MiB with its full byte count. A file that is not UTF-8 text (a NUL
+  byte or bytes that are not UTF-8) is shown by its size and type only. JSON is shown indented, YAML and text
+  as written, Markdown rendered.
+- The Markdown renderer (`web/markdown.js`) is code of this repository with no dependency. It builds
+  elements from text and never assigns markup; raw HTML in a file stays text; an image is a link with its alt
+  text and loads nothing; a link opens only when it is an http or https address (a new tab, no opener) or a
+  path inside the run (opened in the panel); any other address is shown as text with its address. Its cost is
+  bounded: a line of white space costs one pass, a document makes at most 30000 elements, list items
+  included (the rest is shown as plain text with a line that says so), and a table has at most 50 columns, 500 rows and 5000 cells.
+- An action's exit code is shown as recorded. Its output is the one blob the run keeps (standard output
+  followed by standard error), tail of 4096 bytes. `runbook run` records no start, end or duration of an
+  action, only a whole-second span for its step (`observed.jsonl`): the page says "not recorded by this
+  run" and shows the span of the step. It shows standard output and standard error as one stream: the run
+  does not keep them apart. The blob of a run of `runbook run` is found through Loom's own run log
+  (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
+  projected events do not carry the digest.
+- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The daemon's API has no
+  view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
+
+Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
 ## Where "now" comes from
 
-- In flight: a case's `action_started` without a later `action_finished` (driver `main.rs`).
-- The driver: `driver.json` (`sdc.driver/1`: pid, started_at, argv) beside `.sdc-drive.lock` in the
-  tree root. The Now band says "driver attached" with the pid when `/proc/<pid>` exists (a live
-  lock pid also counts as attached). A step started and not finished with no live driver is shown
-  as "driver gone", not running: `/proc/<pid>` absent, or no `driver.json` while an
-  `observed.jsonl` exists in the tree. With neither file (an old run) nothing is claimed and the
-  step shows as running, as before.
+- In flight: a case's `action_started` without a later `action_finished`.
+- Whether the run is live: see "Whether a run is live" above. The runner writes no pid and no lock,
+  so the Now band never says a run is live. A run directory of the runner with no end record says
+  "live state unknown"; a case store of an older runtime says "not live", and a step it started and
+  never finished shows as "Not live", not running.
 - Since when: `observed.jsonl` beside each `events.jsonl` (`sdc.observed/1`: index, event, action,
   observed_at, pid), matched by line index to the events (and by `event` when the line has it);
   the card says "driver observed_at". Without it, the server's clock of each event line (the mtime
-  of `events.jsonl` when the line appeared). The events' `at` is the `--at` of the whole
-  `sdc-drive run`, shared by every step of it, so it dates a run, not a step; a step whose start
-  the server did not see shows "run since".
+  of `events.jsonl` when the line appeared). The events' `at` is the instant passed to the whole
+  run, shared by every step of it, so it dates a run, not a step; a step whose start the server did
+  not see shows "run since".
 - Agent and decider calls: `llm/NNN-<action>/` and `decider/NNN-<id>/` with `request.json` and a
   `status.json` (`sdc.call-status/1`: state `running`, `finished` or `failed`, pid, started_at,
   finished_at, exit). The state decides "in progress"; a running state whose pid is gone says so.
@@ -267,8 +391,9 @@ node server.mjs --port 7495 ~/scratch/runs/agent/store
 ```console
 npm ci
 task test               # the test step: Playwright, four workers, 60 s a test, 120 s the run
-task slow               # the slow lane: specs that need runs/, the built driver or a canon binary
+task slow               # the slow lane: specs that need runs/
 ```
+
 
 The test step needs no `runs/`, no built binary and no server of your own: every server a spec
 starts is `server.mjs --port 0`, which takes a free port from the kernel and prints it
@@ -277,26 +402,17 @@ starts is `server.mjs --port 0`, which takes a free port from the kernel and pri
 no prompt, transcript or answer of an LLM, no absolute home path, a reason names the role and never
 a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each spec of the slow lane
 and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
-`meaning-runs`), a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`;
-`decisions`: a `--write` server over copies of a store, `SDC_UI_WRITE_URL`, `SDC_UI_WRITE_DIRS`), or
-the built driver and a canon binary (`scope`, `preflight`, `paths-served`).
-
-The server reads the canon binary from `SDC_UI_CANON` and the driver from `SDC_UI_DRIVE`; without
-them it looks for `~/beyond10x/canon/target/debug/canon` and `driver/target/debug/sdc-drive`. A
-binary that is not there is a refusal that names it. The fixtures of the slow lane read
-`SDC_UI_CANON` too, so the fixture and the server use one canon.
+`meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
-`stall-model.spec.mjs` test the derivations without a browser. `test/scope.spec.mjs` makes a store
-with the real driver and the stub executors (`test/scope-fixture.mjs <dir> [one|two]`, stopped at
-`awaiting_authority` for `scope.answer`) and answers through a `--write --principal anna` server of
-its own. `test/preflight.spec.mjs` starts a server whose PATH has jq and no yq: every act that
-would start the driver or a tool is refused with the missing programs named (nothing runs, no check
-is recorded), and the Decisions drawer shows the same message up front. `test/view-race.spec.mjs`
-holds two sources with two views on one write server and checks that an act that waits in its tool
-keeps its own view. `test/paths.spec.mjs` fails when a file git would commit under `ui/` or any
-page or API answer names an absolute home path; the server shows paths relative to the repository,
-its workspace (`../`) or `~`.
+`stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
+inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
+an option of the removed acts exits 2, and a Decisions drawer shows the line on where a decision is
+answered and no control that acts. `test/view-race.spec.mjs` holds two sources with two views on one
+server and checks that concurrent requests each keep their own view. `test/paths.spec.mjs` fails
+when a file git would commit under `ui/` or any page or API answer names an absolute home path;
+`test/paths-served.spec.mjs` checks the same on a served copy of the committed fixture. The server
+shows paths relative to the repository, its workspace (`../`) or `~`.
 
 ## UI iteration loop
 

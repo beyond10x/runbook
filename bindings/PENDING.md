@@ -23,33 +23,6 @@ from its YAML file must have a line here.
 - `sdc-story.bindings.json:14` `*` `{dir}` in every `argv` (6 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-release.bindings.json:7` `*` `{dir}` in every `argv` (5 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-bugfix.bindings.json:10` `*` `{dir}` in every `argv` (8 bindings) — D13 — G1, wave 2 — none, as above.
-- `sdc-intake.bindings.json:11` `*` program-error exits 75, 126, 127 (driver `program_error`, `driver/src/main.rs:579-581`) on all 9 program bindings — D36 — G1, wave 2 — the member is drafted in `story:bound-program-contract` (`exits: {error: [...]}`), not in Loom's loader; the list each binding states: `[75, 126, 127]`.
-- `sdc-direction.bindings.json:12` `*` program-error exits on all 6 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-epic.bindings.json:13` `spec.gate` program-error exits — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-spec.bindings.json:20` `*` program-error exits on all 8 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-plan.bindings.json:16` `*` program-error exits on all 7 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-story.bindings.json:14` `*` program-error exits on all 6 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-release.bindings.json:7` `*` program-error exits on all 5 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-bugfix.bindings.json:10` `*` program-error exits on all 8 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
-- `sdc-story.bindings.json:75` `tests.run` exit 69, the tool's "no build slot within `--pool-wait`, nothing ran" (`sdc-tool.sh`, `pool_run`) — `story:pool-wait-is-not-a-failure` — G1, wave 2 — the driver takes 69 as a program error with up to 3 runs of the step and then the verdict `pool_wait_spent`; under Loom the YAML's `results` `"*": failed` still maps 69 to `failed` until the loader has `exits: {error: [...]}`: list `[69, 70, 75, 126, 127]` on this binding (70: the pool ended a started job at its run limit), which then ends the run `ProgramError` with nothing recorded (Loom `2c0a6f48`, `crates/loom-bindings/src/program.rs:21`), and Loom does not run the step again: an open item of the story.
-- `sdc-release.bindings.json:31` `acceptance.run` exit 69 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
-- `sdc-bugfix.bindings.json:68` `repro.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as the `tests.run` line of `sdc-story.bindings.json`: the tool's "no build slot within `--pool-wait`, nothing ran" (69; `sdc-bugfix` `repro-run`, `tests-run` and `gate-run` bound the wait themselves) and "the pool ended a started job at its run limit" (70); list `[69, 70, 75, 126, 127]`.
-- `sdc-bugfix.bindings.json:123` `tests.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
-- `sdc-bugfix.bindings.json:157` `gate.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
-- `sdc-intake.bindings.json:24` `idea.dissect` not called (`sdc-node` writes `SDC_NOT_CALLED`, exit 0) — D37 — G1, wave 2 — drafted as `exits: {not_called: [...]}` in `story:bound-program-contract`. Under Loom (`LOOM_CASE` set) `sdc-node` prints the reason and exits 0 as in the driver; it takes a not-called exit code once the loader has the member and the binding names one.
-- `sdc-intake.bindings.json:63` `questions.write` not called — D37 — G1, wave 2 — as above.
-- `sdc-intake.bindings.json:86` `questions.answer` not called — D37 — G1, wave 2 — as above.
-- `sdc-intake.bindings.json:137` `requirements.normalise` not called — D37 — G1, wave 2 — as above.
-- `sdc-direction.bindings.json:12` `context.default` not called — D37 — G1, wave 2 — as above.
-- `sdc-direction.bindings.json:68` `vision.write` not called — D37 — G1, wave 2 — as above.
-- `sdc-direction.bindings.json:102` `roadmap.write` not called — D37 — G1, wave 2 — as above.
-- `sdc-spec.bindings.json:20` `spec.author` not called — D37 — G1, wave 2 — as above.
-- `sdc-plan.bindings.json:29` `plan.decompose` not called — D37 — G1, wave 2 — as above.
-- `sdc-story.bindings.json:27` `change.implement` not called — D37 — G1, wave 2 — as above.
-- `sdc-story.bindings.json:83` `change.review` not called — D37 — G1, wave 2 — as above.
-- `sdc-bugfix.bindings.json:10` `bug.dissect` not called — D37 — G1, wave 2 — as above.
-- `sdc-bugfix.bindings.json:47` `test.reproduce` not called — D37 — G1, wave 2 — as above.
-- `sdc-bugfix.bindings.json:89` `change.fix` not called — D37 — G1, wave 2 — as above.
 
 ## Agent nodes (Loom `story:bound-agent-node`, wave 4; stub adapter `N3`, wave 5)
 
@@ -110,11 +83,8 @@ named here; the driver's path is unchanged. Line form: the tool and the variable
 
 ## Person actions (Loom G2, wave 3)
 
-A `person` executor runs no program; its effect records the results its `results` table names (`from: effect`, Loom `5af3f9c2`). `context.approve`, `vision.approve`, `roadmap.approve` and `merge.approve` declare `rejected` beside `performed`.
+A `person` executor records the results its `results` table names (`from: effect`, Loom `5af3f9c2`); with an `argv` (Loom `70b0e6e0`, `story:person-action-runs-a-program`) it also runs that program when the approval is taken, with the approving principal in a whole argv entry `{principal}`. `scope.answer` is bound that way in `bindings/sdc-intake.yaml`; the JSON file keeps `manual: true` for the old driver. `context.approve`, `vision.approve`, `roadmap.approve` and `merge.approve` declare `rejected` beside `performed`. Nothing of this section is pending.
 
-- `sdc-intake.bindings.json:192` `scope.answer` a person's action runs a program (`sdc-tool.sh scope-answer`) — D11 — G2, wave 3 — syntax not fixed; the argv: `[tools/sdc-tool.sh, scope-answer, <principal>, --action, scope.answer]`.
-- `sdc-intake.bindings.json:195` `scope.answer` `{principal}` in `argv` — D15 — G2, wave 3 — syntax not fixed.
-- `sdc-intake.bindings.json:198` `scope.answer` `subject` with no evidence — D38 — G2, wave 3 — syntax not fixed; subject `questions`.
 
 ## Handoffs (Loom `N8`, wave 4)
 

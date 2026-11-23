@@ -1,5 +1,7 @@
 # Trial 1: the first SDC cycle with a real LLM
 
+This is the report of a trial as it was made. The programs it names (`sdc-drive`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`, `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) are deleted (`story:driver-runtime-removed`); the runtime is Loom's (`docs/loom-run.md`).
+
 Idea (the operator, 2026-11-21, verbatim): "I want to build a to-do list web application". Run name
 `trial-todo-1`. Executor: `tools/llm-node.sh` through the metaharness adapter (Claude Code,
 operator login), model `claude-haiku-5-5` on every agent node. See `driver.md`, "LLM executor".

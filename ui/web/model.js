@@ -10,10 +10,13 @@ const LLM_ARGV = /(^|[\/\s])stub-|adapter|metaharness|claude|\{profile\}|eval\/l
 export function actorOf(c, action) {
   const b = c.bindings?.[action];
   const decl = c.ir?.actions?.[action];
-  if (!b) return {kind: 'unbound', why: 'no binding in this case\'s bindings.json'};
+  if (!b) {
+    const p = c.parts?.bindings;
+    return p?.state === 'unavailable' ? {kind: 'unavailable', why: `not available for this run: ${p.why}`} : {kind: 'unbound', why: 'no binding in this case\'s bindings.json'};
+  }
   if (b.llm) return {kind: 'llm', why: 'binding has `llm` (agent node)'};
-  if (b.manual) return {kind: 'person', why: 'binding is `manual`: only `sdc-drive approve --action` takes it'};
-  if (b.child) return {kind: 'driver', why: 'binding opens child cases (sdc-drive, TEMPORARY Loom copy)'};
+  if (b.manual) return {kind: 'person', why: 'binding is `manual`: only a recorded decision takes it'};
+  if (b.child) return {kind: 'driver', why: 'binding opens child cases'};
   if (b.copy) return {kind: 'driver', why: `binding copies \`${b.copy.kind}\` from \`${b.copy.from}\``};
   const argv = (b.argv || []).join(' ');
   if (/llm/i.test(b.producer || '') || LLM_ARGV.test(argv)) return {kind: 'llm', why: `argv \`${(b.argv || []).slice(1).join(' ')}\` is an LLM executor (stub or adapter)`};
@@ -24,7 +27,7 @@ export function actorOf(c, action) {
 }
 // Who a principal is (web/principal.js): person, decider, rule, legacy, agent; null when none.
 export const principalKind = (p) => { const k = principalOf(p).kind; return k === 'none' ? null : k; };
-export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', rule: 'rule', legacy: 'recorded as human', agent: 'agent', none: 'not recorded', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
+export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', rule: 'rule', legacy: 'recorded as human', agent: 'agent', none: 'not recorded', unavailable: 'not available', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
 
 // ---- events, evaluations, time ------------------------------------------------------------------
 export function seqOfEvidence(id) { const m = /^e(\d+)-/.exec(id || ''); return m ? Number(m[1]) : null; }
@@ -58,9 +61,26 @@ export function caseState(c) {
   return {state: 'open', label: 'open'};
 }
 
+// The protocol revision the page shows for a case: the one of its `opened` event. A run of `runbook run` whose event
+// has none shows none (never a bare "r"); the SDC store's own ir.json is the fallback only for a store that is not a
+// run of the runner.
+const hasRevision = (r) => r != null && r !== '';
+export function protocolRevisionOf(c) {
+  const r = c.events?.find((e) => e.event === 'opened')?.protocol?.revision;
+  if (hasRevision(r)) return r;
+  const fb = c.parts?.loom ? null : c.ir?.protocol?.revision;
+  return hasRevision(fb) ? fb : null;
+}
+
+// Claims of a run of `runbook run`: the runner writes no evaluations/*.json and no claim count (its `Evaluated` run-log
+// line carries a case revision, the frontier and a digest, docs/loom-run-directory.md), so a case of such a run without
+// an evaluation has no claims count to show: the page says so, and does not show 0/0. Stores of the SDC runbook always count.
+export const CLAIMS_NOT_RECORDED = 'claims not recorded for this run';
+export const claimsRecorded = (c) => !c.parts?.loom || Object.keys(c.evaluations || {}).length > 0;
+
 export function describeEvent(e) {
   switch (e.event) {
-    case 'opened': return `opened, protocol ${e.protocol?.id} r${e.protocol?.revision}`;
+    case 'opened': return `opened, protocol ${e.protocol?.id}${hasRevision(e.protocol?.revision) ? ` r${e.protocol.revision}` : ''}`;
     case 'revised': return `revised ${Object.entries(e.artifacts || {}).map(([a, r]) => `${a} → ${r}`).join(', ')} (case ${e.case_revision})`;
     case 'evaluated': return `Canon evaluated → ${e.file}`;
     case 'action_started': return `started ${e.action}${e.llm ? ' (LLM)' : ''}${e.copy ? ' (copy)' : ''}${e.retry_of?.length ? ` retry of ${e.retry_of.join(',')}` : ''}`;
@@ -146,8 +166,8 @@ export function caseMetrics(c, meta) {
   const kindOf = (a) => actorOf(c, a).kind;
   const ats = ev.map((e) => e.at).filter((a) => a && a !== '-').map((a) => Date.parse(a)).filter((x) => !isNaN(x));
   const last = evalAt(c, null);
-  const pid = ir.protocol?.id, rev = ir.protocol?.revision;
-  const check = meta?.check?.[`${pid}@${rev}`];
+  const pid = ir.protocol?.id ?? c.case?.protocol, rev = protocolRevisionOf(c);
+  const check = rev != null ? meta?.check?.[`${pid}@${rev}`] : null;
   const revisedArtifacts = ev.filter((e) => e.event === 'revised').reduce((n, e) => n + Object.keys(e.artifacts || {}).length, 0);
   let invalidations = 0;
   const seen = new Set();
@@ -155,7 +175,7 @@ export function caseMetrics(c, meta) {
     if (x.reason === 'revision_mismatch' && !seen.has(x.evidence)) { seen.add(x.evidence); invalidations++; }
   }
   return {
-    states: check ? check.states : null, stateSource: check ? `canon check, ${pid} r${rev}` : `no canon check line for ${pid} r${rev}`,
+    states: check ? check.states : null, stateSource: check ? `canon check, ${pid} r${rev}` : `no canon check line for ${pid}${rev != null ? ` r${rev}` : ''}`,
     findings: check ? check.findings : null,
     artifacts: Object.keys(ir.artifacts || {}).length, evidenceKinds: Object.keys(ir.evidence_kinds || {}).length,
     claims: Object.keys(ir.claims || {}).length, obligations: Object.keys(ir.obligations || {}).length,

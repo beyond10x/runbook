@@ -63,13 +63,15 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh change.implement",
+        "program": "sdc-node change.implement",
         "results": {
-          "0": null
+          "0": null,
+          "8": "coverage_refused"
         },
         "retry_when": [
           "code_review",
           "conformance_run",
+          "implementation_change",
           "merge_approval"
         ],
         "timeout_s": 1500
@@ -167,7 +169,7 @@
           "search"
         ],
         "producer": "llm-review",
-        "program": "llm-node.sh change.review",
+        "program": "sdc-node change.review",
         "results": {
           "0": "approved",
           "1": "rejected"
@@ -281,7 +283,7 @@
       "effect": "write",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.merge",
+        "producer": "runbook.merge",
         "program": "sdc-tool.sh merge",
         "results": {
           "0": null
@@ -1030,8 +1032,8 @@
   },
   "source": {
     "path": "protocol/sdc-story.protocol.yaml",
-    "tag": "0.5.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.5.0/protocol/sdc-story.protocol.yaml"
+    "tag": "0.8.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.8.0/protocol/sdc-story.protocol.yaml"
   },
   "stem": "sdc-story",
   "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision.",

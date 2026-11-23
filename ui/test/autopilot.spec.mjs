@@ -45,7 +45,7 @@ test.beforeAll(async ({}, info) => {
   fs.mkdirSync(runs, {recursive: true});
   const r = spawnSync('node', ['test/fixture-run.mjs', 'human', path.join(runs, 'human')], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`fixture human: ${r.stderr}`);
-  { const s = await startServer(['--write', '--principal', 'operator', '--runs', runs]); base = s.url; procs.push(s.proc); }
+  { const s = await startServer(['--runs', runs]); base = s.url; procs.push(s.proc); }
 });
 
 test('autopilot: the decider is deciding or no decision is pending, never a person, never "waiting on you"', async ({page}) => {

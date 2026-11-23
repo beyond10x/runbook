@@ -4905,6 +4905,197 @@
       "tree": "da86a8f7b81fb5be09c06d19b062e790a6950ada",
       "tree_note": "tag 0.4.1 at main da86a8f: 0.4.0 (5955f82) with the merges of the loom-run fix, ESS 0.97.3, the reference check, the two evaluation tools reading a Loom run, the UI test children and the preparation",
       "version": "0.4.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "6a809a4",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run makes the run in this process with Loom as a library and the command loom-run is gone"
+        },
+        {
+          "commit": "af4059d",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook test runs a loom.tree-suite/1 file through Loom's suite runner in process"
+        },
+        {
+          "commit": "6bdb085",
+          "effect": "none",
+          "experiment": null,
+          "line": "the model, rule and requester decider run inside the runner and start only the adapter program"
+        },
+        {
+          "commit": "92a12f3",
+          "effect": "none",
+          "experiment": null,
+          "line": "all fourteen model nodes of the bindings start sdc-node; llm-node.sh serves the old driver only"
+        },
+        {
+          "commit": "ad5286e",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-experiment run starts a run only with runbook run and refuses a variant of the old driver"
+        },
+        {
+          "commit": "3073dac",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run --dry, --bugfix, --bugfix-ticket, --goals, --watch and --conformance observe are built; the replay options are refused"
+        },
+        {
+          "commit": "0484566",
+          "effect": "none",
+          "experiment": null,
+          "line": "Loom 5b3142c7 and Canon 0.11.0 are linked as libraries, and the daemon can run through Loom with serve --runtime loom"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.5.0",
+      "kind": "release",
+      "label": "0.5.0",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.",
+        "The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "44e05a37d6c44266849231212b75efabda0bee54",
+      "tree_note": "tag 0.5.0 at main 44e05a3: 0.4.1 (da86a8f) with the merges of the runner on the Loom engine (runbook run in process, runbook test, the decider and every model node in Rust, the options of the old launcher but the replay), the record of 0.4.1 and the preparation",
+      "version": "0.5.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "34f84cf",
+          "effect": "none",
+          "experiment": null,
+          "line": "the ESS pins move from 0.97.3 to 0.97.4; the committed suites are byte-identical"
+        },
+        {
+          "commit": "199f311",
+          "effect": "none",
+          "experiment": null,
+          "line": "the inspector applies a view file to a run of runbook run, whose protocol is in the opened event"
+        },
+        {
+          "commit": "17c00ab",
+          "effect": "none",
+          "experiment": null,
+          "line": "the inspector reads a good end from the view file and draws the graph of a run of runbook run from its copies"
+        },
+        {
+          "commit": "81f2612",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook canon validate, compile, check, simulate and evaluate run the linked Canon library, and runbook doctor needs no canon binary"
+        },
+        {
+          "commit": "658ecf4",
+          "effect": "none",
+          "experiment": null,
+          "line": "the run inspector reads a run and starts no driver; every read of a run file goes through one path check"
+        },
+        {
+          "commit": "da85428",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run routes decisions by autonomy level from a table it reads once before the first action"
+        },
+        {
+          "commit": "8a56f36",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run --recorded re-drives a case tree from a recording, with a live cap that counts a call from its start"
+        },
+        {
+          "commit": "ff0579c",
+          "effect": "none",
+          "experiment": null,
+          "line": "Loom 70b0e6e0 is linked, and scope.answer is a person step with a program"
+        },
+        {
+          "commit": "652c032",
+          "effect": "none",
+          "experiment": null,
+          "line": "the effort per node class reaches sdc-node"
+        },
+        {
+          "commit": "56579cc",
+          "effect": "none",
+          "experiment": null,
+          "line": "the decision contract refuses a letter nobody offered, an escalation to a principal who is not eligible, a repeated option letter and an empty record id"
+        },
+        {
+          "commit": "c68ca14",
+          "effect": "none",
+          "experiment": null,
+          "line": "the record parity-loom-strong-4 ended, 0 of 3 runs delivered, all three stopped stuck; its verdict is descriptive"
+        }
+      ],
+      "date": "2026-11-23",
+      "experiments": [],
+      "id": "0.6.0",
+      "kind": "release",
+      "label": "0.6.0",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; no record of experiments/ names a run on it.",
+        "The record parity-loom-strong-4 ran on the head of line 2 (9be5098), not on this tree, and is not listed here; it is descriptive and decides nothing, and no parity verdict between the old driver and Loom exists.",
+        "The old driver is still in this tree; its deletion is not in this release."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "3c40ef21e1bb7ba8e77e3b89e889543a5d149875",
+      "tree_note": "tag 0.6.0 at main 3c40ef2: 0.5.0 (44e05a3) with the merges of the ESS 0.97.4 pins, the inspector fixes, line 2 of the Loom runner (routing by autonomy level, runbook run --recorded, runbook canon, the read-only inspector, Loom 70b0e6e0), the end of the record parity-loom-strong-4 and the preparation",
+      "version": "0.6.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -5568,6 +5759,59 @@
     },
     {
       "hypothesis": null,
+      "id": "parity-loom-strong-4",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through `runbook run` in process on the Loom library the runbook crate links (commit 70b0e6e0), with no `b10x-loom` child binary and no `loom.bin`; record 3 went through `runbook loom-run` and the child binary of Loom 5af3f9c2, the driver runs of release-0.1.2 through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either, nor were the runs of record 3."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick (docs/loom-run-directory.md line 99), a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider runs inside `runbook run` (runbook/src/loom_run/decider/); bindings/tools/decider.sh is still in the tree and is not started by the runner (docs/loom-run-decisions.md, Notes), while the driver runs used it; the adapter is claude-cli as in both earlier runtimes. The answers file bindings/tools/answers.yaml and sdc-answers are used as in record 3 (scope.answer, amend.upstream); amend.upstream now has handoff_when (bindings/tools/sdc-tool.sh findings-wait), which record 3 did not. Who decides is read once from tools/autonomy-levels.json and the decision classes before the first action of the run."
+        },
+        {
+          "key": "effort",
+          "note": "the record format carries no effort to the runner (efforts.* is refused for a loom variant), so the class defaults of bindings/tools/node-classes.json apply to every node and to the decider; the driver runs of release-0.1.2 set their efforts through SDC_LLM_EFFORT variables."
+        },
+        {
+          "key": "canon",
+          "note": "Canon is linked into the runbook binary (b10x-canon 0.11.0, commit e81f970d, runbook/Cargo.toml and runbook/Cargo.lock) and no run needs a canon binary on the login's PATH; the runs of record 3 and release-0.1.2 used the canon binary on the login's PATH, which no record pinned."
+        },
+        {
+          "key": "tree",
+          "note": "the tree is the head of line 2, the branch impl/loom-line-2 (9be5098), with its review fixes and main at 17c00ab57f merged (merge commit 3bac01d); the files of the old driver runtime are still in the tree, `runbook run` does not start them, and a later branch removes them; record 3 ran on e7dfa4b58 and the driver runs of release-0.1.2 on 72a3eef."
+        },
+        {
+          "key": "ess",
+          "note": "driver/ess-pin.json pins ess 0.97.4 (commit b076ef00) and bindings/tools/sdc-tool.sh runs that release; the driver runs of release-0.1.2 and the runs of record 3 ran ess 0.96.0."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: On the head of line 2 the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`). The three runs of the to-do idea in the strong setting get past the two stops of `parity-loom-strong-3` (`decider_cannot_decide` in `IDEA-1.intake` after `requirements.check` exited 5; `error` at `change.review`, exit 2, Loom refusal `ResultNotInTable`) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those two places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-3, which stays as the evidence of its three stops and is not edited.",
+      "tree": "9be5098",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 3,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "release-0.3.0",
       "kind": "prospective",
       "known_confounds": [
@@ -5839,7 +6083,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "cd89edf43f44f26d106cf455ded8866cc6491a50d56ec865ca0ffaded6bd0085"
+      "sha256": "d7bf78d3562c50f17ed81ec11ba3b00f1e295e0de32a5dea046369bdd374c3cd"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -6148,6 +6392,22 @@
     {
       "path": "experiments/parity-loom-strong-3/runs/parity-loom-strong-3.strong.3.json",
       "sha256": "455bcb8db2297abcb164e7da1a150ce2a807c33c9dddd46d228e71316bd6a7fe"
+    },
+    {
+      "path": "experiments/parity-loom-strong-4.yaml",
+      "sha256": "e60d24d9cd57b9ce8d2b1109afdfc5deb429df653164f7eff60a2af55a739e8f"
+    },
+    {
+      "path": "experiments/parity-loom-strong-4/runs/parity-loom-strong-4.strong.1.json",
+      "sha256": "4c4fd7cb65bb2bf9d457f0197dfab506d9780705a244989d2c9886139ff9a473"
+    },
+    {
+      "path": "experiments/parity-loom-strong-4/runs/parity-loom-strong-4.strong.2.json",
+      "sha256": "4c8647b38a7b76f3b1bd572c603f672db287be859d76835b322b2c3e28c2693c"
+    },
+    {
+      "path": "experiments/parity-loom-strong-4/runs/parity-loom-strong-4.strong.3.json",
+      "sha256": "8aa8f1850494461878e40b3858abf50fe7607879e060c848b2b85f50fe356240"
     },
     {
       "path": "experiments/parity-loom-strong.yaml",

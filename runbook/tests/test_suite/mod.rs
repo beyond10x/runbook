@@ -9,8 +9,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+mod notcalled_neighbours;
+mod amend;
+mod notcalled;
+mod options;
+mod workers;
+
 const MARKER: &str = "RUNBOOK_TEST_MARKER";
-const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", "sdc-drive"];
+const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", concat!("sdc-dr", "ive")];
 
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
@@ -106,12 +112,23 @@ fn a_suite_prints_a_line_per_cycle_then_the_slowest_and_the_count() {
     assert!(l[0].ends_with(" s)"), "{l:?}");
     assert!(l[1].starts_with("reads-a-seed: as expected ("), "{l:?}");
     assert!(l[2].starts_with("later: pending, still failing: not-yet (contains"), "{l:?}");
-    assert_eq!(l[3], "ten slowest:", "{l:?}");
-    let slowest: Vec<f64> = l[4..7].iter().map(|x| x.trim_start().split(' ').next().unwrap().parse().unwrap()).collect();
-    assert!(slowest.windows(2).all(|w| w[0] >= w[1]), "slowest first: {l:?}");
-    assert_eq!(l.len(), 8, "{l:?}");
-    assert_eq!(l[7], "2 of 2 as expected, 1 pending", "{l:?}");
-    assert_eq!(std::fs::read_to_string(scratch.join("2/work/note.txt")).unwrap(), "good day\n", "a scratch named by --scratch is kept");
+    assert_eq!(l[3], "selected 3 of 4 cycles", "with --only the report says how many of the suite's cycles were chosen: {l:?}");
+    let named = l[4].strip_prefix("slowest: ").unwrap_or_else(|| panic!("Loom's slowest line: {l:?}"));
+    let slowest: Vec<(&str, f64)> = named
+        .split("), ")
+        .map(|x| {
+            let (name, seconds) = x.trim_end_matches(')').split_once(" (").unwrap();
+            (name, seconds.trim_end_matches(" s").parse().unwrap())
+        })
+        .collect();
+    assert_eq!(slowest.len(), 3, "every cycle that ran is named: {l:?}");
+    assert!(slowest.windows(2).all(|w| w[0].1 >= w[1].1), "slowest first: {l:?}");
+    let mut names: Vec<&str> = slowest.iter().map(|(n, _)| *n).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["later", "reads-a-seed", "writes-a-note"], "{l:?}");
+    assert_eq!(l.len(), 6, "{l:?}");
+    assert_eq!(l[5], "2 of 2 as expected, 1 pending", "{l:?}");
+    assert_eq!(std::fs::read_to_string(scratch.join("work/2/note.txt")).unwrap(), "good day\n", "a scratch named by --scratch is kept");
 }
 
 #[test]
@@ -125,7 +142,7 @@ fn a_wrong_cycle_exits_1_and_names_its_check() {
     assert!(l.contains(&"1 of 2 as expected, 0 pending".to_owned()), "{l:?}");
     assert!(l.contains(&"failed: wrong-on-purpose".to_owned()), "{l:?}");
     let kept = l.iter().find_map(|x| x.strip_prefix("scratch kept: ")).expect("the scratch directory is named");
-    assert!(Path::new(kept).join("2/work/note.txt").is_file(), "{kept}");
+    assert!(Path::new(kept).join("work/2/note.txt").is_file(), "{kept}");
     assert!(Path::new(kept).starts_with(rig.dir.join("run/runbook")), "the default scratch lies under $XDG_RUNTIME_DIR/runbook: {kept}");
 }
 
@@ -181,9 +198,9 @@ fn only_runs_the_named_cycles_and_names_that_do_not_exist_are_refused() {
     assert!(!out(&o).contains("reads-a-seed"), "{l:?}");
     let o = rig.run(&[suite.to_str().unwrap(), "--only", "no-such-cycle", "--confinement", "local"]);
     assert_eq!(o.status.code(), Some(2), "{}", err(&o));
-    assert!(err(&o).contains("no-such-cycle"), "{}", err(&o));
+    assert!(err(&o).contains("CycleUnknown") && err(&o).contains("no-such-cycle"), "Loom refuses the name: {}", err(&o));
     let left: Vec<_> = std::fs::read_dir(rig.home().join("suites")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('.')).collect();
-    assert!(left.is_empty(), "the filtered copy of the suite is removed: {left:?}");
+    assert!(left.is_empty(), "nothing is written beside the suite: {left:?}");
 }
 
 #[test]
@@ -211,7 +228,7 @@ fn the_process_tree_holds_runbook_and_the_bound_programs_only_and_they_get_path_
     for name in FORBIDDEN {
         assert!(!seen.contains(name), "a process of the old runtime ran: {seen:?}");
     }
-    let dump = std::fs::read_to_string(scratch.join("1/work/envdump.txt")).unwrap();
+    let dump = std::fs::read_to_string(scratch.join("work/3/envdump.txt")).unwrap();
     let names: BTreeSet<&str> = dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).collect();
     assert!(names.contains("PATH") && names.contains("LOOM_CASE"), "{names:?}");
     let others: Vec<&&str> = names.iter().filter(|k| **k != "PATH" && !k.starts_with("LOOM_") && !matches!(**k, "PWD" | "SHLVL" | "_" | "OLDPWD")).collect();

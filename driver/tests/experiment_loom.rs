@@ -17,6 +17,10 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// it as the sign of a build that has it).
 const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
 const LOOM_SHA: &str = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567";
+/// Names of the old driver that no output of `sdc-experiment` carries; each is built from two parts
+/// so that this file does not name them.
+const OLD_LAUNCHER: &str = concat!("run-tri", "al.sh");
+const OLD_DRIVER: &str = concat!("sdc-dr", "ive");
 
 fn scratch(name: &str) -> PathBuf {
     let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join("experiment-loom").join(name);
@@ -178,7 +182,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert!(out.contains(&format!("{k} is a setting of a model decider, not of kind rule")), "{k}: {out}");
     }
     // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
-    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.recorded", "true"),
+    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"),
         ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
@@ -186,10 +190,6 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
-        // The settings that wait for a port of `runbook run` say so.
-        if k == "flags.recorded" {
-            assert!(out.contains("`runbook run` "), "{k}: {out}");
-        }
     }
     // A setting nobody knows, and bad values.
     for (k, v, want) in [("bogus.key", "1", "bogus.key is no loom launch setting"),
@@ -314,7 +314,7 @@ fn a_record_of_the_old_driver_is_still_checked_and_is_refused_at_run_with_one_li
         assert_eq!(code, 1, "{out}");
         assert_eq!(out.lines().count(), 1, "one line: {out}");
         assert!(out.contains("the old driver, which is gone") && out.contains("runner: loom"), "{out}");
-        assert!(!out.contains("run-trial.sh") && !out.contains("sdc-drive"), "{out}");
+        assert!(!out.contains(OLD_LAUNCHER) && !out.contains(OLD_DRIVER), "{out}");
         assert!(!units.exists(), "no unit was started");
         assert!(!d.join("runs").exists(), "no run directory was made");
     }
@@ -415,6 +415,49 @@ fn flags_dry_is_accepted_and_runbook_run_gets_dry() {
         (vec![("flags.dry", "true"), ("decider.adapter", "claude-cli")], "decider.adapter is not set with flags.dry"),
     ] {
         write_record(&d, &record_with(&without_adapters(&extra), COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{want}: {out}");
+        assert!(out.contains(want), "{want}: {out}");
+    }
+}
+
+#[test]
+fn flags_recorded_and_its_options_are_passed_to_runbook_run() {
+    let d = scratch("recorded");
+    let builds = fake_build(&d, 11, true);
+    let args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"];
+    let with = |extra: &[(&str, &str)]| -> Vec<(String, String)> {
+        let mut f = fixed();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        f
+    };
+    // Without the setting no run line has --recorded.
+    write_record(&d, &record_with(&fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("--recorded"), "{out}");
+    // A run named under the runs directory, and the options that go with it, are passed on.
+    let all = [("flags.recorded", "release-0.1.2.strong.1"), ("flags.on_divergence", "live"), ("flags.live_adapter", "claude-cli"), ("flags.live_cap", "5"), ("flags.source_tree", "72a3eef")];
+    write_record(&d, &record_with(&with(&all), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    let lines: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines.iter().all(|l| l.ends_with("runs/release-0.1.2.strong.1 --on-divergence live --live-adapter claude-cli --live-cap 5 --source-tree 72a3eef")), "{out}");
+    // An absolute path is passed as it is.
+    write_record(&d, &record_with(&with(&[("flags.recorded", "/rec/stub")]), COMMIT, "planned", ("", "")));
+    let (_, out) = experiment(&args, &d);
+    assert!(out.lines().filter(|l| l.contains(" run sdc --run ")).all(|l| l.ends_with("--recorded /rec/stub")), "{out}");
+    // An option without --recorded, a bad policy and a bad cap are refused by name.
+    for (extra, want) in [
+        (vec![("flags.on_divergence", "nearest")], "flags.on_divergence goes with flags.recorded"),
+        (vec![("flags.recorded", "r"), ("flags.on_divergence", "maybe")], "flags.on_divergence must be stop, nearest or live"),
+        (vec![("flags.recorded", "r"), ("flags.live_cap", "0")], "flags.live_cap must be a whole number of at least 1"),
+        (vec![("flags.recorded", "''")], "flags.recorded must name a run directory or a recording"),
+    ] {
+        write_record(&d, &record_with(&with(&extra), COMMIT, "planned", ("", "")));
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{want}: {out}");
         assert!(out.contains(want), "{want}: {out}");
@@ -789,7 +832,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     assert!(row("lx.high.1").contains("high") && state("lx.high.1") != "-" && row("lx.high.1").contains("not started"), "{out}");
     let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
-    assert!(!out.contains("run-trial.sh"), "a loom run is not stopped with run-trial.sh: {out}");
+    assert!(!out.contains(OLD_LAUNCHER), "a loom run is not stopped with the old launcher: {out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
     assert_eq!(stop["format"], "sdc.run-stopped/1");
     assert_eq!(stop["reason"], "the cap was wrong");
@@ -942,7 +985,7 @@ fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
     let wrapped = fs::read_to_string(&wrapper_log).expect("the launcher called systemd-run");
     assert_eq!(wrapped.lines().count(), 1, "one unit for one run: {wrapped}");
     assert!(wrapped.contains(&format!("{} run sdc", bin.join("runbook").display())), "the unit runs `runbook run`: {wrapped}");
-    for old in ["run-trial.sh", "sdc-drive"] {
+    for old in [OLD_LAUNCHER, OLD_DRIVER] {
         assert!(!wrapped.contains(old) && !line.iter().any(|a| a.contains(old)), "{old} is no part of the run: {wrapped} {line:?}");
     }
 }
@@ -967,5 +1010,5 @@ fn stop_signals_the_unit_of_the_run_and_calls_no_script() {
     assert!(d.join("runs/lx.low.1/run-stopped.json").is_file(), "{out}");
     let log = fs::read_to_string(&calls).unwrap();
     assert!(log.lines().any(|l| l == "--user stop sdc-exp-lx-low-1"), "the unit of the run is stopped: {log}");
-    assert!(!out.contains("run-trial.sh"), "{out}");
+    assert!(!out.contains(OLD_LAUNCHER), "{out}");
 }

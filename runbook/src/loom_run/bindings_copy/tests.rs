@@ -192,13 +192,53 @@ fn the_principal_of_person_steps_is_rewritten_in_executor_and_evidence_and_scope
         let expect = if name.ends_with(":scope.answer") { "person:owner" } else { "decider:model" };
         assert_eq!(action["executor"]["principal"].as_str(), Some(expect), "{name}");
     }
-    for autonomy in ["A0", "A3", "A4"] {
+    for autonomy in ["A0", "A1"] {
         let mut s = model_settings();
         s["autonomy"] = json!(autonomy);
         let (_d, d, r) = make("r2-copy-reserved", &s);
         r.unwrap();
         assert_only_the_tools_dir_differs(&d);
     }
+}
+
+#[test]
+fn below_a5_only_the_person_steps_the_table_gives_the_decider_get_its_principal_and_no_table_leaves_every_step_a_person() {
+    let table = decider::Routing::load(committed().parent().unwrap()).unwrap();
+    for level in ["A2", "A3", "A4"] {
+        let mut s = model_settings();
+        s["autonomy"] = json!(level);
+        let (_d, dst, r) = make("r2-copy-routed", &s);
+        r.unwrap();
+        let (mut taken, mut kept) = (0, 0);
+        for (name, action) in actions(&dst) {
+            if action["executor"]["kind"].as_str() != Some("person") {
+                continue;
+            }
+            let short = name.split_once(':').unwrap().1;
+            let got = action["executor"]["principal"].as_str().unwrap();
+            if got == "decider:model" {
+                assert!(table.decider_takes(level, "approval", short), "{level} {name}: the table does not give it to the decider");
+                taken += 1;
+            } else {
+                assert!(!got.starts_with("decider:") && !got.starts_with("rule:"), "{level} {name}: {got}");
+                kept += 1;
+            }
+            if short == "release.publish" || short == "change.merge" {
+                assert_ne!(got, "decider:model", "{level} {name}: a person's below A5");
+            }
+        }
+        assert!(taken > 0 && kept > 0, "{level}: {taken} taken, {kept} kept");
+    }
+    // The table is read beside the committed bindings; a source whose root has none is a person's.
+    let dir = Dir::new("r2-copy-no-table");
+    let src = dir.path().join("src/bindings");
+    copy_dir(&committed(), &src).unwrap();
+    let dst = dir.path().join("run/bindings");
+    std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    let mut s = model_settings();
+    s["autonomy"] = json!("A4");
+    materialise(&src, &dst, "sdc", &s, None).unwrap();
+    assert_only_the_tools_dir_differs(&dst);
 }
 
 #[test]
@@ -290,6 +330,36 @@ fn a_login_file_is_named_in_the_copy_only_by_the_link_it_is_given_and_never_in_a
 }
 
 #[test]
+fn an_effort_lands_on_the_model_nodes_of_its_class_and_on_no_other_node() {
+    let settings = json!({"efforts": {"review": {"effort": "max"}, "other": {"effort": "low"}}});
+    let (_dir, dst, root) = make("r2-copy-efforts", &settings);
+    root.unwrap();
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(dst.join("tools/node-classes.json")).unwrap()).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for (name, action) in actions(&dst) {
+        let argv = argv_of_any(&action);
+        if action["executor"]["kind"].as_str() != Some("program") || !argv[0].ends_with("sdc-node") {
+            assert!(!argv.iter().any(|a| a == "--effort"), "{name}: a node that is no model node was given an effort");
+            continue;
+        }
+        let node = name.split(':').nth(1).unwrap();
+        let want = match class_of(&classes, node).as_str() {
+            "review" => Some("max"),
+            "other" => Some("low"),
+            _ => None,
+        };
+        assert_eq!(option_of(&argv, "--effort").as_deref(), want, "{name}");
+        seen.extend(want);
+    }
+    assert_eq!(seen.len(), 2);
+}
+
+/// The argv of a program action, empty for another kind.
+fn argv_of_any(action: &Yaml) -> Vec<String> {
+    action["executor"]["argv"].as_sequence().map(|s| s.iter().filter_map(|a| a.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
+
+#[test]
 fn unknown_settings_are_refused_by_name_before_anything_is_written() {
     for (settings, name) in [
         (json!({"colour": "blue"}), "settings.colour"),
@@ -300,6 +370,9 @@ fn unknown_settings_are_refused_by_name_before_anything_is_written() {
         (json!({"models": {"writer": {"max_turns": 0}}}), "settings.models.writer.max_turns"),
         (json!({"models": {"writer": {"max_budget_usd": -1}}}), "settings.models.writer.max_budget_usd"),
         (json!({"models": {"writer": {"model": "two words"}}}), "settings.models.writer.model"),
+        (json!({"efforts": {"writer": {"effort": "bogus"}}}), "settings.efforts.writer.effort"),
+        (json!({"efforts": {"poet": {"effort": "low"}}}), "settings.efforts.poet"),
+        (json!({"efforts": {"review": {"model": "m"}}}), "settings.efforts.review.model"),
     ] {
         let (dir, dst, result) = make("r2-copy-unknown", &settings);
         let error = result.unwrap_err();
@@ -448,4 +521,58 @@ fn the_rewritten_copy_loads_in_loom_tree_open() {
     ]);
     assert!(opened.contains("IDEA-1"), "{opened}");
     run(&["tree".into(), "verify".into(), "--store".into(), store.display().to_string()]);
+}
+
+#[test]
+fn an_effort_and_a_replay_plan_land_on_the_same_nodes_and_the_effort_changes_nothing_else_in_argv() {
+    let replay = json!({"adapter": "/x/sdc-replay", "plan": "/x/run/replay/plan.json", "nodes": ["change.implement", "idea.dissect", "change.review"], "actions": {}});
+    let (_a, was_dst, was) = make("adv-seam-replay-only", &json!({"replay": replay}));
+    was.unwrap();
+    let efforts = json!({"review": {"effort": "max"}, "other": {"effort": "low"}, "implement": {"effort": "xhigh"}});
+    let (_b, is_dst, is) = make("adv-seam-both", &json!({"efforts": efforts, "replay": replay}));
+    is.unwrap();
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(is_dst.join("tools/node-classes.json")).unwrap()).unwrap();
+    let (was_actions, is_actions) = (actions(&was_dst), actions(&is_dst));
+    assert_eq!(was_actions.len(), is_actions.len());
+    let (mut with_effort, mut stubbed) = (0, 0);
+    for ((name, was), (_, is)) in was_actions.iter().zip(&is_actions) {
+        let (mut was, mut is) = (argv_of_any(was), argv_of_any(is));
+        let own = |argv: &mut Vec<String>, dst: &Path| argv.iter_mut().for_each(|a| *a = a.replace(&dst.display().to_string(), "<copy>"));
+        own(&mut was, &was_dst);
+        own(&mut is, &is_dst);
+        if !is.first().is_some_and(|t| t.ends_with("sdc-node")) {
+            assert_eq!(was, is, "{name}: a node that is no model node changed");
+            continue;
+        }
+        let node = name.split(':').nth(1).unwrap();
+        let want = match class_of(&classes, node).as_str() {
+            "review" => Some("max"),
+            "other" => Some("low"),
+            "implement" => Some("xhigh"),
+            _ => None,
+        };
+        assert_eq!(option_of(&is, "--effort").as_deref(), want, "{name}");
+        if let Some(i) = is.iter().position(|a| a == "--effort") {
+            is.drain(i..i + 2);
+            with_effort += 1;
+        }
+        assert_eq!(was, is, "{name}: the effort changed something else in the argv");
+        let adapter = option_of(&was, "--adapter");
+        if adapter.as_deref() == Some("stub") {
+            stubbed += 1;
+        } else {
+            assert_eq!(adapter.as_deref(), Some("/x/sdc-replay"), "{name}");
+        }
+    }
+    assert!(with_effort >= 5 && stubbed >= 1, "{with_effort} nodes with an effort, {stubbed} on the stub");
+}
+
+#[test]
+fn the_levels_the_copy_accepts_are_the_levels_node_classes_json_lists() {
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(committed().join("tools/node-classes.json")).unwrap()).unwrap();
+    let listed: Vec<&str> = classes["efforts"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+    for level in &listed {
+        efforts(&json!({"efforts": {"writer": {"effort": level}}})).unwrap_or_else(|e| panic!("{level} is listed in node-classes.json and refused: {e}"));
+    }
+    assert_eq!(EFFORTS.to_vec(), listed);
 }

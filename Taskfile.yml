@@ -66,7 +66,7 @@ tasks:
       - PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
   test:loom-in-process:
-    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/5b3142c7/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
+    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/70b0e6e0/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
     requires:
       vars: [RUNBOOK_LOOM_WORK]
     env:
@@ -76,14 +76,25 @@ tasks:
       - cd driver && cargo build --locked
       - cd runbook && cargo test --locked --test cli the_stub_cycle_through_the_child_and_in_process -- --ignored --nocapture
 
-  test:decider-parity:
-    desc: "Slow lane of runbook/, not part of `task check`: every case (rule approve and reject, the dry and stub adapters, a scripted adapter that writes a fixed out/decision.json: valid, invalid JSON, missing cites, escalate with and without best; on an approval, a question, a finding and a close; and the requester agent on an approval, a close and a question: an option, a free answer, no ground under stop and final, refused grounds, a missing reply, the dry adapter) runs once through bindings/tools/decider.sh and once through the Rust decider, and the reply, the standard error and every file of the call directory must be equal byte for byte after the times are masked; it prints `cases compared N, differences D` and fails on D above 0. DECIDER_PARITY_ONLY=<text> runs the cases whose name has it. The fixtures are invented text; the lane and its fixtures (runbook/src/loom_run/decider/parity.rs, parity_cases.rs) are deleted with decider.sh. Needs jq, yq, rsync; builds the driver for sdc-reply and the goals crate for sdc-goals; makes no model call; start it in the background, without the slot prefix."
+  test:replay:
+    dir: runbook
+    desc: "Slow lane of runbook/, not part of `task check`: the nine replay tests of runbook/tests/loom_run/replay.rs that read a run (`#[ignore]`d in the default step), with `--run-ignored only` on the nextest profile `replay`, whose setup step `replay-runs` (runbook/tests/replay-runs.sh) makes six re-drives of the committed stub recording with `runbook run --recorded` once and all at once, in ${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests (about 90 s on a quiet host, minutes at load; the setup step may take 300 s, a test 60 s); builds the driver binaries and runbook first; no model call; start it in the background and without the slot prefix."
     env:
       SLOT_TIMEOUT: 30m
     cmds:
-      - cd driver && cargo build --locked --bins
-      - cd goals && cargo build --locked
-      - cd runbook && cargo test --locked --bin runbook loom_run::decider::parity::the_rust_decider -- --ignored --nocapture
+      - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
+      - cargo build --locked --bin runbook
+      - cargo nextest run --locked --color never --profile replay --run-ignored only -E 'test(loom_run::replay::replay_) | test(loom_run::replay::rule_approvals) | test(loom_run::replay::review_mode) | test(loom_run::replay::implement_coverage)'
+
+  test:bugfix-slow:
+    dir: runbook
+    desc: "Slow lane of runbook/, not part of `task check`: the two `#[ignore]`d bug-fix tests of runbook/tests/loom_run/bugfix.rs, `bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused` (stub adapter, about 20 s) and `bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints` (the adapter dry: the efforts on the dry commands and the constraints in the fix prompt; 17 to 30 s at load 44 to 45; 49 s and 61.5 s at load 130, where the runner's 60 s kill can end it), with `--run-ignored only` on the default nextest profile (a test over 60 s is killed and fails); builds the driver binaries and runbook first; no model call; start it in the background and without the slot prefix."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
+      - cargo build --locked --bin runbook
+      - cargo nextest run --locked --color never --run-ignored only -E 'test(loom_run::bugfix::bugfix_from_ticket_)'
 
   test:driver:
     silent: true
@@ -112,12 +123,14 @@ tasks:
     desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
     cmds:
       - cargo build --locked --manifest-path ../watch/Cargo.toml
+      - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
       - cargo nextest run --locked --color never --no-run
       - |
         set -u
         log=target/nextest-runbook.log
         code=0
-        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
+        trap_dir=$(cd ../scripts/host-tool-traps && pwd)
+        PATH="$trap_dir:$PATH" cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
         cat "$log"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
@@ -157,18 +170,18 @@ tasks:
         docs-site|experiments/INDEX.md experiments/releases.yaml
         docs-site|docs/progress.json docs/img/progress.svg docs/check-output.txt
         docs-site|.engineering/planning/story/x.md README.md website/docs/run-it.md
-        code|driver/src/main.rs
+        code|driver/src/bin/sdc-node.rs
         code|Taskfile.yml
         code|.github/workflows/pages.yml
         code|docs/img/other.svg
         code|README.md driver/src/lib.rs
-        code|website/docs/index.md scripts/run-trial.sh
+        code|website/docs/index.md scripts/check-bindings.sh
         planning|docs/x.md
         code|instructions/x.md
         code|instructions/golden/decider/x.md README.md
         code|bindings/tools/sdc-tool.sh
         code|bindings/PENDING.md
-        code|cycles/suite.yaml
+        code|cycles/tree-suite.yaml
         code|views/sdc.view.json
         code|
         CASES
@@ -179,7 +192,7 @@ tasks:
         exit $fail
 
   check:cycles-suite:
-    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/suite.yaml against the expected and pending arrays of scripts/run-finding-cycles.sh."
+    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/tree-suite.yaml against the list of the old entries (cycles/old-suite-names.txt) and the table of docs/cycles-suite.md."
     cmds:
       - cd runbook && cargo build --locked --quiet --bin runbook
       - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
@@ -191,7 +204,7 @@ tasks:
       - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
-    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.3`); from the repository root the ess dispatcher does not switch to it."
+    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.4`); from the repository root the ess dispatcher does not switch to it."
     dir: ess
     cmds:
       - ess specify validate --path .
@@ -285,13 +298,6 @@ tasks:
         dir=generated/conformance
         printf 'sources %s\nsuite %s\n' "$(task --silent --taskfile ../Taskfile.yml ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
         echo "written ess/$dir/suite.json and ess/$dir/DIGEST"
-
-  cycles:only:
-    desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."
-    requires:
-      vars: [SCRATCH, NAMES]
-    cmds:
-      - scripts/run-finding-cycles.sh "{{.SCRATCH}}" --only "{{.NAMES}}"
 
   check:protocols:
     desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).

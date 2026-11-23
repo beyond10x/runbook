@@ -1,0 +1,11 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-notcalled@1
+  bindings: bindings/notcalled-unlisted-exit.yaml
+cycles:
+  - name: unlisted
+    seed:
+      - {from: seeds/spec-v1.txt, to: spec.txt}
+      - {from: seeds/finding-waits.txt, to: findings.txt}
+    expect:
+      exit: 4

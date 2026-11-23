@@ -23,6 +23,7 @@ key that repeats an option must agree with it; the option decides and a differen
 | `autonomy` | `A0` to `A5` | none | decider, `materialise` | the decider answers only at `A5`; with no level every decision stops the run for a person |
 | `decider` | object | none | `from_settings` | see below; no `decider` key: every decision ends the run as `stopped: decider` |
 | `models` | object | none | `materialise` | `models.<role>` for `writer`, `implement`, `review`, `other`; members `model` (text), `max_turns` (whole number, 1 or more), `max_budget_usd` (number above 0); written into the model nodes of the copy |
+| `efforts` | object | none | `efforts` (`bindings_copy.rs`), `materialise` | `efforts.<role>` for `writer`, `implement`, `review`, `other`; the one member is `effort`: `low`, `medium`, `high`, `xhigh` or `max`. Written as `--effort <level>` into the model nodes of the role in the copy; a role with none keeps the class default of `node-classes.json`. Another role, another member or another level is refused by name (`settings.efforts.writer.effort`) before the run directory is made. The decider's effort is `decider.effort` |
 | `adapter` | `metaharness` or `claude-cli` | none | `materialise` | `--adapter` of every model node of the copy |
 | `review` | object | none | `materialise` | only `review.adapter: claude-cli` |
 
@@ -83,13 +84,16 @@ needed by a run). The reason: `b10x-loom` gives every bound program the `PATH` t
 started with, and the model nodes of the bindings (`sdc-node`) call `sdc-reply` too, so a directory
 on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
 `decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
-The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rsync`: `jq` is needed
+The decider runs inside the runner and starts no `jq`, `yq` or `rsync`: `jq` is needed
 only by the bash adapters it starts; the shell programs of the bindings (`sdc-node`,
 `sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
-Efforts (`efforts.<role>.effort`), `flags.recorded` and `implement_mode` stay refused in a
-record of a `loom` variant, with the key named: `sdc-node` has no option for an effort under
-Loom, and the runner has no recorded mode. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
+Efforts (`efforts.<role>.effort`) and `implement_mode` stay refused in a record of a `loom`
+variant, with the key named: the runner takes the efforts (`efforts` above, `sdc-node --effort`),
+but the record format does not carry them to it yet. `flags.recorded` is passed on as
+`--recorded`: the runner has a recorded mode (`runbook run --recorded`, `docs/loom-run.md`), and
+`sdc-experiment` passes the replay flags of the record (`REPLAY_FLAGS`) as the options that go with
+it. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
 file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`

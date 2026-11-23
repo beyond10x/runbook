@@ -1,5 +1,7 @@
 # Trial 3: one idea, idea to delivered product, no person, in several model settings
 
+This is the report of a trial as it was made. The programs it names (`sdc-drive`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`, `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) are deleted (`story:driver-runtime-removed`); the runtime is Loom's (`docs/loom-run.md`).
+
 Goal (`story:clean-unattended-run-compare`, `.engineering/planning/story/clean-unattended-run-compare.md:42-46`):
 is the time waiting on a person in trial 2 (`docs/trial-2.md:20`) a defect of that run or what a full
 run costs, and does a stronger model change the result. The idea in every run but two: "A to-do list

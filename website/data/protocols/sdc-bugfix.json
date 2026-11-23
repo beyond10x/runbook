@@ -11,7 +11,7 @@
         "max_runs": 3,
         "node_class": "other",
         "producer": "llm-node",
-        "program": "llm-node.sh bug.dissect",
+        "program": "sdc-node bug.dissect",
         "results": {
           "0": null
         },
@@ -93,7 +93,7 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh test.reproduce",
+        "program": "sdc-node test.reproduce",
         "results": {
           "0": null
         },
@@ -193,7 +193,7 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh change.fix",
+        "program": "sdc-node change.fix",
         "results": {
           "0": null
         },
@@ -1158,8 +1158,8 @@
   },
   "source": {
     "path": "protocol/sdc-bugfix.protocol.yaml",
-    "tag": "0.5.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.5.0/protocol/sdc-bugfix.protocol.yaml"
+    "tag": "0.8.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.8.0/protocol/sdc-bugfix.protocol.yaml"
   },
   "stem": "sdc-bugfix",
   "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes.",

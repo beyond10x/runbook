@@ -42,21 +42,21 @@ Each dot is one run. Every figure, its experiment and its limits are in
 - **No stored phase.** The stage is derived from facts: files in the case's repository and
   recorded check results.
   [The flow](https://beyond10x.github.io/runbook/docs/flow)
-- **One driver.** `sdc-drive` runs one case tree. It reads Canon's decision for the case, runs the
+- **One runtime.** `runbook run` runs one case tree through Loom. It reads Canon's decision for the case, runs the
   tool bound to one admissible action, records the result as Canon evidence and evaluates again.
   [The LLM is not the runtime](https://beyond10x.github.io/runbook/llm-is-not-the-runtime)
 - **The model is an executor.** An LLM only carries out one action. Its output is an artifact
   revision, never evidence and never the next state.
   [Context](https://beyond10x.github.io/runbook/docs/context)
-- **People decide what is theirs.** A decision that belongs to a person stops the run and prints
-  the command that takes it. [docs/decisions.md](docs/decisions.md)
-- **Built on layers.** Canon gives the semantics; Loom is meant to give the runtime.
+- **People decide what is theirs.** A decision that belongs to a person stops the run.
+  [docs/decisions.md](docs/decisions.md)
+- **Built on layers.** Canon gives the semantics; Loom gives the runtime.
   [What it is built on](https://beyond10x.github.io/runbook/docs/built-on)
   and [docs/layers.md](docs/layers.md)
 
 Every protocol drawn from its YAML is in the
 [protocol browser](https://beyond10x.github.io/runbook/protocols). Start in the repository with
-[docs/phases.md](docs/phases.md), [docs/driver.md](docs/driver.md) and
+[docs/phases.md](docs/phases.md), [docs/loom-run.md](docs/loom-run.md) and
 [docs/orchestration.md](docs/orchestration.md).
 
 ## Install the plugin
@@ -73,17 +73,25 @@ The skills and what each needs: [plugin/README.md](plugin/README.md).
 
 ## Try it
 
-Needs a `canon` binary of the pinned version (`driver/canon-pin.json`): the scripts take `CANON` when set, else the cached install of the pinned commit, and refuse any other `canon --version`,
-Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
-
-The dry run uses a stub idea and stub executors that write the artifacts, prints every LLM command
-and runs none, with scripted approvals:
+Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`); no `canon` binary is
+installed. It needs Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`. Build `runbook` and
+the programs it runs once, in the repository root:
 
 ```console
-scripts/run-trial.sh --dry trial-dry
+(cd driver && cargo build --locked --bins)
+(cd runbook && cargo build --locked --bin runbook)
 ```
 
-The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+The dry run uses an idea text you give it (`--intake`) and stub executors that write the
+artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`
+(the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
+
+```console
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+```
+
+The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 
@@ -91,8 +99,8 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 |---|---|
 | `protocol/` | The eight SDC protocols and `sdc-bugfix` |
 | `cases/` | Fixture cases with expected decisions, run by `scripts/evaluate-cases.sh` |
-| `driver/` | The Rust crate `sdc-drive`, its tool bindings (`driver/examples/sdc/`) and other binaries |
-| `runbook/` | `runbook`, the command people type: `doctor`, `list` and `--version` so far |
+| `driver/` | The Rust crate `sdc-tools`: the programs the bindings run and the tools around runs, with the tool bindings in `driver/examples/sdc/` ([docs/driver.md](docs/driver.md)) |
+| `runbook/` | `runbook`, the command people type: `run`, `runs`, `decide`, `test`, `check`, `serve`, `mcp`, `doctor`, `list`, `parity`, `canon` ([docs/cli.md](docs/cli.md), [docs/loom-run.md](docs/loom-run.md)) |
 | `watch/` | `sdc-watch`: file changes of a run |
 | `goals/` | `sdc-goals`: checks of `sdc.goals/1` documents ([docs/requester.md](docs/requester.md)) |
 | `ui/` | A live web view of a run |
@@ -101,7 +109,7 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 | `experiments/` | Experiment records, run summaries and reports |
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
-| `scripts/` | Check, evaluate and trial scripts |
+| `scripts/` | Check and evaluate scripts |
 | `plugin/`, `.claude-plugin/` | The `runbook` plugin (the skills `workflow-builder`, `harden` and `record`) and its marketplace |
 | `.engineering/planning/` | The planning store (AEP) |
 
@@ -110,11 +118,29 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.5.0`; nothing is published to crates.io. The latest is 0.5.0 (2026-11-22).
+`0.8.0`; nothing is published to crates.io. The latest is 0.8.0 (2026-11-23).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.5.0 over 0.4.1 (nothing is unreleased): `runbook run <runbook>` runs a case in process on
+- New in 0.8.0 over 0.7.0 (nothing is unreleased): the run inspector has a Products tab that lists the
+  files a step left under `work/` and shows one as text, Loom `c9b4c177` is linked (a model node that
+  was not called no longer counts against `budget.max_runs`), the bindings state their exits
+  (`exits.error`, `exits.not_called`; `sdc-node` exits 79 where it prints "not called"), and `runbook
+  test` takes `--cycle-timeout` and `--list`. No evaluation run was made on this code
+  ([docs/releases/0.8.0.md](docs/releases/0.8.0.md)).
+- New in 0.7.0 over 0.6.0: the old driver runtime is deleted (`sdc-drive`
+  and the trial, cycle and watch scripts are gone; a run is `runbook run`, the package `sdc-drive`
+  is `sdc-tools`), a refusal of Loom ends a run `refused` with exit 12 and a named `cause`, and
+  `runbook test` takes `--workers` and `--only` through Loom's selection, and the daemon refuses a
+  `submit-run` that names a missing session as `no-session` before `below-floor`. No evaluation run was
+  made on this code ([docs/releases/0.7.0.md](docs/releases/0.7.0.md)).
+- New in 0.6.0 over 0.5.0 (nothing is unreleased): `runbook run` routes decisions by autonomy level
+  from `tools/autonomy-levels.json` and `runbook run --recorded <source>` re-drives a case tree from a
+  recording, `runbook canon` runs the linked Canon library (`runbook doctor` needs no `canon`
+  binary), and the run inspector is read-only; its acts and the options `--write`, `--write-only` and
+  `--principal` are gone. The three evaluation runs of record `parity-loom-strong-4` delivered 0 of 3
+  ([docs/releases/0.6.0.md](docs/releases/0.6.0.md)).
+- New in 0.5.0 over 0.4.1: `runbook run <runbook>` runs a case in process on
   the Loom engine and the command `runbook loom-run` is gone, `runbook test <suite>` runs a tree
   suite, the decider and every model node are Rust programs, and `sdc-experiment run` starts runs
   only with `runbook run`; the replay options of `runbook run` are refused and no measured run has

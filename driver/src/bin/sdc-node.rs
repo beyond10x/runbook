@@ -2,13 +2,14 @@
 //! `questions.write`, `requirements.normalise`, `spec.author`, `test.reproduce`, `bug.dissect`,
 //! `change.fix`) and the nodes of the planning store (`vision.write`, `roadmap.write`,
 //! `plan.decompose`, `context.default`, `questions.answer`), of the review (`change.review`) and
-//! the implementer (`change.implement`, in session, coverage and request mode). It is the Loom
-//! mode of `bindings/tools/llm-node.sh` in Rust; the script hands these nodes to it.
+//! the implementer (`change.implement`, in session, coverage and request mode). It replaces
+//! the shell script that was the model step of the removed driver and of Loom.
 //!
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]
 //!          [--operations a,b] [--instructions <json object>] [--adapter a] [--principal p]
-//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--stub <argv...>]
+//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--effort level] [--replay-plan p]
+//!          [--stub <argv...>]
 //! ```
 //!
 //! The working directory is the case's workspace; standard input is one JSON object (empty is
@@ -16,8 +17,9 @@
 //! retry. The program builds the prompt from the node's declared inputs, copies those into the
 //! call's `in/`, lets the adapter write `out/`, and copies back only the declared output. It holds
 //! no text a model reads: every sentence is a file under `instructions/`. Exit codes are the
-//! script's: 0, 64 (bad arguments), 75 (the model's API ended), 126 (program error), 127 (missing
-//! program); an adapter's exit is passed through.
+//! script's: 0, 64 (bad arguments), 75 (the model's API ended), 79 (not called: the program prints
+//! why and writes no evidence; a derived tree that is only renewed ends 0, see `derived_skip`), 126
+//! (program error), 127 (missing program); an adapter's exit is passed through.
 
 #[path = "sdc-node/call.rs"]
 mod call;
@@ -65,7 +67,7 @@ pub struct Ctx {
     pub adapter_bin: PathBuf,
     /// The node's class (`tools/node-classes.json`).
     pub class: String,
-    /// The class's default reasoning effort.
+    /// The reasoning effort: `--effort`, else the class default.
     pub effort: Option<String>,
     /// The rejection document of an approval of this writer's output, when the feedback has one.
     pub rejection: Option<PathBuf>,
@@ -177,7 +179,7 @@ impl Ctx {
         if self.node == "questions.write" && interview && self.set.feedback.is_none() {
             let msg = self.render("instructions/shared/node.not-called.questions.md", &[])?;
             Out::inherit().line(msg.as_bytes());
-            return Ok(Some(0));
+            return Ok(Some(util::NOT_CALLED));
         }
         self.adapter = env_set("SDC_LLM_ADAPTER").unwrap_or_else(|| "stub".to_string());
         // The review's reply is a data document under a response schema, so its class has its own
@@ -223,7 +225,7 @@ impl Ctx {
                 _ => None,
             })
             .unwrap_or_else(|| if classes.is_some() { "other".to_string() } else { String::new() });
-        self.effort = classes.as_ref().and_then(|c| c.get("default_efforts")).and_then(|d| d.field(&class)).map(Ov::raw);
+        self.effort = self.set.effort.clone().or_else(|| classes.as_ref().and_then(|c| c.get("default_efforts")).and_then(|d| d.field(&class)).map(Ov::raw));
         self.class = class;
 
         if self.adapter == "stub" {
@@ -255,6 +257,11 @@ fn run(argv: &[String]) -> R<i32> {
     let set = setup::setup(node, &argv[2..])?;
     let mut ctx = Ctx::new(node, set);
     if let Some(code) = ctx.before_call()? {
+        if code == util::NOT_CALLED {
+            if let Some(made) = &ctx.set.made {
+                let _ = fs::remove_dir_all(made);
+            }
+        }
         return Ok(code);
     }
     call::run(&ctx)

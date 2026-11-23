@@ -10,7 +10,7 @@ Release carries the notes only.
 
 One version for the repository, written in these files and nowhere else:
 
-- `driver/Cargo.toml` (`sdc-drive`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
+- `driver/Cargo.toml` (`sdc-tools`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
   (`sdc-goals`), `runbook/Cargo.toml` (`runbook`, the command; it prints the version with
   `--version`), and the `sdc-*` or `runbook` package entry of each crate's `Cargo.lock`;
 - `ui/package.json` and the root entry of `ui/package-lock.json`;
@@ -26,7 +26,7 @@ or when the planning store does not validate.
 | Step | Who | How |
 |---|---|---|
 | 1. Release preparation: the version in the files above, the `CHANGELOG.md` entry moved out of `[Unreleased]`, `docs/releases/<version>.md`, `README.md` § Status | bot commit | one commit by `b10x-bot[bot]`, `b10x-gates bot -- commit -F <message file>`, merged through the merge queue |
-| 2. Gates on that commit | bot, any session | `task check` (runs the driver test step and the UI test step side by side), `scripts/check-protocols.sh` (fast lane, under 1 second, also part of `task check`; after a change to a protocol, the Canon pin or the script, run it with `--record` and commit `protocol/check-ledger.json`). The slow lane, `task check:protocols:slow` (in the background), is required when `git diff --name-only <last tag>..HEAD -- protocol driver/canon-pin.json scripts/check-protocols.sh` lists a file: a release with such a change waits for it to pass (CI runs it on such a change, `.github/workflows/protocols.yml`), `task release:check VERSION=<version>`, `b10x-gates check --receipt <file>`; the CI `Shared source gates` check green on `main` |
+| 2. Gates on that commit | bot, any session | `task check` (runs the driver test step and the UI test step side by side), `scripts/check-protocols.sh` (fast lane, under 1 second, also part of `task check`; after a change to a protocol, the Canon pin or the script, run it with `--record` and commit `protocol/check-ledger.json`). The slow lane, `task check:protocols:slow` (in the background), is required when `git diff --name-only <last tag>..HEAD -- protocol runbook/Cargo.lock runbook/src/canon_cmd.rs scripts/check-protocols.sh` lists a file: a release with such a change waits for it to pass (CI runs it on such a change, `.github/workflows/protocols.yml`), `task release:check VERSION=<version>`, `b10x-gates check --receipt <file>`; the CI `Shared source gates` check green on `main` |
 | 3. The tag | operator's decision | an annotated tag by the bot on the merged commit, after the operator's word to release |
 | 4. The GitHub Release | operator's decision | created by the bot with the notes `docs/releases/<version>.md`, after the tag |
 | 5. Record | bot commit | the operator's word as an `approval-record` through `aep plan artifact`, as `engineering-protocols` does (`approval-record:release-0-17-0`) |
@@ -103,7 +103,7 @@ over `git ls-files` and prints the files of `scripts/`, `bindings/`, `instructio
 other tracked text file refers to; it exits 1 when there are any. A file refers to another by its
 path, by a path relative to its own directory or crate, by a directory plus a name below it, by
 `mod x;`, or as a Cargo target. The history files (`.engineering/`, `experiments/`, `CHANGELOG.md`,
-`docs/releases/`) do not count as referrers. A directory that a program reads as a whole is a line
+`docs/releases/`, and `docs/progress.md` and `docs/progress.json`, which `sdc-experiment progress` writes from the experiment records) do not count as referrers. A directory that a program reads as a whole is a line
 of `driver/unreferenced-whole.txt` (`<dir> <referrer> <reason>`); a file that stays unreferenced on
 purpose is a line of `driver/unreferenced-keep.txt` (`<path> <reason>`), and the check refuses a
 line whose file is gone or is referred to now. Before a deletion,

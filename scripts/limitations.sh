@@ -4,12 +4,12 @@ set -uo pipefail
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 source "$sdc/scripts/evaluate-cases.sh"
-canon_resolve || exit 1
+runbook_resolve || exit 1
 lim=$sdc/docs/limitations
 
 show() {
   local out code
-  out=$("$canon" "$@" 2>&1)
+  out=$("$runbook" canon "$@" 2>&1)
   code=$?
   {
     echo "\$ canon $*"

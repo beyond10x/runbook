@@ -1,6 +1,6 @@
 //! sdc-replay: re-drive a recorded run (docs/driver.md, "Recorded replay").
 //!
-//!   sdc-replay <request.json>      the adapter: called by tools/llm-node.sh and tools/decider.sh
+//!   sdc-replay <request.json>      the adapter: called by `sdc-node`
 //!                                  like any adapter program (SDC_LLM_ADAPTER, SDC_DECIDER_ADAPTER)
 //!   sdc-replay prepare --source <run or recording> --out <new run> --tree <sdc checkout>
 //!                      [--source-tree <commit>] [--on-divergence stop|nearest|live]
@@ -8,7 +8,10 @@
 //!                      [--inject <fault>]... [--set <condition>=<value>]... [--take-recorded <actions>]
 //!   sdc-replay env --out <run>     the environment of a re-driven run, again (a resume)
 //!   sdc-replay settings --out <run>  the `replay` object of run-settings.jsonl
-//!   sdc-replay program --action <action> -- <argv>...   wraps a real program (check-fail, recorded results)
+//!   sdc-replay prepare ... --plan-only   the same plan without writing anything (`runbook run` reads the
+//!                                  settings of the run from it before the run directory exists)
+//!   sdc-replay program --action <action> [--plan <plan.json>] -- <argv>...   wraps a real program
+//!                                  (check-fail, recorded results)
 //!   sdc-replay seal <run>          at the run's end: counts into status.json and run-stopped.json,
 //!                                  virtual seconds into rounds.jsonl, each call's mode into
 //!                                  llm-calls.jsonl and decisions.jsonl, replay/summary.json
@@ -20,11 +23,22 @@
 //! arrival is counted as the driver counts it for `max_runs` (a `revised` event no agent action of
 //! the case wrote), its try is the node's runs since that arrival, plus one. A decider call's
 //! arrival is the n-th time the decision is asked in the case, its try the decider's attempt.
+//!
+//! A run of `runbook run` (Loom's run log, `store/runlog-case-<hex of the case id>.jsonl`, has no
+//! `revised` event) is counted from the log: the case opens as arrival 1, and a later arrival is a
+//! change of `case_revision` between two evaluations with no action of the case finished and no
+//! child closed in between (nothing of the case's own explains it); a try counts the finished runs
+//! of the node since the last arrival (not exits 126, 127, 75, 69 and 70), plus one. A rejection
+//! of an approval does not start an arrival: the rework is the next try. The adapter takes the plan
+//! from the path in `SDC_REPLAY`: the old driver sets it; under `runbook run` the runner passes a
+//! bound program no environment, so `sdc-node` sets it from its option `--replay-plan` and the
+//! runner's decider from `decider.replay_plan`. The adapter searches no directory for a plan.
 //! Inputs: one sha256 per file of the call's `in/` and the request without its paths and
 //! ordinals, each normalised (run directories, home paths, instants, revisions, seconds).
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::OnceLock;
@@ -65,6 +79,8 @@ enum Cmd {
         set: Vec<String>,
         #[arg(long, default_value = "")]
         take_recorded: String,
+        #[arg(long)]
+        plan_only: bool,
     },
     Env {
         #[arg(long)]
@@ -77,6 +93,8 @@ enum Cmd {
     Program {
         #[arg(long)]
         action: String,
+        #[arg(long)]
+        plan: Option<PathBuf>,
         #[arg(last = true)]
         argv: Vec<String>,
     },
@@ -117,22 +135,86 @@ fn write_json(p: &Path, v: &Value) -> R<()> {
     fs::rename(&tmp, p).map_err(|e| e.to_string())
 }
 
-fn jsonl(p: &Path) -> Vec<Value> {
-    fs::read_to_string(p)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
+/// Writes `v` unless the file exists: the first divergence is the one that ended the run, a retry
+/// of the same call does not replace it.
+fn write_first(p: &Path, v: &Value) -> R<()> {
+    if p.exists() { Ok(()) } else { write_json(p, v) }
 }
 
+/// A log read as bytes and parsed line by line: the lines that are JSON objects, and the number of
+/// the others (a line that is not valid UTF-8, not JSON or not an object; empty lines are no line).
+/// One bad line costs only that line, not the log.
+fn parse_log(bytes: &[u8]) -> (Vec<Value>, u64) {
+    let mut lines = Vec::new();
+    let mut unreadable = 0;
+    for raw in bytes.split(|b| *b == b'\n').filter(|l| !l.iter().all(u8::is_ascii_whitespace)) {
+        match std::str::from_utf8(raw).ok().and_then(|t| serde_json::from_str::<Value>(t).ok()).filter(Value::is_object) {
+            Some(v) => lines.push(v),
+            None => unreadable += 1,
+        }
+    }
+    (lines, unreadable)
+}
+
+/// The readers that count calls, rounds or modes skip a line they cannot read, as they always did.
+fn jsonl(p: &Path) -> Vec<Value> {
+    parse_log(&fs::read(p).unwrap_or_default()).0
+}
+
+/// A live call is in `replay/calls.jsonl` twice: a line with `"phase": "started"` that the adapter
+/// appends before it starts the live program, and the call's own line, with `"phase": "finished"`,
+/// when the program has ended. A line without a phase (an older log, every recorded, reused and
+/// diverged call) is a call that finished. The cap and the ordinals count a call from its start, so
+/// the finished line of a live call is not counted a second time.
+fn is_finished_line(l: &Value) -> bool {
+    l["phase"] == "finished"
+}
+
+/// The live calls of a log: those that started (a started line, or an older line without a phase).
+fn live_calls(log: &[Value]) -> u64 {
+    log.iter().filter(|l| l["mode"] == "live" && !is_finished_line(l)).count() as u64
+}
+
+/// The live calls that started and have no finished line of their own (same `record`): ended before
+/// they finished (the action's time limit, a signal, a retry), or still running.
+fn live_unfinished(log: &[Value]) -> u64 {
+    log.iter()
+        .filter(|l| l["mode"] == "live" && l["phase"] == "started")
+        .filter(|s| !log.iter().any(|f| is_finished_line(f) && f["record"] == s["record"]))
+        .count() as u64
+}
+
+/// The exclusive lock of the call log, held from the count of the live calls to the append of the
+/// started line, so that two adapter processes at a cap of 1 start one live program between them.
+/// The lock goes with the file handle.
+fn lock_calls(out: &Path) -> R<fs::File> {
+    let p = out.join("replay/calls.jsonl");
+    let f = fs::OpenOptions::new().create(true).append(true).read(true).open(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    f.lock().map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(f)
+}
+
+/// Appends one line. A file whose last line was cut off, with no newline, gets one first, so that
+/// the new line is a line of its own and not the end of the cut-off one.
 fn append(p: &Path, v: &Value) -> R<()> {
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(p)
         .map_err(|e| format!("{}: {e}", p.display()))?;
-    f.write_all(format!("{}\n", serde_json::to_string(v).unwrap()).as_bytes())
-        .map_err(|e| e.to_string())
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    let mut line = String::new();
+    if len > 0 {
+        let mut last = [0u8; 1];
+        f.read_exact_at(&mut last, len - 1).map_err(|e| format!("{}: {e}", p.display()))?;
+        if last[0] != b'\n' {
+            line.push('\n');
+        }
+    }
+    line.push_str(&serde_json::to_string(v).unwrap());
+    line.push('\n');
+    f.write_all(line.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn write_jsonl(p: &Path, lines: &[Value]) -> R<()> {
@@ -202,6 +284,32 @@ fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
     cell.get_or_init(|| Regex::new(pat).unwrap())
 }
 
+/// The label the version label of the pinned ESS is rewritten to. It is the label the committed
+/// recording was packed with (ESS 0.97.3): the recording holds digests of the text as it was then,
+/// so a mask that wrote any other text would make every digest of a log header differ. It is fixed:
+/// it does not move with the pin, and a recording packed later holds digests of the masked text. A
+/// recording packed by an older `sdc-replay` at another label holds the digest of its own label and
+/// is packed again (see `explain_tests_changed`).
+const ESS_LABEL_MASK: &str = "0.97.3";
+
+/// The file whose header line `ess verify conform run` prints (a line or two of preamble may stand above it).
+const ESS_LOG: &str = "tests.txt";
+
+fn ess_label_re() -> &'static Regex {
+    static ESS_LABEL: OnceLock<Regex> = OnceLock::new();
+    re(&ESS_LABEL, r"(?m)^(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )")
+}
+
+/// The version label of the pinned ESS in the header of the conformance log that `in/tests.txt`
+/// holds (`<system> v<n> against <implementation> <version> — passed`; `bindings/tools/sdc-tool.sh`,
+/// `conform-run`), rewritten to [`ESS_LABEL_MASK`]: the pin moves with a release of ESS, the test
+/// results below the header are what the model reads. Only the first line of that shape, in that one
+/// file, is masked (the log has a line or two of preamble above it): never another file, the prompt,
+/// the request or another version-like string.
+fn mask_ess_label(text: &str) -> String {
+    ess_label_re().replace(text, format!("${{1}}{ESS_LABEL_MASK}${{2}}")).into_owned()
+}
+
 /// What may differ between two runs of the same inputs: the run directories, home paths (the
 /// checkout and the case tree), instants, artifact revisions (they digest files that carry
 /// instants, the aep store's transitions) and seconds in program output.
@@ -217,7 +325,7 @@ fn normalise(text: &str, roots: &[String]) -> String {
     let t = re(&HOME, r#"/home/[^/\s"'`]+/[^\s"'`):,]*"#).replace_all(&t, "<path>");
     let t = re(&INSTANT, r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?( ?(Z|[+-]\d{2}:?\d{2}))?").replace_all(&t, "<instant>");
     let t = re(&REV, r"\bt[0-9a-f]{16}\b").replace_all(&t, "<rev>");
-    let t = re(&SECS, r"\b\d+(\.\d+)?m?s\b").replace_all(&t, "<s>").into_owned();
+    let t = re(&SECS, r"\b\d+(\.\d+)?m?s\b").replace_all(&t, "<s>");
     sort_test_lines(&t)
 }
 
@@ -235,20 +343,47 @@ fn sort_test_lines(t: &str) -> String {
     lines.join("\n")
 }
 
-fn hash_file(p: &Path, roots: &[String]) -> String {
+fn hash_file(p: &Path, roots: &[String], ess_log: bool) -> String {
     let b = fs::read(p).unwrap_or_default();
     match std::str::from_utf8(&b) {
+        Ok(t) if ess_log => sha(normalise(&mask_ess_label(t), roots).as_bytes()),
         Ok(t) => sha(normalise(t, roots).as_bytes()),
         Err(_) => sha(&b),
     }
 }
 
-/// One digest per file under `in/`, keyed `in/<path>`.
+/// One digest per file under `in/`, keyed `in/<path>`. The header line of `in/tests.txt` has its
+/// ESS version label masked (`mask_ess_label`).
 fn hash_inputs(dir: &Path, roots: &[String]) -> BTreeMap<String, String> {
     files_under(dir)
         .into_iter()
-        .map(|f| (format!("in/{}", f.strip_prefix(dir).unwrap().display()), hash_file(&f, roots)))
+        .map(|f| {
+            let rel = f.strip_prefix(dir).unwrap();
+            (format!("in/{}", rel.display()), hash_file(&f, roots, rel == Path::new(ESS_LOG)))
+        })
         .collect()
+}
+
+/// A changed `in/tests.txt` whose header line carries an ESS version label may be a recording packed
+/// before the label was masked: the digest it holds is that of its own label, and the mask does not
+/// move to meet it (a mask that did would hide a real change). The recording holds digests only, so
+/// the label is proven the only difference when the digest of the text as it is, unmasked, is the
+/// one recorded: only then the message names the label as the cause and the fix. Otherwise the
+/// message states that the file changed and, as its own sentence, that an old recording diverges
+/// here for that reason alone; a changed test at the committed label gives the same mismatch, so it
+/// gives no advice. The recording holds no pack date or version that tells the two apart.
+fn explain_tests_changed(difference: &mut [String], recorded: &Value, tests: &Path, roots: &[String]) {
+    let Some(at) = difference.iter().position(|d| d == "in/tests.txt changed") else { return };
+    let Ok(text) = fs::read_to_string(tests) else { return };
+    if !ess_label_re().is_match(&text) {
+        return;
+    }
+    let unmasked = sha(normalise(&text, roots).as_bytes());
+    difference[at] = if recorded["inputs"]["in/tests.txt"].as_str() == Some(unmasked.as_str()) {
+        "in/tests.txt changed: only the ESS version label of its header line differs from the text this recording was packed with (packed before the label was masked): pack the recording again".to_string()
+    } else {
+        "in/tests.txt changed. A recording packed before the ESS version label of its header line was masked holds the digest of its own label and diverges here for that reason alone.".to_string()
+    };
 }
 
 /// The request as the model saw it: without its paths (prompt_file, cwd, record_dir, case_dir,
@@ -315,9 +450,65 @@ fn write_actions(ir: &Value) -> HashSet<String> {
         .collect()
 }
 
+/// The events of a case of `runbook run` in the old driver's shape, from Loom's run log
+/// (`<store>/runlog-case-<hex of the case id>.jsonl`): `opened`, a `revised` per arrival (see the
+/// module doc), and an `action_started` and `action_finished` per finished action. `None` when the
+/// store has no log of the case. A call that is in flight has no `action_finished` yet.
+fn loom_events(store: &Path, case: &str) -> Option<Vec<Value>> {
+    let hex: String = case.bytes().map(|b| format!("{b:02x}")).collect();
+    let text = fs::read_to_string(store.join(format!("runlog-case-{hex}.jsonl"))).ok()?;
+    Some(events_of_log(&text))
+}
+
+/// [`loom_events`] of the text of one case's run log. A kind it does not know (`StopRecorded` and
+/// `StopLifted`, the lines of a hold and its reopen, among them) adds no event and breaks nothing.
+fn events_of_log(text: &str) -> Vec<Value> {
+    let mut evs: Vec<Value> = Vec::new();
+    let mut last_revision: Option<u64> = None;
+    let mut own_since_evaluation = false;
+    let mut principal = Value::Null;
+    for line in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        match line["kind"].as_str() {
+            Some("CaseOpened") => evs.push(json!({"event": "opened"})),
+            Some("Evaluated") => {
+                let revision = line["case_revision"].as_u64();
+                if last_revision.is_none() || (last_revision != revision && !own_since_evaluation) {
+                    evs.push(json!({"event": "revised", "revision": revision}));
+                }
+                last_revision = revision;
+                own_since_evaluation = false;
+            }
+            Some("AuthorityRecorded") => principal = line["principal"].clone(),
+            Some("ActionFinished") => {
+                let action = line["action"].clone();
+                evs.push(json!({"event": "action_started", "action": action}));
+                let exit = line["exit"].as_str().map_or_else(|| line["exit"].to_string(), String::from);
+                evs.push(json!({"event": "action_finished", "action": action, "exit": exit, "principal": principal}));
+                principal = Value::Null;
+                own_since_evaluation = true;
+            }
+            Some("ChildClosed") => own_since_evaluation = true,
+            _ => {}
+        }
+    }
+    evs
+}
+
+/// Whether a run directory is one of `runbook run`: Loom's run logs are in its store.
+fn is_loom_run(run: &Path) -> bool {
+    fs::read_dir(run.join("store")).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().starts_with("runlog-case-"))
+}
+
+/// The directory of the work calls' records: `llm/` of the old driver, `work/.sdc/llm/` of `runbook run`.
+fn llm_dir(run: &Path) -> PathBuf {
+    let loom = run.join("work/.sdc/llm");
+    if loom.is_dir() { loom } else { run.join("llm") }
+}
+
 /// Every case of a run: id → (directory in the store, if there is one; events).
 fn run_cases(run: &Path) -> BTreeMap<String, (Option<PathBuf>, Vec<Value>)> {
     let mut out = BTreeMap::new();
+    let loom = is_loom_run(run);
     let mut stack = vec![run.join("store")];
     while let Some(p) = stack.pop() {
         let Ok(rd) = fs::read_dir(&p) else { continue };
@@ -330,6 +521,12 @@ fn run_cases(run: &Path) -> BTreeMap<String, (Option<PathBuf>, Vec<Value>)> {
                 let dir = path.parent().unwrap().to_path_buf();
                 if let Some(id) = read_json_or(&path, Value::Null)["id"].as_str() {
                     out.insert(id.to_string(), (Some(dir.clone()), jsonl(&dir.join("events.jsonl"))));
+                }
+            } else if loom && path.file_name().is_some_and(|n| n == "events.jsonl") && !path.with_file_name("case.json").exists() {
+                // A case of `runbook run` has no case.json: its directory is named by its id.
+                let dir = path.parent().unwrap().to_path_buf();
+                if let Some(id) = dir.file_name().map(|n| n.to_string_lossy().to_string()) {
+                    out.insert(id, (Some(dir.clone()), jsonl(&path)));
                 }
             }
         }
@@ -392,11 +589,12 @@ fn index_run(run: &Path) -> R<Vec<Value>> {
     let run = canon(run);
     let roots = vec![run.display().to_string()];
     let cases = run_cases(&run);
+    let loom = is_loom_run(&run);
     let mut calls = Vec::new();
     // Work calls: the k-th record of (case, node) is the k-th run of the node in the case that
     // reached the adapter (not `not_called`, no missing program).
     let mut seen: BTreeMap<(String, String), usize> = BTreeMap::new();
-    for rec in dirs_sorted(&run.join("llm")) {
+    for rec in dirs_sorted(&llm_dir(&run)) {
         let Ok(req) = read_json(&rec.join("request.json")) else { continue };
         let node = req["node"].as_str().unwrap_or("").to_string();
         let case = req["case"]
@@ -408,7 +606,8 @@ fn index_run(run: &Path) -> R<Vec<Value>> {
         *k += 1;
         let (mut arrival, mut try_) = (0, *k as u64);
         let mut matched = false;
-        if let Some((dir, evs)) = cases.get(&case) {
+        let from_log = if loom { loom_events(&run.join("store"), &case) } else { None };
+        if let Some((dir, evs)) = cases.get(&case).map(|(d, e)| (d, from_log.as_ref().unwrap_or(e))) {
             let writes = dir.as_ref().map(|d| write_actions(&read_json_or(&d.join("ir.json"), Value::Null))).unwrap_or_default();
             let mut started = None;
             let mut n = 0;
@@ -563,7 +762,7 @@ fn load_source(p: &Path) -> R<Source> {
             path,
         });
     }
-    if !path.join("llm").is_dir() && !path.join("decider").is_dir() {
+    if !llm_dir(&path).is_dir() && !path.join("decider").is_dir() {
         return Err(format!("{}: not a recorded run (no llm/ or decider/) and not a recording (no recording.json)", path.display()));
     }
     let settings = jsonl(&path.join("run-settings.jsonl"));
@@ -583,16 +782,16 @@ fn load_source(p: &Path) -> R<Source> {
         status,
         events: cases.iter().map(|(k, (_, e))| (k.clone(), e.clone())).collect(),
         case_dirs: cases.iter().filter_map(|(k, (d, _))| d.clone().map(|d| (k.clone(), d))).collect(),
-        idea: Some(path.join("store/IDEA-1/work/idea.yaml")).filter(|p| p.exists()),
-        goals: Some(path.join("store/IDEA-1/work/goals.yaml")).filter(|p| p.exists()),
+        idea: [path.join("store/IDEA-1/work/idea.yaml"), path.join("work/idea.yaml")].into_iter().find(|p| p.exists()),
+        goals: [path.join("store/IDEA-1/work/goals.yaml"), path.join("work/goals.yaml")].into_iter().find(|p| p.exists()),
         tree,
-        principal: aep_actor(&path.join("store/IDEA-1/work/aep")),
+        principal: aep_actor(&path.join("store/IDEA-1/work/aep")).or_else(|| aep_actor(&path.join("work/aep"))),
         packed: false,
         path,
     })
 }
 
-/// The principal llm-node.sh gave aep (AEP_ACTOR): SDC_PRINCIPAL when it was a `<kind>:<name>`
+/// The principal `sdc-node` gives aep (AEP_ACTOR): SDC_PRINCIPAL when it was a `<kind>:<name>`
 /// principal, else `agent:<node>` (then None: the variable was not set).
 fn aep_actor(store: &Path) -> Option<String> {
     static ACTOR: OnceLock<Regex> = OnceLock::new();
@@ -659,15 +858,8 @@ fn parse_sets(sets: &[String], tools: &Path) -> R<Sets> {
     let cls = classes(tools);
     for s in sets {
         let (k, v) = s.split_once('=').ok_or(format!("--set {s}: expected <condition>=<value>"))?;
-        // run.unstick in the re-driven run: off unless the source called it (see prepare);
-        // `unstick=on` with `--on-divergence live` tries it on a recording that has no such call.
         if k == "unstick" {
-            if v != "on" && v != "off" {
-                return Err(format!("--set {s}: unstick is on or off"));
-            }
-            recorded.insert(k.to_string(), json!(v));
-            env.insert("SDC_UNSTICK".into(), json!(v));
-            continue;
+            return Err(unstick_refusal(&format!("--set {s}")));
         }
         let n: u64 = v.parse().map_err(|_| format!("--set {s}: the value is a whole number"))?;
         recorded.insert(k.to_string(), json!(n));
@@ -691,7 +883,7 @@ fn parse_sets(sets: &[String], tools: &Path) -> R<Sets> {
                     "decider_retries" => "SDC_DECIDER_RETRIES",
                     "review_retries" => "SDC_REVIEW_RETRIES",
                     "max_wall_seconds" => "SDC_MAX_WALL_SECONDS",
-                    _ => return Err(format!("--set {s}: unknown condition (max_runs.<node|class>, timeout.<node|class|action>, max_llm_calls, max_decider_calls, max_rejections, decider_retries, review_retries, max_wall_seconds; unstick=on|off)")),
+                    _ => return Err(format!("--set {s}: unknown condition (max_runs.<node|class>, timeout.<node|class|action>, max_llm_calls, max_decider_calls, max_rejections, decider_retries, review_retries, max_wall_seconds)")),
                 };
                 env.insert(var.into(), json!(v));
             }
@@ -712,6 +904,7 @@ fn prepare(
     inject: &[String],
     sets: &[String],
     take_recorded: &str,
+    write: bool,
 ) -> R<Value> {
     if !["stop", "nearest", "live"].contains(&policy) {
         return Err(format!("--on-divergence: stop, nearest or live, not {policy}"));
@@ -722,10 +915,14 @@ fn prepare(
         exe.ancestors().nth(4).map(Path::to_path_buf).unwrap_or_default()
     });
     let tools = tree_dir.join("bindings/tools");
-    fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    if write {
+        fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    }
     let out = canon(out);
     let rd = out.join("replay");
-    fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    if write {
+        fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    }
     let faults: Vec<Value> = inject.iter().map(|s| parse_fault(s)).collect::<R<_>>()?;
     let (mut actions, mut env, conditions) = parse_sets(sets, &tools)?;
     let take: Vec<String> = take_recorded.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
@@ -746,7 +943,7 @@ fn prepare(
     }
     for a in &wrapped {
         actions.entry(a.clone()).or_insert(json!({}))["wrap"] =
-            json!([exe.display().to_string(), "program", "--action", a, "--"]);
+            json!([exe.display().to_string(), "program", "--action", a, "--plan", rd.join("plan.json").display().to_string(), "--"]);
     }
     // The source's own run settings: decider, models, caps, the nodes that went to the adapter.
     let last = src.settings.last().cloned().unwrap_or(Value::Null);
@@ -779,6 +976,9 @@ fn prepare(
     if live_adapter == "dry" {
         env.insert("SDC_LLM_DRY_LOG".into(), json!(out.join("dry-commands.txt").display().to_string()));
     }
+    if !write {
+        return Ok(json!({"env": env, "settings": loom_settings(&last, &exe, &rd.join("plan.json"), &actions, &conditions, src.principal.as_deref(), &src.calls)?}));
+    }
     // The index, with the source's paths resolved.
     write_json(&rd.join("index.json"), &json!({"format": "sdc.replay-index/1", "calls": src.calls}))?;
     if let Some(i) = &src.idea {
@@ -797,19 +997,6 @@ fn prepare(
     if let Some(c) = source_tree {
         src_tree = json!({"commit": c, "dirty": null, "checkout": src_tree["checkout"], "stated": true});
     }
-    // run.unstick: a replay reproduces the source's calls, and a node the source never called has
-    // no recorded reply, so it is off unless the source called it; `--set unstick=on|off` decides
-    // otherwise. The setting goes into run-settings (`replay.unstick`).
-    let src_unstick = src.calls.iter().any(|c| c["name"] == "run.unstick" || c["node"] == "run.unstick")
-        || (!src.packed && fs::read_dir(src.path.join("unstick")).is_ok_and(|mut d| d.next().is_some()));
-    let unstick = match conditions.get("unstick").and_then(Value::as_str) {
-        Some(v) => json!({"on": v == "on", "why": format!("--set unstick={v}")}),
-        None if src_unstick => json!({"on": true, "why": "the source has run.unstick calls"}),
-        None => {
-            env.insert("SDC_UNSTICK".into(), json!("off"));
-            json!({"on": false, "why": "the source has no run.unstick call: it has no recorded reply"})
-        }
-    };
     let tree = git_tree(&tree_dir);
     let same = match (src_tree["commit"].as_str(), tree["commit"].as_str()) {
         (Some(a), Some(b)) => Some((a.starts_with(b) || b.starts_with(a)) && tree["dirty"] != true),
@@ -823,7 +1010,6 @@ fn prepare(
         "tree": tree, "same_tree": same, "out": out.display().to_string(),
         "policy": policy, "live": {"adapter": live_adapter, "bin": live_bin, "cap": live_cap},
         "injections": faults, "conditions": conditions, "take_recorded": take, "tools": tools.display().to_string(),
-        "unstick": unstick,
     });
     let mut plan = plan;
     plan["first_line"] = json!(first_line(&plan));
@@ -833,6 +1019,80 @@ fn prepare(
     env.insert("SDC_DECIDER_ADAPTER".into(), json!(exe.display().to_string()));
     write_json(&rd.join("env.json"), &Value::Object(env.clone()))?;
     Ok(Value::Object(env))
+}
+
+/// The settings `runbook run` takes for a re-drive (`docs/loom-run-settings.md`), from the source's
+/// own run settings: its autonomy, its decider on this program as the adapter (the Loom decider
+/// holds no claim values, so `without_claims`), the models the caller set, and under `replay` what
+/// the bindings copy needs: this program as the adapter of the nodes the source sent to a model
+/// (`nodes`, `null`: all) and the per-action conditions (`max_runs`, `timeout_s`, `wrap`). A
+/// condition the engine has no setting for is refused by name.
+fn loom_settings(last: &Value, exe: &Path, plan: &Path, actions: &Map<String, Value>, conditions: &Map<String, Value>, principal: Option<&str>, calls: &[Value]) -> R<Value> {
+    let mut decider_overrides = Map::new();
+    for (k, v) in conditions {
+        match k.as_str() {
+            "max_decider_calls" => {
+                decider_overrides.insert("max_decider_calls".into(), v.clone());
+            }
+            "decider_retries" => {
+                decider_overrides.insert("retries".into(), v.clone());
+            }
+            "max_llm_calls" | "max_wall_seconds" => {
+                return Err(format!("--set {k}: under `runbook run` it is the option --{}, which also bounds the re-drive: give the option", k.replace('_', "-")));
+            }
+            "max_rejections" | "review_retries" => {
+                return Err(format!("--set {k}: the engine has no setting for it (the driver's switch is an environment variable of its loop, and `runbook run` passes no environment to a bound program)"));
+            }
+            _ if k.starts_with("max_runs.") || k.starts_with("timeout.") => {}
+            other => return Err(format!("--set {other}: not a condition of a re-drive under `runbook run`")),
+        }
+    }
+    let exe_text = exe.display().to_string();
+    let plan_text = plan.display().to_string();
+    let mut s = Map::new();
+    if let Some(a) = last["autonomy"].as_str() {
+        s.insert("autonomy".into(), json!(a));
+    }
+    let source_decider = &last["decider"];
+    let decider = match source_decider["kind"].as_str() {
+        Some("model") => {
+            let mut d = json!({"kind": "model", "adapter": exe_text, "without_claims": true, "replay_plan": plan_text});
+            for k in ["model", "escalate", "max_decider_calls"] {
+                if !source_decider[k].is_null() {
+                    d[k] = source_decider[k].clone();
+                }
+            }
+            for (k, v) in &decider_overrides {
+                d[k] = v.clone();
+            }
+            Some(d)
+        }
+        Some(v @ ("approve" | "reject")) => Some(json!({"kind": "rule", "verdict": v})),
+        _ => None,
+    };
+    if let Some(d) = decider {
+        s.insert("decider".into(), d);
+    }
+    let mut models = Map::new();
+    for (class, m) in last["models"].as_object().into_iter().flatten() {
+        if m["source"] != "binding" && m["source"] != "default" {
+            if let Some(model) = m["model"].as_str() {
+                models.insert(class.clone(), json!({"model": model}));
+            }
+        }
+    }
+    if !models.is_empty() {
+        s.insert("models".into(), Value::Object(models));
+    }
+    // A source run by `runbook run` names no `llm_nodes`: the nodes it called are the nodes it sent to a model.
+    let called: BTreeSet<&str> = calls.iter().filter(|c| c["kind"] == "work").filter_map(|c| c["name"].as_str()).collect();
+    let nodes: Option<Vec<&str>> = last["llm_nodes"]
+        .as_str()
+        .map(|t| t.split_whitespace().collect())
+        .or_else(|| (!called.is_empty()).then(|| called.iter().copied().collect()))
+        .filter(|n: &Vec<&str>| !n.is_empty());
+    s.insert("replay".into(), json!({"adapter": exe_text, "plan": plan_text, "nodes": nodes, "actions": actions, "principal": principal}));
+    Ok(Value::Object(s))
 }
 
 fn short(c: &Value) -> String {
@@ -851,12 +1111,20 @@ fn first_line(plan: &Value) -> String {
         Some(false) => "DIFFERENT TREES: code changed since the recording, calls can diverge for that alone".to_string(),
         None => "trees not comparable (the source names no commit): calls can diverge for code changes".to_string(),
     };
+    // Each condition by its kind and value: `(max_runs 2)`, `(timeout 9)`.
+    let conditions: Vec<String> = plan["conditions"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| format!("{} {}", k.split('.').next().unwrap_or(k), v.as_str().map_or_else(|| v.to_string(), str::to_string)))
+        .collect();
     format!(
-        "re-drive of {} (recorded on tree {}) on tree {}{}: {}; policy {}, {} injection(s), {} condition(s)",
+        "re-drive of {} (recorded on tree {}) on tree {}{}: {}; policy {}, {} injection(s), {} condition(s){}",
         s["name"].as_str().unwrap_or("?"), short(&s["tree"]), short(&plan["tree"]),
         if plan["tree"]["dirty"] == true { " with uncommitted changes" } else { "" }, trees,
         plan["policy"].as_str().unwrap_or("stop"), plan["injections"].as_array().map_or(0, |a| a.len()),
-        plan["conditions"].as_object().map_or(0, |m| m.len()) + plan["take_recorded"].as_array().map_or(0, |a| a.len())
+        conditions.len() + plan["take_recorded"].as_array().map_or(0, |a| a.len()),
+        if conditions.is_empty() { String::new() } else { format!(" ({})", conditions.join(", ")) }
     )
 }
 
@@ -868,9 +1136,30 @@ struct Ctx {
     calls: Vec<Value>,
 }
 
+/// The plan of the run, from the path the runner handed the adapter in `SDC_REPLAY`: `sdc-node`
+/// sets it from its `--replay-plan` option, the runner's decider from `decider.replay_plan`. No
+/// directory is searched: a file of the work tree is never the plan of the run.
 fn ctx() -> R<Ctx> {
     let p = std::env::var("SDC_REPLAY").map_err(|_| "sdc-replay: SDC_REPLAY (the replay plan) is not set".to_string())?;
-    let plan = read_json(Path::new(&p))?;
+    ctx_at(Path::new(&p))
+}
+
+/// The refusal of the condition `unstick`, which names `from` (a `--set` or a plan file): the step
+/// it switched is gone, so nothing reads it.
+fn unstick_refusal(from: &str) -> String {
+    format!("{from}: unstick is no longer a condition of a re-drive (the step it switched was removed with the old driver)")
+}
+
+/// The refusal of a recorded plan that names `unstick` (as a condition or as its own member).
+fn plan_refusal(plan: &Value, plan_path: &Path) -> Option<String> {
+    (plan["conditions"].get("unstick").is_some() || plan.get("unstick").is_some()).then(|| unstick_refusal(&format!("the plan {}", plan_path.display())))
+}
+
+fn ctx_at(plan_path: &Path) -> R<Ctx> {
+    let plan = read_json(plan_path)?;
+    if let Some(refusal) = plan_refusal(&plan, plan_path) {
+        return Err(refusal);
+    }
     let out = PathBuf::from(plan["out"].as_str().unwrap_or(""));
     let calls = read_json(&out.join("replay/index.json"))?["calls"].as_array().cloned().unwrap_or_default();
     Ok(Ctx { plan, out, calls })
@@ -890,9 +1179,12 @@ fn same_key(c: &Value, k: &Value) -> bool {
         && c["attempt"].as_u64().unwrap_or(1) == k["attempt"].as_u64().unwrap_or(1)
 }
 
-fn differences(c: &Value, inputs: &BTreeMap<String, String>, request: &Value) -> Vec<String> {
+fn differences(c: &Value, inputs: &BTreeMap<String, String>, request: &Value, skip: &[&str]) -> Vec<String> {
     let mut d = Vec::new();
-    let src: BTreeMap<String, String> = serde_json::from_value(c["inputs"].clone()).unwrap_or_default();
+    let mut src: BTreeMap<String, String> = serde_json::from_value(c["inputs"].clone()).unwrap_or_default();
+    src.retain(|f, _| !skip.contains(&f.as_str()));
+    let inputs: BTreeMap<String, String> = inputs.iter().filter(|(f, _)| !skip.contains(&f.as_str())).map(|(f, h)| (f.clone(), h.clone())).collect();
+    let inputs = &inputs;
     for (f, h) in inputs {
         match src.get(f) {
             None => d.push(format!("{f} is new")),
@@ -959,10 +1251,10 @@ fn fault_for<'a>(plan: &'a Value, kind: &[&str], case: &str, name: &str, n_case:
 
 fn adapter(req_path: &Path) -> R<i32> {
     let started = std::time::Instant::now();
-    let c = ctx()?;
     let req = read_json(req_path)?;
     let node = req["node"].as_str().unwrap_or("").to_string();
     let rec = PathBuf::from(req["record_dir"].as_str().unwrap_or(""));
+    let c = ctx()?;
     let cwd = PathBuf::from(req["cwd"].as_str().unwrap_or(""));
     let case_dir = PathBuf::from(req["case_dir"].as_str().unwrap_or(""));
     let decider = node.starts_with("decide.") || node.starts_with("requester.");
@@ -986,17 +1278,27 @@ fn adapter(req_path: &Path) -> R<i32> {
         json!({"kind": "decider", "case": case, "name": name, "arrival": earlier + u64::from(attempt == 1), "try": attempt, "attempt": 1})
     } else {
         let case = req["case"].as_str().filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| case_of_dir(case_dir.to_str().unwrap_or("")));
-        let evs = jsonl(&case_dir.join("events.jsonl"));
-        let writes = write_actions(&read_json_or(&case_dir.join("ir.json"), Value::Null));
-        let i = evs.iter().rposition(|e| e["event"] == "action_started" && e["action"] == node.as_str()).unwrap_or(evs.len());
+        // A call of `runbook run` is in flight: its action is not finished in Loom's log yet.
+        let (evs, writes, i) = match loom_events(&c.out.join("store"), &case) {
+            Some(evs) => {
+                let end = evs.len();
+                (evs, HashSet::new(), end)
+            }
+            None => {
+                let evs = jsonl(&case_dir.join("events.jsonl"));
+                let writes = write_actions(&read_json_or(&case_dir.join("ir.json"), Value::Null));
+                let i = evs.iter().rposition(|e| e["event"] == "action_started" && e["action"] == node.as_str()).unwrap_or(evs.len());
+                (evs, writes, i)
+            }
+        };
         let (arrival, try_) = arrival_try(&evs, &writes, i, &node);
         json!({"kind": "work", "case": case, "name": node, "arrival": arrival, "try": try_,
             "attempt": req["review_attempt"].as_u64().unwrap_or(1)})
     };
     let (case, name) = (key["case"].as_str().unwrap().to_string(), key["name"].as_str().unwrap().to_string());
     let log = jsonl(&c.out.join("replay/calls.jsonl"));
-    let n_case = 1 + log.iter().filter(|l| l["case"] == case.as_str() && l["name"] == name.as_str()).count() as u64;
-    let n_run = 1 + log.iter().filter(|l| l["name"] == name.as_str()).count() as u64;
+    let n_case = 1 + log.iter().filter(|l| !is_finished_line(l) && l["case"] == case.as_str() && l["name"] == name.as_str()).count() as u64;
+    let n_run = 1 + log.iter().filter(|l| !is_finished_line(l) && l["name"] == name.as_str()).count() as u64;
     let inputs = hash_inputs(&cwd.join("in"), &roots);
     let request = normalise_request(&req, &roots);
     let prompt = req["prompt_file"].as_str().and_then(|p| fs::read_to_string(p).ok()).map(|p| sha(normalise(&p, &roots).as_bytes()));
@@ -1007,7 +1309,11 @@ fn adapter(req_path: &Path) -> R<i32> {
     let mut chosen: Option<&Value> = None;
     match exact {
         Some(x) => {
-            difference = differences(x, &inputs, &request);
+            // Under `runbook run` a decider is shown Loom's decision and checks (`decision.json`, `checks.json`): another
+            // document than the old driver's, so they say nothing about the evidence the decider read, which the other files hold.
+            let envelope: &[&str] = if decider && is_loom_run(&c.out) { &["in/decision.json", "in/checks.json"] } else { &[] };
+            difference = differences(x, &inputs, &request, envelope);
+            explain_tests_changed(&mut difference, x, &cwd.join("in").join(ESS_LOG), &roots);
             if difference.is_empty() {
                 chosen = Some(x);
             }
@@ -1015,9 +1321,11 @@ fn adapter(req_path: &Path) -> R<i32> {
         None => difference.push(format!("the source made no call at {}", key_str(&key))),
     }
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
-    let live_n = log.iter().filter(|l| l["mode"] == "live").count() as u64;
-    let live_cap = c.plan["live"]["cap"].as_u64().unwrap_or(5);
+    // Fails closed: a cap that cannot be read is no cap to spend, so no live call starts.
+    let live_cap = c.plan["live"]["cap"].as_u64();
     let mut diverged: Option<String> = None;
+    // Held from the count of the live calls to the append of the started line of this one.
+    let mut live_lock: Option<fs::File> = None;
     if chosen.is_none() {
         match policy {
             "nearest" => match nearest(&c.calls, &key) {
@@ -1027,8 +1335,20 @@ fn adapter(req_path: &Path) -> R<i32> {
                 }
                 None => diverged = Some("nothing to reuse: the source has no call of this node or decision in this case".into()),
             },
-            "live" if live_n < live_cap => mode = "live",
-            "live" => diverged = Some(format!("the live call cap is spent ({live_cap} live calls, --live-cap)")),
+            "live" => match live_cap {
+                Some(cap) => {
+                    let lock = lock_calls(&c.out)?;
+                    // Fails closed: a line that cannot be read counts as one started live call.
+                    let (log, unreadable) = parse_log(&fs::read(c.out.join("replay/calls.jsonl")).map_err(|e| format!("replay/calls.jsonl: {e}"))?);
+                    if live_calls(&log) + unreadable < cap {
+                        mode = "live";
+                        live_lock = Some(lock);
+                    } else {
+                        diverged = Some(format!("the live call cap is spent ({cap} live calls, --live-cap)"));
+                    }
+                }
+                None => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
+            },
             _ => diverged = Some(String::new()),
         }
     }
@@ -1041,6 +1361,20 @@ fn adapter(req_path: &Path) -> R<i32> {
         "prompt_changed": chosen.is_some_and(|x| x["prompt"].is_string() && prompt.is_some() && x["prompt"].as_str() != prompt.as_deref()),
         "fault": fault.as_ref().map(|f| f["spec"].clone()), "virtual_ms": 0, "clock": "virtual",
     });
+    if let Some(lock) = live_lock.take() {
+        // The call counts from here: before the live program starts, so a program that is ended
+        // before it finishes is counted, and under the lock, so that a second process sees it.
+        let mut started = line.clone();
+        started["phase"] = json!("started");
+        started["clock"] = json!("real");
+        started["at_ms"] = json!(now_ms() as u64);
+        // What the call's own line will say (a fault, a changed prompt) is counted once, there.
+        started["fault"] = Value::Null;
+        started["prompt_changed"] = json!(false);
+        append(&c.out.join("replay/calls.jsonl"), &started)?;
+        drop(lock);
+        line["phase"] = json!("finished");
+    }
     let finish = |line: &mut Value, response: &mut Value, code: i32| -> R<i32> {
         line["at_ms"] = json!(now_ms() as u64);
         let mut l = line.clone();
@@ -1057,7 +1391,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         line["mode"] = json!("diverged");
         line["difference"] = json!(what);
         let summary = format!("{} at {}: {}", if decider { "decider call" } else { "model call" }, key_str(&key), what);
-        write_json(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
+        write_first(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
             "place": {"kind": key["kind"], "case": case, "case_dir": case_dir.display().to_string(), "name": name, "arrival": key["arrival"], "try": key["try"],
                 "attempt": key["attempt"], "record": line["record"]},
             "policy": policy, "difference": what, "summary": summary}))?;
@@ -1074,7 +1408,12 @@ fn adapter(req_path: &Path) -> R<i32> {
     let mut code;
     if mode == "live" {
         let bin = c.plan["live"]["bin"].as_str().unwrap_or("");
-        let o = Command::new(bin).arg(req_path).output().map_err(|e| format!("live adapter {bin}: {e}"))?;
+        let mut live = Command::new(bin);
+        live.arg(req_path);
+        if c.plan["live"]["adapter"] == "dry" {
+            live.env("SDC_LLM_DRY_LOG", c.out.join("dry-commands.txt"));
+        }
+        let o = live.output().map_err(|e| format!("live adapter {bin}: {e}"))?;
         let _ = fs::write(rec.join("live-stderr.txt"), &o.stderr);
         resp = serde_json::from_slice(&o.stdout).unwrap_or(json!({}));
         code = o.status.code().unwrap_or(1);
@@ -1110,7 +1449,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         line["virtual_ms"] = x["virtual_ms"].clone();
         code = resp["exit"].as_i64().unwrap_or(0) as i32;
         // The virtual clock: a recorded call that took longer than this run's timeout times out.
-        let timeout_s = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok());
+        let timeout_s = timeout_s_of(&c.out, &node);
         if let Some(t) = timeout_s.filter(|t| x["virtual_ms"].as_u64().unwrap_or(0) >= t * 1000) {
             if fault.is_none() {
                 line["fault"] = json!(format!("virtual-timeout ({} ms recorded, timeout_s {t})", x["virtual_ms"]));
@@ -1122,7 +1461,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         let v = f["value"].as_str().unwrap_or("");
         match f["fault"].as_str().unwrap() {
             "timeout" => {
-                let t = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
+                let t = timeout_s_of(&c.out, &node).unwrap_or(0);
                 let ms = line["virtual_ms"].as_u64().unwrap_or(0);
                 code = timeout(&cwd, &mut resp, &mut line, t, ms)?;
             }
@@ -1172,8 +1511,13 @@ fn adapter(req_path: &Path) -> R<i32> {
 /// SDC_VIRTUAL_TIMEOUT, the timeout's seconds on the virtual clock.
 fn timeout(cwd: &Path, resp: &mut Value, line: &mut Value, timeout_s: u64, recorded_ms: u64) -> R<i32> {
     clear_dir(&cwd.join("out"))?;
-    if let Ok(f) = std::env::var("SDC_VIRTUAL_TIMEOUT") {
-        let _ = fs::write(f, format!("the recorded call took {} s, timeout_s {timeout_s}", recorded_ms / 1000));
+    let why = format!("the recorded call took {} s, timeout_s {timeout_s}", recorded_ms / 1000);
+    match std::env::var("SDC_VIRTUAL_TIMEOUT") {
+        Ok(f) => {
+            let _ = fs::write(f, &why);
+        }
+        // No driver reads a file under `runbook run`: the program's output says it, as the driver did.
+        Err(_) => eprintln!("sdc-replay: killed after {timeout_s} s (virtual clock: {why})"),
     }
     let ms = if timeout_s > 0 { timeout_s * 1000 } else { recorded_ms };
     line["virtual_ms"] = json!(ms);
@@ -1184,11 +1528,39 @@ fn timeout(cwd: &Path, resp: &mut Value, line: &mut Value, timeout_s: u64, recor
     Ok(124)
 }
 
+/// The timeout of an action on the virtual clock: `SDC_TIMEOUT_S` (the driver's), else the
+/// `timeout_seconds` of the action in the run's bindings copy (`<run>/bindings/*.yaml`, where the
+/// conditions of the plan were applied).
+fn timeout_s_of(out: &Path, action: &str) -> Option<u64> {
+    if let Some(t) = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok()) {
+        return Some(t);
+    }
+    for file in files_under(&out.join("bindings")).into_iter().filter(|f| f.extension().is_some_and(|x| x == "yaml")) {
+        let text = fs::read_to_string(&file).unwrap_or_default();
+        let mut current: Option<&str> = None;
+        for line in text.lines() {
+            let t = line.trim_start().trim_start_matches("- ");
+            if let Some(name) = t.strip_prefix("action:") {
+                current = Some(name.trim().trim_matches(|c| c == '"' || c == '\''));
+            } else if let (Some(v), true) = (t.strip_prefix("timeout_seconds:"), current == Some(action)) {
+                if let Ok(n) = v.trim().parse() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
 // --- programs ------------------------------------------------------------------------------------
 
-fn program(action: &str, argv: &[String]) -> R<i32> {
-    let c = ctx()?;
-    let case = std::env::var("SDC_CASE").unwrap_or_default();
+fn program(action: &str, plan: Option<&Path>, argv: &[String]) -> R<i32> {
+    let c = match plan {
+        Some(p) => ctx_at(p)?,
+        None => ctx()?,
+    };
+    // A program of `runbook run` names its case in LOOM_CASE; the driver's in SDC_CASE.
+    let case = std::env::var("LOOM_CASE").or_else(|_| std::env::var("SDC_CASE")).unwrap_or_default();
     let log_p = c.out.join("replay/programs.jsonl");
     let log = jsonl(&log_p);
     let n_case = 1 + log.iter().filter(|l| l["case"] == case.as_str() && l["action"] == action).count() as u64;
@@ -1206,7 +1578,7 @@ fn program(action: &str, argv: &[String]) -> R<i32> {
         });
         let Some(e) = pick else {
             let what = format!("the source ran {action} {} time(s) in {case}, this is run {n_case}", runs.len());
-            write_json(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
+            write_first(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
                 "place": {"kind": "program", "case": case, "case_dir": std::env::var("SDC_CASE_DIR").ok(), "name": action, "ordinal": n_case}, "policy": c.plan["policy"],
                 "difference": what, "summary": format!("program {action} in {case}: {what}")}))?;
             line["mode"] = json!("diverged");
@@ -1250,10 +1622,10 @@ fn program(action: &str, argv: &[String]) -> R<i32> {
 
 fn summary(out: &Path) -> R<Value> {
     let plan = read_json(&out.join("replay/plan.json"))?;
-    let calls = jsonl(&out.join("replay/calls.jsonl"));
+    let (calls, unreadable_lines) = parse_log(&fs::read(out.join("replay/calls.jsonl")).unwrap_or_default());
     let programs = jsonl(&out.join("replay/programs.jsonl"));
     let count = |m: &str| calls.iter().filter(|l| l["mode"] == m).count();
-    let (recorded, reused, live, diverged) = (count("recorded"), count("reused"), count("live"), count("diverged"));
+    let (recorded, reused, live, diverged) = (count("recorded"), count("reused"), live_calls(&calls) as usize, count("diverged"));
     let virtual_ms: u64 = calls.iter().filter(|l| l["clock"] == "virtual").filter_map(|l| l["virtual_ms"].as_u64()).sum();
     let label = if live > 0 {
         "re-driven: with live model calls"
@@ -1267,7 +1639,7 @@ fn summary(out: &Path) -> R<Value> {
         "source": plan["source"]["name"], "source_tree": plan["source"]["tree"], "tree": plan["tree"], "same_tree": plan["same_tree"],
         "policy": plan["policy"], "injections": plan["injections"].as_array().map(|a| a.iter().map(|f| f["spec"].clone()).collect::<Vec<_>>()),
         "conditions": plan["conditions"], "take_recorded": plan["take_recorded"],
-        "calls": {"recorded": recorded, "reused": reused, "live": live, "diverged": diverged,
+        "calls": {"recorded": recorded, "reused": reused, "live": live, "live_unfinished": live_unfinished(&calls), "unreadable_lines": unreadable_lines, "diverged": diverged,
             "paid": calls.iter().filter(|l| l["paid"] == true).count(),
             "faults": calls.iter().filter(|l| l["fault"].is_string()).count(),
             "prompt_changed": calls.iter().filter(|l| l["prompt_changed"] == true).count()},
@@ -1286,6 +1658,11 @@ fn seal(out: &Path) -> R<Value> {
     for f in ["status.json", "run-stopped.json"] {
         if let Ok(mut v) = read_json(&out.join(f)) {
             v["replay"] = s.clone();
+            // `runbook run` ends a diverged re-drive by its own cause (`error`): the recording's.
+            if let (Some(d), true) = (s["diverged"].as_object(), f == "run-stopped.json" && v["cause"] != "recording_diverged") {
+                v["cause"] = json!("recording_diverged");
+                v["reason"] = d.get("summary").cloned().unwrap_or(Value::Null);
+            }
             write_json(&out.join(f), &v)?;
         }
     }
@@ -1381,7 +1758,7 @@ fn settings(out: &Path) -> R<Value> {
     Ok(json!({"source": plan["source"]["name"], "source_tree": plan["source"]["tree"], "tree": plan["tree"],
         "same_tree": plan["same_tree"], "policy": plan["policy"], "live": plan["live"]["adapter"], "live_cap": plan["live"]["cap"],
         "injections": plan["injections"].as_array().map(|a| a.iter().map(|f| f["spec"].clone()).collect::<Vec<_>>()),
-        "conditions": plan["conditions"], "take_recorded": plan["take_recorded"], "unstick": plan["unstick"], "clock": "virtual"}))
+        "conditions": plan["conditions"], "take_recorded": plan["take_recorded"], "clock": "virtual"}))
 }
 
 // --- pack ----------------------------------------------------------------------------------------
@@ -1483,17 +1860,17 @@ fn main() -> ExitCode {
     }
     let cli = Cli::parse();
     let r: R<(Value, u8)> = match &cli.cmd {
-        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded } => prepare(
-            source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, *live_cap, inject, set, take_recorded,
+        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded, plan_only } => prepare(
+            source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, *live_cap, inject, set, take_recorded, !plan_only,
         )
         .map(|v| (v, 0)),
         Cmd::Env { out } => read_json(&out.join("replay/env.json")).map(|v| (v, 0)),
         Cmd::Settings { out } => settings(out).map(|v| (v, 0)),
-        Cmd::Program { action, argv } => {
+        Cmd::Program { action, plan, argv } => {
             if argv.is_empty() {
                 Err("program: no argv after --".into())
             } else {
-                return match program(action, argv) {
+                return match program(action, plan.as_deref(), argv) {
                     Ok(c) => ExitCode::from(c.clamp(0, 255) as u8),
                     Err(e) => {
                         eprintln!("sdc-replay: {e}");
@@ -1524,6 +1901,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_lines_of_a_hold_and_its_reopen_in_a_run_log_add_no_event() {
+        let log = |held: bool| {
+            let mut lines = vec![
+                r#"{"seq":0,"kind":"CaseOpened","case":"c","protocol":"p@1"}"#.to_string(),
+                r#"{"seq":1,"kind":"Evaluated","case_revision":1}"#.to_string(),
+            ];
+            if held {
+                lines.push(r#"{"seq":2,"kind":"StopRecorded","principal":"person:operator","reason":"review"}"#.to_string());
+                lines.push(r#"{"seq":3,"kind":"StopLifted","principal":"person:operator","stop":2}"#.to_string());
+            }
+            lines.push(r#"{"seq":4,"kind":"ActionFinished","action":"a.b","exit":0}"#.to_string());
+            lines.join("\n")
+        };
+        let events = events_of_log(&log(true));
+        assert_eq!(events, events_of_log(&log(false)));
+        let names: Vec<&str> = events.iter().filter_map(|e| e["event"].as_str()).collect();
+        assert_eq!(names, ["opened", "revised", "action_started", "action_finished"]);
+    }
+
+    #[test]
     fn normalise_hides_what_differs_between_runs() {
         let roots = vec!["/r/run-a".to_string()];
         let a = normalise("at: 2026-11-21T10:30:34Z rev t3212d0e4d6079583 /r/run-a/x 0.12s", &roots);
@@ -1535,11 +1932,143 @@ mod tests {
     }
 
     #[test]
-    fn set_unstick_is_on_or_off() {
+    fn the_label_of_the_pinned_ess_is_not_an_input_but_a_changed_test_is() {
+        let log = |label: &str, test: &str| {
+            format!("billing v3 against billing-reference {label} \u{2014} passed\n  passed billing.invoice.CreateInvoice/outcome/accepted\n  | test {test} ... ok\n")
+        };
+        let n = |t: &str| normalise(&mask_ess_label(t), &[]);
+        assert_eq!(n(&log("0.97.3", "create_invoice")), n(&log("0.97.4", "create_invoice")));
+        // the text a recording packed at 0.97.3 was digested as is the masked text: no re-pack is needed
+        assert_eq!(n(&log("0.97.4", "create_invoice")), log("0.97.3", "create_invoice"));
+        let interpreted = |label: &str| format!("shop v1 against interpreted {label} \u{2014} passed\n");
+        assert_eq!(n(&interpreted("0.96.0")), n(&interpreted("0.97.4")));
+        assert_ne!(n(&log("0.97.4", "create_invoice")), n(&log("0.97.4", "pay_invoice")));
+        assert_ne!(n(&log("0.97.4", "create_invoice")), n(&interpreted("0.97.4")));
+        let other = |impl_: &str| format!("billing v3 against {impl_} 0.97.4 \u{2014} passed\n");
+        assert_ne!(n(&other("billing-reference")), n(&other("billing-other")));
+        // another version-like string is an input: only the label of the line the tool writes is masked
+        let pin = |v: &str| format!("  | test result: ok. dependency serde {v}, 5 passed\n");
+        assert_ne!(n(&pin("1.0.1")), n(&pin("1.0.2")));
+        // the header stands below a line or two of preamble in the real log, and only it is masked:
+        // a second line of the same shape is a line of the log
+        let below = |v: &str, w: &str| format!("Requires an empty namespace.\nRequires an empty namespace.\n{}{}", interpreted(v), interpreted(w));
+        assert_eq!(n(&below("0.96.0", "0.1.0")), n(&below("0.97.4", "0.1.0")));
+        assert_ne!(n(&below("0.97.3", "0.1.0")), n(&below("0.97.3", "0.1.1")));
+        // `normalise` alone masks nothing: the prompt and the request keep their version-like text
+        assert_ne!(normalise(&log("0.97.3", "a"), &[]), normalise(&log("0.97.4", "a"), &[]));
+    }
+
+    #[test]
+    fn the_label_is_masked_in_the_header_of_in_tests_txt_and_in_no_other_input_file() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-label-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let line = |v: &str| format!("shop v2 against upstream-api {v} \u{2014} passed\n  | test a ... ok\n");
+        let digests = |v: &str| {
+            fs::create_dir_all(dir.join("in")).unwrap();
+            fs::write(dir.join("in/tests.txt"), line(v)).unwrap();
+            fs::write(dir.join("in/notes.md"), line(v)).unwrap();
+            hash_inputs(&dir.join("in"), &[])
+        };
+        let (a, b) = (digests("0.97.3"), digests("0.97.4"));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(a["in/tests.txt"], b["in/tests.txt"], "the header of the log is masked");
+        assert_ne!(a["in/notes.md"], b["in/notes.md"], "another file is an input");
+        assert_eq!(a["in/tests.txt"], sha(normalise(&line("0.97.3"), &[]).as_bytes()), "the digest is that of the text at the mask");
+    }
+
+    #[test]
+    fn a_changed_log_with_a_label_names_the_label_as_a_cause_and_the_fix() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-cause-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let text = "shop v2 against upstream-api 0.97.4 \u{2014} passed\n  | test a ... ok\n";
+        let tests = dir.join("tests.txt");
+        fs::write(&tests, text).unwrap();
+        let said = |recorded: &str| {
+            let mut d = vec!["in/tests.txt changed".to_string(), "in/other changed".to_string()];
+            explain_tests_changed(&mut d, &json!({"inputs": {"in/tests.txt": recorded}}), &tests, &[]);
+            d
+        };
+        let unmasked = sha(normalise(text, &[]).as_bytes());
+        let proven = said(&unmasked);
+        assert!(proven[0].contains("only the ESS version label") && proven[0].contains("pack the recording again"), "{proven:?}");
+        let possible = said("0000");
+        assert!(possible[0].starts_with("in/tests.txt changed. ") && possible[0].contains("diverges here for that reason alone"), "{possible:?}");
+        assert!(!possible[0].contains("pack the recording again") && !possible[0].contains("only the ESS version label"), "{possible:?}");
+        assert_eq!(proven[1], "in/other changed");
+        fs::write(&tests, "no header here\n").unwrap();
+        assert_eq!(said("0000")[0], "in/tests.txt changed", "no label, no cause named");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_live_call_counts_from_its_start_and_an_unmarked_line_is_a_finished_call() {
+        let line = |mode: &str, phase: Option<&str>, record: &str| {
+            let mut l = json!({"mode": mode, "record": record});
+            if let Some(p) = phase {
+                l["phase"] = json!(p);
+            }
+            l
+        };
+        let log = vec![
+            line("recorded", None, "a"),
+            line("live", None, "old"),
+            line("live", Some("started"), "b"),
+            line("live", Some("finished"), "b"),
+            line("live", Some("started"), "c"),
+            line("diverged", None, "d"),
+        ];
+        assert_eq!(live_calls(&log), 3, "an old line, b and c: b's finished line is not a second call");
+        assert_eq!(live_unfinished(&log), 1, "only c has no finished line");
+        assert!(is_finished_line(&log[3]) && !is_finished_line(&log[2]) && !is_finished_line(&log[1]));
+        assert_eq!((live_calls(&[]), live_unfinished(&[])), (0, 0));
+    }
+
+    #[test]
+    fn a_log_is_read_as_bytes_and_a_line_that_cannot_be_read_costs_that_line_only() {
+        let mut bytes = b"{\"mode\":\"live\",\"phase\":\"started\"}\n".to_vec();
+        bytes.extend_from_slice(b"\xff\xfe\n");
+        bytes.extend_from_slice(b"[1,2]\n\n   \n");
+        bytes.extend_from_slice(b"{\"mode\":\"recorded\"}\n");
+        bytes.extend_from_slice(b"{\"mode\": \"live\", \"phase\": \"star");
+        let (lines, unreadable) = parse_log(&bytes);
+        assert_eq!(lines.len(), 2, "the two objects; empty and blank lines are no line");
+        assert_eq!(unreadable, 3, "not UTF-8, not an object, cut off");
+        assert_eq!(parse_log(b""), (vec![], 0));
+        assert_eq!(live_calls(&lines) + unreadable, 4, "the cap counts every unreadable line as a started live call");
+    }
+
+    #[test]
+    fn append_puts_a_cut_off_last_line_and_the_new_line_apart() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-append-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("log.jsonl");
+        append(&p, &json!({"n": 1})).unwrap();
+        append(&p, &json!({"n": 2})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":1}\n{\"n\":2}\n", "a log that ends in a newline gets no extra line");
+        fs::write(&p, "{\"n\":1}").unwrap();
+        append(&p, &json!({"n": 2})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":1}\n{\"n\":2}\n");
+        fs::write(&p, "").unwrap();
+        append(&p, &json!({"n": 3})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":3}\n", "an empty file gets no newline first");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_condition_unstick_is_refused_by_name_in_a_set_and_in_a_plan() {
         let tools = Path::new("/nonexistent");
-        let (_, env, rec) = parse_sets(&["unstick=on".to_string()], tools).unwrap();
-        assert_eq!((env["SDC_UNSTICK"].as_str(), rec["unstick"].as_str()), (Some("on"), Some("on")));
-        assert!(parse_sets(&["unstick=1".to_string()], tools).is_err());
+        for v in ["on", "off", "1"] {
+            let e = parse_sets(&[format!("unstick={v}")], tools).unwrap_err();
+            assert!(e.contains(&format!("--set unstick={v}")) && e.contains("no longer a condition"), "{e}");
+        }
+        let p = Path::new("replay/plan.json");
+        for plan in [json!({"out": "/x", "conditions": {"unstick": "on"}}), json!({"out": "/x", "unstick": {"on": false}})] {
+            let e = plan_refusal(&plan, p).expect("a plan that names unstick is refused");
+            assert!(e.contains("no longer a condition") && e.contains("replay/plan.json"), "{e}");
+        }
+        assert!(plan_refusal(&json!({"out": "/x", "conditions": {"max_runs.implement": 2}}), p).is_none());
     }
 
     #[test]

@@ -27,7 +27,7 @@
   },
   "plan.decompose": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "plan.decompose"
     ],
     "llm": {

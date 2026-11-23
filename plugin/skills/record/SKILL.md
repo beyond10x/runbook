@@ -86,12 +86,12 @@ produced, and listed in a scratch file as "tool to write". No new tool is invent
 
 ## 5. Check the draft
 
-From the repository root (`canon_resolve` takes `CANON`, else the cached install of the pinned Canon):
+From the repository root (`runbook_resolve` finds or builds `runbook`, which links the pinned Canon):
 
 ```console
 repo=$(pwd)
-source scripts/evaluate-cases.sh && canon_resolve && "$canon" validate --path "$repo/protocol/draft/<name>.protocol.yaml"
-"$canon" check --path "$repo/protocol/draft/<name>.protocol.yaml"
+source scripts/evaluate-cases.sh && runbook_resolve && "$runbook" canon validate --path "$repo/protocol/draft/<name>.protocol.yaml"
+"$runbook" canon check --path "$repo/protocol/draft/<name>.protocol.yaml"
 ```
 
 Read each finding, change the draft, run both again. Done when `validate` exits 0 and `check`

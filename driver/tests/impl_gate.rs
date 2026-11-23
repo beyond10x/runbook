@@ -90,6 +90,38 @@ fn a_failing_test_is_a_failure_of_the_tree() {
     assert!(text(&o).contains("run: cargo test exit 101"), "{}", text(&o));
 }
 
+/// Under Loom a gate keeps its log as a record of the tree (`sdc-reply record`, which needs a
+/// directory). A tree that is not one (here `spec` is a regular file) has no record, and the gate's
+/// own result stands: 1 is a failed gate; 126 would be in `exits.error` and end the run as a
+/// program error with nothing recorded.
+#[test]
+fn a_gate_on_a_tree_that_is_a_file_ends_with_its_own_result_and_not_126() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("impl-gate").join("tree-is-a-file");
+    let _ = fs::remove_dir_all(&dir);
+    let bin = dir.join("bin");
+    let work = dir.join("work");
+    fs::create_dir_all(&bin).unwrap();
+    fs::create_dir_all(work.join(".sdc")).unwrap();
+    let ess = bin.join("ess");
+    fs::write(&ess, "#!/usr/bin/env bash\necho 'spec was refused'\nexit 1\n").unwrap();
+    fs::set_permissions(&ess, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_sdc-reply"), bin.join("sdc-reply")).unwrap();
+    fs::write(work.join("spec"), "not a directory\n").unwrap();
+    let tool = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings/tools/sdc-tool.sh");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let o = Command::new("bash")
+        .arg(tool)
+        .args(["ess-gate", "--action", "spec.gate"])
+        .current_dir(&work)
+        .env("PATH", path)
+        .env("LOOM_CASE", "root.billing")
+        .env_remove("SDC_CASE")
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1), "{}", text(&o));
+    assert!(text(&o).contains("spec was refused"), "{}", text(&o));
+}
+
 // The build pool wait (docs/driver.md, "The build pool wait"). `slot` here is a pool of its own: a
 // job prints slot's `slot: job N queued` line, is `queued` in `slot status` until its delay has
 // passed, then runs the way POOL_FAKE says. No test calls the real pool.
@@ -373,19 +405,16 @@ fn the_bindings_name_the_wait_bound_and_a_limit_that_covers_it() {
     }
 }
 
-/// The new exit in the binding documents: the driver's `program_error` knows it (unit test in
-/// main.rs); the YAML has no `exits` member in the loader it follows, so the construct is a line of
-/// bindings/PENDING.md for each of the two bindings.
+/// The exits of the pool wait (69: the wait ran out, 70: the pool refused the job) are in
+/// `exits.error` of the two bindings that wait for the build pool, in the YAML Loom loads.
 #[test]
-fn the_pending_list_gives_exit_69_for_both_bindings() {
+fn the_story_and_release_yaml_list_the_pool_wait_exits_69_and_70_as_a_program_error() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let pending = fs::read_to_string(root.join("bindings/PENDING.md")).unwrap();
-    for (json_file, action) in [("sdc-story.bindings.json", "tests.run"), ("sdc-release.bindings.json", "acceptance.run")] {
-        let line = pending
-            .lines()
-            .find(|l| l.starts_with(&format!("- `{json_file}:")) && l.contains(&format!("`{action}`")) && l.contains("69"))
-            .unwrap_or_else(|| panic!("no line of PENDING.md for {json_file} {action} naming exit 69"));
-        assert!(line.contains("`[69, 75, 126, 127]`") || line.contains("[69"), "{line}");
+    for (yaml_file, action) in [("bindings/sdc-story.yaml", "tests.run"), ("bindings/sdc-release.yaml", "acceptance.run")] {
+        let y: serde_yaml::Value = serde_yaml::from_str(&fs::read_to_string(root.join(yaml_file)).unwrap()).unwrap();
+        let ya = y["actions"].as_sequence().unwrap().iter().find(|a| a["action"] == action).unwrap();
+        let error: Vec<u64> = ya["exits"]["error"].as_sequence().unwrap_or_else(|| panic!("{yaml_file} {action}: no exits.error")).iter().map(|c| c.as_u64().unwrap()).collect();
+        assert_eq!(error, [69, 70, 75, 126, 127], "{yaml_file} {action}");
     }
 }
 
@@ -404,42 +433,4 @@ fn the_cycle_stand_in_keeps_a_queued_job_at_most_30_s_by_default() {
     let secs: u64 = line.split(":-").nth(1).and_then(|r| r.split('}').next()).and_then(|n| n.parse().ok())
         .unwrap_or_else(|| panic!("no default in {line}"));
     assert!(secs <= 30, "default {secs} s in {line}");
-}
-
-/// A round whose `sdc-drive run` printed text (a step that stopped the run before its verdict) is
-/// reported with the program and its first line, not as jq's bare "parse error ... column 10".
-#[test]
-fn a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("no-json-run");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let pin = fs::read_to_string(root.join("driver/canon-pin.json")).unwrap();
-    let version = pin.lines().find_map(|l| l.trim().strip_prefix("\"version\": \"")).and_then(|r| r.split('"').next()).unwrap().to_string();
-    let script = |name: &str, body: String| {
-        let p = dir.join(name);
-        fs::write(&p, body).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-        p
-    };
-    let canon = script("canon", format!("#!/bin/sh\necho 'canon {version}'\n"));
-    let drive = script(
-        "drive",
-        "#!/bin/bash\nwhile (($#)); do [[ $1 == --case-dir ]] && d=$2; shift; done\n[[ -d $d/work ]] || { mkdir -p \"$d/work\"; exit 0; }\n\
-         echo 'sdc-drive: `tests.run` could not run (exit 126, a program error): boom'; echo 'second line'; exit 2\n"
-            .into(),
-    );
-    let out = Command::new("bash")
-        .arg(root.join("scripts/run-full-cycle.sh"))
-        .args(["no-json", dir.join("store").to_str().unwrap()])
-        .env("CANON", canon)
-        .env("DRIVE", drive)
-        .env("RUNS", dir.join("runs"))
-        .output()
-        .unwrap();
-    let t = text(&out);
-    assert_eq!(out.status.code(), Some(5), "{t}");
-    assert!(t.contains("`sdc-drive run` printed no JSON (exit 2); its first line: sdc-drive: `tests.run` could not run"), "{t}");
-    assert!(!t.contains("jq: parse error"), "{t}");
-    assert!(!t.contains("second line"), "{t}");
 }

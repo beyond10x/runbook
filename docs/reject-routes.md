@@ -1,5 +1,13 @@
 # Reject and cap routes (audit, 2026-11-21)
 
+**What this page is.** The audit of 2026-11-21 and a check that is still run. The audit's routes,
+caps and line numbers are those of the driver runtime, its trial script and its model-node script as
+they were then. Those files are deleted (`story:driver-runtime-removed`); the runtime is Loom's
+(`docs/loom-run.md`, `docs/loom-run-decisions.md`). The check is live: `sdc-check-routes`
+(`driver/src/bin/sdc-check-routes.rs`) stays in the crate `sdc-tools`, and
+`scripts/check-bindings.sh` fails unless its findings equal the block under "Check output" at the
+end of this page (section "The check (D148)").
+
 This audit covers every point in the eight protocols where an unattended run (`scripts/run-trial.sh
 <run> --autopilot`, decider final, no person) can be told no, and every writer whose cap can stop it.
 It was prompted by these stops: `rejected_without_rework_path` (`runs/trial-3-haiku-3`
@@ -25,12 +33,12 @@ is capped at 2 per approval. The third rejection stops the run with cause `rewor
 | 2 | direction `vision.approve` (`:232-244`) | decider (class `vision`) | `vision.write` reworks (`bindings:82-86`) | rework | stop `rework_spent` | has route for 1-2. Reject 3: missing route (R5) | — |
 | 3 | direction `roadmap.approve` (`:272-286`) | decider (class `roadmap`) | `roadmap.write` reworks (`bindings:114-121`); before R6 that rework shared the writer's cap with `roadmap.validate` retries | rework | stop `rework_spent` | has route for 1-2. Reject 3: missing route (R5) | this branch (R6) |
 | 4 | intake `scope.answer`, one open scope-changing question at a time (`run-trial.sh:602-619`) | decider (class `scope_changing_answer`) | before R1: `reject` was a valid reply (`decider.sh:87`), so exit 6 `rejected_without_rework_path`. Now the check refuses it (`decider.sh:89`), the decider is asked again with the reason, and after 2 retries the default is taken (`run-trial.sh:443-448`) | same | same | missing route, fixed (R1) | this branch |
-| 5 | intake `scope.answer` with no open question but unattributed scope-changing answers (`check-questions` exit 3, `sdc-tool.sh:116-119`), decided as an approval (`run-trial.sh:680-689`) | decider | the rejection cannot be recorded: the binding has no `results` (`sdc-intake.bindings.json:190-197`, `driver/src/main.rs:1688`), and `withhold` has no end for it, so exit 6 `rejected_without_rework_path` | — | — | missing route, fixed (R2) | — |
+| 5 | intake `scope.answer` with no open question but unattributed scope-changing answers (`check-questions` exit 3, `sdc-tool.sh:115-118`), decided as an approval (`run-trial.sh:680-689`) | decider | the rejection cannot be recorded: the binding has no `results` (`sdc-intake.bindings.json:190-197`, `driver/src/main.rs:1688`), and `withhold` has no end for it, so exit 6 `rejected_without_rework_path` | — | — | missing route, fixed (R2) | — |
 | 6 | `amend.upstream` finding decision (direction, intake, spec, plan, story) (`run-trial.sh:626-646`) | decider (class `finding`) | `reject` is refused by the check (`decider.sh:88`), asked again, then the default; an escalate takes `best`, else the default (`run-trial.sh:468-472`) | same | same | has route | — |
 | 7 | `amend.upstream`: the program check refuses the decider's decision (`refused_decision`) | decider, once | stop `decision_not_takeable`, exit 7 (`run-trial.sh:634-637`, `:349-357`) | — | — | missing route, fixed (R3) | `fix/attempt5-intake` refuses only what the decision wrote |
 | 8 | story `merge.approve` (`change.merge`, `protocol/sdc-story.protocol.yaml:197-212`) | decider (class `merge`) | `change.implement` reworks (`sdc-story.bindings.json:50-60`). Before R6 the rework shared the writer's cap with test retries (`runs/trial-3-haiku-4`) | rework | stop `rework_spent` | has route for 1-2. Reject 3: missing route (R4) | this branch (R6) |
-| 9 | story `change.review` (`:182`) | model reviewer `llm-review` (on `main`: the stub `review-change`, `sdc-tool.sh:295`) | `change.implement` reworks (`retry_when` `code_review`) | rework, while `change.implement` has runs left | stop `writer_spent` on `change.implement`, a cap shared with test retries (Table 2, R7) | has route; the cap is R7 | `impl/review-node` |
-| 10 | spec `spec.review` (`protocol/sdc-spec.protocol.yaml:300-311`) | the stub reviewer `review-spec` (`sdc-tool.sh:294`); class `spec_acceptance` | before R8: no writer had `retry_when` `spec_review`, so nothing was useful and the run ended `stuck` (`main.rs:1233`). Now `spec.author` reworks (`sdc-spec.bindings.json:44-63`) | rework within `spec.author`'s cap | `writer_spent` | missing route, fixed (R8) | this branch |
+| 9 | story `change.review` (`:182`) | model reviewer `llm-review` (on `main`: the stub `review-change`, `sdc-tool.sh:294`) | `change.implement` reworks (`retry_when` `code_review`) | rework, while `change.implement` has runs left | stop `writer_spent` on `change.implement`, a cap shared with test retries (Table 2, R7) | has route; the cap is R7 | `impl/review-node` |
+| 10 | spec `spec.review` (`protocol/sdc-spec.protocol.yaml:300-311`) | the stub reviewer `review-spec` (`sdc-tool.sh:293`); class `spec_acceptance` | before R8: no writer had `retry_when` `spec_review`, so nothing was useful and the run ended `stuck` (`main.rs:1233`). Now `spec.author` reworks (`sdc-spec.bindings.json:44-63`) | rework within `spec.author`'s cap | `writer_spent` | missing route, fixed (R8) | this branch |
 | 11 | release `release.publish` (`release.approve`, `protocol/sdc-release.protocol.yaml:150-159`) | decider (class `release`) | `rework` cannot record a rejection, so `withhold` runs: the capability is denied, `explicitly_withheld` is recorded by `rule:autopilot`, the release closes `withheld`, the epic `not_released`, the root `not_delivered` (`run-trial.sh:578-596`, `:720-723`) | — (the run ends) | — | has route (an end by rule) | `fix/attempt5-close`: the root is closed by `rule:autopilot` |
 | 12 | root `close` through `operating` (`protocol/sdc.protocol.yaml:143`) | on `main`: decider (class `close`, `run-trial.sh:724-729`); a reject is exit 6 (`runs/trial-3-haiku-5`) | after the merge: closed by `rule:autopilot`; the decider is not asked | — | — | has route | `fix/attempt5-close` |
 | 13 | close of a child case | nobody: the driver closes a child that has one legitimate outcome (`main.rs:1563`) | — | — | — | has route (nothing to reject) | — |
@@ -79,7 +87,7 @@ Now the failure reaches the next run (`llm-node.sh:412-426`, `:538`).
 | R5 | third reject of `context.approve`, `vision.approve` or `roadmap.approve` | `rework_spent` | the root ends `abandoned` (`explicitly_abandoned`, `sdc.protocol.yaml:151`) recorded by `rule:autopilot` with the reasons. Ending the direction case itself needs a protocol change, which was not made: `sdc.direction` has one outcome, `passed` (`sdc-direction.protocol.yaml:301`); one more outcome, `abandoned` on `explicitly_abandoned`, would be needed. The state count was not determined. Without that change the direction child stays open under an abandoned root | `rework-spent-abandoned` | pending (`fix/attempt5-close` agent) |
 | R6 | a writer's cap used up before a rework | `writer_spent` | a rejection recorded by a principal is an arrival (`main.rs:564-583`); the rework count still caps reworks at 2 | `rework-fresh-allowance` | fixed |
 | R7 | one cap shared by different checks (`spec.author`, `plan.decompose`, `change.implement`) | `writer_spent` | runs are counted per retry kind, each with its existing cap, plus a backstop over all kinds of `max(8, max_runs)` runs per arrival, so the 12 runs of `amend.upstream` stay allowed (`main.rs` `useful`). The stop `writer_spent` names the kind that ran out (`kind` in the spent entry and the message) | `implement-percause` | fixed |
-| R8 | `spec.review` rejected | `stuck` | `spec.author` gets `retry_when` `spec_review: [rejected]`; the stub reviewer rejects a tree that holds `.review-reject` (`sdc-tool.sh:294`) | `spec-review-rework` | fixed |
+| R8 | `spec.review` rejected | `stuck` | `spec.author` gets `retry_when` `spec_review: [rejected]`; the stub reviewer rejects a tree that holds `.review-reject` (`sdc-tool.sh:293`) | `spec-review-rework` | fixed |
 | R9 | a writer's own apply error | rerun blind, then `writer_spent` | the failed run's own log is fed back as `in/feedback.md` (`llm-node.sh`, which also prints why its output was not applied into the step log). A rejection whose log is not an `sdc.rejection/1` document, such as a stub reviewer's, now reaches the writer in `in/feedback.md` too | `writer-own-error` | fixed |
 | R13 | a failed program check sent back to its writer (runs/trial-3-haiku-8) | the step log was the check's stdout followed by its stderr, so it ended with the build pool's `slot: job … ran 1s` line. `log_line` reported that line in `writer_spent`, and `impl-gate` showed no panic message | each command in `conform-run` writes its stderr with its stdout and the `slot: job` lines are dropped. A failed command is named (`conform-run: FAILED \`task check\` in impl (exit 101)`). `story-tests-run` ends with each failed step's last 30 lines under a heading that names the step. `impl-gate` shows a panic with its message. `in/feedback.md` holds the last 80 lines without `slot: job` lines and the check's exit. A check that wrote nothing is said so in words. `log_line` skips `slot: job` lines | `writer-sees-test-failure` | fixed |
 | R14 | `change.implement`: a requirement of the story not built, or cited at a line or test the tree lacks (`story:implement-cites-requirements`) | the review sent the build back after `tests.run` (baseline-0.1.0: 4 of 10 review rejections) | the binding's `postcondition` (`sdc-reply check-coverage`) refuses the revision before `tests.run`, naming the ids; the refusal reaches the next run through `SDC_FEEDBACK` as a failed check does (R13), under its own retry kind `requirement_coverage` against `max_runs` (R7); no protocol rule (`docs/driver.md`, "Requirement coverage") | `coverage-not-built`, `coverage-spent` | built |
@@ -136,15 +144,39 @@ runs it with `--doc docs/reject-routes.md`, and fails unless its findings equal 
 "Check output" line by line. A fix therefore removes its line from the block, and a new dead end
 adds one, in the same commit.
 
-`rule-ends.json` holds the autopilot rules that lived only in code. `run-trial.sh` reads two of
-them: the rework limit (`rework_limit`, which was the literal 2; the default of the one effective rework cap, D184: `SDC_MAX_REJECTIONS` overrides it, run-settings.jsonl records `rework_limit: {value, source}`, and the driver and the writer's rework prompt in `llm-node.sh` read that value) and the ends for a refusal (`approvals.*.reject`, which was
-the `refusal_end` array). The check reads all of them. The `driver` entries state facts of the
-driver and of `llm-node.sh`: which effects are capped, whether the cap holds per kind (R7),
-whether a rejection is an arrival (R6), and whether the writer's own failure and a rejection log that is not a document
-are fed back (R9). A route built in code is declared there as well. The other routes stay `null`
+`rule-ends.json` holds the autopilot rules that lived only in code. The deleted `run-trial.sh` read two of
+them: the rework limit (`rework_limit`, which was the literal 2 and the default of the one effective rework cap, D184, overridden by `SDC_MAX_REJECTIONS`; `runbook run` has no rework cap) and the ends for a refusal (`approvals.*.reject`, which was
+the `refusal_end` array). The check reads all of them. The `runtime` block states facts of a run of `runbook run`: which
+effects are capped (`capped_effects`), whether the cap holds per kind (`cap_per_kind`, R7),
+whether a rejection is an arrival (`rejection_is_arrival`, R6), and whether the writer's own
+failure (`own_failure_fed_back`) and a rejection log (`rejection_logs_fed_back`, R9) are fed back.
+Its `provided_by` object says who holds each member: `loom: <what>, <file:line>`,
+`runner: <what>` or `absent: <what>`. Loom's default of 8 runs per action with no
+`budget.max_runs` is Loom's (`crates/loom-bindings/src/lib.rs:84` at `70b0e6e0`) and no member of
+the file. A route built in code is declared there as well. The other routes stay `null`
 until they are built: R2 (`approvals."sdc.intake/scope.answer"`), R3 (`findings.refused_by_check`),
 R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operating"`, which
 `fix/attempt5-close` sets).
+
+The check refuses a `runtime` block it cannot read as a whole: it exits 2, prints nothing on
+standard output and names every reason on standard error, one line each. It refuses:
+
+- no block `runtime` (the old key `driver` is named as renamed) or no `provided_by` in it;
+- a member it does not know, a member with no `provided_by` entry, an entry for no member;
+- a member of the wrong type: `capped_effects` is a list of `read`, `write`, `external`; every
+  other member is `true` or `false`;
+- a `provided_by` value with no known prefix, with nothing after the prefix, or a `loom:` value
+  with no `file:line` (a relative path ending in `rs`, `toml`, `md`, `yaml`, `yml`, `json` or
+  `sh`, a colon and a line or range of lines: `crates/x/src/y.rs:740`, `retry.rs:4-8`; a web
+  address or a host name with a port is none). This checks the form only: it does not open the
+  file at the pinned commit;
+- a member that contradicts its entry: `true` (a non-empty `capped_effects`) next to `absent:`, or
+  `false` (an empty list) next to `loom:` or `runner:`. No member can rightly be `false` next to
+  `loom:` or `runner:`: `false` says the run has not got it, and then the entry says `absent:` and
+  names why.
+
+`scripts/check-bindings.sh` tells the two ends apart: exit 1 for findings (it goes on and
+reports), exit 2 of the check is a refused file (it prints `REFUSED routes`, stops and exits 3).
 
 | Finding | When |
 |---|---|
@@ -153,7 +185,7 @@ R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operati
 | `not-handed` | a `retry_when` result whose producer's log does not reach the writer |
 | `own-failure` | an LLM writer whose failed run is not fed back |
 | `shared-cap` | different retry kinds, or reworks, that share one `max_runs` |
-| `inert-cap` | a `max_runs` on a node the driver does not cap (`change.review` on `impl/review-node`) |
+| `inert-cap` | a `max_runs` on a node the runtime does not cap (`change.review` on `impl/review-node`) |
 | `unrecorded-exit` | an LLM observation with an exit its `results` do not map: no record, so the case is stuck (`change.review` exit 2 on `impl/review-node`) |
 | `rework-limit` | an approval with no end after its last rework |
 | `no-reject-route` | a decision class whose reject has no route |
@@ -164,16 +196,39 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 
 ## Check output
 
-This block is the check's output on this branch. `fix/attempt5-close` removes the first line.
+This block is the findings the check prints (`sdc-check-routes --root .`, exit 1): 36 (13 `own-failure`,
+8 `shared-cap`, 6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
+and `unrecorded-exit`). With `--doc docs/reject-routes.md` it prints `routes: 36 findings, all listed`.
 
 ```text
+shared-cap sdc.bugfix change.fix: 2 retry kinds share max_runs 3
+own-failure sdc.bugfix bug.dissect: a failed run's log does not reach its next run
+own-failure sdc.bugfix change.fix: a failed run's log does not reach its next run
+own-failure sdc.bugfix test.reproduce: a failed run's log does not reach its next run
+not-handed sdc.direction amend.upstream: retry_when context_defaults=finding, but the log of context.check does not reach it
+shared-cap sdc.direction context.default: reworks after a rejected context_approval count against max_runs 3
+shared-cap sdc.direction roadmap.write: reworks after a rejected roadmap_approval count against max_runs 3
+shared-cap sdc.direction vision.write: reworks after a rejected vision_approval count against max_runs 3
+own-failure sdc.direction context.default: a failed run's log does not reach its next run
+own-failure sdc.direction roadmap.write: a failed run's log does not reach its next run
+own-failure sdc.direction vision.write: a failed run's log does not reach its next run
 negative-result sdc.epic spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+own-failure sdc.intake idea.dissect: a failed run's log does not reach its next run
+own-failure sdc.intake questions.answer: a failed run's log does not reach its next run
+own-failure sdc.intake questions.write: a failed run's log does not reach its next run
+own-failure sdc.intake requirements.normalise: a failed run's log does not reach its next run
 negative-result sdc.plan spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.plan plan.decompose: 4 retry kinds share max_runs 3
+own-failure sdc.plan plan.decompose: a failed run's log does not reach its next run
 negative-result sdc.release acceptance.run release_conformance=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release release.observe health_observation=unhealthy: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.spec spec.author: 6 retry kinds share max_runs 4
+own-failure sdc.spec spec.author: a failed run's log does not reach its next run
 negative-result sdc.story spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
-inert-cap sdc.story change.review: max_runs 3 on a node with effect read, which the driver does not cap
+shared-cap sdc.story change.implement: 3 retry kinds share max_runs 3
+shared-cap sdc.story change.implement: reworks after a rejected merge_approval count against max_runs 3
+own-failure sdc.story change.implement: a failed run's log does not reach its next run
 unrecorded-exit sdc.story change.review: an exit its results do not map records nothing, and the case ends stuck
 no-reject-route sdc/close:operating (close): the decider is asked and its reject has no route
 rework-limit sdc.direction/context.approve (context): rejection 3 ends in the stop rework_spent, no end by rule

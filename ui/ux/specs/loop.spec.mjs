@@ -18,9 +18,9 @@ test.afterAll(() => env?.stop());
 const SAMPLES = 5;
 const shot = async (page, info, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await page.screenshot({path: path.join(SHOTS, `${info.project.name}-${name}.png`)}); } };
 
-// Hard gate 5, keyboard: the person's decision taken with the keyboard alone.
-test('keyboard alone: from the page to the decision', async ({page}, info) => {
-  const s = scenarios.find((x) => x.write);
+// Hard gate 5, keyboard: the page to the line that says where the person's decision is answered, with the keyboard alone.
+test('keyboard alone: from the page to the line that says where the decision is answered', async ({page}, info) => {
+  const s = scenarios.find((x) => x.decide);
   await env.prepare(page);
   await page.goto(`${env.base}/?source=${env.source(s)}`);
   await expect(page.locator(cue.card)).toBeVisible({timeout: 20000});
@@ -31,11 +31,9 @@ test('keyboard alone: from the page to the decision', async ({page}, info) => {
   expect.soft(await focusText(), 'Tab reaches the cue control').toBe('Decide');
   await page.keyboard.press('Enter');
   await expect.soft(page.locator('body.drawer-open')).toBeVisible();
-  // on to the approval with the keyboard alone: Tab to the Approve control, Enter takes the decision
-  let more = 0;
-  while (more < 60 && !/^Approve t/.test(await focusText())) { await page.keyboard.press('Tab'); more++; }
-  record(OUT, info.project.name, s.name, 'keyboard.tabs_to_decide', more);
-  expect.soft(await focusText(), 'Tab reaches the Approve control').toMatch(/^Approve t/);
+  // the drawer says where the decision is answered (the inspector acts on nothing): the line is on screen
+  await expect.soft(page.locator("#drawer #decide-at")).toBeVisible();
+  await expect.soft(page.locator("#drawer #decide-at")).toContainText("runbook decide");
 });
 
 // The run picker (decision D-009), with the keyboard alone: Tab to its button, Enter opens it with the
@@ -43,7 +41,7 @@ test('keyboard alone: from the page to the decision', async ({page}, info) => {
 // view, axe finds nothing serious (hard gate 5), and the first rows out of view are counted.
 test('run picker: keyboard alone, from the page to another run', async ({page}, info) => {
   const vp = info.project.name;
-  const from = scenarios.find((x) => x.name === 'closed'), to = scenarios.find((x) => x.write);
+  const from = scenarios.find((x) => x.name === 'closed'), to = scenarios.find((x) => x.decide);
   const m = (k, v) => record(OUT, vp, from.name, k, v);
   await env.prepare(page);
   await page.goto(`${env.base}/?source=${env.source(from)}`);
@@ -223,22 +221,16 @@ for (const s of scenarios) {
       u.fixes.push(u.actions - a0);
       await use('button', /^Specification/);
     }
-    if (s.write) {
-      // the cue says what waits; its control opens the decision; one more action takes it
+    if (s.decide) {
+      // the cue says what waits; its control opens the drawer; the drawer says where the decision is answered
       expect.soft(await read(primary, s.truth.waiting.action), 'the cue names what waits').toBe(true);
       const a0 = u.actions;
       expect.soft(await use(cue.control.role, cue.control.name), 'the cue has a control').toBe(true);
       await page.waitForTimeout(300);
-      const ok = await use('button', /^Approve t/);
-      expect.soft(ok, 'the approve control is in view').toBe(true);
-      // the act is taken and its result is on screen; a refusal by the driver is shown with its reason
-      // (the person fixture keeps its final work/ revisions, so Canon may refuse: review-report T16)
-      if (ok) {
-        await expect.soft(page.locator('#toast.show')).toBeVisible({timeout: 60000});
-        m('screen_only.decision_refused', (await page.locator('#toast.show.bad').count()) ? 1 : 0);
-      }
-      u.fixes.push(ok ? u.actions - a0 : 3);
-      if (ok) await shot(page, info, `${s.name}-decided`);
+      const there = await page.locator('#drawer #decide-at').isVisible();
+      expect.soft(there, 'the drawer says where the decision is answered').toBe(true);
+      u.fixes.push(there ? u.actions - a0 : 3);
+      if (there) await shot(page, info, `${s.name}-decide-line`);
     }
     m('screen_only.actions', u.actions);
     m('screen_only.looks', u.looks.reduce((a, b) => a + b, 0));

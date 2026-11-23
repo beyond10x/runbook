@@ -7,7 +7,7 @@
 //   bravo    cmp-effort low #2, closed delivered with a forced decision (not a clean pass)
 //   charlie  cmp-effort high #1, stopped
 //   delta    cmp-effort high #2 by its experiment.json, closed not delivered
-//   echo     cmp-effort low #3, running (a live driver)
+//   echo     cmp-effort low #3, written last
 //   foxtrot  solo-x base #1 by its experiment.json, no record
 //   golf     no experiment: Unassigned
 //   hotel    a stub run
@@ -37,7 +37,7 @@ const RUNS = {
   bravo: {files: {'status.json': closed({outcome: 'operating', delivered: true, forced: 1})}, ago: 15},
   charlie: {files: {'run-stopped.json': JSON.stringify({format: 'sdc.run-stopped/1', at: iso(T0 + 9 * 60000), by: 'rule:autopilot', reason: 'spent', cause: 'writer_spent'})}, ago: 4},
   delta: {files: {'status.json': closed({outcome: 'not_delivered', delivered: false}), 'experiment.json': expRun('cmp-effort', 'high', 2)}, ago: 2},
-  echo: {files: {}, ago: 0, driver: true},
+  echo: {files: {}, ago: 0},
   foxtrot: {files: {'status.json': closed({outcome: 'operating', delivered: true}), 'experiment.json': expRun('solo-x', 'base', 1)}, ago: 30},
   golf: {files: {}, ago: 1},
   hotel: {files: {}, ago: 3, stub: true},
@@ -102,8 +102,6 @@ test.beforeAll(async ({}, info) => {
     for (const f of ['run-settings.jsonl', 'llm-calls.jsonl', 'decisions.jsonl', 'status.json', 'run-stopped.json']) fs.rmSync(path.join(dir, f), {force: true});
     fs.writeFileSync(path.join(dir, 'run-settings.jsonl'), r.stub ? settings.replace('metaharness', '/x/llm-adapter-fixture.sh') : settings);
     for (const [f, text] of Object.entries(r.files)) fs.writeFileSync(path.join(dir, f), text);
-    const root = fs.readdirSync(path.join(dir, 'store')).map((n) => path.join(dir, 'store', n)).find((q) => fs.existsSync(path.join(q, 'case.json')));
-    if (r.driver) fs.writeFileSync(path.join(root, 'driver.json'), JSON.stringify({format: 'sdc.driver/1', pid: process.pid, started_at: iso(T0)}));
     const t = new Date(Date.now() - r.ago * 60000);
     for (const q of [dir, path.join(dir, 'store'), path.join(dir, 'run.log'), path.join(dir, 'run-settings.jsonl'), ...Object.keys(r.files).map((f) => path.join(dir, f))]) if (fs.existsSync(q)) fs.utimesSync(q, t, t);
   }
@@ -124,12 +122,11 @@ test('/api/sources: each run names its experiments, from experiment.json or from
   expect(sources.find((s) => s.name === 'foxtrot').experiments[0]).toMatchObject({title: null, vi: null});
 });
 
-test('Recent groups by experiment, rows by variant then ordinal; the most recent experiment open, the others closed; Unassigned last; Running now on top', async ({page}) => {
+test('Recent groups by experiment, rows by variant then ordinal; the most recent experiment open, the others closed; Unassigned last', async ({page}) => {
   await page.goto(`${base}/?run=golf`);
   await open(page);
   expect(await listed(page)).toEqual([
-    ['Running now', ['echo cmp-effort · low #3']],
-    ['Experiment cmp-effort', ['alpha low #1', 'bravo low #2', 'charlie high #1', 'delta high #2']],
+    ['Experiment cmp-effort', ['alpha low #1', 'bravo low #2', 'echo low #3', 'charlie high #1', 'delta high #2']],
     ['Experiment other-rec', []],
     ['Experiment solo-x', []],
     ['Unassigned', ['golf']],
@@ -184,11 +181,8 @@ test('the keyboard: arrows reach an experiment head, Enter opens its group, Ente
   await expect(page.locator('#pk-q')).toBeFocused();
   const ad = () => page.locator('#pk-q').getAttribute('aria-activedescendant');
   await page.keyboard.press('Control+Home');
-  await expect.poll(ad).toBe(`pk-o-${src('echo')}`);
-  await page.keyboard.press('ArrowDown');
   await expect.poll(ad).toBe('pk-e-0');
-  // echo, the cmp-effort head, its four rows, then the other-rec head
-  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
   await expect.poll(ad).toBe('pk-e-1');
   await page.keyboard.press('Enter');
   await expect(page.locator('#pk-e-1')).toHaveClass(/\bopen\b/);

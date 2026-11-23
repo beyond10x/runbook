@@ -4,9 +4,9 @@
 //! sdc-finding-kpis <run dir> [--json]
 //! ```
 //!
-//! `<run dir>` is what run-trial.sh or run-full-cycle.sh writes: store/<root>/ (the case tree;
+//! `<run dir>` is what the removed driver wrote: store/<root>/ (the case tree;
 //! every case's events.jsonl and case.json; `<root>` is `IDEA-1` unless the store holds one other
-//! case), optionally rounds.jsonl (run-trial.sh: one line per round with started, ended, seconds,
+//! case), optionally rounds.jsonl (the removed driver: one line per round with started, ended, seconds,
 //! verdict), run-settings.jsonl (one line per leg), run-stopped.json (the stop record),
 //! decision.json (present once the root is closed) and decisions.jsonl (a decider's decisions).
 //! Or it is what `runbook loom-run` writes: the same case store layout (no case.json), the product

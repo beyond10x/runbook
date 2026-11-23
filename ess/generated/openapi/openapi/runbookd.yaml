@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
+# contract digest slice-sha256/2:d2e8015d10187e0d7f9a724776420818ed977a46e2441c6dc9f350279068792d
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
+    contract_digest: slice-sha256/2:d2e8015d10187e0d7f9a724776420818ed977a46e2441c6dc9f350279068792d
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -374,7 +374,7 @@ paths:
                 - actor
                 type: object
         '409':
-          description: 'Outcomes `no-daemon`, `below-floor`, `no-session` and `session-closed`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          description: 'Outcomes `no-daemon`, `no-session`, `below-floor` and `session-closed`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
           content:
             application/json:
               schema:
@@ -387,8 +387,8 @@ paths:
                   propertyName: outcome
                 oneOf:
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.no-daemon.Response'
-                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.below-floor.Response'
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.no-session.Response'
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.below-floor.Response'
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.session-closed.Response'
         '422':
           description: 'Outcomes `intake-too-large`, `no-runbook` and `context-outside-roots`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'

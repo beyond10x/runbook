@@ -3,11 +3,444 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "362047b7a9e737c94e4f369da6b9e9ff2c81d2a5a7aa4c2bd7a1d741356abeba",
-    "contract_digest": "e33827723b8e2c1e489cf239fa886bc6a12c12113a34ce35d495dbc3c706bf28",
+    "spec_digest": "00975180e641d9b395e39a37ab53bd3c9417f7648847137ddb3d2966963efff7",
+    "contract_digest": "a6b1e63bb21da1a574cdcde9dac753683f1103383e4671110f9bb4065bafb6eb",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
+    "sdc.daemon/authored/daemon-a-missing-session-is-refused-before-the-floor": {
+      "purpose": "A run below the floor into a missing session is refused as NoSuchSession, into an existing one as BelowConfinementFloor.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:00:30Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "ci"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-a"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "monthly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "no-session"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:02:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-b"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.CloseSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:03:00Z"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.CloseSession",
+            "outcome": "closed"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:04:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-c"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "weekly"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.Sessions"
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.Sessions",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "client": {
+                "kind": "literal",
+                "value": "ci"
+              },
+              "session_id": {
+                "kind": "literal",
+                "value": "weekly"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Closed"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.DaemonConfiguration"
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.DaemonConfiguration",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "confinement_floor": {
+                "kind": "literal",
+                "value": "linux"
+              },
+              "daemon_id": {
+                "kind": "literal",
+                "value": "runbookd"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ClientLabel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Session.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.CloseSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.OpenSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.CloseSession",
+            "outcome": "closed"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "no-session"
+          }
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.DaemonConfiguration"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.Sessions"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
+        }
+      ]
+    },
     "sdc.daemon/authored/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned": {
       "purpose": "A Running and a WaitingOnDecision run whose runtime is gone end as orphaned; the end withdraws the waiting run's Open request itself.",
       "steps": [
@@ -7978,6 +8411,3357 @@
         {
           "kind": "actor",
           "name": "sdc.daemon.Runtime"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-duplicate-option-letters-are-refused": {
+      "purpose": "Request refuses two options with one letter and opens nothing; the same options with distinct letters open the request.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A1"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-4.billing.dunning"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "roadmap.approve"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the approval.",
+                  "does": "Grant owner.approve at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "roadmap.approve"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The roadmap is revised first.",
+                  "does": "Deny owner.approve.",
+                  "letter": "A"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Approve the roadmap at revision t3r1?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-4.billing.dunning|roadmap.approve|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-4.billing.dunning-roadmap.approve-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "aep/initiative/roadmap.md"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t3r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "roadmap.approve",
+                "capability": "owner.approve",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "duplicate-letters"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A1"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-4.billing.dunning"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T11:01:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "roadmap.approve"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the approval.",
+                  "does": "Grant owner.approve at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "roadmap.approve"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The roadmap is revised first.",
+                  "does": "Deny owner.approve.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Approve the roadmap at revision t3r1?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-4.billing.dunning|roadmap.approve|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-4.billing.dunning-roadmap.approve-2"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "aep/initiative/roadmap.md"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t3r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "roadmap.approve",
+                "capability": "owner.approve",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-4.billing.dunning",
+            "request_id": "DR-IDEA-4.billing.dunning-roadmap.approve-2",
+            "subject_artifact": "roadmap",
+            "subject_revision": "t3r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-4.billing.dunning-roadmap.approve-2"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Open"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "excludes",
+            "fields": {
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-4.billing.dunning-roadmap.approve-1"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "duplicate-letters"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.ArtifactDecisionHistory"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-empty-record-id-is-refused": {
+      "purpose": "RecordProduced refuses an empty record id, also on a request that stores no record; only a stored record answers already-recorded.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A1"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-5.billing.refunds"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T13:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "roadmap.approve"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the approval.",
+                  "does": "Grant owner.approve at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "roadmap.approve"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The roadmap is revised first.",
+                  "does": "Deny owner.approve.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Approve the roadmap at revision t4r1?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-5.billing.refunds|roadmap.approve|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "aep/initiative/roadmap.md"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t4r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "roadmap.approve",
+                "capability": "owner.approve",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-5.billing.refunds",
+            "request_id": "DR-IDEA-5.billing.refunds-roadmap.approve-1",
+            "subject_artifact": "roadmap",
+            "subject_revision": "t4r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": ""
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": "owner.approve@c1"
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Person",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T13:03:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "A"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "Approved."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionTaken",
+          "payload": {
+            "option": "A",
+            "principal": "operator",
+            "request_id": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+          },
+          "shape": {
+            "answer": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "option": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "principal": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": ""
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": "owner.approve@c1"
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "recorded"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.ProducedRecordRecorded",
+          "payload": {
+            "produced": {
+              "case_revision": "c1",
+              "document": "canon_authority",
+              "record": "owner.approve@c1"
+            },
+            "request_id": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+          },
+          "shape": {
+            "produced.aep_record": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "produced.case_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "produced.document": {
+              "holds": "enum",
+              "variants": [
+                "canon_authority",
+                "canon_decisions",
+                "canon_evidence",
+                "artifact_revision"
+              ]
+            },
+            "produced.record": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": ""
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": "owner.approve@c1"
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "already-recorded"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "decided_option": {
+                "kind": "literal",
+                "value": "A"
+              },
+              "produced_record": {
+                "kind": "literal",
+                "value": {
+                  "case_revision": "c1",
+                  "document": "canon_authority",
+                  "record": "owner.approve@c1"
+                }
+              },
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Decided"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PrincipalKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Decide"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.RecordProduced"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "already-recorded"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "recorded"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.ProducedRecordRecorded"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.ArtifactDecisionHistory"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Person"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-empty-record-id-on-an-unknown-request": {
+      "purpose": "RecordProduced checks the record id before it looks for the request: an empty id answers empty-record-id also when no request has the id, and only a non-empty id answers no-request.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": ""
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-8.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.RecordProduced",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "produced": {
+              "kind": "literal",
+              "value": {
+                "case_revision": "c1",
+                "document": "canon_authority",
+                "record": "owner.approve@c1"
+              }
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-8.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "no-request"
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.RecordProduced"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "empty-record-id"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.RecordProduced",
+            "outcome": "no-request"
+          }
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-escalate-to-an-ineligible-principal-is-refused": {
+      "purpose": "Escalate moves a request only to a principal in its eligible list; naming anyone else is refused and the request stays where it was.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "decider:haiku"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A3"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-3.billing.limits"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "merge"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator",
+                "decider:haiku"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "decider"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "change.merge"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the merge.",
+                  "does": "Grant change.merge at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "change.merge"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The run ends as refused.",
+                  "does": "Deny change.merge.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Merge the change at revision t2r1 into mainline?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-3.billing.limits|change.merge|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-3.billing.limits-change.merge-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "change"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "impl/"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t2r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "change.merge",
+                "capability": "change.merge",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-3.billing.limits",
+            "request_id": "DR-IDEA-3.billing.limits-change.merge-1",
+            "subject_artifact": "change",
+            "subject_revision": "t2r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Escalate",
+          "actor": "sdc.decision.Decider",
+          "input": {
+            "escalate_to": {
+              "kind": "literal",
+              "value": "stranger"
+            },
+            "reason": {
+              "kind": "literal",
+              "value": "The diff touches the limits table."
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-3.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Escalate",
+            "outcome": "target-not-eligible"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Escalate",
+          "actor": "sdc.decision.Decider",
+          "input": {
+            "escalate_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "reason": {
+              "kind": "literal",
+              "value": "The diff touches the limits table."
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-3.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Escalate",
+            "outcome": "escalated"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionEscalated",
+          "payload": {
+            "escalate_to": "operator",
+            "request_id": "DR-IDEA-3.billing.limits-change.merge-1"
+          },
+          "shape": {
+            "escalate_to": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Escalate",
+          "actor": "sdc.decision.Person",
+          "input": {
+            "escalate_to": {
+              "kind": "literal",
+              "value": "stranger"
+            },
+            "reason": {
+              "kind": "literal",
+              "value": "Passing it on."
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-3.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Escalate",
+            "outcome": "target-not-eligible"
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.OpenDecisionsForPrincipal",
+          "params": {
+            "principal": {
+              "kind": "literal",
+              "value": "operator"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.OpenDecisionsForPrincipal",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-3.billing.limits-change.merge-1"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.OpenDecisionsForPrincipal",
+          "params": {
+            "principal": {
+              "kind": "literal",
+              "value": "stranger"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.OpenDecisionsForPrincipal",
+          "expectation": {
+            "expect": "excludes",
+            "fields": {
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-3.billing.limits-change.merge-1"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Escalate"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Escalate",
+            "outcome": "escalated"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Escalate",
+            "outcome": "target-not-eligible"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionEscalated"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.OpenDecisionsForPrincipal"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Decider"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Person"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-option-not-offered": {
+      "purpose": "A letter the request does not offer is refused by Decide and by a verified Recommend, and never reaches the stored decision or recommendation; silence therefore never decides a letter nobody offered.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A1"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-2.billing.refunds"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator"
+              ]
+            },
+            "expires_at": {
+              "kind": "literal",
+              "value": "2026-11-22T12:00:00Z"
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T09:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "roadmap.approve"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the approval.",
+                  "does": "Grant owner.approve at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "roadmap.approve"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The roadmap is revised first.",
+                  "does": "Deny owner.approve.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Approve the roadmap at revision t1r1?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-2.billing.refunds|roadmap.approve|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "aep/initiative/roadmap.md"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t1r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "roadmap.approve",
+                "capability": "owner.approve",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-2.billing.refunds",
+            "request_id": "DR-IDEA-2.billing.refunds-roadmap.approve-1",
+            "subject_artifact": "roadmap",
+            "subject_revision": "t1r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Recommend",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "check_report": {
+              "kind": "literal",
+              "value": "1 ground, 1 resolves"
+            },
+            "check_verdict": {
+              "kind": "literal",
+              "value": "verified"
+            },
+            "default_on_silence": {
+              "kind": "literal",
+              "value": true
+            },
+            "grounds": {
+              "kind": "literal",
+              "value": [
+                {
+                  "citation": {
+                    "form": "record_id",
+                    "value": {
+                      "record_id": "e0140-roadmap.review",
+                      "store": "canon_evidence"
+                    }
+                  },
+                  "how": "The policy names an option that the request does not offer.",
+                  "source": "policy",
+                  "supports": "Z"
+                }
+              ]
+            },
+            "proposed_by": {
+              "kind": "literal",
+              "value": "llm"
+            },
+            "recommended_option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            },
+            "strength": {
+              "kind": "literal",
+              "value": "strong"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Recommend",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "check_report": {
+              "kind": "literal",
+              "value": "option Z is not an option of the request"
+            },
+            "check_verdict": {
+              "kind": "literal",
+              "value": "refused"
+            },
+            "default_on_silence": {
+              "kind": "literal",
+              "value": true
+            },
+            "grounds": {
+              "kind": "literal",
+              "value": []
+            },
+            "proposed_by": {
+              "kind": "literal",
+              "value": "llm"
+            },
+            "recommended_option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            },
+            "strength": {
+              "kind": "literal",
+              "value": "strong"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "withheld"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.RecommendationWithheld",
+          "payload": {
+            "reason": "option Z is not an option of the request",
+            "request_id": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          },
+          "shape": {
+            "reason": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Recommend",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "check_report": {
+              "kind": "literal",
+              "value": "1 ground, 1 resolves"
+            },
+            "check_verdict": {
+              "kind": "literal",
+              "value": "verified"
+            },
+            "default_on_silence": {
+              "kind": "literal",
+              "value": true
+            },
+            "grounds": {
+              "kind": "literal",
+              "value": [
+                {
+                  "citation": {
+                    "form": "record_id",
+                    "value": {
+                      "record_id": "e0140-roadmap.review",
+                      "store": "canon_evidence"
+                    }
+                  },
+                  "how": "The roadmap review passed.",
+                  "source": "policy",
+                  "supports": "A"
+                }
+              ]
+            },
+            "proposed_by": {
+              "kind": "literal",
+              "value": "rule"
+            },
+            "recommended_option": {
+              "kind": "literal",
+              "value": "A"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            },
+            "strength": {
+              "kind": "literal",
+              "value": "strong"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "recommended"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.RecommendationRecorded",
+          "payload": {
+            "recommended_option": "A",
+            "request_id": "DR-IDEA-2.billing.refunds-roadmap.approve-1",
+            "strength": "strong"
+          },
+          "shape": {
+            "recommended_answer": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "recommended_option": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "strength": {
+              "holds": "enum",
+              "variants": [
+                "none",
+                "weak",
+                "moderate",
+                "strong"
+              ]
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Person",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T09:04:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "Typed a letter that is not on the list."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.TakeRecommendation",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T12:00:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "silence"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "silence"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "No answer before expires_at."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.TakeRecommendation",
+            "outcome": "taken"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.RecommendationTaken",
+          "payload": {
+            "principal": "silence",
+            "request_id": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          },
+          "shape": {
+            "principal": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "decided_by": {
+                "kind": "literal",
+                "value": "silence"
+              },
+              "decided_option": {
+                "kind": "literal",
+                "value": "A"
+              },
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Decided"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CheckVerdict"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PrincipalKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProposerKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Decide"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Recommend"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.TakeRecommendation"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Decide",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "recommended"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "withheld"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.TakeRecommendation",
+            "outcome": "taken"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationWithheld"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.ArtifactDecisionHistory"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Person"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-option-not-offered-by-a-decider-or-a-rule": {
+      "purpose": "Decide refuses a letter the request does not offer whoever decides: a decider and a rule are refused as a person is, and the request stays open for a person.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "decider:haiku"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A3"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-6.billing.limits"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "merge"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator",
+                "decider:haiku",
+                "rule:autopilot"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "decider"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T14:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "change.merge"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the merge.",
+                  "does": "Grant change.merge at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "change.merge"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The run ends as refused.",
+                  "does": "Deny change.merge.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Merge the change at revision t5r1 into mainline?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-6.billing.limits|change.merge|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-6.billing.limits-change.merge-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "change"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "impl/"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t5r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "change.merge",
+                "capability": "change.merge",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-6.billing.limits",
+            "request_id": "DR-IDEA-6.billing.limits-change.merge-1",
+            "subject_artifact": "change",
+            "subject_revision": "t5r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Decider",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T14:01:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "decider:haiku"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "decider"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "Answered with a letter that is not on the list."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-6.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Decider",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T14:02:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "rule:autopilot"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "rule"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "The rule named a letter that is not on the list."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-6.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Decider",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T14:03:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "A"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "decider:haiku"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "decider"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "The change is within the limits."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-6.billing.limits-change.merge-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionTaken",
+          "payload": {
+            "option": "A",
+            "principal": "decider:haiku",
+            "request_id": "DR-IDEA-6.billing.limits-change.merge-1"
+          },
+          "shape": {
+            "answer": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "option": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "principal": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "change"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "decided_by": {
+                "kind": "literal",
+                "value": "decider:haiku"
+              },
+              "decided_option": {
+                "kind": "literal",
+                "value": "A"
+              },
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-6.billing.limits-change.merge-1"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Decided"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PrincipalKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Decide"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Decide",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionTaken"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.ArtifactDecisionHistory"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Decider"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        }
+      ]
+    },
+    "sdc.decision/authored/decision-option-not-offered-in-a-weak-recommendation": {
+      "purpose": "Recommend refuses a letter the request does not offer whatever the strength: a weak and a moderate recommendation are refused as a strong one is, and nothing is recorded.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Request",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "addressed_to": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "autonomy_level": {
+              "kind": "literal",
+              "value": "A1"
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-7.billing.refunds"
+            },
+            "decision_class": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "eligible": {
+              "kind": "literal",
+              "value": [
+                "operator"
+              ]
+            },
+            "holder": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "opened_at": {
+              "kind": "literal",
+              "value": "2026-11-22T15:00:00Z"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "roadmap.approve"
+                    ],
+                    "blocks": [],
+                    "grant": "granted",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "None beyond the approval.",
+                  "does": "Grant owner.approve at this case revision.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "blocks": [
+                      "roadmap.approve"
+                    ],
+                    "grant": "denied",
+                    "produces": "canon_authority"
+                  },
+                  "cost": "The roadmap is revised first.",
+                  "does": "Deny owner.approve.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Approve the roadmap at revision t6r1?"
+            },
+            "question_key": {
+              "kind": "literal",
+              "value": "IDEA-7.billing.refunds|roadmap.approve|"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+            },
+            "subject_artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            },
+            "subject_path": {
+              "kind": "literal",
+              "value": "aep/initiative/roadmap.md"
+            },
+            "subject_revision": {
+              "kind": "literal",
+              "value": "t6r1"
+            },
+            "unblocks": {
+              "kind": "literal",
+              "value": {
+                "action": "roadmap.approve",
+                "capability": "owner.approve",
+                "kind": "approval"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionRequested",
+          "payload": {
+            "case_id": "IDEA-7.billing.refunds",
+            "request_id": "DR-IDEA-7.billing.refunds-roadmap.approve-1",
+            "subject_artifact": "roadmap",
+            "subject_revision": "t6r1"
+          },
+          "shape": {
+            "case_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_artifact": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "subject_revision": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Recommend",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "check_report": {
+              "kind": "literal",
+              "value": "1 ground, 1 resolves"
+            },
+            "check_verdict": {
+              "kind": "literal",
+              "value": "verified"
+            },
+            "default_on_silence": {
+              "kind": "literal",
+              "value": false
+            },
+            "grounds": {
+              "kind": "literal",
+              "value": [
+                {
+                  "citation": {
+                    "form": "record_id",
+                    "value": {
+                      "record_id": "e0150-roadmap.review",
+                      "store": "canon_evidence"
+                    }
+                  },
+                  "how": "The policy names an option that the request does not offer.",
+                  "source": "policy",
+                  "supports": "Z"
+                }
+              ]
+            },
+            "proposed_by": {
+              "kind": "literal",
+              "value": "llm"
+            },
+            "recommended_option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+            },
+            "strength": {
+              "kind": "literal",
+              "value": "weak"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Recommend",
+          "actor": "sdc.decision.Driver",
+          "input": {
+            "check_report": {
+              "kind": "literal",
+              "value": "1 ground, 1 resolves"
+            },
+            "check_verdict": {
+              "kind": "literal",
+              "value": "verified"
+            },
+            "default_on_silence": {
+              "kind": "literal",
+              "value": false
+            },
+            "grounds": {
+              "kind": "literal",
+              "value": [
+                {
+                  "citation": {
+                    "form": "record_id",
+                    "value": {
+                      "record_id": "e0150-roadmap.review",
+                      "store": "canon_evidence"
+                    }
+                  },
+                  "how": "The policy names an option that the request does not offer.",
+                  "source": "policy",
+                  "supports": "Z"
+                }
+              ]
+            },
+            "proposed_by": {
+              "kind": "literal",
+              "value": "llm"
+            },
+            "recommended_option": {
+              "kind": "literal",
+              "value": "Z"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+            },
+            "strength": {
+              "kind": "literal",
+              "value": "moderate"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.TakeRecommendation",
+          "actor": "sdc.decision.Person",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T15:03:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "Nothing was recommended."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.TakeRecommendation",
+            "outcome": "not-strong"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.decision.Decide",
+          "actor": "sdc.decision.Person",
+          "input": {
+            "decided_at": {
+              "kind": "literal",
+              "value": "2026-11-22T15:04:00Z"
+            },
+            "option": {
+              "kind": "literal",
+              "value": "A"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "principal_kind": {
+              "kind": "literal",
+              "value": "person"
+            },
+            "reasons": {
+              "kind": "literal",
+              "value": [
+                "Approved."
+              ]
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.decision.DecisionTaken",
+          "payload": {
+            "option": "A",
+            "principal": "operator",
+            "request_id": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+          },
+          "shape": {
+            "answer": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "option": {
+              "holds": "primitive",
+              "kind": "string",
+              "optional": true
+            },
+            "principal": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "request_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "params": {
+            "artifact": {
+              "kind": "literal",
+              "value": "roadmap"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.decision.ArtifactDecisionHistory",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "decided_by": {
+                "kind": "literal",
+                "value": "operator"
+              },
+              "decided_option": {
+                "kind": "literal",
+                "value": "A"
+              },
+              "request_id": {
+                "kind": "literal",
+                "value": "DR-IDEA-7.billing.refunds-roadmap.approve-1"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Decided"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.decision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CapabilityId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CheckVerdict"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionClass"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Holder"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OutcomeId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PrincipalKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedRecord"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProposerKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.UnblockKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Unblocks"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Decide"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Recommend"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.Request"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.decision.TakeRecommendation"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Decide",
+            "outcome": "decided"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Recommend",
+            "outcome": "option-not-offered"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.Request",
+            "outcome": "requested"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.decision.TakeRecommendation",
+            "outcome": "not-strong"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionTaken"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.decision.ArtifactDecisionHistory"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Driver"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.decision.Person"
         }
       ]
     },
