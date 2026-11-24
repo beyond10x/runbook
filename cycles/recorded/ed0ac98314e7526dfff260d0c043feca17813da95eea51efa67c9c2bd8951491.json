@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "cargo",
+    "clippy",
+    "--offline",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "    Checking pager v0.1.0 ({dir})\n    Finished `dev` profile [unoptimized] target(s) in 0.00s\n",
+  "stdout": ""
+}

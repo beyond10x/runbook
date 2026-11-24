@@ -73,14 +73,26 @@ tasks:
       - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
 
   test:cycles-loom:
-    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call. Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
+    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call and no build: the `slot` first on the PATH of the bound programs is sdc-recorded-pool, which answers their build and test commands from cycles/recorded/ (a command with no recording is a program error; `task test:cycles-record` records it). Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
     env:
       SLOT_TIMEOUT: 30m
     cmds:
       - cd driver && cargo build --locked --bins
       - cd goals && cargo build --locked
       - cd runbook && cargo build --locked --bin runbook
-      - PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+      - mkdir -p driver/target/cycles-pool && ln -sfn ../debug/sdc-recorded-pool driver/target/cycles-pool/slot && rm -f driver/target/cycles-pool/record
+      - PATH="$PWD/driver/target/cycles-pool:$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+
+  test:cycles-record:
+    desc: "Slow lane that writes cycles/recorded/: test:cycles-loom with sdc-recorded-pool in record mode, so a build or test command of a bound program that has no recording runs through the next `slot` on PATH in a copy of its tree under target/cycles-recording/ and its output is written as the recording. Run it after a change to a tree a cycle builds (a fixture, a seed, a stub writer) and commit the new files; a cycle that records several commands can end on Loom's 60 s bound, then run it again. ONLY=<name>[,<name>...] as there. Start it in the background, not under `slot` (docs/cycles-suite.md)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
+      - cd runbook && cargo build --locked --bin runbook
+      - mkdir -p driver/target/cycles-record && ln -sfn ../debug/sdc-recorded-pool driver/target/cycles-record/slot && touch driver/target/cycles-record/record
+      - PATH="$PWD/driver/target/cycles-record:$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
   test:loom-in-process:
     desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/70b0e6e0/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."

@@ -283,6 +283,12 @@ case $POOL_FAKE in
     : > "$d/started.$n"
     echo "slot: job $n ended at its run limit" >&2
     exit 124 ;;
+  missing)
+    echo "slot: line 68: /.local/bin/slot: No such file or directory" >&2
+    exit 127 ;;
+  unrunnable)
+    echo "slot: permission denied" >&2
+    exit 126 ;;
 esac
 if [ "$POOL_FAKE" = immediate ]; then
   : > "$d/started.$n"
@@ -422,6 +428,23 @@ fn a_job_the_pool_ends_at_its_run_limit_ends_the_step_with_70_and_no_verdict() {
         assert!(!p.text.contains("not red") && !p.text.contains("FAILED"), "{step}: {}", p.text);
         assert_eq!(p.jobs(), 1, "{step}: the step stops at the first job");
         assert_eq!(p.cancelled(), "", "{step}");
+    }
+}
+
+#[test]
+fn a_pool_job_that_could_not_find_or_start_its_command_is_a_program_error_and_no_verdict() {
+    // 127 and 126 are the shell's "not found" and "cannot run": the pool (or what it ran) could not
+    // run the command, so nothing is known about the code (a `slot` that reads a HOME the step was
+    // not given ended every bug-fix command 127, and repro-run read it as `not red`).
+    for (fake, code) in [("missing", 127), ("unrunnable", 126)] {
+        for (step, bound) in [("repro-run", Some("10")), ("tests-run", None), ("gate-run", Some("10"))] {
+            let env: Vec<(&str, &str)> = bound.map(|b| ("SDC_POOL_WAIT", b)).into_iter().collect();
+            let p = pool_run(&format!("{fake}-{step}"), step != "repro-run", &[step], fake, &env);
+            assert_eq!(p.code, code, "{fake} {step}: {}", p.text);
+            assert!(p.text.contains(&format!("exit {code}")) && p.text.contains("did not run"), "{fake} {step}: it says why: {}", p.text);
+            assert!(!p.text.contains("not red") && !p.text.contains("FAILED") && !p.text.contains("passed"), "{fake} {step}: no verdict: {}", p.text);
+            assert_eq!(p.jobs(), 1, "{fake} {step}: the step stops at the first job");
+        }
     }
 }
 
