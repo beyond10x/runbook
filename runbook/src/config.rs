@@ -859,6 +859,11 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
     out.push(item("max_wall_seconds", "--max-wall-seconds", "no built-in default, a run is refused without it", values.max_wall_seconds.as_ref().map(|(n, o)| (n.to_string(), o))));
     out.push(item("cap_micro_usd", "--cap-micro-usd", "no spend limit without it", values.cap_micro_usd.as_ref().map(|(n, o)| (n.to_string(), o))));
     out.push(item("max_llm_calls", "--max-llm-calls", "no limit on model calls without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
+    // a gateway token of a settings file is named, never printed, whatever its form (`docs/loom-run-settings.md`)
+    let mut merged = merged.clone();
+    if let Some(token) = merged.get_mut(crate::loom_run::gateway::KEY).and_then(|g| g.get_mut("token")) {
+        *token = Value::String("named".to_owned());
+    }
     if let Some(members) = merged.as_object() {
         for (key, v) in members {
             leaves(segment(key), v, &settings_origin(key), &mut out);

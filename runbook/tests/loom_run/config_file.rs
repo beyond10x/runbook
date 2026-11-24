@@ -270,6 +270,19 @@ fn config_prints_every_value_with_its_origin_and_an_option_is_the_origin_of_its_
 }
 
 #[test]
+fn config_names_the_gateway_token_of_a_settings_file_and_never_prints_it() {
+    let token = "gw-config-token-6a0d2e91";
+    let rig = Rig::new("gateway-token");
+    rig.put("runbook.toml", FOUR);
+    let settings = rig.put("s.toml", &format!("[gateway]\nbase_url = \"http://127.0.0.1:8080\"\ntoken = \"{token}\"\n"));
+    let o = rig.run(&rig.root, &["config", "--settings", settings.to_str().unwrap()]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(!out(&o).contains(token) && !err(&o).contains(token), "the token is printed: {}", out(&o));
+    assert!(row(&o, "gateway.token").contains("named"), "{}", row(&o, "gateway.token"));
+    assert!(row(&o, "gateway.base_url").contains("http://127.0.0.1:8080"), "{}", row(&o, "gateway.base_url"));
+}
+
+#[test]
 fn a_value_of_the_file_never_lowers_what_an_option_sets() {
     let rig = Rig::new("lower");
     rig.put("runbook.toml", "confinement = \"local\"\nautonomy = \"A5\"\n");
