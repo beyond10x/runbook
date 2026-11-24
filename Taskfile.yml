@@ -238,11 +238,24 @@ tasks:
         exit $fail
 
   check:task-output:
+    desc: "Part of task check, no network (about 4 s): fails on `exec` with redirections only in Taskfile.yml or ui/Taskfile.yml (the interpreter of go-task 3.52, the release the forge installs, closes the file that form opens at the end of its line and the block writes on into the closed file, so not one line after it reached the forge's log), then runs test:driver, test:runbook and test:ui of a copy of this Taskfile in target/task-output with stand-ins for cargo, npx, slot and check-tree-links.sh the way of task check: under the go-task that runs it, side by side with a node process on their shared output, which node makes non-blocking, read late; and counts the runner lines, the summary, the ten slowest and the budget line that arrive. The forge's way is check:task-output:forge."
+    cmds:
+      - task: task-output
+        vars: { FORGE: "" }
+
+  check:task-output:forge:
+    desc: "Not part of task check; run it when a shell block of Taskfile.yml or ui/Taskfile.yml changes (about 8 s, fetches go-task once): check:task-output, and test:driver, test:runbook, test:ui, check:crates:lint and check:crates:test of the copy the forge's way: go-task of the TASK_VERSION of .github/workflows/pages.yml, fetched once into target/forge-task/<version> and checked against its TASK_SHA256, CI set, stdout and stderr each a pipe read by a process of its own; and the way of task check under that go-task too."
+    cmds:
+      - task: task-output
+        vars: { FORGE: "1" }
+
+  task-output:
     silent: true
-    desc: "Check that every line the steps of task check and the forge print reaches the output (about 10 s). Fails on `exec` with redirections only in Taskfile.yml or ui/Taskfile.yml: the interpreter of go-task 3.52, the release the forge installs, closes the file that form opens at the end of its line and keeps writing to the closed file, so not one line after it reached the forge's log. Then runs test:driver, test:runbook, test:ui, check:crates:lint and check:crates:test of a copy of this Taskfile in target/task-output with stand-ins for cargo, npx, slot and check-tree-links.sh: the forge's way (go-task of the TASK_VERSION of .github/workflows/pages.yml, fetched once into target/forge-task/<version> and checked against its TASK_SHA256, CI set, stdout and stderr each a pipe read by a process of its own), and the way of task check (the go-task that runs this check and the forge's, the three test steps side by side with a node process on their shared output, which node makes non-blocking, read late), and counts the runner lines, the summary, the ten slowest and the budget line that arrive."
+    internal: true
     cmds:
       - |
         {
+        forge_lane="{{.FORGE}}"
         set -eu
         set -o pipefail
         root=$PWD
@@ -264,7 +277,7 @@ tasks:
         command -v "$here" > /dev/null 2>&1 || here=task
         dir=$root/target/forge-task/$pin
         forge=$dir/task
-        if [ ! -x "$forge" ]; then
+        if [ -n "$forge_lane" ] && [ ! -x "$forge" ]; then
           mkdir -p "$dir"
           curl --fail --silent --show-error --location --output "$dir/task.tar.gz" "https://github.com/go-task/task/releases/download/v$pin/task_linux_amd64.tar.gz" || { echo "FAIL could not fetch go-task $pin, the release $wf installs"; exit 1; }
           echo "$sum  $dir/task.tar.gz" | sha256sum --check --strict --status || { echo "FAIL $dir/task.tar.gz is not the TASK_SHA256 of $wf"; exit 1; }
@@ -326,7 +339,10 @@ tasks:
           fail=1
         }
         [ -p "$sb/err.fifo" ] || mkfifo "$sb/err.fifo"
-        for t in test:driver test:runbook test:ui check:crates:lint check:crates:test; do
+        lanes="test:driver test:runbook test:ui check:crates:lint check:crates:test"
+        bins=$here
+        if [ -n "$forge_lane" ]; then bins="$here $forge"; else lanes=""; fi
+        for t in $lanes; do
           out=$sb/forge-$t.out
           cat "$sb/err.fifo" > "$sb/forge-$t.err" &
           code=0
@@ -357,7 +373,7 @@ tasks:
           verdict "forge way, go-task $pin, CI set, $t: every line arrives" "$out" "$sb/forge-$t.err"
         done
         k=0
-        for bin in "$here" "$forge"; do
+        for bin in $bins; do
           k=$((k + 1))
           ver=$("$bin" --version 2>/dev/null | head -n 1)
           out=$sb/check-$k.out
