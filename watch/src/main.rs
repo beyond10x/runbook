@@ -2,6 +2,7 @@
 //! driver action and the agent tool call that caused it. Record format: docs/fs-changes.md.
 
 mod attrib;
+mod held;
 mod layout;
 mod store;
 mod timefmt;
@@ -78,13 +79,22 @@ fn die_with_parent(parent: i32) -> bool {
     unsafe { libc::getppid() == parent }
 }
 
-fn dirs(run_dir: &Path, out: Option<PathBuf>) -> Result<(PathBuf, PathBuf), String> {
+/// The run directory and the output directory, and the output directory held: it is opened once here, without following a
+/// link at its name, and every record, blob and the pid record are made, read and removed through that descriptor.
+fn dirs(run_dir: &Path, out: Option<PathBuf>) -> Result<(PathBuf, PathBuf, held::Held), String> {
     let run = fs::canonicalize(run_dir).map_err(|e| format!("{}: {e}", run_dir.display()))?;
     let out = out.unwrap_or_else(|| run.join("fs"));
-    fs::create_dir_all(out.join("blobs")).map_err(|e| format!("{}: {e}", out.display()))?;
+    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let out = fs::canonicalize(&out).map_err(|e| e.to_string())?;
-    Ok((run, out))
+    let held = held::Held::open(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    Ok((run, out, held))
 }
+
+/// How many bytes of the pid record are read.
+const PID_LIMIT: u64 = 64;
+
+/// The pid record of a running watcher, in the output directory.
+const PID_FILE: &str = "sdc-watch.pid";
 
 fn alive(pid: i32) -> bool {
     pid > 0 && unsafe { libc::kill(pid, 0) } == 0
@@ -92,9 +102,10 @@ fn alive(pid: i32) -> bool {
 
 fn run(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>, parent: Option<i32>) -> Result<(), String> {
     set_kind(run_dir, kind);
-    let (run, out) = dirs(run_dir, out)?;
-    let pid_file = out.join("sdc-watch.pid");
-    if let Some(pid) = fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse::<i32>().ok()) {
+    let (run, out, out_dir) = dirs(run_dir, out)?;
+    let pid_file = out.join(PID_FILE);
+    let recorded = out_dir.read(PID_FILE, PID_LIMIT).and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.trim().parse::<i32>().ok());
+    if let Some(pid) = recorded {
         if alive(pid) && pid != std::process::id() as i32 {
             return Err(format!("already watched by pid {pid} ({})", pid_file.display()));
         }
@@ -104,15 +115,16 @@ fn run(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>, parent: Option<
     for s in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         let w = sig_w.try_clone().map_err(|e| e.to_string())?;
         signal_hook::low_level::pipe::register(s, w).map_err(|e| e.to_string())?;
+        signal_hook::flag::register(s, store::stop_flag()).map_err(|e| e.to_string())?;
     }
     if let Some(p) = parent {
         if !die_with_parent(p) {
             return Err(format!("the parent {p} is already gone"));
         }
     }
-    let mut w = watch::Watcher::start(run.clone(), out.clone()).map_err(|e| e.to_string())?;
+    let mut w = watch::Watcher::start(run.clone(), out.clone(), out_dir.try_clone().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let (files, watches) = w.tracked();
-    fs::write(&pid_file, format!("{}\n", std::process::id())).map_err(|e| e.to_string())?;
+    store::write_through(&out_dir, PID_FILE, format!("{}\n", std::process::id()).as_bytes()).map_err(|e| format!("{}: {e}", pid_file.display()))?;
     eprintln!("sdc-watch: watching {} ({files} files, {watches} dirs), record {}", run.display(),
         out.join("changes.jsonl").display());
     loop {
@@ -149,18 +161,18 @@ fn run(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>, parent: Option<
         w.late();
     }
     w.finish();
-    let _ = fs::remove_file(&pid_file);
+    let _ = out_dir.remove(PID_FILE);
     eprintln!("sdc-watch: stopped; {} changes recorded this session, next seq {}", w.written, w.seq);
     Ok(())
 }
 
 fn scan(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>) -> Result<(), String> {
     set_kind(run_dir, kind);
-    let (run, out) = dirs(run_dir, out)?;
-    let blobs = store::Blobs { dir: out.join("blobs") };
-    let (_, seq) = store::replay(&out, &run, &blobs);
+    let (run, out, out_dir) = dirs(run_dir, out)?;
+    let blobs = store::Blobs::new(out_dir.sub("blobs").map_err(|e| format!("{}: {e}", out.join("blobs").display()))?);
+    let (_, seq) = store::replay(&out_dir, &run, &blobs).map_err(|e| e.to_string())?;
     let snap = watch::snapshot(&run, &out, &blobs);
-    store::write_snapshot(&out, &run, &snap, seq).map_err(|e| e.to_string())?;
+    store::write_snapshot(&out_dir, &run, &snap, seq).map_err(|e| e.to_string())?;
     println!("{} files, snapshot {}", snap.len(), out.join("snapshot.json").display());
     Ok(())
 }

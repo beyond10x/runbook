@@ -16,9 +16,9 @@
 //! `status.json` with its exit). It costs nothing, books nothing and does not end the run; the
 //! run goes on with what Loom says of the step's exit.
 
+use crate::record_write;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::io::Read;
 use std::path::Path;
 
 /// Exits of a model step after which the driver ends the run: the tool could not run.
@@ -68,11 +68,7 @@ pub fn usd_to_micro(v: &Value) -> Result<u64, String> {
 /// `stderr.txt` of the call directory), `home` replaced by `~`, cut at 300 characters.
 fn stderr_line(call_dir: &Path, home: Option<&str>) -> String {
     for name in ["adapter-stderr.txt", "stderr.txt"] {
-        let mut bytes = Vec::new();
-        let Ok(file) = std::fs::File::open(call_dir.join(name)) else { continue };
-        if file.take(65_536).read_to_end(&mut bytes).is_err() {
-            continue;
-        }
+        let Ok(bytes) = record_write::read_regular_prefix(&call_dir.join(name), 65_536) else { continue };
         let text = String::from_utf8_lossy(&bytes);
         let Some(line) = text.lines().map(str::trim).find(|l| !l.is_empty()) else { continue };
         let line = match home {
@@ -95,7 +91,7 @@ fn no_call_note(call_dir: &Path, name: &str) -> Option<Value> {
     if !matches!(call_dir.join("request.json").try_exists(), Ok(false)) {
         return None;
     }
-    let status: Value = serde_json::from_slice(&std::fs::read(call_dir.join("status.json")).ok()?).ok()?;
+    let status: Value = serde_json::from_slice(&record_write::read_regular(&call_dir.join("status.json")).ok()?).ok()?;
     let exit = status.get("exit").and_then(Value::as_i64)?;
     Some(serde_json::json!({"call": name, "exit": exit}))
 }
@@ -139,7 +135,7 @@ impl CostReader {
         }
         let lines_file = dir.join("calls.jsonl");
         if lines_file.exists() {
-            let text = std::fs::read_to_string(&lines_file).map_err(|e| format!("cost records unreadable: {e}"))?;
+            let text = record_write::read_regular_text(&lines_file).map_err(|e| format!("cost records unreadable: {e}"))?;
             let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
             for line in lines.iter().skip(self.lines_seen) {
                 let v: Value = serde_json::from_str(line).map_err(|e| format!("cost record is not JSON: {e}"))?;
@@ -179,7 +175,7 @@ impl CostReader {
                         continue;
                     }
                     let action = name.split_once('-').map_or("?", |(_, a)| a);
-                    let response: Value = std::fs::read(entry.path().join("response.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+                    let response: Value = record_write::read_regular(&entry.path().join("response.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
                     let adapter = response.get("adapter").and_then(Value::as_str).unwrap_or("?");
                     let exit = response.get("exit").and_then(Value::as_i64).map_or_else(|| "?".to_owned(), |c| c.to_string());
                     let said = stderr_line(&entry.path(), self.home.as_deref());
@@ -189,5 +185,58 @@ impl CostReader {
             }
         }
         Ok(cost)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A scratch directory beside the test binary, made empty.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(tag: &str) -> Dir {
+            let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("cost-unit-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Dir(d)
+        }
+
+        fn dir(&self, rel: &str) -> PathBuf {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(&p).unwrap();
+            p
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_stderr_line_of_a_call_is_the_first_line_of_its_file_in_full() {
+        let dir = Dir::new("stderr-line");
+        let call = dir.dir("call");
+        std::fs::write(call.join("adapter-stderr.txt"), "\n  the model said no, at length  \nsecond\n").unwrap();
+        assert_eq!(stderr_line(&call, None), "the model said no, at length");
+        let home = format!("{}/home", call.display());
+        std::fs::write(call.join("adapter-stderr.txt"), format!("failed in {home}/x\n")).unwrap();
+        assert_eq!(stderr_line(&call, Some(&home)), "failed in ~/x");
+    }
+
+    #[test]
+    fn the_stderr_line_of_a_call_is_not_read_through_a_link_and_the_next_file_is_tried() {
+        let dir = Dir::new("stderr-link");
+        let call = dir.dir("call");
+        let outside = dir.dir("outside");
+        std::fs::write(outside.join("said.txt"), "text of a file outside the run\n").unwrap();
+        std::os::unix::fs::symlink(outside.join("said.txt"), call.join("adapter-stderr.txt")).unwrap();
+        assert_eq!(stderr_line(&call, None), "(no stderr)");
+        std::fs::write(call.join("stderr.txt"), "the plain file\n").unwrap();
+        assert_eq!(stderr_line(&call, None), "the plain file");
     }
 }

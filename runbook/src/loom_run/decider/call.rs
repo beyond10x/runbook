@@ -5,7 +5,8 @@
 //! `reply-schema.json`, `response.json` (what the adapter printed, with the call's meta), `status.json`
 //! (`sdc.call-status/1`) and `cwd/` with `in/` (what the model reads) and `out/decision.json`.
 
-use super::inputs::{prepare, write_pretty};
+use super::inputs::{prepare, read_json, write_pretty};
+use crate::loom_run::record_write::Held;
 use super::prompt::{or, prompt, raw, Parts, Renderer};
 use super::rules::dry_reply;
 use super::validate::{validate, Check};
@@ -17,7 +18,8 @@ use std::time::Duration;
 /// What one call needs besides its request.
 pub(super) struct ModelCall<'a> {
     pub(super) req: &'a Value,
-    pub(super) rec: &'a Path,
+    /// The call directory, held open: every record of the call is written through it.
+    pub(super) rec: &'a Held,
     pub(super) tools: &'a Path,
     pub(super) root: &'a Path,
     pub(super) model: &'a str,
@@ -54,17 +56,15 @@ pub(super) fn now() -> String {
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rest / 3600, rest % 3600 / 60, rest % 60, d.subsec_millis())
 }
 
-/// `status.json` of the call, written whole: running now, finished or failed.
-pub(super) fn call_status(rec: &Path, state: &str, started: &str, exit: Option<i64>) {
+/// `status.json` of the call, written whole through the held call directory: running now, finished or failed. A write that
+/// fails is an error that names the file.
+pub(super) fn call_status(rec: &Held, state: &str, started: &str, exit: Option<i64>) -> Result<(), String> {
     let mut doc = json!({"format": "sdc.call-status/1", "state": state, "pid": std::process::id(), "started_at": started});
     if let (Some(exit), Some(map)) = (exit, doc.as_object_mut()) {
         map.insert("finished_at".to_owned(), json!(now()));
         map.insert("exit".to_owned(), json!(exit));
     }
-    let tmp = rec.join(".status.json.tmp");
-    if write_pretty(&tmp, &doc).is_ok() {
-        let _ = std::fs::rename(&tmp, rec.join("status.json"));
-    }
+    write_pretty(rec, "status.json", &doc).map_err(|e| format!("decider status file: {e}"))
 }
 
 /// The adapter program of the name the settings give: one of the three of the bindings copy, or a path.
@@ -77,7 +77,7 @@ pub(super) fn adapter_path(tools: &Path, adapter: &str) -> PathBuf {
 
 /// The effort when the settings name none: the default of the decider class in the copy's `node-classes.json`.
 pub(super) fn default_effort(tools: &Path) -> Option<String> {
-    let classes = sdc_tools::reply::read_json(&tools.join("node-classes.json"));
+    let classes = read_json(&tools.join("node-classes.json"));
     classes["default_efforts"]["decider"].as_str().filter(|e| !e.is_empty()).map(str::to_owned)
 }
 
@@ -91,7 +91,7 @@ pub(super) fn start(adapter: &Path, request_file: &Path, c: &ModelCall<'_>) -> R
         Ok(m) if !m.is_file() || m.permissions().mode() & 0o111 == 0 => return Ok(Ran { code: 126, stdout: String::new(), stderr: format!("{shown}: Permission denied\n") }),
         Ok(_) => {}
     }
-    run_program(adapter, &[&request_file.display().to_string()], c.env, c.rec, c.timeout)
+    run_program(adapter, &[&request_file.display().to_string()], c.env, c.rec.path(), c.timeout)
 }
 
 /// The note on a response that was not made under a response schema.
@@ -113,19 +113,20 @@ pub(super) fn run(c: &ModelCall<'_>) -> Result<Replied, String> {
             "reasons": ["no LLM: SDC_LLM_ADAPTER=stub"], "cites": []});
         return Ok(Replied { reply, stderr: String::new() });
     }
-    let cwd = c.rec.join("cwd");
+    let cwd = c.rec.sub(Path::new("cwd")).map_err(|e| format!("decider call directory: {e}"))?;
     for dir in ["in", "out"] {
-        std::fs::create_dir_all(cwd.join(dir)).map_err(|e| format!("decider call directory: {}", e.kind()))?;
+        cwd.sub(Path::new(dir)).map_err(|e| format!("decider call directory: {e}"))?;
     }
     let started = now();
-    call_status(c.rec, "running", &started, None);
+    call_status(c.rec, "running", &started, None)?;
     match ask(c, adapter, &cwd) {
         Ok((replied, exit)) => {
-            call_status(c.rec, if exit == 0 { "finished" } else { "failed" }, &started, Some(exit));
+            call_status(c.rec, if exit == 0 { "finished" } else { "failed" }, &started, Some(exit))?;
             Ok(replied)
         }
         Err(Failed::Program(reason)) => {
-            call_status(c.rec, "failed", &started, Some(126));
+            // The call has failed and `reason` is what is reported; a status file that cannot be written then adds nothing to it.
+            let _ = call_status(c.rec, "failed", &started, Some(126));
             Err(reason)
         }
         Err(Failed::Ended(reason)) => Err(reason),
@@ -139,34 +140,35 @@ enum Failed {
     Ended(String),
 }
 
-fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), Failed> {
+fn ask(c: &ModelCall<'_>, adapter: &str, held_cwd: &Held) -> Result<(Replied, i64), Failed> {
     let program = Failed::Program;
     let req = c.req;
+    let rec = c.rec.path();
+    let cwd = held_cwd.path();
     let case_dir = PathBuf::from(raw(&req["case_dir"]));
     let renderer = Renderer { root: c.root.to_path_buf() };
-    let prepared = prepare(req, &case_dir, cwd, &renderer, c.final_escalate).map_err(program)?;
-    let schema_file = c.rec.join("reply-schema.json");
-    std::fs::write(&schema_file, super::inputs::schema_text(&prepared.schema)).map_err(|e| program(format!("reply schema: {}", e.kind())))?;
+    let prepared = prepare(req, &case_dir, held_cwd, &renderer, c.final_escalate).map_err(program)?;
+    c.rec.write("reply-schema.json", super::inputs::schema_text(&prepared.schema).as_bytes()).map_err(|e| program(format!("reply schema: {e}")))?;
     let has_aep = cwd.join("in").join("aep").exists();
     let text = prompt(&renderer, &Parts { req, final_escalate: c.final_escalate, inputs: &prepared.inputs, citable: &prepared.citable, prior_rejections: prepared.prior, has_aep, met_after: prepared.met_after }).map_err(program)?;
-    let prompt_file = c.rec.join("prompt.md");
-    std::fs::write(&prompt_file, text).map_err(|e| program(format!("prompt file: {}", e.kind())))?;
+    let prompt_file = rec.join("prompt.md");
+    c.rec.write("prompt.md", text.as_bytes()).map_err(|e| program(format!("prompt file: {e}")))?;
 
     let effort = c.effort.map(str::to_owned).or_else(|| default_effort(c.tools));
-    let case = sdc_tools::reply::read_json(&case_dir.join("case.json"));
+    let case = read_json(&case_dir.join("case.json"));
     let usd_literal = super::approval::usd_text(c.budget_micro_usd);
     let usd = usd_literal.parse::<f64>().unwrap_or(0.0);
     let request = json!({
         "model": c.model, "effort": effort, "prompt_file": prompt_file.display().to_string(), "cwd": cwd.display().to_string(),
-        "record_dir": c.rec.display().to_string(), "node": format!("decide.{}", raw(&req["action"])),
-        "attempt": or(&req["retry"]["attempt"], &json!(1)), "json_schema": format!("{}/reply-schema.json", c.rec.display()),
+        "record_dir": rec.display().to_string(), "node": format!("decide.{}", raw(&req["action"])),
+        "attempt": or(&req["retry"]["attempt"], &json!(1)), "json_schema": format!("{}/reply-schema.json", rec.display()),
         "case": or(&case["id"], &json!("")), "case_dir": case_dir.display().to_string(), "operations": ["dir.list", "file.read", "file.write"],
         "max_turns": c.max_turns.unwrap_or(DEFAULT_MODEL_TURNS), "max_budget_usd": usd,
     });
-    let request_file = c.rec.join("request.json");
+    let request_file = rec.join("request.json");
     // `jq` keeps the text of a number it was given as text (`0.250000`): so does the file.
     let text = format!("{}\n", serde_json::to_string_pretty(&request).unwrap_or_default()).replacen(&format!("\"max_budget_usd\": {}", Value::from(usd)), &format!("\"max_budget_usd\": {usd_literal}"), 1);
-    std::fs::write(&request_file, text).map_err(|e| program(format!("{}: {}", request_file.display(), e.kind())))?;
+    c.rec.write("request.json", text.as_bytes()).map_err(program)?;
 
     let ran = start(&adapter_path(c.tools, adapter), &request_file, c).map_err(Failed::Ended)?;
     let exit = i64::from(ran.code);
@@ -174,9 +176,12 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         Ok(v) if v.is_object() => v,
         _ => json!({}),
     };
-    let structured = c.rec.join("structured-output.json");
-    if std::fs::read(&structured).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v.is_object()) {
-        let _ = std::fs::copy(&structured, cwd.join("out").join("decision.json"));
+    // Best effort: a structured output that is not a regular file of the call, or cannot be copied, leaves no
+    // `out/decision.json`, and the check of the reply then reports the decision as missing.
+    if c.rec.read("structured-output.json").ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v.is_object()) {
+        if let Ok(out) = held_cwd.sub(Path::new("out")) {
+            let _ = c.rec.copy_to("structured-output.json", &out, "decision.json");
+        }
     }
     if let Some(map) = response.as_object_mut() {
         let constrained = map.get("schema_constrained").is_some_and(|v| !v.is_null() && v != &json!(false));
@@ -188,11 +193,11 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         }
         map.insert("exit".to_owned(), json!(exit));
     }
-    write_pretty(&c.rec.join("response.json"), &response).map_err(program)?;
+    write_pretty(c.rec, "response.json", &response).map_err(program)?;
     let reply = if adapter == "dry" {
-        dry_reply(c.rec, &response, req)
+        dry_reply(rec, &response, req)
     } else {
-        validate(&Check { req, cwd, case_dir: &case_dir, rec: c.rec, final_escalate: c.final_escalate }, &response)
+        validate(&Check { req, cwd, case_dir: &case_dir, rec, final_escalate: c.final_escalate }, &response)
     };
     Ok((Replied { reply, stderr: ran.stderr }, exit))
 }

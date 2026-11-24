@@ -13,6 +13,7 @@
 //! `handoff_when`) is the child's program and arguments, and `try` is counted by this wrapper. See
 //! `docs/loom-run-directory.md`.
 
+use crate::record_write::Held;
 use crate::runtime::{StartTarget, Started};
 use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, TestExecution, TestRunner};
 use b10x_loom_intake_slice::executor::TestCommand;
@@ -33,13 +34,22 @@ fn words(v: Option<&serde_yaml::Value>) -> Vec<String> {
     v.and_then(serde_yaml::Value::as_sequence).map(|s| s.iter().filter_map(|w| w.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
 
-/// The actions of the bindings files in `dir` that run a program.
+/// The texts of the `*.yaml` files of the bindings directory `dir`, in the order of their names, read as the names of a
+/// run are, through the one guard of the run's records ([`Held`]): the directory is opened once without following a link
+/// at its name ([`Held::open`]) and is listed ([`Held::names`]) and read ([`Held::read_text`]) through that descriptor,
+/// each file without following a link and without waiting for a writer, only when it is a regular file with one name, for
+/// at most [`crate::record_write::READ_LIMIT`] bytes. A link at the directory gives no file; a file that is not one of
+/// these is left out.
+fn bindings_texts(dir: &Path) -> Vec<String> {
+    let Ok(held) = Held::open(dir) else { return Vec::new() };
+    let names = held.names().unwrap_or_default();
+    names.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")).filter_map(|n| held.read_text(&n).ok()).collect()
+}
+
+/// The actions of the bindings files in `dir` that run a program ([`bindings_texts`]).
 fn bound_actions(dir: &Path) -> Vec<Bound> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir).map(|e| e.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect()).unwrap_or_default();
-    files.sort();
     let mut found = Vec::new();
-    for file in files {
-        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+    for text in bindings_texts(dir) {
         let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else { continue };
         let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
         for entry in actions {
@@ -175,6 +185,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    const BOUND_TEXT: &str = "actions:\n- action: a.one\n  executor:\n    kind: program\n    argv: [prog, one]\n";
+
+    #[test]
+    fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_bound_actions() {
+        let d = dir("bound-link");
+        let outside = dir("bound-outside");
+        std::fs::write(outside.join("steps.yaml"), BOUND_TEXT).unwrap();
+        std::os::unix::fs::symlink(outside.join("steps.yaml"), d.join("b.yaml")).unwrap();
+        assert!(bound_actions(&d).is_empty(), "a file outside the run was read through a link at a bindings file");
+        std::fs::write(d.join("c.yaml"), BOUND_TEXT).unwrap();
+        assert_eq!(bound_actions(&d).len(), 1);
+    }
+
+    #[test]
+    fn a_link_a_program_put_at_the_bindings_directory_is_not_read_for_the_bound_actions() {
+        let d = dir("bound-dir-link");
+        let outside = dir("bound-dir-outside");
+        std::fs::write(outside.join("steps.yaml"), BOUND_TEXT).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("bindings")).unwrap();
+        assert!(bound_actions(&d.join("bindings")).is_empty(), "a file outside the run was read through a link at the bindings directory");
+        assert_eq!(bound_actions(&outside).len(), 1, "the bindings directory itself is read");
+    }
+
+    #[test]
+    fn a_named_pipe_and_a_second_name_at_a_bindings_file_are_not_read_for_the_bound_actions() {
+        let d = dir("bound-pipe");
+        let outside = dir("bound-pipe-outside");
+        std::fs::write(outside.join("steps.yaml"), BOUND_TEXT).unwrap();
+        std::fs::hard_link(outside.join("steps.yaml"), d.join("b.yaml")).unwrap();
+        let fifo = std::ffi::CString::new(d.join("p.yaml").to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = d.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(bound_actions(&probe).len());
+        });
+        let got = rx.recv_timeout(std::time::Duration::from_secs(10));
+        if got.is_err() {
+            let _ = std::fs::OpenOptions::new().write(true).open(d.join("p.yaml"));
+        }
+        assert_eq!(got.ok(), Some(0), "a bindings file is read as a regular file with one name and no pipe is waited for");
     }
 
     fn child_of_case(program: &str, args: &[&str], dir: &Path, case: &str) -> ChildCommand {

@@ -183,8 +183,10 @@ pub fn prepare(args: &Args, run_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// A record of the re-drive in the run directory, read as every name of the run is (`read_regular`: a regular file with one
+/// name, no link followed, no pipe waited for, at most its bound); anything else is no record.
 fn read(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+    serde_json::from_slice(&crate::loom_run::record_write::read_regular(path).ok()?).ok()
 }
 
 /// The recorded settings of a re-drive: `replay` is what `sdc-replay settings` says (the source,

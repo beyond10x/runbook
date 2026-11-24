@@ -14,7 +14,8 @@
 //! decider's, applied to the requester's reply.
 
 use super::call::{adapter_path, call_status, now, start, ModelCall, Replied};
-use super::inputs::write_pretty;
+use super::inputs::{read_json, write_pretty};
+use crate::loom_run::record_write::{read_regular_text, Held};
 use super::prompt::{or, raw, Renderer};
 use super::rules::rule;
 use super::run_program;
@@ -76,19 +77,20 @@ pub(super) fn run(c: &ModelCall<'_>) -> Result<Replied, String> {
             "reasons": ["no LLM: SDC_LLM_ADAPTER=stub"], "cites": []});
         return Ok(Replied { reply, stderr: String::new() });
     }
-    let cwd = c.rec.join("cwd");
+    let cwd = c.rec.sub(Path::new("cwd")).map_err(|e| format!("decider call directory: {e}"))?;
     for dir in ["in", "out"] {
-        std::fs::create_dir_all(cwd.join(dir)).map_err(|e| format!("decider call directory: {}", e.kind()))?;
+        cwd.sub(Path::new(dir)).map_err(|e| format!("decider call directory: {e}"))?;
     }
     let started = now();
-    call_status(c.rec, "running", &started, None);
+    call_status(c.rec, "running", &started, None)?;
     match ask(c, adapter, &cwd) {
         Ok((replied, exit)) => {
-            call_status(c.rec, if exit == 0 { "finished" } else { "failed" }, &started, Some(exit));
+            call_status(c.rec, if exit == 0 { "finished" } else { "failed" }, &started, Some(exit))?;
             Ok(replied)
         }
         Err(Failed::Program(reason)) => {
-            call_status(c.rec, "failed", &started, Some(126));
+            // The call has failed and `reason` is what is reported; a status file that cannot be written then adds nothing to it.
+            let _ = call_status(c.rec, "failed", &started, Some(126));
             Err(reason)
         }
         Err(Failed::Ended(reason)) => Err(reason),
@@ -112,7 +114,7 @@ fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<(
     let case = case_dir.display().to_string();
     let stamp = instant();
     let args = [case.as_str(), qid.as_str(), "--level", level, "--holder", "decider", "--eligible", eligible.as_str(), "--opened-at", stamp.as_str()];
-    let ran = run_program(&bin, &args, c.env, c.rec, c.timeout).map_err(Failed::Ended)?;
+    let ran = run_program(&bin, &args, c.env, c.rec.path(), c.timeout).map_err(Failed::Ended)?;
     if ran.code != 0 {
         return Ok((None, ran.stderr));
     }
@@ -139,7 +141,7 @@ pub(super) fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level
         )
     };
     let path = raw(or(&req["path"], &json!("")));
-    let cid = raw(&sdc_tools::reply::read_json(&case_dir.join("case.json"))["id"]);
+    let cid = raw(&read_json(&case_dir.join("case.json"))["id"]);
     let revision = raw(or(&req["revision"], &json!("none")));
     let action = raw(&req["action"]);
     Ok(json!({
@@ -163,27 +165,34 @@ pub(super) fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level
     }))
 }
 
-/// Copies `work/<p>` to `in/<p>` and lists it, unless it is not a file, is there already, or `p` leaves `work/`.
-fn input(work: &Path, cwd: &Path, p: &str, listed: &mut Vec<String>) {
+/// Copies `work/<p>` to `in/<p>` and lists it, unless it is not a file, is there already, or `p` leaves `work/`. An input
+/// the requester cannot copy (a link, a pipe, a file with a second name or over the read bound at `work/<p>`, or a directory
+/// of the copy that cannot be made) is skipped: it is not in the list the model reads, and the call goes on. The model decider's copy into `in/` ends the call with an error instead.
+fn input(work: &Path, cwd: &Held, p: &str, listed: &mut Vec<String>) {
     let plain = !p.is_empty() && Path::new(p).components().all(|c| matches!(c, std::path::Component::Normal(_)));
     if !plain {
         return;
     }
-    let (from, to) = (work.join(p), cwd.join("in").join(p));
-    if !from.is_file() || to.exists() {
+    let from = work.join(p);
+    // a link is not a file here: it is not followed, so what it points at is not copied
+    if !std::fs::symlink_metadata(&from).is_ok_and(|m| m.is_file()) {
         return;
     }
-    if let Some(dir) = to.parent() {
-        let _ = std::fs::create_dir_all(dir);
+    let to = Path::new("in").join(p);
+    let Some(name) = to.file_name() else { return };
+    let Ok(dir) = cwd.sub(to.parent().unwrap_or(Path::new("in"))) else { return };
+    if dir.exists(name) {
+        return;
     }
-    let _ = std::fs::copy(&from, &to);
-    listed.push(format!("in/{p}"));
+    if dir.copy_from(&from, name).is_ok() {
+        listed.push(format!("in/{p}"));
+    }
 }
 
 /// `in/decisions.json`: the earlier decisions of the requester in this run (`valid` not false), read
 /// from the decisions log; `[]` when the log cannot be read.
 fn earlier_decisions(log: &Path) -> Value {
-    let text = std::fs::read_to_string(log).unwrap_or_default();
+    let text = read_regular_text(log).unwrap_or_default();
     let mut out = Vec::new();
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(entry) = serde_json::from_str::<Value>(line) else { return json!([]) };
@@ -201,9 +210,12 @@ fn earlier_decisions(log: &Path) -> Value {
     Value::Array(out)
 }
 
-fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), Failed> {
+fn ask(c: &ModelCall<'_>, adapter: &str, held_cwd: &Held) -> Result<(Replied, i64), Failed> {
     let program = Failed::Program;
     let req = c.req;
+    let rec = c.rec.path();
+    let cwd = held_cwd.path();
+    let in_dir = held_cwd.sub(Path::new("in")).map_err(Failed::Program)?;
     let case_dir = PathBuf::from(raw(&req["case_dir"]));
     let work = case_dir.join("work");
     let level = raw(or(&req["autonomy"], &json!("A3")));
@@ -224,24 +236,24 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     } else {
         approval_request(&renderer, req, &case_dir, &level).map_err(program)?
     };
-    let write = |path: &Path, text: String| std::fs::write(path, text).map_err(|e| Failed::Program(format!("{}: {}", path.display(), e.kind())));
-    write(&cwd.join("in").join("request.json"), format!("{}\n", serde_json::to_string(&request).unwrap_or_default()))?;
+    let write = |dir: &Held, leaf: &str, text: String| dir.write(leaf, text.as_bytes()).map_err(Failed::Program);
+    write(&in_dir, "request.json", format!("{}\n", serde_json::to_string(&request).unwrap_or_default()))?;
     let mut listed = vec![renderer.render("requester.input-request.md", &[]).map_err(Failed::Program)?];
     let subject_path = request["subject_path"].as_str().unwrap_or("");
-    input(&work, cwd, subject_path.strip_prefix("work/").unwrap_or(subject_path), &mut listed);
+    input(&work, held_cwd, subject_path.strip_prefix("work/").unwrap_or(subject_path), &mut listed);
     for ground in request["grounds"].as_array().into_iter().flatten() {
         if ground["citation"]["form"] == "path_line" {
             if let Some(path) = ground["citation"]["value"]["path"].as_str() {
-                input(&work, cwd, path.strip_prefix("work/").unwrap_or(path), &mut listed);
+                input(&work, held_cwd, path.strip_prefix("work/").unwrap_or(path), &mut listed);
             }
         }
     }
     for name in ["idea.yaml", "dissection.yaml", "goals.yaml"] {
-        input(&work, cwd, name, &mut listed);
+        input(&work, held_cwd, name, &mut listed);
     }
     let log = PathBuf::from(raw(or(&req["decisions_log"], &json!("/dev/null"))));
     let decisions = earlier_decisions(&log);
-    write_pretty(&cwd.join("in").join("decisions.json"), &decisions).map_err(Failed::Program)?;
+    write_pretty(&in_dir, "decisions.json", &decisions).map_err(Failed::Program)?;
     listed.push(renderer.render("requester.input-decisions.md", &[]).map_err(Failed::Program)?);
 
     let attempt = or(&req["retry"]["attempt"], &json!(1)).clone();
@@ -251,36 +263,35 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     } else {
         String::new()
     };
-    let case_json = sdc_tools::reply::read_json(&case_dir.join("case.json"));
+    let case_json = read_json(&case_dir.join("case.json"));
     let goals_revision = raw(or(&case_json["artifacts"]["goals"]["revision"], &json!("none")));
     let inputs = listed.iter().map(|i| format!("- {i}\n")).collect::<String>();
     let text = renderer
         .render("requester.md", &[("inputs", inputs.trim_end_matches('\n')), ("goals_revision", &goals_revision), ("retry", &retry)])
         .map_err(Failed::Program)?;
-    let prompt_file = c.rec.join("prompt.md");
-    write(&prompt_file, format!("{text}\n"))?;
+    let prompt_file = rec.join("prompt.md");
+    write(c.rec, "prompt.md", format!("{text}\n"))?;
 
     let effort = c.effort.map(str::to_owned).or_else(|| requester_effort(c.tools));
     let usd_literal = super::approval::usd_text(c.budget_micro_usd);
     let usd = usd_literal.parse::<f64>().unwrap_or(0.0);
     let adapter_request = json!({
         "model": c.model, "effort": effort, "prompt_file": prompt_file.display().to_string(), "cwd": cwd.display().to_string(),
-        "record_dir": c.rec.display().to_string(), "node": format!("requester.{}", raw(or(&req["question"]["id"], &req["action"]))),
+        "record_dir": rec.display().to_string(), "node": format!("requester.{}", raw(or(&req["question"]["id"], &req["action"]))),
         "attempt": attempt, "case": or(&case_json["id"], &json!("")), "case_dir": case_dir.display().to_string(),
         "operations": ["dir.list", "file.read", "file.write"], "max_turns": c.max_turns.unwrap_or(8), "max_budget_usd": usd,
     });
-    let request_file = c.rec.join("request.json");
+    let request_file = rec.join("request.json");
     let text = format!("{}\n", serde_json::to_string_pretty(&adapter_request).unwrap_or_default()).replacen(&format!("\"max_budget_usd\": {}", Value::from(usd)), &format!("\"max_budget_usd\": {usd_literal}"), 1);
-    write(&request_file, text)?;
+    write(c.rec, "request.json", text)?;
 
     let ran = start(&adapter_path(c.tools, adapter), &request_file, c).map_err(Failed::Ended)?;
     let exit = i64::from(ran.code);
-    let response_file = c.rec.join("response.json");
-    write(&response_file, ran.stdout.clone())?;
+    write(c.rec, "response.json", ran.stdout.clone())?;
     let response = match serde_json::from_str::<Value>(&ran.stdout) {
         Ok(v) if v.is_object() => v,
         _ => {
-            write(&response_file, "{}\n".to_owned())?;
+            write(c.rec, "response.json", "{}\n".to_owned())?;
             json!({})
         }
     };
@@ -290,7 +301,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         meta.insert(key.to_owned(), response[key].clone());
     }
     meta.insert("exit".to_owned(), json!(exit));
-    meta.insert("record".to_owned(), json!(c.rec.display().to_string()));
+    meta.insert("record".to_owned(), json!(rec.display().to_string()));
     let merged = |mut base: Map<String, Value>| {
         for (k, v) in &meta {
             base.insert(k.clone(), v.clone());
@@ -315,7 +326,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         merged(base)
     };
     let reply_file = cwd.join("out").join("reply.json");
-    let proposed = std::fs::read_to_string(&reply_file).ok().filter(|t| !t.is_empty()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object);
+    let proposed = read_regular_text(&reply_file).ok().filter(|t| !t.is_empty()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object);
     let Some(proposed) = proposed else {
         return done(invalid("out/reply.json is missing or not a JSON object"));
     };
@@ -347,8 +358,8 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     } else {
         recommend.insert("recommended_option".to_owned(), proposed["option"].clone());
     }
-    let proposal_file = c.rec.join("proposal.json");
-    write_pretty(&proposal_file, &json!({"request": request, "proposal": recommend})).map_err(Failed::Program)?;
+    let proposal_file = rec.join("proposal.json");
+    write_pretty(c.rec, "proposal.json", &json!({"request": request, "proposal": recommend})).map_err(Failed::Program)?;
     let mut at = Vec::new();
     if request["opened_at"].as_str().unwrap_or("").is_empty() {
         at = vec!["--at".to_owned(), instant()];
@@ -357,10 +368,10 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     let mut args = vec![proposal_file.display().to_string(), "--case".to_owned(), case_dir.display().to_string()];
     args.extend(at);
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let ran_check = run_program(&grounds_tool, &refs, c.env, c.rec, c.timeout).map_err(Failed::Ended)?;
+    let ran_check = run_program(&grounds_tool, &refs, c.env, c.rec.path(), c.timeout).map_err(Failed::Ended)?;
     let checked = ran_check.stdout.trim_end_matches('\n').to_owned();
-    write(&c.rec.join("grounds-check.json"), format!("{checked}\n"))?;
-    write(&c.rec.join("grounds-check.stderr"), ran_check.stderr.clone())?;
+    write(c.rec, "grounds-check.json", format!("{checked}\n"))?;
+    write(c.rec, "grounds-check.stderr", ran_check.stderr.clone())?;
     let check = serde_json::from_str::<Value>(&checked).ok().filter(Value::is_object);
     let Some(check) = check.filter(|_| ran_check.code == 0 || ran_check.code == 1) else {
         let tail: Vec<&str> = ran_check.stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect();
@@ -414,6 +425,6 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
 
 /// The effort when the settings name none: the default of the requester class in the copy's `node-classes.json`.
 fn requester_effort(tools: &Path) -> Option<String> {
-    let classes = sdc_tools::reply::read_json(&tools.join("node-classes.json"));
+    let classes = read_json(&tools.join("node-classes.json"));
     classes["default_efforts"]["requester"].as_str().filter(|e| !e.is_empty()).map(str::to_owned)
 }

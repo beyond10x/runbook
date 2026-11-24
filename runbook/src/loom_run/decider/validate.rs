@@ -115,7 +115,7 @@ fn raw_text(v: &Value) -> String {
 /// `escalate` that names why the output is not one.
 pub(super) fn validate(c: &Check<'_>, response: &Value) -> Value {
     let out_file = c.cwd.join("out").join("decision.json");
-    let bytes = std::fs::read(&out_file).unwrap_or_default();
+    let bytes = crate::loom_run::record_write::read_regular(&out_file).unwrap_or_default();
     let parsed: Option<Value> = serde_json::from_slice::<Value>(&bytes).ok().filter(|v| !v.is_null() && v != &json!(false));
     let exit = or(&response["exit"], &json!(0)).clone();
     let m = meta(response, c.rec, &exit);

@@ -443,3 +443,410 @@ fn scan_writes_a_snapshot_and_no_record() {
     assert_eq!(files, vec![("llm/001-q.w/cwd".into(), "in/i.yaml".into()), ("store/C/work".into(), "a.txt".into())]);
     assert!(!r.dir.join("fs/changes.jsonl").exists());
 }
+
+// ---- the temporary files of the watcher are made as new files that follow no link ----
+
+#[test]
+fn a_link_a_program_put_at_the_temporary_name_of_a_blob_is_not_written_through() {
+    let mut r = Run::new("blob-link");
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let content = "content a program of the run wrote\n";
+    let probe = r.dir.join("probe.txt");
+    fs::write(&probe, content).unwrap();
+    let sum = Command::new("sha256sum").arg(&probe).output().unwrap();
+    let sha = String::from_utf8(sum.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+    let outside = r.dir.parent().unwrap().join(format!("outside-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs/blobs").join(format!(".{sha}.{pid}"))).unwrap();
+    fs::write(r.work().join("a.txt"), content).unwrap();
+    r.pause();
+    let _ = r.stop();
+    let after = fs::read_to_string(&outside).unwrap();
+    assert_eq!(after, "keep\n", "the watcher wrote the content of a file of the run into a file outside the run, through a link a program put at the temporary name of its blob");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_temporary_name_of_the_snapshot_is_not_written_through() {
+    let r = Run::new("snapshot-link");
+    fs::write(r.work().join("a.txt"), "a\n").unwrap();
+    fs::create_dir_all(r.dir.join("fs")).unwrap();
+    let outside = r.dir.parent().unwrap().join(format!("outside-snap-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs/.snapshot.json.tmp")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("scan").arg(&r.dir).output().unwrap();
+    let after = fs::read_to_string(&outside).unwrap();
+    assert_eq!(after, "keep\n", "the snapshot was written into a file outside the run, through a link at its temporary name ({:?})", out.status);
+}
+
+const BLOB_TEXT: &str = "content a program of the run wrote\n";
+
+/// A run whose watcher found the temporary name of the blob of `BLOB_TEXT` taken (`plant` takes it) when a file holding that text
+/// was written; the watcher is stopped, and the run and the sha256 of the text are returned.
+fn run_with_the_name_of_a_blob_taken(tag: &str, plant: &dyn Fn(&Path)) -> (Run, String) {
+    let mut r = Run::new(tag);
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let probe = r.dir.join("probe.txt");
+    fs::write(&probe, BLOB_TEXT).unwrap();
+    let sum = Command::new("sha256sum").arg(&probe).output().unwrap();
+    let sha = String::from_utf8(sum.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+    plant(&r.dir.join("fs/blobs").join(format!(".{sha}.{pid}")));
+    fs::write(r.work().join("a.txt"), BLOB_TEXT).unwrap();
+    r.pause();
+    let _ = r.stop();
+    (r, sha)
+}
+
+fn mkfifo(path: &Path) {
+    assert!(Command::new("mkfifo").arg(path).status().unwrap().success());
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_link_a_program_put_there_is_stored_and_the_link_is_left_as_it_is() {
+    let outside = base().join(format!("outside-stored-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-link-stored", &|tmp| std::os::unix::fs::symlink(&outside, tmp).unwrap());
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+    let left: Vec<String> = fs::read_dir(r.dir.join("fs/blobs")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('.')).collect();
+    assert_eq!(left.len(), 1, "the name a program took is the only temporary name left in the blob store: {left:?}");
+    assert!(fs::symlink_metadata(r.dir.join("fs/blobs").join(&left[0])).unwrap().file_type().is_symlink(), "the name a program took was removed or replaced");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_named_pipe_a_program_put_there_is_stored_and_the_watcher_goes_on() {
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-pipe-stored", &mkfifo);
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_second_name_of_a_file_outside_is_stored_and_that_file_is_not_written() {
+    let outside = base().join(format!("outside-second-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-second-name", &|tmp| fs::hard_link(&outside, tmp).unwrap());
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_directory_is_stored_and_the_directory_is_left_as_it_is() {
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-directory", &|tmp| fs::create_dir(tmp).unwrap());
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    let taken = fs::read_dir(r.dir.join("fs/blobs")).unwrap().map(|e| e.unwrap()).filter(|e| e.file_name().to_string_lossy().starts_with('.')).collect::<Vec<_>>();
+    assert!(taken.len() == 1 && taken[0].path().is_dir(), "the directory at the temporary name was removed or replaced");
+}
+
+#[test]
+fn a_snapshot_whose_temporary_name_holds_a_link_or_a_named_pipe_a_program_put_there_is_written() {
+    for (tag, plant) in [("snapshot-link-written", false), ("snapshot-pipe-written", true)] {
+        let r = Run::new(tag);
+        fs::write(r.work().join("a.txt"), "a\n").unwrap();
+        fs::create_dir_all(r.dir.join("fs")).unwrap();
+        let outside = base().join(format!("outside-{tag}-{}.txt", std::process::id()));
+        fs::write(&outside, "keep\n").unwrap();
+        let tmp = r.dir.join("fs/.snapshot.json.tmp");
+        if plant {
+            mkfifo(&tmp);
+        } else {
+            std::os::unix::fs::symlink(&outside, &tmp).unwrap();
+        }
+        let out = Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("scan").arg(&r.dir).output().unwrap();
+        assert!(out.status.success(), "{tag}: {:?}", out.status);
+        let snap: Value = serde_json::from_slice(&fs::read(r.dir.join("fs/snapshot.json")).unwrap()).unwrap();
+        assert_eq!(snap["format"], "sdc.fs-snapshot/1", "{tag}");
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n", "{tag}");
+        assert!(!tmp.exists(), "{tag}: the temporary name was left");
+    }
+}
+
+// ---- what the watcher holds for the names of a call record and its blobs ----
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_request_file_of_a_call_does_not_hold_the_watcher() {
+    let mut r = Run::new("request-fifo");
+    fs::create_dir_all(r.dir.join("llm")).unwrap();
+    r.start();
+    let rec = r.dir.join("llm/001-x.y");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    mkfifo(&rec.join("request.json"));
+    r.pause();
+    fs::write(rec.join("cwd/a.txt"), "a\n").unwrap();
+    r.pause();
+    let mut child = r.child.take().unwrap();
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let t = Instant::now();
+    let ended = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if t.elapsed() > Duration::from_secs(10) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    if !ended {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(ended, "the watcher did not end within 10 s of SIGTERM: it reads the request file of a call by its path and waits there for a writer of the pipe in its place");
+}
+
+#[test]
+fn every_blob_is_stored_while_a_program_keeps_taking_the_temporary_names_of_the_blobs() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let mut r = Run::new("blob-names-taken");
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let texts: Vec<String> = (0..24).map(|i| format!("content {i} of a file of the run\n")).collect();
+    let probes = base().join(format!("probes-{}", std::process::id()));
+    fs::create_dir_all(&probes).unwrap();
+    let mut files = Vec::new();
+    for (i, text) in texts.iter().enumerate() {
+        let f = probes.join(format!("p{i}.txt"));
+        fs::write(&f, text).unwrap();
+        files.push(f);
+    }
+    let sums = Command::new("sha256sum").args(&files).output().unwrap();
+    let shas: Vec<String> = String::from_utf8(sums.stdout).unwrap().lines().map(|l| l.split_whitespace().next().unwrap().to_string()).collect();
+    assert_eq!(shas.len(), texts.len());
+    let outside = base().join(format!("outside-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let names: Vec<PathBuf> = shas.iter().map(|sha| r.dir.join("fs/blobs").join(format!(".{sha}.{pid}"))).collect();
+    let stop = Arc::new(AtomicBool::new(false));
+    let spinner = {
+        let (stop, outside) = (stop.clone(), outside.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                for name in &names {
+                    let _ = std::os::unix::fs::symlink(&outside, name);
+                }
+            }
+        })
+    };
+    for (i, text) in texts.iter().enumerate() {
+        fs::write(r.work().join(format!("f{i}.txt")), text).unwrap();
+    }
+    r.pause();
+    stop.store(true, Ordering::Relaxed);
+    spinner.join().unwrap();
+    let _ = r.stop();
+    let missing: Vec<usize> = shas.iter().enumerate().filter(|(_, sha)| !r.dir.join("fs/blobs").join(sha).exists()).map(|(i, _)| i).collect();
+    let _ = fs::remove_dir_all(&probes);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+    assert!(missing.is_empty(), "{} of {} blobs were not stored: the watcher lost the record of these contents without a message", missing.len(), texts.len());
+}
+
+#[test]
+fn a_link_a_program_put_at_the_request_file_of_a_call_is_not_read_for_its_case() {
+    let outside = base().join(format!("outside-request-{}.json", std::process::id()));
+    fs::write(&outside, r#"{"node":"x.y","case":"C","case_dir":"/somewhere/store/C"}"#).unwrap();
+    let mut r = Run::new("request-link");
+    fs::create_dir_all(r.dir.join("llm")).unwrap();
+    r.start();
+    r.append("store/C/events.jsonl", r#"{"seq":1,"event":"action_started","action":"x.y","at":"x"}"#);
+    r.append("store/C/children/C.k/events.jsonl", r#"{"seq":1,"event":"action_started","action":"x.y","at":"x"}"#);
+    r.pause();
+    let rec = r.dir.join("llm/001-x.y");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    r.pause();
+    std::os::unix::fs::symlink(&outside, rec.join("request.json")).unwrap();
+    fs::write(rec.join("cwd/a.txt"), "a\n").unwrap();
+    r.pause();
+    let c = r.stop();
+    assert_eq!(ops(&c), vec![op("create", "a.txt")]);
+    assert_eq!(c[0]["attribution"]["case"].as_str(), Some("C.k"), "the case was taken from a file outside the run, through a link at request.json");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_request_file_of_a_decider_call_is_not_read_for_its_case() {
+    let mut r = Run::new("decide-request-link");
+    let outside = base().join(format!("outside-decide-request-{}.json", std::process::id()));
+    fs::write(&outside, format!(r#"{{"case_dir":"{}/store/C/children/C.k","action":"roadmap.approve"}}"#, r.dir.display())).unwrap();
+    r.start();
+    let rec = r.dir.join("decider/001-roadmap.approve");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    std::os::unix::fs::symlink(&outside, rec.join("decide-request.json")).unwrap();
+    r.pause();
+    fs::write(rec.join("cwd/answer.json"), "{}\n").unwrap();
+    r.pause();
+    let c = r.stop();
+    assert_eq!(ops(&c), vec![op("create", "answer.json")]);
+    assert!(c[0]["attribution"]["case"].is_null(), "the case was taken from a file outside the run, through a link at decide-request.json: {}", c[0]["attribution"]);
+}
+
+fn blob_name(r: &Run, text: &str) -> String {
+    let probe = r.dir.join("blob-name-probe.txt");
+    fs::write(&probe, text).unwrap();
+    let sum = Command::new("sha256sum").arg(&probe).output().unwrap();
+    let sha = String::from_utf8(sum.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+    fs::remove_file(&probe).unwrap();
+    sha
+}
+
+fn ends_within_10s_of_sigterm(r: &mut Run) -> bool {
+    let mut child = r.child.take().unwrap();
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let t = Instant::now();
+    let ended = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if t.elapsed() > Duration::from_secs(10) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    if !ended {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    ended
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_name_of_a_stored_blob_does_not_hold_the_watcher() {
+    let mut r = Run::new("blob-fifo");
+    r.start();
+    let first = "first text of a file of the run\n";
+    mkfifo(&r.dir.join("fs/blobs").join(blob_name(&r, first)));
+    fs::write(r.work().join("a.txt"), first).unwrap();
+    r.pause();
+    fs::write(r.work().join("a.txt"), "second text of a file of the run\n").unwrap();
+    r.pause();
+    assert!(ends_within_10s_of_sigterm(&mut r), "a stored blob is read as a regular file and no pipe is waited for: the watcher ends within 10 s of SIGTERM");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_name_of_a_stored_blob_is_not_read_into_a_diff() {
+    let mut r = Run::new("blob-name-link");
+    r.start();
+    let first = "first text of a file of the run\n";
+    let outside = r.dir.parent().unwrap().join(format!("outside-blob-{}.txt", std::process::id()));
+    fs::write(&outside, "text of a file outside the run\n").unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs/blobs").join(blob_name(&r, first))).unwrap();
+    fs::write(r.work().join("a.txt"), first).unwrap();
+    r.pause();
+    fs::write(r.work().join("a.txt"), "second text of a file of the run\n").unwrap();
+    r.pause();
+    let c = r.stop();
+    let _ = fs::remove_file(&outside);
+    let diffs: Vec<String> = c.iter().filter_map(|v| v["diff"].as_str().map(String::from)).collect();
+    assert!(diffs.iter().all(|d| !d.contains("outside the run")), "a stored blob is read without following a link at its name: no text from outside the run is in a diff: {diffs:?}");
+}
+
+/// A run whose stored blob of its first text is replaced by `plant` after it was stored, and whose file is then written
+/// again; the run is returned with the watcher still running.
+fn run_with_a_stored_blob_replaced(tag: &str, plant: &dyn Fn(&Path)) -> Run {
+    let mut r = Run::new(tag);
+    r.start();
+    let first = "first text of a file of the run\n";
+    fs::write(r.work().join("a.txt"), first).unwrap();
+    r.pause();
+    let blob = r.dir.join("fs/blobs").join(blob_name(&r, first));
+    assert!(blob.is_file(), "the blob of the first text was not stored");
+    fs::remove_file(&blob).unwrap();
+    plant(&blob);
+    fs::write(r.work().join("a.txt"), "second text of a file of the run\n").unwrap();
+    r.pause();
+    r
+}
+
+#[test]
+fn a_stored_blob_replaced_by_a_named_pipe_does_not_hold_the_watcher() {
+    let mut r = run_with_a_stored_blob_replaced("blob-fifo-after", &mkfifo);
+    assert!(ends_within_10s_of_sigterm(&mut r), "a stored blob is read as a regular file and no pipe is waited for: the watcher ends within 10 s of SIGTERM");
+}
+
+#[test]
+fn a_stored_blob_replaced_by_a_link_is_not_read_into_a_diff() {
+    let outside = base().join(format!("outside-blob-after-{}.txt", std::process::id()));
+    fs::write(&outside, "text of a file outside the run\n").unwrap();
+    let mut r = run_with_a_stored_blob_replaced("blob-link-after", &|blob| std::os::unix::fs::symlink(&outside, blob).unwrap());
+    let c = r.stop();
+    let _ = fs::remove_file(&outside);
+    let diffs: Vec<String> = c.iter().filter_map(|v| v["diff"].as_str().map(String::from)).collect();
+    assert!(diffs.iter().all(|d| !d.contains("outside the run")), "a stored blob is read without following a link at its name: no text from outside the run is in a diff: {diffs:?}");
+}
+
+#[test]
+fn the_watcher_writes_nothing_below_a_link_that_replaced_its_output_directory() {
+    let mut r = Run::new("out-link");
+    r.start();
+    let outside = r.dir.parent().unwrap().join(format!("outside-out-{}", std::process::id()));
+    fs::create_dir_all(outside.join("blobs")).unwrap();
+    fs::write(outside.join("sdc-watch.pid"), "keep\n").unwrap();
+    fs::rename(r.dir.join("fs"), r.dir.join("fs.moved")).unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs")).unwrap();
+    fs::write(r.work().join("a.txt"), "text of a file of the run\n").unwrap();
+    r.pause();
+    let mut child = r.child.take().unwrap();
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let _ = child.wait();
+    let mut names: Vec<String> = fs::read_dir(&outside).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    let blobs: Vec<String> = fs::read_dir(outside.join("blobs")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    let kept = fs::read_to_string(outside.join("sdc-watch.pid")).ok();
+    let _ = fs::remove_dir_all(&outside);
+    names.sort();
+    assert!(blobs.is_empty(), "the watcher stored blobs below a link that replaced its output directory: {blobs:?}");
+    assert_eq!(names, vec!["blobs".to_owned(), "sdc-watch.pid".to_owned()], "the watcher made files below a link that replaced its output directory");
+    assert_eq!(kept.as_deref(), Some("keep\n"), "the watcher removed or wrote a file below a link that replaced its output directory");
+}
+
+#[test]
+fn a_file_of_the_run_that_takes_hours_to_read_does_not_hold_the_watcher_past_its_end() {
+    let mut r = Run::new("huge-file");
+    r.start();
+    let big = fs::File::create(r.work().join("big.bin")).unwrap();
+    big.set_len(1 << 40).unwrap();
+    drop(big);
+    r.pause();
+    r.pause();
+    assert!(ends_within_10s_of_sigterm(&mut r), "a file of the run is read within its bound: the watcher ends within 10 s of SIGTERM");
+}
+
+#[test]
+fn the_pid_record_is_read_as_a_regular_file_and_a_named_pipe_there_does_not_hold_a_starting_watcher() {
+    let mut r = Run::new("pid-fifo");
+    fs::create_dir_all(r.dir.join("fs/blobs")).unwrap();
+    let pid = r.dir.join("fs/sdc-watch.pid");
+    mkfifo(&pid);
+    r.child = Some(Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("run").arg(&r.dir).spawn().unwrap());
+    let t = Instant::now();
+    while !fs::symlink_metadata(&pid).is_ok_and(|m| m.is_file()) && t.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let written = fs::symlink_metadata(&pid).is_ok_and(|m| m.is_file());
+    let ended = ends_within_10s_of_sigterm(&mut r);
+    assert!(written && ended, "the pid record is read as a regular file and no pipe is waited for: the watcher writes its pid record ({written}) and ends within 10 s of SIGTERM ({ended})");
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_record_of_a_run_does_not_hold_a_restarted_watcher() {
+    let mut hung = Vec::new();
+    for name in ["changes.jsonl", "snapshot.json"] {
+        let r = Run::new("record-fifo");
+        fs::create_dir_all(r.dir.join("fs/blobs")).unwrap();
+        mkfifo(&r.dir.join("fs").join(name));
+        let mut child = Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("scan").arg(&r.dir).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        let t = Instant::now();
+        let ended = loop {
+            if child.try_wait().unwrap().is_some() {
+                break true;
+            }
+            if t.elapsed() > Duration::from_secs(10) {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        if !ended {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if !ended {
+            hung.push(name);
+        }
+    }
+    assert!(hung.is_empty(), "{hung:?}: the records of an earlier session are read as regular files and no pipe is waited for: the watcher ends within 10 s");
+}

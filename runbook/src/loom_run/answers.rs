@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use serde_yaml::Value as Yaml;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -164,11 +164,9 @@ pub fn is_answer_step(entry: &Yaml) -> bool {
 
 /// Whether `action` is such a step in some `*.yaml` of the bindings directory `dir`.
 pub fn is_answer_step_in(dir: &Path, action: &str) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else { return false };
-    let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml") && p.is_file()).collect();
-    files.sort();
-    for file in files {
-        let Some(doc) = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str::<Yaml>(&t).ok()) else { continue };
+    let Ok(held) = crate::loom_run::record_write::Held::open(dir) else { return false };
+    for name in held.names().unwrap_or_default().into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml") && held.is_file(n)) {
+        let Some(doc) = held.read_text(&name).ok().and_then(|t| serde_yaml::from_str::<Yaml>(&t).ok()) else { continue };
         let Some(actions) = doc.get("actions").and_then(Yaml::as_sequence) else { continue };
         if actions.iter().any(|a| a.get("action").and_then(Yaml::as_str) == Some(action) && is_answer_step(a)) {
             return true;

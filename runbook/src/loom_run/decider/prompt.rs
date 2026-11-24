@@ -38,8 +38,10 @@ impl Renderer {
             return Err(format!("the instruction path {file} is not <...>.md under instructions/decider/ without a .. segment"));
         }
         let path = self.root.join("instructions").join("decider").join(file);
-        let bytes = std::fs::read(&path).map_err(|_| format!("the instruction file instructions/decider/{file} is missing"))?;
-        let text = String::from_utf8_lossy(&bytes);
+        // The run's copy of the instruction files is read as every name of the run is: no link followed, no pipe waited for,
+        // a regular file with one name of at most 64 MiB, as UTF-8 text. What is not one is refused as a file that is not
+        // there, and the message names no path outside the instruction directory.
+        let text = crate::loom_run::record_write::read_regular_text(&path).map_err(|_| format!("the instruction file instructions/decider/{file} is missing or is not a regular file of text"))?;
         let mut rest = text.trim_end_matches('\n');
         let mut out = String::new();
         while let Some((start, end, name)) = next_placeholder(rest) {

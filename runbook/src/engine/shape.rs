@@ -31,13 +31,15 @@ pub struct Shaped {
 
 /// The results a person action declares, from the bindings copy in `bindings_dir`: the keys of
 /// `results` that every `from: effect` entry of the action lists. `None`: the copy names no such action.
+/// The copy is read through its held directory: a link, a pipe or a second name at a file is an error.
 pub fn declared_results(bindings_dir: &Path, action: &str) -> Result<Option<Vec<String>>, String> {
     let mut declared: Option<Vec<String>> = None;
-    let entries = std::fs::read_dir(bindings_dir).map_err(|e| format!("{}: {e}", bindings_dir.display()))?;
-    let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-    files.sort();
-    for file in files {
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let held = crate::record_write::Held::open(bindings_dir)?;
+    let mut names: Vec<std::ffi::OsString> = held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")).collect();
+    names.sort();
+    for name in names {
+        let file: PathBuf = bindings_dir.join(&name);
+        let text = held.read_text(&name)?;
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
         for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
