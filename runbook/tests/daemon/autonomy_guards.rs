@@ -321,6 +321,14 @@ fn the_mcp_document_names_every_prefix_a_client_label_may_not_start_with() {
     for prefix in ["`rule:`", "`decider:`", "`router:`"] {
         assert!(line.contains(prefix), "docs/mcp.md: the sentence on the `answered_by` the tool refuses does not name {prefix}, which `client_label` refuses");
     }
+    // the class: every place that lists the reserved prefixes lists all of them
+    for file in ["docs/mcp.md", "docs/daemon-api.md", "docs/engine.md", "README.md", "CHANGELOG.md", "ess/domains/daemon.yaml"] {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        for (at, _) in text.match_indices("`rule:`, `decider:`") {
+            let window: String = text[at..].chars().take(60).collect();
+            assert!(window.contains("`router:`"), "{file}: a list of the reserved prefixes stops short of `router:`: {window:?}");
+        }
+    }
 }
 
 #[test]

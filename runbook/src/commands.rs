@@ -60,7 +60,7 @@ pub struct Config {
 #[derive(Clone, Debug, Default)]
 pub struct Policy {
     /// The level of a submit that names none (`--default-confinement`, else `confinement` of
-    /// `runbook.toml`); none: linux.
+    /// `runbook.toml`); none: a submit that names no level is refused.
     pub default_confinement: Option<Confinement>,
     /// The autonomy level of a submit that names none; none: every decision of such a run waits for a client.
     pub autonomy: Option<Autonomy>,
