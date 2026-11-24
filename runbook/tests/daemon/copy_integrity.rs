@@ -1645,7 +1645,20 @@ fn an_answer_the_daemon_cannot_record_is_not_delivered_to_the_run() {
     }
     assert!(answered.is_err(), "the answer was recorded although the journal could not grow: {answered:?}");
     assert!(runtime.delivered().is_empty(), "the client was told the answer failed, and the run took it: delivered {:?}", runtime.delivered());
+    // The journal takes lines again: the same answer is accepted, the run is handed each answer once and
+    // ends, and no half-written line of the failed answer stands in the journal.
+    let again = answer_by(&d, &run, "a", "alice");
+    assert_eq!(again.name, "answered", "{again:?}");
+    let second = answer_by(&d, &run, "b", "alice");
+    assert_eq!(second.name, "answered", "{second:?}");
+    ended(&d, &run);
+    assert_eq!(runtime.delivered(), vec![format!("{run}-a"), format!("{run}-b")]);
     d.stop();
+    drop(d);
+    let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![], runbook_dir: None, principal: super::PRINCIPAL.into() };
+    let reopened = Daemon::start(cfg, Dying::healthy()).expect("the journal of the daemon reads again");
+    assert_eq!(decision(&reopened, &run, "a")["state"], "Answered");
+    reopened.stop();
 }
 
 // ---- the run's directory ----

@@ -597,21 +597,29 @@ impl Daemon {
         }
         let principal = self.inner.cfg.principal.clone();
         // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
-        // It takes the answer under the lock, before the answer is recorded: a runtime that has failed
-        // while its run's thread has not reported yet (the run is on its way to `runtime-failure`) answers
-        // `UnknownRun`, and then the answer is refused, not recorded as given.
-        let delivered = self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal);
-        if matches!(delivered, Err(AnswerFailure::UnknownRun)) && lock(&self.inner.cancels).contains_key(&run_id) {
+        // The answer is on the journal before the run is handed it (a journal that cannot take the line
+        // is an error to the client and the run has not seen the answer), and the state takes it only
+        // after the run took it, all under the lock: a runtime that has failed while its run's thread has
+        // not reported yet (the run is on its way to `runtime-failure`) answers `UnknownRun`, and then
+        // the line is taken out of the journal again and the answer is refused, not recorded as given.
+        let now = st.now();
+        let mut delivered = Ok(());
+        let recorded = st.commit_if(
+            Fact::DecisionAnswered {
+                request_id: request_id.clone(),
+                answer: input.answer.clone(),
+                answered_by: input.answered_by.clone(),
+                principal: Some(principal.clone()),
+                at: now,
+            },
+            || {
+                delivered = self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal);
+                !(matches!(delivered, Err(AnswerFailure::UnknownRun)) && lock(&self.inner.cancels).contains_key(&run_id))
+            },
+        )?;
+        if !recorded {
             return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id})));
         }
-        let now = st.now();
-        st.commit(Fact::DecisionAnswered {
-            request_id: request_id.clone(),
-            answer: input.answer.clone(),
-            answered_by: input.answered_by.clone(),
-            principal: Some(principal.clone()),
-            at: now,
-        })?;
         if delivered.is_err() {
             // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
             let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
