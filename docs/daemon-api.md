@@ -93,7 +93,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `runs-of-session` | `session_id` | the runs of a session |
 | `runs-in-state` | `state` | the runs in a state |
 | `runs-of-session-in-state` | `session_id`, `state` | both filters |
-| `run` | `run_id` | one run with everything it was submitted with |
+| `run` | `run_id` | one run with everything it was submitted with, and `step_in_flight` while a program of it runs (below) |
 | `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks |
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
@@ -119,6 +119,32 @@ rows from the host when asked.
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
 
+### The step in flight
+
+A step of a run (a lint, a ship) can take twenty minutes and more, and the events of the run say
+nothing while it runs: Loom writes a line when an action finishes. So the runtime (the engine,
+`--runtime loom`) tells the daemon before each bound program starts, through the hook Loom gives
+`runbook run` too (`runbook/src/engine/announce.rs`, the `run_child` of the runner), and the daemon
+records the run event `runbook.action-started` before the program starts. The record has `case`
+(Loom's `LOOM_CASE` of the program), `action` (the action whose argv is the program's, when exactly
+one is), `role` (`program`, or `check` for a `handoff_when` check of the action) and `try` (the nth
+start of the action in the case, for a program); a member that is not known is absent. One event
+for each program, in the order the programs start, between the `ActionFinished` lines of the run
+log; an action that runs no program (an `open` or a `person` action) has none.
+
+While the program runs, the view `run` (and the MCP tool `read_run`) has one more member,
+`step_in_flight`: `action`, `case_id`, `started_at` (the `at` of the event) and `seconds` (whole
+seconds since, by the daemon's clock, read with the view). It is absent when no program runs: between
+steps, while the run waits on a decision, after a cancel, when the run is over, and after a restart
+of the daemon (a run that was live is ended as `orphaned`; the event stays in its events). The step
+is kept in the daemon's process and not in the journal, which holds the event only. The language has
+no command that sets `step_in_flight`, so the specification declares the member of `Run` and states
+where its value comes from, as for `Runbook`. `step_in_flight` is a new optional member of a run
+row: a client that validates rows strictly against the schema of 0.9.3 refuses a row that has it and
+must take the new schema. The stub runtime runs no program and tells nothing.
+The daemon page reads the views `runs` and the event stream and not `run`; it shows the event as
+any other `runbook.*` event and not the step (a separate change).
+
 ## Event streams
 
 Three views page the events by `position`:
@@ -135,8 +161,9 @@ The `sequence` of an event is only its place within its run.
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
-`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up) and
-`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
+`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
+`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`) and
+`runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime
 `--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,

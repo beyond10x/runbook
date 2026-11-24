@@ -6,8 +6,8 @@
 //! The daemon mints run ids (UUID version 7) and fills `daemon_id`, the time and the facts it reads
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
-use crate::clock::{Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
+use crate::clock::{parse_instant, Clock, SystemClock};
+use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest, StartTarget, Started};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -32,6 +32,8 @@ pub const ORPHANED_AT_START: &str = "the daemon started again and the runtime ho
 pub const ORPHANED_AT_STOP: &str = "the daemon was stopped while the run was live";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
+/// The kind of the run event the daemon records when a program of a run is about to start.
+pub const ACTION_STARTED: &str = "runbook.action-started";
 
 /// Whether `text` is a principal: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`.
 pub fn check_principal(text: &str) -> Result<(), String> {
@@ -336,12 +338,24 @@ pub struct AnswerDecision {
 
 // ---- the daemon ----
 
+/// The step of a live run whose program is running now. It lives in the process only: the event
+/// `runbook.action-started` that told of its start is in the journal, a restarted daemon has no step
+/// in flight and its runs are ended as orphaned.
+struct Step {
+    serial: u64,
+    case: Option<String>,
+    action: Option<String>,
+    /// The `at` of the event that recorded the start.
+    started_at: String,
+}
+
 struct Inner {
     cfg: Config,
     daemon_id: String,
     state: Mutex<State>,
     runtime: Arc<dyn Runtime>,
     cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    steps: Mutex<HashMap<String, Step>>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     stopping: AtomicBool,
 }
@@ -390,6 +404,7 @@ impl Daemon {
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
+                steps: Mutex::new(HashMap::new()),
                 threads: Mutex::new(Vec::new()),
                 stopping: AtomicBool::new(false),
             }),
@@ -847,8 +862,8 @@ impl Daemon {
     pub fn run_detail(&self, run_id: &str) -> Vec<Value> {
         // What the run has used is the runtime's to say; asked before the state is locked.
         let used = self.inner.runtime.usage(run_id);
-        self.st()
-            .run(run_id)
+        let st = self.st();
+        st.run(run_id)
             .map(|r| {
                 let mut row = run_row(r);
                 let m = row.as_object_mut().unwrap();
@@ -860,6 +875,18 @@ impl Daemon {
                 m.insert("settings".into(), json!(settings));
                 if let Some(c) = &r.context_path {
                     m.insert("context_path".into(), json!(c));
+                }
+                if r.state == RunState::Running {
+                    if let Some(step) = lock(&self.inner.steps).get(run_id) {
+                        let now = st.now_millis();
+                        let seconds = parse_instant(&step.started_at).map_or(0, |at| (now - at).max(0) / 1000);
+                        let mut s = Map::new();
+                        put(&mut s, "action", &step.action);
+                        put(&mut s, "case_id", &step.case);
+                        s.insert("started_at".into(), json!(step.started_at));
+                        s.insert("seconds".into(), json!(seconds));
+                        m.insert("step_in_flight".into(), Value::Object(s));
+                    }
                 }
                 row
             })
@@ -1055,7 +1082,45 @@ impl Daemon {
                 }
             }
         }
+        lock(&self.inner.steps).remove(&run_id);
         lock(&self.inner.cancels).remove(&run_id);
+    }
+}
+
+/// The start and the end of the programs of one run, as the runtime tells them
+/// (`EventSink::steps`): the start is recorded as the run event `runbook.action-started` before the
+/// program starts and the step is kept as the run's step in flight until the program ends.
+struct RunSteps {
+    daemon: Daemon,
+    run_id: String,
+}
+
+impl StartTarget for RunSteps {
+    fn started(&self, start: &Started) {
+        if self.daemon.is_stopping() {
+            return;
+        }
+        let mut st = self.daemon.st();
+        let mut record = Map::new();
+        put(&mut record, "case", &start.case);
+        put(&mut record, "action", &start.action);
+        record.insert("role".into(), json!(start.role));
+        if let Some(n) = start.try_number {
+            record.insert("try".into(), json!(n));
+        }
+        // A refusal means the run is closed (a report after a cancel): nothing is in flight then.
+        if !matches!(record_event_locked_outcome(&mut st, &self.run_id, ACTION_STARTED, Value::Object(record)), Ok(o) if !o.is_refusal()) {
+            return;
+        }
+        let Some(started_at) = st.last_event_of(&self.run_id).map(|e| e.at.clone()) else { return };
+        lock(&self.daemon.inner.steps).insert(self.run_id.clone(), Step { serial: start.serial, case: start.case.clone(), action: start.action.clone(), started_at });
+    }
+
+    fn ended(&self, start: &Started) {
+        let mut steps = lock(&self.daemon.inner.steps);
+        if steps.get(&self.run_id).is_some_and(|s| s.serial == start.serial) {
+            steps.remove(&self.run_id);
+        }
     }
 }
 
@@ -1068,6 +1133,10 @@ struct RunSink {
 }
 
 impl EventSink for RunSink {
+    fn steps(&self) -> Option<Arc<dyn StartTarget>> {
+        Some(Arc::new(RunSteps { daemon: self.daemon.clone(), run_id: self.run_id.clone() }))
+    }
+
     fn started(&self) {
         if self.daemon.is_stopping() {
             return;

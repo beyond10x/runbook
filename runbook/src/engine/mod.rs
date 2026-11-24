@@ -2,6 +2,7 @@
 //! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom` or
 //! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
+pub mod announce;
 pub mod calls;
 pub mod copy;
 mod decision;
@@ -197,6 +198,12 @@ impl Engine {
         // runbook whose programs could call a model with no budget anywhere is refused here.
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
         let unnamed_micro_usd = crate::budget::reserve_for_unnamed(&read_bindings).map_err(failure)?;
+        // Every program the runner starts is told to the sink before it starts: the daemon records the step in
+        // flight. The actions are read from the bindings the run reads, those of its own copy.
+        let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
+            (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
+            _ => runner,
+        };
         let idea = if resume || request.intake.is_empty() {
             None
         } else {
@@ -361,9 +368,12 @@ impl Engine {
                 }
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
-                    return Err(failure(match refusal::program_signalled(store) {
-                        Some(signalled) => format!("the tree is stuck at case {}: {signalled}", ran.case),
-                        None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                    return Err(failure(match refusal::program_refused(store) {
+                        Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
+                        None => match refusal::stuck_on(&store) {
+                            Some(lead) => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person ({lead})", ran.case),
+                            None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                        },
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
