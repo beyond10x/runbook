@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--test",
+    "full_pages",
+    "--",
+    "--exact",
+    "ten_items_make_two_pages"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "   Compiling pager v0.1.0 ({dir})\n    Finished `test` profile [unoptimized] target(s) in 0.00s\n     Running tests/full_pages.rs ({target}/debug/deps/full_pages-23d7211a8b536224)\n",
+  "stdout": "\nrunning 1 test\ntest ten_items_make_two_pages ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+}

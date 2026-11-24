@@ -28,6 +28,7 @@ mod plugin;
 mod producer_ids;
 mod progress;
 mod questions_check;
+mod recorded_pool;
 mod reply_bytes;
 mod rework_numbering;
 mod capture_buffer_bound;
