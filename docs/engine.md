@@ -87,12 +87,17 @@ that the group and other bits of a source make no second digest for one runbook)
 blocks, for a link its target (`engine::copy::digest`); `runs/<run id>/runbook-pin.json` holds the same
 members. The value for an unchanged runbook is the one earlier daemons wrote.
 
-The copy is checked against `copy_sha256` before each round (each `run_tree`), before each answer that
-is a library call and before the final `tree status`; `open` reads the copy right after it is made and
-nothing runs between the two. A copy that changed (a file edited, added, removed or made executable)
-ends the run: `runbook.runtime-failed`, reason `RunbookCopyChanged: ...` (an entry named relative to the
-copy, never a path of the host), outcome `runtime-failure`, and the round, answer or status that would
-have read or run the changed file is not started. A run that the runtime fails on while it waits on
+The copy is checked against `copy_sha256` before each round, before each answer that is a library
+call and before the final `tree status`; `open` reads the copy right after it is made and nothing runs
+between the two. A round is the steps between two waits on decisions; the engine takes each step as a
+`run_tree` of one step, and the check stands before the round's first, not before each step. A copy
+that changed (a file edited, added, removed or made executable) ends the run at the next check:
+`runbook.runtime-failed`, reason `RunbookCopyChanged: ...` (an entry named relative to the copy, never a
+path of the host), outcome `runtime-failure`, and the round, answer or status that would have read or
+run the changed file is not started. A later step of the same round is not checked before it: at
+confinement `local` a program that changes a program of its own round makes that later step run the
+changed bytes, and the run ends at the next check. A program an answer starts that changes a program
+of the next round ends the run at the check before that round. A run that the runtime fails on while it waits on
 decisions (this one, or a failure to read the run's log) has its open requests withdrawn, as a cancel
 does, and ends the same way; before, such a run stayed `WaitingOnDecision` for good. An answer to a run
 whose runtime has failed and whose end the daemon has not recorded yet is refused as `run-not-waiting`:
@@ -155,6 +160,20 @@ Passed unchanged, never lowered. The engine offers `local`, and `linux` when the
 cgroup it may delegate (`Engine::new`); anything else is refused before the store exists. The
 `linux` level was not exercised by the tests (no delegated cgroup in the gate lane).
 
+## Caps
+
+The engine is made with a caps policy (`Engine::new(home, state_dir, caps)`): the daemon's three caps
+and their ceilings. A run is driven one step at a time (`max_steps` of 1 for each `run_tree`), and
+before each step `engine/gate.rs` holds the wall time, the model calls and the run's own spend against
+their caps; the runner every bound program starts through, a step's and one an answer starts,
+reserves, as the program starts, the per-call budget that program names (none: the largest the
+runbook's bindings name; a runbook with such a program and no budget anywhere is refused at load) in
+the ledger of the runbook (`<state dir>/ledgers/<runbook>.json`, entries and reservations keyed by the
+run), against the run's own cap; after the step or answer the cost records are booked. A run at a cap ends `stopped: wall time`, `stopped: llm calls` or
+`stopped: spend cap`. A wall cap ends a sleeping step through a flag of the run's own that the
+cancel handle of `run_tree` reads, and a client's cancel wins over it. The options, the request, the
+ceilings and the view are in `docs/daemon-api.md`, "Caps of a run".
+
 ## Cancel and recover
 
 Cancel while waiting ends the run at once. Cancel while a program runs ends the program too: the
@@ -178,6 +197,18 @@ daemon"); only a second signal, the drain bound, a kill or a crash orphans a liv
 `Engine::store_state(run)` tells `Absent`, `Idle`, `StaleHolder` or `Held` (Loom's lock is a `flock`,
 so a dead holder lets go by itself; `tree/src/lock.rs:82`). Resuming an orphaned run from its store
 is not built.
+
+## The step in flight
+
+The engine wraps the runner every bound program starts through in `engine::announce::Announcing`,
+the wrapper `runbook run` uses too, when the sink gives a target (`EventSink::steps`, the daemon's
+sink does). Before a program starts the target is told its case, action, role and try, and after it
+ended it is told that; the daemon records the run event `runbook.action-started` and keeps the step
+for the view `run` (`docs/daemon-api.md`, "The step in flight"). The gate tests are
+`a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends`,
+`actions_in_turn_give_one_event_each_in_the_order_they_started`,
+`a_handoff_check_is_recorded_as_a_check_of_its_action` and
+`after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event` in `runbook/tests/daemon/engine.rs`.
 
 ## Loom gaps seen
 

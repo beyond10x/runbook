@@ -10,7 +10,7 @@ use crate::loom_run::cost::CostReader;
 use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider;
 use crate::loom_run::events::{Cap, CostSource, Event, EventSink, StartSource};
-use crate::loom_run::in_flight::{Announcing, RunnerRecord};
+use crate::loom_run::in_flight::{announcing, RunnerRecord};
 use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Opening};
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
@@ -122,8 +122,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
         }
         (Identity::Library { .. }, Some((level, runner))) => {
-            let announcing: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(Announcing::new(runner, run_dir.clone(), run_dir.join("bindings")));
-            Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announcing, cancel))
+            let announced: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(announcing(runner, run_dir.clone(), run_dir.join("bindings")));
+            Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announced, cancel))
         }
         (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
     };
@@ -314,6 +314,7 @@ impl Runner<'_> {
         if let Some(goals) = &self.args.ports.goals {
             super::goals::copy(goals, &self.workspace)?;
         }
+        super::seeded::write(&self.run_dir, &self.workspace, self.clock.now_secs())?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {

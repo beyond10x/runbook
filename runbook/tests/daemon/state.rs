@@ -11,6 +11,15 @@ pub fn scratch(tag: &str) -> PathBuf {
     p
 }
 
+/// The facts of the journal in `dir` (a state directory), for a reader beside a daemon that may be writing:
+/// only the lines that end in a newline. A last line without its newline is a write that is not over (the
+/// daemon's own replay drops such a line the same way), so it is not a fact yet.
+pub fn journal_facts(dir: &Path) -> Vec<serde_json::Value> {
+    let bytes = std::fs::read(dir.join("journal.jsonl")).unwrap_or_default();
+    let whole = bytes.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+    bytes[..whole].split(|b| *b == b'\n').filter(|l| !l.is_empty()).map(|l| serde_json::from_slice(l).unwrap()).collect()
+}
+
 fn run(id: &str) -> Run {
     Run {
         run_id: id.into(),
@@ -108,6 +117,40 @@ fn the_journal_is_one_json_object_per_line() {
         let v: serde_json::Value = serde_json::from_str(l).unwrap();
         assert!(v["fact"].is_string(), "{l}");
     }
+}
+
+#[test]
+fn a_reader_beside_a_writer_takes_the_whole_lines_and_not_a_last_line_without_its_newline() {
+    let dir = scratch("reader-torn");
+    let mut a = State::open(&dir).unwrap();
+    for f in some_facts().into_iter().take(3) {
+        a.commit(f).unwrap();
+    }
+    let path = dir.join("journal.jsonl");
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    text.push_str("{\"fact\":\"run_started\",\"run_id\":\"r1\",\"at\":\"t");
+    std::fs::write(&path, text).unwrap();
+    assert_eq!(journal_facts(&dir).len(), 3);
+}
+
+#[test]
+fn a_reader_that_follows_a_writing_state_meets_only_whole_lines() {
+    let dir = scratch("reader-follows");
+    let writer_dir = dir.clone();
+    let writer = std::thread::spawn(move || {
+        let mut s = State::open(&writer_dir).unwrap();
+        for i in 0..3000 {
+            s.commit(Fact::SessionOpened { session_id: format!("session-{i}"), client: "a client with a name long enough to make the line long".into(), at: "t".into() }).unwrap();
+        }
+    });
+    let mut seen = 0;
+    while !writer.is_finished() {
+        let n = journal_facts(&dir).len();
+        assert!(n >= seen, "the reader saw {n} facts after {seen}");
+        seen = n;
+    }
+    writer.join().unwrap();
+    assert_eq!(journal_facts(&dir).len(), 3000);
 }
 
 #[test]

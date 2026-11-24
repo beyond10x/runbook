@@ -88,7 +88,7 @@ types:
     kind: newtype
     of: String
     naming:
-      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime's own kinds."
+      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds."
 
   - name: sdc.daemon.RunOutcome
     kind: newtype
@@ -129,6 +129,16 @@ types:
     of: "Map<String, String>"
     naming:
       summary: "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now."
+
+  - name: sdc.daemon.StepInFlight
+    kind: struct
+    naming:
+      summary: "The step of a run whose program is running now: the action the bindings bind to the program, the case it runs for and when it started, the start the event `runbook.action-started` recorded. `seconds` is the time since `started_at` by the daemon's clock, read when the view is read."
+    fields:
+      - {name: action, type: Optional<String>, summary: "The action whose program (or `handoff_when` check) runs; absent when no single action of the runbook's bindings binds the program."}
+      - {name: case_id, type: Optional<String>, summary: "The case the program runs for; absent when the runtime names none."}
+      - {name: started_at, type: Timestamp, summary: "The `at` of the event `runbook.action-started` of this step."}
+      - {name: seconds, type: Integer, summary: "Whole seconds from started_at to the moment the view is read, 0 or more."}
 
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
@@ -211,6 +221,7 @@ entities:
       - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state: ended, cancelled or failed to start."}
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."}
       - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state."}
+      - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>, summary: "The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none."}
     relations:
       - name: session
         kind: references
@@ -1278,6 +1289,7 @@ views:
       - {name: ended_at, type: Optional<Timestamp>}
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
       - {name: failure, type: Optional<String>}
+      - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>}
 
   - name: sdc.daemon.OpenDecisionsOfRun
     naming:

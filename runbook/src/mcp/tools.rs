@@ -42,7 +42,7 @@ const TOOLS: [Tool; 7] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
-        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
+        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
         read_only: false,
         kind: Kind::Command("submit-run"),
     },

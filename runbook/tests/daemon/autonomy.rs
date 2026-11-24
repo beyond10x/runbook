@@ -21,7 +21,7 @@ fn serve(tag: &str, args: &[&str], file: &str) -> Live {
 }
 
 fn serve_home(tag: &str, home: &Path, args: &[&str], file: &str) -> Live {
-    let mut all = vec!["--runtime", "loom", "--runbook-home", home.to_str().unwrap(), "--min-confinement", "local"];
+    let mut all = vec!["--runtime", "loom", "--runbook-home", home.to_str().unwrap(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"];
     all.extend_from_slice(args);
     live(tag, &all, Some(file))
 }
@@ -397,7 +397,7 @@ fn model_home(tag: &str) -> ModelHome {
 fn serve_model(tag: &str, m: &ModelHome, with_runtime_dir: bool, extra_file: &str) -> Live {
     let xdg = m.xdg.to_str().unwrap();
     let env = [("XDG_RUNTIME_DIR", with_runtime_dir.then_some(xdg))];
-    let all = ["--runtime", "loom", "--runbook-home", m.home.to_str().unwrap(), "--min-confinement", "local"];
+    let all = ["--runtime", "loom", "--runbook-home", m.home.to_str().unwrap(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"];
     live_env(tag, &all,Some(&format!("{}{extra_file}", m.file)), &env)
 }
 

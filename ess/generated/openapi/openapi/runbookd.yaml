@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:6ca89b1f0d8daa7b4a090f82795d376a1b21b3afb221fa9cc1ef02523e3e4373
+# contract digest slice-sha256/2:1b11ad0936432762bc24c71d9f3f65b300e947529f1319042b90d4d7e1d7a917
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:6ca89b1f0d8daa7b4a090f82795d376a1b21b3afb221fa9cc1ef02523e3e4373
+    contract_digest: slice-sha256/2:1b11ad0936432762bc24c71d9f3f65b300e947529f1319042b90d4d7e1d7a917
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -1322,7 +1322,7 @@ components:
       type: string
     sdc.daemon.EventKind:
       title: EventKind
-      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime''s own kinds.'
+      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
       x-ess-name: sdc.daemon.EventKind
       x-ess-kind: newtype
       type: string
@@ -1752,6 +1752,8 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunOutcome'
         failure:
           type: string
+        step_in_flight:
+          $ref: '#/components/schemas/sdc.daemon.StepInFlight'
       required:
       - run_id
       - runbook_id
@@ -2205,6 +2207,30 @@ components:
       - client
       - state
       - opened_at
+      additionalProperties: false
+    sdc.daemon.StepInFlight:
+      title: StepInFlight
+      description: 'The step of a run whose program is running now: the action the bindings bind to the program, the case it runs for and when it started, the start the event `runbook.action-started` recorded. `seconds` is the time since `started_at` by the daemon''s clock, read when the view is read.'
+      x-ess-name: sdc.daemon.StepInFlight
+      x-ess-kind: struct
+      type: object
+      properties:
+        action:
+          description: The action whose program (or `handoff_when` check) runs; absent when no single action of the runbook's bindings binds the program.
+          type: string
+        case_id:
+          description: The case the program runs for; absent when the runtime names none.
+          type: string
+        started_at:
+          description: The `at` of the event `runbook.action-started` of this step.
+          type: string
+          format: date-time
+        seconds:
+          description: Whole seconds from started_at to the moment the view is read, 0 or more.
+          type: integer
+      required:
+      - started_at
+      - seconds
       additionalProperties: false
     sdc.daemon.SubmitReplayed.Event:
       title: SubmitReplayed payload
@@ -2765,7 +2791,7 @@ x-ess-entities:
     type: string
   sdc.daemon.EventKind:
     title: EventKind
-    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime''s own kinds.'
+    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
     x-ess-name: sdc.daemon.EventKind
     x-ess-kind: newtype
     type: string
@@ -2840,6 +2866,9 @@ x-ess-entities:
       failure:
         description: Why the run failed to start; absent in every other state.
         type: string
+      step_in_flight:
+        $ref: '#/x-ess-entities/sdc.daemon.StepInFlight'
+        description: 'The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none.'
       state:
         $ref: '#/x-ess-entities/sdc.daemon.Run.State'
     required:
@@ -3045,6 +3074,30 @@ x-ess-entities:
     x-ess-name: sdc.daemon.SessionId
     x-ess-kind: newtype
     type: string
+  sdc.daemon.StepInFlight:
+    title: StepInFlight
+    description: 'The step of a run whose program is running now: the action the bindings bind to the program, the case it runs for and when it started, the start the event `runbook.action-started` recorded. `seconds` is the time since `started_at` by the daemon''s clock, read when the view is read.'
+    x-ess-name: sdc.daemon.StepInFlight
+    x-ess-kind: struct
+    type: object
+    properties:
+      action:
+        description: The action whose program (or `handoff_when` check) runs; absent when no single action of the runbook's bindings binds the program.
+        type: string
+      case_id:
+        description: The case the program runs for; absent when the runtime names none.
+        type: string
+      started_at:
+        description: The `at` of the event `runbook.action-started` of this step.
+        type: string
+        format: date-time
+      seconds:
+        description: Whole seconds from started_at to the moment the view is read, 0 or more.
+        type: integer
+    required:
+    - started_at
+    - seconds
+    additionalProperties: false
   sdc.decision.ActionId:
     title: ActionId
     description: A protocol action id, such as roadmap.approve.

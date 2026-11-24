@@ -108,7 +108,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `runs-of-session` | `session_id` | the runs of a session |
 | `runs-in-state` | `state` | the runs in a state |
 | `runs-of-session-in-state` | `session_id`, `state` | both filters |
-| `run` | `run_id` | one run with everything it was submitted with |
+| `run` | `run_id` | one run with everything it was submitted with, and `step_in_flight` while a program of it runs (below) |
 | `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks |
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
@@ -134,6 +134,32 @@ rows from the host when asked.
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
 
+### The step in flight
+
+A step of a run (a lint, a ship) can take twenty minutes and more, and the events of the run say
+nothing while it runs: Loom writes a line when an action finishes. So the runtime (the engine,
+`--runtime loom`) tells the daemon before each bound program starts, through the hook Loom gives
+`runbook run` too (`runbook/src/engine/announce.rs`, the `run_child` of the runner), and the daemon
+records the run event `runbook.action-started` before the program starts. The record has `case`
+(Loom's `LOOM_CASE` of the program), `action` (the action whose argv is the program's, when exactly
+one is), `role` (`program`, or `check` for a `handoff_when` check of the action) and `try` (the nth
+start of the action in the case, for a program); a member that is not known is absent. One event
+for each program, in the order the programs start, between the `ActionFinished` lines of the run
+log; an action that runs no program (an `open` or a `person` action) has none.
+
+While the program runs, the view `run` (and the MCP tool `read_run`) has one more member,
+`step_in_flight`: `action`, `case_id`, `started_at` (the `at` of the event) and `seconds` (whole
+seconds since, by the daemon's clock, read with the view). It is absent when no program runs: between
+steps, while the run waits on a decision, after a cancel, when the run is over, and after a restart
+of the daemon (a run that was live is ended as `orphaned`; the event stays in its events). The step
+is kept in the daemon's process and not in the journal, which holds the event only. The language has
+no command that sets `step_in_flight`, so the specification declares the member of `Run` and states
+where its value comes from, as for `Runbook`. `step_in_flight` is a new optional member of a run
+row: a client that validates rows strictly against the schema of 0.9.3 refuses a row that has it and
+must take the new schema. The stub runtime runs no program and tells nothing.
+The daemon page reads the views `runs` and the event stream and not `run`; it shows the event as
+any other `runbook.*` event and not the step (a separate change).
+
 ## Event streams
 
 Three views page the events by `position`:
@@ -150,8 +176,9 @@ The `sequence` of an event is only its place within its run.
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
-`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up) and
-`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
+`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
+`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`) and
+`runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime
 `--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,
@@ -207,6 +234,9 @@ runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DI
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
               [--default-confinement local|linux] [--autonomy A0..A5] [--decider KIND] [--token-file FILE] [--ui] [--mcp]
               [--drain-seconds SECONDS]
+              [--runtime loom --runbook-home DIR
+               --max-wall-seconds N --max-llm-calls N --cap-micro-usd N
+               [--max-wall-seconds-ceiling N] [--max-llm-calls-ceiling N] [--cap-micro-usd-ceiling N]]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -231,6 +261,8 @@ then (see "Event streams").
 | `--decider` | none | The decider kind of a submit that names none: a kind of `[deciders.<kind>]` in `runbook.toml` (`rule`, `model`). A name that is not configured stops the daemon at start. Both need `--runtime loom`: the stub has no decider. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
+| `--max-wall-seconds`, `--max-llm-calls`, `--cap-micro-usd` | none, each required with `--runtime loom` | The caps of a run that names none (see "Caps of a run"). A daemon started without one refuses to start, exit 1, naming each missing option, before anything is bound or written. There is no binary default. A value is a whole number of 1 or more. The stub takes none. |
+| `--max-wall-seconds-ceiling`, `--max-llm-calls-ceiling`, `--cap-micro-usd-ceiling` | the cap itself | The most a submit may name for that cap. A ceiling below its cap is refused at start, naming the cap. |
 | `--drain-seconds` | none: no bound | The most seconds a drain takes after the first SIGINT or SIGTERM. When they have passed with a run still live, the daemon stops at once as on a second signal (see "Stopping the daemon"). |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
@@ -255,6 +287,76 @@ daemon's own stop, and they are written here only. The
 `403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
 authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
 `message`, never an `actor`.
+
+## Caps of a run
+
+A run of the Loom runtime is never unbound: it has a wall time, a number of model calls and a spend
+cap (`runbook/src/caps.rs`, `runbook/src/engine/gate.rs`).
+
+Where a request names them. `SubmitRun` has no member for a cap (the request is generated from
+`ess/domains/daemon.yaml` and gains none), so a submit names them in its `settings`, as it names
+anything else: `max_wall_seconds`, `max_llm_calls` and `cap_micro_usd`, each a string of a whole number
+of 1 or more (`"max_llm_calls": "50"`; every value of `settings` is a string, over HTTP and through the
+MCP tool `submit_run`). A cap the submit does not name is the daemon's option of that name. A cap over the
+daemon's ceiling is refused at submit as an invalid request (`400`), naming the cap, the value and the
+ceiling, and no run is made. A value that is no whole number of 1 or more is refused the same way, and
+so is a value of another JSON type than a string (`"max_llm_calls": 50` is a number): the refusal names the
+cap and says a cap is a string. A
+submit may name a lower cap or a higher one, up to the ceiling. The caps of a run are stored with it
+in `settings`, so the run view shows the three that applied, and a run taken up again has the same ones.
+
+What each cap stops. Before each step of a run the engine holds the use against the caps; a run that
+has reached one ends with an outcome and an event `runbook.cap-reached` (`cap`, `detail`), the same as
+any run:
+
+| Cap | Outcome | Rule |
+|---|---|---|
+| `max_wall_seconds` | `stopped: wall time` | Counted from the start of the run, waits on a decision included. A step that is running, or a wait on a decision, is ended when the time is up; what the run asked is withdrawn. A cancel by a client wins over the cap. |
+| `max_llm_calls` | `stopped: llm calls` | A step is not started when the calls made reach the cap. A call is a cost record the bound programs write (`.sdc/llm/calls.jsonl`). |
+| `cap_micro_usd` | `stopped: spend cap` | A step is not started when this run's spend has reached its cap, and a program is not started when the reservation for it is less than it may cost. |
+
+Spend. The cap is the run's own: it is the most that one run spends, and what other runs of the
+runbook spent, or hold while they run, never reduces it. Spend is booked in a ledger under the state
+directory, `ledgers/<runbook id>.json`, one file per runbook with each entry and each reservation
+keyed by the run id: the module of `runbook run` (`runbook/src/ledger.rs`), with the cost reader and
+the call-budget reader of that command. A run's admission and its reservations are held against its cap
+less what it has spent and holds itself. A reservation of a run that no longer lives counts against no
+run: it is keyed by that run's id, and a run that starts again under its id drops what its id held.
+What a program reserves as it starts is what it may cost, never the whole cap. A run is never
+unbound in money:
+
+- A program that names its per-call budget (`--max-budget-usd <v>` or `--max-budget-usd=<v>` in its
+  own arguments, the largest when it names it more than once) reserves that budget. The arguments come
+  from the bindings the run reads (the root's bindings file and the children it names) and nowhere
+  else.
+- A program that names none may call a model all the same: it reserves the largest per-call budget
+  the runbook's own bindings name, root and children. A step near the cap whose program makes no
+  model call may therefore be stopped; a program that names `--max-budget-usd 0` reserves nothing.
+- A runbook with a program that names no budget and no budget in any of its bindings is refused at
+  submit as an invalid request (`400`), naming the reason and the action; no run is made. So is a
+  budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing after the option),
+  naming the action and the bindings file. A run checks the same on its own copy before it opens.
+- A program a person's answer starts (a person action whose binding names an `argv`) reserves the
+  same way before it starts and is booked after, also when the run ends right after it (a wall cap
+  spent while it ran); when its reservation is short it does not start and the run ends at the spend
+  cap. A run that reaches a cap while it takes the last answer of a wait ends like one that reached
+  it while it waited.
+
+After a step or such an answer the cost records are booked at their cost; a failed call with no
+cost is booked at the largest reservation it held (nothing when it held none), and a record that
+cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
+and through `submit_run`.
+
+The view. `read_run` shows each cap and what is used so far as `settings` members: `max_wall_seconds`,
+`max_llm_calls` and `cap_micro_usd`, and `used_wall_seconds`, `used_llm_calls` and
+`spent_micro_usd`. A running run shows its use live; an ended run shows its last. The use is kept in
+`runs/<run id>/caps-used.json`. `spent_micro_usd` is the spend of this run; the ledger holds the entries
+of every run of the runbook, each under its run id.
+
+What is not done. The stub runtime takes no caps. A run is not taken up again after a restart
+(`docs/engine.md`, "Cancel and recover"), so the use a restart would carry over is kept and not yet read
+by a live run.
 
 ## Stopping the daemon
 

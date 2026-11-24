@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.StepInFlight.schema.json",
+  "$ref": "#/$defs/sdc.daemon.StepInFlight",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:069af64c559ce03c58ae9d3d9abe8c168448841f0368202f9a04800556ec7882",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.StepInFlight": {
+      "title": "StepInFlight",
+      "description": "The step of a run whose program is running now: the action the bindings bind to the program, the case it runs for and when it started, the start the event `runbook.action-started` recorded. `seconds` is the time since `started_at` by the daemon's clock, read when the view is read.",
+      "x-ess-name": "sdc.daemon.StepInFlight",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The action whose program (or `handoff_when` check) runs; absent when no single action of the runbook's bindings binds the program.",
+          "type": "string"
+        },
+        "case_id": {
+          "description": "The case the program runs for; absent when the runtime names none.",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "The `at` of the event `runbook.action-started` of this step.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "seconds": {
+          "description": "Whole seconds from started_at to the moment the view is read, 0 or more.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "started_at",
+        "seconds"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

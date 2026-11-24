@@ -5,8 +5,8 @@
 //! over the fixture runbook of `engine.rs` (a writer program that sleeps the seconds of `pause.txt` in the
 //! context, then a person step). No model call, no network beyond loopback.
 
-use super::http::{send, Resp};
-use super::state::scratch;
+use super::http::{send, try_send, Resp};
+use super::state::{journal_facts, scratch};
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -84,7 +84,9 @@ impl Serve {
     /// `closed_stderr`: standard error is a pipe whose reader is gone once the daemon listens (a `| tee` that ended).
     fn launch_with(dir: PathBuf, extra: &[&str], closed_stderr: bool) -> Serve {
         let mut cmd = Command::new(BIN);
+        crate::isolate(&mut cmd);
         cmd.args(["serve", "--principal", super::PRINCIPAL, "--runtime", "loom", "--min-confinement", "local", "--mcp", "--listen", "127.0.0.1:0"])
+            .args(["--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"])
             .arg("--runbook-home")
             .arg(dir.join("home"))
             .arg("--context-root")
@@ -133,7 +135,7 @@ impl Serve {
     }
 
     fn journal(&self) -> Vec<Value> {
-        std::fs::read_to_string(self.dir.join("state/journal.jsonl")).unwrap_or_default().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+        journal_facts(&self.dir.join("state"))
     }
 
     fn facts(&self, name: &str) -> Vec<Value> {
@@ -188,8 +190,17 @@ impl Serve {
         self.facts("run_ended").into_iter().find(|f| f["run_id"] == run).map(|f| f["outcome"].as_str().unwrap().to_string())
     }
 
-    fn serving(&self) -> bool {
-        std::net::TcpStream::connect(self.addr).is_ok()
+    /// One request to a daemon that leaves when its last run ends. `None`: no answer came, and the journal
+    /// already holds `daemon.drained`, so the daemon had finished its drain and closed its listener. No
+    /// answer from a daemon that had not drained is a defect and fails the case.
+    fn ask(&self, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Option<Resp> {
+        match try_send(self.addr, method, path, headers, body) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                assert!(!self.facts("daemon.drained").is_empty(), "no answer from a daemon that had not drained: {e}: {}", self.stderr());
+                None
+            }
+        }
     }
 
     fn settle(&self, run: &str) -> String {
@@ -203,21 +214,25 @@ impl Serve {
             if runs.iter().all(|r| self.outcome_of(r).is_some()) {
                 return true;
             }
-            if !self.serving() {
-                return false;
-            }
             for run in runs {
                 if self.outcome_of(run).is_some() {
                     continue;
                 }
-                for d in self.rows("open-decisions", &format!("run_id={run}")) {
+                let Some(open) = self.ask("GET", &format!("/daemon/views/open-decisions?run_id={run}"), &[], None) else {
+                    return false;
+                };
+                assert_eq!(open.status, 200, "open-decisions: {}", open.text());
+                for d in open.json()["rows"].as_array().unwrap() {
                     let id = d["request_id"].as_str().unwrap().to_string();
                     if !answered.insert(id.clone()) {
                         continue;
                     }
                     let review = d["options"].as_array().unwrap().iter().any(|o| o["answer"].as_str().is_some_and(|a| a.contains("result")));
                     let answer = if review { "performed" } else { "approve" };
-                    let r = self.post("answer-decision", &json!({"run_id": run, "request_id": id, "answer": answer, "answered_by": "tester"}));
+                    let body = json!({"run_id": run, "request_id": id, "answer": answer, "answered_by": "tester"}).to_string();
+                    let Some(r) = self.ask("POST", "/daemon/commands/answer-decision", &[JSON], Some(body.as_bytes())) else {
+                        return false;
+                    };
                     assert_eq!(r.status, 202, "{}", r.text());
                 }
             }
@@ -372,7 +387,7 @@ fn a_drain_bound_ends_a_drain_that_does_not_finish_and_the_run_is_orphaned_as_st
 
 #[test]
 fn the_serve_option_names_the_bound_in_seconds() {
-    let out = Command::new(BIN).args(["serve", "--help"]).output().unwrap();
+    let out = crate::isolate(Command::new(BIN).args(["serve", "--help"])).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("--drain-seconds <SECONDS>"), "{text}");
 }
@@ -738,8 +753,7 @@ fn a_stop_that_panics_orphans_the_live_runs_as_stopped_and_reports_that_it_faile
     let end = rt.block_on(runbook::serve::guarded_stop(fx.d(), async { panic!("the stop future failed") }));
     assert_eq!((end.orphaned, end.failed), (1, true), "{end:?}");
     assert_eq!(fx.state_of(&run), "Ended");
-    let journal = std::fs::read_to_string(fx.dir.join("state/journal.jsonl")).unwrap();
-    let facts: Vec<Value> = journal.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let facts = journal_facts(&fx.dir.join("state"));
     let reasons: Vec<&str> = facts.iter().filter(|f| f["fact"] == "event_recorded" && f["kind"] == "runbook.run-orphaned").map(|f| f["record"]["reason"].as_str().unwrap()).collect();
     assert_eq!(reasons, vec![STOPPED]);
 

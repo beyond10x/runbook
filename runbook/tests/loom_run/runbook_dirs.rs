@@ -263,7 +263,7 @@ fn check_and_doctor_work_on_a_runbook_of_a_configured_directory() {
 #[test]
 fn serve_refuses_two_directories_with_one_name_before_it_listens() {
     let (rig, dirs) = setup("serve", &["books/a", "books/b"]);
-    let o = rig.run(&rig.root, &["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local"]);
+    let o = rig.run(&rig.root, &["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"]);
     assert_eq!(code(&o), 1, "{}", out(&o));
     assert!(err(&o).contains(dirs[0].to_str().unwrap()) && err(&o).contains(dirs[1].to_str().unwrap()), "{}", err(&o));
     assert!(!out(&o).contains("listening"), "{}", out(&o));

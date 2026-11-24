@@ -116,6 +116,10 @@ pub struct HidingSink<'a> {
 }
 
 impl EventSink for HidingSink<'_> {
+    fn steps(&self) -> Option<std::sync::Arc<dyn crate::runtime::StartTarget>> {
+        self.inner.steps()
+    }
+
     fn started(&self) {
         self.inner.started()
     }
@@ -168,7 +172,45 @@ mod tests {
         answers: std::sync::Mutex<Vec<(String, String, String, String)>>,
     }
 
+    #[derive(Default)]
+    struct Steps(std::sync::Mutex<Vec<u64>>);
+
+    impl crate::runtime::StartTarget for Steps {
+        fn started(&self, start: &crate::runtime::Started) {
+            self.0.lock().unwrap().push(start.serial);
+        }
+    }
+
+    struct Taking(std::sync::Arc<Steps>);
+
+    impl EventSink for Taking {
+        fn steps(&self) -> Option<std::sync::Arc<dyn crate::runtime::StartTarget>> {
+            Some(self.0.clone())
+        }
+        fn started(&self) {}
+        fn record(&self, _kind: &str, _record: Value) {}
+        fn decision_requested(&self, _request: DecisionRequest) {}
+        fn decision_answered(&self, _request_id: &str, _answer: &str, _by: &str, _principal: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn the_hiding_sink_hands_on_the_report_of_a_step_and_has_none_where_the_sink_has_none() {
+        let hide = Hide::new(&[&PathBuf::from("/s/runs/r1")]);
+        let steps = std::sync::Arc::new(Steps::default());
+        let taking = Taking(steps.clone());
+        let target = HidingSink { inner: &taking, hide: &hide }.steps().expect("a sink that takes step reports keeps taking them through the hiding sink");
+        target.started(&crate::runtime::Started { serial: 7, role: "program", case: None, action: None, try_number: None });
+        assert_eq!(*steps.0.lock().unwrap(), vec![7]);
+        assert!(HidingSink { inner: &Catch::default(), hide: &hide }.steps().is_none());
+    }
+
     impl EventSink for Catch {
+        fn steps(&self) -> Option<std::sync::Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
         fn started(&self) {}
         fn record(&self, kind: &str, record: Value) {
             self.records.lock().unwrap().push((kind.to_string(), record));

@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:d175971ffb7dbbf276487830cbae3451e02b35689dcfc08f990e5c1e91eb5ff1",
+    "contract_digest": "slice-sha256/2:e27a56e8f7787c791ec87eae6dbcb1c783e53bfb06fc09d111fb8318abebfe3d",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventKind": {
       "title": "EventKind",
-      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime's own kinds.",
+      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds.",
       "x-ess-name": "sdc.daemon.EventKind",
       "x-ess-kind": "newtype",
       "type": "string"

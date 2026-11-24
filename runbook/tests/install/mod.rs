@@ -249,7 +249,7 @@ pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
 
 /// The same command with the build of the checkout.
 pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
-    with_toolchain(Command::new(BIN).args(args).env_clear()).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    with_toolchain(crate::isolate(Command::new(BIN).args(args).env_clear())).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 fn copy_tree(from: &Path, to: &Path) {

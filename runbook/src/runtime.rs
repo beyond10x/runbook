@@ -5,6 +5,7 @@
 //! between steps. The daemon runs each run on its own plain thread. Loom replaces the stub of
 //! `stub.rs` by implementing this trait; the daemon, its commands and its API do not change.
 
+use crate::caps::{Caps, Usage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -152,8 +153,38 @@ pub struct DecisionRequest {
     pub options: Vec<Value>,
 }
 
+/// A program of a run that is about to start (or has ended): what the runtime knows of it before
+/// the program runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Started {
+    /// Counts the programs of one run, from 1: a start and its end carry the same number.
+    pub serial: u64,
+    /// `program` for the program of an action, `check` for its `handoff_when` check.
+    pub role: &'static str,
+    /// The case the program runs for (Loom's `LOOM_CASE` of the child), when the child has one.
+    pub case: Option<String>,
+    /// The action the bindings bind to the program, when exactly one does.
+    pub action: Option<String>,
+    /// The nth start of this action in this case, for the program of an action.
+    pub try_number: Option<u64>,
+}
+
+/// Where the runtime tells that a bound program is about to start and that it ended, on the thread
+/// that starts the program.
+pub trait StartTarget: Send + Sync {
+    /// Called before the program starts.
+    fn started(&self, start: &Started);
+    /// Called after the program ended, however it ended.
+    fn ended(&self, _start: &Started) {}
+}
+
 /// What the runtime reports while a run goes. Called on the run's thread, from inside `start`.
 pub trait EventSink: Send + Sync {
+    /// Where the runtime tells the start and the end of each bound program; none when the sink
+    /// takes no such report (the stub runs no program). There is no default: a sink that wraps
+    /// another forwards it, and one that takes no report says `None`.
+    fn steps(&self) -> Option<std::sync::Arc<dyn StartTarget>>;
+
     /// The runtime took the run up.
     fn started(&self);
     /// One run-log line: its kind and the record, unchanged.
@@ -227,4 +258,23 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// Ask the run to stop (the daemon has also set the run's cancel flag).
     fn cancel(&self, run_id: &str);
+
+    /// The caps a run submitted with these `settings` has, or why they are refused (a cap over the
+    /// runtime's ceiling). `None`: this runtime runs nothing that a cap bounds (the stub). Asked at
+    /// submit, before anything is written.
+    fn resolve_caps(&self, _settings: &BTreeMap<String, String>) -> Result<Option<Caps>, String> {
+        Ok(None)
+    }
+
+    /// What the run has used so far, when the runtime counts it.
+    fn usage(&self, _run_id: &str) -> Option<Usage> {
+        None
+    }
+
+    /// Why a run of the runbook is refused at load, when it is (the engine: a per-call budget that is
+    /// no number of USD, or programs that could call a model with no budget anywhere). Asked at
+    /// submit, before anything is written; the reason names no path.
+    fn check_runbook(&self, _runbook: &str, _version: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
 }

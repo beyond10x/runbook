@@ -18,6 +18,9 @@ pub enum Seen {
 pub struct Recorder(pub Arc<Mutex<Vec<Seen>>>);
 
 impl EventSink for Recorder {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
+        None
+    }
     fn started(&self) {
         self.0.lock().unwrap().push(Seen::Started);
     }
@@ -199,6 +202,9 @@ fn a_cancel_ends_a_run_that_waits_on_a_decision() {
 struct Keep(Arc<Mutex<Vec<DecisionRequest>>>);
 
 impl EventSink for Keep {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
+        None
+    }
     fn started(&self) {}
     fn record(&self, _: &str, _: Value) {}
     fn decision_requested(&self, request: DecisionRequest) {
