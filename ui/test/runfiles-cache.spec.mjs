@@ -2,7 +2,8 @@
 // run-path check. In-process, over invented files; no server, no network.
 //   - the memory it holds stays under the one named bound (CACHE_BOUND): entries and their overhead count, a text with a
 //     character above U+00FF counts two bytes per character, the least recently used entry goes first, a file over the
-//     per-file cap is not kept;
+//     per-file cap is not kept; the run's path counts in the cost; an entry that cannot fit is not kept and flushes no other;
+//     a file reached through a link that stays in the run is a hit, for its own run only;
 //   - an entry whose file is gone, refused or changed leaves when it is seen;
 //   - a path that was read and then becomes a link out, a second name, a directory, a pipe or is gone is refused, whatever
 //     the cache holds; a limit smaller than the file never returns more than it; a file that grew is not served cut;
@@ -14,7 +15,7 @@ import path from 'node:path';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import {fixtureRoot, put} from './security-products-lib.mjs';
-import {registerRun, readText, readJson, readCount, servedUnder, CACHE_BOUND, cacheStats, cacheClear} from '../runfiles.mjs';
+import {registerRun, readText, readJson, readCount, runPath, exists, servedUnder, CACHE_BOUND, cacheStats, cacheClear} from '../runfiles.mjs';
 
 const root = fixtureRoot('runfiles-cache');
 const MiB = 1048576;
@@ -263,4 +264,70 @@ test('static-root-has-a-separator: a sibling directory whose name starts with th
     expect(servedUnder(web, rel), rel).toBeNull();
   }
   expect(fs.existsSync(path.join(dir, 'web-extra', 'secret.txt'))).toBe(true);
+});
+
+// ---- what an entry costs, what it is kept for -------------------------------------------------------------------------
+test('cache-cost-counts-the-run-path: an entry under a run with a long path costs at least its three long strings', () => {
+  test.setTimeout(60000);
+  let dir = fresh('longrun');
+  for (let i = 0; i < 8; i++) dir = path.join(dir, 'd'.repeat(200));
+  fs.mkdirSync(dir, {recursive: true});
+  const f = path.join(dir, 'x.json');
+  fs.writeFileSync(f, '{"x":1}');
+  expect(f.length, 'a path the file system takes').toBeLessThan(4000);
+  expect(readText(f, dir)).toBe('{"x":1}');
+  expect(cacheStats().held, 'the key, the run and the real path are three strings of this length in memory').toBeGreaterThanOrEqual(3 * dir.length);
+});
+
+test('cache-oversize-entry-keeps-the-others: an entry that cannot fit under the bound is not kept and does not flush the cache', () => {
+  test.setTimeout(60000);
+  const dir = fresh('oversize');
+  for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dir, `s${i}.json`), `{"i":${i}}`);
+  for (let i = 0; i < 5; i++) readText(path.join(dir, `s${i}.json`));
+  expect(cacheStats().entries).toBe(5);
+  // 8 MiB of ASCII less three bytes and one euro sign: under the file cap, 16 MiB as a text in memory, past the bound
+  fs.writeFileSync(path.join(dir, 'huge.txt'), 'a'.repeat(8 * MiB - 3) + '€');
+  expect(readText(path.join(dir, 'huge.txt'))?.length).toBe(8 * MiB - 2);
+  expect(cacheStats().entries, 'the huge text is not kept and the small entries stay').toBe(5);
+});
+
+test('cache-hit-for-a-link-inside-the-run: a file reached through a link that stays in the run is read once, then answered from the cache', () => {
+  test.setTimeout(60000);
+  const dir = fresh('inlink');
+  fs.writeFileSync(path.join(dir, 'real.json'), '{"x":1}');
+  fs.symlinkSync('real.json', path.join(dir, 'alias.json'));
+  const f = path.join(dir, 'alias.json');
+  readCount.on = true;
+  try {
+    const n0 = readCount.total;
+    expect(readText(f, dir)).toBe('{"x":1}');
+    expect(readCount.total).toBe(n0 + 1);
+    expect(readText(f, dir)).toBe('{"x":1}');
+    expect(readCount.total, 'the second read is a hit: no read').toBe(n0 + 1);
+  } finally { readCount.on = false; }
+});
+
+test('cache-hit-is-for-its-run: the same path read for another run is read again, through the check of that run', () => {
+  test.setTimeout(60000);
+  const dir = fresh('perrun');
+  fs.mkdirSync(path.join(dir, 'sub'), {recursive: true});
+  const f = path.join(dir, 'sub', 'x.json');
+  fs.writeFileSync(f, '{"x":1}');
+  readCount.on = true;
+  try {
+    const n0 = readCount.total;
+    readText(f, dir);
+    expect(readCount.total).toBe(n0 + 1);
+    readText(f, dir);
+    expect(readCount.total, 'a hit reads nothing').toBe(n0 + 1);
+    readText(f, path.join(dir, 'sub'));
+    expect(readCount.total, 'another run (the directory below): read again').toBe(n0 + 2);
+  } finally { readCount.on = false; }
+});
+
+test('runpath-of-the-filesystem-root: a path that is the root of the file system belongs to no run', () => {
+  fresh('rootcheck');
+  expect(runPath('/')).toBeNull();
+  expect(exists('/')).toBe(false);
+  expect(runPath('/etc/hostname')).toBeNull();
 });
