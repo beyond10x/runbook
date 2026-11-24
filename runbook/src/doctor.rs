@@ -596,7 +596,7 @@ mod tests {
             path: None,
             ceiling: Some(t.path().to_path_buf()),
         };
-        let r = run(&l, &|_| None, None);
+        let r = run(&l, &|_| None, None, None);
         assert!(!r.ok(), "the doctor of a stopped install fails");
         assert!(r.assets.is_none(), "{:?}", r.assets);
         let install = r.checks.iter().find(|c| c.name == "install").unwrap();
@@ -615,7 +615,7 @@ mod tests {
             assets.detail
         );
         std::fs::remove_file(t.path().join("prefix/share/runbook/INSTALLING")).unwrap();
-        let r = run(&l, &|_| None, None);
+        let r = run(&l, &|_| None, None, None);
         let install = r.checks.iter().find(|c| c.name == "install").unwrap();
         assert!(
             !install.found && install.detail.contains("VERSION"),

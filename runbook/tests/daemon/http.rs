@@ -633,7 +633,7 @@ fn without_a_state_dir_the_record_is_under_xdg_state_home_runbook() {
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let mut p = Proc { child: cmd.spawn().unwrap() };
     let addr = bound(&first_line(&mut p));
-    let body = json!({"runbook_id": "sdc", "intake": "hello"}).to_string();
+    let body = json!({"runbook_id": "sdc", "intake": "hello", "confinement": "linux"}).to_string();
     let r = send(addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
     let run = run_of(&r);
     let root = dir.join("xdg/runbook");
@@ -674,7 +674,7 @@ fn serve_prints_the_bound_address_keeps_running_and_checks_the_token_of_the_file
     let mut p = Proc { child: { let mut c = cmd; c.spawn().unwrap() } };
     let addr = bound(&first_line(&mut p));
     assert_eq!(send(addr, "GET", "/daemon/views/runs", &[], None).status, 200);
-    let submit = send(addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(json!({"runbook_id": "sdc", "intake": "hello"}).to_string().as_bytes()));
+    let submit = send(addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(json!({"runbook_id": "sdc", "intake": "hello", "confinement": "linux"}).to_string().as_bytes()));
     assert_eq!((submit.status, submit.json()["outcome"].clone()), (202, json!("submitted")));
     let mut second = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
     second.arg("serve").args(["--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir2.join("state")).args(["--listen", "127.0.0.1:0"]);
