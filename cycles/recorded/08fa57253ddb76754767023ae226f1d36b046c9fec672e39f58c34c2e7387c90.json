@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "   Compiling billing v0.1.0 ({dir})\n    Finished `test` profile [unoptimized] target(s) in 0.00s\n     Running unittests src/lib.rs (target/debug/deps/billing-c1c9d0e93e221000)\n     Running tests/billing.rs (target/debug/deps/billing-702a5ef7d6fc76cd)\n   Doc-tests billing\n",
+  "stdout": "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 5 tests\ntest create_invoice ... ok\ntest issue_invoice ... ok\ntest send_email ... ok\ntest cancel_invoice ... ok\ntest pay_invoice ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+}

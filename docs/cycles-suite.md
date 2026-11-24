@@ -101,6 +101,37 @@ The seeds are in `cycles/seeds/stub/`: `settings/<name>.yaml` and `replies/<name
 per cycle (`{from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}`). They are written by
 hand from the old entries; no recording of a model call is a seed.
 
+### Recorded build and test results
+
+A cycle builds nothing. The build and test commands of the bound programs (`cargo test` of
+`tests.run`'s implementation gate in `sdc-tool.sh`, the `repro`, `test` and `gate` commands of
+`sdc-bugfix`) start through `slot`, and the `slot` first on the PATH that `task test:cycles-loom`
+gives `runbook test` (and Loom gives every bound program) is `sdc-recorded-pool`
+(`driver/src/bin/sdc-recorded-pool.rs`, linked as `driver/target/cycles-pool/slot`). It answers a
+command from `cycles/recorded/<digest>.json` (`sdc.recorded-pool/1`: argv, exit, stdout, stderr),
+where the digest is the sha256 of the command's argv and of the tree it runs in (every file's path,
+kind and bytes; `target/` left out), so a changed fixture, seed or stub writer misses instead of
+reading an old result. A miss is a program error (exit 127) whose one line, on the program's output
+in the store, starts `error: recorded pool: no recording <digest>`.
+
+Why: a cycle's work directory is under `$XDG_RUNTIME_DIR`, which the build pool does not sync to the
+build node (`slot shell: refused: rsync path ... is outside ...`), a build on this host outside the
+pool is not allowed, and a build through the node from a tree it syncs took 13.5 s for one
+`cargo test` of the fixture crate (8 s of it waiting for a slot), against Loom's 60 s bound per
+cycle. Until 2026-11-24 the suite's programs built through the pool on this host; the host's `slot`
+on an agent's PATH then became a wrapper that reads `HOME`, which Loom does not give a program, and
+every such command ended exit 127 (`/.local/bin/slot: No such file or directory`).
+
+`task test:cycles-record` writes the recordings: the same run with the link in
+`driver/target/cycles-record/`, beside a file `record`, so a command with no recording runs through
+the next `slot` on PATH (with the user's HOME), in a copy of its tree under `target/cycles-recording/`,
+and its output is written with slot's own lines dropped, durations written `in 0.00s` and the
+copy's paths written `{dir}` and `{target}`; a recording that would name the home directory is not
+written. Run it after a change to a tree a cycle builds and commit the new files. A cycle that
+records several commands can end on Loom's 60 s bound; run the lane again, a recorded command takes
+no time the second time. A recording no cycle reads any more is not found by a check: delete
+`cycles/recorded/` and record again to drop them.
+
 ### Totals and time
 
 132 entries (the 130 of the deleted suite, `spec-person-wait` and `bugfix-spec-refused`): 41 converted, 15 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
@@ -144,6 +175,12 @@ pending`; the ten slowest cycles took 51.6 s (`implement-request-path-escape`), 
 (`writer-sees-test-failure`), 37.3 s (`spec-own-default`), 35.4, 34.5, 34.5, 33.2, 33.0, 32.3 and 30.4 s,
 so the scripted-reply cycles come within 8 s of Loom's 60 s bound. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
 cycles would have to share an opened tree (the format has no member for it).
+With the build and test commands answered from `cycles/recorded/` (2026-11-24, Loom `d8944d49`), the whole
+file (55 cycles) took 346 s wall at a one-minute load of 3 to 6 and ended `40 of 40 as expected, 15 pending`;
+the slowest cycle took 11.8 s (`superseded-answer`) and `bugfix-full` 2.2 s. The run of
+`task test:cycles-record` that wrote the 27 recordings took 477 s, its slowest cycle `bugfix-full` 40.6 s
+(nine pool jobs on the build node). `implement-percause`, `decider-rework-spent` and `rework-fresh-allowance`
+printed `pending, passing` in both runs; they keep `pending` until runs on more than one host load show it.
 
 ### Entries a Rust test of the runner holds (class d) and the ones that wait for the engine
 

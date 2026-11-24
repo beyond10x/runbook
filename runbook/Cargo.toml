@@ -1,6 +1,6 @@
 [package]
 name = "runbook"
-version = "0.9.3"
+version = "0.10.0"
 edition = "2021"
 publish = false
 
@@ -29,5 +29,8 @@ b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
 
 [dev-dependencies]
 b10x-loom-bindings = { git = "https://github.com/beyond10x/loom", rev = "d8944d49254253ef869ded8d6668d1b18f463c0c" }
+
+[profile.dev.package."*"]
+opt-level = 1
 
 [workspace]

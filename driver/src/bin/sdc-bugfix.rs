@@ -113,6 +113,12 @@ fn main() -> ExitCode {
             // at its run limit (docs/driver.md, "The build pool wait").
             ExitCode::from(if e.starts_with(POOL_WAIT) {
                 POOL_WAIT_EXIT
+            } else if let Some(rest) = e.strip_prefix(NOT_RUN) {
+                if rest.starts_with("exit 126") {
+                    126
+                } else {
+                    127
+                }
             } else if e.starts_with(POOL_OVER) {
                 OVER_TIME_EXIT
             } else if e.contains("not on PATH") {
@@ -1784,8 +1790,18 @@ fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
         }
     };
     let out = fs::read_to_string(&log).unwrap_or_default();
+    // Through the pool, 127 and 126 are the shell's "not found" and "cannot run": the pool, or what
+    // it ran, could not run the command, so the exit says nothing about the code.
+    if pooled && (code == 126 || code == 127) {
+        let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        return Err(format!("{NOT_RUN}exit {code}: `{}` did not run through slot: {last}", argv.join(" ")));
+    }
     Ok((code, out))
 }
+
+/// The start of the error of a pool job that exited 126 or 127: `not run: exit <code>: ...`; the
+/// step exits with that code, a program error.
+const NOT_RUN: &str = "not run: ";
 
 /// `slot` exits so when the pool ended a started job at its run limit (slot 0.22).
 const POOL_KILL: i32 = 124;

@@ -10,6 +10,7 @@ import {playFixture} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {writeProductsRun, viewWith, REPORT_MD, TOKEN_TEXT} from './products-fixture.mjs';
@@ -17,7 +18,7 @@ import {writeProductsRun, viewWith, REPORT_MD, TOKEN_TEXT} from './products-fixt
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = process.env.SDC_UI_SHOTS || path.join(ui, 'screenshots');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'step-products-page');
+const root = path.join(FIXTURE_DIR, 'step-products-page');
 const NR = 'not recorded by this run';
 let srv, srv2, srv3, base, base2, base3;
 

@@ -688,10 +688,8 @@ fn stdio_sends_the_token_it_reads_from_the_environment_and_never_has_it_in_argv(
 
 #[test]
 fn stdio_with_the_daemon_gone_is_a_tool_error_that_does_not_carry_the_token() {
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    // Held for the case: nothing listens there and no other server is handed the port.
+    let (_held, port) = super::http::refusing_port();
     let url = format!("http://127.0.0.1:{port}");
     let mut c = Stdio1::spawn(&["--daemon", &url], &[("RUNBOOK_TOKEN", "s3cret-token")]);
     c.initialize();

@@ -118,7 +118,9 @@ an artifact: `tree/` (a copy of `impl/`) or `base/` (a copy of the base, `bug.ya
 `mainline/`). It goes through `slot` when slot is on PATH (the wait for a slot is bounded, `--pool-wait`; no slot in time is exit 69 and a job the pool ends at its run limit exit 70, both program errors: `docs/driver.md`, "The build pool wait"), with `checks.yaml` `env` and
 `CARGO_TARGET_DIR=.sdc/bugfix/target`. A program that is not on PATH (or, for a program with a
 `/`, not a file of the tree) exits 127 and an unusable `checks.yaml` 126: program errors, which
-a run never records as a check result. Two kinds of run:
+a run never records as a check result. So does a command whose pool job exits 127 or 126 (the pool,
+or what it ran, could not find or start it): the step exits with that code and a line that names
+the command, `not run: exit <code>: ...`. Two kinds of run:
 
 - the whole suite, `checks.yaml` `test` (Rust: `cargo test --offline --no-fail-fast`);
 - the reproducing test alone, `checks.yaml` `repro` (Rust: `cargo test --offline --test {stem} --

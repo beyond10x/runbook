@@ -428,7 +428,8 @@ fn runs_events_resumes_with_last_event_id_after_a_dropped_connection_and_prints_
 #[test]
 fn a_connection_that_cannot_be_made_exits_69() {
     let dir = super::state::scratch("cc-refused");
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    // Held for the case: nothing listens there and no other server is handed the port.
+    let (_held, port) = super::http::refusing_port();
     let o = cli_in(&dir, &["runs", "list", "--daemon", &format!("http://127.0.0.1:{port}")], &[], None);
     assert_eq!(code(&o), exit::UNREACHABLE as i32);
     assert!(err(&o).contains("connection refused"), "{}", err(&o));

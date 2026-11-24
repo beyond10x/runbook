@@ -204,9 +204,15 @@ external outcome is what they are for.
 
 `sdc-conform-adapter` speaks `ess-conformance-target/1` (ESS `docs/design/conformance-target-process.md`
 at tag `0.97.0`). Each scenario gets a fresh product process from `start.argv`, run in the tree
-copy, on a free port on 127.0.0.1, with an empty data directory and no environment but `PATH`,
+copy, on a port of 127.0.0.1 that the adapter holds, with an empty data directory and no environment but `PATH`,
 `LANG`, `HOST`, `PORT`, and `HOME` and `TMPDIR` set to the scenario's directory; `end_scenario`
-kills its process group. The product's stdout and stderr go to the scenario's `product.log`; each
+kills its process group. The adapter holds the port with a socket bound with `SO_REUSEADDR` that
+never listens, until the product ends: the kernel gives the port to no other process that asks for
+one, so no other server takes it before the product binds it or answers on it while the product
+starts (a port freed and handed on was taken so in about one of two runs of the driver's 58
+conformance cases). The product binds it as a server that sets `SO_REUSEADDR` does; a product that
+cannot (its log says "address already in use") is started once more on a port that is not held
+(logged `port_not_held`). The product's stdout and stderr go to the scenario's `product.log`; each
 capture is read from them within its `timeout_s` of the start. When its stream ended without the
 value, what the product does within the same `timeout_s` decides: it exits (the run is `product_not_started`),
 it answers `start.ready` (the capture is the table's fault: "the product closed <stream> without printing it" when

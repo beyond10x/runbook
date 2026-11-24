@@ -7,11 +7,12 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeProductsRun} from './products-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'markdown-bounds');
+const root = path.join(FIXTURE_DIR, 'markdown-bounds');
 let srv, base;
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, one viewport'));
 test.afterAll(() => srv?.kill());

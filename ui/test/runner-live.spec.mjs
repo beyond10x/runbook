@@ -16,6 +16,7 @@ import {once} from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, EXAMPLE_VIEW} from './loom-run-fixture.mjs';
 import {writeLiveRun, startTicks} from './runner-fixture.mjs';
@@ -23,7 +24,7 @@ import * as Live from '../runnerlive.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'runner-live');
+const root = path.join(FIXTURE_DIR, 'runner-live');
 const runs = path.join(root, 'runs');
 const outside = path.join(root, 'outside');
 let srv, base, sources, gonePid;

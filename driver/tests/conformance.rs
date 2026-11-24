@@ -969,11 +969,15 @@ fn alive(pid: &str) -> bool {
 
 /// The product of a killed adapter does not stay: its parent (a shell here, standing for the
 /// adapter) is killed with SIGKILL, so no destructor runs, and the stub must be gone within 5 s.
+/// The stub's port is held until the case ends, as the adapter holds it: a port freed and handed on
+/// was bound by another case's product first in one of 50 runs of these modules ("the stub did not
+/// start", `AddrInUse`).
 #[test]
 fn the_stub_product_ends_when_its_parent_is_killed() {
     use std::io::{BufRead, BufReader};
     let dir = tmp("orphan-stub");
-    let port = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port().to_string();
+    let (_held, port) = super::capture_fate::held_port();
+    let port = port.to_string();
     let mut parent = Command::new("sh")
         .args(["-c", "\"$0\" \"$@\" & echo $!; wait"]).arg(stub()).args([port.as_str(), dir.to_str().unwrap(), "ok"])
         .stdout(std::process::Stdio::piped()).spawn().unwrap();

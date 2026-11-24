@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline"
+  ],
+  "exit": 101,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "    Blocking waiting for file lock on package cache\n    Blocking waiting for file lock on package cache\n   Compiling billing v0.1.0 ({dir})\n    Finished `test` profile [unoptimized] target(s) in 0.00s\n     Running unittests src/lib.rs (target/debug/deps/billing-c1c9d0e93e221000)\n     Running tests/billing.rs (target/debug/deps/billing-702a5ef7d6fc76cd)\nerror: test failed, to rerun pass `--test billing`\n",
+  "stdout": "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 46 tests\ntest a_second_email_is_counted ... FAILED\ntest cancel_invoice ... ok\ntest create_invoice ... ok\ntest issue_invoice ... ok\ntest p01 ... ok\ntest p02 ... ok\ntest p03 ... ok\ntest p04 ... ok\ntest p05 ... ok\ntest p06 ... ok\ntest p07 ... ok\ntest p08 ... ok\ntest p09 ... ok\ntest p10 ... ok\ntest p11 ... ok\ntest p12 ... ok\ntest p13 ... ok\ntest p14 ... ok\ntest p15 ... ok\ntest p16 ... ok\ntest p17 ... ok\ntest p18 ... ok\ntest p19 ... ok\ntest p20 ... ok\ntest p21 ... ok\ntest p22 ... ok\ntest p23 ... ok\ntest p24 ... ok\ntest p25 ... ok\ntest p26 ... ok\ntest p27 ... ok\ntest p28 ... ok\ntest p29 ... ok\ntest p30 ... ok\ntest p31 ... ok\ntest p32 ... ok\ntest p33 ... ok\ntest p34 ... ok\ntest p35 ... ok\ntest p36 ... ok\ntest p37 ... ok\ntest p38 ... ok\ntest p39 ... ok\ntest p40 ... ok\ntest pay_invoice ... ok\ntest send_email ... ok\n\nfailures:\n\n---- a_second_email_is_counted stdout ----\n\nthread 'a_second_email_is_counted' (1025749) panicked at tests/billing.rs:52:5:\nassertion `left == right` failed: fixture-failure: the second email of an account counts 2\n  left: 2\n right: 1\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    a_second_email_is_counted\n\ntest result: FAILED. 45 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+}

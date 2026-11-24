@@ -1,6 +1,6 @@
 // The run picker (decision D-009): a button in the header in place of the store select, a panel with a
 // search field and the runs, most recent first, each row saying what the run is. Six runs played by
-// test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/picker, then
+// test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default ui/target/fixture-runs)/picker, then
 // given what a real run leaves behind:
 //   live-a    a run directory with settings.json and no end record: live state unknown, decider Opus, work Sonnet
 //   done-ok   closed, delivered (status.json, with reopens and forced), cost and calls recorded
@@ -17,6 +17,7 @@ import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {phone} from '../ux/adapter.mjs';
@@ -26,7 +27,7 @@ import {axeViolations} from '../ux/core/contract.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
-const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'picker');
+const runs = path.join(FIXTURE_DIR, 'picker');
 let base;
 const T0 = Date.now() - 50 * 60000;
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');

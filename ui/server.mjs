@@ -45,11 +45,17 @@ const expDirs = [];
 // checkout is loaded. A run is shown with the first view that covers its protocols; --no-view loads none.
 const viewFiles = [];
 let noView = false;
-// --count-reads (test option): counts the reads of run files and the rounds, and answers them at GET /api/reads; without it the route is not there
+// --count-reads (test option): counts the reads of run files and the rounds, and answers them at GET /api/reads; without it the route is not there.
+// With it GET /api/rounds says whether the timer of the rounds runs and how many pages hold a stream, so a test waits for a page's
+// drop and the stop of the rounds as a state, not as a time in which a counter stood still.
 let countReads = false;
+// --round-ms N (test option): the time from one round to the next, 700 ms without it (a whole number of 10 to 700). A test
+// that waits for rounds counts them on a faster clock; what a round reads and sends is the same.
+let roundMs = 700;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
   else if (args[i] === '--count-reads') countReads = readCount.on = true;
+  else if (args[i] === '--round-ms') roundMs = Number(args[++i]);
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
@@ -58,6 +64,7 @@ for (let i = 0; i < args.length; i++) {
   else paths.push(path.resolve(args[i]));
 }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
+if (!(Number.isInteger(roundMs) && roundMs >= 10 && roundMs <= 700)) { console.error(`--round-ms: a whole number of 10 to 700 milliseconds`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
 if (noView && viewFiles.length) { console.error('--view and --no-view exclude each other'); process.exit(2); }
 if (!viewFiles.length && !noView) {
@@ -963,7 +970,7 @@ function tick() {
   if (stateChanged) push('sources', {count: sources.length});
 }
 let roundTimer = null;
-const startRounds = () => { if (!CLOCK && !roundTimer) roundTimer = setInterval(tick, 700); };
+const startRounds = () => { if (!CLOCK && !roundTimer) roundTimer = setInterval(tick, roundMs); };
 const stopRounds = () => { if (roundTimer && !clients.size) { clearInterval(roundTimer); roundTimer = null; } };
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};
@@ -996,7 +1003,7 @@ function addressedToThisServer(req) {
 }
 
 // routes that read no run of their own: /api/sources brings each run up to date itself
-const NO_REFRESH = new Set(['/api/sources', '/api/clock', '/api/meta', '/api/reads']);
+const NO_REFRESH = new Set(['/api/sources', '/api/clock', '/api/meta', '/api/reads', '/api/rounds']);
 // The one guard of every request: a value a request carries (the request line, a header, a query) that makes
 // the code throw ends in an answer, never in the end of the process.
 const server = http.createServer((req, res) => {
@@ -1045,6 +1052,7 @@ function handle(req, res, url) {
     for (const [dir, n] of readCount.byRun) { const name = sources.find((s) => within(dir, runDirOf(s)))?.name ?? 'other'; byRun[name] = (byRun[name] || 0) + n; }
     return send(res, 200, {rounds, total: readCount.total, byRun});
   }
+  if (countReads && p === '/api/rounds') return send(res, 200, {running: roundTimer !== null, pages: clients.size, rounds});
   if (p === '/api/view') return send(res, 200, src ? viewOf(src).view : null);
   if (p === '/api/view-info') return send(res, 200, src ? viewInfo(src) : null);
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
