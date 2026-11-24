@@ -61,21 +61,54 @@ impl Cap {
     }
 }
 
+/// What the wall cap of a run is held against. A running daemon has one: the host's monotonic
+/// clock. A test that builds the engine in process and needs the wall cap spent at one moment (while
+/// a given program runs, say) gives it a clock that stands still until the test moves it
+/// (`Engine::with_wall_clock`); no option, environment variable or request sets one.
+#[derive(Clone, Default)]
+pub struct WallClock(Option<Arc<AtomicU64>>);
+
+impl WallClock {
+    /// A clock that stands at 0 seconds until [`WallClock::advance`] moves it.
+    pub fn standing() -> WallClock {
+        WallClock(Some(Arc::new(AtomicU64::new(0))))
+    }
+
+    /// Moves a standing clock on by `secs`; the host's clock is not moved.
+    pub fn advance(&self, secs: u64) {
+        if let Some(at) = &self.0 {
+            at.fetch_add(secs, Ordering::SeqCst);
+        }
+    }
+
+    fn standing_at(&self) -> u64 {
+        self.0.as_ref().map_or(0, |at| at.load(Ordering::SeqCst))
+    }
+}
+
 /// What a run has used: shared by the run's thread and the view of the run.
 pub struct Meter {
     wall_before: u64,
     started: Instant,
+    clock: WallClock,
+    standing_from: u64,
     calls: AtomicU64,
     spent: AtomicU64,
 }
 
 impl Meter {
-    pub fn new(before: Usage) -> Meter {
-        Meter { wall_before: before.wall_seconds, started: Instant::now(), calls: AtomicU64::new(before.llm_calls), spent: AtomicU64::new(before.spent_micro_usd) }
+    /// A meter whose wall seconds `clock` counts.
+    pub fn on(before: Usage, clock: WallClock) -> Meter {
+        let standing_from = clock.standing_at();
+        Meter { wall_before: before.wall_seconds, started: Instant::now(), clock, standing_from, calls: AtomicU64::new(before.llm_calls), spent: AtomicU64::new(before.spent_micro_usd) }
     }
 
     pub fn usage(&self) -> Usage {
-        Usage { wall_seconds: self.wall_before + self.started.elapsed().as_secs(), llm_calls: self.calls.load(Ordering::SeqCst), spent_micro_usd: self.spent.load(Ordering::SeqCst) }
+        let ran = match self.clock.0 {
+            None => self.started.elapsed().as_secs(),
+            Some(_) => self.clock.standing_at().saturating_sub(self.standing_from),
+        };
+        Usage { wall_seconds: self.wall_before + ran, llm_calls: self.calls.load(Ordering::SeqCst), spent_micro_usd: self.spent.load(Ordering::SeqCst) }
     }
 }
 
@@ -310,7 +343,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let caps = Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 };
-        let gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::new(Usage::default())), budget::Reserves::default()).unwrap();
+        let gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::on(Usage::default(), WallClock::default())), budget::Reserves::default()).unwrap();
         let ledger = &gate.held.ledger;
         let first = ledger.reserve_for_run("run-a", 1000, 300).unwrap();
         let second = ledger.reserve_for_run("run-a", 1000, 200).unwrap();

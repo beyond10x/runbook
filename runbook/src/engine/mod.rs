@@ -16,6 +16,7 @@ pub mod shape;
 mod tail;
 
 pub use decision::Parsed;
+pub use gate::WallClock;
 
 use crate::caps::{CapPolicy, Caps, Usage};
 use crate::runtime::{AnswerFailure, Autonomy, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
@@ -108,6 +109,8 @@ pub struct Engine {
     epoch: u128,
     /// The deciders the operator configured; none: no run takes a level or a kind.
     arbiter: Option<Arc<dyn Arbiter>>,
+    /// What the wall caps of its runs are held against: the host's clock unless a test gave another.
+    wall: WallClock,
 }
 
 struct Registered<'a> {
@@ -142,13 +145,20 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default() }
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
     /// (`arbiter.rs`). Without one, a run that asks for a kind is refused when it starts.
     pub fn with_arbiter(mut self, arbiter: Arc<dyn Arbiter>) -> Engine {
         self.arbiter = Some(arbiter);
+        self
+    }
+
+    /// The clock the wall caps of this engine's runs are held against, for a test that builds the
+    /// engine in process (`WallClock::standing`); without one it is the host's monotonic clock.
+    pub fn with_wall_clock(mut self, wall: WallClock) -> Engine {
+        self.wall = wall;
         self
     }
 
@@ -293,7 +303,7 @@ impl Engine {
         }
 
         let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
-        let meter = Arc::new(Meter::new(before));
+        let meter = Arc::new(Meter::on(before, self.wall.clone()));
         *lock(&slot.meter) = Some(meter.clone());
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         gate.persist();

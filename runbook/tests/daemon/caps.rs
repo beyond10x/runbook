@@ -8,7 +8,7 @@ use super::state::scratch;
 use runbook::api::routes;
 use runbook::caps::{CapPolicy, Caps};
 use runbook::commands::{AnswerDecision, Config, Daemon, Fault, SubmitRun};
-use runbook::engine::Engine;
+use runbook::engine::{Engine, WallClock};
 use runbook::runtime::Confinement;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -61,6 +61,11 @@ impl Rig {
 
     /// A rig whose runbook home `tweak` changes before the daemon starts.
     fn tweaked(tag: &str, policy: CapPolicy, tweak: impl FnOnce(&Path)) -> Rig {
+        Rig::clocked(tag, policy, WallClock::default(), tweak)
+    }
+
+    /// A rig whose runs hold their wall caps against `wall`.
+    fn clocked(tag: &str, policy: CapPolicy, wall: WallClock, tweak: impl FnOnce(&Path)) -> Rig {
         let dir = scratch(tag);
         let home = dir.join("home");
         copy_tree(&fixture(), &home);
@@ -77,7 +82,7 @@ impl Rig {
         std::fs::write(&draft, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
         tweak(&home);
-        let engine = Arc::new(Engine::with_levels(home, dir.join("state"), &[Confinement::Local], policy));
+        let engine = Arc::new(Engine::with_levels(home, dir.join("state"), &[Confinement::Local], policy).with_wall_clock(wall));
         let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() };
         Rig { d: Daemon::start(cfg, engine).unwrap(), dir }
     }
@@ -336,11 +341,15 @@ fn a_wall_cap_ends_a_run_whose_action_sleeps_and_the_run_says_so() {
 
 #[test]
 fn a_wall_cap_ends_a_run_that_waits_on_a_decision_and_withdraws_what_it_asked() {
-    let rig = Rig::new("caps-wall-waiting", roomy());
-    // 4 s: the run reaches its wait in about 0.6 s alone, and its two steps now reserve in the ledger;
-    // under a full lane a 2 s cap was sometimes spent before the wait
+    // The run's wall clock stands still until the run waits on its decision, then it is moved past
+    // the cap of 4 s: the cap is spent during the wait, whatever the load. With the host's clock a cap
+    // that the run reached its wait under alone (about 0.6 s) was sometimes spent before the wait.
+    let wall = WallClock::standing();
+    let rig = Rig::clocked("caps-wall-waiting", roomy(), wall.clone(), |_| {});
     let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "4")]);
     until("the run to wait on a decision", 30, || rig.row(&run)["state"] == "WaitingOnDecision");
+    assert!(!rig.d.open_decisions_of_run(&run).is_empty(), "the run waits on no decision");
+    wall.advance(4);
     let row = rig.wait_ended(&run);
     assert_eq!(row["outcome"], "stopped: wall time", "{row}");
     assert!(rig.d.open_decisions_of_run(&run).is_empty(), "{:?}", rig.d.open_decisions_of_run(&run));
@@ -720,16 +729,27 @@ fn a_program_an_answer_starts_reserves_its_budget_and_is_booked() {
 
 #[test]
 fn a_program_an_answer_starts_is_booked_when_the_run_ends_right_after_it() {
-    // The review's program takes 4 s and books 0.2 USD; the wall cap of 3 s is spent while it runs,
-    // and the run ends before another step: what the program cost is booked to the run all the same.
-    let rig = Rig::tweaked("caps-answer-booked", per_run(1_000_000), |home| {
-        let script = "#!/bin/sh\nsleep 4\nexec \"$(dirname \"$0\")/model-step.sh\" \"$@\"\n";
-        std::fs::write(home.join("bindings/tools/slow-review.sh"), script).unwrap();
-        std::fs::set_permissions(home.join("bindings/tools/slow-review.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        replace_in(home, "bindings/engine-draft.yaml", "      kind: person\n", "      kind: person\n      argv: [tools/slow-review.sh, review, --max-budget-usd, \"0.3\"]\n");
+    // The review's program books 0.2 USD; the wall cap of 3 s is spent while it runs, and the run
+    // ends before another step: what the program cost is booked to the run all the same. The run's
+    // wall clock stands still until the program has started; then it is moved past the cap and the
+    // program goes on. With the host's clock (a 4 s sleep in the program) the cap was sometimes spent
+    // before the run reached the review at a build node load of 60 to 85, and no program started.
+    let wall = WallClock::standing();
+    let rig = Rig::clocked("caps-answer-booked", per_run(1_000_000), wall.clone(), |home| {
+        let script = "#!/bin/sh\ntouch review-started\nn=0\nwhile [ ! -f review-go ] && [ $n -lt 3000 ]; do sleep 0.01; n=$((n + 1)); done\nexec \"$(dirname \"$0\")/model-step.sh\" \"$@\"\n";
+        std::fs::write(home.join("bindings/tools/held-review.sh"), script).unwrap();
+        std::fs::set_permissions(home.join("bindings/tools/held-review.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        replace_in(home, "bindings/engine-draft.yaml", "      kind: person\n", "      kind: person\n      argv: [tools/held-review.sh, review, --max-budget-usd, \"0.3\"]\n");
     });
     let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "3")]);
+    let workspace = rig.dir.join("state/workspaces").join(&run);
+    let mover = std::thread::spawn(move || {
+        until("the review's program to start", 30, || workspace.join("review-started").exists());
+        wall.advance(3);
+        std::fs::write(workspace.join("review-go"), "").unwrap();
+    });
     let row = rig.settle(&run, "performed");
+    mover.join().unwrap();
     assert_eq!(row["outcome"], "stopped: wall time", "{row}");
     assert_eq!(rig.booked_in_records(&run), 200_000, "the review's program did not finish: {row}");
     assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("200000"), Some("1")), "the program the answer started was not booked: {row}");

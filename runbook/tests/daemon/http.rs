@@ -13,6 +13,31 @@ pub const MIN_TOKEN_BYTES: usize = 32;
 pub const FILE_TOKEN: &str = "from-file-0123456789-abcdefghijklmnop";
 pub const ENV_TOKEN: &str = "from-env-0123456789-qrstuvwxyzabcdefg";
 
+/// A port of 127.0.0.1 where nothing listens for as long as the descriptor is open: a socket bound to
+/// it with `SO_REUSEADDR` that never listens. A connection to it is refused, and the kernel hands the
+/// port to no other process that asks for one. A port taken with a bind to port 0 and freed could be
+/// handed to another case's server before the client connected ("the connection closed before an
+/// answer" instead of "connection refused").
+pub fn refusing_port() -> (std::os::fd::OwnedFd, u16) {
+    use std::os::fd::FromRawFd;
+    // SAFETY: socket calls on a descriptor owned from its creation; every pointer points to a local
+    // of the size passed with it.
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        assert!(fd >= 0, "socket: {}", std::io::Error::last_os_error());
+        let owned = std::os::fd::OwnedFd::from_raw_fd(fd);
+        let one: libc::c_int = 1;
+        assert_eq!(libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, (&one as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t), 0);
+        let mut addr: libc::sockaddr_in = std::mem::zeroed();
+        addr.sin_family = libc::AF_INET as libc::sa_family_t;
+        addr.sin_addr.s_addr = u32::from_ne_bytes([127, 0, 0, 1]);
+        let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+        assert_eq!(libc::bind(fd, (&addr as *const libc::sockaddr_in).cast(), len), 0, "bind: {}", std::io::Error::last_os_error());
+        assert_eq!(libc::getsockname(fd, (&mut addr as *mut libc::sockaddr_in).cast(), &mut len), 0);
+        (owned, u16::from_be(addr.sin_port))
+    }
+}
+
 /// The daemon of a fixture, served in this process on port 0.
 pub struct Server {
     pub fx: Fx,
