@@ -69,7 +69,7 @@ variable): the key and its origin are printed and the value is `<a key or token>
 A value comes from, in this order: an option of the command line; a member of a `--settings` file (a
 member of that file replaces the file's member as a whole, a table is not merged with a table); the
 `runbook.toml`; a built-in default where a wrong value does no harm. Only the second and third are the
-settings of a run (`autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file`; read by the
+settings of a run (`autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file`, `gateway`; read by the
 one reader of `docs/loom-run-settings.md`); `format`, `run`, `loom_sha256`, `in_process` and `replay`
 belong to one run and are no key of the file. A file value never lowers what an option sets, and the
 confinement and the wall time have no built-in default: a run that is not told them is refused
@@ -104,6 +104,7 @@ model = "claude-sonnet-5-5"
 | `max_llm_calls` | whole number | none: no limit on model calls | `--max-llm-calls` |
 | `runbooks` | list of paths | none: the built-in set only | directories runbooks are loaded from, before the built-in set (below, "Runbook directories") |
 | `autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file` | as in `docs/loom-run-settings.md` | none | the run settings members |
+| `gateway` | table: `base_url` and `token_file` | none | as in `docs/loom-run-settings.md`, "`[gateway]`", without `token`: the file holds no token, so `gateway.token` is refused by name (an inline token goes in a `--settings` file); a relative `token_file` is relative to the file |
 
 A relative path of the file is relative to the directory of the file. A run name that is not given is
 generated (the runbook, a time and a random part, unique) and printed on standard error.
@@ -119,9 +120,9 @@ walk reads nothing inside a run, as long as the run directory is above the progr
 the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
 `/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
 `runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
-floor, a level, a cap, the spend ledger or the runbook directories: a `runbook` that has `LOOM_CASE` in its
+floor, a level, a cap, the spend ledger, the runbook directories or the gateway: a `runbook` that has `LOOM_CASE` in its
 environment (Loom gives it to every bound program) and no run directory above its working directory refuses
-`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger` and `runbooks`
+`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger`, `runbooks` and `gateway`
 in a file it found by the walk or in the user's directory, by name, with no value printed, and a key that would
 lower the daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a
 run reads under `local`, states its confinement as before.) `LOOM_CASE` is a hint, not a guard: a program of a
@@ -371,7 +372,8 @@ read with the catalog of its run.
 Bound programs get only `PATH` from Loom itself. No login file, no path of one and no credential
 variable is in the run directory or in the child's environment; the login file's path is a setting
 that is replaced by `named` in every file the runner writes. The programs reach the login through
-the link of the private directory (next section).
+the link of the private directory (next section), or, with `[gateway]` in the settings, an address and a
+token through one file of that directory (the section "The gateway").
 
 ## The login file
 
@@ -419,6 +421,35 @@ record directory, which is inside the run directory:
 SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
 removes the link itself and never follows it: the login file stays. A SIGKILL of the runner leaves
 the directory, as the section above says.
+
+### The gateway
+
+A settings file that names `[gateway]` (`docs/loom-run-settings.md`, "`[gateway]`") gives the model programs
+an address and a token and no login: with it no login file is named, linked, copied or required, and a
+file that names both is refused. The runner writes one file, `gateway` (mode 0600, two lines
+`base_url=` and `token=`, or the first alone for a gateway without ingress auth, whose `claude` gets the fixed
+placeholder `runbook-gateway-no-token` as its auth token, no credential), into the same private directory (mode 0700, same removal on a normal end, an
+error, SIGTERM, SIGINT and a SIGHUP that the caller did not ignore), and writes `--gateway-file <that file>` into the argv of every model node of
+the copy, where a login would have `--claude-credentials <link>`. As with the link, the file and its directory are
+made only in a run that has a model node, after the opening decided, and the checks (the runtime directory, a
+private directory of the run name that exists) are made at the start in every run, before the run directory
+exists. `sdc-node` hands the path to the adapter as
+`SDC_GATEWAY_FILE`; `llm-adapter-claude-cli.sh` reads it with `sdc_gateway_read` (`bindings/tools/gateway.sh`)
+and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
+start, no other `ANTHROPIC_*` or `CLAUDE_CODE_*` variable of the caller (`ANTHROPIC_API_KEY` among them), and a fresh config home that holds no `.credentials.json`. The token is in no
+argv, no environment of a program Loom starts, no log line, no event, no file that the runner or an adapter
+writes into the run directory and not in the copy; what `claude` prints is filtered for the token before it is kept (`docs/loom-run-settings.md`).
+
+Every start of a model process that belongs to a run takes it the same way: the nodes (the review step is
+one of them), the model decider (the runner puts `SDC_GATEWAY_FILE` into the environment it builds for the
+decider's adapter) and the conformance observation. `llm-adapter-metaharness.sh` cannot take a gateway (it
+starts its own proxy and removes every `ANTHROPIC_*` variable): it ends with exit 127 when `SDC_GATEWAY_FILE`
+is set, and the runner refuses a gateway together with `adapter = "metaharness"` or with a model decider
+that uses it (the decider's default adapter is `metaharness`: name `decider.adapter = "claude-cli"`).
+
+A gateway works at `--confinement local` only: a bound program under `substrate` has no network, not even
+loopback, so the runner refuses a gateway there by the name `gateway` before a run directory exists. It
+changes no confinement.
 
 The metaharness adapter makes its home only when metaharness would find no login otherwise:
 `SDC_CLAUDE_CREDENTIALS` names a file in such a directory and `$HOME/.claude/.credentials.json` is
@@ -666,7 +697,9 @@ It sets three things before the run opens and keeps every required option requir
   the person steps of the copy are bound to `decider:approve` and every one is approved by script. A
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
 - A dry call costs 0. A named spend ledger stays at 0 and no login file is read (`login_file` is not
-  needed). A dry call still counts against `--max-llm-calls`.
+  needed). A dry call still counts against `--max-llm-calls`. A `[gateway]` in the settings is checked for its
+  shape and used for nothing: no `token_file` is read, no private directory or `--gateway-file` is written, and
+  `settings.json` says `gateway: named`.
 - The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
   `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
   of `sdc-node`, else the class default of `node-classes.json`. The two adapters that take an effort

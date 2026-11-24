@@ -42,7 +42,7 @@ impl Clock for SystemClock {
     }
 }
 
-/// Set by the SIGTERM and SIGINT handlers.
+/// Set by the SIGTERM, SIGINT and SIGHUP handlers (SIGHUP has none when the caller ignored it).
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_signal(_: libc::c_int) {
@@ -51,10 +51,16 @@ extern "C" fn on_signal(_: libc::c_int) {
 
 fn install_signal_handlers() {
     let handler = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
-    // SAFETY: the handler only stores into an atomic.
+    // SAFETY: the handler only stores into an atomic; `sigaction` with a null new action only reads the disposition.
     unsafe {
         libc::signal(libc::SIGTERM, handler);
         libc::signal(libc::SIGINT, handler);
+        // A SIGHUP the caller ignored (a run under `nohup`) stays ignored.
+        let mut old: libc::sigaction = std::mem::zeroed();
+        let ignored = libc::sigaction(libc::SIGHUP, std::ptr::null(), &mut old) == 0 && old.sa_sigaction == libc::SIG_IGN;
+        if !ignored {
+            libc::signal(libc::SIGHUP, handler);
+        }
     }
 }
 
@@ -118,6 +124,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let args = &named;
     let given = settings::normalise(&raw, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
+    let (given, gateway) = super::gateway::take(args, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;
     let mut settings_value = given.clone();
@@ -138,8 +145,9 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         return Err(format!("the run directory {} exists", run_dir.display()).into());
     }
     let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
-    // nothing is made for the login yet: its link is made after the opening, in a run that has a model node
-    let planned_link = PrivateDir::check(&args.run, login.as_deref())?;
+    // nothing is made for the login or the gateway yet: the private directory is made after the opening, in a run that
+    // has a model node; what it would refuse is refused here, before the run directory exists
+    let planned = PrivateDir::check(&args.run, login.as_deref(), gateway.is_some())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     // the runner's record: open from here, closed on every way out of this function (its Drop), and at the end below
@@ -190,8 +198,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         answers: Answers::default(),
         answered: std::collections::HashMap::new(),
         reasons_written: 0,
-        login_link: planned_link,
+        login_link: planned.link,
         login_file: login,
+        gateway_file: planned.gateway,
+        gateway,
         private: None,
     };
     let basic = BasicFiles::open(&run_dir)?;
@@ -210,7 +220,9 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     record.close(clock.now_secs());
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &mut observation::ObservationGate::new(&mut runner));
+    // the observation's model adapter is given the gateway file while the private directory still exists
+    let gateway_file = runner.private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &mut observation::ObservationGate::new(&mut runner), gateway_file.as_deref());
     Ok(outcome)
 }
 
@@ -283,6 +295,11 @@ struct Runner<'a> {
     /// exists only in a run that has a model node, and only after the opening decided.
     login_link: Option<PathBuf>,
     login_file: Option<PathBuf>,
+    /// The path the gateway file has, or will have, when the settings name a gateway: the copy names it.
+    /// The file exists only in a run that has a model node, and only after the opening decided.
+    gateway_file: Option<PathBuf>,
+    /// The gateway the settings name, written into the private directory at the opening (never elsewhere).
+    gateway: Option<sdc_tools::gateway::Gateway>,
     private: Option<PrivateDir>,
 }
 
@@ -348,7 +365,7 @@ impl Runner<'_> {
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
             make_dir_in(&self.run_dir, &d)?;
         }
-        let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
+        let root_file = bindings_copy::materialise_with(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref(), self.gateway_file.as_deref())?;
         // The copy is made and no bound program has run: who decides is read now and not again.
         self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;
@@ -364,13 +381,20 @@ impl Runner<'_> {
             self.ledger = Some(Ledger::open(path)?);
         }
         if self.node.has_model_node() {
-            // the link to the login file is for the model nodes of a run that has one
-            self.private = PrivateDir::create(&self.args.run, self.login_file.as_deref())?;
+            // the link to the login file and the gateway file are for the model programs of a run that has one
+            self.private = PrivateDir::create_with(&self.args.run, self.login_file.as_deref(), self.gateway.as_ref())?;
             self.login_link = self.private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf);
+            self.gateway_file = self.private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf);
+            if let Some(file) = &self.gateway_file {
+                self.decider.use_gateway(file);
+            }
         } else {
-            // a run without a model node gives its bound programs no way to the login
+            // a run without a model node gives its bound programs no way to the login or the gateway
             self.login_link = None;
+            self.gateway_file = None;
         }
+        // the token is in the private directory now, or nowhere: the runner keeps no copy of it
+        self.gateway = None;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         if let Some(goals) = &self.args.ports.goals {
