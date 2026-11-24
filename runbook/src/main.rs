@@ -193,7 +193,18 @@ fn main() -> ExitCode {
         Cmd::Canon { .. } => canon_usage(),
         Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
-            let world = match catalog::open(&cli.source) {
+            let file = match config::load(&cli.source) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("runbook serve: {e}");
+                    return ExitCode::from(loom_run::EXIT_REFUSED);
+                }
+            };
+            // Before the daemon reads the directories or listens: where its runbook directories come from.
+            if let Some(said) = file.as_ref().and_then(config::File::said) {
+                eprintln!("runbook serve: {said}");
+            }
+            let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {
                     eprintln!("runbook serve: {e}");

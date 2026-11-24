@@ -389,8 +389,24 @@ pub fn load(source: &Source) -> Result<Option<File>, String> {
     locate(&Lookup::from_process(source))?.map(|f| parse(&f)).transpose()
 }
 
+/// A character of a word of a text: a key, a token and a path segment are words.
+fn word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=')
+}
+
+/// Whether a word is `bearer`, in any case: the word after it is a credential.
+fn is_bearer(word: &str) -> bool {
+    word.eq_ignore_ascii_case("bearer")
+}
+
+/// Whether the text has a word `bearer` (any case) that another word follows, wherever it stands.
+fn bearer_value(s: &str) -> bool {
+    let words: Vec<&str> = s.split(|c: char| !word_char(c)).filter(|w| !w.is_empty()).collect();
+    words.windows(2).any(|pair| is_bearer(pair[0]))
+}
+
 /// Whether the text has the form of a key or a token: the forms of the vendors' keys, a private key
-/// block, a JSON web token, a bearer value.
+/// block, a JSON web token, a bearer value (the word `bearer` and the word after it, anywhere in the text).
 pub fn token_form(s: &str) -> bool {
     const PREFIXES: [&str; 14] = ["sk-ant-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "xapp-", "npm_"];
     let t = s.trim();
@@ -398,7 +414,7 @@ pub fn token_form(s: &str) -> bool {
     let jwt = t.starts_with("eyJ") && t.matches('.').count() == 2;
     let generic = t.starts_with("sk-") && t.len() >= 20;
     let google = t.starts_with("AIza") && t.len() == 39;
-    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || t.to_ascii_lowercase().starts_with("bearer ") || aws || jwt || generic || google
+    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || bearer_value(t) || aws || jwt || generic || google
 }
 
 /// A path as text, not content: no control character (a newline) and no JSON or array opening.
@@ -432,16 +448,22 @@ const HIDDEN: &str = "<a key or token>";
 /// The message with every word that has the form of a key or a token replaced: a key of the file can
 /// be one, and the reader names the key it stops at.
 fn mask(message: &str) -> String {
-    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=');
     let mut out = String::new();
     let mut current = String::new();
+    // the word `bearer` makes the next word hidden, whatever stands between the two
+    let mut after_bearer = false;
     for c in message.chars().chain(std::iter::once(' ')) {
-        if word(c) {
+        if word_char(c) {
             current.push(c);
             continue;
         }
-        out.push_str(&if token_form(&current) { HIDDEN.to_owned() } else { std::mem::take(&mut current) });
-        current.clear();
+        if current.is_empty() {
+            out.push(c);
+            continue;
+        }
+        let word = std::mem::take(&mut current);
+        out.push_str(if after_bearer || token_form(&word) { HIDDEN } else { &word });
+        after_bearer = is_bearer(&word);
         out.push(c);
     }
     out.pop();
@@ -662,9 +684,19 @@ fn shown(v: &Value) -> String {
     hide(v).to_string()
 }
 
+/// A key of a member as one segment of the dotted name printed for a value: a key that has the form of a
+/// token is replaced by `HIDDEN` (the prefix before a dot would hide it from `mask`).
+fn segment(key: &str) -> &str {
+    if token_form(key) {
+        HIDDEN
+    } else {
+        key
+    }
+}
+
 fn leaves(prefix: &str, v: &Value, origin: &Origin, out: &mut Vec<String>) {
     match v {
-        Value::Object(map) if !map.is_empty() => map.iter().for_each(|(k, x)| leaves(&format!("{prefix}.{k}"), x, origin, out)),
+        Value::Object(map) if !map.is_empty() => map.iter().for_each(|(k, x)| leaves(&format!("{prefix}.{}", segment(k)), x, origin, out)),
         Value::Object(_) => {}
         other => out.push(format!("{prefix} = {}  ({})", shown(other), origin.text())),
     }
@@ -699,7 +731,7 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
     out.push(item("max_llm_calls", "--max-llm-calls", "a run is refused without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
     if let Some(members) = merged.as_object() {
         for (key, v) in members {
-            leaves(key, v, &settings_origin(key), &mut out);
+            leaves(segment(key), v, &settings_origin(key), &mut out);
         }
     }
     // a key of a settings file and a path of an option are no values and can have the form too

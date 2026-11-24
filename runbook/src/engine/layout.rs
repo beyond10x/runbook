@@ -61,15 +61,19 @@ pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Resul
     resolve(&home, name, version)
 }
 
-/// The runbooks of every home, each name once: the configured homes in order, then the last home (the
-/// built-in one), and a name that the last home has is listed from it, never from a configured home.
+/// The runbooks of every home, each name once, in the order of the homes: exactly the names `resolve_in`
+/// accepts, so a name that two homes hold (a submit of it is refused) is listed from neither.
 pub fn list_in(homes: &[PathBuf]) -> Vec<RunbookInfo> {
-    let Some((built_in, configured)) = homes.split_last() else { return Vec::new() };
-    let built = list(built_in);
-    let mut seen: std::collections::BTreeSet<String> = built.iter().map(|r| r.name.clone()).collect();
-    let mut rows: Vec<RunbookInfo> = configured.iter().flat_map(|h| list(h)).filter(|r| seen.insert(r.name.clone())).collect();
-    rows.extend(built);
-    rows
+    let mut seen = std::collections::BTreeSet::new();
+    homes
+        .iter()
+        .flat_map(|h| list(h))
+        .filter(|r| seen.insert(r.name.clone()))
+        .filter_map(|r| {
+            let found = resolve_in(homes, &r.name, None).ok()?;
+            Some(RunbookInfo { name: r.name, version: Some(found.revision.to_string()) })
+        })
+        .collect()
 }
 
 /// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the
