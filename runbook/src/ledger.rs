@@ -68,7 +68,8 @@ impl State {
         self.entries.iter().filter(|e| e.get("run").and_then(Value::as_str) == Some(run)).filter_map(|e| e.get("micro_usd").and_then(Value::as_u64)).fold(0u64, |a, b| a.saturating_add(b))
     }
 
-    /// What `run` holds: the reservations whose id starts with the run's id (`reserve` names them so).
+    /// What `run` holds: the reservations whose id starts with the run's id and a dash (`grant` names
+    /// them so). The ids of the daemon's runs are minted and of one length, so none starts with another.
     fn reserved_by(&self, run: &str) -> u64 {
         let prefix = format!("{run}-");
         self.reserved.iter().filter(|(id, _)| id.starts_with(&prefix)).filter_map(|(_, v)| v.as_u64()).fold(0u64, |a, b| a.saturating_add(b))
@@ -197,5 +198,43 @@ fn lock(file: &File) -> Result<(), String> {
             }
             Err(TryLockError::Error(e)) => return Err(format!("cannot lock: {e}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ledger(tag: &str) -> Ledger {
+        let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("ledger-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        Ledger::open(&d.join("l.json")).unwrap()
+    }
+
+    #[test]
+    fn a_runs_cap_is_held_against_its_own_spend_and_reservations_only() {
+        let l = ledger("own");
+        let a = l.reserve_for_run("run-a", 1000, 400).unwrap();
+        l.commit(&a, "run-a", "step", 400).unwrap();
+        let held = l.reserve_for_run("run-a", 1000, 500).unwrap();
+        // run-b is not reduced by the 400 spent and the 500 held by run-a
+        let b = l.reserve_for_run("run-b", 1000, 1000).unwrap();
+        assert_eq!((held.micro_usd, b.micro_usd), (500, 1000));
+        // run-a has 100 left of its own
+        assert_eq!(l.reserve_for_run("run-a", 1000, 300).unwrap().micro_usd, 100);
+        assert_eq!((l.spent_by_run("run-a").unwrap(), l.spent_by_run("run-b").unwrap()), (400, 0));
+        // the shared reserve of `runbook run` counts every run
+        assert_eq!(l.reserve("run-c", 1000, 1000).unwrap().micro_usd, 0);
+    }
+
+    #[test]
+    fn a_runs_reservations_are_dropped_by_its_id_and_no_other_runs() {
+        let l = ledger("release");
+        l.reserve_for_run("run-a", 1000, 300).unwrap();
+        l.reserve_for_run("run-ab", 1000, 200).unwrap();
+        l.release_run("run-a").unwrap();
+        assert_eq!(l.reserve_for_run("run-a", 1000, 1000).unwrap().micro_usd, 1000, "its own reservation is gone");
+        assert_eq!(l.reserve_for_run("run-ab", 1000, 1000).unwrap().micro_usd, 800, "the run whose id starts alike keeps its own");
     }
 }
