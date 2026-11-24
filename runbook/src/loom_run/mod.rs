@@ -160,6 +160,8 @@ pub const EXIT_REJECTED: u8 = 10;
 pub const EXIT_DIVERGED: u8 = 11;
 /// Exit code: Loom refused a call of the run by a named reason (`TreeStopped`, `ConfinementRefused`,
 /// `PersonProgramFailed`, ...): the cause in `outcome.json` and `run-stopped.json` is the reason's name.
+/// Also a tree left without a move by a bound program that Loom refused (`ProgramSignalled`,
+/// `ProgramError`): the cause is `program_signalled` or `program_error`.
 pub const EXIT_LOOM_REFUSED: u8 = 12;
 
 /// How a run ended; the `outcome` of `outcome.json`.
@@ -167,8 +169,8 @@ pub const EXIT_LOOM_REFUSED: u8 = 12;
 pub enum Outcome {
     /// The root case was terminated; the tree's own outcome name when Loom printed one.
     Ended { tree_outcome: Option<String> },
-    /// `tree run` exit 4.
-    Stuck,
+    /// `tree run` exit 4: no move and, when a bound program was refused for something other than an exit or a signal, the lead of that refusal (`<Reason>: action <name>`).
+    Stuck { reason: Option<String> },
     /// The spend cap was reached before the next call.
     StoppedSpendCap,
     /// The wall-time cap was reached.
@@ -210,7 +212,7 @@ impl Outcome {
     pub fn label(&self) -> &'static str {
         match self {
             Outcome::Ended { .. } => "ended",
-            Outcome::Stuck => "stuck",
+            Outcome::Stuck { .. } => "stuck",
             Outcome::StoppedSpendCap => "stopped: spend cap",
             Outcome::StoppedWallTime => "stopped: wall time",
             Outcome::StoppedLlmCalls => "stopped: llm calls",
@@ -231,6 +233,7 @@ impl Outcome {
             Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } | Outcome::Refused { reason, .. } => Some(reason),
             Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
+            Outcome::Stuck { reason } => reason.as_deref(),
             _ => None,
         }
     }
@@ -239,7 +242,7 @@ impl Outcome {
     pub fn exit_code(&self) -> u8 {
         match self {
             Outcome::Ended { .. } => EXIT_ENDED,
-            Outcome::Stuck => EXIT_STUCK,
+            Outcome::Stuck { .. } => EXIT_STUCK,
             Outcome::StoppedSpendCap => EXIT_SPEND_CAP,
             Outcome::StoppedWallTime => EXIT_WALL_TIME,
             Outcome::StoppedLlmCalls => EXIT_LLM_CALLS,
@@ -282,7 +285,7 @@ mod outcome_tests {
         let outcomes = [
             Outcome::Ended { tree_outcome: None },
             Outcome::Error { reason: String::new() },
-            Outcome::Stuck,
+            Outcome::Stuck { reason: None },
             Outcome::StoppedSpendCap,
             Outcome::StoppedWallTime,
             Outcome::StoppedLlmCalls,

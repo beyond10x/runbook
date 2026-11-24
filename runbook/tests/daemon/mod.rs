@@ -24,5 +24,6 @@ mod ui_start;
 mod security_start;
 mod submit_order;
 mod answer_order;
+mod drain;
 mod copy_integrity;
 mod homes_leave_no_path;

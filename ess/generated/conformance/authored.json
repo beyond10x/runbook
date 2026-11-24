@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "85b21a9cb62ef5b3cd027f8e51791dcf502e71d674c08e4e36dfaea15d0f87b4",
-    "contract_digest": "686ef23a960fed2dcb176b20ab6e63d7ad04b61a69fed76251c92c6d00436aec",
+    "spec_digest": "58ec016dc63aae2e844435ef989b4840c88a9685358676e54f694d3b0d5e0508",
+    "contract_digest": "3b94c2908c21e794246df4da2dea0472fd65d90e392c557470aa5c9362600194",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -1206,6 +1206,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
         },
         {
           "kind": "type",
@@ -4425,6 +4429,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.Principal"
         },
         {
@@ -6167,6 +6175,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.Principal"
         },
         {
@@ -6814,6 +6826,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
         },
         {
           "kind": "type",

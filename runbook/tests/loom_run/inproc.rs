@@ -555,6 +555,25 @@ fn a_bound_program_ended_by_a_signal_ends_the_run_with_the_signal_as_the_cause_n
     assert_eq!(stopped["cause"], "program_signalled", "{stopped}");
 }
 
+/// The writer listed an exit in `exits.error` and the program ended with it: Loom refuses the step
+/// `ProgramError`, records nothing and leaves the tree without a move. The run says so: `refused`,
+/// exit 12, cause `program_error`, Loom's text (the action and the exit) as the reason.
+#[test]
+fn a_bound_program_refused_by_its_exits_error_list_ends_the_run_refused_naming_the_action_and_its_exit() {
+    let rig = Rig::new("program-error");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "a tree left without a move by a refused action is a refusal, not exit 3: {}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str(), outcome["exit_code"].as_u64()), (Some("refused"), Some("program_error"), Some(12)), "{outcome}");
+    let reason = outcome["reason"].as_str().unwrap();
+    assert!(reason.starts_with("ProgramError: action draft.write: ") && reason.contains("exit status 69"), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "program_error", "{stopped}");
+    assert!(stopped["reason"].as_str().unwrap().contains("draft.write"), "{stopped}");
+}
+
 // ---- the program of a person's action: its environment, and who may take it ----
 
 #[test]
@@ -1136,4 +1155,107 @@ fn guard_an_events_file_with_no_permission_does_not_stop_the_run() {
 #[test]
 fn guard_an_events_file_that_is_read_only_does_not_stop_the_run() {
     an_events_file_a_program_made_unusable_does_not_stop_the_run("mode444", "chmod 444 ../events.jsonl");
+}
+
+#[test]
+fn runbook_run_writes_one_action_started_line_per_program_in_order_with_tries_before_the_steps_they_start() {
+    let rig = Rig::new("start-turns");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let events = rig.events("r1");
+    let started: Vec<(usize, &Value)> = events.iter().enumerate().filter(|(_, e)| e["event"] == "action_started" && e["source"] == "program_start").collect();
+    let shape: Vec<(&str, u64, &str)> = started.iter().map(|(_, e)| (e["action"].as_str().unwrap(), e["try"].as_u64().unwrap(), e["role"].as_str().unwrap())).collect();
+    assert_eq!(shape, [("draft.check", 1, "program"), ("draft.write", 1, "program"), ("draft.check", 2, "program")], "{shape:?}");
+    // each start is before the step its program made, and the starts are in the order of the steps
+    let made: Vec<usize> = events.iter().enumerate().filter(|(_, e)| e["event"] == "step_made").map(|(i, _)| i).collect();
+    for (n, (at, e)) in started.iter().enumerate() {
+        assert!(made.iter().any(|m| m > at), "no step after the start {e}");
+        let before = made.iter().filter(|m| *m < at).count();
+        assert!(before <= n + 1, "{e} comes after more steps than programs started: {before} steps before start {n}");
+    }
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("runner.json")).unwrap()).unwrap();
+    assert!(record["closed_at"].as_u64().is_some(), "{record}");
+}
+
+/// The text of a refused action leaves the run in `outcome.json`, `events.jsonl` and `run-stopped.json`: it names
+/// the action and the exit, and no absolute path of the machine (the run dir, the runbook home, the fixture root).
+#[test]
+fn a_refused_action_reason_names_no_absolute_path() {
+    let rig = Rig::new("fix1-path");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let root = rig.root.display().to_string();
+    for file in ["outcome.json", "events.jsonl", "run-stopped.json"] {
+        let text = std::fs::read_to_string(rig.run_dir("r1").join(file)).unwrap();
+        assert!(!text.contains(&root), "{file} names the path {root}: {text}");
+    }
+    let reason = rig.outcome("r1")["reason"].as_str().unwrap().to_owned();
+    assert!(!reason.contains("/home") && !reason.contains("/tmp") && !reason.contains(env!("CARGO_MANIFEST_DIR")), "{reason}");
+}
+
+/// The same with `--runs-dir` given as a relative word and the working directory beside it: the text Loom wrote
+/// names the bindings copy by the path the runner gave it; no absolute path of the machine reaches the outcome.
+#[test]
+fn a_refused_action_reason_names_no_absolute_path_under_a_relative_runs_dir() {
+    let rig = Rig::new("fix1-relpath");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let mut args = rig.args("r1", 1_000_000);
+    let i = args.iter().position(|a| a == "--runs-dir").unwrap();
+    args[i + 1] = "runs".to_owned();
+    let o = rig.command(&args).current_dir(&rig.root).output().unwrap();
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let root = rig.root.display().to_string();
+    for file in ["outcome.json", "events.jsonl", "run-stopped.json"] {
+        let text = std::fs::read_to_string(rig.run_dir("r1").join(file)).unwrap();
+        assert!(!text.contains(&root), "{file} names the path {root}: {text}");
+    }
+}
+
+/// A writer that is run again after a rejection and is refused on that second try ends the run `refused` too.
+#[test]
+fn a_retry_refused_on_its_second_try_ends_the_run_refused_program_error() {
+    let rig = Rig::new("fix1-retry");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\n[ -z \"$LOOM_RETRY_FEEDBACK\" ] || exit 69\necho draft >> draft.txt\n");
+    rig.answers(&[reject("again"), json!({"approve": true, "cost_micro_usd": 0}), json!({"approve": true, "cost_micro_usd": 0})], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str(), code(&o)), (Some("refused"), Some("program_error"), 12), "{outcome} {}", stderr(&o));
+    assert!(outcome["reason"].as_str().unwrap().starts_with("ProgramError: action draft.write: "), "{outcome}");
+}
+
+/// A bound program that cannot be started (its file is gone) is a refusal too: the run must not end `stuck` with a
+/// null reason, whatever Loom calls the refusal.
+#[test]
+fn a_bound_program_that_cannot_start_does_not_end_the_run_stuck_with_a_null_reason() {
+    let rig = Rig::new("fix1-nospawn");
+    std::fs::remove_file(rig.root.join("fx/bindings/tools/draft-write.sh")).unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert!(!(outcome["outcome"] == "stuck" && outcome["reason"].is_null()), "exit {}: {outcome} {}", code(&o), stderr(&o));
+}
+
+/// A program that Loom refuses for an exit its binding has no result for (`ResultNotInTable`, what a program killed
+/// at its timeout, exit 124, reaches) leaves the tree without a move with Loom's refusal text in the case's run log.
+/// The run must not end `stuck` with `reason: null` and the text only in the log.
+#[test]
+fn a_refusal_that_is_not_a_program_error_is_not_dropped_with_a_null_reason() {
+    let rig = Rig::new("fix1-table");
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let anchor = "results: {\"0\": valid, \"*\": invalid}";
+    assert!(text.contains(anchor), "{text}");
+    std::fs::write(&file, text.replace(anchor, "results: {\"0\": valid}")).unwrap();
+    std::fs::write(rig.root.join("fx/bindings/tools/draft-check.sh"), "#!/bin/sh\nexit 124\n").unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert!(outcome["reason"].is_string(), "outcome {} exit {}: the refusal text is in the case log only: {outcome}", outcome["outcome"], code(&o));
+    let reason = outcome["reason"].as_str().unwrap();
+    assert!(reason.starts_with("ResultNotInTable: action ") && !reason.contains('/'), "the reason is the refusal's lead, no path: {reason}");
+    assert_eq!((outcome["outcome"].as_str(), code(&o)), (Some("stuck"), 3), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert!(stopped["reason"].as_str().is_some_and(|r| r.ends_with(reason)), "run-stopped.json says the same: {stopped}");
 }

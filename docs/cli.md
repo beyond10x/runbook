@@ -97,6 +97,12 @@ goes to standard error, with the error's code and message as the daemon's body g
 The views answer `200` with no row for an unknown run; `runs show` and `runs events` turn that into
 exit 66 (`no such run`).
 
+`runbook serve` is not a client and has its own exit codes: 0 the daemon stopped and no run was left
+live (the drain ended, or the stop found none); 1 the start was refused or the server failed; 2 and 64
+the usage errors of the command line; 75 the stop left at least one live run orphaned (a second signal
+or `--drain-seconds` ended the drain with a run still live). A task that stops the daemon reads 75 as
+"a run was lost" (`daemon-api.md`, "Stopping the daemon").
+
 ## `runbook test`
 
 ```
