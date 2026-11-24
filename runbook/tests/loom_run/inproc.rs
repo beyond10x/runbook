@@ -215,8 +215,9 @@ fn a_binary_without_its_digest_or_a_digest_without_its_binary_is_refused_and_wri
 #[test]
 fn the_options_of_a_run_in_process_that_are_required_are_named_when_missing_and_detach_only_options_are_refused() {
     let rig = Rig::new("required");
-    // `--run`, `--runs-dir`, `--settings` and `--spend-ledger` have defaults now (`config_file.rs`)
-    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
+    // `--run`, `--runs-dir` and `--settings` have defaults now (`config_file.rs`); the money options are optional
+    // (`caps_optional.rs`)
+    for flag in ["--max-wall-seconds", "--confinement"] {
         let o = rig.run(&without(&rig.args("r1", 1_000_000), flag, true));
         assert_eq!(code(&o), 64, "{flag}: {}", stderr(&o));
         assert!(stderr(&o).contains(flag), "{flag} is not named: {}", stderr(&o));
@@ -620,6 +621,33 @@ fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
     let outcome = rig.outcome("r1");
     assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("not_a_person_action")), "{outcome}");
     assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
+}
+
+#[test]
+fn a_run_with_a_model_decider_and_none_of_the_three_options_ends_closed_in_process() {
+    let rig = Rig::new("bare");
+    rig.answers(&[json!({"approve": false, "reasons": "again", "cost_micro_usd": 400_000, "model_calls": 1}), approve()], 400_000);
+    let mut args = rig.args("r1", 0);
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        args = without(&args, flag, true);
+    }
+    let o = rig.run(&args);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "ended", "{outcome}");
+    assert_eq!((outcome["spent_micro_usd"].as_u64(), outcome["llm_calls"].as_u64(), outcome["has_model_node"].as_bool()), (Some(400_000), Some(1), Some(true)), "{outcome}");
+    assert!(!rig.ledger().exists(), "no ledger is opened");
+}
+
+#[test]
+fn a_cap_without_a_ledger_stops_a_run_in_process() {
+    let rig = Rig::new("cap-no-ledger");
+    rig.answers(&[json!({"approve": false, "reasons": "again", "cost_micro_usd": 400_000}), approve()], 400_000);
+    let o = rig.run(&without(&rig.args("r1", 400_000), "--spend-ledger", true));
+    assert_eq!(code(&o), 4, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["spent_micro_usd"].as_u64()), (Some("stopped: spend cap"), Some(400_000)), "{outcome}");
+    assert!(!rig.ledger().exists());
 }
 
 // ---- the allowance of runs after a rejection (`budget.runs_per: rejection`) ----

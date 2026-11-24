@@ -10,6 +10,7 @@
 
 use crate::loom_run::answers::Answers;
 use crate::loom_run::decider;
+use crate::loom_run::record_write::Held;
 use runbook::engine::copy::{copy_dirs, Links};
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
@@ -33,7 +34,7 @@ const ADAPTERS: [&str; 3] = ["metaharness", "claude-cli", "dry"];
 /// checks the requester decider runs (`tools/decision-grounds.sh`).
 const COMPANIONS: [&str; 3] = ["instructions", "driver/examples", "tools"];
 /// The program of a model node, found on PATH.
-const MODEL_TOOL: &str = "sdc-node";
+pub const MODEL_TOOL: &str = "sdc-node";
 /// The option that names the tools directory of the copy.
 const TOOLS_DIR_OPTION: &str = "--tools-dir";
 
@@ -231,6 +232,113 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
         return Err(format!("{}: the root bindings file is missing in the copy", root.display()));
     }
     Ok(root)
+}
+
+/// Whether the bindings in `dir` (a bindings directory or the run's copy of it) hold a model node,
+/// and why. `None`: none of the forms below was found. It reads every `*.yaml` and `*.yml` file
+/// below `dir` (the bindings files, `tools/answers.yaml`) and fails closed: a form that cannot be
+/// read or is not one the rule knows counts as a model node. The forms that count:
+///
+/// - a word of an `argv`, or any other text of a file, that names the model tool: its last path
+///   part is `sdc-node`, or `sdc-node` is a part of the text (so `sh -c "sdc-node ..."`, `env X=1
+///   sdc-node ...` and `timeout 60 sdc-node ...` count, as does a program whose first word is the
+///   tool, the rule `rewrite_document` applies);
+/// - an `argv` that is not a non-empty list of texts;
+/// - an executor of a kind other than `person`, `copy` (Loom copies evidence of another case, it starts no program) and `program`, or an action without an executor;
+/// - `actions` that is not a list, an action that is not a mapping;
+/// - a file that is not valid YAML or cannot be read (a `*.yaml` name that is a link, a pipe or a file
+///   with a second name is not read and counts), a directory that cannot be read, and a link to a
+///   directory or to anything that cannot be read.
+///
+/// The copy is read while the programs of the run may write it, so it is read as every name of the
+/// run is (`record_write`): `dir` is held ([`Held::open`]: a link at its name counts), its names are
+/// listed through the descriptor, a directory below it is held from it ([`Held::sub`]) and a file is
+/// read through it ([`Held::read_text`]).
+///
+/// What it cannot see: a bound program that starts a model by a name this function does not read
+/// (a script that calls a service by itself). It is not covered by a cap either.
+pub fn model_node_in(dir: &Path) -> Option<String> {
+    let held = match Held::open(dir) {
+        Ok(h) => h,
+        Err(e) => return Some(format!("{e} (it cannot be read)")),
+    };
+    let mut stack = vec![(held, PathBuf::new())];
+    while let Some((d, rel)) = stack.pop() {
+        let names = match d.names() {
+            Ok(n) => n,
+            Err(e) => return Some(format!("{e} (it cannot be listed)")),
+        };
+        for name in names {
+            let shown = rel.join(&name);
+            if !d.exists(&name) {
+                return Some(format!("{} is a link to nothing", shown.display()));
+            }
+            if !d.is_file(&name) {
+                // a directory is held from this one, without following a link: a link to a directory, a pipe or another
+                // kind of name is refused there and counts
+                match d.sub(Path::new(&name)) {
+                    Ok(sub) => stack.push((sub, shown)),
+                    Err(_) => return Some(format!("{} is a link to a directory or not a file or a directory", shown.display())),
+                }
+                continue;
+            }
+            if !Path::new(&name).extension().is_some_and(|x| x == "yaml" || x == "yml") {
+                continue;
+            }
+            let text = match d.read_text(&name) {
+                Ok(t) => t,
+                Err(e) => return Some(format!("{} cannot be read ({e})", shown.display())),
+            };
+            let doc: Yaml = match serde_yaml::from_str(&text) {
+                Ok(d) => d,
+                Err(_) => return Some(format!("{} is not valid YAML", shown.display())),
+            };
+            if let Some(why) = model_node_in_document(&doc) {
+                return Some(format!("{}: {why}", shown.display()));
+            }
+        }
+    }
+    None
+}
+
+/// The form of one document that counts as a model node, see [`model_node_in`].
+fn model_node_in_document(doc: &Yaml) -> Option<String> {
+    if let Some(actions) = doc.get("actions") {
+        let Some(actions) = actions.as_sequence() else {
+            return Some("actions is not a list".to_owned());
+        };
+        for action in actions {
+            let name = action.get("action").and_then(Yaml::as_str).unwrap_or("?");
+            if !action.is_mapping() {
+                return Some("an action that is not a mapping".to_owned());
+            }
+            let Some(executor) = action.get("executor").filter(|e| e.is_mapping()) else {
+                return Some(format!("{name}: no executor"));
+            };
+            match executor.get("kind").and_then(Yaml::as_str) {
+                Some("person" | "copy") => {}
+                Some("program") => {
+                    let argv = executor.get("argv").and_then(Yaml::as_sequence);
+                    if !argv.is_some_and(|a| !a.is_empty() && a.iter().all(Yaml::is_string)) {
+                        return Some(format!("{name}: argv is not a list of texts"));
+                    }
+                }
+                other => return Some(format!("{name}: an executor kind the rule does not know ({})", other.unwrap_or("none"))),
+            }
+        }
+    }
+    names_model_tool(doc).map(|text| format!("{MODEL_TOOL} is named in {text:?}"))
+}
+
+/// The first text in `value`, at any depth, that names the model tool.
+fn names_model_tool(value: &Yaml) -> Option<String> {
+    match value {
+        Yaml::String(s) => s.contains(MODEL_TOOL).then(|| s.chars().take(80).collect()),
+        Yaml::Sequence(items) => items.iter().find_map(names_model_tool),
+        Yaml::Mapping(map) => map.iter().find_map(|(k, v)| names_model_tool(k).or_else(|| names_model_tool(v))),
+        Yaml::Tagged(tagged) => names_model_tool(&tagged.value),
+        _ => None,
+    }
 }
 
 fn class_of(classes: &Value, action: &str) -> String {

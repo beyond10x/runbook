@@ -144,7 +144,7 @@ no new obligation. Model `SDC_LLM_MODEL_CONFORMANCE` (default `claude-sonnet-5-5
 `SDC_LLM_EFFORT_CONFORMANCE`, else `SDC_LLM_EFFORT_OTHER`, else `SDC_LLM_EFFORT`, else the class
 default in `tools/node-classes.json`; both and their sources are recorded in `oracle.json`
 (`conformance.table`). Limits: `SDC_CONFORMANCE_MAX_TURNS` (40), `SDC_CONFORMANCE_MAX_BUDGET_USD`
-(2.00), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
+(no default: unset or empty means the node's request names no money budget, except that a run under a spend cap gives each session at most what is left of the cap, 2 USD when the variable names none; a value that is set must be a finite number of at least 0, 0 spending nothing, or the observation is refused as `table_missing` with a line that names the variable, after the pin check and before `ess compile`; a value that is no text is refused too: a budget that is named never becomes none), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
 
 The reply is constrained by a response schema and then checked by the program; a refused reply is
 asked again with the check's reasons at most twice, then the slot is uncounted (`table_refused`).
@@ -246,7 +246,9 @@ a product that answers 404 for a removed or finished entity fails that scenario.
 tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
 record: `result`, `k`, `f`, `p` (of f, refused for a precondition the specification does not
 model), `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
-`summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
+`summary`, `cause`, `why`, `table_cost_usd` (all slots; a session that left no cost record counts 0 in it),
+`cost_unknown_sessions` (how many node sessions ended with no cost record: `runbook run` books the reservation
+of a spend cap for an observation where it is above 0), `tables` (per slot: source, model,
 effort, attempts, `cost_usd`, `retried_after_run`, `one_more_session`, `evidence`, `counted`, `cause`, `why`, the
 final run's `k`, `f`, `u`, `e` (errors), `unverified` (checks), `n`, `conformance_status`, `declared_missing`, `build`,
 `precondition_not_in_spec` and `refused_after_run` when that rule counted the slot,

@@ -7,9 +7,12 @@
 //! what the asset root holds for the runbook (the bindings, the protocols, the root protocol) is looked
 //! up when its option is not given, by the code `runbook list` and `runbook check` use. Without
 //! `--loom` Loom is a library of this process; `--loom` with `--loom-sha256` runs the `b10x-loom` binary
-//! as a child process. A value that has no default and is not stated (the confinement, the wall time,
-//! the two caps) is a usage error that names the option and the line to add (exit 64); a refusal of the
-//! run itself, and of `runbook.toml`, is exit 2.
+//! as a child process. A value that has no default and is not stated (the confinement, the wall time)
+//! is a usage error that names the option and the line to add (exit 64); a refusal of the run itself,
+//! and of `runbook.toml`, is exit 2. The money options `--spend-ledger`, `--cap-micro-usd` and
+//! `--max-llm-calls` (and their keys in `runbook.toml`) are optional, alone and together, whatever the
+//! run holds and under every confinement: none stated is no limit, no refusal and no ledger.
+//! `--max-wall-seconds` bounds time, not money, and stays required.
 
 use super::ports::{refuse_unbuilt, Bugfix, Conformance, OnDivergence, Ports, Refusal, Replay};
 use super::{Args, EXIT_REFUSED};
@@ -60,9 +63,9 @@ pub struct HereOptions {
     /// With `--recorded`, the adapter of a live call: `dry`, `metaharness`, `claude-cli` or a path.
     #[arg(long, value_name = "ADAPTER", conflicts_with = "detach")]
     pub live_adapter: Option<String>,
-    /// With `--recorded`, the most live calls (default 5; a spent cap stops the run).
-    #[arg(long, value_name = "N", conflicts_with = "detach")]
-    pub live_cap: Option<u64>,
+    /// With `--recorded`, the most live calls (no default: none named means no limit; a spent cap stops the run).
+    #[arg(long, value_name = "N", conflicts_with = "detach", allow_hyphen_values = true)]
+    pub live_cap: Option<String>,
     /// With `--recorded`, a fault to inject (`reject@<action>#<try>=<reason>`, `timeout@<node>#<try>`, `check-fail@<action>#<try>`); repeatable.
     #[arg(long, value_name = "FAULT", conflicts_with = "detach")]
     pub inject: Vec<String>,
@@ -180,13 +183,15 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
     if let Some(flag) = detach_only(base) {
         return Err((USAGE, format!("{flag} belongs to --detach: a run in this process takes no daemon and no context")));
     }
+    // A cap that is named and cannot be read is refused by name, in our words: never read as none.
+    let live_cap = here.live_cap.as_deref().map(|c| sdc_tools::named::whole("--live-cap", c)).transpose().map_err(|m| (USAGE, m))?;
     let ports = Ports {
         dry: here.dry,
         replay: Replay {
             recorded: here.recorded,
             on_divergence: here.on_divergence,
             live_adapter: here.live_adapter,
-            live_cap: here.live_cap,
+            live_cap,
             inject: here.inject,
             set: base.set.clone(),
             take_recorded: here.take_recorded,
@@ -206,8 +211,6 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
     let at = values.file.as_deref();
     let confinement = values.confinement.clone().map(|(c, _)| c).ok_or_else(|| not_stated("--confinement", "confinement = \"<local or substrate>\"", true, at))?;
     let max_wall_seconds = values.max_wall_seconds.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--max-wall-seconds", "max_wall_seconds = <seconds>", true, at))?;
-    let cap_micro_usd = values.cap_micro_usd.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--cap-micro-usd", "cap_micro_usd = <micro USD>", false, at))?;
-    let max_llm_calls = values.max_llm_calls.clone().map(|(n, _)| n).ok_or_else(|| not_stated("--max-llm-calls", "max_llm_calls = <calls>", false, at))?;
     let (run, generated) = match values.run {
         Some((name, _)) => (name, None),
         None => {
@@ -229,9 +232,9 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
             confinement,
             settings: values.settings,
             defaults: values.members,
-            spend_ledger: values.spend_ledger.0,
-            cap_micro_usd,
-            max_llm_calls,
+            spend_ledger: values.spend_ledger.map(|(p, _)| p),
+            cap_micro_usd: values.cap_micro_usd.map(|(n, _)| n),
+            max_llm_calls: values.max_llm_calls.map(|(n, _)| n),
             max_wall_seconds,
             ports,
             config: file.and_then(config::File::noted),
@@ -276,8 +279,8 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
             ExitCode::from(outcome.exit_code())
         }
         Err(refusal) => {
-            eprintln!("runbook run: refused: {}", config::printable(&refusal));
-            ExitCode::from(EXIT_REFUSED)
+            eprintln!("runbook run: refused: {}", config::printable(&refusal.to_string()));
+            ExitCode::from(refusal.exit_code())
         }
     }
 }

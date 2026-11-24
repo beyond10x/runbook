@@ -36,7 +36,8 @@ pub struct Request<'a> {
     case_dir: &'a str,
     operations: &'a [String],
     max_turns: &'a NumLit,
-    max_budget_usd: &'a NumLit,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_budget_usd: Option<&'a NumLit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub json_schema: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -273,7 +274,8 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         operations.clear();
         max_turns = NumLit("3".into());
     }
-    let max_budget = c.set.cfg.max_budget_usd.clone().unwrap_or_else(|| NumLit("1".into()));
+    // A money budget is the binding's alone: with none named the request carries none.
+    let max_budget = c.set.cfg.max_budget_usd.clone();
     let case_dir = std::env::var("SDC_CASE_DIR").unwrap_or_default();
     let mut req = Request {
         model: &model,
@@ -287,7 +289,7 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         case_dir: &case_dir,
         operations: &operations,
         max_turns: &max_turns,
-        max_budget_usd: &max_budget,
+        max_budget_usd: max_budget.as_ref(),
         json_schema: built.schema.as_ref().map(|s| s.display().to_string()),
         review_attempt: None,
         implement_mode: c.request_mode.then_some("request"),
@@ -452,7 +454,6 @@ pub fn log_call(c: &Ctx, rec_root: &Path, rec: &Path, attempt: usize, started: &
         ("class".into(), s(&c.class)),
         ("allowed_operations".into(), Ov::Arr(req.operations.iter().map(|o| s(o)).collect())),
         ("max_turns".into(), Ov::Lit(req.max_turns.clone())),
-        ("max_budget_usd".into(), Ov::Lit(req.max_budget_usd.clone())),
         ("exit".into(), n(acode)),
         ("applied_exit".into(), n(code)),
         ("output".into(), s(out)),
@@ -465,6 +466,11 @@ pub fn log_call(c: &Ctx, rec_root: &Path, rec: &Path, attempt: usize, started: &
         ("dry".into(), if r("dry").truthy() { r("dry") } else { Ov::Bool(false) }),
         ("record".into(), s(&rec.display().to_string())),
     ];
+    if let Some(budget) = req.max_budget_usd {
+        // after `max_turns`, where the record always had it; with no budget named the record names none
+        let after = fields.iter().position(|(k, _)| k == "max_turns").map_or(fields.len(), |i| i + 1);
+        fields.insert(after, ("max_budget_usd".into(), Ov::Lit(budget.clone())));
+    }
     if let Some(bytes) = input_bytes {
         fields.push(("input_bytes".into(), Ov::Num(bytes.into())));
     }

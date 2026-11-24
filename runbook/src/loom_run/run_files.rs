@@ -12,6 +12,11 @@ use std::path::{Path, PathBuf};
 pub struct BasicFiles {
     run_dir: PathBuf,
     log: File,
+    /// The decision of the opening, written into `outcome.json` as it was made; absent when the run
+    /// ended before the opening decided.
+    has_model_node: Option<bool>,
+    /// What `outcome.json` says, kept to be written again when the observation after the close is booked.
+    outcome: Option<Value>,
 }
 
 impl BasicFiles {
@@ -19,7 +24,7 @@ impl BasicFiles {
     pub fn open(run_dir: &Path) -> Result<BasicFiles, String> {
         let path = run_dir.join("events.jsonl");
         let log = OpenOptions::new().create_new(true).append(true).open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(BasicFiles { run_dir: run_dir.to_path_buf(), log })
+        Ok(BasicFiles { run_dir: run_dir.to_path_buf(), log, has_model_node: None, outcome: None })
     }
 }
 
@@ -39,6 +44,7 @@ pub fn relative_text(run_dir: &Path, text: &str) -> String {
 pub fn event_json(at_secs: u64, event: &Event) -> Value {
     let (name, fields) = match event {
         Event::RunStarted { run, settings } => ("run_started", json!({"run": run, "settings": settings})),
+        Event::ModelNodeDecided { has_model_node, because } => ("model_node_decided", json!({"has_model_node": has_model_node, "because": because})),
         Event::ActionStarted { source, role, case, action, try_number } => {
             let source = match source {
                 StartSource::ProgramStart => "program_start",
@@ -70,6 +76,11 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
             };
             ("cap_reached", json!({"cap": cap, "detail": detail}))
         }
+        Event::ObservationSkipped { reason } => ("conformance_not_observed", json!({"reason": reason})),
+        Event::ObservationBooked { reserved, record, booked, spent_micro_usd } => (
+            "conformance_booked",
+            json!({"reserved_micro_usd": reserved, "record_micro_usd": record, "booked_micro_usd": booked, "spent_micro_usd": spent_micro_usd}),
+        ),
         Event::TreeStored { status_exit, verify_exit } => ("tree_stored", json!({"status_exit": status_exit, "verify_exit": verify_exit})),
         Event::Ended { outcome, reason, cause, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls, recorded_micro_usd, recorded_llm_calls } => {
             let mut fields = json!({"outcome": outcome, "reason": reason, "loom_exit_code": loom_exit, "stderr_tail": stderr_tail, "exit_code": exit_code, "steps": steps, "spent_micro_usd": spent_micro_usd, "llm_calls": llm_calls, "recorded_micro_usd": recorded_micro_usd, "recorded_llm_calls": recorded_llm_calls});
@@ -94,6 +105,9 @@ impl EventSink for BasicFiles {
             let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())? + "\n";
             std::fs::write(self.run_dir.join("settings.json"), text).map_err(|e| format!("settings.json: {e}"))?;
         }
+        if let Event::ModelNodeDecided { has_model_node, .. } = event {
+            self.has_model_node.get_or_insert(*has_model_node);
+        }
         let line = serde_json::to_string(&event_json(at_secs, event)).map_err(|e| e.to_string())?;
         let line = relative_text(&self.run_dir, &line);
         writeln!(self.log, "{line}").map_err(|e| format!("events.jsonl: {e}"))?;
@@ -114,7 +128,19 @@ impl EventSink for BasicFiles {
             if let (Some(cause), Some(map)) = (cause, v.as_object_mut()) {
                 map.insert("cause".to_owned(), Value::from(cause.as_str()));
             }
+            if let (Some(has), Some(map)) = (self.has_model_node, v.as_object_mut()) {
+                map.insert("has_model_node".to_owned(), Value::from(has));
+            }
             let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
+            write_atomic(&self.run_dir.join("outcome.json"), relative_text(&self.run_dir, &text).as_bytes())?;
+            self.outcome = Some(v);
+        }
+        if let (Event::ObservationBooked { booked, spent_micro_usd, .. }, Some(v)) = (event, self.outcome.as_mut()) {
+            if let Some(map) = v.as_object_mut() {
+                map.insert("spent_micro_usd".to_owned(), Value::from(*spent_micro_usd));
+                map.insert("observation_micro_usd".to_owned(), Value::from(*booked));
+            }
+            let text = serde_json::to_string_pretty(&*v).map_err(|e| e.to_string())? + "\n";
             write_atomic(&self.run_dir.join("outcome.json"), relative_text(&self.run_dir, &text).as_bytes())?;
         }
         Ok(())

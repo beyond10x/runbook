@@ -9,9 +9,11 @@
 //! directory ([`Held::read`], [`Held::read_text`], [`Held::copy_to`]). The bindings copy is held for every read and
 //! write after the first program started ([`Held::open`], listed by [`Held::names`]), so a link at its name ends the
 //! run; the per-call budgets are read and lowered in it by `runbook::budget` (with the members kept beside the copy,
-//! `.call-budgets.json`, which `budget::seal` writes through a [`Held`] too) and the bound actions are read from it by
-//! `runbook::engine::announce`, both through a [`Held`] of the directory. `budget::runbook_budgets` reads by path: the
-//! daemon calls it at a run's start, on the runbook home or on the run's pinned copy outside the workspace.
+//! `.call-budgets.json`, which `budget::seal` writes through a [`Held`] too), the bound actions are read from it by
+//! `runbook::engine::announce`, and whether it names the model tool is read by the runner's
+//! `loom_run::bindings_copy::model_node_in`, all three through a [`Held`] of the directory. `budget::runbook_budgets`
+//! reads by path: the daemon calls it at a run's start, on the runbook home or on the run's pinned copy outside the
+//! workspace.
 //!
 //! The file lives in the library so that the runner (`runbook run`, `loom_run::record_write` is this module) and the
 //! code of the library it calls (`budget`, `cost`, `engine::announce`) hold one guard.

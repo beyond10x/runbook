@@ -36,6 +36,9 @@ pub struct Reservation {
     pub id: String,
     /// The amount granted, micro USD.
     pub micro_usd: u64,
+    /// What the cap had left when the amount was asked for, before this grant (`u64::MAX` when no
+    /// cap is named): 0 means the cap is reached.
+    pub left: u64,
 }
 
 struct State {
@@ -139,12 +142,13 @@ impl Ledger {
 
     fn grant(&self, run: &str, want_micro_usd: u64, remaining: impl FnOnce(&State) -> u64) -> Result<Reservation, String> {
         self.with_state(|s| {
-            let grant = want_micro_usd.min(remaining(s));
+            let left = remaining(s);
+            let grant = want_micro_usd.min(left);
             let id = format!("{run}-{}-{}", std::process::id(), NEXT_RESERVATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
             if grant > 0 {
                 s.reserved.insert(id.clone(), Value::from(grant));
             }
-            Ok(Reservation { id, micro_usd: grant })
+            Ok(Reservation { id, micro_usd: grant, left })
         })
     }
 
@@ -173,6 +177,12 @@ impl Ledger {
             }
             Ok(())
         })
+    }
+
+    /// Under the lock: what the cap has left, micro USD (`cap - spent - reserved` over all runs of
+    /// the ledger).
+    pub fn left(&self, cap_micro_usd: u64) -> Result<u64, String> {
+        self.with_state(|s| Ok(cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total())))
     }
 
     /// Under the lock: releases `reservation` without spending.

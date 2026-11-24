@@ -103,11 +103,12 @@ fn an_adapter_given_no_plan_takes_none_from_above_its_call() {
     assert!(said.contains("SDC_REPLAY"), "the refusal names what is missing: {said}");
 }
 
-/// The live cap fails closed: a cap that is absent, text, negative, fractional or null starts no
-/// live call; neither does a spent cap.
+/// A live cap that is named fails closed: one that is text, negative or fractional starts no live
+/// call; neither does a spent cap (a cap that is absent or null is no cap named: no limit, see
+/// `with_no_live_cap_named_every_live_call_starts_and_a_named_cap_still_stops`).
 #[test]
 fn a_live_cap_that_cannot_be_read_or_is_spent_starts_no_live_call() {
-    for (what, cap) in [("absent", None), ("text", Some(json!("3"))), ("negative", Some(json!(-1))), ("fraction", Some(json!(1.5))), ("null", Some(json!(null))), ("zero", Some(json!(0)))] {
+    for (what, cap) in [("text", Some(json!("3"))), ("negative", Some(json!(-1))), ("fraction", Some(json!(1.5))), ("zero", Some(json!(0)))] {
         let rig = Rig::new("cap");
         let mut live = rig.live(json!(null));
         match cap {
@@ -131,6 +132,30 @@ fn a_live_cap_that_cannot_be_read_or_is_spent_starts_no_live_call() {
     rig.plan(&rig.root.join("run"), "live", rig.live(json!(1)));
     let (code, said) = rig.call(Some(&rig.run_plan()));
     assert!(rig.marker.exists() && code == 0, "a cap of 1 and no live call yet: {code} {said}");
+}
+
+/// A plan that `prepare` did not write has no readable `live` member (missing, null, text, a number, a
+/// list): it names no adapter and no cap, and it is refused like an unreadable cap, never read as "no
+/// cap named". No live call starts and the call ends 75.
+#[test]
+fn a_plan_whose_live_member_is_missing_or_no_object_starts_no_live_call() {
+    for (what, live) in [("missing", None), ("null", Some(json!(null))), ("text", Some(json!("x"))), ("number", Some(json!(5))), ("list", Some(json!([])))] {
+        let rig = Rig::new("live-member");
+        let run = rig.root.join("run");
+        rig.plan(&run, "live", json!(null));
+        let mut plan: Value = serde_json::from_str(&std::fs::read_to_string(run.join("replay/plan.json")).unwrap()).unwrap();
+        match live {
+            Some(v) => plan["live"] = v,
+            None => {
+                plan.as_object_mut().unwrap().remove("live");
+            }
+        }
+        put(&run.join("replay/plan.json"), &plan.to_string());
+        let (code, said) = rig.call(Some(&rig.run_plan()));
+        assert!(!rig.marker.exists(), "{what}: a live call started: {said}");
+        assert_eq!(code, 75, "{what}: {said}");
+        assert!(said.contains("live"), "{what}: the refusal says what is wrong: {said}");
+    }
 }
 
 /// `docs/cycles-suite.md` quotes `#[ignore = "..."]` attributes of the Rust tests it names; a quoted
@@ -783,11 +808,42 @@ fn a_log_that_is_a_directory_or_unreadable_starts_no_live_call() {
     assert_eq!(r.starts(), 0, "unreadable");
 }
 
+/// No cap named is no limit: a plan with no `live.cap` (or a null one, as `prepare` writes it when
+/// `--live-cap` is not given) lets every live call start, past the fifth too; a named cap still stops.
+#[test]
+fn with_no_live_cap_named_every_live_call_starts_and_a_named_cap_still_stops() {
+    let r = CapRig::new("no-cap", Value::Null, "0");
+    let codes: Vec<i32> = (0..7).map(|_| r.call()).collect();
+    assert_eq!((codes, r.starts()), (vec![0; 7], 7), "no cap in the plan: no limit on live calls");
+    let rig = Rig::new("null-cap");
+    rig.plan(&rig.root.join("run"), "live", rig.live(json!(null)));
+    for n in 1..=7 {
+        let (code, said) = rig.call(Some(&rig.run_plan()));
+        assert!(rig.marker.exists() && code == 0, "a null cap, call {n}: {code} {said}");
+    }
+    let r = CapRig::new("cap-named", json!(6), "0");
+    let codes: Vec<i32> = (0..7).map(|_| r.call()).collect();
+    assert_eq!((codes, r.starts()), (vec![0, 0, 0, 0, 0, 0, 75], 6), "a named cap of 6 stops the seventh");
+}
+
 #[test]
 fn without_a_readable_cap_no_live_call_starts() {
-    for (tag, cap) in [("none", Value::Null), ("text", json!("2")), ("negative", json!(-1))] {
+    for (tag, cap) in [("text", json!("2")), ("negative", json!(-1))] {
         let r = CapRig::new(&format!("cap-{tag}"), cap, "0");
         assert_eq!(r.call(), 75, "{tag}");
         assert_eq!(r.starts(), 0, "{tag}");
     }
+}
+
+/// A plan whose `live` object names the cap twice (a plan edited by hand) cannot be read: no live
+/// program starts, and the later (here larger) cap is not the one that stays.
+#[test]
+fn a_plan_whose_live_object_names_the_cap_twice_starts_no_live_call() {
+    let r = CapRig::new("dup", json!("@@CAP@@"), "0");
+    let path = r.root.join("run/replay/plan.json");
+    let text = std::fs::read_to_string(&path).unwrap().replace("\"cap\":\"@@CAP@@\"", "\"cap\":1,\"cap\":100");
+    assert!(text.contains("\"cap\":100"), "{text}");
+    put(&path, &text);
+    let codes: Vec<i32> = (0..3).map(|_| r.call()).collect();
+    assert_eq!(r.starts(), 0, "two caps named, 1 and 100: {} live starts, exit codes {codes:?}", r.starts());
 }
