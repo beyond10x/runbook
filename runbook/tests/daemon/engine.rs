@@ -547,5 +547,6 @@ fn after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event() {
     let row = rig.run_view(&run);
     assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")), "{row}");
     assert!(row.get("step_in_flight").is_none(), "an orphaned run shows a step: {row}");
-    assert_eq!(rig.started(&run).len(), 1, "the journal keeps the start event");
+    let actions: Vec<String> = rig.started(&run).iter().map(|e| e["record"]["action"].as_str().unwrap().to_string()).collect();
+    assert_eq!(actions, ["draft.check", "draft.write"], "the journal keeps the start events of the check that failed and of the writer");
 }

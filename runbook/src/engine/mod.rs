@@ -2,6 +2,7 @@
 //! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom` or
 //! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
+pub mod announce;
 pub mod calls;
 mod decision;
 pub mod layout;
@@ -148,6 +149,11 @@ impl Engine {
         }
         let resolved = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
+        // Every program the runner starts is told to the sink before it starts: the daemon records the step in flight.
+        let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
+            (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
+            _ => runner,
+        };
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();

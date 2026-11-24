@@ -261,6 +261,16 @@ impl State {
         format_instant(self.clock.now_millis())
     }
 
+    /// Milliseconds since the epoch by the state's clock.
+    pub fn now_millis(&self) -> i64 {
+        self.clock.now_millis()
+    }
+
+    /// The newest event of the run.
+    pub fn last_event_of(&self, run_id: &str) -> Option<&RunEvent> {
+        self.events_of_run.get(run_id).and_then(|v| v.last()).map(|i| &self.events[*i])
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
