@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:daemon-page-shows-a-run-tree-and-products
 kind: story
-status: proposed
+status: active
 title: The daemon's page shows a run's case tree and products, with one address per run
 summary: For a run the daemon started, its page shows the case tree and the Products tab and opens on a run by a stable address.
 relations:
 - depends_on: story:mcp-reads-a-run-product
-revision: 2
+revision: 3
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T10:20:12Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-23T15:29:52Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
 ---
 ## Outcome
 
