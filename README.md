@@ -125,8 +125,7 @@ max_llm_calls = 200
 `runbook config` prints every value of a run and the file or option it comes from. The run's name is
 generated and printed; any option of `runbook run` still wins over the file. A `runbooks = ["dir", ...]`
 list in the file adds directories runbooks are loaded from, before the built-in set; `runbook list` prints
-each runbook's name, version and directory. The options and the file's keys are in
-[docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+each runbook's name, version and directory.
 
 From a checkout without installing, build `runbook` and the programs it runs once, in the repository root, and
 start `runbook/target/debug/runbook` in place of `runbook`, with `driver/target/debug` and `watch/target/debug`
@@ -145,6 +144,8 @@ The checkout build finds the programs it starts itself in `driver/target/{releas
 directories on `PATH` the dry run above ends after 6 steps with no stub call, with them after 11 steps, as the
 installed one does. The installed prefix needs nothing on `PATH` beside `<dir>/bin`: `runbook` puts
 `<dir>/libexec/runbook` in front of the `PATH` of the programs it starts.
+
+The options and the file's keys are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 

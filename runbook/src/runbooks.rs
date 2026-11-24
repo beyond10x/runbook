@@ -73,11 +73,14 @@ pub fn load(configured: &[PathBuf], built_in: Option<&Path>) -> Result<Vec<Entry
             return Err(format!("the runbook {} is in two directories: {} and {}", e.id, first.dir.display(), e.dir.display()));
         }
     }
-    let opened: BTreeSet<String> = all.iter().flat_map(|(_, opens)| opens.iter().cloned()).collect();
+    // What a protocol opens is read from the set the protocol belongs to: a built-in protocol is a child only
+    // when a built-in protocol opens it, so a configured runbook cannot turn a built-in one into a child.
+    let opened_by = |only_built_in: bool| -> BTreeSet<String> { all.iter().filter(|(e, _)| e.built_in || !only_built_in).flat_map(|(_, opens)| opens.iter().cloned()).collect() };
+    let (opened_built_in, opened_all) = (opened_by(true), opened_by(false));
     let mut entries: Vec<Entry> = all
         .into_iter()
         .map(|(mut e, _)| {
-            e.startable = !opened.contains(&e.protocol_id);
+            e.startable = !(if e.built_in { &opened_built_in } else { &opened_all }).contains(&e.protocol_id);
             e
         })
         .collect();
@@ -107,10 +110,24 @@ pub fn searched(configured: &[PathBuf], built_in: Option<&Path>) -> String {
     }
 }
 
-/// The first directory of `homes` that has `protocol/<name>.protocol.yaml`. The daemon's engine uses
-/// this after `load` accepted the set, so no name is in two.
-pub fn locate(homes: &[PathBuf], name: &str) -> Option<PathBuf> {
-    homes.iter().find(|h| h.join("protocol").join(format!("{name}.protocol.yaml")).is_file()).cloned()
+/// The directory of `homes` that has `protocol/<name>.protocol.yaml`: none, one, or an error when two
+/// do. The rule of `load` (a name is in one directory, and a name of the built-in set, the last home, is
+/// never taken from a configured one), applied again where the daemon's engine resolves a name at each
+/// submit: the directories can change after `load` accepted the set at the start. The error names the
+/// runbook and no directory (it reaches a client).
+pub fn locate(homes: &[PathBuf], name: &str) -> Result<Option<PathBuf>, String> {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let mut has: Vec<&PathBuf> = Vec::new();
+    for home in homes.iter().filter(|h| h.join("protocol").join(format!("{name}.protocol.yaml")).is_file()) {
+        if !has.iter().any(|seen| canon(seen) == canon(home)) {
+            has.push(home);
+        }
+    }
+    match has.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some((*one).clone())),
+        _ => Err(format!("the runbook {name} is in two runbook directories: a name is in one directory only, and a name of the built-in set is never taken from a configured directory")),
+    }
 }
 
 /// The protocols of one `protocol/` directory the caller named (`--protocols`), with `startable` read

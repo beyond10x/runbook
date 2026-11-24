@@ -160,6 +160,10 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
     let located = l.locate();
     let found_assets = located.as_ref().ok().cloned();
     let assets = directory.or_else(|| found_assets.clone());
+    let layout: Vec<&Part> = match assets.as_ref().map(|a| a.source) {
+        Some(crate::assets::Source::Configured) => LAYOUT.iter().filter(|p| crate::assets::DIRECTORY_PARTS.contains(&p.name)).collect(),
+        _ => LAYOUT.iter().collect(),
+    };
     // A binary of an installed prefix reports that prefix's install line whether or not its assets can be read:
     // an install that stopped has no protocol/ and must not look like a checkout's doctor.
     let own_prefix = match l.home {
@@ -168,10 +172,6 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
             root,
             source: crate::assets::Source::Installed,
         }),
-    };
-    let layout: Vec<&Part> = match assets.as_ref().map(|a| a.source) {
-        Some(crate::assets::Source::Configured) => LAYOUT.iter().filter(|p| crate::assets::DIRECTORY_PARTS.contains(&p.name)).collect(),
-        _ => LAYOUT.iter().collect(),
     };
     let mut checks = Vec::new();
     for spec in SPECS {

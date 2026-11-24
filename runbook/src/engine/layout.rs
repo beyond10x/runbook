@@ -48,20 +48,37 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
     Ok(Resolved { protocol_dir, bindings, protocol_id, revision })
 }
 
-/// The runbook `name` in the first of `homes` that has its protocol file (the order of
-/// `runbooks::load`: the configured directories, then the built-in home), or why the last one has not.
-pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Result<Resolved, String> {
+/// The one of `homes` that has the protocol file of the runbook `name` (`runbooks::locate`: a name that is in
+/// two homes is refused by its name, never taken from the configured one); the last home when none has it, so
+/// that `resolve` says why.
+pub fn home_of(homes: &[PathBuf], name: &str) -> Result<PathBuf, String> {
     if !plain(name) {
         return Err(format!("{name:?} is not a runbook name"));
     }
-    let home = crate::runbooks::locate(homes, name).or_else(|| homes.last().cloned()).ok_or_else(|| "no runbook home".to_owned())?;
-    resolve(&home, name, version)
+    match crate::runbooks::locate(homes, name)? {
+        Some(home) => Ok(home),
+        None => homes.last().cloned().ok_or_else(|| "no runbook home".to_owned()),
+    }
 }
 
-/// The runbooks of every home, each name once, the first home's row winning.
+/// The runbook `name` in the home that `home_of` names, or why it is not there.
+pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Result<Resolved, String> {
+    resolve(&home_of(homes, name)?, name, version)
+}
+
+/// The runbooks of every home, each name once, in the order of the homes: exactly the names `resolve_in`
+/// accepts, so a name that two homes hold (a submit of it is refused) is listed from neither.
 pub fn list_in(homes: &[PathBuf]) -> Vec<RunbookInfo> {
     let mut seen = std::collections::BTreeSet::new();
-    homes.iter().flat_map(|h| list(h)).filter(|r| seen.insert(r.name.clone())).collect()
+    homes
+        .iter()
+        .flat_map(|h| list(h))
+        .filter(|r| seen.insert(r.name.clone()))
+        .filter_map(|r| {
+            let found = resolve_in(homes, &r.name, None).ok()?;
+            Some(RunbookInfo { name: r.name, version: Some(found.revision.to_string()) })
+        })
+        .collect()
 }
 
 /// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the

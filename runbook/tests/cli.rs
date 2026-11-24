@@ -464,9 +464,9 @@ fn version_unknown_subcommand_and_help() {
     assert!(h.contains("doctor") && h.contains("list") && h.contains("check"), "{h}");
     for later in ["resume", "stop", "ui", "handback", "simulate"] {
         assert!(!h.lines().any(|l| l.trim_start().starts_with(&format!("{later} "))), "{later} listed\n{h}");
-        assert_eq!(Command::new(BIN).arg(later).output().unwrap().status.code(), Some(64), "{later}");
+        assert_eq!(Command::new(BIN).arg(later).env("RUNBOOK_NO_CONFIG", "1").output().unwrap().status.code(), Some(64), "{later}");
     }
-    assert_eq!(Command::new(BIN).output().unwrap().status.code(), Some(64));
+    assert_eq!(Command::new(BIN).env("RUNBOOK_NO_CONFIG", "1").output().unwrap().status.code(), Some(64));
 }
 
 fn copy_dir(from: &Path, to: &Path, skip: &[&str]) {

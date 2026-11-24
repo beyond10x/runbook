@@ -30,13 +30,46 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// Fails loudly when the walk from a rig below `base` would read a file the case did not write: a `runbook.toml` in
+/// `base` or above it, or a directory the walk stops at (a run directory, the state directory of a daemon).
+fn refuse_ancestors(base: &Path) {
+    for dir in base.ancestors() {
+        if std::fs::symlink_metadata(dir.join("runbook.toml")).is_ok() {
+            panic!("a rig cannot stand below {}: it holds a runbook.toml that every case below it would find; take it out of the way", dir.display());
+        }
+        if dir.join("events.jsonl").is_file() && dir.join("work").is_dir() && dir.join("bindings").is_dir() {
+            panic!("a rig cannot stand below {}: it is a run directory, and the walk stops at it", dir.display());
+        }
+        if dir.join("daemon.lock").is_file() && dir.join("journal.jsonl").is_file() {
+            panic!("a rig cannot stand below {}: it is the state directory of a daemon, and the walk stops at it", dir.display());
+        }
+    }
+}
+
 pub struct Rig {
     pub root: PathBuf,
 }
 
+impl Drop for Rig {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+}
+
 impl Rig {
+    /// A fresh tree of its own in the temporary directory of the test run, never below the checkout: the walk
+    /// for `runbook.toml` climbs from the working directory to the root of the file system, and a file in the
+    /// checkout (or in `target/` of it) must not be one of the files a case finds.
     pub fn new(tag: &str) -> Rig {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cfgfile-{tag}-{}", std::process::id()));
+        Rig::new_in(&std::env::temp_dir(), tag)
+    }
+
+    /// The same in the directory `base`.
+    pub fn new_in(base: &Path, tag: &str) -> Rig {
+        refuse_ancestors(base);
+        let root = base.join(format!("runbook-rig-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["home", "xdg", "work/sub"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
@@ -496,11 +529,20 @@ fn a_run_resolves_its_file_before_its_directory_exists_and_a_program_in_it_gets_
     let rig = Rig::new("child-env");
     rig.fixture();
     rig.put("runbook.toml", FOUR);
-    // the committed contract of the child environment (`child_env`): a program of a run is told to read no file
-    let source = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/loom_run/child.rs")).unwrap();
-    assert!(source.contains("RUNBOOK_NO_CONFIG"), "child_env does not name RUNBOOK_NO_CONFIG");
     let o = dry(&rig, &rig.root, "idea.txt");
     assert_eq!(code(&o), 0, "{}", err(&o));
+    // the environment the runner builds for the `b10x-loom` child (`child_env`): every call of the child is
+    // told to read no file, whatever a program of the run wrote into the tree
+    let w = super::core::World::new("cfgfile-child-env");
+    w.one_decision_tree();
+    w.scripted_approve();
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let calls = w.fake.calls();
+    assert!(!calls.is_empty(), "the child was not called");
+    for call in &calls {
+        assert!(call.env.iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a call of the child is not told to read no runbook.toml: {:?}", call.env.iter().map(|(k, _)| k).collect::<Vec<_>>());
+    }
 }
 
 // ---- the isolation of this test binary ----
@@ -519,50 +561,41 @@ fn the_harness_reads_no_runbook_toml_of_the_host_and_no_start_of_the_binary_skip
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert!(first_line(&o).contains("empty-config") && first_line(&o).contains("RUNBOOK_CONFIG"), "{}", first_line(&o));
     assert!(row(&o, "max_wall_seconds").contains("not stated") && row(&o, "confinement").contains("not stated"), "{}", out(&o));
-    // every start of the binary in the sources of the tests names the empty file when it can read one
-    let mut files = Vec::new();
-    sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
-    let skip = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "arg(later)", "\"decide\""];
-    let need = ["\"run\"", "\"list\"", "\"check\"", "\"doctor\"", "\"serve\"", "\"config\"", "\"init\"", ".args(args", ".args(&args", "args(self.args"];
-    let mut unguarded = Vec::new();
-    let mut starts = 0;
-    for file in files {
-        if file.ends_with("loom_run/config_file.rs") || file.ends_with("loom_run/runbook_dirs.rs") {
-            continue;
-        }
-        let text = std::fs::read_to_string(&file).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        for (i, l) in lines.iter().enumerate() {
-            if !(l.contains("Command::new(BIN)") || l.contains("Command::new(super::core::BIN)")) {
-                continue;
-            }
-            let end = (i + 1..lines.len().min(i + 14)).find(|j| lines[*j].contains("Command::new(")).unwrap_or(lines.len().min(i + 14));
-            let window = lines[i..end].join("\n");
-            let guarded = ["isolate(", "RUNBOOK_CONFIG", "--no-config"].iter().any(|m| window.contains(m));
-            if skip.iter().any(|s| window.contains(s)) || !need.iter().any(|n| window.contains(n)) {
-                continue;
-            }
-            starts += 1;
-            if !guarded {
-                unguarded.push(format!("{}:{}", file.display(), i + 1));
-            }
-        }
-    }
-    assert!(starts >= 15, "the scan found only {starts} starts of the binary");
+    // every start of the binary in the sources of the tests names the empty file when it can read one: the one scan
+    let (starts, unguarded) = super::config_guards::unguarded_starts();
+    assert!(starts >= 8, "the scan found only {starts} starts of the binary");
     assert!(unguarded.is_empty(), "starts of the binary that read a file of the host: {unguarded:?}");
 }
 
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+#[test]
+fn every_start_of_the_binary_in_the_install_cases_names_the_empty_configuration() {
+    // the install cases start the binary from a working directory below the target directory, with their own
+    // environment: without a file or `RUNBOOK_NO_CONFIG` named the walk goes up to the host's directories
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/install");
+    let mut unguarded = Vec::new();
+    let mut starts = 0;
+    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|n| n != "fixtures") {
-                sources(&path, out);
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (at, _) in text.match_indices("Command::new(") {
+            let head: String = text[at..].chars().take(60).collect();
+            let runbook = ["bin/runbook", "(BIN)", "(&program)", "(program)", "(\"runbook\")"].iter().any(|m| head.contains(m));
+            if !runbook {
+                continue;
             }
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
+            let end = ["output()", ".status()", ".spawn()"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
+            let statement = &text[at..end];
+            starts += 1;
+            if !["isolate(", "RUNBOOK_CONFIG", "--no-config", "RUNBOOK_NO_CONFIG"].iter().any(|m| statement.contains(m)) {
+                unguarded.push(format!("{}:{}", path.file_name().unwrap().to_string_lossy(), text[..at].matches('\n').count() + 1));
+            }
         }
     }
+    assert!(starts >= 4, "the scan found only {starts} starts of the binary");
+    assert!(unguarded.is_empty(), "starts of the binary in the install cases that read a runbook.toml of the host's directories: {unguarded:?}");
 }
 
 // ---- the docs ----

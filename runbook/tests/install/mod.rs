@@ -244,12 +244,18 @@ fn with_toolchain(cmd: &mut Command) -> &mut Command {
 /// `runbook <args>` from `cwd` with `PATH` = `<prefix>/bin` and the system directories, no `RUNBOOK_HOME`.
 pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
     let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
-    with_toolchain(crate::isolate(Command::new("runbook").args(args).env_clear())).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    let mut c = Command::new("runbook");
+    c.args(args).env_clear();
+    crate::isolate(&mut c);
+    with_toolchain(&mut c).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 /// The same command with the build of the checkout.
 pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
-    with_toolchain(crate::isolate(Command::new(BIN).args(args).env_clear())).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    let mut c = Command::new(BIN);
+    c.args(args).env_clear();
+    crate::isolate(&mut c);
+    with_toolchain(&mut c).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -383,7 +389,12 @@ pub(crate) fn list_from(prefix: &Path) {
     let mine = out(&o);
     assert!(mine.contains("sdc") && mine.contains("sdc-bugfix"), "{mine}");
     let theirs = from_checkout(&cwd, &["list"]);
-    assert_eq!(mine, out(&theirs), "the installed list equals the checkout's");
+    // the column of the runbook directory differs by design: the share directory of the prefix against the checkout
+    let share = format!("{}", prefix.join("bin/../share/runbook").display());
+    let rows = |text: String, home: &str| text.replace(home, "<home>");
+    assert!(mine.contains(&share), "the installed list names the share directory of the prefix: {mine}");
+    assert!(out(&theirs).contains(repo().to_str().unwrap()), "the checkout's list names the checkout: {}", out(&theirs));
+    assert_eq!(rows(mine, &share), rows(out(&theirs), repo().to_str().unwrap()), "the installed list equals the checkout's");
 }
 
 #[test]

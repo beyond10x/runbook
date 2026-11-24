@@ -24,6 +24,10 @@ pub fn merged(args: &crate::loom_run::Args) -> Result<Value, String> {
 /// a table is an object in file order, an integer a whole number, a float a float (so no guard that
 /// wants a whole number takes it). A date or a time is no value of any setting.
 pub fn parse(text: &str) -> Result<Value, String> {
+    read_table(text).map_err(|e| crate::config::printable(&e))
+}
+
+fn read_table(text: &str) -> Result<Value, String> {
     if looks_like_json(text) {
         return Err("this is JSON, and the settings file is TOML now: write the same members as TOML, the members that were under `loom` at the top level (the form and an example: docs/loom-run-settings.md)".to_owned());
     }
@@ -68,7 +72,7 @@ fn table_of(t: &toml::de::DeTable<'_>, at: &str) -> Result<Value, String> {
     let mut object = serde_json::Map::new();
     for (k, x) in t.iter() {
         let k = k.get_ref().to_string();
-        let member = json_of(x.get_ref(), &format!("{at}.{k}"))?;
+        let member = json_of(x.get_ref(), &format!("{at}.{}", crate::config::segment(&k)))?;
         object.insert(k, member);
     }
     Ok(Value::Object(object))
@@ -236,8 +240,9 @@ pub fn fill_decider(settings: &mut Value, path: Option<&std::ffi::OsStr>) -> Res
 /// The redacted settings with what the command was given added, as `RunStarted` carries them (the
 /// members `sdc-experiment check --runs-dir` compares): `loom` (`sha256` of the binary, or
 /// `in_process` and the pinned `commit` of the library; `confinement`, `cap_micro_usd`),
-/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`. The options win over a member of
-/// the same name in the file. The path of the binary is not in them.
+/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`, and `config` when a `runbook.toml` gave a
+/// value (its name and how it was found, never its path). The options win over a member of the same name
+/// in the file. The path of the binary is not in them.
 pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::loom_run::host::Identity) -> Value {
     use crate::loom_run::host::Identity;
     let mut v = redacted.clone();
@@ -255,6 +260,9 @@ pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::lo
         o.insert("max_wall_seconds".to_owned(), Value::from(args.max_wall_seconds));
         o.insert("case".to_owned(), Value::from(args.case.clone()));
         o.insert("root_protocol".to_owned(), Value::from(args.root_protocol.clone()));
+        if let Some(config) = &args.config {
+            o.insert("config".to_owned(), Value::from(config.clone()));
+        }
     }
     v
 }
@@ -306,7 +314,16 @@ mod tests {
             max_llm_calls: 100,
             max_wall_seconds: 3600,
             ports: Default::default(),
+            config: None,
         }
+    }
+
+    #[test]
+    fn a_refusal_of_the_reader_is_masked_by_parse_itself_for_a_form_that_only_the_whole_path_has() {
+        // the keys `eyJa` and `eyJb` and the member `c`: no one segment of the path is a web token, the path is
+        let head = ["ey", "Ja.eyJb"].concat();
+        let e = parse(&format!("[{head}]\nc = 1979-05-27\n")).unwrap_err();
+        assert!(e.contains("a date or a time") && !e.contains(&head) && e.contains("<a key or token>"), "{e}");
     }
 
     #[test]

@@ -171,7 +171,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("runbook config: {e}");
+                eprintln!("runbook config: {}", config::printable(&e));
                 ExitCode::from(loom_run::EXIT_REFUSED)
             }
         },
@@ -193,37 +193,41 @@ fn main() -> ExitCode {
         Cmd::Canon { .. } => canon_usage(),
         Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
-            let world = match catalog::open(&cli.source) {
+            let file = match config::load(&cli.source) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("runbook serve: {}", config::printable(&e));
+                    return ExitCode::from(loom_run::EXIT_REFUSED);
+                }
+            };
+            // Before the daemon reads the directories or listens: where its runbook directories come from.
+            if let Some(said) = file.as_ref().and_then(config::File::said) {
+                eprintln!("runbook serve: {said}");
+            }
+            // The level of a submit that names none and the deciders the daemon offers come from the same file.
+            args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+            if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
+                let limits = loom_run::arbiter::Limits {
+                    login_file: f.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
+                    cap_micro_usd: f.cap_micro_usd,
+                    max_llm_calls: f.max_llm_calls,
+                };
+                match loom_run::arbiter::DaemonArbiter::new(f.deciders.clone(), limits) {
+                    Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
+                    Err(e) => {
+                        eprintln!("runbook serve: {}", config::printable(&e));
+                        return ExitCode::from(loom_run::EXIT_REFUSED);
+                    }
+                }
+            }
+            let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {
-                    eprintln!("runbook serve: {e}");
+                    eprintln!("runbook serve: {}", config::printable(&e));
                     return ExitCode::from(code);
                 }
             };
             args.runbooks = world.configured.clone();
-            match config::load(&cli.source) {
-                Ok(file) => {
-                    args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
-                    if let Some(file) = file.filter(|f| !f.deciders.is_empty()) {
-                        let limits = loom_run::arbiter::Limits {
-                            login_file: file.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
-                            cap_micro_usd: file.cap_micro_usd,
-                            max_llm_calls: file.max_llm_calls,
-                        };
-                        match loom_run::arbiter::DaemonArbiter::new(file.deciders, limits) {
-                            Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
-                            Err(e) => {
-                                eprintln!("runbook serve: {e}");
-                                return ExitCode::from(2);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("runbook serve: {e}");
-                    return ExitCode::from(2);
-                }
-            }
             if args.runbook_dir.is_none() {
                 args.runbook_dir = world.assets.as_ref().map(|a| a.protocol_dir());
             }
@@ -318,7 +322,7 @@ fn check_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) -
     let world = match catalog::open(source).and_then(catalog::World::need_some) {
         Ok(w) => w,
         Err((code, e)) => {
-            eprintln!("runbook check: {e}");
+            eprintln!("runbook check: {}", config::printable(&e));
             return ExitCode::from(code);
         }
     };
@@ -369,7 +373,7 @@ fn doctor_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) 
                 // a built-in name needs no catalog: the report names what is wrong with the install itself
                 Err(_) if !matches!(doctor::Scope::runbook(id), doctor::Scope::Other) => None,
                 Err((code, e)) => {
-                    eprintln!("runbook doctor: {e}");
+                    eprintln!("runbook doctor: {}", config::printable(&e));
                     return ExitCode::from(code);
                 }
             };
@@ -414,7 +418,7 @@ fn list_cmd(source: &config::Source, json: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err((code, e)) => {
-            eprintln!("runbook list: {e}");
+            eprintln!("runbook list: {}", config::printable(&e));
             ExitCode::from(code)
         }
     }

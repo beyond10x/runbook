@@ -84,7 +84,6 @@ impl Serve {
     /// `closed_stderr`: standard error is a pipe whose reader is gone once the daemon listens (a `| tee` that ended).
     fn launch_with(dir: PathBuf, extra: &[&str], closed_stderr: bool) -> Serve {
         let mut cmd = Command::new(BIN);
-        crate::isolate(&mut cmd);
         cmd.args(["serve", "--principal", super::PRINCIPAL, "--runtime", "loom", "--min-confinement", "local", "--mcp", "--listen", "127.0.0.1:0"])
             .args(["--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"])
             .arg("--runbook-home")
@@ -95,7 +94,7 @@ impl Serve {
             .arg(dir.join("state"))
             .args(extra);
         let err = if closed_stderr { Stdio::piped() } else { Stdio::from(std::fs::File::create(dir.join("stderr.log")).unwrap()) };
-        cmd.env_remove("RUNBOOK_TOKEN").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(err);
+        cmd.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(err);
         let mut child = cmd.spawn().unwrap();
         let err_reader = child.stderr.take();
         let out = child.stdout.take().unwrap();
@@ -387,7 +386,7 @@ fn a_drain_bound_ends_a_drain_that_does_not_finish_and_the_run_is_orphaned_as_st
 
 #[test]
 fn the_serve_option_names_the_bound_in_seconds() {
-    let out = crate::isolate(Command::new(BIN).args(["serve", "--help"])).output().unwrap();
+    let out = Command::new(BIN).args(["serve", "--help"]).env("RUNBOOK_NO_CONFIG", "1").output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("--drain-seconds <SECONDS>"), "{text}");
 }

@@ -59,7 +59,9 @@ The text of a ticket is in `work/` and in no other file the runner writes and on
 `story:runbook-toml-carries-defaults`. A `runbook.toml` that the binary finds supplies the defaults, so
 `runbook run <runbook> --intake <file>` needs nothing else once the file states the values that have no
 built-in default. `runbook init` writes a starter (mode 600, never over a file that is there);
-`runbook config` prints every effective value of a run and its origin and opens no login file.
+`runbook config` prints every effective value of a run and its origin and opens no login file. It prints
+no value that has the form of a key or a token, from any source (the file, `--settings`, an option, a
+variable): the key and its origin are printed and the value is `<a key or token>`.
 
 A value comes from, in this order: an option of the command line; a member of a `--settings` file (a
 member of that file replaces the file's member as a whole, a table is not merged with a table); the
@@ -106,17 +108,52 @@ generated (the runbook, a time and a random part, unique) and printed on standar
 The file is found in this order and the first hit wins; two files are never merged: `--config <file>`;
 the variable `RUNBOOK_CONFIG`; `runbook.toml` in the working directory or a parent; then
 `$XDG_CONFIG_HOME/runbook/runbook.toml` (else `<home>/.config/runbook/runbook.toml`). `--no-config` and
-the variable `RUNBOOK_NO_CONFIG` read no file; the runner gives that variable to every program of a run.
+the variable `RUNBOOK_NO_CONFIG` read no file. The runner gives `RUNBOOK_NO_CONFIG` to the programs it
+starts itself: the `b10x-loom` child, the programs of an answers file and the seed helper of `--bugfix`.
+A bound program of a runbook gets `PATH` and `LOOM_*` only (Loom's program contract, unchanged here). A
+`runbook` that one of them starts inside the run's tree is kept from the file by the rule below, that the
+walk reads nothing inside a run, as long as the run directory is above the program's working directory by
+the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
+`/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
+`runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
+floor, a level, a cap, the spend ledger or the runbook directories: a `runbook` that has `LOOM_CASE` in its
+environment (Loom gives it to every bound program) and no run directory above its working directory refuses
+`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger` and `runbooks`
+in a file it found by the walk or in the user's directory, by name, with no value printed, and a key that would
+lower the daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a
+run reads under `local`, states its confinement as before.) `LOOM_CASE` is a hint, not a guard: a program of a
+run controls its own environment and its own directories, so one that clears the variable, or makes a run
+directory above its working directory, is read as a person's start and takes the keys of the file it finds.
+What holds then is that the nested run keeps its sandbox and its `--confinement`: a value of a file never
+lowers what an option or the daemon's floor sets, and the nested run runs inside the same confinement. A file
+named with `--config` or `RUNBOOK_CONFIG` is the caller's own choice.
+
+`runbook run` says on standard error, before anything starts, which `runbook.toml` it took values from and
+how it was found (`--config`, `RUNBOOK_CONFIG`, found in the working directory or a parent, found in the
+user's configuration directory): one line, the path and nothing of the file's content. A file that states no
+key took no value and is not named, and with no file nothing is printed. The run's own start record, the
+member `config` of `settings.json`, of `run-settings.jsonl` and of the settings in the `run_started` event, holds the same
+without the path (`runbook.toml (found in the working directory or a parent)`): a record is copied away from
+the machine, a path of the user's tree is not part of it. `runbook config` names the file and how it was
+found too.
 
 What the file can never do. A refusal names the file and the key, and prints no line, value or part of a
 value of it. A key named like a login, a token or a key, a value that has the form of one (the vendors'
-key prefixes, a private key block, a web token, a bearer value) and an unknown key at any level are
-refused; a login is named by its path, never held by content. A file found by the walk or in the user's
+key prefixes, a private key block, a web token, a bearer value: the word `bearer` in any case and the value after it, wherever they stand in a value, up to a break, a quote or the end of an item; each also after a name and an equals sign or a dot, as in an environment assignment) and an unknown key at any level are
+refused; `runbook config` and the refusal of a run print none of these forms, in a value, a key or a key path; a login is named by its path, never held by content. A file found by the walk or in the user's
 directory is a regular file with one name that its user owns and that group and others cannot write; a
 link, a file with a second name and a writable file are refused by name (`--config` and
-`RUNBOOK_CONFIG` get the same checks except the owner). The walk never reads a `runbook.toml` inside a
-run directory or in the directory of runs that holds it, so a file a model wrote into a run is no
-source; the runner resolves the file once, before the run directory exists.
+`RUNBOOK_CONFIG` get the same checks except the owner). The checks run on the opened file, not on the
+directories above it: a file the user owns in a directory that others can write passes, as an `.npmrc`
+does. A file in a parent directory that fails a check is refused by name, never skipped, so it stops
+`runbook run` below it until it is fixed or taken out.
+
+The walk never reads a `runbook.toml` inside a run directory, in the directory of runs that holds it, in
+the directory of runs it is started in, or inside a tree of the daemon: `<state>/workspaces/<id>` and
+`<state>/runs/<id>` of a state directory that holds `daemon.lock` and `journal.jsonl` (the files the daemon
+writes there). So a file a model wrote into a run or a workspace is no source; the runner resolves the file
+once, before the run directory exists. `runbook config` names each such file that it did not read, with the
+reason. A project that has `events.jsonl`, `work/` and `bindings/` itself reads as a run directory.
 
 ## Runbook directories
 
@@ -136,7 +173,13 @@ as the built-in set is. A relative path is relative to the directory of the file
   that no protocol of the set opens with `case_open` is a runbook (a person can start it); the others are
   the children of one. No name is fixed in the program: a protocol says itself whether it can be started.
 - The same name in two directories is an error that names both directories (also a name that a
-  configured directory shares with the built-in set). Nothing is listed or started from such a set.
+  configured directory shares with the built-in set). Nothing is listed or started from such a set. A
+  name of the built-in set is never taken from a configured directory: the daemon checks the name again at
+  each submit, and a name that a directory gained after the daemon started is refused at that submit
+  (`no-runbook`, and the view `runbooks` no longer lists it; a start that reaches the engine is refused
+  with a message that names the runbook and no directory) until the daemon is restarted and refuses the
+  set. A configured runbook cannot turn a built-in one into a child: whether a
+  built-in protocol can be started is read from the built-in set alone.
 - A directory that is missing, is no directory, or holds no `protocol/` or no `bindings/` is an error that
   names it.
 - A configured directory goes through the checks of the built-in set: its files are regular files, a
@@ -145,7 +188,13 @@ as the built-in set is. A relative path is relative to the directory of the file
 - `runbook run <name>` takes `protocol/` and `bindings/` from the directory the name is found in;
   `--bindings` and `--protocols` still name them themselves. `runbook serve` reads the same list at its
   start and refuses a set that `list` refuses, before it listens; its engine looks a name up in the same
-  order.
+  order. It says on standard error, before it listens, the one line `runbook run` says about the file it
+  took the directories from (`runbook serve: values from runbook.toml <path> (<how it was found>)`); with
+  no file, or a file that states no key, nothing is printed. The list is the one value `serve` takes from
+  the file: `cap_micro_usd`, `max_llm_calls` and `max_wall_seconds` of the file are the defaults of one
+  `runbook run`, never the caps or ceilings of the daemon, which come from its own options
+  (`docs/daemon-api.md`, "Caps of a run"); a daemon of the Loom runtime started without them refuses to
+  start and names each missing option, whatever the file states.
 - `runbook check` reads every directory (layout `protocol/`, `bindings/`, the binding files, instruction
   files and views; the cycles list is the built-in set's); `runbook check --for <name>` the directory
   of one runbook. `runbook doctor --for <name>` asks the layout of that directory and the programs and
@@ -406,7 +455,10 @@ never grant more than the cap: two processes that each want 0.60 USD against a c
 spend at most 2.00 USD between them.
 
 The per-call budget is the `--max-budget-usd` argv value of the model tools in the copy, lowered
-before each step to the reservation. No `max_budget_micro_usd` is written: in a tree only `max_runs`
+before each step to the reservation. A member `max_budget_usd` of a binding (`docs/loom-bindings.md`,
+"The per-call budget of a program") counts toward the largest budget a step reserves and is not
+lowered: it is reserved as written. The copy holds no member (Loom refuses one it does not know); the
+members are kept beside it in `bindings/.call-budgets.json`. No `max_budget_micro_usd` is written: in a tree only `max_runs`
 acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes

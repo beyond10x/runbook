@@ -104,6 +104,9 @@ pub struct Args {
     pub max_wall_seconds: u64,
     /// The options of the six ports of the old driver's launcher (`ports.rs`).
     pub ports: ports::Ports,
+    /// The `runbook.toml` the values were taken from, by name and origin (never the path): the member
+    /// `config` of the run's start record. `None`: no file, or a file that stated nothing.
+    pub config: Option<String>,
 }
 
 /// How the run reaches Loom, from the options: one of the two ways.

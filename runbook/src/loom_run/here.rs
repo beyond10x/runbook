@@ -234,6 +234,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
             max_llm_calls,
             max_wall_seconds,
             ports,
+            config: file.and_then(config::File::noted),
         },
         generated,
     ))
@@ -244,19 +245,23 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
     let file = match config::load(source) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("runbook run: {e}");
+            eprintln!("runbook run: {}", config::printable(&e));
             return ExitCode::from(EXIT_REFUSED);
         }
     };
+    // Before anything starts, and before a refusal that names the file: where the values come from.
+    if let Some(said) = file.as_ref().and_then(config::File::said) {
+        eprintln!("runbook run: {said}");
+    }
     let (args, generated) = match args_of(&base, here, file.as_ref()) {
         Ok(a) => a,
         Err((code, line)) => {
-            eprintln!("runbook run: {line}");
+            eprintln!("runbook run: {}", config::printable(&line));
             return ExitCode::from(code);
         }
     };
     if let Err((code, line)) = refuse_unbuilt(&args.ports) {
-        eprintln!("runbook run: {line}");
+        eprintln!("runbook run: {}", config::printable(&line));
         return ExitCode::from(code);
     }
     if let Some(name) = generated {
@@ -271,7 +276,7 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
             ExitCode::from(outcome.exit_code())
         }
         Err(refusal) => {
-            eprintln!("runbook run: refused: {refusal}");
+            eprintln!("runbook run: refused: {}", config::printable(&refusal));
             ExitCode::from(EXIT_REFUSED)
         }
     }

@@ -269,6 +269,46 @@ fn serve_refuses_two_directories_with_one_name_before_it_listens() {
     assert!(!out(&o).contains("listening"), "{}", out(&o));
 }
 
+/// The binary reads the set once itself (`catalog::open`) and refuses a duplicate before it calls the
+/// daemon's start, so the case above stays green without the check in `serve::prepare`. This one calls
+/// `prepare` with a set the binary would have refused: it must refuse by itself, before it writes its state.
+#[test]
+fn the_daemons_start_refuses_two_directories_with_one_name_before_it_writes_its_state() {
+    let (rig, dirs) = setup("prepare", &["books/a", "books/b"]);
+    let args = runbook::serve::ServeArgs {
+        listen: "127.0.0.1:0".to_owned(),
+        state_dir: Some(rig.p("state")),
+        context_root: Vec::new(),
+        runbook_dir: None,
+        runtime: "loom".to_owned(),
+        runbook_home: Some(rig.p("fx")),
+        runbooks: dirs.clone(),
+        min_confinement: "local".to_owned(),
+        default_confinement: None,
+        file_confinement: None,
+        autonomy: None,
+        decider: None,
+        arbiter: None,
+        token_file: None,
+        principal: Some("person:test".to_owned()),
+        ui: false,
+        mcp: false,
+        max_wall_seconds: Some(3600),
+        max_llm_calls: Some(10_000),
+        cap_micro_usd: Some(1_000_000_000),
+        max_wall_seconds_ceiling: None,
+        max_llm_calls_ceiling: None,
+        cap_micro_usd_ceiling: None,
+        drain_seconds: None,
+    };
+    let refused = match runbook::serve::prepare(&args, &runbook::serve::Env::default(), &[]) {
+        Ok(_) => panic!("the daemon's start took a set with one name in two directories"),
+        Err(e) => e,
+    };
+    assert!(refused.contains(dirs[0].to_str().unwrap()) && refused.contains(dirs[1].to_str().unwrap()), "{refused}");
+    assert!(!rig.p("state").exists(), "the daemon wrote its state before it refused the set");
+}
+
 #[test]
 fn config_shows_the_runbooks_of_the_file_with_their_origin_and_the_file_refuses_what_is_no_path() {
     let (rig, dirs) = setup("config", &["books/a"]);

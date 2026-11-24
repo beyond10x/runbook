@@ -153,11 +153,11 @@ impl Engine {
     }
 
     /// The runbook directories of `runbook.toml` (`runbooks.rs`), looked up before the home, in
-    /// the order given. The set was accepted by `runbooks::load` when the daemon started.
+    /// the order given, each made absolute like the home. The set was accepted by `runbooks::load`
+    /// when the daemon started.
     pub fn with_runbook_dirs(mut self, dirs: Vec<PathBuf>) -> Engine {
         let home = self.homes.pop().into_iter().collect::<Vec<_>>();
-        let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        self.homes = dirs.into_iter().map(absolute).chain(home).collect();
+        self.homes = dirs.into_iter().map(|p| std::path::absolute(&p).unwrap_or(p)).chain(home).collect();
         self
     }
 
@@ -203,26 +203,26 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let in_home = layout::resolve_in(&self.homes, &request.runbook, request.version.as_deref()).map_err(failure)?;
+        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
+        let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
-        // The run takes its runbook now: it reads the copy in its own directory until it ends. The copy is
-        // made from the first directory of the engine that holds the runbook.
+        // The run takes its runbook now: it reads the copy in its own directory until it ends.
         let (resolved, pin) = if resume {
             let pin = Pin::load(&request.state_dir).map_err(failure)?;
             (in_home, pin)
         } else {
-            let home = crate::runbooks::locate(&self.homes, &request.runbook).or_else(|| self.homes.last().cloned()).ok_or_else(|| failure("no runbook home"))?;
             let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
-        // What a program that names no per-call budget reserves, from the bindings the run reads; a
-        // runbook whose programs could call a model with no budget anywhere is refused here.
+        // What each program reserves, from the bindings the run reads (the copy's members are kept
+        // beside it, `budget::seal`); a runbook whose programs could call a model with no budget
+        // anywhere is refused here.
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
-        let unnamed_micro_usd = crate::budget::reserve_for_unnamed(&read_bindings).map_err(failure)?;
+        let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         // Every program the runner starts is told to the sink before it starts: the daemon records the step in
         // flight. The actions are read from the bindings the run reads, those of its own copy.
         let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
@@ -295,7 +295,7 @@ impl Engine {
         let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
         let meter = Arc::new(Meter::new(before));
         *lock(&slot.meter) = Some(meter.clone());
-        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, unnamed_micro_usd).map_err(failure)?;
+        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.

@@ -267,7 +267,7 @@ fn replay_recording_clean_holds_no_home_path_prompt_or_transcript() {
 fn replay_helper(args: &[&str]) -> Value {
     let bin = repo().join("driver/target/debug/sdc-replay");
     assert!(bin.is_file(), "{} is not built (cargo build --locked --bins in driver/)", bin.display());
-    let out = std::process::Command::new(&bin).args(args).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = std::process::Command::new(&bin).args(args).env("RUNBOOK_NO_CONFIG", "1").stdin(std::process::Stdio::null()).output().unwrap();
     assert!(out.status.success(), "sdc-replay {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     serde_json::from_slice(&out.stdout).unwrap()
 }

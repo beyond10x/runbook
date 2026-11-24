@@ -28,6 +28,9 @@ pub const FILE_NAME: &str = "runbook.toml";
 pub const ENV_CONFIG: &str = "RUNBOOK_CONFIG";
 /// The variable that reads no file: what the runner gives every program it starts.
 pub const ENV_NO_CONFIG: &str = "RUNBOOK_NO_CONFIG";
+/// The variable Loom gives every bound program of a run (its program contract): a `runbook` that has it is
+/// started inside a run.
+pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 /// The most bytes of a file.
 const MAX_BYTES: u64 = 256 * 1024;
 
@@ -38,6 +41,11 @@ const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls",
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
 /// `loom_sha256`, `in_process` and `replay` belong to one run and are not defaults.
 const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review"];
+
+/// The keys a file found by a program of a run that has no run directory above it (by the walk or in the user's
+/// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger and the directories
+/// runbooks are loaded from. The floor of the daemon has no key in any file.
+const NESTED_REFUSED_KEYS: [&str; 7] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks"];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement.
 pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\ncap_micro_usd = 5000000\nmax_llm_calls = 200\n";
@@ -113,6 +121,8 @@ pub struct Lookup {
     pub home: Option<PathBuf>,
     /// The user the binary runs as; a file found by the walk or in the user's directory is theirs.
     pub uid: u32,
+    /// The process is a program of a run: Loom gives every bound program `LOOM_CASE`.
+    pub nested: bool,
 }
 
 impl Lookup {
@@ -128,6 +138,7 @@ impl Lookup {
             home: var("HOME"),
             // SAFETY: geteuid(2) has no preconditions and cannot fail.
             uid: unsafe { libc::geteuid() },
+            nested: var(ENV_PROGRAM_OF_A_RUN).is_some(),
         }
     }
 }
@@ -163,6 +174,9 @@ pub struct Found {
     pub path: PathBuf,
     pub via: Via,
     text: String,
+    /// The file was found by a program of a run that has no run directory above its working directory: the
+    /// file lies in the tree a model wrote into.
+    nested: bool,
 }
 
 /// The directory is a run's: the files a run holds (`events.jsonl`, `work/`, `bindings/`).
@@ -170,14 +184,79 @@ pub fn is_run_dir(dir: &Path) -> bool {
     dir.join("events.jsonl").is_file() && dir.join("work").is_dir() && dir.join("bindings").is_dir()
 }
 
+/// The most entries of a directory that are looked at for a run directory.
+const RUNS_SCANNED: usize = 4096;
+
 /// Whether the directory holds a run directory.
 fn holds_run(dir: &Path) -> bool {
-    dir.read_dir().is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| is_run_dir(&e.path()))))
+    dir.read_dir().is_ok_and(|entries| entries.take(RUNS_SCANNED).any(|e| e.is_ok_and(|e| is_run_dir(&e.path()))))
 }
 
-/// Whether `path` lies in a run's tree, or in a directory of runs.
+/// The daemon's state directory: the two files it writes there (`State::open`, `state.rs`).
+fn is_daemon_state(dir: &Path) -> bool {
+    dir.join("daemon.lock").is_file() && dir.join("journal.jsonl").is_file()
+}
+
+/// Why the walk does not read a directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Skip {
+    /// The directory is a run directory or lies inside one.
+    InRun,
+    /// The directory holds the run directory the working directory is in.
+    RunsAbove,
+    /// The directory holds a run directory and is the working directory.
+    RunsHere,
+    /// The directory is a workspace or a run of the daemon, or lies inside one.
+    Daemon,
+}
+
+impl Skip {
+    pub fn describe(self) -> &'static str {
+        match self {
+            Skip::InRun => "inside a run directory (it holds events.jsonl, work/ and bindings/)",
+            Skip::RunsAbove => "the directory of runs that holds the run directory it is in",
+            Skip::RunsHere => "the directory of runs it is started in (it holds a run directory)",
+            Skip::Daemon => "inside a workspace or a run of the daemon (its state directory holds daemon.lock and journal.jsonl)",
+        }
+    }
+}
+
+/// The directories, from the first of `dirs` (the working directory) up, that the walk does not read,
+/// each with why: the topmost run directory among them and the directory of runs above it; the working
+/// directory when it holds a run; the topmost `<state>/workspaces/<id>` or `<state>/runs/<id>` of a daemon's
+/// state directory and its `workspaces` or `runs` directory.
+fn blocks(dirs: &[&Path]) -> Vec<Skip> {
+    let run = dirs.iter().rposition(|d| is_run_dir(d)).map_or(0, |i| i + 2);
+    let daemon = (0..dirs.len().saturating_sub(2))
+        .rev()
+        .find(|&i| dirs[i + 1].file_name().is_some_and(|n| n == "workspaces" || n == "runs") && is_daemon_state(dirs[i + 2]))
+        .map_or(0, |i| i + 2);
+    let here = usize::from(dirs.first().is_some_and(|d| holds_run(d)));
+    (0..run.max(daemon).max(here).min(dirs.len()))
+        .map(|i| {
+            if i < daemon {
+                Skip::Daemon
+            } else if i + 1 == run {
+                Skip::RunsAbove
+            } else if i < run {
+                Skip::InRun
+            } else {
+                Skip::RunsHere
+            }
+        })
+        .collect()
+}
+
+/// Why the directory of `path` is not read, when it lies in a run's tree, in a directory of runs or in a
+/// tree of the daemon.
+fn tree_skip(path: &Path) -> Option<Skip> {
+    let dirs: Vec<&Path> = path.parent().into_iter().flat_map(Path::ancestors).collect();
+    blocks(&dirs).first().copied()
+}
+
+/// Whether `path` lies in a tree the walk never reads.
 fn in_run_tree(path: &Path) -> bool {
-    path.ancestors().skip(1).any(is_run_dir) || path.parent().is_some_and(holds_run)
+    tree_skip(path).is_some()
 }
 
 /// The file at `path`, or `None` when a file found by the walk or in the user's directory is not
@@ -216,7 +295,7 @@ fn read_file(path: &Path, via: Via, uid: u32) -> Result<Option<Found>, String> {
     let mut bytes = Vec::new();
     (&file).take(MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| refuse(e.to_string()))?;
     let text = String::from_utf8(bytes).map_err(|_| refuse("is not UTF-8 text".to_owned()))?;
-    Ok(Some(Found { path: path.to_path_buf(), via, text }))
+    Ok(Some(Found { path: path.to_path_buf(), via, text, nested: false }))
 }
 
 /// The user's file: `$XDG_CONFIG_HOME/runbook/runbook.toml` (an absolute path only), else
@@ -229,14 +308,15 @@ pub fn user_file(l: &Lookup) -> Option<PathBuf> {
     }
 }
 
-/// The number of directories, from the working directory up, that the walk does not read: the
-/// topmost run directory among them and the directory of runs above it.
-fn blocked(dirs: &[&Path]) -> usize {
-    dirs.iter().rposition(|d| is_run_dir(d)).map_or(0, |i| i + 2)
-}
-
 /// The file to read, or `None`.
 pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
+    // a program of a run with no run directory above it (the work directory bound at another path): every file
+    // it finds lies in the tree a model wrote into; with the run directory above it the walk skips that tree
+    let nested = l.nested && !l.cwd.as_ref().is_some_and(|cwd| cwd.ancestors().any(is_run_dir));
+    locate_file(l).map(|found| found.map(|f| Found { nested, ..f }))
+}
+
+fn locate_file(l: &Lookup) -> Result<Option<Found>, String> {
     if l.option.is_some() && l.no_config {
         return Err("--config and --no-config exclude each other".to_owned());
     }
@@ -254,7 +334,7 @@ pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
     }
     if let Some(cwd) = &l.cwd {
         let dirs: Vec<&Path> = cwd.ancestors().collect();
-        for dir in dirs.iter().skip(blocked(&dirs)) {
+        for dir in dirs.iter().skip(blocks(&dirs).len()) {
             if let Some(found) = read_file(&dir.join(FILE_NAME), Via::Walk, l.uid)? {
                 return Ok(Some(found));
             }
@@ -266,10 +346,27 @@ pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
     }
 }
 
+/// The files the walk found and did not read, each as a line with why (`runbook config` prints them): a
+/// file in a run's tree, in a directory of runs or in a tree of the daemon.
+pub fn skipped(l: &Lookup) -> Vec<String> {
+    if l.option.is_some() || l.no_config || l.env_file.is_some() || l.env_no_config {
+        return Vec::new();
+    }
+    let line = |file: PathBuf, why: Skip| std::fs::symlink_metadata(&file).ok().map(|_| format!("{}: not read: {}", file.display(), why.describe()));
+    let walked: Vec<String> = l.cwd.iter().flat_map(|cwd| {
+        let dirs: Vec<&Path> = cwd.ancestors().collect();
+        blocks(&dirs).into_iter().zip(dirs.iter()).filter_map(|(why, dir)| line(dir.join(FILE_NAME), why)).collect::<Vec<_>>()
+    }).collect();
+    let user = user_file(l).and_then(|path| tree_skip(&path).and_then(|why| line(path, why)));
+    walked.into_iter().chain(user).collect()
+}
+
 /// A file that is read, as the run reads it.
 #[derive(Clone, Debug)]
 pub struct File {
     pub path: PathBuf,
+    /// How the file was found.
+    pub via: Via,
     pub runs_dir: Option<PathBuf>,
     pub spend_ledger: Option<PathBuf>,
     pub confinement: Option<Confinement>,
@@ -286,21 +383,89 @@ pub struct File {
     pub members: Map<String, Value>,
 }
 
-/// Locates and reads the file the process names or finds.
-pub fn load(source: &Source) -> Result<Option<File>, String> {
-    locate(&Lookup::from_process(source))?.map(|f| parse(&f)).transpose()
+impl File {
+    /// Whether the file states no key: it took no value for a run, so a run does not name it.
+    pub fn states_nothing(&self) -> bool {
+        self.runs_dir.is_none()
+            && self.spend_ledger.is_none()
+            && self.confinement.is_none()
+            && self.cap_micro_usd.is_none()
+            && self.max_llm_calls.is_none()
+            && self.max_wall_seconds.is_none()
+            && self.runbooks.is_empty()
+            && self.members.is_empty()
+    }
+
+    /// What `runbook run` says on standard error before anything starts: the file and how it was found.
+    /// The path of a file and nothing of its content; `None` for a file that took no value.
+    pub fn said(&self) -> Option<String> {
+        (!self.states_nothing()).then(|| format!("values from runbook.toml {} ({})", self.path.display(), self.via.describe()))
+    }
+
+    /// The same for the start record of a run: name and origin, never the path (a record leaves the
+    /// machine with the run).
+    pub fn noted(&self) -> Option<String> {
+        (!self.states_nothing()).then(|| format!("{FILE_NAME} ({})", self.via.describe()))
+    }
 }
 
-/// Whether the text has the form of a key or a token: the forms of the vendors' keys, a private key
-/// block, a JSON web token, a bearer value.
-pub fn token_form(s: &str) -> bool {
+/// Locates and reads the file the process names or finds.
+pub fn load(source: &Source) -> Result<Option<File>, String> {
+    locate(&Lookup::from_process(source)).map_err(|e| mask(&e))?.map(|f| parse(&f)).transpose()
+}
+
+/// The one wrapper every refusal passes through before a command prints it (`config`, `list`, `check`, `run`,
+/// `doctor`, `serve`): a word with the form of a key or a token is replaced, whatever joins it to the text around it.
+pub fn printable(message: &str) -> String {
+    mask(message)
+}
+
+/// A character of a word of a text: a key, a token and a path segment are words.
+fn word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=')
+}
+
+/// Whether a word ends in `bearer`, in any case (`AUTH=Bearer` does): the word after it is a credential.
+fn is_bearer(word: &str) -> bool {
+    word.split('=').rfind(|part| !part.is_empty()).is_some_and(|part| part.eq_ignore_ascii_case("bearer"))
+}
+
+/// Whether the text has a word `bearer` (any case) that another word follows, wherever it stands, or the
+/// word `bearer` and a value joined by an equals sign (`Bearer=<value>`).
+fn bearer_value(s: &str) -> bool {
+    let words: Vec<&str> = s.split(|c: char| !word_char(c)).filter(|w| !w.is_empty()).collect();
+    words.windows(2).any(|pair| is_bearer(pair[0]))
+        || words.iter().any(|w| w.split('=').collect::<Vec<_>>().windows(2).any(|pair| pair[0].eq_ignore_ascii_case("bearer") && !pair[1].is_empty()))
+}
+
+/// Whether the text begins with the form of a key or a token, or holds a private key block.
+fn form_at_start(s: &str) -> bool {
     const PREFIXES: [&str; 14] = ["sk-ant-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "xapp-", "npm_"];
     let t = s.trim();
     let aws = (t.starts_with("AKIA") || t.starts_with("ASIA")) && t.len() == 20 && t.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
     let jwt = t.starts_with("eyJ") && t.matches('.').count() == 2;
     let generic = t.starts_with("sk-") && t.len() >= 20;
     let google = t.starts_with("AIza") && t.len() == 39;
-    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || t.to_ascii_lowercase().starts_with("bearer ") || aws || jwt || generic || google
+    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || aws || jwt || generic || google
+}
+
+/// Whether the text has the form of a key or a token: the forms of the vendors' keys, a private key
+/// block, a JSON web token, a bearer value (the word `bearer` and the word after it, anywhere in the text),
+/// each as the whole text and as any part of it that follows a name and an equals sign (`GH_TOKEN=<token>`)
+/// or a dot.
+pub fn token_form(s: &str) -> bool {
+    form_at_start(s) || bearer_value(s) || joined_form(s)
+}
+
+/// The most segments a form spans: a web token has three, joined by dots.
+const FORM_SEGMENTS: usize = 3;
+
+/// Whether a form begins at the start of any segment of the text, the segments being what stands between dots and
+/// equals signs, and spans up to `FORM_SEGMENTS` of them (`a.b=c.<web token>`).
+fn joined_form(s: &str) -> bool {
+    let ends: Vec<usize> = s.match_indices(['.', '=']).map(|(i, _)| i).chain(std::iter::once(s.len())).collect();
+    let starts = std::iter::once(0).chain(ends.iter().map(|e| e + 1));
+    starts.zip(0..ends.len()).any(|(from, k)| (k..ends.len().min(k + FORM_SEGMENTS)).any(|e| s.get(from..ends[e]).is_some_and(form_at_start)))
 }
 
 /// A path as text, not content: no control character (a newline) and no JSON or array opening.
@@ -314,7 +479,7 @@ fn scan(v: &Value, at: &str) -> Result<(), String> {
         Value::Object(map) => {
             for (key, x) in map {
                 let here = if at.is_empty() { key.clone() } else { format!("{at}.{key}") };
-                if token_form(key) {
+                if mask(key) != *key {
                     let table = if at.is_empty() { "the top level".to_owned() } else { at.to_owned() };
                     return Err(format!("{table}: a key has the form of a key or a token: the file names a login file by path, never by content"));
                 }
@@ -328,30 +493,86 @@ fn scan(v: &Value, at: &str) -> Result<(), String> {
     }
 }
 
+/// What is printed in place of a word or a value that has the form of a key or a token.
+const HIDDEN: &str = "<a key or token>";
+
 /// The message with every word that has the form of a key or a token replaced: a key of the file can
 /// be one, and the reader names the key it stops at.
 fn mask(message: &str) -> String {
-    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '/' | '=');
+    let chars: Vec<char> = message.chars().collect();
     let mut out = String::new();
-    let mut current = String::new();
-    for c in message.chars().chain(std::iter::once(' ')) {
-        if word(c) {
-            current.push(c);
-            continue;
+    let mut at = 0;
+    // the word `bearer` makes what follows it hidden: after the break, the colon and the quotes between the
+    // two, the value is everything up to the next break, quote or end of an item (a slash or a colon is in it)
+    let mut after_bearer = false;
+    while at < chars.len() {
+        let c = chars[at];
+        if after_bearer {
+            if let Some(n) = value_end(&chars, at) {
+                out.extend(&chars[at..at + n]);
+                at += n;
+            } else if c == ':' {
+                out.push(c);
+                at += 1;
+            } else {
+                while at < chars.len() && value_end(&chars, at).is_none() {
+                    at += if is_escaped_backslash(&chars, at) { 2 } else { 1 };
+                }
+                out.push_str(HIDDEN);
+                after_bearer = false;
+            }
+        } else if is_escaped_backslash(&chars, at) {
+            // the character after it is the next character of the text, not the end of a break (`\\n` is a backslash and an `n`)
+            out.extend(&chars[at..at + 2]);
+            at += 2;
+        } else if let Some(n) = escape_len(&chars, at) {
+            out.extend(&chars[at..at + n]);
+            at += n;
+        } else if word_char(c) {
+            let end = (at..chars.len()).find(|&i| !word_char(chars[i])).unwrap_or(chars.len());
+            let word: String = chars[at..end].iter().collect();
+            out.push_str(if token_form(&word) { HIDDEN } else { &word });
+            after_bearer = is_bearer(&word);
+            at = end;
+        } else {
+            out.push(c);
+            at += 1;
         }
-        out.push_str(&if token_form(&current) { "<a key or token>".to_owned() } else { std::mem::take(&mut current) });
-        current.clear();
-        out.push(c);
     }
-    out.pop();
     out
+}
+
+/// Whether two backslashes stand at `at`: a JSON string writes one backslash so.
+fn is_escaped_backslash(chars: &[char], at: usize) -> bool {
+    chars.get(at) == Some(&'\\') && chars.get(at + 1) == Some(&'\\')
+}
+
+/// The length of a break a JSON string writes as an escape (`\n`, `\t`, `\r`, `\b`, `\f`, `\u0000`): it ends a
+/// word and is no part of one.
+fn escape_len(chars: &[char], at: usize) -> Option<usize> {
+    match (chars.get(at), chars.get(at + 1)) {
+        (Some('\\'), Some('n' | 't' | 'r' | 'b' | 'f')) => Some(2),
+        (Some('\\'), Some('u')) if chars.get(at + 2..at + 6).is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit)) => Some(6),
+        _ => None,
+    }
+}
+
+/// The length of what ends the value after a bearer word, or stands between the word and its value: white
+/// space, a quote (escaped or not), a break, the end of an item.
+fn value_end(chars: &[char], at: usize) -> Option<usize> {
+    match (chars.get(at), chars.get(at + 1)) {
+        (Some('\\'), Some('"' | '\'')) => Some(2),
+        (Some(c), _) if c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ']' | '}') => Some(1),
+        _ => escape_len(chars, at),
+    }
 }
 
 /// The leading key of a message of the settings readers: those can print a value, so only the key
 /// they begin with is kept.
 fn scrub(message: String) -> String {
     let key: String = message.split(|c: char| c == ':' || c.is_whitespace()).next().unwrap_or("").chars().take(120).collect();
-    format!("{key}: refused (the reader's own words are not printed here, they can hold a value; the form: docs/loom-run-settings.md)")
+    let key = key.split('.').map(segment).collect::<Vec<_>>().join(".");
+    mask(&format!("{key}: refused (the reader's own words are not printed here, they can hold a value; the form: docs/loom-run-settings.md)"))
 }
 
 fn path_in(top: &mut Map<String, Value>, key: &str, dir: &Path) -> Result<Option<PathBuf>, String> {
@@ -392,6 +613,10 @@ fn whole(top: &mut Map<String, Value>, key: &str) -> Result<Option<u64>, String>
 /// Reads the text of a found file: the one settings reader for the syntax and the members, then the
 /// keys of its own. An error names the file, the table and the key, and a line at most.
 pub fn parse(found: &Found) -> Result<File, String> {
+    read_text(found).map_err(|e| mask(&e))
+}
+
+fn read_text(found: &Found) -> Result<File, String> {
     let name = found.path.display();
     let fail = |e: String| format!("{name}: {e}");
     let dir = found.path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -400,6 +625,11 @@ pub fn parse(found: &Found) -> Result<File, String> {
         _ => return Err(fail("a table".to_owned())),
     };
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
+    if found.nested && !found.via.chosen() {
+        if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger or the runbook directories; name the file with --config to use it)")));
+        }
+    }
     for key in top.keys() {
         if !OWN_KEYS.contains(&key.as_str()) && !OPTION_KEYS.contains(&key.as_str()) && !MEMBER_KEYS.contains(&key.as_str()) {
             let known: Vec<&str> = OWN_KEYS.iter().chain(&OPTION_KEYS).chain(&MEMBER_KEYS).copied().collect();
@@ -443,7 +673,7 @@ pub fn parse(found: &Found) -> Result<File, String> {
         Some(_) => return Err(fail("deciders: a table of tables, one per decider kind ([deciders.rule])".to_owned())),
     };
     check_members(&top).map_err(fail)?;
-    Ok(File { path: found.path.clone(), runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -551,26 +781,48 @@ pub fn generated_run_name(runbook: &str) -> String {
     format!("{plain}-{}-{}", &id[..12], &id[20..])
 }
 
+/// The text a value has in `runbook config`. The one place a value is printed: a string that has the form
+/// of a key or a token, wherever it is in the value and whichever source it comes from, is replaced by
+/// `HIDDEN`; the key and the origin stay.
 fn shown(v: &Value) -> String {
-    v.to_string()
+    fn hide(v: &Value) -> Value {
+        match v {
+            Value::String(s) if token_form(s) => Value::String(HIDDEN.to_owned()),
+            Value::Array(items) => Value::Array(items.iter().map(hide).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(k, x)| (k.clone(), hide(x))).collect()),
+            other => other.clone(),
+        }
+    }
+    hide(v).to_string()
+}
+
+/// A key of a member as one segment of the dotted name printed for a value: a key that has the form of a
+/// token is replaced by `HIDDEN` (the prefix before a dot would hide it from `mask`).
+pub(crate) fn segment(key: &str) -> &str {
+    if mask(key) != key {
+        HIDDEN
+    } else {
+        key
+    }
 }
 
 fn leaves(prefix: &str, v: &Value, origin: &Origin, out: &mut Vec<String>) {
     match v {
-        Value::Object(map) if !map.is_empty() => map.iter().for_each(|(k, x)| leaves(&format!("{prefix}.{k}"), x, origin, out)),
+        Value::Object(map) if !map.is_empty() => map.iter().for_each(|(k, x)| leaves(&format!("{prefix}.{}", segment(k)), x, origin, out)),
         Value::Object(_) => {}
         other => out.push(format!("{prefix} = {}  ({})", shown(other), origin.text())),
     }
 }
 
 /// The text `runbook config` prints: the file and how it was found, then every value with its origin.
-pub fn text(found: Option<(&Path, Via)>, source: &Source, values: &Values, merged: &Value, settings_origin: &dyn Fn(&str) -> Origin) -> String {
+pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, values: &Values, merged: &Value, settings_origin: &dyn Fn(&str) -> Origin) -> String {
     let mut out = Vec::new();
     out.push(match (found, source.no_config) {
         (Some((path, via)), _) => format!("runbook.toml: {} ({})", path.display(), via.describe()),
         (None, true) => "runbook.toml: none read (--no-config)".to_owned(),
         (None, false) => "runbook.toml: none found (the working directory and its parents, the user's configuration directory; `runbook init` writes one)".to_owned(),
     });
+    out.extend(skipped.iter().map(|s| format!("runbook.toml skipped: {s}")));
     let item = |key: &str, flag: &str, what: &str, v: Option<(String, &Origin)>| match v {
         Some((value, origin)) => format!("{key} = {value}  ({})", origin.text()),
         None => format!("{key} = not stated  ({what}: {flag}, or `{key}` in runbook.toml)"),
@@ -591,14 +843,19 @@ pub fn text(found: Option<(&Path, Via)>, source: &Source, values: &Values, merge
     out.push(item("max_llm_calls", "--max-llm-calls", "a run is refused without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
     if let Some(members) = merged.as_object() {
         for (key, v) in members {
-            leaves(key, v, &settings_origin(key), &mut out);
+            leaves(segment(key), v, &settings_origin(key), &mut out);
         }
     }
-    out.join("\n") + "\n"
+    // a key of a settings file and a path of an option are no values and can have the form too
+    out.iter().map(|line| mask(line)).collect::<Vec<_>>().join("\n") + "\n"
 }
 
 /// `runbook config`: the effective values and where each comes from. Never opens a login file.
 pub fn show(source: &Source, options: &ValueOptions) -> Result<String, String> {
+    show_text(source, options).map_err(|e| mask(&e))
+}
+
+fn show_text(source: &Source, options: &ValueOptions) -> Result<String, String> {
     let lookup = Lookup::from_process(source);
     let found = locate(&lookup)?;
     let file = found.as_ref().map(parse).transpose()?;
@@ -614,7 +871,7 @@ pub fn show(source: &Source, options: &ValueOptions) -> Result<String, String> {
         (_, _, Some(f)) => Origin::File(f.clone()),
         _ => Origin::BuiltIn("none"),
     };
-    Ok(text(found.as_ref().map(|f| (f.path.as_path(), f.via)), source, &values, &merged, &origin))
+    Ok(text(found.as_ref().map(|f| (f.path.as_path(), f.via)), &skipped(&lookup), source, &values, &merged, &origin))
 }
 
 /// `runbook init`: writes the starter, mode 600, and refuses to overwrite.
@@ -670,13 +927,116 @@ mod tests {
 
     #[test]
     fn the_token_forms_and_the_plain_texts() {
-        let yes: Vec<String> = [["sk-", "ant-api03-x"], ["gh", "p_x"], ["-----BEGIN ", "PRIVATE KEY-----"], ["AK", "IAABCDEFGHIJKLMNOP"], ["ey", "Ja.eyJb.c"], ["Bear", "er abc"], ["s", "k-aaaaaaaaaaaaaaaaaaaaaaaa"]].iter().map(|p| p.concat()).collect();
+        let yes: Vec<String> = [["sk-", "ant-api03-x"], ["gh", "p_x"], ["-----BEGIN ", "PRIVATE KEY-----"], ["AK", "IAABCDEFGHIJKLMNOP"], ["ey", "Ja.eyJb.c"], ["Bear", "er abc"], ["Authorization: Bear", "er abc"], ["curl -H 'x: BEAR", "ER abc'"], ["s", "k-aaaaaaaaaaaaaaaaaaaaaaaa"]].iter().map(|p| p.concat()).collect();
         for yes in &yes {
             assert!(token_form(yes), "{yes}");
         }
-        for no in ["claude-sonnet-5-5", "/srv/x/.claude/login.json", "runs", "A5", "substrate", "sk-short", "ask-ant"] {
+        for no in ["claude-sonnet-5-5", "/srv/x/.claude/login.json", "runs", "A5", "substrate", "sk-short", "ask-ant", "bearer", "bearers abc", "a bear of tea"] {
             assert!(!token_form(no), "{no}");
         }
+    }
+
+    #[test]
+    fn the_token_forms_after_a_name_and_an_equals_sign_or_a_dot() {
+        let yes: Vec<String> = [["GH_TOKEN=gh", "p_x runner"], ["runner --token=gl", "pat-x"], ["x.gh", "p_x"], ["AUTH=Bear", "er abc"], ["Bear", "er=abc"], ["a=b c=Bear", "er d"], ["API_TOKEN=ey", "Ja.eyJb.c"]].iter().map(|p| p.concat()).collect();
+        for yes in &yes {
+            assert!(token_form(yes), "{yes}");
+        }
+        for no in ["max_wall_seconds=1", "a=b", "key=value.x", "name=bearer", "x.y.z", "a=", "=b", "bearer="] {
+            assert!(!token_form(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_web_token_is_hidden_after_any_run_of_dots_and_equals_signs_and_a_key_with_a_token_in_it_is_hidden_whole() {
+        let yes: Vec<String> = [["name.ey", "Ja.eyJb.c"], ["a.b=c.ey", "Ja.eyJb.c"], ["a.b.c.ey", "Ja.eyJb.c"], ["x=y=ey", "Ja.eyJb.c"], ["n.gh", "p_x.tail"]].iter().map(|p| p.concat()).collect();
+        for yes in &yes {
+            assert!(token_form(yes), "{yes}");
+            assert_eq!(mask(yes), HIDDEN, "{yes}");
+        }
+        for no in ["name.eyJa.b", "a.b.c.d", "x=y=z.w", "see.eyJ"] {
+            assert!(!token_form(no), "{no}");
+        }
+        for key in [["see/gh", "p_x"], ["see:gh", "p_x"], ["see gh", "p_x"], ["see\\gh", "p_x"], ["see,Bear", "er x"]].iter().map(|p| p.concat()) {
+            assert_eq!(segment(&key), HIDDEN, "{key}");
+        }
+        for key in ["see/words", "a b", "models", "claude-sonnet-5-5"] {
+            assert_eq!(segment(key), key);
+        }
+    }
+
+    #[test]
+    fn mask_reads_an_escaped_backslash_as_one_character_and_not_as_the_start_of_a_break() {
+        // the text a JSON string has for the value `C:\dir\<token>`: the backslash is written twice, and the `n` after the second is no `\n`
+        let token = ["n", "pm_x"].concat();
+        let shown = format!("\"C:\\\\dir\\\\{token}\"");
+        assert_eq!(mask(&shown), "\"C:\\\\dir\\\\<a key or token>\"");
+        // a break after an escaped backslash is still a break, and the value after a bearer word spans the pair
+        assert_eq!(mask("\"a\\\\\\nBearer x\""), "\"a\\\\\\nBearer <a key or token>\"");
+        assert_eq!(mask("\"Bearer abc\\\\ndef ghi\""), "\"Bearer <a key or token> ghi\"");
+    }
+
+    #[test]
+    fn mask_hides_the_word_after_bearer_in_a_header_after_a_break_and_nothing_else() {
+        assert_eq!(mask("Authorization: Bearer hunter2"), "Authorization: Bearer <a key or token>");
+        assert_eq!(mask("Bearer\n  hunter2"), "Bearer\n  <a key or token>");
+        assert_eq!(mask("Bearer: hunter2 and tea"), "Bearer: <a key or token> and tea");
+        assert_eq!(mask("a Bearer b c"), "a Bearer <a key or token> c");
+        assert_eq!(mask("a bear hunter2"), "a bear hunter2");
+        assert_eq!(mask("Bearer"), "Bearer");
+        assert_eq!(mask(""), "");
+        // the line a JSON string has: the break is the two characters backslash and n
+        assert_eq!(mask("\"Authorization: Bearer\\n  hunter2\""), "\"Authorization: Bearer\\n  <a key or token>\"");
+        assert_eq!(mask("\"x\\nBearer\\thunter2\""), "\"x\\nBearer\\t<a key or token>\"");
+    }
+
+    #[test]
+    fn mask_ends_a_word_at_every_break_a_json_string_writes_and_a_bearer_value_at_every_end_of_an_item() {
+        let token = ["gh", "p_x"].concat();
+        for brk in ["\\n", "\\t", "\\r", "\\b", "\\f", "\\u000a", "\\u0009"] {
+            assert_eq!(mask(&format!("\"a{brk}{token}\"")), format!("\"a{brk}{HIDDEN}\""), "{brk}");
+        }
+        // `\u` that is no escape of a character is no break
+        let plain = format!("a\\u00zz{token}");
+        assert_eq!(mask(&plain), plain, "a bad escape is no break: the word after the backslash is one plain word");
+        for (text, want) in [
+            ("Bearer abc,tea", "Bearer <a key or token>,tea"),
+            ("[Bearer abc]", "[Bearer <a key or token>]"),
+            ("{x: Bearer abc}", "{x: Bearer <a key or token>}"),
+            ("Bearer 'abc' x", "Bearer '<a key or token>' x"),
+            ("Bearer \\\"abc\\\" x", "Bearer \\\"<a key or token>\\\" x"),
+            ("Bearer abc\\\\def x", "Bearer <a key or token> x"),
+        ] {
+            assert_eq!(mask(text), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn every_refusal_of_the_file_is_masked_where_it_is_made_and_the_printed_text_is_masked_again() {
+        let token = ["gh", "p_x"].concat();
+        let path = PathBuf::from(format!("/nonexistent/see/{token}/runbook.toml"));
+        let source = Source { config: Some(path.clone()), no_config: false };
+        for e in [load(&source).unwrap_err(), show(&source, &ValueOptions::default()).unwrap_err()] {
+            assert!(e.contains(HIDDEN) && !e.contains(&token), "{e}");
+        }
+        let found = Found { path, via: Via::Option, text: "unknown_key = 1\n".to_owned(), nested: false };
+        let e = parse(&found).unwrap_err();
+        assert!(e.contains(HIDDEN) && !e.contains(&token) && e.contains("unknown_key"), "{e}");
+        assert_eq!(printable(&format!("x/{token}")), format!("x/{HIDDEN}"));
+    }
+
+    #[test]
+    fn the_scrubbed_message_and_the_refusal_of_a_key_are_masked_by_themselves_and_not_only_by_the_caller() {
+        // a form that no one segment of a dotted key has: only the whole text shows it
+        let jwt = ["ey", "Ja.eyJb.c"].concat();
+        let said = scrub(format!("{jwt}: a value"));
+        assert!(said.contains(HIDDEN) && !said.contains("eyJa"), "{said}");
+        // a key with a token after a space: the word-aware mask hides it, the form at the start of the key does not
+        let key = ["see gh", "p_x"].concat();
+        assert!(!token_form(&key));
+        let object: Value = serde_json::from_str(&format!("{{\"{key}\": 1}}")).unwrap();
+        let refused = scan(&object, "").unwrap_err();
+        assert!(refused.contains("a key has the form of a key or a token") && !refused.contains("p_x"), "{refused}");
     }
 
     #[test]
@@ -700,7 +1060,7 @@ mod tests {
 
     #[test]
     fn the_starter_is_read() {
-        let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned() };
+        let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned(), nested: false };
         let f = parse(&found).unwrap();
         assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), Some(5_000_000), Some(200)));
         assert_eq!(f.runs_dir, Some(PathBuf::from("/x/runs")));
