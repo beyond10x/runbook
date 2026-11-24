@@ -556,3 +556,81 @@ fn a_snapshot_whose_temporary_name_holds_a_link_or_a_named_pipe_a_program_put_th
         assert!(!tmp.exists(), "{tag}: the temporary name was left");
     }
 }
+
+// ---- what the watcher holds for the names of a call record and its blobs ----
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_request_file_of_a_call_does_not_hold_the_watcher() {
+    let mut r = Run::new("request-fifo");
+    fs::create_dir_all(r.dir.join("llm")).unwrap();
+    r.start();
+    let rec = r.dir.join("llm/001-x.y");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    mkfifo(&rec.join("request.json"));
+    r.pause();
+    fs::write(rec.join("cwd/a.txt"), "a\n").unwrap();
+    r.pause();
+    let mut child = r.child.take().unwrap();
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let t = Instant::now();
+    let ended = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if t.elapsed() > Duration::from_secs(10) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    if !ended {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(ended, "the watcher did not end within 10 s of SIGTERM: it reads the request file of a call by its path and waits there for a writer of the pipe in its place");
+}
+
+#[test]
+fn every_blob_is_stored_while_a_program_keeps_taking_the_temporary_names_of_the_blobs() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let mut r = Run::new("blob-names-taken");
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let texts: Vec<String> = (0..24).map(|i| format!("content {i} of a file of the run\n")).collect();
+    let probes = base().join(format!("probes-{}", std::process::id()));
+    fs::create_dir_all(&probes).unwrap();
+    let mut files = Vec::new();
+    for (i, text) in texts.iter().enumerate() {
+        let f = probes.join(format!("p{i}.txt"));
+        fs::write(&f, text).unwrap();
+        files.push(f);
+    }
+    let sums = Command::new("sha256sum").args(&files).output().unwrap();
+    let shas: Vec<String> = String::from_utf8(sums.stdout).unwrap().lines().map(|l| l.split_whitespace().next().unwrap().to_string()).collect();
+    assert_eq!(shas.len(), texts.len());
+    let outside = base().join(format!("outside-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let names: Vec<PathBuf> = shas.iter().map(|sha| r.dir.join("fs/blobs").join(format!(".{sha}.{pid}"))).collect();
+    let stop = Arc::new(AtomicBool::new(false));
+    let spinner = {
+        let (stop, outside) = (stop.clone(), outside.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                for name in &names {
+                    let _ = std::os::unix::fs::symlink(&outside, name);
+                }
+            }
+        })
+    };
+    for (i, text) in texts.iter().enumerate() {
+        fs::write(r.work().join(format!("f{i}.txt")), text).unwrap();
+    }
+    r.pause();
+    stop.store(true, Ordering::Relaxed);
+    spinner.join().unwrap();
+    let _ = r.stop();
+    let missing: Vec<usize> = shas.iter().enumerate().filter(|(_, sha)| !r.dir.join("fs/blobs").join(sha).exists()).map(|(i, _)| i).collect();
+    let _ = fs::remove_dir_all(&probes);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+    assert!(missing.is_empty(), "{} of {} blobs were not stored: the watcher lost the record of these contents without a message", missing.len(), texts.len());
+}

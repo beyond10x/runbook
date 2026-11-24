@@ -1587,3 +1587,87 @@ fn the_tables_of_the_routing_are_not_read_through_a_link_and_not_from_a_pipe() {
     }
     assert!(Routing::load(&w.run).is_ok());
 }
+
+// --- what a guard holds for the directory of a call while its program runs, and for the files the decider reads from its copies ---
+
+#[test]
+fn the_directory_of_a_call_is_not_written_through_a_link_that_replaced_it_while_the_adapter_ran() {
+    let w = world("call-dir-replaced", "#!/bin/sh\n");
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-call-dir");
+    let body = format!("#!/bin/sh\nd=$(dirname \"$1\")\nprintf '%s\\n' '{APPROVE}' > \"$d/cwd/out/decision.json\"\nmv \"$d\" \"$d.moved\"\nln -s '{}' \"$d\"\nprintf '%s\\n' '{}'\n", out.display(), response("0.1"));
+    write_exe(&w.adapter, &body);
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote these in a directory outside the run, through a link at the directory of the call that lay there when the call ended");
+}
+
+/// The instruction files of the repository copied into `run/instructions/decider` of `w`, each by `put(from, to)`.
+fn copied_instructions(w: &World, put: &dyn Fn(&Path, &Path)) {
+    let dir = w.run.join("instructions/decider");
+    std::fs::remove_file(&dir).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    for entry in std::fs::read_dir(instructions()).unwrap() {
+        let from = entry.unwrap().path();
+        put(&from, &dir.join(from.file_name().unwrap()));
+    }
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_an_instruction_file_of_the_run_does_not_hold_the_decider() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let w = world("instruction-fifo", &valid("0.012345"));
+        std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+        copied_instructions(&w, &|_, to| assert!(Command::new("mkfifo").arg(to).status().unwrap().success()));
+        let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+        let _ = tx.send(!matches!(verdict, Verdict::Answer { .. }));
+    });
+    let refused = rx.recv_timeout(Duration::from_secs(10)).expect("the decider did not end within 10 s: it reads an instruction file of the run by its path and waits there for a writer of the pipe in its place");
+    assert!(refused, "the decider answered with a pipe at every instruction file");
+}
+
+#[test]
+fn a_link_a_program_put_at_an_instruction_file_of_the_run_is_not_read_through() {
+    let w = world("instruction-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-instructions");
+    copied_instructions(&w, &|from, to| {
+        let copy = out.join(from.file_name().unwrap());
+        let mut text = std::fs::read_to_string(from).unwrap();
+        text.push_str("\nTEXT-OUTSIDE-THE-RUN\n");
+        std::fs::write(&copy, text).unwrap();
+        std::os::unix::fs::symlink(&copy, to).unwrap();
+    });
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "the decider answered from instruction files outside the run, through links at their names: {verdict:?}");
+}
+
+#[test]
+fn a_named_pipe_or_a_file_at_a_component_of_a_directory_is_refused_without_a_wait_and_nothing_is_made_beyond_it() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let w = world("component-kinds", "#!/bin/sh\n");
+    let (run, out) = (w.run.clone(), empty_directory_outside(&w, "out-components"));
+    assert!(Command::new("mkfifo").arg(run.join("pipe")).status().unwrap().success());
+    std::fs::write(run.join("plain"), "x").unwrap();
+    std::thread::spawn(move || {
+        use crate::loom_run::record_write::make_dir_in;
+        let answers: Vec<bool> = ["pipe", "pipe/x/y", "plain", "plain/x/y"].iter().map(|d| make_dir_in(&run, &run.join(d)).is_err()).collect();
+        let _ = tx.send(answers);
+    });
+    let answers = rx.recv_timeout(Duration::from_secs(5)).expect("a directory was made within 5 s: the call waits for a writer of a pipe at a component");
+    assert_eq!(answers, vec![true; 4]);
+    assert_eq!(names_in(&out), Vec::<String>::new());
+    assert!(!w.run.join("pipe/x").exists() && !w.run.join("plain/x").exists());
+}
+
+#[test]
+fn a_link_a_program_put_at_a_bindings_file_is_not_read_through_for_the_largest_call_budget() {
+    let w = world("budget-link", "#!/bin/sh\n");
+    let out = empty_directory_outside(&w, "out-budget");
+    std::fs::write(out.join("b.yaml"), "args: [\"--max-budget-usd\", \"9\"]\n").unwrap();
+    let dir = w.run.join("bindings");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink(out.join("b.yaml"), dir.join("b.yaml")).unwrap();
+    let got = crate::loom_run::budget::largest_call_budget(&dir);
+    assert!(!matches!(got, Ok(Some(_))), "the largest call budget was taken from a file outside the run, through a link at a bindings file: {got:?}");
+}
