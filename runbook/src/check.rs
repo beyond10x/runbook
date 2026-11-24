@@ -297,6 +297,9 @@ fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Opt
         r.add("bindings", &file, "has no actions list", "list the actions under `actions:`");
         return;
     };
+    if let Some(why) = serde_yaml::to_value(doc).ok().and_then(|y| runbook::budget::check_members(&y, &file).err()) {
+        r.add("bindings", &file, why, "write max_budget_usd as docs/loom-bindings.md (\"The per-call budget of a program\") says: a run refuses it at load");
+    }
     for a in actions {
         let Some(action) = a.get("action").and_then(Value::as_str) else {
             r.add("bindings", &file, "an entry of actions has no `action` name", "name it with `action:`");
