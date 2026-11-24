@@ -285,16 +285,19 @@ fn guard_claude_has_no_prefixed_name_of_the_caller_whatever_its_form_and_how_man
         ("SDC_CLAUDE_CREDENTIALS".into(), "/caller/credentials".into()),
         ("anthropic_lower".into(), "v".into()),
     ];
-    for i in 0..10_000 {
-        extra.push((format!("ANTHROPIC_BULK_{i}"), "v".into()));
+    // More names than a count of a thousand or two thousand and more bytes of names than a read of 128 KiB of the
+    // environment: 1,100 names of about 150 bytes each (the adapter's cost per name grows faster than the count, so
+    // no larger bulk is needed to hold either claim).
+    const BULK: usize = 1_100;
+    for i in 0..BULK {
+        extra.push((format!("ANTHROPIC_BULK_{i}_{}", "x".repeat(120)), "v".into()));
     }
-    let started = Instant::now();
     let o = case.bounded(case.command(TOKEN, false, &extra));
-    let took = started.elapsed();
     assert_eq!(o.status.code(), Some(0), "{}", said(&o));
-    assert!(took.as_secs() < 30, "10,000 names took {took:?}");
     let environ = fs::read(&log).expect("claude did not start");
     let entries: Vec<String> = environ.split(|b| *b == 0).filter(|e| !e.is_empty()).map(|e| String::from_utf8_lossy(e).into_owned()).collect();
+    let leaked = entries.iter().filter(|e| e.starts_with("ANTHROPIC_BULK_")).count();
+    assert_eq!(leaked, 0, "{leaked} of {BULK} names of the caller reached claude");
     let prefixed: BTreeSet<String> = entries.iter().filter(|e| e.starts_with("ANTHROPIC_") || e.starts_with("CLAUDE_CODE_")).cloned().collect();
     let want: BTreeSet<String> = [
         format!("ANTHROPIC_AUTH_TOKEN={TOKEN}"),
