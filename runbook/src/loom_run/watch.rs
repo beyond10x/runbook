@@ -60,7 +60,7 @@ impl WatchChild {
     /// reaches the runner first and the runner ends the watcher after the run's last file.
     pub fn start(binary: &Path, run_dir: &Path) -> Result<WatchChild, String> {
         let out = run_dir.join("fs");
-        std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+        super::record_write::make_dir_in(run_dir, &out)?;
         let log_path = out.join("watch.log");
         let log = File::create(&log_path).map_err(|e| format!("{}: {e}", log_path.display()))?;
         let mut child = Command::new(binary)
@@ -86,7 +86,7 @@ impl WatchChild {
                 return Ok(WatchChild { child });
             }
             if let Ok(Some(status)) = child.try_wait() {
-                let said = std::fs::read_to_string(&log_path).unwrap_or_default();
+                let said = super::record_write::read_regular_text(&log_path).unwrap_or_default();
                 break format!("{HELPER} ended at its start ({status}): {}", said.trim().lines().last().unwrap_or("no message"));
             }
             if started.elapsed() > START_WITHIN {

@@ -15,12 +15,12 @@
 //! directory, before the program starts. See `docs/loom-run-directory.md`.
 
 use crate::loom_run::events::{Event, StartSource};
-use crate::loom_run::run_files::{event_json, write_atomic};
+use crate::loom_run::record_write::{append, write_atomic};
+use crate::loom_run::run_files::event_json;
 use b10x_loom_intake_slice::confinement::TestRunner;
 use runbook::engine::announce::Announcing;
 use runbook::runtime::{StartTarget, Started};
 use serde_json::json;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -84,14 +84,9 @@ impl Drop for RunnerRecord {
 /// open must be a regular file with one name (a file with a second name may be a file outside the run). Anything else is
 /// left alone and the event is not written; the run goes on.
 pub fn append_event(run_dir: &Path, at: u64, event: &Event) {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let Ok(mut line) = serde_json::to_string(&event_json(at, event)) else { return };
     line.push('\n');
-    let opened = std::fs::OpenOptions::new().append(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(run_dir.join("events.jsonl"));
-    let Ok(mut file) = opened else { return };
-    if file.metadata().is_ok_and(|m| m.is_file() && m.nlink() == 1) {
-        let _ = file.write_all(line.as_bytes());
-    }
+    let _ = append(&run_dir.join("events.jsonl"), line.as_bytes(), false);
 }
 
 /// The target of `runbook run`: the event of a program that starts goes into `events.jsonl` of the run directory.

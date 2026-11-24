@@ -30,7 +30,7 @@ pub(super) const AUTOPILOT: &str = "rule:autopilot";
 
 /// The classes of `decision-classes.json`.
 pub(super) fn read_classes(root: &Path) -> Result<Map<String, Value>, String> {
-    let text = std::fs::read_to_string(root.join(CLASSES_FILE)).map_err(|e| format!("{CLASSES_FILE} is needed above the bindings copy: {}", e.kind()))?;
+    let text = crate::loom_run::record_write::read_regular_text(&root.join(CLASSES_FILE)).map_err(|e| format!("{CLASSES_FILE} is needed above the bindings copy: {e}"))?;
     let doc: Value = serde_json::from_str(&text).map_err(|_| format!("{CLASSES_FILE} is not JSON"))?;
     doc["classes"].as_object().cloned().ok_or_else(|| format!("{CLASSES_FILE} has no classes"))
 }
@@ -65,7 +65,7 @@ impl Routing {
     /// and the caller stops for a person.
     pub fn load(root: &Path) -> Result<Routing, String> {
         let classes = read_classes(root)?;
-        let text = std::fs::read_to_string(root.join(LEVELS_FILE)).map_err(|e| format!("{LEVELS_FILE} is needed above the bindings copy: {}", e.kind()))?;
+        let text = crate::loom_run::record_write::read_regular_text(&root.join(LEVELS_FILE)).map_err(|e| format!("{LEVELS_FILE} is needed above the bindings copy: {e}"))?;
         let doc: Value = serde_json::from_str(&text).map_err(|_| format!("{LEVELS_FILE} is not JSON"))?;
         if doc["format"] != LEVELS_FORMAT {
             return Err(format!("{LEVELS_FILE}: format is not {LEVELS_FORMAT}"));

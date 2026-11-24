@@ -187,6 +187,7 @@ export const FIXED_WAITS = {
   'idle-slow-page.spec.mjs': {calls: 2, ms: 6000, variable: 'pause of a polling loop', helper: 'sleep', largest: 10000, window: 'bounded wait for a round'},
   'paths-served.spec.mjs': {calls: 1, ms: 700},
   'security-products-2-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
+  'runner-live-guards.spec.mjs': {calls: 2, ms: 35000, window: 'bounded writer in a child'},
   'runner-live.spec.mjs': {calls: 2, ms: 50, why: 'polls a pipe, a process'},
   'security-products-3-reads.spec.mjs': {calls: 1, ms: 100},
   'security-products-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},

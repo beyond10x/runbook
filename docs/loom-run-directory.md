@@ -45,6 +45,67 @@ content changed: `store/<root>/` (the driver's case store layout, made from Loom
 `ChildOpened` lines), `tree-status.json` when it exists, the bindings and protocols copies, and
 `work/findings.yaml`.
 
+One writer writes every record of the run directory once the first program of the run has started
+(`runbook/src/record_write.rs`, in the library, so that the runner and the library code it calls hold one guard): a whole file is made as a new temporary file, under a dot name the runner
+chooses for that write (its process id and a counter), opened without following a link and without waiting for a reader,
+and replaces the record by a rename; a line is appended only to a regular file with one name, opened the same way. A
+program of the run can write this directory (`--confinement local`), so a name it took (a link, a pipe, a directory, a
+second name of a file outside the run) is never opened for writing: the writer takes the next of 16 temporary names, and
+when all 16 are taken, or the file to append to is not a regular file with one name, the run ends within seconds with an
+error that names a file in the run directory, and nothing is written outside the run. This holds for `status.json`,
+`run-stopped.json`, `loom/`, `store/<root>/`, the append-only records, `dry-commands.txt`, `runner.json`, `outcome.json`,
+the tree records and the files of the decider's calls (`decider/`, `decider-cases/`). The files of a decider call are
+written through the open directory of the call, which the runner made and kept open (`Held` in the same file): they are
+made relative to that descriptor, so a program that renames the call's directory while the adapter runs and puts a link or
+another directory at its name does not change where a record goes; the records land in the directory the runner made.
+The bindings copy (`bindings/`) is held the same way once the first program has started: before each step the runner
+opens it without following a link at its name, lists it, reads its files and the members kept beside them
+(`.call-budgets.json`) and rewrites the call budget through that descriptor (the copy is sealed the same way when it is
+made: a link at a bindings file is not written through, and a link at `.call-budgets.json` is an error), and the answer steps, the principal and the results of an action are read through it too; the bound actions
+that the start of a program is announced with (`runbook::engine::announce`, for `runbook run` and the daemon) are read
+through the same `Held` of the directory, as regular files with one name of at most 64 MiB.
+A link or a file at the name `bindings`, or a link at a bindings file, ends the run with an error that names the file
+inside the run, and nothing is written outside the run.
+
+The watcher (`sdc-watch`) opens its output directory (`fs/`) once, at start, without following a link at its name, and
+makes, reads, renames and removes every file of it through that descriptor: the blobs under `fs/blobs/`, `changes.jsonl`,
+`snapshot.json`, and the pid record `sdc-watch.pid`, which it writes through a temporary file and a rename. A program that
+renames `fs/` while the watcher runs and puts a link at its name does not change where a record goes. The temporary files
+of the watcher are created as new files that follow no link and wait for no reader: a blob takes the next of 16 temporary
+names when a name is taken, and does not remove the name that is taken; `fs/.snapshot.json.tmp` and
+`fs/.sdc-watch.pid.tmp` have one name, and what lies at it is removed first. The writer does not write what is made before the first
+program starts (`settings.json`, the first `events.jsonl`, the bindings and protocols copies, `fs/watch.log`) and Loom's
+own files (`store/runlog-case-*.jsonl`, `store/case-*.json`), which Loom writes.
+
+The directories of the run directory that the runner makes once the first program has started (`loom/`, `store/<root>/`,
+`decider/`, `decider-cases/`, a call's `cwd/in` and `cwd/out`, the directories of a copy into `in/`, `work/.sdc/reasons`)
+are made by `make_dir_in` of the same file, without following a link: every component below the run directory is made
+with `mkdirat` and opened with `O_NOFOLLOW | O_DIRECTORY`, and a link or a file at a component ends the run, or the call,
+with an error that names that directory inside the run; nothing is made beyond it.
+
+A name in the run directory that the runner reads and a program can reach (`work/findings.yaml`, `structured-output.json`,
+`out/decision.json`, the file a copy into a call's `in/` takes, the files of `instructions/decider/`, the files of the
+bindings copy read for the call budget, the answer steps, the bound actions, the principal of an action and the results
+of an action, Loom's case file, and the call directories' records the decider reads) is read as a regular file with one
+name: it is opened without following a link and without waiting for a writer, and at most 64 MiB are read
+(`READ_LIMIT`). A link, a pipe, a directory, a file with a second name or a file of more than 64 MiB is not read: the copy
+of `work/findings.yaml` is left out; a copy into the `in/` of a call of the model decider ends the call with an error that
+names the file inside the run; the requester decider skips such a file, which is then not in the list of inputs the model
+reads, and goes on. The records of a re-drive (`replay/diverged.json`, `replay/plan.json`) are read the same way; one that
+is not a regular file is no record. The directory in which such a read opens its file is reached by its path, except
+the bindings copy and the directory of a decider call, which are held.
+
+The watcher reads every name of the run the same way: without following a link, without waiting for a writer, a regular
+file, at most a bound of bytes, and once SIGTERM or SIGINT came it ends within its bound. The records of a call
+(`status.json`, `request.json`, `decide-request.json`, the call lists `llm-calls.jsonl` and `calls.jsonl`) and the lines
+it follows (`events.jsonl`, `rounds.jsonl`) are read for at most 64 MiB, and one read of a log takes at most 64 MiB. A
+file of a root (a product file) is read for at most 64 MiB; of a longer file the first 64 MiB are hashed with its length
+(`docs/fs-changes.md`), and once the watcher is stopping a read over 1 MiB ends and nothing is recorded for that file. Of
+its own records, read through the held output directory as regular files with one name: a stored blob at most 1 MiB, the
+pid record at most 64 bytes, `snapshot.json` at most 64 MiB, and on restart `changes.jsonl` at most 1 GiB (a longer
+record ends the start with an error, so no `seq` is given twice; a line over 64 MiB is skipped). A link or a pipe at the
+name of a blob is replaced when the blob is stored, and is never read into a diff.
+
 Nothing sensitive is written: a string that starts with the run directory's path is written relative
 to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`, `/tmp/`, `/var/`,
 `/run/user/`, `/dev/shm/`) is written as `<absolute path removed>`, and the value of a member whose
@@ -138,7 +199,9 @@ start time. A run directory without `runner.json` (an older runner) keeps the an
 
 `runner.json` and the `action_started` lines are what files of the run directory claim: under `--confinement local` a
 program of the run can write them, so the answer is a reading of those files and of `/proc/<pid>/stat`, shown as text,
-and nothing decides on it. A `runner.json` over 4 KiB (a record is about 150 bytes) is not read: the run is *unknown*.
+and nothing decides on it. A read of a file of a run by the inspector holds its limit in the read itself: it takes at most
+the limit plus one byte from the one checked descriptor, whatever size the file has at that moment, and a file that
+needs more is answered as a file over the limit (not read), never as its first bytes. A `runner.json` over 4 KiB (a record is about 150 bytes) is not read: the run is *unknown*.
 `start_ticks` of 0 or below is no start time: the run is *not live*. A read of `/proc/<pid>/stat` that fails for another
 reason than "no such process" makes the run *unknown*, with that reason, and never "not live". The `action`, `case` and
 `source` of a start line are cut to 256 characters in the answer and the band, at a character, never inside one.

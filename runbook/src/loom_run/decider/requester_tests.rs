@@ -417,3 +417,98 @@ fn the_prompt_of_the_requester_is_its_golden_byte_for_byte() {
     super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[0], &prompt(0));
     super::golden::compare("decider", super::golden::REQUESTER_PROMPTS[1], &prompt(2));
 }
+
+#[test]
+fn the_files_of_a_requester_call_replace_a_link_a_program_left_at_their_names() {
+    let w = world("requester-links");
+    let rec = w.run.join("decider/002-vision.approve");
+    std::fs::create_dir_all(rec.join("cwd/in")).unwrap();
+    let mut links = Vec::new();
+    for name in ["cwd/in/request.json", "cwd/in/decisions.json", "proposal.json"] {
+        let at = rec.join(name);
+        let outside = w.run.parent().unwrap().join(format!("outside-{}.txt", name.replace('/', "-")));
+        std::fs::write(&outside, "keep\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &at).unwrap();
+        links.push((at, outside));
+    }
+    let dangling = w.run.parent().unwrap().join("outside-goals.txt");
+    std::os::unix::fs::symlink(&dangling, rec.join("cwd/in/goals.yaml")).unwrap();
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    for (at, outside) in &links {
+        assert_eq!(std::fs::read_to_string(outside).unwrap(), "keep\n", "{} was written through the link at {}", outside.display(), at.display());
+        assert!(std::fs::symlink_metadata(at).unwrap().is_file(), "{} is not a regular file", at.display());
+    }
+    assert!(!dangling.exists(), "a copy of work/goals.yaml was written through a link that points at nothing");
+    assert!(std::fs::symlink_metadata(rec.join("cwd/in/goals.yaml")).unwrap().is_file());
+}
+
+#[test]
+fn a_link_a_program_put_at_a_file_the_requester_copies_is_not_read_through() {
+    let w = world("requester-source-link");
+    let outside = w.run.parent().unwrap().join("outside-secret.txt");
+    std::fs::write(&outside, "secret-outside-text\n").unwrap();
+    std::fs::remove_file(w.work.join("goals.yaml")).unwrap();
+    std::os::unix::fs::symlink(&outside, w.work.join("goals.yaml")).unwrap();
+    let _ = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    let mut found = String::new();
+    for rec in records(&w) {
+        found.push_str(&std::fs::read_to_string(rec.join("cwd/in/goals.yaml")).unwrap_or_default());
+    }
+    assert!(!found.contains("secret-outside-text"), "the text of a file outside the run was copied into the input of the model through a link at work/goals.yaml");
+}
+
+// --- a link at the name of each directory of a requester call ---------------------------------------
+
+fn requester_link(w: &World, rel: &str, out_name: &str) -> PathBuf {
+    let out = w.run.parent().unwrap().join(out_name);
+    std::fs::create_dir_all(&out).unwrap();
+    let at = w.run.join("decider/002-vision.approve").join(rel);
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&out, &at).unwrap();
+    out
+}
+
+fn names_of(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_link_a_program_put_at_the_working_directory_of_a_requester_call_is_not_written_through() {
+    let w = world("requester-cwd-link");
+    let out = requester_link(&w, "cwd", "out-requester-cwd");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the requester made files in a directory outside the run, through a link at cwd");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_inputs_directory_of_a_requester_call_is_not_written_through() {
+    let w = world("requester-in-link");
+    let out = requester_link(&w, "cwd/in", "out-requester-in");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the requester made files in a directory outside the run, through a link at cwd/in");
+}
+
+#[test]
+fn an_input_of_the_requester_is_not_copied_below_a_link_a_program_put_at_a_directory_of_its_name() {
+    let w = world("requester-input-link");
+    let out = requester_link(&w, "cwd/in/aep", "out-requester-input");
+    let _ = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert_eq!(names_of(&out), Vec::<String>::new(), "a copy of work/aep/vision/product.md was made in a directory outside the run, through a link at cwd/in/aep");
+    let listed = std::fs::read_to_string(w.run.join("decider/002-vision.approve/prompt.md")).unwrap_or_default();
+    assert!(!listed.contains("- in/aep/vision/product.md"), "{listed}");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_outputs_directory_of_a_requester_call_ends_the_call_before_the_adapter_runs() {
+    let w = world("requester-out-link");
+    let out = requester_link(&w, "cwd/out", "out-requester-out");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the adapter ran with a directory outside the run as its outputs directory, through a link at cwd/out");
+    assert!(!w.run.join("bindings/tools/n").exists(), "the adapter was started");
+}

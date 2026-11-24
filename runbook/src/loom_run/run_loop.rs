@@ -15,6 +15,7 @@ use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Ope
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
+use crate::loom_run::record_write::{make_dir_in, Held};
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -298,7 +299,7 @@ impl Runner<'_> {
     fn drive_inner(&mut self, root_name: &str, protocols: &[(String, PathBuf)], redacted: &Value) -> Result<Outcome, Halt> {
         self.emit(Event::RunStarted { run: self.args.run.clone(), settings: redacted.clone() })?;
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
-            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+            make_dir_in(&self.run_dir, &d)?;
         }
         // A re-drive that cannot start a live call spends nothing: its ledger is not opened, so it is neither created nor changed.
         if !self.spends_nothing() {
@@ -315,7 +316,7 @@ impl Runner<'_> {
         }
         super::seeded::write(&self.run_dir, &self.workspace, self.clock.now_secs())?;
         let copies = self.run_dir.join("protocols");
-        std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
+        make_dir_in(&self.run_dir, &copies)?;
         for (_, file) in protocols {
             let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
             std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -627,11 +628,10 @@ impl Runner<'_> {
     /// every `from: effect` entry of the action lists. `None`: the copy names no such action.
     fn declared_results(&self, action: &str) -> Result<Option<Vec<String>>, Halt> {
         let mut declared: Option<Vec<String>> = None;
-        let entries = std::fs::read_dir(&self.bindings_dir).map_err(|e| format!("{}: {e}", self.bindings_dir.display()))?;
-        let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-        files.sort();
-        for file in files {
-            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let held = Held::open(&self.bindings_dir)?;
+        for name in held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")) {
+            let file = self.bindings_dir.join(&name);
+            let text = held.read_text(&name)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
@@ -729,9 +729,9 @@ impl Runner<'_> {
         self.reasons_written += 1;
         let safe: String = action.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
         let dir = self.workspace.join(".sdc").join("reasons");
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let file = dir.join(format!("{:03}-{safe}.txt", self.reasons_written));
-        std::fs::write(&file, format!("{text}\n")).map_err(|e| format!("{}: {e}", file.display()))?;
+        let name = format!("{:03}-{safe}.txt", self.reasons_written);
+        let file = dir.join(&name);
+        Held::make(&self.run_dir, &dir)?.write(&name, format!("{text}\n").as_bytes())?;
         Ok(file)
     }
 

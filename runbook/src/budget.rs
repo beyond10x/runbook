@@ -13,9 +13,11 @@
 //! The order: `--max-budget-usd` in the argv, then the action's member, then the file's member,
 //! then the largest budget the runbook names.
 
+use crate::record_write::Held;
 use serde_json::json;
 use serde_yaml::Value;
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 const ARG: &str = "--max-budget-usd";
@@ -27,16 +29,12 @@ pub const MEMBER: &str = "max_budget_usd";
 pub const SEALED_FILE: &str = ".call-budgets.json";
 const SEALED_FORMAT: &str = "runbook.call-budgets/1";
 
-fn yaml_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let p = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-        if p.is_file() && p.extension().is_some_and(|x| x == "yaml" || x == "yml") {
-            files.push(p);
-        }
-    }
-    files.sort();
-    Ok(files)
+/// The bindings directory `dir`, held ([`Held::open`]: a link at its name is an error), and the names of its `*.yaml` and
+/// `*.yml` files, listed through the descriptor.
+fn yaml_files(dir: &Path) -> Result<(Held, Vec<OsString>), String> {
+    let held = Held::open(dir)?;
+    let files = held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml" || x == "yml") && held.is_file(n)).collect();
+    Ok((held, files))
 }
 
 fn usd_text_to_micro(s: &str) -> Option<u64> {
@@ -281,8 +279,23 @@ impl Sealed {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Sealed::default()),
             Err(e) => return Err(format!("{SEALED_FILE}: {e}")),
         };
+        Sealed::parse(&text)
+    }
+
+    /// [`Sealed::load`] through the held directory of a run's copy: the file is there when its name is
+    /// listed, and it is read as every name of the run is ([`Held::read_text`]): a link, a pipe or a
+    /// file with a second name at its name is an error that names [`SEALED_FILE`] and no path.
+    fn load_held(held: &Held) -> Result<Sealed, String> {
+        if !held.names()?.iter().any(|n| n == SEALED_FILE) {
+            return Ok(Sealed::default());
+        }
+        let text = held.read_text(SEALED_FILE).map_err(|e| inside(e, held.path()))?;
+        Sealed::parse(&text)
+    }
+
+    fn parse(text: &str) -> Result<Sealed, String> {
         let bad = || format!("{SEALED_FILE}: not a {SEALED_FORMAT} document");
-        let doc: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad())?;
+        let doc: serde_json::Value = serde_json::from_str(text).map_err(|_| bad())?;
         if doc.get("format").and_then(serde_json::Value::as_str) != Some(SEALED_FORMAT) {
             return Err(bad());
         }
@@ -318,8 +331,28 @@ impl Sealed {
     }
 }
 
-fn read_yaml(file: &Path) -> Option<Value> {
-    std::fs::read_to_string(file).ok().and_then(|t| serde_yaml::from_str::<Value>(&t).ok())
+/// How a walk reads the bindings files and the kept file.
+#[derive(Clone, Copy)]
+enum Reading {
+    /// By path: the bindings a daemon run reads at its start (the runbook home, or the run's pinned
+    /// copy, which lies outside the workspace and is checked against its digest).
+    Path,
+    /// Through the held directory of each file ([`Held::open`] of its directory, [`Held::read_text`]):
+    /// a run's copy, which [`seal`] writes.
+    Held,
+}
+
+/// An error of a held read or write with the path of `base` left out: it names the file below it.
+fn inside(e: String, base: &Path) -> String {
+    e.replace(&format!("{}/", base.display()), "")
+}
+
+fn read_yaml(file: &Path, how: Reading) -> Option<Value> {
+    let text = match how {
+        Reading::Path => std::fs::read_to_string(file).ok()?,
+        Reading::Held => Held::open(file.parent()?).ok()?.read_text(file.file_name()?).ok()?,
+    };
+    serde_yaml::from_str::<Value>(&text).ok()
 }
 
 fn rel_name(file: &Path, base: &Path) -> String {
@@ -328,10 +361,14 @@ fn rel_name(file: &Path, base: &Path) -> String {
 
 /// Visits the bindings files a run reads from `root`, each once: the root's and each child file an
 /// `open` action names, beside the file that names it, with the members of the copy put back. A
-/// file that cannot be read or parsed is skipped: Loom refuses it when the run opens it.
-fn walk(root: &Path, mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), String>) -> Result<(), String> {
+/// file that cannot be read or parsed is skipped: Loom refuses it when the run opens it. `how` says
+/// how the files and the kept file are read; a kept file that cannot be read is an error.
+fn walk(root: &Path, how: Reading, mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), String>) -> Result<(), String> {
     let base = root.parent().unwrap_or(Path::new("."));
-    let sealed = Sealed::load(base)?;
+    let sealed = match how {
+        Reading::Path => Sealed::load(base)?,
+        Reading::Held => Sealed::load_held(&Held::open(base)?)?,
+    };
     let mut seen: Vec<PathBuf> = Vec::new();
     let mut queue = vec![root.to_path_buf()];
     while let Some(file) = queue.pop() {
@@ -339,7 +376,7 @@ fn walk(root: &Path, mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), St
             continue;
         }
         seen.push(file.clone());
-        let Some(doc) = read_yaml(&file) else { continue };
+        let Some(doc) = read_yaml(&file, how) else { continue };
         let name = rel_name(&file, base);
         let doc = sealed.restore(&name, doc);
         visit(&file, &name, &doc)?;
@@ -364,7 +401,7 @@ fn walk(root: &Path, mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), St
 /// Loom refuses it when the run opens it.
 pub fn runbook_budgets(root: &Path) -> Result<RunbookBudgets, String> {
     let mut out = RunbookBudgets::default();
-    walk(root, |_, rel, doc| {
+    walk(root, Reading::Path, |_, rel, doc| {
         let name = format!("bindings/{rel}");
         check_members(doc, &name)?;
         document_largest(doc, &mut out.largest);
@@ -443,12 +480,16 @@ pub fn reserve_for_unnamed(root: &Path) -> Result<u64, String> {
 /// with no member is not written, and no file is kept when no member was taken. A [`SEALED_FILE`]
 /// the copy holds already counts as the members it names (every reader reads it so), so sealing a
 /// sealed copy changes nothing.
+///
+/// The copy is read and written through the held directory of each file ([`Reading::Held`],
+/// [`Held::write`]): a link at a bindings file is not read and nothing is written through it (Loom
+/// refuses the member it keeps; a run ends on the link before its first step), and a link, a pipe or a
+/// file with a second name at [`SEALED_FILE`] is an error that names it.
 pub fn seal(root: &Path) -> Result<(), String> {
     let base = root.parent().unwrap_or(Path::new("."));
-    let kept = base.join(SEALED_FILE);
     let mut sealed: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     let mut edits: Vec<(PathBuf, Value)> = Vec::new();
-    walk(root, |file, rel, doc| {
+    walk(root, Reading::Held, |file, rel, doc| {
         check_members(doc, &format!("bindings/{rel}"))?;
         let take = |doc: &mut Value| {
             let file_member = doc.as_mapping_mut().and_then(|m| m.remove(MEMBER)).as_ref().and_then(member_usd);
@@ -467,7 +508,7 @@ pub fn seal(root: &Path) -> Result<(), String> {
             sealed.insert(rel.to_owned(), json!({"file": file_member, "actions": taken}));
         }
         // The file as it stands, without what the kept file put back: written only when it holds a member.
-        if let Some(mut own) = read_yaml(file) {
+        if let Some(mut own) = read_yaml(file, Reading::Held) {
             let (own_file, own_taken) = take(&mut own);
             if own_file.is_some() || !own_taken.is_empty() {
                 edits.push((file.to_path_buf(), own));
@@ -477,15 +518,18 @@ pub fn seal(root: &Path) -> Result<(), String> {
     })?;
     for (file, doc) in edits {
         let text = serde_yaml::to_string(&doc).map_err(|e| format!("{}: {e}", rel_name(&file, base)))?;
-        std::fs::write(&file, text).map_err(|e| format!("{}: {e}", rel_name(&file, base)))?;
+        let (Some(dir), Some(leaf)) = (file.parent(), file.file_name()) else { return Err(format!("{}: not a file name", rel_name(&file, base))) };
+        // The file keeps its permission bits, as a write in place keeps them.
+        Held::open(dir).and_then(|held| held.write_mode(leaf, text.as_bytes(), held.mode(leaf).unwrap_or(0o644))).map_err(|e| inside(e, base))?;
     }
-    if std::fs::symlink_metadata(&kept).is_ok() {
-        std::fs::remove_file(&kept).map_err(|e| format!("{SEALED_FILE}: {e}"))?;
-    }
-    if !sealed.is_empty() {
+    let held = Held::open(base).map_err(|e| inside(e, base))?;
+    if sealed.is_empty() {
+        if held.names()?.iter().any(|n| n == SEALED_FILE) {
+            held.remove(SEALED_FILE);
+        }
+    } else {
         let text = json!({"format": SEALED_FORMAT, "files": sealed}).to_string() + "\n";
-        let mut f = std::os::unix::fs::OpenOptionsExt::mode(std::fs::OpenOptions::new().write(true).create_new(true), 0o600).open(&kept).map_err(|e| format!("{SEALED_FILE}: {e}"))?;
-        std::io::Write::write_all(&mut f, text.as_bytes()).map_err(|e| format!("{SEALED_FILE}: {e}"))?;
+        held.write_mode(SEALED_FILE, text.as_bytes(), 0o600).map_err(|e| inside(e, base))?;
     }
     Ok(())
 }
@@ -494,25 +538,29 @@ pub fn seal(root: &Path) -> Result<(), String> {
 /// `max_budget_usd`, those [`seal`] kept beside a copy included), micro USD; `None` when they name
 /// none.
 pub fn largest_call_budget(dir: &Path) -> Result<Option<u64>, String> {
-    let sealed = Sealed::load(dir)?;
     let mut best = None;
-    for file in yaml_files(dir)? {
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-        let v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        document_largest(&sealed.restore(&rel_name(&file, dir), v), &mut best);
+    let (held, files) = yaml_files(dir)?;
+    let sealed = Sealed::load_held(&held)?;
+    for name in files {
+        let text = held.read_text(&name)?;
+        let v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", dir.join(&name).display()))?;
+        document_largest(&sealed.restore(&Path::new(&name).display().to_string(), v), &mut best);
     }
     Ok(best)
 }
 
 /// Lowers every per-call budget in the argv of the bindings copy `dir` to at most `micro_usd`. A
-/// member `max_budget_usd` is not lowered: it is reserved as written.
+/// member `max_budget_usd` is not lowered: it is reserved as written. The directory is held for the
+/// whole call: every file is read and written through its descriptor, never through its path.
 pub fn limit_call_budgets(dir: &Path, micro_usd: u64) -> Result<(), String> {
-    for file in yaml_files(dir)? {
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let (held, files) = yaml_files(dir)?;
+    for name in files {
+        let file = dir.join(&name);
+        let text = held.read_text(&name)?;
         let mut v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if walk_limit(&mut v, micro_usd) {
             let out = serde_yaml::to_string(&v).map_err(|e| format!("{}: {e}", file.display()))?;
-            std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
+            held.write(&name, out.as_bytes())?;
         }
     }
     Ok(())
@@ -542,6 +590,19 @@ mod tests {
         assert!(text.contains("max_runs: 3"), "{text}");
         assert!(!text.contains("'2'") && !text.contains("\"2\"") && !text.contains("'0.5'") && !text.contains("\"0.5\""), "{text}");
         assert_eq!(largest_call_budget(&d).unwrap(), Some(300_000));
+    }
+
+    #[test]
+    fn limiting_refuses_a_link_at_a_bindings_file_and_writes_nothing_outside() {
+        let d = dir("link");
+        let outside = d.join("outside.yaml");
+        std::fs::write(&outside, BINDINGS).unwrap();
+        std::fs::create_dir(d.join("bindings")).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("bindings/sdc.yaml")).unwrap();
+        let refused = limit_call_budgets(&d.join("bindings"), 300_000).unwrap_err();
+        assert!(refused.contains("sdc.yaml"), "{refused}");
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), BINDINGS, "the file the link points at was written");
+        assert!(std::fs::symlink_metadata(d.join("bindings/sdc.yaml")).unwrap().file_type().is_symlink(), "the link was replaced by a file the run never read");
     }
 
     #[test]
@@ -672,6 +733,46 @@ mod tests {
         let bad = dir("seal-bad");
         std::fs::write(bad.join("sdc.yaml"), BINDINGS.replace("  - action: b\n", "  - action: b\n    max_budget_usd: -1\n")).unwrap();
         assert!(seal(&bad.join("sdc.yaml")).unwrap_err().contains("the action b of bindings/sdc.yaml"));
+    }
+
+    /// A kept file that names `budget` for the file `sdc.yaml`, in micro USD.
+    fn kept(budget: u64) -> String {
+        format!("{{\"format\":\"{SEALED_FORMAT}\",\"files\":{{\"sdc.yaml\":{{\"file\":{budget},\"actions\":{{}}}}}}}}\n")
+    }
+
+    #[test]
+    fn a_link_at_the_kept_file_of_a_copy_is_not_read_for_the_largest_call_budget() {
+        let d = dir("kept-link");
+        let outside = d.join("outside.json");
+        std::fs::write(&outside, kept(9_000_000)).unwrap();
+        std::fs::create_dir(d.join("bindings")).unwrap();
+        std::fs::write(d.join("bindings/sdc.yaml"), BINDINGS).unwrap();
+        std::os::unix::fs::symlink(&outside, d.join("bindings").join(SEALED_FILE)).unwrap();
+        let got = largest_call_budget(&d.join("bindings"));
+        let refused = got.clone().expect_err(&format!("the kept file was read through a link: {got:?}"));
+        assert!(refused.starts_with(SEALED_FILE), "the refusal names the kept file and no path: {refused}");
+    }
+
+    #[test]
+    fn sealing_writes_through_no_link_at_a_bindings_file_or_at_the_kept_file() {
+        let d = dir("seal-links");
+        let child = "format: loom.bindings/1\nmax_budget_usd: 0.2\nactions:\n  - action: d\n    executor: {kind: program, argv: [tools/d.sh]}\n";
+        let root = "format: loom.bindings/1\nactions:\n  - action: b\n    max_budget_usd: 0.1\n    executor: {kind: program, argv: [tools/b.sh]}\n  - action: k.open\n    executor: {kind: open, name: k, bindings: child.yaml}\n";
+        std::fs::create_dir(d.join("bindings")).unwrap();
+        std::fs::write(d.join("outside-child.yaml"), child).unwrap();
+        std::fs::write(d.join("bindings/root.yaml"), root).unwrap();
+        std::os::unix::fs::symlink(d.join("outside-child.yaml"), d.join("bindings/child.yaml")).unwrap();
+        let _ = seal(&d.join("bindings/root.yaml"));
+        assert_eq!(std::fs::read_to_string(d.join("outside-child.yaml")).unwrap(), child, "a file outside the copy was rewritten through a link at a bindings file");
+
+        let e = dir("seal-kept-link");
+        std::fs::create_dir(e.join("bindings")).unwrap();
+        std::fs::write(e.join("outside.json"), kept(9_000_000)).unwrap();
+        std::fs::write(e.join("bindings/sdc.yaml"), BINDINGS).unwrap();
+        std::os::unix::fs::symlink(e.join("outside.json"), e.join("bindings").join(SEALED_FILE)).unwrap();
+        let refused = seal(&e.join("bindings/sdc.yaml")).expect_err("the members of a file outside the copy were taken as the copy's");
+        assert!(refused.starts_with(SEALED_FILE), "{refused}");
+        assert_eq!(std::fs::read_to_string(e.join("outside.json")).unwrap(), kept(9_000_000));
     }
 
     #[test]
