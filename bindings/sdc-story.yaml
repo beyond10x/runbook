@@ -20,7 +20,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
   - action: change.implement
     executor:
       kind: program
@@ -51,7 +51,7 @@ actions:
         subject: change
         producer: ess
         from: exit
-        results: {"0": passed, "5": finding, "*": failed}
+        results: {"0": passed, "5": finding, timeout: failed, "*": failed}
         upstream: [spec]
   - action: change.review
     executor:

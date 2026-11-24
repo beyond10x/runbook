@@ -284,7 +284,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 - Runbook's autopilot loop after a stop: 9.
 - the rule approver: 5.
 - bindings the pinned Loom refuses (the bugfix cycles): 4, now in the file. `bindings/sdc-bugfix.yaml`
-  has `gate.run` at 3600 s (D531), and the bugfix protocol records `dissection_written` and
+  had `gate.run` at 3600 s (D531; 4200 s, its need, since Loom 0.61.0 loads a program up to 14400 s), and the bugfix protocol records `dissection_written` and
   `repro_written` so that no check runs before its writer (`docs/bugfix.md`).
 - the requester decider (2), the environment of a bound program (2), a `--dry` listing (1, held as a Rust test), a ticket
   read before the tree opens (1).

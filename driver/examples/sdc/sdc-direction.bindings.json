@@ -48,6 +48,7 @@
     "results": {
       "0": "valid",
       "5": "finding",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },
@@ -132,6 +133,7 @@
     "producer": "aep",
     "results": {
       "0": "valid",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },

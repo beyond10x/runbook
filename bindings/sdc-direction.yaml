@@ -30,7 +30,7 @@ actions:
         subject: context
         producer: sdc-check
         from: exit
-        results: {"0": valid, "5": finding, "*": invalid}
+        results: {"0": valid, "5": finding, timeout: invalid, "*": invalid}
         upstream: [requirements]
   - action: context.approve
     executor:
@@ -81,7 +81,7 @@ actions:
         subject: roadmap
         producer: aep
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: roadmap.approve
     executor:
       kind: person

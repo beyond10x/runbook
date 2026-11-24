@@ -57,7 +57,8 @@
         "results": {
           "*": "invalid",
           "0": "valid",
-          "5": "finding"
+          "5": "finding",
+          "timeout": "invalid"
         }
       },
       "name": "context.check",
@@ -141,7 +142,8 @@
         "program": "sdc-tool.sh roadmap-validate",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "roadmap.validate",
