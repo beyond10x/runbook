@@ -94,7 +94,7 @@ fn a_runbook_home_lists_the_runbooks_that_have_a_protocol_and_bindings() {
     write(&home.join("protocol/beta.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: beta\n  revision: 1\n");
     write(&home.join("protocol/notes.txt"), "text\n");
     write(&home.join("bindings/gamma.yaml"), "format: loom.bindings/1\n");
-    let engine = Arc::new(Engine::new(home.clone(), dir.join("state")));
+    let engine = Arc::new(Engine::new(home.clone(), dir.join("state"), super::policy()));
     let s = live("loom", engine, None, None, dir);
     let rows = s.rows();
     rows.iter().for_each(|r| openapi::check_row("Runbooks", r));

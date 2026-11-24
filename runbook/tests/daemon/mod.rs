@@ -1,6 +1,11 @@
 /// The principal every daemon of these tests acts as: `runbook serve --principal` and `Config::principal`.
 pub const PRINCIPAL: &str = "agent:test-daemon";
 
+/// The caps of the engines of these tests when a test is not about caps: far above anything a run uses here.
+pub fn policy() -> runbook::caps::CapPolicy {
+    runbook::caps::CapPolicy::fixed(runbook::caps::Caps { max_wall_seconds: 3600, max_llm_calls: 10_000, cap_micro_usd: 1_000_000_000 }).unwrap()
+}
+
 mod stub;
 mod state;
 mod commands;
@@ -24,5 +29,6 @@ mod ui_start;
 mod security_start;
 mod submit_order;
 mod answer_order;
+mod caps;
 mod drain;
 mod copy_integrity;
