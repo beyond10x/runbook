@@ -33,7 +33,7 @@ pub const RECORD_LIMIT: u64 = 64 * 1024 * 1024;
 /// Opens a file of a call record for reading as a regular file: no link is followed at its last component, a pipe is not
 /// waited for (`O_NONBLOCK`), and anything that is not a regular file (a pipe, a device, a directory) is `None`. The programs
 /// of a run write the run directory too, so a name in it may hold any of these.
-fn open_regular(p: &Path) -> Option<fs::File> {
+pub fn open_regular(p: &Path) -> Option<fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     let f = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(p).ok()?;
     f.metadata().ok()?.is_file().then_some(f)

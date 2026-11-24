@@ -1,6 +1,7 @@
 //! The watcher: inotify over the run directory, a per-path debounce, the shadow, and the record.
 
 use crate::attrib::{self, Attributor};
+use crate::held::Held;
 use crate::layout::{self, Root};
 use crate::store::{self, Blobs, Change, Content, Known, Log};
 use crate::timefmt::{fmt_ms, now_ms};
@@ -111,7 +112,7 @@ struct Late {
 
 pub struct Watcher {
     run: PathBuf,
-    out: PathBuf,
+    out_dir: Held,
     out_rel: Option<String>,
     ino: Inotify,
     wds: HashMap<WatchDescriptor, PathBuf>,
@@ -144,7 +145,7 @@ pub fn snapshot(run: &Path, out: &Path, blobs: &Blobs) -> HashMap<PathBuf, Known
     let mut disk = HashMap::new();
     walk(run, run, orel.as_deref(), &mut |p, rel, is_dir| {
         if !is_dir && layout::root_of(&comps(rel), false).is_some() {
-            if let Some(c) = store::read_content(p) {
+            if let Ok(Some(c)) = store::read_content(p) {
                 disk.insert(p.to_path_buf(), blobs.keep(&c));
             }
         }
@@ -153,21 +154,21 @@ pub fn snapshot(run: &Path, out: &Path, blobs: &Blobs) -> HashMap<PathBuf, Known
 }
 
 impl Watcher {
-    /// Watches, reads the case logs and streams, scans the roots, and replays what `out` knows.
-    pub fn start(run: PathBuf, out: PathBuf) -> std::io::Result<Watcher> {
-        let blobs = Blobs { dir: out.join("blobs") };
-        fs::create_dir_all(&blobs.dir)?;
-        let (base, seq) = store::replay(&out, &run, &blobs);
-        let log = Log::open(&out.join("changes.jsonl"))?;
+    /// Watches, reads the case logs and streams, scans the roots, and replays what `out` knows. `out_dir` is the output
+    /// directory `out`, held: every record and blob is read and written through it.
+    pub fn start(run: PathBuf, out: PathBuf, out_dir: Held) -> std::io::Result<Watcher> {
+        let blobs = Blobs::new(out_dir.sub("blobs")?);
+        let (base, seq) = store::replay(&out_dir, &run, &blobs)?;
+        let log = Log::open(&out_dir, "changes.jsonl")?;
         let mut w = Watcher {
             out_rel: out_rel(&run, &out), ino: Inotify::init()?, wds: HashMap::new(), shadow: HashMap::new(),
             blobs, log, seq, dirty: HashMap::new(), moves: HashMap::new(), pending: VecDeque::new(), late: Vec::new(),
-            attr: Attributor::new(run.clone()), ord: 0, touched: HashSet::new(), written: 0, run, out };
+            attr: Attributor::new(run.clone()), ord: 0, touched: HashSet::new(), written: 0, run, out_dir };
         let mut disk = HashMap::new();
         let run = w.run.clone();
         w.walk_live(&run, &mut |w, p, rel| {
             if layout::root_of(&comps(rel), false).is_some() {
-                if let Some(c) = store::read_content(p) {
+                if let Ok(Some(c)) = store::read_content(p) {
                     disk.insert(p.to_path_buf(), w.blobs.keep(&c));
                 }
             }
@@ -176,7 +177,7 @@ impl Watcher {
         match base {
             None => {
                 w.shadow = disk;
-                store::write_snapshot(&w.out, &w.run, &w.shadow, w.seq)?;
+                store::write_snapshot(&w.out_dir, &w.run, &w.shadow, w.seq)?;
             }
             Some(base) => {
                 // What changed while nobody watched is recorded at start.
@@ -475,7 +476,8 @@ impl Watcher {
         let Some(root) = layout::root_of(&c, false) else { return false };
         let in_root = |r: &str| r.strip_prefix(&format!("{}/", root.rel)).unwrap_or(r).to_string();
         let path = in_root(&rel);
-        let new: Option<Content> = store::read_content(p);
+        let Ok(new) = store::read_content(p) else { return false };
+        let new: Option<Content> = new;
         let old = self.shadow.get(p).cloned();
         if let (Some(src), Some(content)) = (&d.from, &new) {
             let src_rel = rel_of(&self.run, src).unwrap_or_default();

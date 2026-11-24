@@ -773,6 +773,22 @@ fn a_file_of_the_run_that_takes_hours_to_read_does_not_hold_the_watcher_past_its
 }
 
 #[test]
+fn the_pid_record_is_read_as_a_regular_file_and_a_named_pipe_there_does_not_hold_a_starting_watcher() {
+    let mut r = Run::new("pid-fifo");
+    fs::create_dir_all(r.dir.join("fs/blobs")).unwrap();
+    let pid = r.dir.join("fs/sdc-watch.pid");
+    mkfifo(&pid);
+    r.child = Some(Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("run").arg(&r.dir).spawn().unwrap());
+    let t = Instant::now();
+    while !fs::symlink_metadata(&pid).is_ok_and(|m| m.is_file()) && t.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let written = fs::symlink_metadata(&pid).is_ok_and(|m| m.is_file());
+    let ended = ends_within_10s_of_sigterm(&mut r);
+    assert!(written && ended, "the pid record is read as a regular file and no pipe is waited for: the watcher writes its pid record ({written}) and ends within 10 s of SIGTERM ({ended})");
+}
+
+#[test]
 fn a_named_pipe_a_program_put_at_the_record_of_a_run_does_not_hold_a_restarted_watcher() {
     let mut hung = Vec::new();
     for name in ["changes.jsonl", "snapshot.json"] {
