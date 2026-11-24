@@ -14,7 +14,7 @@ export default defineConfig({
   timeout: BUDGET.testMs,
   globalTimeout: BUDGET.runMs,
   reporter: [['line'], ['./test/slowest-reporter.mjs', {budgetMs: BUDGET.runMs}]],
-  use: {baseURL: process.env.SDC_UI_URL, colorScheme: 'dark'},
+  use: {baseURL: process.env.SDC_UI_URL, colorScheme: 'dark', reducedMotion: 'reduce'},
   projects: [
     {name: 'laptop', use: {viewport: VIEWPORTS.laptop}, testIgnore: glob([...wideOnlyFiles, ...slowFiles])},
     {name: 'wide', use: {viewport: VIEWPORTS.wide}},

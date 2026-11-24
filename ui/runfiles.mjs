@@ -47,6 +47,9 @@ export function runPath(p, root) {
   const run = root ? path.resolve(root) : ownerOf(abs);
   if (!run) return null;
   try {
+    // a name with nothing behind it is answered by one stat: the real path walks every component of the path again for each
+    // one (a case nested 14 deep paid that walk for each of the files a round looks for and most of them are absent)
+    if (!fs.statSync(abs, {throwIfNoEntry: false})) return null;
     const real = fs.realpathSync.native(abs);
     return within(real, fs.realpathSync.native(run)) ? real : null;
   } catch { return null; }
@@ -257,9 +260,14 @@ export function underAny(real, roots, runDir) {
   return roots.some((r) => { const rr = runPath(r, runDir); return rr != null && within(real, rr); });
 }
 
-// the names in a directory of a run; an entry whose real path leaves the run is not listed
+// the names in a directory of a run; an entry whose real path leaves the run is not listed. The directory is read at its
+// checked real path, so an entry that is no link has the real path <real>/<name>, under the run: only a link is checked by
+// its own real path (a directory of 300 cases deep in a tree paid a real path for each of them in every round)
 export function listDir(p, root) {
   const real = runPath(p, root);
   if (!real) return [];
-  try { return fs.readdirSync(real).sort().filter((n) => runPath(path.join(p, n), root) !== null); } catch { return []; }
+  try {
+    return fs.readdirSync(real, {withFileTypes: true}).filter((e) => !e.isSymbolicLink() || runPath(path.join(p, e.name), root) !== null)
+      .map((e) => e.name).sort();
+  } catch { return []; }
 }
