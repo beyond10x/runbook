@@ -271,6 +271,38 @@ test('a name behind a link out of the run is answered alike whether the far file
   expect(Math.max(...Object.values(answers).map((a) => a.ms))).toBeLessThan(2000);
 });
 
+test('the count of link components an answer resolved is the same whether anything lies behind a link out of the run, and it is in the Products answer only', async () => {
+  test.setTimeout(60000);
+  const far = path.join(root, 'count-far');
+  fs.mkdirSync(path.join(far, 'sub'), {recursive: true});
+  fs.writeFileSync(path.join(far, 'sub/there.txt'), `${SECRET}\n`);
+  const nowhere = path.join(root, 'count-nowhere');
+  const answers = {};
+  const forms = [['file-exists', far, 'sub/there.txt', false], ['file-absent', far, 'sub/not-there.txt', false], ['dir-absent', nowhere, 'sub/there.txt', false],
+    ['dangling-in-run', 'no-such-in-run', 'sub/there.txt', false], ['chain-exists', far, 'sub/there.txt', true], ['chain-absent', nowhere, 'sub/there.txt', true]];
+  for (const [tag, target, name, chain] of forms) {
+    await make(`count-${tag}`, {extra: []}, (d) => {
+      if (chain) { fs.symlinkSync('mid', path.join(d, 'work/lnk')); fs.symlinkSync(target, path.join(d, 'work/mid')); } else fs.symlinkSync(target, path.join(d, 'work/lnk'));
+      append(d, [change(900, `lnk/${name}`, {text: 'x\n', step: 3}), change(901, `lnk/${name}.more`, {text: 'x\n', step: 3})]);
+    });
+    const r = await products(`count-${tag}`);
+    expect(r.text).not.toContain(SECRET);
+    expect(r.text).not.toContain('count-far');
+    answers[tag] = r.json;
+    const live = await get(`count-${tag}`, '/api/live?source=0');
+    const one = await get(`count-${tag}`, '/api/fschange?source=0&seq=900');
+    const sources = await get(`count-${tag}`, '/api/sources');
+    for (const other of [live, one, sources]) expect(other.text, 'a route other than /api/products').not.toContain('linksResolved');
+  }
+  const pick = (a) => ({total: a.total, shown: a.shown, leftOut: a.leftOut, gone: a.gone, linkCut: a.linkCut, files: a.files.length, cut: a.cut, truncated: a.truncated, keys: Object.keys(a).sort().join()});
+  for (const tag of ['file-absent', 'dir-absent', 'dangling-in-run']) expect(pick(answers[tag]), tag).toEqual(pick(answers['file-exists']));
+  expect(pick(answers['chain-absent'])).toEqual(pick(answers['chain-exists']));
+  const counts = Object.fromEntries(Object.entries(answers).map(([k, a]) => [k, a.linksResolved]));
+  expect(counts, 'the number of links the answer resolved, not what lies behind them').toEqual({'file-exists': 2, 'file-absent': 2, 'dir-absent': 2, 'dangling-in-run': 2, 'chain-exists': 2, 'chain-absent': 2});
+  const one = answers['file-exists'];
+  expect(Number.isSafeInteger(one.linksResolved) && one.linksResolved <= one.shown * one.maxLinks).toBe(true);
+});
+
 // ---- the kept state follows the record file ---------------------------------------------------------------------------
 
 const replacedRun = async (name) => {
@@ -474,6 +506,56 @@ test('a late attribution line that replaces one already kept counts its growth i
   const held = JSON.stringify(live.json.fs.changes).length;
   expect(live.json.fs.changes.length, 'the records the answer holds').toBeGreaterThanOrEqual(211);
   expect(held <= BOUND || live.json.fs.recordsStopped != null, `the answer holds ${held} bytes of records under a bytes bound of ${BOUND} and says nothing (recordsStopped ${JSON.stringify(live.json.fs.recordsStopped)})`).toBe(true);
+});
+
+const countedOf = (file) => {
+  let bytes = 0;
+  const longest = new Map();
+  for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!l.trim()) continue;
+    const r = JSON.parse(l);
+    const len = Buffer.byteLength(l);
+    if (r.format === 'sdc.fs-attribution/1') longest.set(r.change, Math.max(len, longest.get(r.change) ?? 0));
+    else bytes += len - (typeof r.diff === 'string' ? r.diff.length : 0);
+  }
+  for (const v of longest.values()) bytes += v;
+  return bytes;
+};
+const prng = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const padOf = (n) => 'é€'.repeat(Math.ceil(n / 2)).slice(0, n);
+const LATE_ORDERS = {
+  'new then shrink then grow then shrink': [[900, 100], [900, 5], [900, 400], [900, 1]],
+  'equal lines again and again': [[900, 300], [900, 300], [900, 300]],
+  'two changes interleaved, one never has a record': [[900, 10], [7777, 10], [900, 500], [7777, 500], [900, 1], [7777, 1]],
+  'shrink first, grow last': [[901, 2000], [901, 20], [901, 3000]],
+};
+for (const seed of [11, 29, 47]) {
+  const next = prng(seed);
+  LATE_ORDERS[`seeded ${seed}`] = Array.from({length: 14}, () => [900 + Math.floor(next() * 4) * (next() < 0.3 ? 1000 : 1), Math.floor(next() * next() * 4000)]);
+}
+
+test('the bytes counted are the lines of the records and the longest late line of each change, in every order of new, shrinking and growing late lines, and the bound stops the reader at one byte under it', async () => {
+  test.setTimeout(60000);
+  for (const [tag, steps] of Object.entries(LATE_ORDERS)) {
+    const lines = steps.map(([ch, n], i) => late(ch, `act.${i}`, padOf(n)));
+    let total = 0;
+    for (const delta of [0, -1]) {
+      const name = `lateorder-${Object.keys(LATE_ORDERS).indexOf(tag)}-${delta === 0 ? 'eq' : 'under'}`;
+      await make(name, {written: []}, (d) => append(d, lines), (d) => ({...process.env, SDC_UI_MAX_RECORD_BYTES: String((total = countedOf(path.join(d, 'fs/changes.jsonl'))) + delta)}));
+      const live = await get(name, '/api/live?source=0');
+      expect(live.status).toBe(200);
+      const stop = live.json.fs.recordsStopped;
+      if (delta === 0) {
+        expect(stop, `${tag}: the bound is exactly the bytes held, ${total}`).toBe(null);
+        for (const ch of new Set(steps.map(([c]) => c))) {
+          const rec = live.json.fs.changes.find((c) => c.seq === ch);
+          if (rec) expect(rec.attribution.action, `${tag}: the last line for change ${ch} is the one kept`).toBe(`act.${steps.map(([c]) => c).lastIndexOf(ch)}`);
+        }
+      } else {
+        expect(stop?.cause, `${tag}: the bound is one byte under the bytes held, ${total - 1}`).toBe('bytes');
+      }
+    }
+  }
 });
 
 test('a late attribution line for a change that was read is shown at its step on the next answer', async () => {
