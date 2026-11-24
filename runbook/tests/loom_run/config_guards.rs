@@ -458,12 +458,12 @@ fn a_work_directory_bound_at_another_path_reads_its_own_file_by_the_keys_of_any_
     }
     let rig = Rig::new("bound-work");
     run_dir(&rig, "runs/r1");
-    rig.put("runs/r1/work/runbook.toml", "max_wall_seconds = 1\n");
+    rig.put("runs/r1/work/runbook.toml", "runs_dir = \"kept\"\n");
     let o = bound_at_mnt(&rig, "runs/r1/work", &["config"]);
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert!(first_line(&o).contains("/mnt/runbook.toml") && first_line(&o).contains("found in the working directory or a parent"), "{}", first_line(&o));
-    assert!(out(&o).lines().any(|l| l.starts_with("max_wall_seconds = 1 ")), "{}", out(&o));
-    for lowering in ["min_confinement = \"local\"\n", "[serve]\nmin_confinement = \"local\"\n", "floor = \"local\"\n", "confinement = \"local\"\n", "autonomy = \"A5\"\n"] {
+    assert!(out(&o).lines().any(|l| l.starts_with("runs_dir = ") && l.contains("/mnt/kept")), "{}", out(&o));
+    for lowering in ["max_wall_seconds = 1\n", "cap_micro_usd = 1\n", "max_llm_calls = 1\n", "spend_ledger = \"l.json\"\n", "runbooks = [\"d\"]\n", "min_confinement = \"local\"\n","[serve]\nmin_confinement = \"local\"\n", "floor = \"local\"\n", "confinement = \"local\"\n", "autonomy = \"A5\"\n"] {
         rig.put("runs/r1/work/runbook.toml", lowering);
         let o = bound_at_mnt(&rig, "runs/r1/work", &["config"]);
         assert_eq!(code(&o), 2, "{lowering}: {}{}", out(&o), err(&o));
@@ -1080,35 +1080,82 @@ fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() 
     // what the host has
     let mut files = Vec::new();
     test_sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
-    let shapes = ["env!(\"CARGO_BIN_EXE_runbook\")", "BIN)", "super::core::BIN)", "&odd)", "prefix.join(\"bin/runbook\")", "&program)", "program)"];
-    // `XDG_CONFIG_HOME` is the private HOME and configuration directory of a `Rig`, whose working directory
-    // lies in its own tree
-    let guards = ["isolate(", "RUNBOOK_CONFIG", "RUNBOOK_NO_CONFIG", "--no-config", "XDG_CONFIG_HOME"];
-    let others = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "\"decide\""];
     let mut unguarded = Vec::new();
     let mut starts = 0;
     for file in files {
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&file).unwrap();
-        for (at, _) in text.match_indices("Command::new(") {
-            let after = &text[at + "Command::new(".len()..];
-            if !shapes.iter().any(|s| after.starts_with(s)) {
-                continue;
-            }
-            let from = ["\nfn ", "\npub fn ", "\n    fn ", "\n#[test]"].iter().filter_map(|m| text[..at].rfind(m)).max().unwrap_or(0);
-            let to = ["\nfn ", "\npub fn ", "\n#[test]"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
-            let region = &text[from..to];
-            if others.iter().any(|o| region.contains(o)) && !region.contains("\"serve\"") {
-                continue;
-            }
-            starts += 1;
-            if !guards.iter().any(|g| region.contains(g)) {
-                unguarded.push(format!("{name}:{}", text[..at].matches('\n').count() + 1));
-            }
-        }
+        let scan = scan_starts(&text);
+        starts += scan.starts;
+        unguarded.extend(scan.unguarded.iter().map(|line| format!("{name}:{line}")));
     }
     assert!(starts >= 8, "the scan found only {starts} starts of the binary");
     assert!(unguarded.is_empty(), "starts of the binary in the cases that name no empty configuration and read what the host has: {unguarded:?}");
+}
+
+/// What the scan of the starts found in one text.
+struct Starts {
+    /// The starts of a program that is not named by a string literal and may be the binary.
+    starts: usize,
+    /// The lines of the starts that name no empty configuration.
+    unguarded: Vec<usize>,
+}
+
+/// The starts of the binary in a source text and the lines of those that name no empty configuration.
+fn scan_starts(text: &str) -> Starts {
+    let shapes = ["env!(\"CARGO_BIN_EXE_runbook\")", "BIN)", "super::core::BIN)", "&odd)", "prefix.join(\"bin/runbook\")", "&program)", "program)"];
+    let guards = ["isolate(", "RUNBOOK_CONFIG", "RUNBOOK_NO_CONFIG", "--no-config", "XDG_CONFIG_HOME"];
+    let others = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "\"decide\""];
+    let mut unguarded = Vec::new();
+    let mut starts = 0;
+    for (at, _) in text.match_indices("Command::new(") {
+        let after = &text[at + "Command::new(".len()..];
+        if !shapes.iter().any(|s| after.starts_with(s)) {
+            continue;
+        }
+        let from = ["\nfn ", "\npub fn ", "\n    fn ", "\n#[test]"].iter().filter_map(|m| text[..at].rfind(m)).max().unwrap_or(0);
+        let to = ["\nfn ", "\npub fn ", "\n#[test]"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
+        let region = &text[from..to];
+        if others.iter().any(|o| region.contains(o)) && !region.contains("\"serve\"") {
+            continue;
+        }
+        starts += 1;
+        if !guards.iter().any(|g| region.contains(g)) {
+            unguarded.push(text[..at].matches('\n').count() + 1);
+        }
+    }
+    Starts { starts, unguarded }
+}
+
+#[test]
+fn the_scan_of_the_starts_sees_a_start_of_a_config_command_however_it_is_written() {
+    // each text holds one start that names no empty configuration, and the scan must report it
+    let bare = "\nfn case() {\n    let o = std::process::Command::new(env!(\"CARGO_BIN_EXE_runbook\")).arg(\"list\").output().unwrap();\n}\n";
+    assert_eq!(scan_starts(bare).unguarded, vec![3], "control: the plain form is seen");
+    let evasions: Vec<(&str, &str)> = vec![
+        ("a function that also names a directory runs", "\nfn case(dir: &Path) {\n    let o = Command::new(BIN).arg(\"run\").arg(dir.join(\"runs\")).output().unwrap();\n}\n"),
+        ("a function that also holds the word test", "\nfn case() {\n    let name = \"test\";\n    let o = Command::new(BIN).arg(\"config\").output().unwrap();\n}\n"),
+        ("a guard in a comment", "\nfn case() {\n    // RUNBOOK_NO_CONFIG is not set here\n    let o = Command::new(BIN).arg(\"list\").output().unwrap();\n}\n"),
+        ("a guard removed again", "\nfn case() {\n    let o = Command::new(BIN).arg(\"list\").env_remove(\"RUNBOOK_NO_CONFIG\").output().unwrap();\n}\n"),
+        ("two starts and one guard", "\nfn case() {\n    let a = Command::new(BIN).arg(\"list\").env(\"RUNBOOK_NO_CONFIG\", \"1\").output().unwrap();\n    let b = Command::new(BIN).arg(\"list\").output().unwrap();\n}\n"),
+        ("a binary named by a helper", "\nfn bin() -> &'static str { env!(\"CARGO_BIN_EXE_runbook\") }\nfn case() {\n    let o = Command::new(bin()).arg(\"list\").output().unwrap();\n}\n"),
+        ("a binary held in a variable of another name", "\nfn case() {\n    let exe = env!(\"CARGO_BIN_EXE_runbook\");\n    let o = Command::new(exe).arg(\"list\").output().unwrap();\n}\n"),
+        ("a binary through a path", "\nfn case() {\n    let o = Command::new(std::path::Path::new(env!(\"CARGO_BIN_EXE_runbook\"))).arg(\"list\").output().unwrap();\n}\n"),
+        ("a guard that only names the user's directory", "\nfn case() {\n    let o = Command::new(BIN).arg(\"list\").env(\"XDG_CONFIG_HOME\", \"/nowhere\").current_dir(\"/srv/elsewhere/project\").output().unwrap();\n}\n"),
+    ];
+    let missed: Vec<&str> = evasions.iter().filter(|(_, text)| scan_starts(text).unguarded.is_empty()).map(|(what, _)| *what).collect();
+    assert!(missed.is_empty(), "the scan passes an unguarded start of a command that reads runbook.toml when it is written as: {missed:?}");
+    // and the starts that are guarded or are no start of the binary are not reported
+    let fine: Vec<(&str, &str)> = vec![
+        ("the empty configuration named", "\nfn case() {\n    let o = Command::new(BIN).arg(\"list\").env(\"RUNBOOK_NO_CONFIG\", \"1\").output().unwrap();\n}\n"),
+        ("a variable that is given the guard later", "\nfn case() {\n    let mut c = Command::new(BIN);\n    c.arg(\"list\");\n    c.env(\"RUNBOOK_NO_CONFIG\", \"1\");\n    c.output().unwrap();\n}\n"),
+        ("the harness isolation around the start", "\nfn case() {\n    let o = isolate(Command::new(BIN).arg(\"list\")).output().unwrap();\n}\n"),
+        ("a program named by a string", "\nfn case() {\n    let o = Command::new(\"git\").arg(\"status\").output().unwrap();\n}\n"),
+        ("a command that reads no file", "\nfn case() {\n    let o = Command::new(BIN).arg(\"parity\").output().unwrap();\n}\n"),
+        ("the private directory of a rig", "\nfn case(&self) {\n    let mut c = Command::new(BIN);\n    c.args(args).env(\"XDG_CONFIG_HOME\", self.p(\"xdg\")).current_dir(cwd);\n}\n"),
+    ];
+    let wrong: Vec<&str> = fine.iter().filter(|(_, text)| !scan_starts(text).unguarded.is_empty()).map(|(what, _)| *what).collect();
+    assert!(wrong.is_empty(), "the scan reports a start that names the empty configuration or is no start of the binary: {wrong:?}");
 }
 
 /// The lines `runbook serve` writes before it listens: standard error from its own pipe, and whether it listened.

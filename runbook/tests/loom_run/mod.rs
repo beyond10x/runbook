@@ -4,6 +4,7 @@ mod child_refusal;
 mod conformance;
 mod config_file;
 mod config_guards;
+mod config_refusals;
 mod core;
 mod decider;
 mod decisions;

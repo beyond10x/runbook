@@ -47,7 +47,12 @@ impl Rig {
     /// for `runbook.toml` climbs from the working directory to the root of the file system, and a file in the
     /// checkout (or in `target/` of it) must not be one of the files a case finds.
     pub fn new(tag: &str) -> Rig {
-        let root = std::env::temp_dir().join(format!("runbook-rig-{tag}-{}", std::process::id()));
+        Rig::new_in(&std::env::temp_dir(), tag)
+    }
+
+    /// The same in the directory `base`.
+    pub fn new_in(base: &Path, tag: &str) -> Rig {
+        let root = base.join(format!("runbook-rig-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["home", "xdg", "work/sub"] {
             std::fs::create_dir_all(root.join(d)).unwrap();

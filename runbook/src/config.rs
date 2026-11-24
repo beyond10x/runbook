@@ -904,6 +904,35 @@ mod tests {
     }
 
     #[test]
+    fn a_web_token_is_hidden_after_any_run_of_dots_and_equals_signs_and_a_key_with_a_token_in_it_is_hidden_whole() {
+        let yes: Vec<String> = [["name.ey", "Ja.eyJb.c"], ["a.b=c.ey", "Ja.eyJb.c"], ["a.b.c.ey", "Ja.eyJb.c"], ["x=y=ey", "Ja.eyJb.c"], ["n.gh", "p_x.tail"]].iter().map(|p| p.concat()).collect();
+        for yes in &yes {
+            assert!(token_form(yes), "{yes}");
+            assert_eq!(mask(yes), HIDDEN, "{yes}");
+        }
+        for no in ["name.eyJa.b", "a.b.c.d", "x=y=z.w", "see.eyJ"] {
+            assert!(!token_form(no), "{no}");
+        }
+        for key in [["see/gh", "p_x"], ["see:gh", "p_x"], ["see gh", "p_x"], ["see\\gh", "p_x"], ["see,Bear", "er x"]].iter().map(|p| p.concat()) {
+            assert_eq!(segment(&key), HIDDEN, "{key}");
+        }
+        for key in ["see/words", "a b", "models", "claude-sonnet-5-5"] {
+            assert_eq!(segment(key), key);
+        }
+    }
+
+    #[test]
+    fn mask_reads_an_escaped_backslash_as_one_character_and_not_as_the_start_of_a_break() {
+        // the text a JSON string has for the value `C:\dir\<token>`: the backslash is written twice, and the `n` after the second is no `\n`
+        let token = ["n", "pm_x"].concat();
+        let shown = format!("\"C:\\\\dir\\\\{token}\"");
+        assert_eq!(mask(&shown), "\"C:\\\\dir\\\\<a key or token>\"");
+        // a break after an escaped backslash is still a break, and the value after a bearer word spans the pair
+        assert_eq!(mask("\"a\\\\\\nBearer x\""), "\"a\\\\\\nBearer <a key or token>\"");
+        assert_eq!(mask("\"Bearer abc\\\\ndef ghi\""), "\"Bearer <a key or token> ghi\"");
+    }
+
+    #[test]
     fn mask_hides_the_word_after_bearer_in_a_header_after_a_break_and_nothing_else() {
         assert_eq!(mask("Authorization: Bearer hunter2"), "Authorization: Bearer <a key or token>");
         assert_eq!(mask("Bearer\n  hunter2"), "Bearer\n  <a key or token>");
