@@ -751,8 +751,7 @@ fn a_stop_that_panics_orphans_the_live_runs_as_stopped_and_reports_that_it_faile
     let end = rt.block_on(runbook::serve::guarded_stop(fx.d(), async { panic!("the stop future failed") }));
     assert_eq!((end.orphaned, end.failed), (1, true), "{end:?}");
     assert_eq!(fx.state_of(&run), "Ended");
-    let journal = std::fs::read_to_string(fx.dir.join("state/journal.jsonl")).unwrap();
-    let facts: Vec<Value> = journal.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let facts = journal_facts(&fx.dir.join("state"));
     let reasons: Vec<&str> = facts.iter().filter(|f| f["fact"] == "event_recorded" && f["kind"] == "runbook.run-orphaned").map(|f| f["record"]["reason"].as_str().unwrap()).collect();
     assert_eq!(reasons, vec![STOPPED]);
 

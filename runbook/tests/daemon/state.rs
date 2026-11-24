@@ -11,9 +11,13 @@ pub fn scratch(tag: &str) -> PathBuf {
     p
 }
 
-/// The facts of the journal in `dir` (a state directory), for a reader beside a daemon that may be writing.
+/// The facts of the journal in `dir` (a state directory), for a reader beside a daemon that may be writing:
+/// only the lines that end in a newline. A last line without its newline is a write that is not over (the
+/// daemon's own replay drops such a line the same way), so it is not a fact yet.
 pub fn journal_facts(dir: &Path) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(dir.join("journal.jsonl")).unwrap_or_default().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    let bytes = std::fs::read(dir.join("journal.jsonl")).unwrap_or_default();
+    let whole = bytes.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+    bytes[..whole].split(|b| *b == b'\n').filter(|l| !l.is_empty()).map(|l| serde_json::from_slice(l).unwrap()).collect()
 }
 
 fn run(id: &str) -> Run {
