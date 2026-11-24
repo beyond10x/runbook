@@ -23,6 +23,7 @@ mod questions_check;
 mod reply_bytes;
 mod capture_buffer_bound;
 mod bounds_and_digest;
+mod budget_optional;
 mod capture_fate;
 mod run_compare;
 mod run_metrics;

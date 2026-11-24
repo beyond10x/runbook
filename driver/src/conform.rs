@@ -65,7 +65,7 @@ pub struct Setup {
     /// `SDC_CONFORM_ADAPTER_BIN`, else beside the running program.
     pub adapter: Option<PathBuf>,
     /// The most the node sessions of the whole observation may spend, USD; none: no bound but each
-    /// session's own (`SDC_CONFORMANCE_MAX_BUDGET_USD`, default 2). With a bound no session starts
+    /// session's own (`SDC_CONFORMANCE_MAX_BUDGET_USD`, none when unset; 2 with a bound). With a bound no session starts
     /// once what the sessions before it cost has reached it (a session that left no cost record
     /// counts at its own limit), and no session's own limit is larger than what is left of it.
     pub budget_usd: Option<f64>,
@@ -332,6 +332,8 @@ struct Node {
     /// The delivered tree, whose README or manifest the start command is checked against.
     tree: PathBuf,
     setup: Setup,
+    /// The money budget the environment names, `None` when it names none.
+    budget: Option<f64>,
     /// What the node sessions of this observation cost so far, USD (a session without a cost
     /// record at its own limit), and how many of them left no cost record.
     meter: Meter,
@@ -343,7 +345,20 @@ struct Meter {
     unknown: std::cell::Cell<u32>,
 }
 
-fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (&'static str, String)> {
+/// `SDC_CONFORMANCE_MAX_BUDGET_USD`: unset or empty names no budget; a value that is set must be a
+/// finite number of at least 0, or the observation is refused (a named cap never becomes none). A
+/// value that is no text is named and cannot be read: refused, no byte of it shown.
+fn budget_named() -> Result<Option<f64>, String> {
+    const NAME: &str = "SDC_CONFORMANCE_MAX_BUDGET_USD";
+    match std::env::var_os(NAME).map(std::ffi::OsString::into_string) {
+        None => Ok(None),
+        Some(Err(_)) => Err(format!("{NAME} is set to bytes that are no text: it must be a finite number of at least 0")),
+        Some(Ok(raw)) if raw.is_empty() => Ok(None),
+        Some(Ok(raw)) => crate::named::money(NAME, &raw).map(Some),
+    }
+}
+
+fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path, budget: Option<f64>) -> Result<Node, (&'static str, String)> {
     let adapter_name = first_env(&["SDC_CONFORMANCE_ADAPTER", "SDC_LLM_ADAPTER"]).map(|x| x.0).unwrap_or_else(|| "claude-cli".into());
     let adapter = match adapter_name.as_str() {
         "stub" | "dry" | "fixture" => return Err(("table_missing", format!("the LLM adapter {adapter_name} has no model, so no table was written"))),
@@ -369,7 +384,7 @@ fn node_setup(setup: &Setup, out: &Path, tree: &Path, spec: &Path, ir: &Path) ->
     prep().map_err(|e| ("table_missing", e))?;
     let rec = json!({"source": "conformance.table", "adapter": adapter_name, "model": model, "model_source": model_source,
         "effort": effort, "effort_source": effort_source});
-    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone(), meter: Meter::default() })
+    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf(), setup: setup.clone(), budget, meter: Meter::default() })
 }
 
 /// One slot's table from the node: at most `tries` fresh sessions, each reply checked by the
@@ -381,27 +396,32 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
     let mut feedback = first;
     let mut invalid = vec![];
     for _ in 0..tries {
-        let own = env("SDC_CONFORMANCE_MAX_BUDGET_USD").and_then(|x| x.parse::<f64>().ok()).unwrap_or(2.0);
+        // The money budget of a session: what the environment names; under a bound of the whole observation
+        // no more than what is left of it (2 USD when the environment names none); with no bound and none
+        // named, none.
         let session_usd = match node.setup.budget_usd {
             Some(budget) => {
                 let left = budget - node.meter.spent.get();
                 if left < 1e-6 {
                     return Err(("table_missing", "no session was started: what the observation may spend is used".to_string(), invalid));
                 }
-                own.min(left)
+                Some(node.budget.unwrap_or(2.0).min(left))
             }
-            None => own,
+            None => node.budget,
         };
         *attempts += 1;
         let attempt = *attempts;
         let rec = dir.join("node").join(format!("{attempt:03}"));
         fs::create_dir_all(&rec).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         fs::write(rec.join("prompt.md"), prompt(&node.setup, attempt, &feedback).map_err(|e| ("table_missing", e, vec![]))?).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
-        let req = json!({"model": node.model, "effort": node.effort, "prompt_file": rec.join("prompt.md"), "cwd": node.cwd, "record_dir": rec,
+        let mut req = json!({"model": node.model, "effort": node.effort, "prompt_file": rec.join("prompt.md"), "cwd": node.cwd, "record_dir": rec,
             "node": "conformance.table", "slot": slot, "attempt": attempt, "json_schema": node.schema,
             "operations": ["dir.list", "file.read", "search"],
-            "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40),
-            "max_budget_usd": session_usd});
+            "max_turns": env("SDC_CONFORMANCE_MAX_TURNS").and_then(|x| x.parse::<u64>().ok()).unwrap_or(40)});
+        // A money budget is named by the environment or by a bound of the observation: with neither the request names none.
+        if let Some(budget) = session_usd {
+            req["max_budget_usd"] = json!(budget);
+        }
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let limit = Duration::from_secs(env("SDC_CONFORMANCE_NODE_TIMEOUT").and_then(|x| x.parse().ok()).unwrap_or(1800));
         let (code, tail) = run_bounded(Command::new(&node.adapter).arg(rec.join("request.json")), limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
@@ -413,7 +433,7 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
             }
             None => {
                 node.meter.unknown.set(node.meter.unknown.get() + 1);
-                node.meter.spent.set(node.meter.spent.get() + session_usd);
+                node.meter.spent.set(node.meter.spent.get() + session_usd.unwrap_or(0.0));
             }
         }
         let reply = fs::read_to_string(rec.join("structured-output.json")).ok();
@@ -796,6 +816,14 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
         let why = format!("{} has no spec/", o.rel(&work));
         return o.finish("unknown", Some("suite_failed"), Some(why));
     }
+    // A budget the environment names is read after the pin check and before `ess compile`: a refusal costs nothing.
+    let budget = match table_file {
+        Some(_) => None,
+        None => match budget_named() {
+            Ok(b) => b,
+            Err(why) => return o.finish("unknown", Some("table_missing"), Some(why)),
+        },
+    };
     let ir = out.join("ir.json");
     let (code, tail) = run_bounded(ess_cmd(&ess).args(["compile", "--path"]).arg(&spec).arg("--out").arg(&ir), Duration::from_secs(120), None, &out.join("compile.stderr"));
     if code != Some(0) {
@@ -823,7 +851,7 @@ pub fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Pat
 
     let node = match &table_file {
         Some(_) => None,
-        None => match node_setup(setup, &out, &tree, &spec, &ir) {
+        None => match node_setup(setup, &out, &tree, &spec, &ir, budget) {
             Ok(nd) => Some(nd),
             Err((cause, why)) => return o.finish("unknown", Some(cause), Some(why)),
         },

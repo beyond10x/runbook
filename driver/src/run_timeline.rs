@@ -939,9 +939,13 @@ pub fn free_metrics(dir: &Path) -> Res<Option<J>> {
         (e, _) => e.to_string(),
     };
     let tk = &tot["tokens"];
-    let settings = json!({"free.model": js(&meta["model"]), "free.effort": js(&meta["effort"]), "free.adapter": js(&meta["adapter"]),
+    let mut settings = json!({"free.model": js(&meta["model"]), "free.effort": js(&meta["effort"]), "free.adapter": js(&meta["adapter"]),
         "free.max_usd": num_str(&meta["caps"]["max_usd"]), "free.max_wall_s": num_str(&meta["caps"]["max_wall_s"]),
         "free.max_turns": num_str(&meta["caps"]["max_turns"])});
+    // A run that named no money cap records none: the setting is left out, not reported as null.
+    if meta["caps"]["max_usd"].is_null() {
+        settings.as_object_mut().map(|o| o.remove("free.max_usd"));
+    }
     let metrics = json!({
         "end": end, "end_kind": if !ended { "open" } else if closed { "closed" } else { "stopped" },
         "closed": closed, "outcome": if delivered { json!("delivered") } else { json!("not delivered") },
