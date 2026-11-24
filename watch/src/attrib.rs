@@ -467,6 +467,9 @@ mod tests {
     impl Read for Endless {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             self.0.set(self.0.get() + buf.len() as u64);
+            if self.0.get() > 1_000_000 {
+                return Err(std::io::Error::other("asked for far more than the limit"));
+            }
             buf.fill(b'a');
             Ok(buf.len())
         }
