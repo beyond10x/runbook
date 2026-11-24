@@ -602,14 +602,18 @@ fn a_live_call_that_is_ended_before_it_finishes_counts_against_the_cap() {
 }
 
 /// The cap is one step: two adapter processes that start at the same moment at a cap of 1 start one
-/// live program between them; the other diverges, whichever is first.
+/// live program between them; the other diverges, whichever is first. Both commands are made, and
+/// with them the one request file both read, before either process starts: a request written again
+/// while the first process read it was read cut off at a load of 16 threads, and that process
+/// ended with neither exit.
 #[test]
 fn two_adapters_that_start_together_at_a_cap_of_one_start_one_live_program_between_them() {
     let r = Replay::new("cap-two");
     executable(&r.live, &format!("#!/bin/sh\necho started >> '{}'\nsleep 1\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", r.marker.display()));
     r.write_plan("live", json!(1));
-    let mut first = r.command().spawn().unwrap();
-    let mut second = r.command().spawn().unwrap();
+    let (mut a, mut b) = (r.command(), r.command());
+    let mut first = a.spawn().unwrap();
+    let mut second = b.spawn().unwrap();
     let mut codes = vec![first.wait().unwrap().code().unwrap(), second.wait().unwrap().code().unwrap()];
     codes.sort();
     assert_eq!((r.starts(), codes.clone()), (1, vec![0, 75]), "one live program between two processes at cap 1: starts {}, exits {codes:?}", r.starts());
