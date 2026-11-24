@@ -233,6 +233,7 @@ fn write_atomic_at(dir: &File, shown: &Path, leaf: &std::ffi::OsStr, bytes: &[u8
 /// is replaced, never written through. `from` is read as every name of the run is ([`read_regular_within`] with
 /// [`READ_LIMIT`]): a link, a pipe or a file with a second name at `from` is an error that names `from`, and nothing is
 /// written.
+#[cfg(test)]
 pub(crate) fn copy_atomic(from: &Path, to: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     let file = open_regular(from)?;
@@ -278,7 +279,7 @@ impl Held {
         write_atomic_at(&self.dir, &self.path, leaf.as_ref(), bytes, 0o644)
     }
 
-    /// [`copy_atomic`] of `from` to the file `leaf` of this directory: the source is read as every name of the run is, the
+    /// A copy of `from` to the file `leaf` of this directory (what `copy_atomic` is by path): the source is read as every name of the run is, the
     /// file is written through the descriptor, and the bits of the source are kept.
     pub(crate) fn copy_from(&self, from: &Path, leaf: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
