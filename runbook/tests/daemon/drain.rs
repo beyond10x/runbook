@@ -6,7 +6,7 @@
 //! context, then a person step). No model call, no network beyond loopback.
 
 use super::http::{send, try_send, Resp};
-use super::state::scratch;
+use super::state::{journal_facts, scratch};
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -133,7 +133,7 @@ impl Serve {
     }
 
     fn journal(&self) -> Vec<Value> {
-        std::fs::read_to_string(self.dir.join("state/journal.jsonl")).unwrap_or_default().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+        journal_facts(&self.dir.join("state"))
     }
 
     fn facts(&self, name: &str) -> Vec<Value> {
