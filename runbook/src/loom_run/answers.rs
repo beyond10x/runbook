@@ -168,7 +168,7 @@ pub fn is_answer_step_in(dir: &Path, action: &str) -> bool {
     let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml") && p.is_file()).collect();
     files.sort();
     for file in files {
-        let Some(doc) = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str::<Yaml>(&t).ok()) else { continue };
+        let Some(doc) = crate::loom_run::record_write::read_regular_text(&file).ok().and_then(|t| serde_yaml::from_str::<Yaml>(&t).ok()) else { continue };
         let Some(actions) = doc.get("actions").and_then(Yaml::as_sequence) else { continue };
         if actions.iter().any(|a| a.get("action").and_then(Yaml::as_str) == Some(action) && is_answer_step(a)) {
             return true;

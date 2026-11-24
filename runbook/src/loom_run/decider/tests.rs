@@ -1523,3 +1523,26 @@ fn a_link_a_program_put_at_the_decision_file_is_not_read_through() {
     let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
     assert!(!matches!(verdict, Verdict::Answer { .. }), "the decision of a file outside the run was taken through a link at out/decision.json: {verdict:?}");
 }
+
+#[test]
+fn the_tables_of_the_routing_are_not_read_through_a_link_and_not_from_a_pipe() {
+    let w = world("routing-tables", &valid("0.1"));
+    let outside = empty_directory_outside(&w, "out-routing");
+    for name in ["driver/examples/sdc/decision-classes.json", "tools/autonomy-levels.json"] {
+        let file = w.run.join(name);
+        let kept = std::fs::read(&file).unwrap();
+        std::fs::remove_file(&file).unwrap();
+        let copy = outside.join("copy.json");
+        std::fs::write(&copy, &kept).unwrap();
+        std::os::unix::fs::symlink(&copy, &file).unwrap();
+        let e = Routing::load(&w.run).err().unwrap_or_else(|| panic!("{name} was read through a link"));
+        assert!(e.contains("above the bindings copy") && !e.contains("out-routing"), "{e}");
+        std::fs::remove_file(&file).unwrap();
+        assert!(Command::new("mkfifo").arg(&file).status().unwrap().success());
+        let e = Routing::load(&w.run).err().unwrap_or_else(|| panic!("{name} was read from a pipe"));
+        assert!(e.contains("above the bindings copy"), "{e}");
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(&file, &kept).unwrap();
+    }
+    assert!(Routing::load(&w.run).is_ok());
+}
