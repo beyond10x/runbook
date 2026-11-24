@@ -100,6 +100,11 @@ export const WIDE_ONLY = {
   'view-product.spec.mjs': 'server refuses a bad view',
   'view-race.spec.mjs': 'view swap race, no page',
   'view.spec.mjs': 'view file rules, a text',
+  'written-api.spec.mjs': 'route answers, no page',
+  'written-bounds.spec.mjs': 'bounds of answers, no layout',
+  'written-model.spec.mjs': 'model function, no page',
+  'written-page.spec.mjs': 'sizes set by test blocks',
+  'written-reader.spec.mjs': 'reader answers and page notes',
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
@@ -136,6 +141,8 @@ export const SIZE_EXCEPTIONS = {
   'stopped.spec.mjs': 'sets both gating sizes itself',
   'stub-runs.spec.mjs': 'sets 805x1270 and 390x844 itself',
   'view.spec.mjs': 'presence, not layout',
+  'written-page.spec.mjs': 'sets its sizes itself',
+  'written-reader.spec.mjs': 'presence, not layout',
 };
 
 // The one form of a spec file that the lists above know: `<this directory>/<name>.spec.mjs`, directly under test/ (the pattern
