@@ -12,10 +12,27 @@ export const registerRun = (dir) => { runDirs.add(path.resolve(dir)); };
 
 export const within = (child, root) => child === root || child.startsWith(root + path.sep);
 
+// the file `rel` names under `root`, or null when it lies outside: a sibling directory whose name starts with the name of
+// `root` is outside it (the check has a separator)
+export const servedUnder = (root, rel) => { const abs = path.join(root, rel); return within(abs, root) ? abs : null; };
+
+// the longest registered run directory `abs` lies under: the first one met going up, so the cost does not
+// grow with the number of runs the server knows
 function ownerOf(abs) {
-  let best = null;
-  for (const d of runDirs) if (within(abs, d) && (!best || d.length > best.length)) best = d;
-  return best;
+  for (let d = abs; ; d = path.dirname(d)) {
+    if (runDirs.has(d)) return d;
+    if (d === path.dirname(d)) return null;
+  }
+}
+
+// Test option of the server (--count-reads): the reads of run files by run, counted where a file's content is
+// read. Off, it costs one test of a flag.
+export const readCount = {on: false, total: 0, byRun: new Map()};
+function counted(abs, root) {
+  if (!readCount.on) return;
+  const run = root ? path.resolve(root) : ownerOf(abs);
+  readCount.total++;
+  readCount.byRun.set(run, (readCount.byRun.get(run) || 0) + 1);
 }
 
 // The real path of `p` when it lies under the real path of its run directory (`root` when given, else
@@ -67,17 +84,66 @@ const runRealOf = (abs, root) => {
 // all, so no request can make the server hold more than that). The limit is the size of the largest file of its kind that
 // the page reads; the default is the most any file of a run it reads can be.
 export const TEXT_LIMIT = 64 * 1048576;
+// What a checked read returned, for the run and the real path it was read for: a file whose size, modification time and
+// inode and status-change time are those of the last read is not read again. An entry is named by the path that was asked
+// for and holds the run and the real path it was read for, so it is served for that run and that real path only; every
+// call passes the run-path check first and a file that is not a regular file with one link is never answered from here.
+// An entry whose file is gone, refused or changed leaves the cache when a call sees it.
+// The cache holds at most CACHE_BOUND bytes of MEMORY (one constant): each entry costs ENTRY_OVERHEAD (the map slot, the
+// record and its numbers) plus the cost of its three strings, and the least recently used entry goes first when the sum
+// passes the bound. A string costs a byte per character when every character is one byte in UTF-8 (ASCII), else two:
+// V8 keeps a text with a character above U+00FF at two bytes per character, and the count may not be below the memory.
+// A file over CACHE_FILE bytes is not kept at all.
+export const CACHE_BOUND = 16 * 1048576;
+const CACHE_FILE = 8 * 1048576, ENTRY_OVERHEAD = 768;
+const textCache = new Map();
+let cacheHeld = 0;
+const stringCost = (s) => (Buffer.byteLength(s) === s.length ? s.length : 2 * s.length);
+// test hooks: what the cache holds, and an empty cache
+export const cacheStats = () => ({entries: textCache.size, held: cacheHeld});
+export const cacheClear = () => { textCache.clear(); cacheHeld = 0; };
+function drop(key) {
+  const e = textCache.get(key);
+  if (!e) return;
+  textCache.delete(key);
+  cacheHeld -= e.cost;
+}
+function keep(key, run, real, st, text) {
+  drop(key);
+  if (st.size > CACHE_FILE) return;
+  const cost = ENTRY_OVERHEAD + stringCost(key) + stringCost(run) + stringCost(real) + stringCost(text);
+  if (cost > CACHE_BOUND) return;
+  textCache.set(key, {run, real, cost, size: st.size, mtimeMs: st.mtimeMs, ino: st.ino, ctimeMs: st.ctimeMs, text});
+  cacheHeld += cost;
+  for (const k of textCache.keys()) { if (cacheHeld <= CACHE_BOUND) break; drop(k); }
+}
 export function readText(p, root, limit = TEXT_LIMIT) {
-  const real = runPath(p, root);
-  if (!real) return null;
+  const abs = path.resolve(p);
+  const real = runPath(abs, root);
+  if (!real) { drop(abs); return null; }
+  const run = root ? path.resolve(root) : ownerOf(abs);
+  const hit = textCache.get(abs);
+  if (hit) {
+    let now = null;
+    try { now = fs.statSync(real); } catch { /* gone: read as before */ }
+    const same = now && hit.run === run && hit.real === real && now.isFile() && now.nlink <= 1 && now.size === hit.size && now.mtimeMs === hit.mtimeMs && now.ino === hit.ino && now.ctimeMs === hit.ctimeMs;
+    if (same && now.size <= limit) {
+      textCache.delete(abs); textCache.set(abs, hit);
+      return hit.text;
+    }
+    if (!same) drop(abs);
+  }
   let fd = null;
   try {
-    const o = openChecked(real, runRealOf(path.resolve(p), root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const o = openChecked(real, runRealOf(abs, root), fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
     if (o.fd == null) return null;
     fd = o.fd;
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.nlink > 1 || st.size > limit) return null;
-    return fs.readFileSync(fd, 'utf8');
+    counted(abs, root);
+    const text = fs.readFileSync(fd, 'utf8');
+    keep(abs, run, real, st, text);
+    return text;
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
 export const readJson = (p, fallback = null, root) => {
@@ -151,6 +217,7 @@ export function readRegular(p, {root, limit = 1048576, tail = false, end = null,
     const to = end != null ? Math.min(end, now.size) : tail ? now.size : Math.min(now.size, begin + limit);
     const from = end != null || tail ? Math.max(0, to - limit) : begin;
     const want = to - from;
+    counted(abs, root);
     const buf = Buffer.alloc(want);
     let got = 0;
     while (got < want) {
