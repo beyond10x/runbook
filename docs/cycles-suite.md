@@ -110,8 +110,11 @@ gives `runbook test` (and Loom gives every bound program) is `sdc-recorded-pool`
 (`driver/src/bin/sdc-recorded-pool.rs`, linked as `driver/target/cycles-pool/slot`). It answers a
 command from `cycles/recorded/<digest>.json` (`sdc.recorded-pool/1`: argv, exit, stdout, stderr),
 where the digest is the sha256 of the command's argv and of the tree it runs in (every file's path,
-kind and bytes; `target/` left out), so a changed fixture, seed or stub writer misses instead of
-reading an old result. A miss is a program error (exit 127) whose one line, on the program's output
+kind and bytes; `target/` and `.git` left out), so a changed fixture, seed or stub writer misses
+instead of reading an old result. The `.git` is the repository each bug-fix check tree carries
+(`docs/bugfix.md`, "The trees a check runs in are git trees"): its index and objects differ with
+every copy, so it is not part of the tree, and the copy of record mode leaves it out too
+(`driver/tests/recorded_pool.rs`). A miss is a program error (exit 127) whose one line, on the program's output
 in the store, starts `error: recorded pool: no recording <digest>`.
 
 Why: a cycle's work directory is under `$XDG_RUNTIME_DIR`, which the build pool does not sync to the
