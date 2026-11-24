@@ -477,6 +477,14 @@ impl Daemon {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
         let context_dir = context.flatten();
+        // The caps of the run: what the submit names within the runtime's ceilings, else its defaults.
+        // They are part of the run's settings from here on, so a run taken up again has the same ones.
+        let mut settings = input.settings.clone();
+        match self.inner.runtime.resolve_caps(&settings) {
+            Ok(Some(caps)) => caps.put(&mut settings),
+            Ok(None) => {}
+            Err(why) => return Err(Fault::Invalid(why)),
+        }
 
         let mut st = self.st();
         let floor = match st.daemon() {
@@ -513,7 +521,7 @@ impl Daemon {
             runbook_version: input.runbook_version.clone(),
             intake: input.intake.clone(),
             context_path: input.context_path.clone(),
-            settings: input.settings.clone(),
+            settings: settings.clone(),
             confinement,
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
@@ -535,7 +543,7 @@ impl Daemon {
             version: input.runbook_version,
             intake: input.intake,
             context_dir,
-            settings: input.settings,
+            settings,
             confinement,
             state_dir: run_dir,
             workspace_dir: workspace,
@@ -707,13 +715,19 @@ impl Daemon {
 
     /// The view `RunDetail` (wire name `run`): zero or one row.
     pub fn run_detail(&self, run_id: &str) -> Vec<Value> {
+        // What the run has used is the runtime's to say; asked before the state is locked.
+        let used = self.inner.runtime.usage(run_id);
         self.st()
             .run(run_id)
             .map(|r| {
                 let mut row = run_row(r);
                 let m = row.as_object_mut().unwrap();
                 m.insert("intake".into(), json!(r.intake));
-                m.insert("settings".into(), json!(r.settings));
+                let mut settings = r.settings.clone();
+                if let Some(used) = used {
+                    used.put(&mut settings);
+                }
+                m.insert("settings".into(), json!(settings));
                 if let Some(c) = &r.context_path {
                     m.insert("context_path".into(), json!(c));
                 }
@@ -878,6 +892,19 @@ impl Daemon {
             // A refusal below means the run is Cancelled already (a report after a cancel).
             match result {
                 Ok(Finish::Outcome(outcome)) => {
+                    // A run stopped while it waited on a decision (a cap): what it asked is withdrawn.
+                    let open: Vec<String> = {
+                        let st = self.st();
+                        if st.run(&run_id).map(|r| r.state) == Some(RunState::WaitingOnDecision) { st.open_decisions_of(&run_id).iter().map(|d| d.request_id.clone()).collect() } else { Vec::new() }
+                    };
+                    if !open.is_empty() {
+                        let mut st = self.st();
+                        for request_id in open {
+                            let _ = withdraw_decision_locked(&mut st, &request_id);
+                        }
+                        drop(st);
+                        let _ = self.resume_run(&run_id);
+                    }
                     let _ = self.end_run(&run_id, &outcome);
                 }
                 // CancelRun moved the run already.

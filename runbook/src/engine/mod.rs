@@ -4,13 +4,14 @@
 
 pub mod calls;
 mod decision;
+mod gate;
 pub mod layout;
 pub mod refusal;
 mod tail;
 
 pub use decision::Parsed;
 
-use crate::caps::CapPolicy;
+use crate::caps::{CapPolicy, Caps, Usage};
 use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+use gate::{Admit, Cap, Gate, Meter};
 use tail::LogTail;
 
 /// The directory of a run's tree store, inside the run's own directory.
@@ -58,6 +60,7 @@ struct SlotState {
 struct Slot {
     state: Mutex<SlotState>,
     cv: Condvar,
+    meter: Mutex<Option<Arc<Meter>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -149,6 +152,7 @@ impl Engine {
                 self.levels.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", ")
             )));
         }
+        let caps = self.caps.resolve(&request.settings).map_err(failure)?;
         let resolved = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
@@ -196,40 +200,118 @@ impl Engine {
             tail.sync_all().map_err(failure)?;
         }
 
-        let settings = calls::run_settings(runner, request.confinement, None);
+        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
+        let meter = Arc::new(Meter::new(before));
+        *lock(&slot.meter) = Some(meter.clone());
+        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resolved.bindings.parent().unwrap_or(&resolved.bindings), resume, meter)
+            .map_err(failure)?;
+        gate.persist();
+
+        // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.
+        let local = AtomicBool::new(false);
+        let wall_hit = AtomicBool::new(false);
+        let done = AtomicBool::new(false);
+        let wall_cap = caps.max_wall_seconds;
+        let watched = gate.meter.clone();
+        let result = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !done.load(Ordering::SeqCst) {
+                    if cancel.load(Ordering::SeqCst) || lock(&slot.state).cancelled {
+                        local.store(true, Ordering::SeqCst);
+                    } else if watched.usage().wall_seconds >= wall_cap {
+                        wall_hit.store(true, Ordering::SeqCst);
+                        local.store(true, Ordering::SeqCst);
+                    }
+                    std::thread::sleep(POLL);
+                }
+            });
+            let result = self.steps(request, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate);
+            done.store(true, Ordering::SeqCst);
+            result
+        });
+        gate.persist();
+        result
+    }
+
+    /// Whether the daemon cancelled the run (the wall cap sets the run's own flag, not this).
+    fn cancelled(cancel: &AtomicBool, slot: &Slot) -> bool {
+        cancel.load(Ordering::SeqCst) || lock(&slot.state).cancelled
+    }
+
+    /// The run's own flag is set: a cancel by the daemon wins over the wall cap.
+    fn halted(cancel: &AtomicBool, wall_hit: &AtomicBool, slot: &Slot, gate: &Gate, sink: &dyn EventSink) -> Finish {
+        if Self::cancelled(cancel, slot) || !wall_hit.load(Ordering::SeqCst) {
+            Finish::Cancelled
+        } else {
+            let used = gate.meter.usage().wall_seconds;
+            Finish::Outcome(gate.reached(Cap::Wall, &format!("{used} of {} seconds", gate.caps.max_wall_seconds), sink))
+        }
+    }
+
+    /// The steps of a run, one at a time, each held against the caps before and booked after.
+    #[allow(clippy::too_many_arguments)]
+    fn steps(
+        &self,
+        request: &StartRequest,
+        store: &Path,
+        catalog: &loom_protocols::ProtocolCatalog,
+        runner: Arc<dyn b10x_loom_tree::TestRunner>,
+        sink: &dyn EventSink,
+        cancel: &AtomicBool,
+        local: &AtomicBool,
+        wall_hit: &AtomicBool,
+        slot: &Slot,
+        tail: &mut LogTail<'_>,
+        gate: &mut Gate,
+    ) -> Result<Finish, RuntimeFailure> {
+        let settings = calls::run_settings(runner, request.confinement, Some(1));
         loop {
+            if gate.wall_over() {
+                wall_hit.store(true, Ordering::SeqCst);
+                local.store(true, Ordering::SeqCst);
+            }
+            if local.load(Ordering::SeqCst) {
+                return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
+            }
+            let reservation = match gate.admit().map_err(failure)? {
+                Admit::Go(r) => r,
+                Admit::Stop(cap, detail) => return Ok(Finish::Outcome(gate.reached(cap, &detail, sink))),
+            };
             let ran = {
                 let mut observer = tail.observer();
-                calls::run(&store, &catalog, &settings, Some(&mut observer), Some(cancel))
+                calls::run(store, catalog, &settings, Some(&mut observer), Some(local))
             };
+            let booked = gate.book(&reservation, sink);
             let ran = ran.map_err(failure)?;
+            booked.map_err(failure)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
             }
             match ran.stop {
                 TreeStop::Terminal => {
-                    let status = calls::status(&store, &catalog).map_err(failure)?;
+                    let status = calls::status(store, catalog).map_err(failure)?;
                     let outcome = status.cases.iter().find(|c| c.case == status.root).and_then(|c| c.outcome.clone()).or(ran.detail);
                     return outcome.map(Finish::Outcome).ok_or_else(|| failure("the root case ended with no outcome"));
                 }
+                // one step done: the caps are held against the use again before the next
+                TreeStop::BudgetSpent if ran.steps > 0 && !local.load(Ordering::SeqCst) => {}
                 TreeStop::BudgetSpent => {
-                    return if cancel.load(Ordering::SeqCst) {
-                        Ok(Finish::Cancelled)
-                    } else {
-                        Err(failure(format!("the run spent a budget at case {}: {}", ran.case, ran.detail.unwrap_or_default())))
-                    };
+                    if local.load(Ordering::SeqCst) {
+                        return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
+                    }
+                    return Err(failure(format!("the run spent a budget at case {}: {}", ran.case, ran.detail.unwrap_or_default())));
                 }
-                TreeStop::Cancelled => return Ok(Finish::Cancelled),
+                TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
-                    return Err(failure(match refusal::program_signalled(&store) {
+                    return Err(failure(match refusal::program_signalled(store) {
                         Some(signalled) => format!("the tree is stuck at case {}: {signalled}", ran.case),
                         None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran.decisions, request, &store, &catalog, &settings.runner, sink, cancel, slot, &mut tail)? {
-                        return Ok(Finish::Cancelled);
+                    if !self.round(&ran.decisions, request, store, catalog, &settings.runner, sink, local, slot, tail)? {
+                        return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
                     }
                 }
             }
@@ -345,6 +427,17 @@ impl Runtime for Engine {
 
     fn kind(&self) -> &'static str {
         "loom"
+    }
+
+    fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
+        self.caps.resolve(settings).map(Some)
+    }
+
+    fn usage(&self, run_id: &str) -> Option<Usage> {
+        if let Some(meter) = self.slot(run_id).and_then(|s| lock(&s.meter).clone()) {
+            return Some(meter.usage());
+        }
+        gate::read_usage(&self.state_dir.join("runs").join(run_id))
     }
 
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {

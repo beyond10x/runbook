@@ -73,10 +73,21 @@ pub struct ServeArgs {
     pub cap_micro_usd_ceiling: Option<u64>,
 }
 
-/// The caps policy of the daemon, from its options. Skeleton: not read yet.
-pub fn cap_policy(_args: &ServeArgs) -> Result<CapPolicy, String> {
-    let unbounded = Caps { max_wall_seconds: u64::MAX, max_llm_calls: u64::MAX, cap_micro_usd: u64::MAX };
-    CapPolicy::fixed(unbounded)
+/// The caps policy of the daemon, from its options: the three caps are required and have no default;
+/// each ceiling is the cap itself unless it is given. A missing cap is refused naming its option.
+pub fn cap_policy(args: &ServeArgs) -> Result<CapPolicy, String> {
+    let given = [("--max-wall-seconds", args.max_wall_seconds), ("--max-llm-calls", args.max_llm_calls), ("--cap-micro-usd", args.cap_micro_usd)];
+    let missing: Vec<&str> = given.iter().filter(|(_, v)| v.is_none()).map(|(k, _)| *k).collect();
+    let (Some(wall), Some(calls), Some(spend)) = (args.max_wall_seconds, args.max_llm_calls, args.cap_micro_usd) else {
+        return Err(format!("{} required with --runtime loom: a daemon run is never unbound, and a cap has no default", missing.join(", ")));
+    };
+    let defaults = Caps { max_wall_seconds: wall, max_llm_calls: calls, cap_micro_usd: spend };
+    let ceilings = Caps {
+        max_wall_seconds: args.max_wall_seconds_ceiling.unwrap_or(wall),
+        max_llm_calls: args.max_llm_calls_ceiling.unwrap_or(calls),
+        cap_micro_usd: args.cap_micro_usd_ceiling.unwrap_or(spend),
+    };
+    CapPolicy::new(defaults, ceilings)
 }
 
 /// What `serve` reads from the process environment.
