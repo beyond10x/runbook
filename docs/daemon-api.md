@@ -244,39 +244,53 @@ the daemon does not exit on its first stop signal while a run is live; it drains
   `{"refused": "draining", "message": ..., "live_runs": <n>}` (the MCP tool `submit_run` gives the
   same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
   event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
-  asked to stop. Every answer of a route (a command, a view, a stream, the MCP endpoint) carries the header `X-Runbook-Draining: <n>`,
-  `n` the count of live runs (`Submitted`, `Running` or `WaitingOnDecision`); a daemon that does not
-  drain sends no such header. The specification's rows are unchanged: a read of `runs` or
+  asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
+  (`Submitted`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
+  inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
   `configuration` has no member for it.
 - The journal records `daemon.draining` with the ids of the live runs, and when the last of them
   has ended, `daemon.drained`. The daemon then closes its streams and exits 0. With no live run at the
   first signal both lines are written and it exits at once.
 - A run that waits on a decision keeps the drain open until the decision is answered or the run is
   cancelled: a drain waits as long as its runs do.
-- A second SIGTERM or SIGINT, or `--drain-seconds <n>` seconds after the first, ends the daemon at
-  once with exit 0. Each live run then ends as `orphaned` in that moment, with its decision requests
+- A second SIGTERM or SIGINT, or `--drain-seconds <n>` seconds after the first (`n` is any number
+  from 0 to 18446744073709551615; a value too large to be a point in time is no bound), ends the daemon at
+  once. It exits 75 when at least one run was live and is orphaned, and 0 when none was left (the last
+  run ended in the same moment). Each live run then ends as `orphaned` in that moment, with its decision requests
   withdrawn and one `runbook.run-orphaned` event whose `reason` is `the daemon was stopped while the
   run was live` (the reason after a start is `the daemon started again and the runtime holds no live
   run of this id`). `daemon.drained` is not written. A run in `Submitted` at that moment is
   `FailedToStart` at the next start, as after a kill.
 - SIGKILL, a crash and a power cut give no drain: the runs end as `orphaned` at the next start, with
   the reason of a start.
+- A stop that fails inside the daemon (a panic of the task that waits for the drain) ends the live runs
+  as `orphaned` with the reason of a stop and exits 1, or 75 when it orphaned a run. A write to standard
+  error that fails (a pipe whose reader is gone) is ignored and does not end the drain.
+
+The exit codes of `runbook serve`: 0 the daemon stopped and no run was left live; 1 the start was refused
+or the server failed; 75 the stop left at least one run orphaned (a task that stops the daemon reads this
+as "a run was lost"); 2 and 64 usage errors of the command line.
 
 A person or a task stops the daemon so that no run is lost by sending SIGTERM and waiting for the
 process to exit, for example `kill -TERM <pid>` and then waiting on that process id. A restart that
 installs a new runbook is: stop and wait, install, start. Waiting is the point: a new daemon cannot
 open the state directory while the old one holds `daemon.lock`.
 
-Under systemd the unit must not cut the drain short. systemd.service(5), `TimeoutStopSec=`:
-"Configures the time to wait for stop. If a service is asked to stop, but does not terminate in the
-specified time, it will be terminated forcibly via SIGTERM, and after another timeout of equal
-duration with SIGKILL (see KillMode= in systemd.kill(5)). [...] Pass "infinity" to disable the
-timeout logic." The default of a few tens of seconds is shorter than a step of a run, so a unit that
-keeps it sends SIGKILL in the middle of the drain. And systemd.kill(5), `KillMode=`: the default,
-`control-group`, sends the stop signal to every process of the unit's control group, which would also
-end the programs a run's step has started. "If set to mixed, the SIGTERM signal [...] is sent to the
-main process while the subsequent SIGKILL signal [...] is sent to all remaining processes of the unit's
-control group." So the unit has
+Under systemd the unit must not cut the drain short. systemd.service(5), `TimeoutStopSec=` (the
+text of systemd 261 as the host's `man 5 systemd.service` prints it): "Second, it configures the time to
+wait for the service itself to stop. If it does not terminate in the specified time, it will be forcibly
+terminated by SIGKILL (see KillMode= in systemd.kill(5)). Takes a unit-less value in seconds, or a time
+span value such as "5min 20s". Pass "infinity" to disable the timeout logic. Defaults to
+DefaultTimeoutStopSec= from the manager configuration file (see systemd-system.conf(5))." On a host where
+`systemctl show -p DefaultTimeoutStopUSec` prints `DefaultTimeoutStopUSec=1min 30s` that default is 90
+seconds, shorter than a step of a run, so a unit that keeps it sends SIGKILL in the middle of the drain.
+And systemd.kill(5), `KillMode=`: "If set to control-group, all remaining processes in the control group
+of this unit will be killed on unit stop (for services: after the stop command is executed, as configured
+with ExecStop=). If set to mixed, the SIGTERM signal (see below) is sent to the main process while the
+subsequent SIGKILL signal (see below) is sent to all remaining processes of the unit's control group."
+`control-group` is the default, and it would also end the programs a run's step has started. So the unit
+has
 
 ```
 [Service]
