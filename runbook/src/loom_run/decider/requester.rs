@@ -14,8 +14,8 @@
 //! decider's, applied to the requester's reply.
 
 use super::call::{adapter_path, call_status, now, start, ModelCall, Replied};
-use super::inputs::write_pretty;
-use crate::loom_run::record_write::{copy_atomic, write_atomic};
+use super::inputs::{read_json, write_pretty};
+use crate::loom_run::record_write::{copy_atomic, make_dir_in, read_regular_text, write_atomic};
 use super::prompt::{or, raw, Renderer};
 use super::rules::rule;
 use super::run_program;
@@ -79,7 +79,7 @@ pub(super) fn run(c: &ModelCall<'_>) -> Result<Replied, String> {
     }
     let cwd = c.rec.join("cwd");
     for dir in ["in", "out"] {
-        std::fs::create_dir_all(cwd.join(dir)).map_err(|e| format!("decider call directory: {}", e.kind()))?;
+        make_dir_in(c.rec, &cwd.join(dir)).map_err(|e| format!("decider call directory: {e}"))?;
     }
     let started = now();
     call_status(c.rec, "running", &started, None);
@@ -140,7 +140,7 @@ pub(super) fn approval_request(r: &Renderer, req: &Value, case_dir: &Path, level
         )
     };
     let path = raw(or(&req["path"], &json!("")));
-    let cid = raw(&sdc_tools::reply::read_json(&case_dir.join("case.json"))["id"]);
+    let cid = raw(&read_json(&case_dir.join("case.json"))["id"]);
     let revision = raw(or(&req["revision"], &json!("none")));
     let action = raw(&req["action"]);
     Ok(json!({
@@ -171,20 +171,24 @@ fn input(work: &Path, cwd: &Path, p: &str, listed: &mut Vec<String>) {
         return;
     }
     let (from, to) = (work.join(p), cwd.join("in").join(p));
-    if !from.is_file() || to.exists() {
+    // a link is not a file here: it is not followed, so what it points at is not copied
+    if !std::fs::symlink_metadata(&from).is_ok_and(|m| m.is_file()) || to.exists() {
         return;
     }
     if let Some(dir) = to.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        if make_dir_in(cwd, dir).is_err() {
+            return;
+        }
     }
-    let _ = copy_atomic(&from, &to);
-    listed.push(format!("in/{p}"));
+    if copy_atomic(&from, &to).is_ok() {
+        listed.push(format!("in/{p}"));
+    }
 }
 
 /// `in/decisions.json`: the earlier decisions of the requester in this run (`valid` not false), read
 /// from the decisions log; `[]` when the log cannot be read.
 fn earlier_decisions(log: &Path) -> Value {
-    let text = std::fs::read_to_string(log).unwrap_or_default();
+    let text = read_regular_text(log).unwrap_or_default();
     let mut out = Vec::new();
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         let Ok(entry) = serde_json::from_str::<Value>(line) else { return json!([]) };
@@ -252,7 +256,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     } else {
         String::new()
     };
-    let case_json = sdc_tools::reply::read_json(&case_dir.join("case.json"));
+    let case_json = read_json(&case_dir.join("case.json"));
     let goals_revision = raw(or(&case_json["artifacts"]["goals"]["revision"], &json!("none")));
     let inputs = listed.iter().map(|i| format!("- {i}\n")).collect::<String>();
     let text = renderer
@@ -316,7 +320,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         merged(base)
     };
     let reply_file = cwd.join("out").join("reply.json");
-    let proposed = std::fs::read_to_string(&reply_file).ok().filter(|t| !t.is_empty()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object);
+    let proposed = read_regular_text(&reply_file).ok().filter(|t| !t.is_empty()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object);
     let Some(proposed) = proposed else {
         return done(invalid("out/reply.json is missing or not a JSON object"));
     };
@@ -415,6 +419,6 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
 
 /// The effort when the settings name none: the default of the requester class in the copy's `node-classes.json`.
 fn requester_effort(tools: &Path) -> Option<String> {
-    let classes = sdc_tools::reply::read_json(&tools.join("node-classes.json"));
+    let classes = read_json(&tools.join("node-classes.json"));
     classes["default_efforts"]["requester"].as_str().filter(|e| !e.is_empty()).map(str::to_owned)
 }

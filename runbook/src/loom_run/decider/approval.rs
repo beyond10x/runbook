@@ -79,7 +79,7 @@ pub(super) fn case_artifacts(decision: &Value, case: &str) -> Vec<(String, Strin
         None => return Vec::new(),
     };
     let file = store.join(format!("case-{}.json", hex(case)));
-    let document: Value = match std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+    let document: Value = match crate::loom_run::record_write::read_regular_text(&file).ok().and_then(|t| serde_json::from_str(&t).ok()) {
         Some(document) => document,
         None => return Vec::new(),
     };
@@ -100,7 +100,7 @@ pub(super) fn case_artifacts(decision: &Value, case: &str) -> Vec<(String, Strin
 /// workspace). Under `<run dir>/decider-cases/<case>/`.
 pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) -> Result<PathBuf, String> {
     let dir = request.run_dir.join("decider-cases").join(&approval.case);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("decider case directory: {e}"))?;
+    make_dir_in(request.run_dir, &dir).map_err(|e| format!("decider case directory: {e}"))?;
     let mut artifacts = Map::new();
     for (name, revision) in case_artifacts(request.decision, &approval.case) {
         artifacts.insert(name, json!({ "revision": revision }));

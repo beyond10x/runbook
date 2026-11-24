@@ -31,8 +31,8 @@ impl NativeDecider {
 
     fn ask_rule(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
         let rec = r.run_dir.join("decider").join("rule");
-        if let Err(e) = std::fs::create_dir_all(&rec) {
-            return Asked::cannot(format!("decider record directory: {}", e.kind()));
+        if let Err(e) = make_dir_in(r.run_dir, &rec) {
+            return Asked::cannot(format!("decider record directory: {e}"));
         }
         let body = ask_body(r, approval, &PathBuf::new(), &rec, None);
         if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
@@ -104,8 +104,8 @@ impl NativeDecider {
                 return asked;
             }
             let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&r.request.id)));
-            if let Err(e) = std::fs::create_dir_all(&rec) {
-                asked.result = Err(format!("decider record directory: {}", e.kind()));
+            if let Err(e) = make_dir_in(r.run_dir, &rec) {
+                asked.result = Err(format!("decider record directory: {e}"));
                 return asked;
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));

@@ -129,10 +129,6 @@ impl Cleaner {
 
 // ------------------------------------------------------------------------------ small file work
 
-fn io(what: &Path, e: std::io::Error) -> String {
-    format!("{}: {e}", what.display())
-}
-
 /// One line appended to `path` with one write: a killed process leaves whole lines.
 /// The file is made when it is missing and is otherwise only a regular file with one name (`record_write::append`).
 fn append_line(path: &Path, v: &Value) -> Result<(), String> {
@@ -142,7 +138,7 @@ fn append_line(path: &Path, v: &Value) -> Result<(), String> {
 }
 
 fn read_json(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
+    serde_json::from_slice(&record_write::read_regular(path).ok()?).ok()
 }
 
 fn hex(s: &str) -> String {
@@ -212,7 +208,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
         v
     };
     for p in yaml_files("protocols") {
-        let Some(doc) = fs::read_to_string(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
+        let Some(doc) = record_write::read_regular_text(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
         let Some(id) = doc["protocol"]["id"].as_str() else { continue };
         let f = by_stem.entry(stem(id)).or_default();
         f.id = Some(id.to_string());
@@ -225,7 +221,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
         }
     }
     for p in yaml_files("bindings") {
-        let Some(doc) = fs::read_to_string(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
+        let Some(doc) = record_write::read_regular_text(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
         let Some(protocol) = doc["protocol"].as_str() else { continue };
         let name = protocol.split('@').next().unwrap_or(protocol);
         let f = by_stem.entry(stem(name)).or_default();
@@ -279,7 +275,7 @@ struct CaseLog {
 /// Reads `store/runlog-case-<hex>.jsonl`; a line that does not parse (the last one of a killed
 /// run) is left out. `None` when the file does not exist.
 fn read_runlog(store: &Path, case: &str) -> Option<CaseLog> {
-    let text = fs::read_to_string(store.join(format!("runlog-case-{}.jsonl", hex(case)))).ok()?;
+    let text = record_write::read_regular_text(&store.join(format!("runlog-case-{}.jsonl", hex(case)))).ok()?;
     let mut log = CaseLog::default();
     let mut pending: Option<String> = None;
     for (i, raw) in text.lines().enumerate() {
@@ -381,9 +377,9 @@ impl RunDirWriter {
         // "never recorded".
         for f in ["llm-calls.jsonl", "decisions.jsonl"] {
             let p = run_dir.join(f);
-            fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| io(&p, e))?;
+            record_write::append(&p, b"", true)?;
         }
-        fs::create_dir_all(run_dir.join("store")).map_err(|e| io(&run_dir.join("store"), e))?;
+        record_write::make_dir_in(run_dir, &run_dir.join("store"))?;
         let decider_model = settings["decider"]["model"].as_str().filter(|m| !m.is_empty()).map(String::from);
         let root = settings["case"].as_str().map(String::from);
         Ok(RunDirWriter {
@@ -415,7 +411,7 @@ impl RunDirWriter {
             return Ok(());
         }
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
+            record_write::make_dir_in(&self.run_dir, parent)?;
         }
         record_write::write_atomic(path, &content)?;
         self.written.insert(path.to_path_buf(), content);
@@ -775,7 +771,7 @@ impl RunDirWriter {
             }
             if *id == root {
                 let findings = self.path("work/findings.yaml");
-                if let Ok(bytes) = fs::read(&findings) {
+                if let Ok(bytes) = record_write::read_regular(&findings) {
                     self.put(&dir.join("work").join("findings.yaml"), bytes)?;
                 }
             }

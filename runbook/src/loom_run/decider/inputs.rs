@@ -2,9 +2,9 @@
 //! claims it reads (`in/checks.json`) and the decision itself (`in/decision.json`).
 
 use super::prompt::{or, raw, Renderer};
-use crate::loom_run::record_write::{copy_atomic, write_atomic};
+use crate::loom_run::record_write::{copy_atomic, make_dir_in, read_regular, read_regular_text, write_atomic};
 use sdc_tools::reply::rules::later as protocol_later;
-use sdc_tools::reply::{read_json, sorted};
+use sdc_tools::reply::sorted;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
@@ -19,31 +19,41 @@ fn left_out(name: &str) -> bool {
     name == "target" || name == ".git" || (name.ends_with(".lock") && name != "Cargo.lock")
 }
 
-fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
-    let meta = std::fs::symlink_metadata(from)?;
+/// A JSON file as a value with sorted keys, read as every name of the run is (`record_write::read_regular`); null when it
+/// is missing, refused (a link, a pipe, a file with a second name or over the bound) or not JSON.
+pub(super) fn read_json(p: &Path) -> Value {
+    sorted(read_regular(p).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null))
+}
+
+/// Copies `from` to `to`, every directory of the copy below `base` made without following a link (`make_dir_in`), a file
+/// through `copy_atomic` and a link as a link.
+fn copy_entry(base: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let kind = |e: std::io::Error| e.kind().to_string();
+    let meta = std::fs::symlink_metadata(from).map_err(kind)?;
     if meta.file_type().is_symlink() {
         let _ = std::fs::remove_file(to);
-        return std::os::unix::fs::symlink(std::fs::read_link(from)?, to);
+        return std::os::unix::fs::symlink(std::fs::read_link(from).map_err(kind)?, to).map_err(kind);
     }
     if meta.is_dir() {
-        std::fs::create_dir_all(to)?;
-        let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(from)?.filter_map(Result::ok).map(|e| e.file_name()).collect();
+        let made = make_dir_in(base, to)?;
+        let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(from).map_err(kind)?.filter_map(Result::ok).map(|e| e.file_name()).collect();
         names.sort();
         for name in names {
             if !left_out(&name.to_string_lossy()) {
-                copy_entry(&from.join(&name), &to.join(&name))?;
+                copy_entry(base, &from.join(&name), &to.join(&name))?;
             }
         }
-        return std::fs::set_permissions(to, meta.permissions());
+        return made.set_permissions(meta.permissions()).map_err(kind);
     }
     if meta.is_file() {
-        copy_atomic(from, to).map_err(std::io::Error::other)?;
+        copy_atomic(from, to)?;
     }
     Ok(())
 }
 
 impl Inputs {
-    /// Copies `work/<p>` to `in/<p>` and lists it; nothing when it does not exist.
+    /// Copies `work/<p>` to `in/<p>` and lists it; nothing when it does not exist. The directories of the copy below `cwd`
+    /// are made without following a link, and a file of `work/` is read as a regular file with one name.
     pub(super) fn add(&mut self, work: &Path, cwd: &Path, p: &str) -> Result<(), String> {
         let from = work.join(p);
         if !from.exists() {
@@ -52,10 +62,10 @@ impl Inputs {
         let to = cwd.join("in").join(p);
         let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(dir) = to.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("input {p}: {}", e.kind()))?;
+            make_dir_in(cwd, dir).map_err(|e| format!("input {p}: {e}"))?;
         }
         if !left_out(&name) {
-            copy_entry(&from, &to).map_err(|e| format!("input {p}: {}", e.kind()))?;
+            copy_entry(cwd, &from, &to).map_err(|e| format!("input {p}: {e}"))?;
         }
         self.listed.push(format!("in/{p}"));
         Ok(())
@@ -85,7 +95,7 @@ pub(super) fn collect(req: &Value, case_dir: &Path, cwd: &Path) -> Result<Inputs
             inputs.add(&work, cwd, p)?;
         }
     }
-    let id = match std::fs::read(case_dir.join("case.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
+    let id = match read_regular(&case_dir.join("case.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
         Some(case) => raw(&case["id"]),
         None => String::new(),
     };
@@ -135,7 +145,7 @@ fn names(list: &Value) -> Vec<String> {
 /// can meet is listed apart; the claims the action is there to settle are marked.
 pub(super) fn checks(req: &Value, case_dir: &Path) -> Value {
     let ir_file = case_dir.join("ir.json");
-    let has_ir = std::fs::metadata(&ir_file).map(|m| m.len() > 0).unwrap_or(false);
+    let has_ir = std::fs::symlink_metadata(&ir_file).map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
     let ir = if has_ir { read_json(&ir_file) } else { Value::Null };
     let kind = req["type"].as_str().unwrap_or("");
     let action = req["action"].as_str().unwrap_or("");
@@ -211,7 +221,7 @@ pub(super) fn checks(req: &Value, case_dir: &Path) -> Value {
 
 /// A YAML file as JSON with its keys in file order; None when it is missing or not YAML.
 fn yaml(path: &Path) -> Option<Value> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = read_regular_text(path).ok()?;
     serde_yaml::from_str::<serde_yaml::Value>(&text).ok().and_then(|v| serde_json::to_value(v).ok())
 }
 

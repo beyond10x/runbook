@@ -12,7 +12,7 @@
 
 use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
-use crate::loom_run::record_write::write_atomic;
+use crate::loom_run::record_write::{make_dir_in, write_atomic};
 use serde_json::{json, Map, Value};
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -371,7 +371,7 @@ impl NativeDecider {
             .map(|(_, v)| v.clone())
             .ok_or("the runner's child environment has no PATH")?;
         let home = request.run_dir.join("home");
-        std::fs::create_dir_all(&home).map_err(|e| format!("decider home directory: {}", e.kind()))?;
+        make_dir_in(request.run_dir, &home).map_err(|e| format!("decider home directory: {e}"))?;
         let mut env = vec![("PATH".to_owned(), path), ("HOME".to_owned(), home.display().to_string())];
         if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
@@ -424,8 +424,8 @@ impl NativeDecider {
 
     fn decide_rule(&self, verdict: &str, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
         let rec = request.run_dir.join("decider").join("rule");
-        if let Err(e) = std::fs::create_dir_all(&rec) {
-            return Self::cannot(format!("decider record directory: {}", e.kind()));
+        if let Err(e) = make_dir_in(request.run_dir, &rec) {
+            return Self::cannot(format!("decider record directory: {e}"));
         }
         let body = decide_request(approval, &PathBuf::new(), &rec, None);
         if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
@@ -485,8 +485,8 @@ impl NativeDecider {
                 return Self::cannot(format!("the per-call budget of {} micro USD is spent", budget));
             }
             let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&approval.action)));
-            if let Err(e) = std::fs::create_dir_all(&rec) {
-                return Self::cannot(format!("decider record directory: {}", e.kind()));
+            if let Err(e) = make_dir_in(request.run_dir, &rec) {
+                return Self::cannot(format!("decider record directory: {e}"));
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
             let mut body = decide_request(approval, &case_dir, &rec, retry);

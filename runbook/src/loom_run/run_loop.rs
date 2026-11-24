@@ -15,7 +15,7 @@ use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Ope
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
-use crate::loom_run::record_write::write_atomic;
+use crate::loom_run::record_write::{make_dir_in, read_regular_text, write_atomic};
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -294,7 +294,7 @@ impl Runner<'_> {
     fn drive_inner(&mut self, root_name: &str, protocols: &[(String, PathBuf)], redacted: &Value) -> Result<Outcome, Halt> {
         self.emit(Event::RunStarted { run: self.args.run.clone(), settings: redacted.clone() })?;
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
-            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+            make_dir_in(&self.run_dir, &d)?;
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
@@ -307,7 +307,7 @@ impl Runner<'_> {
             super::goals::copy(goals, &self.workspace)?;
         }
         let copies = self.run_dir.join("protocols");
-        std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
+        make_dir_in(&self.run_dir, &copies)?;
         for (_, file) in protocols {
             let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
             std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -556,7 +556,7 @@ impl Runner<'_> {
         let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
         files.sort();
         for file in files {
-            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let text = read_regular_text(&file)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
@@ -654,7 +654,7 @@ impl Runner<'_> {
         self.reasons_written += 1;
         let safe: String = action.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
         let dir = self.workspace.join(".sdc").join("reasons");
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        make_dir_in(&self.run_dir, &dir)?;
         let file = dir.join(format!("{:03}-{safe}.txt", self.reasons_written));
         write_atomic(&file, format!("{text}\n").as_bytes())?;
         Ok(file)

@@ -5,8 +5,8 @@
 //! `reply-schema.json`, `response.json` (what the adapter printed, with the call's meta), `status.json`
 //! (`sdc.call-status/1`) and `cwd/` with `in/` (what the model reads) and `out/decision.json`.
 
-use super::inputs::{prepare, write_pretty};
-use crate::loom_run::record_write::{copy_atomic, write_atomic};
+use super::inputs::{prepare, read_json, write_pretty};
+use crate::loom_run::record_write::{copy_atomic, make_dir_in, read_regular, write_atomic};
 use super::prompt::{or, prompt, raw, Parts, Renderer};
 use super::rules::dry_reply;
 use super::validate::{validate, Check};
@@ -75,7 +75,7 @@ pub(super) fn adapter_path(tools: &Path, adapter: &str) -> PathBuf {
 
 /// The effort when the settings name none: the default of the decider class in the copy's `node-classes.json`.
 pub(super) fn default_effort(tools: &Path) -> Option<String> {
-    let classes = sdc_tools::reply::read_json(&tools.join("node-classes.json"));
+    let classes = read_json(&tools.join("node-classes.json"));
     classes["default_efforts"]["decider"].as_str().filter(|e| !e.is_empty()).map(str::to_owned)
 }
 
@@ -113,7 +113,7 @@ pub(super) fn run(c: &ModelCall<'_>) -> Result<Replied, String> {
     }
     let cwd = c.rec.join("cwd");
     for dir in ["in", "out"] {
-        std::fs::create_dir_all(cwd.join(dir)).map_err(|e| format!("decider call directory: {}", e.kind()))?;
+        make_dir_in(c.rec, &cwd.join(dir)).map_err(|e| format!("decider call directory: {e}"))?;
     }
     let started = now();
     call_status(c.rec, "running", &started, None);
@@ -151,7 +151,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     write_atomic(&prompt_file, text.as_bytes()).map_err(|e| program(format!("prompt file: {e}")))?;
 
     let effort = c.effort.map(str::to_owned).or_else(|| default_effort(c.tools));
-    let case = sdc_tools::reply::read_json(&case_dir.join("case.json"));
+    let case = read_json(&case_dir.join("case.json"));
     let usd_literal = super::approval::usd_text(c.budget_micro_usd);
     let usd = usd_literal.parse::<f64>().unwrap_or(0.0);
     let request = json!({
@@ -173,7 +173,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         _ => json!({}),
     };
     let structured = c.rec.join("structured-output.json");
-    if std::fs::read(&structured).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v.is_object()) {
+    if read_regular(&structured).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v.is_object()) {
         let _ = copy_atomic(&structured, &cwd.join("out").join("decision.json"));
     }
     if let Some(map) = response.as_object_mut() {
