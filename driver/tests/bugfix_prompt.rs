@@ -786,7 +786,7 @@ fn a_file_with_code_after_its_inline_test_module_fails_the_guard() {
     assert!(e.contains("code after the inline test module: fn after_the_test_module"), "{e}");
     assert!(non_test_text("#[cfg(test)]\nmod tests {\nfn f() {\n").unwrap_err().contains("not closed"));
     // Every real file of the scanned directories that has such a module has nothing after it.
-    for rel in ["runbook/src/loom_run/budget.rs", "runbook/src/loom_run/bugfix.rs", "runbook/src/loom_run/replay.rs"] {
+    for rel in ["runbook/src/budget.rs", "runbook/src/loom_run/bugfix.rs", "runbook/src/loom_run/replay.rs"] {
         let real = fs::read_to_string(repo().join(rel)).unwrap();
         assert!(non_test_text(&real).is_ok(), "{rel} is refused");
         assert!(non_test_text(&format!("{real}\nfn after() {{}}\n")).is_err(), "{rel} with an item appended passes");
