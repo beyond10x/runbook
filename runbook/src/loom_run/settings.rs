@@ -68,7 +68,7 @@ fn table_of(t: &toml::de::DeTable<'_>, at: &str) -> Result<Value, String> {
     let mut object = serde_json::Map::new();
     for (k, x) in t.iter() {
         let k = k.get_ref().to_string();
-        let member = json_of(x.get_ref(), &format!("{at}.{k}"))?;
+        let member = json_of(x.get_ref(), &format!("{at}.{}", crate::config::segment(&k)))?;
         object.insert(k, member);
     }
     Ok(Value::Object(object))

@@ -115,10 +115,14 @@ A bound program of a runbook gets `PATH` and `LOOM_*` only (Loom's program contr
 walk reads nothing inside a run, as long as the run directory is above the program's working directory by
 the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
 `/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
-`runbook.toml`, as a file of the walk. Its keys are checked like those of any file, it has no key for a
-floor or a level (a key that would lower one is refused by name, with no value printed), and a value of a
-file never lowers what an option or the daemon's floor sets: the nested run runs inside the same
-confinement.
+`runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
+floor or a level: a `runbook` that has `LOOM_CASE` in its environment (Loom gives it to every bound
+program) and no run directory above its working directory refuses `confinement` and `autonomy` in a file it
+found by the walk or in the user's directory, by name, with no value printed, and a key that would lower the
+daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a run
+reads under `local`, states its confinement as before.) A file
+named with `--config` or `RUNBOOK_CONFIG` is the caller's own choice. A value of a file never lowers what an
+option or the daemon's floor sets: the nested run runs inside the same confinement.
 
 `runbook run` says on standard error, before anything starts, which `runbook.toml` it took values from and
 how it was found (`--config`, `RUNBOOK_CONFIG`, found in the working directory or a parent, found in the
@@ -131,8 +135,8 @@ found too.
 
 What the file can never do. A refusal names the file and the key, and prints no line, value or part of a
 value of it. A key named like a login, a token or a key, a value that has the form of one (the vendors'
-key prefixes, a private key block, a web token, a bearer value: the word `bearer` in any case and the word after it, wherever they stand in a value) and an unknown key at any level are
-refused; a login is named by its path, never held by content. A file found by the walk or in the user's
+key prefixes, a private key block, a web token, a bearer value: the word `bearer` in any case and the value after it, wherever they stand in a value, up to a break, a quote or the end of an item; each also after a name and an equals sign or a dot, as in an environment assignment) and an unknown key at any level are
+refused; `runbook config` and the refusal of a run print none of these forms, in a value, a key or a key path; a login is named by its path, never held by content. A file found by the walk or in the user's
 directory is a regular file with one name that its user owns and that group and others cannot write; a
 link, a file with a second name and a writable file are refused by name (`--config` and
 `RUNBOOK_CONFIG` get the same checks except the owner). The checks run on the opened file, not on the

@@ -28,6 +28,9 @@ pub const FILE_NAME: &str = "runbook.toml";
 pub const ENV_CONFIG: &str = "RUNBOOK_CONFIG";
 /// The variable that reads no file: what the runner gives every program it starts.
 pub const ENV_NO_CONFIG: &str = "RUNBOOK_NO_CONFIG";
+/// The variable Loom gives every bound program of a run (its program contract): a `runbook` that has it is
+/// started inside a run.
+pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 /// The most bytes of a file.
 const MAX_BYTES: u64 = 256 * 1024;
 
@@ -38,6 +41,10 @@ const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls",
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
 /// `loom_sha256`, `in_process` and `replay` belong to one run and are not defaults.
 const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review"];
+
+/// The keys that state a level: a file found by a program of a run that has no run directory above it (by the
+/// walk or in the user's directory) has none of them; the floor of the daemon has no key in any file.
+const LEVEL_KEYS: [&str; 2] = ["confinement", "autonomy"];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement.
 pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\ncap_micro_usd = 5000000\nmax_llm_calls = 200\n";
@@ -113,6 +120,8 @@ pub struct Lookup {
     pub home: Option<PathBuf>,
     /// The user the binary runs as; a file found by the walk or in the user's directory is theirs.
     pub uid: u32,
+    /// The process is a program of a run: Loom gives every bound program `LOOM_CASE`.
+    pub nested: bool,
 }
 
 impl Lookup {
@@ -128,6 +137,7 @@ impl Lookup {
             home: var("HOME"),
             // SAFETY: geteuid(2) has no preconditions and cannot fail.
             uid: unsafe { libc::geteuid() },
+            nested: var(ENV_PROGRAM_OF_A_RUN).is_some(),
         }
     }
 }
@@ -163,6 +173,9 @@ pub struct Found {
     pub path: PathBuf,
     pub via: Via,
     text: String,
+    /// The file was found by a program of a run that has no run directory above its working directory: the
+    /// file lies in the tree a model wrote into.
+    nested: bool,
 }
 
 /// The directory is a run's: the files a run holds (`events.jsonl`, `work/`, `bindings/`).
@@ -281,7 +294,7 @@ fn read_file(path: &Path, via: Via, uid: u32) -> Result<Option<Found>, String> {
     let mut bytes = Vec::new();
     (&file).take(MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| refuse(e.to_string()))?;
     let text = String::from_utf8(bytes).map_err(|_| refuse("is not UTF-8 text".to_owned()))?;
-    Ok(Some(Found { path: path.to_path_buf(), via, text }))
+    Ok(Some(Found { path: path.to_path_buf(), via, text, nested: false }))
 }
 
 /// The user's file: `$XDG_CONFIG_HOME/runbook/runbook.toml` (an absolute path only), else
@@ -296,6 +309,13 @@ pub fn user_file(l: &Lookup) -> Option<PathBuf> {
 
 /// The file to read, or `None`.
 pub fn locate(l: &Lookup) -> Result<Option<Found>, String> {
+    // a program of a run with no run directory above it (the work directory bound at another path): every file
+    // it finds lies in the tree a model wrote into; with the run directory above it the walk skips that tree
+    let nested = l.nested && !l.cwd.as_ref().is_some_and(|cwd| cwd.ancestors().any(is_run_dir));
+    locate_file(l).map(|found| found.map(|f| Found { nested, ..f }))
+}
+
+fn locate_file(l: &Lookup) -> Result<Option<Found>, String> {
     if l.option.is_some() && l.no_config {
         return Err("--config and --no-config exclude each other".to_owned());
     }
@@ -394,27 +414,36 @@ fn word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=')
 }
 
-/// Whether a word is `bearer`, in any case: the word after it is a credential.
+/// Whether a word ends in `bearer`, in any case (`AUTH=Bearer` does): the word after it is a credential.
 fn is_bearer(word: &str) -> bool {
-    word.eq_ignore_ascii_case("bearer")
+    word.split('=').rfind(|part| !part.is_empty()).is_some_and(|part| part.eq_ignore_ascii_case("bearer"))
 }
 
-/// Whether the text has a word `bearer` (any case) that another word follows, wherever it stands.
+/// Whether the text has a word `bearer` (any case) that another word follows, wherever it stands, or the
+/// word `bearer` and a value joined by an equals sign (`Bearer=<value>`).
 fn bearer_value(s: &str) -> bool {
     let words: Vec<&str> = s.split(|c: char| !word_char(c)).filter(|w| !w.is_empty()).collect();
     words.windows(2).any(|pair| is_bearer(pair[0]))
+        || words.iter().any(|w| w.split('=').collect::<Vec<_>>().windows(2).any(|pair| pair[0].eq_ignore_ascii_case("bearer") && !pair[1].is_empty()))
 }
 
-/// Whether the text has the form of a key or a token: the forms of the vendors' keys, a private key
-/// block, a JSON web token, a bearer value (the word `bearer` and the word after it, anywhere in the text).
-pub fn token_form(s: &str) -> bool {
+/// Whether the text begins with the form of a key or a token, or holds a private key block.
+fn form_at_start(s: &str) -> bool {
     const PREFIXES: [&str; 14] = ["sk-ant-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "xapp-", "npm_"];
     let t = s.trim();
     let aws = (t.starts_with("AKIA") || t.starts_with("ASIA")) && t.len() == 20 && t.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
     let jwt = t.starts_with("eyJ") && t.matches('.').count() == 2;
     let generic = t.starts_with("sk-") && t.len() >= 20;
     let google = t.starts_with("AIza") && t.len() == 39;
-    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || bearer_value(t) || aws || jwt || generic || google
+    PREFIXES.iter().any(|p| t.starts_with(p)) || t.contains("sk-ant-") || t.contains("-----BEGIN") || aws || jwt || generic || google
+}
+
+/// Whether the text has the form of a key or a token: the forms of the vendors' keys, a private key
+/// block, a JSON web token, a bearer value (the word `bearer` and the word after it, anywhere in the text),
+/// each as the whole text and as any part of it that follows a name and an equals sign (`GH_TOKEN=<token>`)
+/// or a dot.
+pub fn token_form(s: &str) -> bool {
+    form_at_start(s) || bearer_value(s) || s.split('=').any(|part| form_at_start(part) || part.split('.').any(form_at_start)) || s.split('.').any(form_at_start)
 }
 
 /// A path as text, not content: no control character (a newline) and no JSON or array opening.
@@ -447,33 +476,71 @@ const HIDDEN: &str = "<a key or token>";
 
 /// The message with every word that has the form of a key or a token replaced: a key of the file can
 /// be one, and the reader names the key it stops at.
-fn mask(message: &str) -> String {
+pub(crate) fn mask(message: &str) -> String {
+    let chars: Vec<char> = message.chars().collect();
     let mut out = String::new();
-    let mut current = String::new();
-    // the word `bearer` makes the next word hidden, whatever stands between the two
+    let mut at = 0;
+    // the word `bearer` makes what follows it hidden: after the break, the colon and the quotes between the
+    // two, the value is everything up to the next break, quote or end of an item (a slash or a colon is in it)
     let mut after_bearer = false;
-    for c in message.chars().chain(std::iter::once(' ')) {
-        if word_char(c) {
-            current.push(c);
-            continue;
-        }
-        if current.is_empty() {
+    while at < chars.len() {
+        let c = chars[at];
+        if after_bearer {
+            if let Some(n) = value_end(&chars, at) {
+                out.extend(&chars[at..at + n]);
+                at += n;
+            } else if c == ':' {
+                out.push(c);
+                at += 1;
+            } else {
+                while at < chars.len() && value_end(&chars, at).is_none() {
+                    at += 1;
+                }
+                out.push_str(HIDDEN);
+                after_bearer = false;
+            }
+        } else if let Some(n) = escape_len(&chars, at) {
+            out.extend(&chars[at..at + n]);
+            at += n;
+        } else if word_char(c) {
+            let end = (at..chars.len()).find(|&i| !word_char(chars[i])).unwrap_or(chars.len());
+            let word: String = chars[at..end].iter().collect();
+            out.push_str(if token_form(&word) { HIDDEN } else { &word });
+            after_bearer = is_bearer(&word);
+            at = end;
+        } else {
             out.push(c);
-            continue;
+            at += 1;
         }
-        let word = std::mem::take(&mut current);
-        out.push_str(if after_bearer || token_form(&word) { HIDDEN } else { &word });
-        after_bearer = is_bearer(&word);
-        out.push(c);
     }
-    out.pop();
     out
+}
+
+/// The length of a break a JSON string writes as an escape (`\n`, `\t`, `\r`, `\b`, `\f`, `\u0000`): it ends a
+/// word and is no part of one.
+fn escape_len(chars: &[char], at: usize) -> Option<usize> {
+    match (chars.get(at), chars.get(at + 1)) {
+        (Some('\\'), Some('n' | 't' | 'r' | 'b' | 'f')) => Some(2),
+        (Some('\\'), Some('u')) if chars.get(at + 2..at + 6).is_some_and(|hex| hex.iter().all(char::is_ascii_hexdigit)) => Some(6),
+        _ => None,
+    }
+}
+
+/// The length of what ends the value after a bearer word, or stands between the word and its value: white
+/// space, a quote (escaped or not), a break, the end of an item.
+fn value_end(chars: &[char], at: usize) -> Option<usize> {
+    match (chars.get(at), chars.get(at + 1)) {
+        (Some('\\'), Some('"' | '\'')) => Some(2),
+        (Some(c), _) if c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ']' | '}') => Some(1),
+        _ => escape_len(chars, at),
+    }
 }
 
 /// The leading key of a message of the settings readers: those can print a value, so only the key
 /// they begin with is kept.
 fn scrub(message: String) -> String {
     let key: String = message.split(|c: char| c == ':' || c.is_whitespace()).next().unwrap_or("").chars().take(120).collect();
+    let key = key.split('.').map(segment).collect::<Vec<_>>().join(".");
     format!("{key}: refused (the reader's own words are not printed here, they can hold a value; the form: docs/loom-run-settings.md)")
 }
 
@@ -523,6 +590,11 @@ pub fn parse(found: &Found) -> Result<File, String> {
         _ => return Err(fail("a table".to_owned())),
     };
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
+    if found.nested && !found.via.chosen() {
+        if let Some(key) = LEVEL_KEYS.iter().find(|k| top.contains_key(**k)) {
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor or a level; name the file with --config to use it)")));
+        }
+    }
     for key in top.keys() {
         if !OWN_KEYS.contains(&key.as_str()) && !OPTION_KEYS.contains(&key.as_str()) && !MEMBER_KEYS.contains(&key.as_str()) {
             let known: Vec<&str> = OWN_KEYS.iter().chain(&OPTION_KEYS).chain(&MEMBER_KEYS).copied().collect();
@@ -686,7 +758,7 @@ fn shown(v: &Value) -> String {
 
 /// A key of a member as one segment of the dotted name printed for a value: a key that has the form of a
 /// token is replaced by `HIDDEN` (the prefix before a dot would hide it from `mask`).
-fn segment(key: &str) -> &str {
+pub(crate) fn segment(key: &str) -> &str {
     if token_form(key) {
         HIDDEN
     } else {
@@ -866,7 +938,7 @@ mod tests {
 
     #[test]
     fn the_starter_is_read() {
-        let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned() };
+        let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned(), nested: false };
         let f = parse(&found).unwrap();
         assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), Some(5_000_000), Some(200)));
         assert_eq!(f.runs_dir, Some(PathBuf::from("/x/runs")));

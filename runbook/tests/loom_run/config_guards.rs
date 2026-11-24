@@ -864,6 +864,8 @@ fn basic(v: &str) -> String {
     s
 }
 
+type Shape = Box<dyn Fn(&str) -> String>;
+
 /// The output of `runbook config --settings <text>` (stdout and stderr), in the rig's own directory.
 fn config_of_settings(rig: &Rig, name: &str, text: &str) -> String {
     let settings = rig.put(name, text);
@@ -876,7 +878,7 @@ fn config_of_file(rig: &Rig, text: &str) -> String {
     both(&rig.run(&rig.root, &["config"]))
 }
 
-// ---- F24: a token that follows a name and an equals sign ----
+// ---- a token that follows a name and an equals sign ----
 
 #[test]
 fn config_hides_a_token_that_follows_a_name_and_an_equals_sign() {
@@ -892,7 +894,7 @@ fn config_hides_a_token_that_follows_a_name_and_an_equals_sign() {
     ];
     // the string members the settings file has, and the members `runbook.toml` takes (it refuses an adapter
     // that is no adapter name)
-    let members: Vec<(&str, bool, Box<dyn Fn(&str) -> String>)> = vec![
+    let members: Vec<(&str, bool, Shape)> = vec![
         ("adapter", false, Box::new(|v| format!("adapter = {}\n", basic(v)))),
         ("a model", true, Box::new(|v| format!("[models.writer]\nmodel = {}\n", basic(v)))),
         ("a path", true, Box::new(|v| format!("runs_dir = {}\n", basic(&format!("/srv/{v}/runs"))))),
@@ -915,7 +917,7 @@ fn config_hides_a_token_that_follows_a_name_and_an_equals_sign() {
     assert!(leaked.is_empty(), "runbook config printed a token that follows a name and an equals sign: {leaked:#?}");
 }
 
-// ---- F26: a refusal that names the key path of a member ----
+// ---- a refusal that names the key path of a member ----
 
 #[test]
 fn a_refusal_that_names_the_key_of_a_member_names_no_key_in_the_form_of_a_token() {
@@ -937,7 +939,7 @@ fn a_refusal_that_names_the_key_of_a_member_names_no_key_in_the_form_of_a_token(
     assert!(leaked.is_empty(), "a refusal printed a key in the form of a token: {leaked:#?}");
 }
 
-// ---- item 4: the word forms and key forms that hold ----
+// ---- the word forms and key forms of a secret ----
 
 #[test]
 fn config_hides_a_secret_in_every_key_form_and_in_the_word_forms_of_a_bearer_value() {
@@ -965,7 +967,7 @@ fn config_hides_a_secret_in_every_key_form_and_in_the_word_forms_of_a_bearer_val
         ("a vendor token in quotes", format!("'{vendor}'")),
         ("a vendor token after a bearer word", format!("{bearer} {vendor}")),
     ];
-    let value_forms: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+    let value_forms: Vec<(&str, Shape)> = vec![
         ("a string member", Box::new(|v| format!("adapter = {}\n", basic(v)))),
         ("a member of a table", Box::new(|v| format!("[models.writer]\nmodel = {}\n", basic(v)))),
         ("a dotted key", Box::new(|v| format!("models.writer.model = {}\n", basic(v)))),
@@ -974,7 +976,7 @@ fn config_hides_a_secret_in_every_key_form_and_in_the_word_forms_of_a_bearer_val
         ("an array of inline tables", Box::new(|v| format!("review = [{{ x = {} }}]\n", basic(v)))),
         ("a multi-line string", Box::new(|v| format!("adapter = \"\"\"\n{v}\"\"\"\n"))),
     ];
-    let key_forms: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+    let key_forms: Vec<(&str, Shape)> = vec![
         ("a table inside a member table", Box::new(|v| format!("[models.{}]\nx = 1\n", basic(v)))),
         ("a key of a member table", Box::new(|v| format!("[models]\n{} = 1\n", basic(v)))),
         ("a dotted key", Box::new(|v| format!("models.writer.{} = 1\n", basic(v)))),
@@ -1237,6 +1239,14 @@ fn a_file_found_inside_a_program_of_a_run_has_no_key_for_a_floor_or_a_level() {
         // the same file, started by a person (no `LOOM_CASE`), is read: the file's confinement is the story
         let o = rig.run(&rig.root, &["config"]);
         assert_eq!(code(&o), 0, "{key}: {}", err(&o));
+        // with the run directory above the working directory the walk skips the run's tree and reads the
+        // project's file above `runs/`, which states its level as before
+        run_dir(&rig, "runs/r1");
+        let mut above = rig.command(&rig.p("runs/r1/work"), &["config"]);
+        above.env("LOOM_CASE", "a-case");
+        let o = above.output().unwrap();
+        assert_eq!(code(&o), 0, "{key}: the project's file above the run is refused: {}", err(&o));
+        assert!(out(&o).lines().any(|l| l.starts_with(&format!("{key} = "))), "{key}: {}", out(&o));
         // a file the caller names is the caller's own choice
         let mut named = rig.command(&rig.root, &["config", "--config", &file.display().to_string()]);
         named.env("LOOM_CASE", "a-case");

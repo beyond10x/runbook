@@ -34,9 +34,20 @@ pub struct Rig {
     pub root: PathBuf,
 }
 
+impl Drop for Rig {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+}
+
 impl Rig {
+    /// A fresh tree of its own in the temporary directory of the test run, never below the checkout: the walk
+    /// for `runbook.toml` climbs from the working directory to the root of the file system, and a file in the
+    /// checkout (or in `target/` of it) must not be one of the files a case finds.
     pub fn new(tag: &str) -> Rig {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cfgfile-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("runbook-rig-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["home", "xdg", "work/sub"] {
             std::fs::create_dir_all(root.join(d)).unwrap();

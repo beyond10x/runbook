@@ -276,7 +276,7 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
             ExitCode::from(outcome.exit_code())
         }
         Err(refusal) => {
-            eprintln!("runbook run: refused: {refusal}");
+            eprintln!("runbook run: refused: {}", config::mask(&refusal));
             ExitCode::from(EXIT_REFUSED)
         }
     }

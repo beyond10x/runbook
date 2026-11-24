@@ -501,7 +501,7 @@ fn serve_cmd(tag: &str, args: &[&str], token: Option<&str>) -> (std::process::Co
     let dir = super::state::scratch(tag);
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
     cmd.arg("serve").args(["--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state")).args(args);
-    cmd.env_remove("RUNBOOK_TOKEN");
+    cmd.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1");
     if let Some(t) = token {
         cmd.env("RUNBOOK_TOKEN", t);
     }
@@ -629,7 +629,7 @@ fn bound(line: &str) -> SocketAddr {
 fn without_a_state_dir_the_record_is_under_xdg_state_home_runbook() {
     let dir = super::state::scratch("xdg");
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
-    cmd.args(["serve", "--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0"]).env_remove("RUNBOOK_TOKEN").env("XDG_STATE_HOME", dir.join("xdg"));
+    cmd.args(["serve", "--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0"]).env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1").env("XDG_STATE_HOME", dir.join("xdg"));
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let mut p = Proc { child: cmd.spawn().unwrap() };
     let addr = bound(&first_line(&mut p));
@@ -678,7 +678,7 @@ fn serve_prints_the_bound_address_keeps_running_and_checks_the_token_of_the_file
     assert_eq!((submit.status, submit.json()["outcome"].clone()), (202, json!("submitted")));
     let mut second = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
     second.arg("serve").args(["--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir2.join("state")).args(["--listen", "127.0.0.1:0"]);
-    second.env_remove("RUNBOOK_TOKEN").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    second.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let (status, _, err) = exits_within(second, Duration::from_secs(5));
     assert_eq!(status, Some(1), "{err}");
     assert!(err.contains("in use by another daemon"), "{err}");
