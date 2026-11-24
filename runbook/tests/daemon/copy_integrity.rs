@@ -2634,7 +2634,7 @@ mod relative_state_directory {
             state_dir: run_dir,
             workspace_dir: PathBuf::from("rel-state-dir/workspaces/r1"),
         };
-        let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).err().expect("the start did not fail").reason;
+        let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).expect_err("the start did not fail").reason;
         assert!(reason.contains("tree"), "the start did not fail at the store as the case says: {reason}");
         assert!(!reason.contains("rel-state-dir") && !reason.contains(dir.to_str().unwrap()), "a path of the state directory is in the reason: {reason}");
     }

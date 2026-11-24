@@ -230,7 +230,7 @@ mod tests {
             format!("{:?}", real.join("runs/f")),
             format!("{:?}", link.join("runs/f").display().to_string()),
         ];
-        let kept: Vec<String> = texts.iter().filter_map(|t| hide.text(t).contains(&token).then(|| format!("{t:?} -> {:?}", hide.text(t)))).collect();
+        let kept: Vec<String> = texts.iter().filter(|t| hide.text(t).contains(&token)).map(|t| format!("{t:?} -> {:?}", hide.text(t))).collect();
         let _ = std::fs::remove_dir_all(&base);
         assert!(kept.is_empty(), "{} texts keep the path:\n{}", kept.len(), kept.join("\n"));
     }
