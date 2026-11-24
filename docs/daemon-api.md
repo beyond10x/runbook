@@ -139,7 +139,9 @@ steps, while the run waits on a decision, after a cancel, when the run is over, 
 of the daemon (a run that was live is ended as `orphaned`; the event stays in its events). The step
 is kept in the daemon's process and not in the journal, which holds the event only. The language has
 no command that sets `step_in_flight`, so the specification declares the member of `Run` and states
-where its value comes from, as for `Runbook`. The stub runtime runs no program and tells nothing.
+where its value comes from, as for `Runbook`. `step_in_flight` is a new optional member of a run
+row: a client that validates rows strictly against the schema of 0.9.3 refuses a row that has it and
+must take the new schema. The stub runtime runs no program and tells nothing.
 The daemon page reads the views `runs` and the event stream and not `run`; it shows the event as
 any other `runbook.*` event and not the step (a separate change).
 
