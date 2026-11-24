@@ -580,6 +580,24 @@ fn a_program_an_answer_starts_reserves_its_budget_and_is_booked() {
 }
 
 #[test]
+fn a_program_an_answer_starts_is_booked_when_the_run_ends_right_after_it() {
+    // The review's program takes 4 s and books 0.2 USD; the wall cap of 3 s is spent while it runs,
+    // and the run ends before another step: what the program cost is booked to the run all the same.
+    let rig = Rig::tweaked("caps-answer-booked", per_run(1_000_000), |home| {
+        let script = "#!/bin/sh\nsleep 4\nexec \"$(dirname \"$0\")/model-step.sh\" \"$@\"\n";
+        std::fs::write(home.join("bindings/tools/slow-review.sh"), script).unwrap();
+        std::fs::set_permissions(home.join("bindings/tools/slow-review.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        replace_in(home, "bindings/engine-draft.yaml", "      kind: person\n", "      kind: person\n      argv: [tools/slow-review.sh, review, --max-budget-usd, \"0.3\"]\n");
+    });
+    let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "3")]);
+    let row = rig.settle(&run, "performed");
+    assert_eq!(row["outcome"], "stopped: wall time", "{row}");
+    assert_eq!(rig.booked_in_records(&run), 200_000, "the review's program did not finish: {row}");
+    assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("200000"), Some("1")), "the program the answer started was not booked: {row}");
+    assert_eq!(rig.ledger("engine-demo")["reserved"], json!({}), "{}", rig.ledger("engine-demo"));
+}
+
+#[test]
 fn a_program_an_answer_starts_that_changes_the_next_rounds_program_ends_the_run_before_that_round() {
     // The review's program rewrites the writer in the run's copy; the answer `rejected` sends the case
     // back to the writer, in the next round. The copy is checked at the top of that round: the run ends
