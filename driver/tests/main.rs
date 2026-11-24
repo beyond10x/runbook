@@ -3,6 +3,7 @@
 //! building each file as a binary of its own.
 
 mod retry_feedback_copy;
+mod aep_pin;
 mod answers;
 mod bugfix_git_trees;
 mod bugfix_languages;

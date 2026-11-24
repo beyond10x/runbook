@@ -1015,13 +1015,20 @@ pub struct Ess {
 /// The cache path of the pinned binary: `$SDC_ESS_CACHE`, else `$XDG_CACHE_HOME/sdc/ess`, else
 /// `$HOME/.cache/sdc/ess`, then `<version>/<target>/ess`.
 pub fn cache_path(pin: &J) -> PathBuf {
-    let base = std::env::var_os("SDC_ESS_CACHE").map(PathBuf::from).unwrap_or_else(|| {
+    tool_cache_path("ess", "SDC_ESS_CACHE", pin)
+}
+
+/// The cache path of a pinned tool: `$<var>`, else `$XDG_CACHE_HOME/sdc/<tool>`, else
+/// `$HOME/.cache/sdc/<tool>`, then `<version>/<target>/<tool>`.
+fn tool_cache_path(tool: &str, var: &str, pin: &J) -> PathBuf {
+    let base = std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| {
         std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
-            .join("sdc/ess")
+            .join("sdc")
+            .join(tool)
     });
-    base.join(s(&pin["version"])).join(target_triple()).join("ess")
+    base.join(s(&pin["version"])).join(target_triple()).join(tool)
 }
 
 /// The pinned ess: `ESS_BIN` when set, else the cache path. Refused (`Err((cause, why))`) when the
@@ -1054,4 +1061,43 @@ pub fn resolve_ess(pin_path: &Path) -> Result<Ess, (&'static str, String)> {
         return Err(("ess_pin_mismatch", format!("{} says {version:?}, the pin is {}", path.display(), s(&pin["version"]))));
     }
     Ok(Ess { path, version: s(&pin["version"]).to_string(), sha256: got, source, prefix: vec![], cwd: None })
+}
+
+// ---- the aep pin ----------------------------------------------------------------------------
+
+pub const AEP_PIN_FORMAT: &str = "sdc.aep-pin/1";
+
+/// The cache path of the pinned aep: `$SDC_AEP_CACHE`, else `$XDG_CACHE_HOME/sdc/aep`, else
+/// `$HOME/.cache/sdc/aep`, then `<version>/<target>/aep`.
+pub fn aep_cache_path(pin: &J) -> PathBuf {
+    tool_cache_path("aep", "SDC_AEP_CACHE", pin)
+}
+
+/// The pinned aep (`driver/aep-pin.json`) the driver tests run: the cache path, refused when the
+/// pin cannot be read, the binary is missing, or its digest or `--version` is not the pinned one.
+/// The `aep` on PATH is never used.
+pub fn resolve_aep(pin_path: &Path) -> Result<PathBuf, String> {
+    let pin = read_json(pin_path)?;
+    if pin["format"] != AEP_PIN_FORMAT {
+        return Err(format!("{}: format is not {AEP_PIN_FORMAT}", pin_path.display()));
+    }
+    let target = target_triple();
+    let want = s(&pin["platforms"][&target]["binary_sha256"]);
+    if want.is_empty() {
+        return Err(format!("{}: the pin names no binary for {target}", pin_path.display()));
+    }
+    let path = aep_cache_path(&pin);
+    if !path.is_file() {
+        return Err(format!("{} does not exist: run `sdc-conform aep-install` (aep {} of {})", path.display(), s(&pin["version"]), pin_path.display()));
+    }
+    let got = sha256_file(&path)?;
+    if got != want {
+        return Err(format!("{} has sha256 {got}, the pin {want}: run `sdc-conform aep-install`", path.display()));
+    }
+    let out = std::process::Command::new(&path).arg("--version").output().map_err(|e| format!("{}: {e}", path.display()))?;
+    let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if version != format!("aep {}", s(&pin["version"])) {
+        return Err(format!("{} says {version:?}, the pin is {}", path.display(), s(&pin["version"])));
+    }
+    Ok(path)
 }

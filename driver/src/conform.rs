@@ -5,6 +5,8 @@
 //! sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
 //! sdc-conform ess-path [--pin <ess-pin.json>]
 //! sdc-conform ess-install [--archive <ess-….tar.gz>] [--pin <ess-pin.json>]
+//! sdc-conform aep-path [--pin <aep-pin.json>]
+//! sdc-conform aep-install [--archive <aep-….tar.gz>] [--pin <aep-pin.json>]
 //! ```
 //!
 //! `observe` holds the run's delivered product (`work/published/` of the root case) to the
@@ -138,6 +140,8 @@ const USAGE: &str = "usage: sdc-conform observe <run dir> [--tables <n>] [--tabl
        sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
        sdc-conform ess-path [--pin <ess-pin.json>]
        sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]
+       sdc-conform aep-path [--pin <aep-pin.json>]
+       sdc-conform aep-install [--archive <file>] [--pin <aep-pin.json>]
        sdc-conform prompt [--attempt <n>] [--refused <why>]... [--run-fault <why>]...";
 const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 const DEFAULT_TABLES: usize = 3;
@@ -173,6 +177,10 @@ fn exe_dir() -> PathBuf {
 /// from the binary (`driver/target/<profile>/sdc-conform`).
 fn driver_dir() -> Option<PathBuf> {
     exe_dir().ancestors().find(|p| p.join("ess-pin.json").is_file() && p.join("Cargo.toml").is_file()).map(Path::to_path_buf)
+}
+
+fn default_aep_pin() -> PathBuf {
+    driver_dir().map(|d| d.join("aep-pin.json")).unwrap_or_else(|| PathBuf::from("driver/aep-pin.json"))
 }
 
 fn default_pin() -> PathBuf {
@@ -1200,20 +1208,33 @@ fn recompute(run: &Path, pin: &Path) -> Result<J, String> {
 
 fn ess_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, String> {
     let pin = read_json(pin_path)?;
+    install_pinned("ess", &pin, conformance::cache_path(&pin), archive)
+}
+
+fn aep_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, String> {
+    let pin = read_json(pin_path)?;
+    if pin["format"] != conformance::AEP_PIN_FORMAT {
+        return Err(format!("{}: format is not {}", pin_path.display(), conformance::AEP_PIN_FORMAT));
+    }
+    install_pinned("aep", &pin, conformance::aep_cache_path(&pin), archive)
+}
+
+/// The binary of a pinned release of `tool` unpacked to `dest`: the archive from `archive`, else
+/// downloaded from the tool's release on the forge; both digests checked.
+fn install_pinned(tool: &str, pin: &J, dest: PathBuf, archive: Option<PathBuf>) -> Result<String, String> {
     let target = conformance::target_triple();
     let p = &pin["platforms"][&target];
     let asset = s(&p["asset"]).to_string();
     if asset.is_empty() {
         return Err(format!("the pin names no archive for {target}"));
     }
-    let dest = conformance::cache_path(&pin);
     let dir = dest.parent().ok_or("no cache directory")?.to_path_buf();
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let archive = match archive {
         Some(a) => a,
         None => {
             let a = dir.join(&asset);
-            let url = format!("https://github.com/beyond10x/ess/releases/download/{}/{asset}", s(&pin["version"]));
+            let url = format!("https://github.com/beyond10x/{tool}/releases/download/{}/{asset}", s(&pin["version"]));
             let st = Command::new("curl").args(["-fsSL", "-o"]).arg(&a).arg(&url).status().map_err(|e| format!("curl: {e}"))?;
             if !st.success() {
                 return Err(format!("curl {url}: {st}"));
@@ -1349,6 +1370,24 @@ pub fn cli() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some(c @ ("aep-path" | "aep-install")) => {
+            let pin = arg(&args, "--pin").map(PathBuf::from).unwrap_or_else(default_aep_pin);
+            let done = if c == "aep-path" {
+                conformance::resolve_aep(&pin).map(|p| p.display().to_string())
+            } else {
+                aep_install(arg(&args, "--archive").map(PathBuf::from), &pin)
+            };
+            match done {
+                Ok(p) => {
+                    println!("{p}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("sdc-conform: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(64)

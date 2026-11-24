@@ -11,9 +11,18 @@ line in that check with its reason, never both and never neither.
 The runner (`ubuntu-latest`) has 4 CPUs. `CI` is set there, and each test task reads it: `test:runbook` and
 `test:driver` run the nextest profile `forge` (4 test threads; `runbook/.config/nextest.toml`,
 `driver/.config/nextest.toml`), `test:ui` starts Playwright without the `slot` prefix. The forge installs go-task,
-cargo-nextest and the pinned ess (`sdc-conform ess-install`, for the driver tests) in steps of their own before the
-test steps; it has no `ess` on `PATH`, so both cargo test steps put the trap `scripts/host-tool-traps/ess` first on the
-`PATH` of their tests here too.
+cargo-nextest, the pinned ess (`sdc-conform ess-install`) and the pinned aep (`sdc-conform aep-install`,
+`driver/aep-pin.json`) in steps of their own before the test steps; it has no `ess` and no `aep` on `PATH`, so both
+cargo test steps put the traps `scripts/host-tool-traps/ess` and `scripts/host-tool-traps/aep` first on the `PATH` of
+their tests here too.
+
+The driver tests need a real aep: the programs they start (`sdc-bugfix`, `sdc-node`, `sdc-tool.sh`) keep their
+planning store with it, and the expected outputs hold the files and messages aep writes. A stand-in would have to
+write the same bytes. So `test:driver` asks `sdc-conform aep-path` for the pinned binary (its digest and `--version`
+checked) and puts its directory ahead of the traps, on the forge and here alike; without it the step stops with the
+install command, `cargo run --locked --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install`. On
+2026-11-24 the forge's first run of the step failed 34 tests with `aep is not on PATH`; the local forge way showed the
+same 34 with no aep reachable, before the change.
 
 The local forge way runs a step's forge profile on 2 CPUs of the host it runs on (`taskset`), which came closest to
 the forge's time for `runbook/` (the forge 123 s, 2 CPUs of the build node 127 s, all 64 of them 91 s, at 4 threads):
