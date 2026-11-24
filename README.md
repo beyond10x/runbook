@@ -172,11 +172,16 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.9.2`; nothing is published to crates.io. The latest is 0.9.2 (2026-11-23).
+`0.9.3`; nothing is published to crates.io. The latest is 0.9.3 (2026-11-24).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.9.2 over 0.9.1 (nothing is unreleased): `runbook run` writes `runner.json` and one `action_started`
+- New in 0.9.3 over 0.9.2 (nothing is unreleased): Loom `d8944d49` is linked, in which a rejection gives an
+  action a new allowance of runs (`budget.runs_per`, `budget.rework_limit`, `budget.rework_on`; `change.implement`
+  of the story runbook uses it), `runbook check` and `scripts/check-bindings.sh` refuse by name what Loom refuses in
+  a `budget`, and the inspector does no work while no page looks at it. Nothing is breaking. No evaluation run was
+  made on this code ([docs/releases/0.9.3.md](docs/releases/0.9.3.md)).
+- New in 0.9.2 over 0.9.1: `runbook run` writes `runner.json` and one `action_started`
   line when an action starts, the inspector shows the step in flight and tells a live runner from one that is
   gone, and the Now band no longer says "Stopped: step budget spent" between two steps. Nothing is breaking. No
   evaluation run was made on this code ([docs/releases/0.9.2.md](docs/releases/0.9.2.md)).
