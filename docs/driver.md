@@ -681,13 +681,36 @@ rejected record is about the current revision; the driver passes the record in S
 `llm-node.sh` gives the writer the blob as `in/rejection.json` with a prompt to address each reason
 and cite it back. A model writer writes the artifact itself; only the stub, which writes the same
 output every time, appends the rejection to the subject (`.rework` in a tree, a comment in a YAML or
-Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
+Markdown file) so its rework is a new revision (a person's nth rejection of the same approval is numbered in the note, `rework 2 of the rejection of ...`, from the evidence ids of the rejections it has numbered in its workspace (`.sdc/rework-seen`) and those of the retry feedback document it was given, because Loom gives a bound program only the records about the current revision, so one document never holds the earlier rejections, and the same reasons twice still make a new revision; cycle `decider-rework-model`: none on a model
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
 evidence and the event log). The rejection after the last rework (the third, unless `SDC_MAX_REJECTIONS` sets another rework cap than `rework_limit` of rule-ends.json; run-settings.jsonl records the effective `rework_limit`, D184) stops the run with cause `rework_spent`; a
 rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
 with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
 it was opened with, so a run started before a protocol change does not gain the new actions.
+
+The ledger of the stub's numbering (`.sdc/rework-seen`, the stand-in model program `sdc-node`): one line
+`<approval> <id>` for each rejection it numbered, written in the tree before the note and read by every
+later start. It is a file of the stub, not of the product, written in the work directory under `.sdc/`. It
+lies in the tree of the workspace: it moves the revision only of an artifact that places the whole
+workspace or `.sdc`, and no committed binding places either. A revision of one artifact
+file (the subject `requirements.yaml`, say) is of that file, which holds the note and not the ledger. Only Loom's run writes it (the driver numbers a rework from its own
+rejection record), so the parity listing leaves this one path out (`docs/parity.md`, the rework
+ledger). The number counts what the ledger and the document hold: with the ledger gone (a tree that is
+rebuilt or cleaned between two reworks) the count starts again from the records of the document. An
+evidence id is taken as its first line, so one id is one ledger line. The ledger is opened as a regular
+file of one name inside the work directory and without following a link: a link, a directory, a FIFO, a
+file with a second name, a `.sdc` that is a link and a `.sdc` that is a file end the stub (exit 126, one
+line on standard error that names `.sdc/rework-seen`), and so does an error of reading or writing it; no
+note is written. `.sdc`, `.sdc/loom-feedback` and the directory of the copy are checked before the copy
+of the retry feedback is written under `.sdc/loom-feedback/`, so nothing is written through a link at
+any of them, and the files of the copy are made new: a link at one of them is removed and never
+followed. The check ends a start that is going to write (the node is called); a start that ends
+"not called" (exit 79) writes nothing under `.sdc`, checks nothing there and is not ended by a link
+at it. A path is checked,
+then opened: a `.sdc` swapped between the check and the open by a second writer is not covered. A stub
+that failed ends with its own exit code, and a ledger error is printed. A missing ledger is the first
+rejection and no error. A last line without a newline is ended by the next append.
 
 **A refused release** (2026-11-21, `docs/protocol-notes.md`). `release.publish` is approved by the
 capability `release.approve`: no `rejected` result, no writer. The release's other end is
