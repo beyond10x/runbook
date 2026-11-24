@@ -42,9 +42,14 @@ fn open_regular(p: &Path) -> Option<fs::File> {
 /// The text of a file of a call record: a regular file, at most [`RECORD_LIMIT`] bytes read from the one descriptor that
 /// was checked, whatever size the file has at that moment; `None` when it is not one, holds more, or is not UTF-8.
 pub fn read_record(p: &Path) -> Option<String> {
+    read_within(open_regular(p)?, RECORD_LIMIT)
+}
+
+/// The text `from` yields when it holds at most `limit` bytes; at most `limit + 1` bytes are asked of it.
+fn read_within(from: impl Read, limit: u64) -> Option<String> {
     let mut bytes = Vec::new();
-    open_regular(p)?.take(RECORD_LIMIT + 1).read_to_end(&mut bytes).ok()?;
-    if bytes.len() as u64 > RECORD_LIMIT {
+    from.take(limit + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > limit {
         return None;
     }
     String::from_utf8(bytes).ok()
@@ -455,6 +460,27 @@ pub fn file_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reader of an endless run of `b'a'` that counts the bytes it was asked for.
+    struct Endless(std::rc::Rc<std::cell::Cell<u64>>);
+
+    impl Read for Endless {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.set(self.0.get() + buf.len() as u64);
+            buf.fill(b'a');
+            Ok(buf.len())
+        }
+    }
+
+    #[test]
+    fn a_record_is_read_for_at_most_its_limit_plus_one_byte() {
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        assert_eq!(read_within(Endless(asked.clone()), 1000), None);
+        assert!(asked.get() <= 1001, "{} bytes were asked of a file that holds more than the limit", asked.get());
+        assert_eq!(read_within(&b"abc"[..], 3).as_deref(), Some("abc"));
+        assert_eq!(read_within(&b"abcd"[..], 3), None);
+        assert_eq!(read_within(&[0xff_u8][..], 3), None, "text that is not UTF-8 is not a record");
+    }
 
     #[test]
     fn tool_window_prefers_latest_and_naming() {

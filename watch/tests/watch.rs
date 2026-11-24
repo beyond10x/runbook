@@ -637,3 +637,41 @@ fn every_blob_is_stored_while_a_program_keeps_taking_the_temporary_names_of_the_
     assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
     assert!(missing.is_empty(), "{} of {} blobs were not stored: the watcher lost the record of these contents without a message", missing.len(), texts.len());
 }
+
+#[test]
+fn a_link_a_program_put_at_the_request_file_of_a_call_is_not_read_for_its_case() {
+    let outside = base().join(format!("outside-request-{}.json", std::process::id()));
+    fs::write(&outside, r#"{"node":"x.y","case":"C","case_dir":"/somewhere/store/C"}"#).unwrap();
+    let mut r = Run::new("request-link");
+    fs::create_dir_all(r.dir.join("llm")).unwrap();
+    r.start();
+    r.append("store/C/events.jsonl", r#"{"seq":1,"event":"action_started","action":"x.y","at":"x"}"#);
+    r.append("store/C/children/C.k/events.jsonl", r#"{"seq":1,"event":"action_started","action":"x.y","at":"x"}"#);
+    r.pause();
+    let rec = r.dir.join("llm/001-x.y");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    r.pause();
+    std::os::unix::fs::symlink(&outside, rec.join("request.json")).unwrap();
+    fs::write(rec.join("cwd/a.txt"), "a\n").unwrap();
+    r.pause();
+    let c = r.stop();
+    assert_eq!(ops(&c), vec![op("create", "a.txt")]);
+    assert_eq!(c[0]["attribution"]["case"].as_str(), Some("C.k"), "the case was taken from a file outside the run, through a link at request.json");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_request_file_of_a_decider_call_is_not_read_for_its_case() {
+    let mut r = Run::new("decide-request-link");
+    let outside = base().join(format!("outside-decide-request-{}.json", std::process::id()));
+    fs::write(&outside, format!(r#"{{"case_dir":"{}/store/C/children/C.k","action":"roadmap.approve"}}"#, r.dir.display())).unwrap();
+    r.start();
+    let rec = r.dir.join("decider/001-roadmap.approve");
+    fs::create_dir_all(rec.join("cwd")).unwrap();
+    std::os::unix::fs::symlink(&outside, rec.join("decide-request.json")).unwrap();
+    r.pause();
+    fs::write(rec.join("cwd/answer.json"), "{}\n").unwrap();
+    r.pause();
+    let c = r.stop();
+    assert_eq!(ops(&c), vec![op("create", "answer.json")]);
+    assert!(c[0]["attribution"]["case"].is_null(), "the case was taken from a file outside the run, through a link at decide-request.json: {}", c[0]["attribution"]);
+}
