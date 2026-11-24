@@ -52,9 +52,13 @@ second name of a file outside the run) is never opened for writing: the writer t
 when all 16 are taken, or the file to append to is not a regular file with one name, the run ends within seconds with an
 error that names a file in the run directory, and nothing is written outside the run. This holds for `status.json`,
 `run-stopped.json`, `loom/`, `store/<root>/`, the append-only records, `dry-commands.txt`, `runner.json`, `outcome.json`,
-the tree records and the files of the decider's calls (`decider/`, `decider-cases/`). The temporary files of the watcher
-(a blob under `fs/blobs/` and `fs/.snapshot.json.tmp`) are created in the same way, as new files that follow no link and
-wait for no reader, and what lies at their name is removed first. The writer does not write what is made before the first
+the tree records and the files of the decider's calls (`decider/`, `decider-cases/`). The files of a decider call are
+written through the open directory of the call, which the runner made and kept open (`Held` in the same file): they are
+made relative to that descriptor, so a program that renames the call's directory while the adapter runs and puts a link or
+another directory at its name does not change where a record goes; the records land in the directory the runner made. The
+temporary files of the watcher are created in the same way, as new files that follow no link and wait for no reader: a blob
+under `fs/blobs/` takes the next of 16 temporary names when a name is taken, and does not remove the name that is taken;
+`fs/.snapshot.json.tmp` has one name, and what lies at it is removed first. The writer does not write what is made before the first
 program starts (`settings.json`, the first `events.jsonl`, the bindings and protocols copies, `fs/watch.log`) and Loom's
 own files (`store/runlog-case-*.jsonl`, `store/case-*.json`), which Loom writes.
 
@@ -65,10 +69,17 @@ with `mkdirat` and opened with `O_NOFOLLOW | O_DIRECTORY`, and a link or a file 
 with an error that names that directory inside the run; nothing is made beyond it.
 
 A name in the run directory that the runner reads and a program can reach (`work/findings.yaml`, `structured-output.json`,
-`out/decision.json`, and the file a copy into a call's `in/` takes) is read as a regular file with one name: it is opened
-without following a link and without waiting for a writer, and at most 64 MiB are read (`READ_LIMIT`). A link, a pipe, a
-directory, a file with a second name or a file of more than 64 MiB is not read: the copy of `work/findings.yaml` is left
-out, and a copy into `in/` ends with an error that names the file inside the run.
+`out/decision.json`, the file a copy into a call's `in/` takes, the files of `instructions/decider/`, the files of the
+bindings copy read for the call budget, the answer steps, the bound actions, the principal of an action and the results
+of an action, Loom's case file, and the call directories' records the decider reads) is read as a regular file with one
+name: it is opened without following a link and without waiting for a writer, and at most 64 MiB are read
+(`READ_LIMIT`). A link, a pipe, a directory, a file with a second name or a file of more than 64 MiB is not read: the copy
+of `work/findings.yaml` is left out; a copy into the `in/` of a call of the model decider ends the call with an error that
+names the file inside the run; the requester decider skips such a file, which is then not in the list of inputs the model
+reads, and goes on. The watcher reads the records of a call (`status.json`, `request.json`, `decide-request.json`, the
+call lists `llm-calls.jsonl` and `calls.jsonl`) and the lines it follows (`events.jsonl`, `rounds.jsonl`) the same way,
+with a bound of 64 MiB. The directory in which such a read opens its file is reached by its
+path; the held descriptor is for writes.
 
 Nothing sensitive is written: a string that starts with the run directory's path is written relative
 to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`, `/tmp/`, `/var/`,
