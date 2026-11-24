@@ -1470,3 +1470,56 @@ fn a_reply_file_whose_every_temporary_name_a_program_took_is_an_error_of_the_cal
     assert!(!rec.join("reply.json").exists(), "the case plants no name the writer can use for reply.json");
     assert!(!matches!(verdict, Verdict::Answer { .. }), "the call was answered although the record of its reply could not be written: {verdict:?}");
 }
+
+#[test]
+fn a_stderr_file_whose_every_temporary_name_a_program_took_is_an_error_of_the_call_not_a_silent_skip() {
+    let w = world("stderr-names-taken", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let rec = w.run.join("decider/002-context.approve");
+    std::fs::create_dir_all(&rec).unwrap();
+    for n in 0..400 {
+        std::fs::create_dir(rec.join(format!(".decider-stderr.txt.{}.{n}.tmp", std::process::id()))).unwrap();
+    }
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!rec.join("decider-stderr.txt").exists(), "the case plants no name the writer can use for decider-stderr.txt");
+    let reason = reason(verdict);
+    assert!(reason.contains("decider stderr file") && reason.contains(".decider-stderr.txt."), "{reason}");
+}
+
+#[test]
+fn a_reply_file_that_cannot_be_written_is_an_error_that_names_the_file_in_the_run() {
+    let w = world("reply-error-text", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let rec = w.run.join("decider/002-context.approve");
+    std::fs::create_dir_all(&rec).unwrap();
+    for n in 0..400 {
+        std::fs::create_dir(rec.join(format!(".reply.json.{}.{n}.tmp", std::process::id()))).unwrap();
+    }
+    let reason = reason(ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000));
+    assert!(reason.contains("decider reply file") && reason.contains(&rec.display().to_string()), "{reason}");
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_decision_file_does_not_hold_the_call() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let w = world("decision-fifo", "#!/bin/sh\n");
+        std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+        write_exe(&w.adapter, &script(None, &response("0.1"), "mkfifo \"$d/cwd/out/decision.json\"\n"));
+        let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+        let _ = tx.send(!matches!(verdict, Verdict::Answer { .. }));
+    });
+    let refused = rx.recv_timeout(Duration::from_secs(10)).expect("the call did not end within 10 s: the decider reads out/decision.json by its path and waits there for a writer of the pipe in its place");
+    assert!(refused, "a pipe was taken for the decision of the model");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_decision_file_is_not_read_through() {
+    let w = world("decision-link", "#!/bin/sh\n");
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let outside = w.run.parent().unwrap().join("outside-decision.json");
+    std::fs::write(&outside, format!("{APPROVE}\n")).unwrap();
+    write_exe(&w.adapter, &script(None, &response("0.1"), &format!("ln -s '{}' \"$d/cwd/out/decision.json\"\n", outside.display())));
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "the decision of a file outside the run was taken through a link at out/decision.json: {verdict:?}");
+}

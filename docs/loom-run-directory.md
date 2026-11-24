@@ -51,10 +51,24 @@ program of the run can write this directory (`--confinement local`), so a name i
 second name of a file outside the run) is never opened for writing: the writer takes the next of 16 temporary names, and
 when all 16 are taken, or the file to append to is not a regular file with one name, the run ends within seconds with an
 error that names a file in the run directory, and nothing is written outside the run. This holds for `status.json`,
-`run-stopped.json`, `loom/`, `store/<root>/`, the append-only records, `runner.json`, `outcome.json`, the tree records and
-the files of the decider's calls (`decider/`, `decider-cases/`). The writer does not write what is made before the first
+`run-stopped.json`, `loom/`, `store/<root>/`, the append-only records, `dry-commands.txt`, `runner.json`, `outcome.json`,
+the tree records and the files of the decider's calls (`decider/`, `decider-cases/`). The temporary files of the watcher
+(a blob under `fs/blobs/` and `fs/.snapshot.json.tmp`) are created in the same way, as new files that follow no link and
+wait for no reader, and what lies at their name is removed first. The writer does not write what is made before the first
 program starts (`settings.json`, the first `events.jsonl`, the bindings and protocols copies, `fs/watch.log`) and Loom's
 own files (`store/runlog-case-*.jsonl`, `store/case-*.json`), which Loom writes.
+
+The directories of the run directory that the runner makes once the first program has started (`loom/`, `store/<root>/`,
+`decider/`, `decider-cases/`, a call's `cwd/in` and `cwd/out`, the directories of a copy into `in/`, `work/.sdc/reasons`)
+are made by `make_dir_in` of the same file, without following a link: every component below the run directory is made
+with `mkdirat` and opened with `O_NOFOLLOW | O_DIRECTORY`, and a link or a file at a component ends the run, or the call,
+with an error that names that directory inside the run; nothing is made beyond it.
+
+A name in the run directory that the runner reads and a program can reach (`work/findings.yaml`, `structured-output.json`,
+`out/decision.json`, and the file a copy into a call's `in/` takes) is read as a regular file with one name: it is opened
+without following a link and without waiting for a writer, and at most 64 MiB are read (`READ_LIMIT`). A link, a pipe, a
+directory, a file with a second name or a file of more than 64 MiB is not read: the copy of `work/findings.yaml` is left
+out, and a copy into `in/` ends with an error that names the file inside the run.
 
 Nothing sensitive is written: a string that starts with the run directory's path is written relative
 to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`, `/tmp/`, `/var/`,
