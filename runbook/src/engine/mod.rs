@@ -302,34 +302,39 @@ impl Engine {
             closed: BTreeSet::new(),
             replaced: 0,
         };
-        let mut stuck = false;
-        let mut order: Vec<String> = Vec::new();
-        for (n, d) in ran.decisions.iter().enumerate() {
-            let planned = plan(format!("d{:x}-{}-{n}", self.epoch, wait.round), d, None);
-            stuck |= planned.unanswerable.is_some();
-            let id = planned.request.request_id.clone();
-            lock(&slot.state).open.insert(id.clone());
-            wait.unanswered.insert(id.clone());
-            sink.decision_requested(planned.request.clone());
-            wait.asked.insert(id.clone(), planned);
-            order.push(id);
-        }
-        // What the level gives to the decider: judged in the order Loom printed the decisions. A judgement
-        // that is not an answer, and an answer the daemon does not take into its record, leave the request open.
-        if let (Some(judge), false) = (judge.as_mut(), stuck) {
-            let printed = ran.document.get("decisions").and_then(Value::as_array);
-            for (n, id) in order.iter().enumerate() {
-                if cancel.load(Ordering::SeqCst) {
-                    return Ok(false);
+        let plans: Vec<Planned> = ran.decisions.iter().enumerate().map(|(n, d)| plan(format!("d{:x}-{}-{n}", self.epoch, wait.round), d, None)).collect();
+        let stuck = plans.iter().any(|p| p.unanswerable.is_some());
+        match judge.as_mut() {
+            // What the level gives to the decider: judged in the order Loom printed the decisions, each
+            // request raised just before it is judged, so that a close of a case that an earlier
+            // answer of this wait already closed is never raised (as `runbook run` does not ask it:
+            // docs/loom-run-decisions.md). A judgement that is not an answer, and an answer the
+            // daemon does not take into its record, leave the request open.
+            Some(judge) if !stuck => {
+                let printed = ran.document.get("decisions").and_then(Value::as_array);
+                for (n, planned) in plans.into_iter().enumerate() {
+                    if cancel.load(Ordering::SeqCst) {
+                        return Ok(false);
+                    }
+                    if planned.decision.kind == DecisionKind::Close && wait.closed.contains(&planned.decision.case) {
+                        continue;
+                    }
+                    let id = planned.request.request_id.clone();
+                    wait.raise(planned.clone());
+                    let Some(printed) = printed.and_then(|p| p.get(n)) else { continue };
+                    let Judgement::Answer { answer, by, principal } = judge.judge(printed) else { continue };
+                    if !sink.decision_answered(&id, &answer, &by, &principal) {
+                        continue;
+                    }
+                    lock(&slot.state).open.remove(&id);
+                    wait.unanswered.remove(&id);
+                    wait.settle(tail, &planned, &id, &answer, &principal)?;
                 }
-                let (Some(planned), Some(printed)) = (wait.asked.get(id).cloned(), printed.and_then(|p| p.get(n))) else { continue };
-                let Judgement::Answer { answer, by, principal } = judge.judge(printed) else { continue };
-                if !sink.decision_answered(id, &answer, &by, &principal) {
-                    continue;
+            }
+            _ => {
+                for planned in plans {
+                    wait.raise(planned);
                 }
-                lock(&slot.state).open.remove(id);
-                wait.unanswered.remove(id);
-                wait.settle(tail, &planned, id, &answer, &principal)?;
             }
         }
         while !wait.unanswered.is_empty() {
@@ -370,6 +375,15 @@ struct Wait<'a> {
 }
 
 impl Wait<'_> {
+    /// The run stops on one decision: its request is open, announced and waits for an answer.
+    fn raise(&mut self, planned: Planned) {
+        let id = planned.request.request_id.clone();
+        lock(&self.slot.state).open.insert(id.clone());
+        self.unanswered.insert(id.clone());
+        self.sink.decision_requested(planned.request.clone());
+        self.asked.insert(id, planned);
+    }
+
     /// An answer, from a client or from the run's judge, is one library call. The daemon holds the answer
     /// as given; a call Loom refuses is asked again as a new request that quotes the refusal.
     fn settle(&mut self, tail: &mut LogTail<'_>, planned: &Planned, request_id: &str, answer: &str, principal: &str) -> Result<(), RuntimeFailure> {
