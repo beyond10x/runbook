@@ -139,6 +139,31 @@ the last, at 3 a fourth run follows it. No run has told 2 from 3: both entries e
 a one-minute load of 45 to 75 among them, before `change.implement` ran (`docs/cycles-suite.md`). Both
 stay `pending`; nothing here says a run settles them.
 
+## The per-call budget of a program
+
+A run reserves, before each bound program starts, what that program may spend on models
+(`docs/daemon-api.md`, "Caps of a run"; `runbook run`: `docs/loom-run.md`, "The spend ledger"). A
+program that takes the option names it in its argv (`--max-budget-usd <v>` or
+`--max-budget-usd=<v>`). A program that does not take it (a check, a deploy, a script that calls no
+model) gets it from its binding, never through its argv:
+
+| Member | Where | What it says |
+|---|---|---|
+| `max_budget_usd: <number>` | a program action (one with `executor.argv` or `arguments_from`) | the per-call budget, in USD, of that action's programs; `0`: they call no model |
+| `max_budget_usd: <number>` | the top of a bindings file | the same for every program action of that file that names none itself; not for a child file an `open` action names (each file names its own) |
+
+The order a program's budget is read in: `--max-budget-usd` in its argv, the action's member, the
+file's member, and else the largest budget the runbook's bindings name (in an argv or as a member).
+`runbook run` lowers an argv's budget to what its cap has left and leaves a member as written: a
+member is reserved as written (`runbook/src/budget.rs`).
+
+Refused at load, naming the action (or the file, for the file's member): a value that is no YAML
+number of 0 or more (text such as `"0.3"`, `-1`, `.nan`, `.inf`, `null`, `true`, a list); an action
+whose argv and member name two different budgets; a member on an action that runs no program.
+`runbook check` names the same. The member is Runbook's, not Loom's: Loom refuses a member it does
+not know (`UndeclaredMember`), so a run takes the members out of its copy of the bindings and keeps
+them beside it (`bindings/.call-budgets.json`, `budget::seal`); the files of the home keep them.
+
 ## Written in the YAML, carried out by Loom later
 
 These constructs load today; Loom runs them once the story named lands (waves as in Runbook's
