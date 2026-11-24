@@ -1441,6 +1441,20 @@ fn a_directory_input_is_not_copied_through_a_link_a_program_left_at_its_name() {
 }
 
 #[test]
+fn a_file_input_is_not_copied_into_a_directory_below_a_link_a_program_left_at_the_directory_of_its_name() {
+    let w = world("input-copy-file-link", "#!/bin/sh\n");
+    std::fs::create_dir_all(w.work.join("d")).unwrap();
+    std::fs::write(w.work.join("d/e.txt"), "e\n").unwrap();
+    let out = empty_directory_outside(&w, "out-copy-file");
+    let cwd = w.run.join("decider/001-x/cwd");
+    std::fs::create_dir_all(cwd.join("in")).unwrap();
+    std::os::unix::fs::symlink(&out, cwd.join("in/d")).unwrap();
+    let added = super::inputs::Inputs::default().add(&w.work, &cwd, "d/e.txt");
+    assert!(added.is_err(), "a file was copied below a link at the directory of its name");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the copy of a file made a file in a directory outside the run, through a link at the directory of its name");
+}
+
+#[test]
 fn a_named_pipe_a_program_put_at_the_structured_output_does_not_hold_the_call() {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
