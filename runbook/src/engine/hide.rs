@@ -5,6 +5,7 @@
 //! run's directory or of the home is named relative to it, and a directory itself is named `.`.
 
 use crate::runtime::{DecisionRequest, EventSink};
+use super::clean;
 use serde_json::Value;
 use std::path::Path;
 
@@ -14,11 +15,18 @@ pub struct Hide {
 }
 
 impl Hide {
-    /// The paths of `dirs`, as given and as the file system names them.
+    /// The paths of `dirs`, as given (only where absolute: a relative word is no spot, the absolute and
+    /// the canonical forms cover it) and as the file system names them, each in every way a text can
+    /// spell it by the time it is read here: as it is, with a control character read as a space (the
+    /// engine does that to a failure before it is hidden), and as Debug escapes it (Loom names a refused
+    /// file that way).
     pub fn new(dirs: &[&Path]) -> Hide {
         let mut spots: Vec<String> = Vec::new();
         for dir in dirs {
-            let mut forms = vec![dir.to_path_buf()];
+            let mut forms = Vec::new();
+            if dir.is_absolute() {
+                forms.push(dir.to_path_buf());
+            }
             if let Ok(real) = std::fs::canonicalize(dir) {
                 forms.push(real);
             }
@@ -26,9 +34,11 @@ impl Hide {
                 forms.push(abs);
             }
             for form in forms {
-                let text = form.to_string_lossy().trim_end_matches('/').to_string();
-                if text.len() > 1 && !spots.contains(&text) {
-                    spots.push(text);
+                for text in spellings(&form) {
+                    let text = text.trim_end_matches('/').to_string();
+                    if text.len() > 1 && !spots.contains(&text) {
+                        spots.push(text);
+                    }
                 }
             }
         }
@@ -76,6 +86,23 @@ impl Hide {
             other => other,
         }
     }
+}
+
+/// The texts that spell `path`: as the file system names it (lossy where it is not UTF-8), with each
+/// control character replaced by a space, as `Debug` escapes it without its quotes, and each of those
+/// read as a failure text is (control characters replaced).
+fn spellings(path: &Path) -> Vec<String> {
+    fn escaped(text: &str) -> String {
+        let quoted = format!("{text:?}");
+        quoted[1..quoted.len() - 1].to_string()
+    }
+    let lossy = path.to_string_lossy().into_owned();
+    let cleaned = clean(&lossy);
+    let debug_of_path = format!("{path:?}");
+    let mut texts = vec![lossy.clone(), cleaned.clone(), escaped(&lossy), escaped(&cleaned), debug_of_path[1..debug_of_path.len() - 1].to_string()];
+    let cleaned_after: Vec<String> = texts.iter().map(|t| clean(t)).collect();
+    texts.extend(cleaned_after);
+    texts
 }
 
 fn is_path_char(c: char) -> bool {
