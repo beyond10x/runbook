@@ -274,6 +274,12 @@ fn write_exe(path: &Path, text: &str) {
 
 /// A daemon with the model kind whose adapter is a stand-in that writes its own environment and fails; the pairs it saw, and the login path the file names.
 fn environment_of_the_model_child(tag: &str) -> (Vec<(String, String)>, String) {
+    let (pairs, login, _, _) = model_child_run(tag);
+    (pairs, login)
+}
+
+/// The same run, kept: the pairs the adapter saw, the login path, the daemon and the run (the run waits on a decision the adapter could not make).
+fn model_child_run(tag: &str) -> (Vec<(String, String)>, String, Live, String) {
     let base = super::state::scratch(tag);
     let home = base.join("home");
     copy_tree(&fixture(), &home);
@@ -285,6 +291,9 @@ fn environment_of_the_model_child(tag: &str) -> (Vec<(String, String)>, String) 
     std::fs::write(&login, "{}").unwrap();
     let file = format!("login_file = \"{}\"\n[deciders.model]\nmodel = \"a-model\"\nadapter = \"{}\"\nwithout_claims = true\ntimeout_seconds = 20\n", login.display(), adapter.display());
     std::env::set_var("DAEMON_CANARY", "canary-value");
+    let runtime_dir = base.join("xdg");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
     let l = serve_home(&format!("{tag}-d"), &home, &[], &file);
     let run = run_of(&submit(&l, json!({"autonomy": "A5", "decider": "model"})).1);
     until_state(&l, &run, &["WaitingOnDecision", "Ended", "FailedToStart", "Cancelled"]);
@@ -300,7 +309,7 @@ fn environment_of_the_model_child(tag: &str) -> (Vec<(String, String)>, String) 
     };
     std::thread::sleep(Duration::from_millis(300));
     let pairs = std::fs::read_to_string(found).unwrap().lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
-    (pairs, login.display().to_string())
+    (pairs, login.display().to_string(), l, run)
 }
 
 fn find_named(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -332,6 +341,29 @@ fn the_model_child_is_given_no_path_to_the_login_file_itself() {
     let (env, login) = environment_of_the_model_child("autonomy-model-login");
     let held: Vec<_> = env.iter().filter(|(_, v)| v.contains(&login)).map(|(k, _)| k.clone()).collect();
     assert!(held.is_empty(), "the real path of the operator's login file is in the environment of the model's adapter ({held:?}); `runbook run` hands it a link in a private directory");
+}
+
+#[test]
+fn the_login_link_of_a_run_is_in_its_private_directory_and_is_removed_when_the_run_ends() {
+    let (env, login, l, run) = model_child_run("autonomy-model-link");
+    let link = PathBuf::from(&env.iter().find(|(k, _)| k == "SDC_CLAUDE_CREDENTIALS").expect("the adapter was given no login").1);
+    let runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
+    assert!(link.starts_with(runtime.join("runbook")), "the link is not in the private directory below $XDG_RUNTIME_DIR/runbook: {link:?}");
+    assert_eq!(std::fs::read_link(&link).unwrap().display().to_string(), login, "the link does not lead to the login file");
+    assert!(!link.starts_with(l.dir.join("state")), "the link is in the daemon's state, which is copied and read by others");
+    let (status, _) = {
+        let r = super::http::send(l.addr, "POST", "/daemon/commands/cancel-run", &[("Content-Type", "application/json")], Some(json!({"run_id": run}).to_string().as_bytes()));
+        (r.status, r.json())
+    };
+    assert!(status < 300, "cancel-run: {status}");
+    until_state(&l, &run, &["Cancelled"]);
+    let gone = Instant::now() + Duration::from_secs(10);
+    while std::fs::symlink_metadata(&link).is_ok() && Instant::now() < gone {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(std::fs::symlink_metadata(&link).is_err(), "the link is still there after the run ended");
+    assert!(!link.parent().unwrap().exists(), "the private directory is still there after the run ended");
+    assert!(Path::new(&login).is_file(), "the login file itself was removed");
 }
 
 #[test]

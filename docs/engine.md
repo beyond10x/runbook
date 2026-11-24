@@ -140,14 +140,19 @@ decides that cannot be read (fail closed: every decision waits), and a verdict L
 
 Each answer records who gave it. A rule or the decider answers as `rule:<name>` or `decider:<kind>`,
 in `answered_by` and in `principal`, never as a person and never as the daemon's principal; a client's
-answer is under the label it typed and the daemon's principal. The daemon refuses a client label that
-starts with `rule:` or `decider:` (400), so a client cannot sign as a rule.
+answer is under the label it typed and the daemon's principal. One function reads a client label: it
+trims ASCII whitespace and refuses (400, naming the field and printing no byte of the label) a label
+with a non-ASCII or a control character, and one whose lower case starts with `rule:`, `decider:` or
+`router:`, so a client cannot sign as a rule, a decider or a router in any spelling.
 
 The environment of a decider program is its own `PATH` and nothing of the daemon's. A `model` decider
 needs the login the model's adapter reads: `login_file` of `runbook.toml`, a path, never content. The
-private link `runbook run` makes to it in its own private directory is not made by the daemon: a model
-decider of the daemon runs only where the adapter needs no link, and the model call itself is not
-exercised by the tests (no model call here). `rule` works with nothing of the sort. Money: the
+daemon, like `runbook run`, makes a link to it in the private directory of each run
+(`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/login`, mode 0700) when the run's kind is `model`, and
+the adapter is given the link, never the file's own path; the daemon refuses to start that run when
+`XDG_RUNTIME_DIR` is not set. The link and its directory go when the run ends (one case holds it, with
+a stand-in adapter; the model call itself is not exercised by the tests: no model call here). `rule`
+works with nothing of the sort. Money: the
 caps are optional (`cap_micro_usd`, `max_llm_calls` of the file); a rule costs nothing and needs
 none; when a cap is named and spent, the decider stops and the decision stays open.
 
@@ -155,5 +160,4 @@ none; when a cap is named and spent, the decider stops and the decision stays op
 
 Resume of an orphaned run from its store; a stream of decisions to a person while `run_tree` runs
 (decisions are read at each wait); the `linux` level under test; the spend ledger of the daemon (the
-caps of one run are held in the run's judge, not shared between runs); a model decider's private link
-to the login and a model call under test.
+caps of one run are held in the run's judge, not shared between runs); a model call under test.

@@ -14,6 +14,7 @@
 use crate::loom_run::bindings_copy;
 use crate::loom_run::decide::{Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider::NativeDecider;
+use crate::loom_run::private::PrivateDir;
 use runbook::engine::arbiter::{Arbiter, Judgement, Opened, Opening, RunArbiter};
 use runbook::engine::shape::{self, Unshaped};
 use serde_json::{json, Map, Value};
@@ -73,6 +74,14 @@ impl DaemonArbiter {
     }
 }
 
+/// The name of a run's private directory under `$XDG_RUNTIME_DIR/runbook/`: the daemon's process, so
+/// that a directory a killed daemon left does not refuse the run's resume, and the run's own name
+/// (the last part of its directory) reduced to characters a path part may hold.
+fn private_name(run_dir: &Path) -> String {
+    let run: String = run_dir.file_name().and_then(|n| n.to_str()).unwrap_or("run").chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    format!("daemon-{}-{run}", std::process::id())
+}
+
 fn root_name(bindings: &Path) -> Result<&str, String> {
     bindings.file_stem().and_then(|s| s.to_str()).ok_or_else(|| format!("{}: the root bindings file has no name", bindings.display()))
 }
@@ -108,6 +117,10 @@ impl Arbiter for DaemonArbiter {
         let decider = NativeDecider::parse(&read, table)?;
         // The table of who decides is read once, from the copy, before the first action of the run.
         decider.pin_routing(o.run_dir);
+        // The model's adapter is given a link in the run's private directory, never the login file's own path; the
+        // link goes with the judge, when the run ends.
+        let login = self.limits.login_file.as_deref().filter(|_| kind == "model").map(Path::new);
+        let private = PrivateDir::create(&private_name(o.run_dir), login)?;
         let path = format!("{}:{SYSTEM_PATH}", dst.join("tools").display());
         let verdict = table.get("verdict").and_then(Value::as_str).map(str::to_owned);
         Ok(Opened {
@@ -118,6 +131,7 @@ impl Arbiter for DaemonArbiter {
                 verdict,
                 run_dir: o.run_dir.to_path_buf(),
                 workspace: o.workspace.to_path_buf(),
+                private,
                 bindings_dir: dst,
                 env: vec![("PATH".to_owned(), path)],
                 decided: HashMap::new(),
@@ -131,6 +145,8 @@ impl Arbiter for DaemonArbiter {
 
 struct Judge {
     decider: NativeDecider,
+    /// The run's private directory with the link to the login file; removed when the judge is dropped.
+    private: Option<PrivateDir>,
     kind: String,
     verdict: Option<String>,
     run_dir: PathBuf,
@@ -191,7 +207,7 @@ impl RunArbiter for Judge {
                 return Judgement::Open(format!("the decider of this run made its {max} model calls"));
             }
         }
-        let request = DecisionRequest { decision, run_dir: &self.run_dir, workspace: &self.workspace, budget_micro_usd: budget, child_env: &self.env, login_link: None };
+        let request = DecisionRequest { decision, run_dir: &self.run_dir, workspace: &self.workspace, budget_micro_usd: budget, child_env: &self.env, login_link: self.private.as_ref().and_then(PrivateDir::link) };
         let (approve, principal, reasons) = match self.decider.decide(&request) {
             Verdict::CannotDecide { reason } => return Judgement::Open(reason),
             Verdict::Answer { cost_micro_usd: None, .. } => return Judgement::Open("the decider answered without a cost".to_owned()),
