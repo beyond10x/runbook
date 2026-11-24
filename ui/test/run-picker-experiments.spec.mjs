@@ -177,10 +177,14 @@ test('search matches the experiment id and the variant, and opens the groups it 
 
 test('the keyboard: arrows reach an experiment head, Enter opens its group, Enter on a row opens the run', async ({page}) => {
   await page.goto(`${base}/?run=golf`);
+  // a key pressed before the page has read its runs meets an empty list and is lost: wait for the run on screen
+  // and for the list, whose active row is that run
+  await expect(page.locator('#runpick .pk-nm')).toHaveText('golf');
   await page.locator('#runpick').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#pk-q')).toBeFocused();
   const ad = () => page.locator('#pk-q').getAttribute('aria-activedescendant');
+  await expect.poll(ad).toBe(`pk-o-${src('golf')}`);
   await page.keyboard.press('Control+Home');
   await expect.poll(ad).toBe('pk-e-0');
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
