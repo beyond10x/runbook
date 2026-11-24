@@ -65,12 +65,13 @@ the daemon's `--runbook-home` and the target is the run's directory.
 The daemon's copy is bounded: a runbook of more than 4096 entries (directories and files; a link
 counts as what it is copied as, so links that lead to the same directory many times end at the
 bound) or 16 MiB is refused before the first write, naming no path (`engine::copy::MAX_ENTRIES`,
-`MAX_BYTES`; the home of this repository holds about 600 entries and 1.1 MB). It is private to the
+`MAX_BYTES`; the home of this repository holds 661 entries and 1.1 MB, counted over `bindings/`,
+`protocol/`, `instructions/`, `views/`, `driver/examples/` and `tools/`). It is private to the
 daemon's user: `runs/<run id>/` and every directory of the copy are `0o700`, every file `0o600`, or
 `0o700` when the source has an executable bit. The plan names each file it will copy by device,
 inode and length; the copy opens each source without following a link and refuses the whole copy,
 leaving nothing behind, when a source is no longer that file. `runbook run` keeps links and the
-modes of its sources, as before, and has none of these bounds.
+modes of its sources, as before, and has none of these bounds: no bound of entries, of bytes or of depth.
 
 What a revision of the home does during a run: nothing, for that run. An edit, a replacement by a file
 that does not parse, a removal and a revision of the protocols and bindings in the home change nothing
@@ -96,13 +97,21 @@ have read or run the changed file is not started. A run that the runtime fails o
 decisions (this one, or a failure to read the run's log) has its open requests withdrawn, as a cancel
 does, and ends the same way; before, such a run stayed `WaitingOnDecision` for good. An answer to a run
 whose runtime has failed and whose end the daemon has not recorded yet is refused as `run-not-waiting`:
-it is not recorded as given.
+it is not recorded as given. The daemon writes an answer to its journal before it hands it to the run,
+and a run is handed only an answer the daemon recorded: an answer the journal cannot take is an error
+to the client and the run has not seen it.
+
+No reason, record or question that leaves the engine toward a client (a refusal, a failure at the start,
+an event of the run, the text of a question) names a path of the daemon's state directory or of the
+runbook home: an entry is named relative to the run's copy or to the home, and a directory itself is
+named `.`.
 
 The check is a read before a call, not a guard around each program. Inside one round a bound program at
 confinement `local` is unconfined: it can change the copy, and a later program of the same round runs
 the changed bytes. The next check ends the run, and the digest the run recorded is then not what ran in
 that round. At confinement `linux` the copy is not in a bound program's view, by the pinned Loom's mount
-list. A check before each program is Loom's, not the engine's.
+list, except the bound program's own file: Loom binds it read-only at its host path. A check before each
+program is Loom's, not the engine's.
 `runbook run` has no such check; it limits the copy's budgets before each step and pins who decides.
 
 `start` with a store that exists goes on from the store (resuming an orphaned run is not built, below):
