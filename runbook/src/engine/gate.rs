@@ -8,10 +8,13 @@
 //! holds, and what other runs of the runbook spent or hold never reduces it. The ledger is one file
 //! per runbook, with each entry and each reservation keyed by the run.
 //!
-//! What a step reserves is the budget of the program it starts (`--max-budget-usd` in that program's
-//! own arguments, which come from the bindings the run reads and nowhere else). A program that names
-//! none makes no model call and reserves nothing; what such a step costs is booked all the same, from
-//! the cost records, and the next step is refused once the cap is reached.
+//! What a program reserves as it starts, a step's or one a person's answer starts, is its own budget
+//! (`--max-budget-usd <v>` or `--max-budget-usd=<v>` in that program's own arguments, which come from
+//! the bindings the run reads and nowhere else). A program that names none may call a model all the
+//! same: it reserves the largest budget the runbook's bindings name, and a runbook with such a
+//! program and no budget anywhere is refused at load (`budget::reserve_for_unnamed`). What a program
+//! costs is booked from the cost records after it, and the next step is refused once the cap is
+//! reached.
 
 use crate::budget;
 use crate::caps::{Caps, Usage};
@@ -103,6 +106,8 @@ struct Held {
     ledger: Ledger,
     run_id: String,
     cap_micro_usd: u64,
+    /// What a program that names no per-call budget reserves: the largest budget of the runbook.
+    unnamed_micro_usd: u64,
     reserved: Mutex<Vec<Reservation>>,
     stopped: Mutex<Option<Stopped>>,
 }
@@ -136,9 +141,10 @@ impl Held {
     }
 }
 
-/// The runner every bound program of a daemon run starts through: it reserves the per-call budget a
-/// program names before the program starts, and starts nothing when the reservation is short (the
-/// step is then ended as a cancelled one, which the run reads as the spend cap).
+/// The runner every bound program of a daemon run starts through, a step's and an answer's: it
+/// reserves the per-call budget a program names before the program starts (the largest budget of
+/// the runbook for a program that names none), and starts nothing when the reservation is short
+/// (the step or answer is then ended as a cancelled one, which the run reads as the spend cap).
 struct Reserving {
     inner: Arc<dyn TestRunner>,
     held: Arc<Held>,
@@ -162,7 +168,8 @@ impl TestRunner for Reserving {
     }
 
     fn run_child(&self, child: &ChildCommand) -> Result<TestExecution, ConfinementError> {
-        if let Some(want) = budget::call_budget_of_args(child.args()).filter(|w| *w > 0) {
+        let want = budget::call_budget_of_args(child.args()).unwrap_or(self.held.unnamed_micro_usd);
+        if want > 0 {
             self.held.reserve(want)?;
         }
         self.inner.run_child(child)
@@ -187,9 +194,10 @@ impl Gate {
     /// and reservation keyed by the run. A reservation the run's id left in it (the run's earlier
     /// process ended with the step in progress) is dropped: a run that is not alive holds nothing.
     /// `resumed`: the run has a store from an earlier process, whose usage is read and whose cost
-    /// records are not booked again.
+    /// records are not booked again. `unnamed_micro_usd`: what a program that names no per-call
+    /// budget reserves (`budget::reserve_for_unnamed` of the bindings the run reads).
     #[allow(clippy::too_many_arguments)]
-    pub fn open(caps: Caps, state_dir: &Path, runbook: &str, run_id: &str, run_dir: &Path, workspace: &Path, resumed: bool, meter: Arc<Meter>) -> Result<Gate, String> {
+    pub fn open(caps: Caps, state_dir: &Path, runbook: &str, run_id: &str, run_dir: &Path, workspace: &Path, resumed: bool, meter: Arc<Meter>, unnamed_micro_usd: u64) -> Result<Gate, String> {
         let dir = state_dir.join("ledgers");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let ledger = Ledger::open(&dir.join(format!("{runbook}.json")))?;
@@ -199,7 +207,7 @@ impl Gate {
             // what the earlier process wrote was booked then (or is lost with it): it is not booked again
             let _ = reader.read_new(workspace);
         }
-        let held = Arc::new(Held { ledger, run_id: run_id.to_owned(), cap_micro_usd: caps.cap_micro_usd, reserved: Mutex::new(Vec::new()), stopped: Mutex::new(None) });
+        let held = Arc::new(Held { ledger, run_id: run_id.to_owned(), cap_micro_usd: caps.cap_micro_usd, unnamed_micro_usd, reserved: Mutex::new(Vec::new()), stopped: Mutex::new(None) });
         Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader })
     }
 
@@ -287,5 +295,25 @@ impl Gate {
     /// Writes the usage into the run's directory (best effort: the view falls back on nothing).
     pub fn persist(&self) {
         let _ = write_usage(&self.run_dir, self.meter.usage());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_reservation_a_step_held_is_released_when_the_step_is_booked() {
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("gate-unit-release-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let caps = Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 };
+        let gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::new(Usage::default())), 0).unwrap();
+        let ledger = &gate.held.ledger;
+        let first = ledger.reserve_for_run("run-a", 1000, 300).unwrap();
+        let second = ledger.reserve_for_run("run-a", 1000, 200).unwrap();
+        gate.commit(&[first, second], "step", 100).unwrap();
+        // 100 spent, nothing held: 900 of the run's 1000 are left
+        assert_eq!(ledger.reserve_for_run("run-a", 1000, 1000).unwrap().micro_usd, 900, "a reservation of the step is still held after it was booked");
     }
 }

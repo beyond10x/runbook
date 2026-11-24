@@ -276,14 +276,29 @@ keyed by the run id: the module of `runbook run` (`runbook/src/ledger.rs`), with
 the call-budget reader of that command. A run's admission and its reservations are held against its cap
 less what it has spent and holds itself. A reservation of a run that no longer lives counts against no
 run: it is keyed by that run's id, and a run that starts again under its id drops what its id held.
-What a step reserves is what the program it starts may cost: the per-call budget
-(`--max-budget-usd`) in that program's own arguments, which come from the bindings the run reads
-(the root's bindings file and the children it names) and nowhere else, never the whole cap. A step
-whose program names no per-call budget makes no model call and reserves nothing; what it costs is
-booked all the same, from the cost records, and the next step is refused once the run's cap is
-reached. After a step the cost records are booked at their cost; a failed call with no cost is booked
-at the largest reservation the step held (nothing when it held none), and a record that cannot be read books
-the reservations and ends the run as a runtime failure.
+What a program reserves as it starts is what it may cost, never the whole cap. A run is never
+unbound in money:
+
+- A program that names its per-call budget (`--max-budget-usd <v>` or `--max-budget-usd=<v>` in its
+  own arguments, the largest when it names it more than once) reserves that budget. The arguments come
+  from the bindings the run reads (the root's bindings file and the children it names) and nowhere
+  else.
+- A program that names none may call a model all the same: it reserves the largest per-call budget
+  the runbook's own bindings name, root and children. A step near the cap whose program makes no
+  model call may therefore be stopped; a program that names `--max-budget-usd 0` reserves nothing.
+- A runbook with a program that names no budget and no budget in any of its bindings is refused at
+  submit as an invalid request (`400`), naming the reason and the action; no run is made. So is a
+  budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing after the option),
+  naming the action and the bindings file. A run checks the same on its own copy before it opens.
+- A program a person's answer starts (a person action whose binding names an `argv`) reserves the
+  same way before it starts and is booked after; when its reservation is short it does not start and
+  the run ends at the spend cap.
+
+After a step or such an answer the cost records are booked at their cost; a failed call with no
+cost is booked at the largest reservation it held (nothing when it held none), and a record that
+cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
+and through `submit_run`.
 
 The view. `read_run` shows each cap and what is used so far as `settings` members: `max_wall_seconds`,
 `max_llm_calls` and `cap_micro_usd`, and `used_wall_seconds`, `used_llm_calls` and

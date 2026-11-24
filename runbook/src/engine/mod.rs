@@ -193,6 +193,10 @@ impl Engine {
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
+        // What a program that names no per-call budget reserves, from the bindings the run reads; a
+        // runbook whose programs could call a model with no budget anywhere is refused here.
+        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
+        let unnamed_micro_usd = crate::budget::reserve_for_unnamed(&read_bindings).map_err(failure)?;
         let idea = if resume || request.intake.is_empty() {
             None
         } else {
@@ -241,7 +245,7 @@ impl Engine {
         let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
         let meter = Arc::new(Meter::new(before));
         *lock(&slot.meter) = Some(meter.clone());
-        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter).map_err(failure)?;
+        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, unnamed_micro_usd).map_err(failure)?;
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.
@@ -303,11 +307,13 @@ impl Engine {
         tail: &mut LogTail<'_>,
         gate: &mut Gate,
     ) -> Result<Finish, RuntimeFailure> {
-        // The programs of the steps start through the gate's runner, which reserves the budget of each
-        // one that names a per-call budget; the answers of a wait use the runner as it is.
-        let settings = calls::run_settings(gate.runner(runner.clone()), request.confinement, Some(1));
+        // The programs of the steps and those the answers of a wait start go through the gate's runner,
+        // which reserves the budget of each before it starts; each is booked after.
+        let reserving = gate.runner(runner);
+        let settings = calls::run_settings(reserving.clone(), request.confinement, Some(1));
         // The digest of the run's copy is read before each round, as it is for a run that takes all the
-        // steps of a round in one call: a round is the steps between two waits, not each step.
+        // steps of a round in one call: a round is the steps between two waits, each step a `run_tree`
+        // of one step, and the check stands at the top of the round's first.
         let mut new_round = true;
         loop {
             if gate.wall_over() {
@@ -335,11 +341,8 @@ impl Engine {
                 return Err(failure(f));
             }
             // A program that would have started over what the run has left was not started.
-            match gate.take_stopped() {
-                Some(Stopped::Ledger(why)) => return Err(failure(why)),
-                Some(Stopped::Spend(_)) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
-                Some(Stopped::Spend(detail)) => return Ok(Finish::Outcome(gate.reached(Cap::Spend, &detail, sink))),
-                None => {}
+            if let Some(end) = Self::stop_of(gate, cancel, slot, sink) {
+                return end;
             }
             match ran.stop {
                 TreeStop::Terminal => {
@@ -364,17 +367,30 @@ impl Engine {
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran.decisions, pinned, store, catalog, &runner, sink, local, slot, tail)? {
-                        return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
+                    let waited = Waited { local, cancel, slot };
+                    match self.round(&ran.decisions, pinned, store, catalog, &reserving, sink, &waited, tail, gate)? {
+                        RoundEnd::Resumed => new_round = true,
+                        RoundEnd::Halted => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
+                        RoundEnd::Ended(end) => return Ok(end),
                     }
-                    new_round = true;
                 }
             }
         }
     }
 
-    /// One wait: a request per decision, then the answers, each a library call. `false` when the
-    /// run was cancelled while it waited.
+    /// How the run ends when a program of the step or answer just taken was not started: the
+    /// ledger could not be read (a failure), or the reservation was short (the spend cap, unless the
+    /// daemon cancelled the run). `None` when every program started.
+    fn stop_of(gate: &Gate, cancel: &AtomicBool, slot: &Slot, sink: &dyn EventSink) -> Option<Result<Finish, RuntimeFailure>> {
+        Some(match stop_end(gate.take_stopped(), Self::cancelled(cancel, slot))? {
+            StopEnd::Failed(why) => Err(failure(why)),
+            StopEnd::Cancelled => Ok(Finish::Cancelled),
+            StopEnd::Spend(detail) => Ok(Finish::Outcome(gate.reached(Cap::Spend, &detail, sink))),
+        })
+    }
+
+    /// One wait: a request per decision, then the answers, each a library call. A program an answer
+    /// starts goes through `runner`, the gate's: reserved before it starts, booked after.
     #[allow(clippy::too_many_arguments)]
     fn round(
         &self,
@@ -384,10 +400,11 @@ impl Engine {
         catalog: &loom_protocols::ProtocolCatalog,
         runner: &Arc<dyn b10x_loom_tree::TestRunner>,
         sink: &dyn EventSink,
-        cancel: &AtomicBool,
-        slot: &Slot,
+        waited: &Waited<'_>,
         tail: &mut LogTail<'_>,
-    ) -> Result<bool, RuntimeFailure> {
+        gate: &mut Gate,
+    ) -> Result<RoundEnd, RuntimeFailure> {
+        let (cancel, slot) = (waited.local, waited.slot);
         let round = self.rounds.fetch_add(1, Ordering::SeqCst);
         let mut asked: HashMap<String, Planned> = HashMap::new();
         let mut unanswered: BTreeSet<String> = BTreeSet::new();
@@ -405,7 +422,7 @@ impl Engine {
         // Closing a case through one outcome settles the others of that case.
         let mut closed: BTreeSet<String> = BTreeSet::new();
         while !unanswered.is_empty() {
-            let Some(answered) = next_answer(slot, cancel) else { return Ok(false) };
+            let Some(answered) = next_answer(slot, cancel) else { return Ok(RoundEnd::Halted) };
             lock(&slot.state).open.remove(&answered.request_id);
             unanswered.remove(&answered.request_id);
             let Some(planned) = asked.get(&answered.request_id).cloned() else { continue };
@@ -416,16 +433,27 @@ impl Engine {
                 continue;
             }
             let d = &planned.decision;
-            let result = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
-                Ok(())
+            let (result, booked) = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
+                (Ok(()), Ok(()))
             } else {
                 // An answer is a library call that reads the bindings and may run a program of them.
                 check_copy(pinned)?;
-                parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal, runner))
+                let applied = parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal, runner));
+                (applied, gate.book(sink))
             };
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
+            }
+            booked.map_err(failure)?;
+            // A program the answer would have started over what the run has left was not started.
+            if let Some(end) = Self::stop_of(gate, waited.cancel, slot, sink) {
+                // The run leaves the wait: with every request answered it is running again; what is
+                // still open the daemon withdraws as the run ends.
+                if unanswered.is_empty() {
+                    sink.resumed();
+                }
+                return end.map(RoundEnd::Ended);
             }
             match result {
                 Ok(()) => {
@@ -446,11 +474,47 @@ impl Engine {
             }
         }
         if cancel.load(Ordering::SeqCst) {
-            return Ok(false);
+            return Ok(RoundEnd::Halted);
         }
         sink.resumed();
-        Ok(true)
+        Ok(RoundEnd::Resumed)
     }
+}
+
+/// What a wait reads: the run's own flag (a cancel or the wall cap), the daemon's cancel and the
+/// run's slot.
+struct Waited<'a> {
+    local: &'a AtomicBool,
+    cancel: &'a AtomicBool,
+    slot: &'a Slot,
+}
+
+/// How a wait ended.
+enum RoundEnd {
+    /// Every request was answered: the run goes on with a new round.
+    Resumed,
+    /// The run's own flag was set while it waited.
+    Halted,
+    /// The run ended in the wait (a program an answer would have started was not).
+    Ended(Finish),
+}
+
+/// How a run ends when a program was not started.
+#[derive(Debug, PartialEq, Eq)]
+enum StopEnd {
+    Failed(String),
+    Cancelled,
+    Spend(String),
+}
+
+/// A ledger that cannot be read fails the run; a short reservation is the spend cap, and a cancel
+/// by the daemon wins over it.
+fn stop_end(stopped: Option<Stopped>, cancelled: bool) -> Option<StopEnd> {
+    Some(match stopped? {
+        Stopped::Ledger(why) => StopEnd::Failed(why),
+        Stopped::Spend(_) if cancelled => StopEnd::Cancelled,
+        Stopped::Spend(detail) => StopEnd::Spend(detail),
+    })
 }
 
 /// The run's copy of the runbook is what it was at the submit, or the run ends with the refusal.
@@ -493,6 +557,11 @@ impl Runtime for Engine {
 
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
         self.caps.resolve(settings).map(Some)
+    }
+
+    fn check_runbook(&self, runbook: &str, version: Option<&str>) -> Result<(), String> {
+        let resolved = layout::resolve(&self.home, runbook, version)?;
+        crate::budget::reserve_for_unnamed(&resolved.bindings).map(|_| ())
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {
@@ -550,5 +619,13 @@ mod halt_tests {
         assert_eq!(halt_of(true, false), Halt::Cancelled);
         assert_eq!(halt_of(false, false), Halt::Cancelled, "the flag was set by neither");
         assert_eq!(halt_of(false, true), Halt::Wall);
+    }
+
+    #[test]
+    fn a_client_cancel_wins_over_a_spend_stop_and_a_ledger_failure_wins_over_both() {
+        assert_eq!(stop_end(Some(Stopped::Spend("d".into())), true), Some(StopEnd::Cancelled), "the reservation was short and the client had cancelled");
+        assert_eq!(stop_end(Some(Stopped::Spend("d".into())), false), Some(StopEnd::Spend("d".into())));
+        assert_eq!(stop_end(Some(Stopped::Ledger("l".into())), true), Some(StopEnd::Failed("l".into())));
+        assert_eq!(stop_end(None, true), None);
     }
 }

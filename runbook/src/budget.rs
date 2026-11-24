@@ -39,14 +39,28 @@ fn scalar_usd(v: &Value) -> Option<u64> {
     }
 }
 
+/// The value `--max-budget-usd=<v>` names, when `text` is written so.
+fn joined_value(text: &str) -> Option<&str> {
+    text.strip_prefix(ARG)?.strip_prefix('=')
+}
+
+/// The budget the item at `i` of a sequence names: `--max-budget-usd <v>` (the next item) or
+/// `--max-budget-usd=<v>`. `None` when the item names none; `Some(None)` when it names one that is
+/// no number of USD of 0 or more.
+fn budget_at(items: &[Value], i: usize) -> Option<Option<u64>> {
+    let text = items[i].as_str()?;
+    if text == ARG {
+        return Some(items.get(i + 1).and_then(scalar_usd));
+    }
+    joined_value(text).map(usd_text_to_micro)
+}
+
 fn walk_largest(v: &Value, best: &mut Option<u64>) {
     match v {
         Value::Sequence(items) => {
             for (i, item) in items.iter().enumerate() {
-                if item.as_str() == Some(ARG) {
-                    if let Some(m) = items.get(i + 1).and_then(scalar_usd) {
-                        *best = Some(best.map_or(m, |b| b.max(m)));
-                    }
+                if let Some(Some(m)) = budget_at(items, i) {
+                    *best = Some(best.map_or(m, |b| b.max(m)));
                 }
                 walk_largest(item, best);
             }
@@ -65,12 +79,14 @@ fn walk_limit(v: &mut Value, limit: u64) -> bool {
     match v {
         Value::Sequence(items) => {
             for i in 0..items.len() {
-                if items[i].as_str() == Some(ARG) {
-                    if let Some(m) = items.get(i + 1).and_then(scalar_usd) {
-                        if m > limit {
+                if let Some(Some(m)) = budget_at(items, i) {
+                    if m > limit {
+                        if items[i].as_str() == Some(ARG) {
                             items[i + 1] = Value::String(micro_to_usd_text(limit));
-                            changed = true;
+                        } else {
+                            items[i] = Value::String(format!("{ARG}={}", micro_to_usd_text(limit)));
                         }
+                        changed = true;
                     }
                 }
                 changed |= walk_limit(&mut items[i], limit);
@@ -86,19 +102,108 @@ fn walk_limit(v: &mut Value, limit: u64) -> bool {
     changed
 }
 
-/// The per-call budget (`--max-budget-usd`) a program's arguments name, micro USD: the largest when
-/// they name it more than once; `None` when they name none, which is a program that makes no model
-/// call.
+/// The per-call budget a program's arguments name (`--max-budget-usd <v>` or
+/// `--max-budget-usd=<v>`), micro USD: the largest when they name it more than once; `None` when they
+/// name none (a value that is no number of USD of 0 or more names none; the bindings of the daemon's
+/// runs are refused at load for one, `runbook_budgets`).
 pub fn call_budget_of_args(args: &[String]) -> Option<u64> {
     let mut best = None;
     for (i, a) in args.iter().enumerate() {
-        if a == ARG {
-            if let Some(m) = args.get(i + 1).and_then(|v| usd_text_to_micro(v)) {
-                best = Some(best.map_or(m, |b: u64| b.max(m)));
-            }
+        let named = if a == ARG { args.get(i + 1).and_then(|v| usd_text_to_micro(v)) } else { joined_value(a).and_then(usd_text_to_micro) };
+        if let Some(m) = named {
+            best = Some(best.map_or(m, |b: u64| b.max(m)));
         }
     }
     best
+}
+
+/// What the bindings a daemon run reads say about per-call budgets: the root's file, each child
+/// file an `open` action names (`executor.bindings`, beside the file that names it) and theirs.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RunbookBudgets {
+    /// The largest per-call budget any of them names, micro USD.
+    pub largest: Option<u64>,
+    /// The first action whose program (`executor.argv`, or `arguments_from`) names no budget.
+    pub unnamed: Option<String>,
+}
+
+fn names_budget(items: &[Value]) -> bool {
+    (0..items.len()).any(|i| budget_at(items, i).is_some())
+}
+
+/// Every budget an action names is a number of USD of 0 or more, or the action is refused by name.
+fn check_budgets(v: &Value, action: &str, file: &str) -> Result<(), String> {
+    match v {
+        Value::Sequence(items) => {
+            for (i, item) in items.iter().enumerate() {
+                if let Some(None) = budget_at(items, i) {
+                    let given = match item.as_str().and_then(joined_value) {
+                        Some(text) => format!("{text:?}"),
+                        None => items.get(i + 1).map_or_else(|| "nothing".to_owned(), |n| serde_yaml::to_string(n).map_or_else(|_| "a value".to_owned(), |t| t.trim().to_owned())),
+                    };
+                    return Err(format!("the action {action} of {file} names {ARG} {given}: a per-call budget is a number of USD of 0 or more"));
+                }
+                check_budgets(item, action, file)?;
+            }
+            Ok(())
+        }
+        Value::Mapping(map) => map.values().try_for_each(|item| check_budgets(item, action, file)),
+        _ => Ok(()),
+    }
+}
+
+/// Reads the budgets of the bindings `root` names, as `RunbookBudgets` says. A budget that is no
+/// number of USD of 0 or more is refused naming its action and file (`bindings/<file>`, no path). A
+/// file that cannot be read or parsed adds nothing: Loom refuses it when the run opens it.
+pub fn runbook_budgets(root: &Path) -> Result<RunbookBudgets, String> {
+    let base = root.parent().unwrap_or(Path::new("."));
+    let mut out = RunbookBudgets::default();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    let mut queue = vec![root.to_path_buf()];
+    while let Some(file) = queue.pop() {
+        if seen.contains(&file) {
+            continue;
+        }
+        seen.push(file.clone());
+        let Some(doc) = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str::<Value>(&t).ok()) else { continue };
+        let name = format!("bindings/{}", file.strip_prefix(base).unwrap_or(&file).display());
+        walk_largest(&doc, &mut out.largest);
+        let Some(actions) = doc.get("actions").and_then(Value::as_sequence) else { continue };
+        for a in actions {
+            let action = a.get("action").and_then(Value::as_str).unwrap_or("(unnamed)");
+            check_budgets(a, action, &name)?;
+            for program in [a.get("executor").and_then(|e| e.get("argv")), a.get("arguments_from")].into_iter().flatten() {
+                if program.as_sequence().is_some_and(|items| !names_budget(items)) && out.unnamed.is_none() {
+                    out.unnamed = Some(action.to_owned());
+                }
+            }
+            let executor = a.get("executor");
+            if executor.and_then(|e| e.get("kind")).and_then(Value::as_str) == Some("open") {
+                if let Some(child) = executor.and_then(|e| e.get("bindings")).and_then(Value::as_str) {
+                    let rel = Path::new(child);
+                    if !rel.is_absolute() && !rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+                        queue.push(file.parent().unwrap_or(base).join(rel));
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// What a program of a daemon run that names no per-call budget reserves: the largest budget the
+/// runbook's bindings name (`runbook_budgets`), as a program that may call a model. A runbook with
+/// such a program and no budget in any binding is refused, naming the reason: a run of it would be
+/// unbound in money. A runbook with no program reserves 0.
+pub fn reserve_for_unnamed(root: &Path) -> Result<u64, String> {
+    let b = runbook_budgets(root)?;
+    match (b.largest, b.unnamed) {
+        (Some(m), _) => Ok(m),
+        (None, None) => Ok(0),
+        (None, Some(action)) => Err(format!(
+            "the program of the action {action} names no per-call budget ({ARG}) and no binding of the runbook names one: a run of it could call a model unbound in money; name a budget in the arguments of a program"
+        )),
+    }
 }
 
 /// The largest per-call budget the bindings in `dir` name (`--max-budget-usd` values), micro USD; `None` when they name none.

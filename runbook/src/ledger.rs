@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 /// The format id written into the ledger.
 pub const FORMAT: &str = "runbook.spend-ledger/1";
 
+/// The number of the next reservation of this process: with the process id it makes a reservation's
+/// id one that no other reservation of the ledger has, however many were committed or released.
+static NEXT_RESERVATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// How long a run waits for the lock before it fails closed.
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 
@@ -136,7 +140,7 @@ impl Ledger {
     fn grant(&self, run: &str, want_micro_usd: u64, remaining: impl FnOnce(&State) -> u64) -> Result<Reservation, String> {
         self.with_state(|s| {
             let grant = want_micro_usd.min(remaining(s));
-            let id = format!("{run}-{}-{}", std::process::id(), s.entries.len() + s.reserved.len());
+            let id = format!("{run}-{}-{}", std::process::id(), NEXT_RESERVATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
             if grant > 0 {
                 s.reserved.insert(id.clone(), Value::from(grant));
             }

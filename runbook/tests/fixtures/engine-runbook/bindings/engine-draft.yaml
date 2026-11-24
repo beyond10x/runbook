@@ -14,7 +14,7 @@ actions:
   - action: draft.check
     executor:
       kind: program
-      argv: [tools/draft-check.sh, --max-budget-usd, "0"]
+      argv: [tools/draft-check.sh, --max-budget-usd, "0.01"]
     evidence:
       - kind: draft_check
         subject: draft

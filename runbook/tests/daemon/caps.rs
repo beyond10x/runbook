@@ -336,7 +336,9 @@ fn a_wall_cap_ends_a_run_whose_action_sleeps_and_the_run_says_so() {
 #[test]
 fn a_wall_cap_ends_a_run_that_waits_on_a_decision_and_withdraws_what_it_asked() {
     let rig = Rig::new("caps-wall-waiting", roomy());
-    let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "2")]);
+    // 4 s: the run reaches its wait in about 0.6 s alone, and its two steps now reserve in the ledger;
+    // under a full lane a 2 s cap was sometimes spent before the wait
+    let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "4")]);
     until("the run to wait on a decision", 30, || rig.row(&run)["state"] == "WaitingOnDecision");
     let row = rig.wait_ended(&run);
     assert_eq!(row["outcome"], "stopped: wall time", "{row}");

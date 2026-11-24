@@ -157,4 +157,11 @@ pub trait Runtime: Send + Sync + 'static {
     fn usage(&self, _run_id: &str) -> Option<Usage> {
         None
     }
+
+    /// Why a run of the runbook is refused at load, when it is (the engine: a per-call budget that is
+    /// no number of USD, or programs that could call a model with no budget anywhere). Asked at
+    /// submit, before anything is written; the reason names no path.
+    fn check_runbook(&self, _runbook: &str, _version: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
 }

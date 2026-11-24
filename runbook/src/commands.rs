@@ -273,6 +273,35 @@ fn settings_of_strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMa
         .collect()
 }
 
+/// What a body serde refused for a number out of range (`1e999`) is refused for, naming the member
+/// whose value it was: serde refuses the whole body before a setting is read, and its message names
+/// only a line and a column. `None` when the error is another, or no member stands before the number.
+pub fn out_of_range_member(body: &[u8], e: &serde_json::Error) -> Option<String> {
+    if !e.to_string().starts_with("number out of range") {
+        return None;
+    }
+    let text = std::str::from_utf8(body).ok()?;
+    let mut offset = 0usize;
+    for (n, line) in text.split('\n').enumerate() {
+        if n + 1 == e.line() {
+            offset += line.char_indices().nth(e.column()).map_or(line.len(), |(i, _)| i);
+            break;
+        }
+        offset += line.len() + 1;
+    }
+    let before = text.get(..offset.min(text.len()))?;
+    let colon = before.rfind(':')?;
+    let after = before[colon + 1..].trim_start();
+    let digits = after.find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))).unwrap_or(after.len());
+    if digits == 0 || !after[digits..].chars().all(|c| c.is_whitespace() || matches!(c, ',' | '}' | ']')) {
+        return None;
+    }
+    let quoted = before[..colon].trim_end().strip_suffix('"')?;
+    let key = &quoted[quoted.rfind('"')? + 1..];
+    let hint = if crate::caps::KEYS.contains(&key) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+    Some(format!("the setting {key} is a number out of range, not a string{hint}"))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
@@ -571,6 +600,8 @@ impl Daemon {
             Ok(None) => {}
             Err(why) => return Err(Fault::Invalid(why)),
         }
+        // What the runtime refuses a run of the runbook for at load (a run never unbound in money).
+        self.inner.runtime.check_runbook(&input.runbook_id, input.runbook_version.as_deref()).map_err(Fault::Invalid)?;
 
         let mut st = self.st();
         draining_fault(&st)?;
