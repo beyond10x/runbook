@@ -46,7 +46,7 @@ fn the_specification_and_the_handler_agree_on_the_sources_and_the_level_is_optio
     let doc = super::openapi::doc();
     let schemas = &doc["components"]["schemas"];
     let sources: Vec<&str> = schemas["sdc.daemon.ConfinementSource"]["enum"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-    assert_eq!(sources, [ConfinementSource::Submit, ConfinementSource::DaemonDefault, ConfinementSource::BuiltIn].map(ConfinementSource::as_str));
+    assert_eq!(sources, [ConfinementSource::Submit, ConfinementSource::DaemonDefault].map(ConfinementSource::as_str));
     let required: Vec<&str> = schemas["sdc.daemon.SubmitRun.Input"]["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
     assert!(!required.contains(&"confinement"), "confinement is optional: {required:?}");
     let submit = runbook::mcp::tools::list().iter().find(|t| t["name"] == "submit_run").unwrap();

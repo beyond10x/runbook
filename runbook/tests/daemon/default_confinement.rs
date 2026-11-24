@@ -116,9 +116,11 @@ fn a_default_below_the_floor_does_not_start_the_daemon_and_names_both_values() {
 #[test]
 fn the_floor_is_never_read_as_a_default() {
     let l = live("dc-floor", &["--min-confinement", "local"], None);
-    let (row, record) = submit_naming_none(&l);
-    assert_eq!((row["confinement"].clone(), row["confinement_source"].clone()), (json!("linux"), json!("built-in")), "a floor of local gives no default of local: {row}");
-    assert_eq!(record["confinement_source"], "built-in", "{record}");
+    let (status, body) = post(&l, &json!({"runbook_id": STUB_DECISION, "intake": "x"}));
+    assert_eq!((status, body["refused"].clone()), (400, json!("bad request")), "a floor of local gives no default of local, and the binary has none: {body}");
+    assert!(body["message"].as_str().unwrap_or("").contains("confinement"), "the refusal names the member: {body}");
+    assert!(rows(&l, "/daemon/views/runs").is_empty(), "a refused submit writes no run");
+    assert!(!l.dir.join("state/runs").read_dir().map(|mut d| d.next().is_some()).unwrap_or(false), "nor a run directory");
 }
 
 #[test]

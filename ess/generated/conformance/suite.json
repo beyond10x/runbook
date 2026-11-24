@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "be3eafc33364adfa2d5c87783181750b71282b5197032bb10ed7ef69f38b9dcb",
-    "contract_digest": "6cd02a2990eed44121f0511dccc52f476c3cac73c3b094b2b27d5249d85ac9ba",
+    "spec_digest": "74fe3bf6d0f41d8ab07d82bacee5e8b20fc95fb2d5f06ea8ae1221756680d655",
+    "contract_digest": "0f6a04ab17d9144e94b59deeb032d853196875684f3b82563dc3186e157f180a",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -9995,7 +9995,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-a-submit-without-a-level-takes-the-daemons-default": {
-      "purpose": "A submit that names no confinement is taken: the handler fills the daemon's default level (else linux) and the run is Submitted. A submit that names a level below the floor is still refused.",
+      "purpose": "A submit that names no confinement is taken: the handler fills the daemon's default level and the run is Submitted. A submit that names a level below the floor is still refused.",
       "steps": [
         {
           "step": "execute_command",

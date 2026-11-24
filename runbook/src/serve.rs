@@ -44,7 +44,7 @@ pub struct ServeArgs {
     #[arg(long, value_name = "LEVEL", default_value = "linux", value_parser = ["local", "linux"])]
     pub min_confinement: String,
     /// The level of a submit that names none; never below the floor, or the daemon does not start. Else the
-    /// `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` the level `linux`), else linux.
+    /// `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` the level `linux`). With neither, a submit that names no level is refused by name.
     #[arg(long, value_name = "LEVEL", value_parser = ["local", "linux"])]
     pub default_confinement: Option<String>,
     /// The `confinement` of `runbook.toml`, as a level. Not an option: the binary fills it from the file.

@@ -110,6 +110,27 @@ fn decider_label(text: &str) -> bool {
     rest.is_some_and(|r| !r.is_empty()) && long_enough(text) && !text.chars().any(char::is_control)
 }
 
+/// The label a client's answer is recorded under. The one function that reads it: the text is
+/// trimmed of ASCII whitespace, and what is left is ASCII with no control character (a label with
+/// any other character is refused, so no look-alike of a reserved prefix reaches the record), at
+/// most `MAX_LABEL_CHARS` long, and does not start with `rule:`, `decider:` or `router:` in any
+/// case: those are the daemon's own names for an answer of a rule, a decider or a router. A
+/// refusal names the field and the rule and prints no byte of the label.
+pub fn client_label(field: &str, text: &str) -> Result<String, String> {
+    if !long_enough(text) {
+        return Err(format!("{field} is longer than {MAX_LABEL_CHARS} characters"));
+    }
+    let label = text.trim_matches(|c: char| c.is_ascii_whitespace());
+    if !label.bytes().all(|b| b.is_ascii_graphic() || b == b' ') {
+        return Err(format!("{field}: a label is printable ASCII; this one holds a character that is not (or a control character) and is refused"));
+    }
+    let lower = label.to_ascii_lowercase();
+    if ["rule:", "decider:", "router:"].iter().any(|p| lower.starts_with(p)) {
+        return Err(format!("{field}: the names that start with `rule:`, `decider:` or `router:` are the daemon's own for an answer of a rule, a decider or a router; a client's answer takes another label"));
+    }
+    Ok(label.to_owned())
+}
+
 /// The refusal of a default level below the floor, naming both values. The daemon does not start
 /// with one: a default that every submit it applies to would refuse is a configuration that
 /// disagrees with itself.
@@ -322,7 +343,7 @@ pub struct SubmitRun {
     pub context_path: Option<String>,
     #[serde(default)]
     pub settings: BTreeMap<String, String>,
-    /// Absent: the daemon's default level, else `linux`.
+    /// Absent: the daemon's default level; a daemon with none refuses the submit by name.
     #[serde(default)]
     pub confinement: Option<Confinement>,
     /// Absent: the daemon's default level, else none and every decision waits for a client.
@@ -559,7 +580,7 @@ impl Daemon {
         let (confinement, source) = match (input.confinement, self.inner.policy.default_confinement) {
             (Some(named), _) => (named, ConfinementSource::Submit),
             (None, Some(default)) => (default, ConfinementSource::DaemonDefault),
-            (None, None) => (Confinement::Linux, ConfinementSource::BuiltIn),
+            (None, None) => return Err(Fault::Invalid("confinement: name it in the submit, or start the daemon with --default-confinement or a `confinement` in runbook.toml".to_owned())),
         };
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
         // The two facts the specification takes from the host.
@@ -679,12 +700,8 @@ impl Daemon {
     }
 
     pub fn answer_decision(&self, input: AnswerDecision) -> Reply {
-        if !long_enough(&input.answered_by) {
-            return Err(Fault::Invalid(format!("answered_by is longer than {MAX_LABEL_CHARS} characters")));
-        }
-        if input.answered_by.starts_with("rule:") || input.answered_by.starts_with("decider:") {
-            return Err(Fault::Invalid("answered_by: the names that start with `rule:` or `decider:` are the daemon's own for an answer of a rule or a decider; a client's answer takes another label".to_owned()));
-        }
+        let mut input = input;
+        input.answered_by = client_label("answered_by", &input.answered_by).map_err(Fault::Invalid)?;
         let mut st = self.st();
         let (run_id, request_id) = (input.run_id.clone(), input.request_id.clone());
         let Some(request) = st.decision(&request_id) else {

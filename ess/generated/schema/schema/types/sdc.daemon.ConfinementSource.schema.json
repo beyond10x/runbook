@@ -5,20 +5,19 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:297ca7bd1891cb48d472506a6e5f3a84afa1fb2b83d096b9b431e7f2d5717684",
+    "contract_digest": "slice-sha256/2:9907fca6a7b9411c46ff6687fc38bed59f3cf49f40652f2d6bde0b01ea3b61f2",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.ConfinementSource": {
       "title": "ConfinementSource",
-      "description": "Where a run's level came from: submit (the client named it), daemon-default (the daemon's default level) or built-in (linux, when the client named none and the daemon has no default).",
+      "description": "Where a run's level came from: submit (the client named it) or daemon-default (the client named none and the daemon's default level applied). There is no third source: a daemon with no default refuses a submit that names none.",
       "x-ess-name": "sdc.daemon.ConfinementSource",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
         "submit",
-        "daemon-default",
-        "built-in"
+        "daemon-default"
       ]
     }
   }

@@ -59,8 +59,6 @@ pub enum ConfinementSource {
     Submit,
     /// The daemon's default level (`--default-confinement`, or `confinement` of `runbook.toml`).
     DaemonDefault,
-    /// The submit named none and the daemon has no default: linux.
-    BuiltIn,
 }
 
 impl ConfinementSource {
@@ -68,7 +66,6 @@ impl ConfinementSource {
         match self {
             ConfinementSource::Submit => "submit",
             ConfinementSource::DaemonDefault => "daemon-default",
-            ConfinementSource::BuiltIn => "built-in",
         }
     }
 }

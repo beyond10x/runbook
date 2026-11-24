@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:75c6a8720db4a160ac39da3ca6ccbd17bc828f673017b39b782506cb7645cc12
+# contract digest slice-sha256/2:6ca89b1f0d8daa7b4a090f82795d376a1b21b3afb221fa9cc1ef02523e3e4373
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:75c6a8720db4a160ac39da3ca6ccbd17bc828f673017b39b782506cb7645cc12
+    contract_digest: slice-sha256/2:6ca89b1f0d8daa7b4a090f82795d376a1b21b3afb221fa9cc1ef02523e3e4373
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -326,7 +326,7 @@ paths:
     post:
       operationId: sdc.daemon.SubmitRun
       summary: Submit a run
-      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon''s default level, else linux), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon''s defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon''s default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon''s defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -891,7 +891,7 @@ components:
       type: object
     sdc.daemon.AnswererLabel:
       title: AnswererLabel
-      description: 'The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon''s own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.'
+      description: 'The name a client gives when it answers a decision (the answered_by of AnswerDecision): ASCII text without control characters, at most 200 characters. The daemon trims it of ASCII whitespace and refuses (400) a longer one, one that holds a non-ASCII or a control character, and one whose lower case starts with `rule:`, `decider:` or `router:`, the names it keeps for the answers of a rule, a decider and a router. It is stored and shown trimmed and is never the principal: the principal of an answer is the daemon''s own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.'
       x-ess-name: sdc.daemon.AnswererLabel
       x-ess-kind: newtype
       type: string
@@ -1106,7 +1106,7 @@ components:
       type: object
     sdc.daemon.ConfinementLevel:
       title: ConfinementLevel
-      description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon''s default level (runbook serve --default-confinement, or `confinement` of runbook.toml), else at linux; the handler fills it. The daemon''s floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.'
+      description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon''s default level (runbook serve --default-confinement, or `confinement` of runbook.toml); a daemon with none refuses the submit by name and writes nothing, as the binary has no built-in default; the handler fills it. The daemon''s floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.'
       x-ess-name: sdc.daemon.ConfinementLevel
       x-ess-kind: enum
       type: string
@@ -1115,14 +1115,13 @@ components:
       - linux
     sdc.daemon.ConfinementSource:
       title: ConfinementSource
-      description: 'Where a run''s level came from: submit (the client named it), daemon-default (the daemon''s default level) or built-in (linux, when the client named none and the daemon has no default).'
+      description: 'Where a run''s level came from: submit (the client named it) or daemon-default (the client named none and the daemon''s default level applied). There is no third source: a daemon with no default refuses a submit that names none.'
       x-ess-name: sdc.daemon.ConfinementSource
       x-ess-kind: enum
       type: string
       enum:
       - submit
       - daemon-default
-      - built-in
     sdc.daemon.ContextOutsideRoots.Error:
       title: ContextOutsideRoots payload
       description: 'The context directory does not lie under any of the daemon''s context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`.'
@@ -2223,7 +2222,7 @@ components:
       additionalProperties: false
     sdc.daemon.SubmitRun.Input:
       title: Submit a run input
-      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon''s default level, else linux), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon''s defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon''s default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon''s defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       x-ess-name: sdc.daemon.SubmitRun
       x-ess-kind: command-input
       type: object
@@ -2242,7 +2241,7 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunSettings'
         confinement:
           $ref: '#/components/schemas/sdc.daemon.ConfinementLevel'
-          description: The level the client named; absent when it named none, and the run then takes the daemon's default level, else linux (the handler fills it and says which in confinement_source).
+          description: The level the client named; absent when it named none, and the run then takes the daemon's default level (a daemon with none refuses the submit by name; the handler fills it and says which in confinement_source).
         confinement_source:
           $ref: '#/components/schemas/sdc.daemon.ConfinementSource'
           description: 'Where the level came from: the handler fills it. A client never sends it.'
@@ -2610,7 +2609,7 @@ x-ess-entities:
     - value.count <= 200
   sdc.daemon.ConfinementLevel:
     title: ConfinementLevel
-    description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon''s default level (runbook serve --default-confinement, or `confinement` of runbook.toml), else at linux; the handler fills it. The daemon''s floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.'
+    description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon''s default level (runbook serve --default-confinement, or `confinement` of runbook.toml); a daemon with none refuses the submit by name and writes nothing, as the binary has no built-in default; the handler fills it. The daemon''s floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.'
     x-ess-name: sdc.daemon.ConfinementLevel
     x-ess-kind: enum
     type: string
@@ -2619,14 +2618,13 @@ x-ess-entities:
     - linux
   sdc.daemon.ConfinementSource:
     title: ConfinementSource
-    description: 'Where a run''s level came from: submit (the client named it), daemon-default (the daemon''s default level) or built-in (linux, when the client named none and the daemon has no default).'
+    description: 'Where a run''s level came from: submit (the client named it) or daemon-default (the client named none and the daemon''s default level applied). There is no third source: a daemon with no default refuses a submit that names none.'
     x-ess-name: sdc.daemon.ConfinementSource
     x-ess-kind: enum
     type: string
     enum:
     - submit
     - daemon-default
-    - built-in
   sdc.daemon.ContextPath:
     title: ContextPath
     description: A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.
@@ -2724,7 +2722,7 @@ x-ess-entities:
         type: string
       answered_by:
         $ref: '#/x-ess-entities/sdc.decision.Principal'
-        description: 'The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal. A rule or a decider of the run answers under its own name instead, `rule:<name>` or `decider:<kind>`, and a client cannot take a name that starts with either (400).'
+        description: 'The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal. A rule or a decider of the run answers under its own name instead, `rule:<name>` or `decider:<kind>`, and a client cannot take a name that starts with either, in any case, or with `router:`, nor one with a non-ASCII or a control character (400).'
       principal:
         $ref: '#/x-ess-entities/sdc.decision.Principal'
         description: The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one. For an answer of a rule or a decider it is that rule's or decider's own principal (`decider:<verdict>`, `rule:<name>`), never the daemon's, which may be a person's.
@@ -2805,7 +2803,7 @@ x-ess-entities:
         $ref: '#/x-ess-entities/sdc.daemon.ConfinementLevel'
       confinement_source:
         $ref: '#/x-ess-entities/sdc.daemon.ConfinementSource'
-        description: 'Where the level came from: the submit, the daemon''s default or the built-in linux. Absent for a run recorded before the daemon kept it.'
+        description: 'Where the level came from: the submit or the daemon''s default. Absent for a run recorded before the daemon kept it.'
       autonomy:
         $ref: '#/x-ess-entities/sdc.decision.AutonomyLevel'
         description: 'The level the run was submitted with, or took from the daemon''s default; absent when none: every decision of the run waits for a client. Fixed at the submit and read from the record, never from the daemon''s policy of the day.'

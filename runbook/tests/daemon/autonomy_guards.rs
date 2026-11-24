@@ -73,7 +73,7 @@ fn start(dir: &std::path::Path, runtime: &Arc<Trying>, policy: Policy) -> Daemon
 }
 
 fn submit(d: &Daemon, autonomy: Option<Autonomy>, decider: Option<&str>) -> Result<String, Fault> {
-    d.submit_run(SubmitRun { runbook_id: "any".into(), intake: "x".into(), autonomy, decider: decider.map(str::to_owned), ..SubmitRun::default() }).map(|o| {
+    d.submit_run(SubmitRun { runbook_id: "any".into(), intake: "x".into(), confinement: Some(Confinement::Linux), autonomy, decider: decider.map(str::to_owned), ..SubmitRun::default() }).map(|o| {
         assert_eq!(o.body()["outcome"], "submitted", "{}", o.body());
         o.run_id.unwrap()
     })
