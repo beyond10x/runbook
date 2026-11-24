@@ -560,8 +560,9 @@ function recordProgress(r, runDir) {
 // when a record that was read is changed afterwards (a late attribution).
 const fsCache = new Map();
 const FS_CHUNK = 32 * 1048576;
-// a bound named by the environment is a whole number of at least 1; any other value (0, negative, a fraction, text, empty) is the default
-const boundOf = (value, dflt) => { const n = Number(value); return Number.isInteger(n) && n >= 1 ? n : dflt; };
+// a bound named by the environment is a whole number of at least 1 that a number holds exactly (at most 2^53 - 1); any other value
+// (0, negative, a fraction, text, empty, 1e300) is the default
+const boundOf = (value, dflt) => { const n = Number(value); return Number.isSafeInteger(n) && n >= 1 ? n : dflt; };
 const MAX_RECORDS = boundOf(process.env.SDC_UI_MAX_RECORDS, 100000);
 const MAX_RECORD_BYTES = boundOf(process.env.SDC_UI_MAX_RECORD_BYTES, 64 * 1048576);
 const fsSig = (file) => { try { const s = fs.lstatSync(file); return `${s.size}:${s.mtimeMs}:${s.ino}`; } catch { return '-'; } };
@@ -577,7 +578,7 @@ function fsChanges(runDir) {
     const r = readRegular(file, {root: runDir, at: c ? c.offset : 0, limit: FS_CHUNK});
     if (r.state !== 'ok') { fsCache.delete(runDir); return {present: false, list: []}; }
     if (!c || r.size < c.offset) {
-      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map(), rev: 0, bytes: 0, maxSeq: -Infinity, stopped: null};
+      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map(), lateLen: new Map(), rev: 0, bytes: 0, maxSeq: -Infinity, stopped: null};
       fsCache.set(runDir, c);
       if (r.from !== 0) continue; // the file is shorter than what was read: read it again from its start
     }
@@ -593,10 +594,12 @@ function fsChanges(runDir) {
       try {
         const r = JSON.parse(line);
         if (r.format === 'sdc.fs-attribution/1') {
-          const fresh = !c.late.has(r.change);
-          if (fresh && c.late.size >= MAX_RECORDS) { start = lineStart; full = 'records'; break; }
-          if (fresh && c.bytes + len > MAX_RECORD_BYTES) { start = lineStart; full = 'bytes'; break; }
-          if (fresh) c.bytes += len;
+          // a line for a change that has one already replaces it: it adds what it holds beyond the longest line counted for that change
+          const counted = c.lateLen.get(r.change), grow = Math.max(0, len - (counted ?? 0));
+          if (counted === undefined && c.late.size >= MAX_RECORDS) { start = lineStart; full = 'records'; break; }
+          if (c.bytes + grow > MAX_RECORD_BYTES) { start = lineStart; full = 'bytes'; break; }
+          c.bytes += grow;
+          c.lateLen.set(r.change, Math.max(len, counted ?? 0));
           const late = {...r.attribution, late_at: r.at};
           c.late.set(r.change, late);
           const x = c.bySeq.get(r.change);
