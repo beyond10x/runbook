@@ -455,7 +455,10 @@ never grant more than the cap: two processes that each want 0.60 USD against a c
 spend at most 2.00 USD between them.
 
 The per-call budget is the `--max-budget-usd` argv value of the model tools in the copy, lowered
-before each step to the reservation. No `max_budget_micro_usd` is written: in a tree only `max_runs`
+before each step to the reservation. A member `max_budget_usd` of a binding (`docs/loom-bindings.md`,
+"The per-call budget of a program") counts toward the largest budget a step reserves and is not
+lowered: it is reserved as written. The copy holds no member (Loom refuses one it does not know); the
+members are kept beside it in `bindings/.call-budgets.json`. No `max_budget_micro_usd` is written: in a tree only `max_runs`
 acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes

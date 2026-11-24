@@ -311,6 +311,9 @@ fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Opt
         r.add("bindings", &file, "has no actions list", "list the actions under `actions:`");
         return;
     };
+    if let Some(why) = serde_yaml::to_value(doc).ok().and_then(|y| runbook::budget::check_members(&y, &file).err()) {
+        r.add("bindings", &file, why, "write max_budget_usd as docs/loom-bindings.md (\"The per-call budget of a program\") says: a run refuses it at load");
+    }
     for a in actions {
         let Some(action) = a.get("action").and_then(Value::as_str) else {
             r.add("bindings", &file, "an entry of actions has no `action` name", "name it with `action:`");
@@ -998,5 +1001,31 @@ mod tests {
         ] {
             assert_eq!(budget_findings(executor, rest), Vec::<String>::new(), "{what}");
         }
+    }
+
+    #[test]
+    fn a_member_max_budget_usd_of_a_program_passes_and_one_a_run_refuses_is_one_finding_naming_the_member() {
+        for rest in ["    max_budget_usd: 0\n", "    max_budget_usd: 0.25\n"] {
+            assert_eq!(budget_findings(PROGRAM, rest), Vec::<String>::new(), "{rest}");
+        }
+        let agree = "{kind: program, argv: [sdc-node, a.write, --max-budget-usd, \"0.3\"]}";
+        assert_eq!(budget_findings(agree, "    max_budget_usd: 0.3\n"), Vec::<String>::new());
+        for (executor, rest) in [
+            (PROGRAM, "    max_budget_usd: -1\n"),
+            (PROGRAM, "    max_budget_usd: abc\n"),
+            (PROGRAM, "    max_budget_usd: .nan\n"),
+            (PROGRAM, "    max_budget_usd: \"0.3\"\n"),
+            (agree, "    max_budget_usd: 0.2\n"),
+            ("{kind: open, name: a, bindings: a.yaml}", "    max_budget_usd: 0\n"),
+        ] {
+            let found = budget_findings(executor, rest);
+            assert!(found.len() == 1 && found[0].starts_with("bindings/x.yaml: ") && found[0].contains("max_budget_usd") && found[0].contains("a.write"), "{executor} {rest}: {found:?}");
+        }
+        let text = "format: loom.bindings/1\nmax_budget_usd: -1\nactions:\n  - action: a.write\n    executor: {kind: program, argv: [sdc-node, a.write]}\n";
+        let doc = yaml_to_json(serde_yaml::from_str::<serde_yaml::Value>(text).unwrap());
+        let mut r = Report::default();
+        yaml_bindings(Path::new("."), &mut r, "x", &doc, None);
+        let found: Vec<String> = r.findings.into_iter().map(|f| f.what).collect();
+        assert!(found.len() == 1 && found[0].contains("the bindings file bindings/x.yaml names max_budget_usd"), "{found:?}");
     }
 }

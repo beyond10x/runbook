@@ -205,10 +205,11 @@ impl Engine {
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
-        // What a program that names no per-call budget reserves, from the bindings the run reads; a
-        // runbook whose programs could call a model with no budget anywhere is refused here.
+        // What each program reserves, from the bindings the run reads (the copy's members are kept
+        // beside it, `budget::seal`); a runbook whose programs could call a model with no budget
+        // anywhere is refused here.
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
-        let unnamed_micro_usd = crate::budget::reserve_for_unnamed(&read_bindings).map_err(failure)?;
+        let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         // Every program the runner starts is told to the sink before it starts: the daemon records the step in
         // flight. The actions are read from the bindings the run reads, those of its own copy.
         let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
@@ -263,7 +264,7 @@ impl Engine {
         let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
         let meter = Arc::new(Meter::new(before));
         *lock(&slot.meter) = Some(meter.clone());
-        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, unnamed_micro_usd).map_err(failure)?;
+        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.

@@ -44,6 +44,24 @@ fn a_failed_call_without_a_cost_books_its_reservation_and_the_run_goes_on() {
 }
 
 #[test]
+fn a_step_reserves_the_member_max_budget_usd_of_a_binding_and_loom_gets_a_copy_without_it() {
+    // The model node's argv names no budget; its action names `max_budget_usd: 0.4`. A failed call with
+    // no cost books the step's reservation: the member's 0.4 USD, not the whole cap. The copy Loom reads
+    // holds no member: Loom refuses one it does not know.
+    let w = World::new("member-budget");
+    let bindings = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: node.write\n    max_budget_usd: 0.4\n    executor:\n      kind: program\n      argv: [sdc-node, node.write]\n";
+    std::fs::write(w.root.join("bindings/sdc.yaml"), bindings).unwrap();
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.hook("tree_run", "1", &format!("{}cp bindings/sdc.yaml \"$D/bind.copy\"\n", failed_call_hook(2, "null", "refused")));
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(spent(&w), 400_000, "the step did not reserve the member's 0.4 USD");
+    let copy = std::fs::read_to_string(w.fake.dir.join("bind.copy")).unwrap();
+    assert!(!copy.contains("max_budget_usd"), "{copy}");
+}
+
+#[test]
 fn failed_calls_without_a_cost_run_into_the_spend_cap_and_stop_there() {
     let w = World::new("failed-cap");
     w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);

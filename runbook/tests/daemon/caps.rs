@@ -555,6 +555,144 @@ fn a_program_that_names_its_budget_twice_reserves_the_larger() {
     assert!(rig.calls_made(&run).is_empty(), "a program that may cost 0.3 USD started under a cap of 0.25: {:?}", rig.calls_made(&run));
 }
 
+// ---- a binding names the budget of its programs ----
+
+/// Gives the action `action` of the bindings file `file` the member `max_budget_usd: <value>`.
+fn member(home: &Path, file: &str, action: &str, value: &str) {
+    replace_in(home, file, &format!("  - action: {action}\n"), &format!("  - action: {action}\n    max_budget_usd: {value}\n"));
+}
+
+/// Gives the bindings file `file` the member `max_budget_usd: <value>` at its top.
+fn file_member(home: &Path, file: &str, value: &str) {
+    replace_in(home, file, "\nactions:\n", &format!("\nmax_budget_usd: {value}\nactions:\n"));
+}
+
+/// No argv of `caps-demo` names a budget.
+fn no_argv_budgets(home: &Path) {
+    let path = home.join("bindings/caps-demo.yaml");
+    let text = std::fs::read_to_string(&path).unwrap().replace(", --max-budget-usd, \"0.3\"", "");
+    assert!(!text.contains("max-budget-usd"));
+    std::fs::write(&path, text).unwrap();
+}
+
+/// The two programs of `caps-demo` that stood for model calls call none: they write the note and nothing else.
+fn model_free(home: &Path) {
+    std::fs::write(home.join("bindings/tools/model-step.sh"), "#!/bin/sh\n[ \"$1\" != write ] || echo note >> note.txt\n").unwrap();
+}
+
+/// Every program of `caps-demo`, the publish too, writes a failed call with no cost: the run books what
+/// each program reserved.
+fn books_its_reservation(home: &Path) {
+    let script = "#!/bin/sh\nw=.sdc/llm\nmkdir -p \"$w\"\ni=$(( $(find \"$w\" -mindepth 1 -maxdepth 1 -type d | wc -l) + 1 ))\nd=$(printf '%03d-step.%s' \"$i\" \"$1\")\nmkdir -p \"$w/$d\"\necho '{}' > \"$w/$d/request.json\"\nprintf '{\"action\":\"step.%s\",\"adapter\":\"stand-in\",\"exit\":1,\"record\":\"%s/%s\"}\\n' \"$1\" \"$PWD/$w\" \"$d\" >> \"$w/calls.jsonl\"\n[ \"$1\" != write ] || echo note >> note.txt\n";
+    std::fs::write(home.join("bindings/tools/model-step.sh"), script).unwrap();
+    replace_in(home, "bindings/caps-demo.yaml", "argv: [tools/publish.sh]", "argv: [tools/model-step.sh, publish]");
+}
+
+#[test]
+fn a_runbook_whose_programs_name_max_budget_usd_0_and_nothing_else_is_admitted_and_reserves_nothing() {
+    // No argv names a budget; each program action names `max_budget_usd: 0`: it calls no model. The run
+    // is admitted and finishes under a cap of 1 micro USD, which a program that reserved anything
+    // would not start under.
+    let rig = Rig::tweaked("caps-member-zero", per_run(1), |home| {
+        no_argv_budgets(home);
+        model_free(home);
+        for action in ["note.write", "note.check", "note.publish"] {
+            member(home, "bindings/caps-demo.yaml", action, "0");
+        }
+    });
+    let run = rig.submit(RUNBOOK, None, &[]);
+    let row = rig.wait_ended(&run);
+    assert_eq!(row["outcome"], "finished", "{row}");
+    assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("0"), Some("0")), "{row}");
+    // The copy the run read holds no member: Loom refuses a member it does not know.
+    let copy = std::fs::read_to_string(rig.dir.join("state/runs").join(&run).join("runbook/bindings/caps-demo.yaml")).unwrap();
+    assert!(!copy.contains("max_budget_usd"), "{copy}");
+}
+
+#[test]
+fn a_file_member_covers_the_programs_of_its_file_and_not_those_of_a_child_file() {
+    // caps-demo names `max_budget_usd: 0` once, at the top of its file: its three programs reserve
+    // nothing and the run finishes under a cap of 1 micro USD. engine-demo names 0.05 at the top of the
+    // root file, which opens engine-draft; there the writer names no budget and the check 0.3. The
+    // writer is a program of the child file: it reserves the largest budget of the runbook (0.3), not
+    // the root's 0.05, and does not start under a cap of 0.2 USD.
+    let rig = Rig::tweaked("caps-file-member", per_run_up_to(1, 1_000_000), |home| {
+        no_argv_budgets(home);
+        model_free(home);
+        file_member(home, "bindings/caps-demo.yaml", "0");
+        file_member(home, "bindings/engine-demo.yaml", "0.05");
+        replace_in(home, "bindings/engine-draft.yaml", "--max-budget-usd, \"0.01\"", "--max-budget-usd, \"0.3\"");
+    });
+    let run = rig.submit(RUNBOOK, None, &[]);
+    let row = rig.wait_ended(&run);
+    assert_eq!(row["outcome"], "finished", "{row}");
+    assert_eq!(setting(&row, "spent_micro_usd"), Some("0"), "{row}");
+    let child = rig.submit("engine-demo", None, &[("cap_micro_usd", "200000")]);
+    let row = rig.wait_ended(&child);
+    assert_eq!(row["outcome"], "stopped: spend cap", "{row}");
+    assert!(!rig.dir.join("state/workspaces").join(&child).join("draft.txt").exists(), "the writer of the child file started on the root file's 0.05 USD: {row}");
+}
+
+#[test]
+fn a_program_reserves_its_argv_budget_then_its_action_member_then_its_file_member_then_the_largest() {
+    // Each program writes a failed call with no cost, so the run books what each reserved. The file
+    // names 0.05; write names 0.3 in its argv (over the file's), check names 0.1 as its action's member
+    // (over the file's), publish names nothing itself (the file's 0.05, not the runbook's largest, 0.3).
+    let rig = Rig::tweaked("caps-member-order", per_run(1_000_000), |home| {
+        books_its_reservation(home);
+        replace_in(home, "bindings/caps-demo.yaml", "check, --max-budget-usd, \"0.3\"", "check");
+        member(home, "bindings/caps-demo.yaml", "note.check", "0.1");
+        file_member(home, "bindings/caps-demo.yaml", "0.05");
+    });
+    let run = rig.submit(RUNBOOK, None, &[]);
+    let row = rig.wait_ended(&run);
+    assert_eq!(row["outcome"], "finished", "{row}");
+    assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("450000"), Some("3")), "300000 + 100000 + 50000 reserved and booked: {row}");
+}
+
+#[test]
+fn an_action_whose_argv_and_member_name_two_budgets_is_refused_at_submit_naming_the_action() {
+    // write names 0.3 in its argv. In caps-demo its member names 0.2: refused. In caps-other its member
+    // names 0.3 as well: taken, and the run finishes.
+    let rig = Rig::tweaked("caps-member-disagree", per_run(1_000_000), |home| {
+        member(home, "bindings/caps-demo.yaml", "note.write", "0.2");
+        member(home, "bindings/caps-other.yaml", "note.write", "0.3");
+    });
+    match rig.try_submit(RUNBOOK, None, &[]) {
+        Err(Fault::Invalid(why)) => assert!(why.contains("note.write") && why.contains("max_budget_usd") && !why.contains(rig.dir.to_str().unwrap()), "{why}"),
+        other => panic!("an action whose argv and member disagree was taken: {other:?}"),
+    }
+    assert!(rig.d.runs().is_empty(), "a refused submit made a run: {:?}", rig.d.runs());
+    let agree = rig.submit("caps-other", None, &[]);
+    let row = rig.wait_ended(&agree);
+    assert_eq!(row["outcome"], "finished", "{row}");
+}
+
+#[test]
+fn a_member_that_is_no_number_of_usd_of_zero_or_more_is_refused_at_submit_naming_the_action_or_the_file() {
+    let rig = Rig::new("caps-member-bad", per_run(1_000_000));
+    let home = rig.dir.join("home");
+    let protocol = std::fs::read_to_string(home.join("protocol/caps-demo.protocol.yaml")).unwrap();
+    let bindings = std::fs::read_to_string(home.join("bindings/caps-demo.yaml")).unwrap();
+    let mut report = Vec::new();
+    for (n, value) in ["abc", "-1", ".nan", ".inf", "\"0.3\"", "~", "true", "[0.3]"].iter().enumerate() {
+        for on_action in [true, false] {
+            let name = format!("mbad{n}{}", if on_action { "a" } else { "f" });
+            std::fs::write(home.join(format!("protocol/{name}.protocol.yaml")), protocol.replace("id: caps-demo", &format!("id: {name}"))).unwrap();
+            let text = bindings.replace("caps-demo@1", &format!("{name}@1"));
+            let text = if on_action { text.replacen("  - action: note.check\n", &format!("  - action: note.check\n    max_budget_usd: {value}\n"), 1) } else { text.replacen("\nactions:\n", &format!("\nmax_budget_usd: {value}\nactions:\n"), 1) };
+            std::fs::write(home.join(format!("bindings/{name}.yaml")), text).unwrap();
+            let named = if on_action { "note.check".to_owned() } else { format!("bindings/{name}.yaml") };
+            match rig.try_submit(&name, None, &[]) {
+                Err(Fault::Invalid(why)) if why.contains(&named) && why.contains("max_budget_usd") && !why.contains(rig.dir.to_str().unwrap()) => {}
+                other => report.push(format!("{name} {value}: {other:?}")),
+            }
+        }
+    }
+    assert!(report.is_empty(), "a member that is no number of USD was not refused naming its action or file:\n{}", report.join("\n"));
+    assert!(rig.d.runs().is_empty(), "a refused submit made a run: {:?}", rig.d.runs());
+}
+
 // ---- a program an answer starts ----
 
 /// The review of the engine runbook's draft becomes a person action whose binding names a program

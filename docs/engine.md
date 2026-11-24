@@ -166,8 +166,9 @@ The engine is made with a caps policy (`Engine::new(home, state_dir, caps)`): th
 and their ceilings. A run is driven one step at a time (`max_steps` of 1 for each `run_tree`), and
 before each step `engine/gate.rs` holds the wall time, the model calls and the run's own spend against
 their caps; the runner every bound program starts through, a step's and one an answer starts,
-reserves, as the program starts, the per-call budget that program names (none: the largest the
-runbook's bindings name; a runbook with such a program and no budget anywhere is refused at load) in
+reserves, as the program starts, the per-call budget that program names (in its argv, else the
+member `max_budget_usd` of its action or its bindings file; none: the largest the runbook's bindings
+name; a runbook with such a program and no budget anywhere is refused at load) in
 the ledger of the runbook (`<state dir>/ledgers/<runbook>.json`, entries and reservations keyed by the
 run), against the run's own cap; after the step or answer the cost records are booked. A run at a cap ends `stopped: wall time`, `stopped: llm calls` or
 `stopped: spend cap`. A wall cap ends a sleeping step through a flag of the run's own that the
