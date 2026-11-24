@@ -224,6 +224,48 @@ fn a_decider_that_escalates_stops_the_run_for_a_person_and_books_nothing_for_it(
     assert!(lines(&dir.join("decisions.jsonl")).is_empty());
 }
 
+/// A model decider that names no budget per call holds all the cap has left while it decides (the
+/// ledger grants it the rest of the cap, and it is given that as its call budget): a second run on the
+/// same ledger finds nothing left and stops with exit 4 until the first call ends, then the first run
+/// books the cost of its call and ends. The stand-in adapter waits for a file.
+#[test]
+fn a_decider_that_names_no_budget_holds_all_the_cap_has_left_while_it_decides() {
+    let w = World::new("e2e-decider-holds");
+    install_decider(&w, APPROVE);
+    let adapter = w.root.join("bindings/tools/llm-adapter-claude-cli.sh");
+    let waiting = ADAPTER_SH.replace("echo $n > \"$d/n\"\n", "echo $n > \"$d/n\"\nwhile [ ! -f \"$d/go\" ]; do sleep 0.1; done\n");
+    std::fs::write(&adapter, waiting).unwrap();
+    tree_with_approval(&w, "0.30");
+    let mut first = fixture_settings(&w, 1_000_000);
+    write_settings(&w, &first);
+    first["run"] = json!("r2");
+    std::fs::write(w.root.join("settings2.toml"), super::core::toml_text(&first)).unwrap();
+    let args = w.args("r1", 1_000_000);
+    let mut second = w.args("r2", 1_000_000);
+    let at = second.iter().position(|a| a == "--settings").unwrap();
+    second[at + 1] = w.root.join("settings2.toml").display().to_string();
+    let mut command = w.command(&args);
+    let one = std::thread::spawn(move || {
+        command.output().unwrap()
+    });
+    let started = w.run_dir("r1/bindings/tools/n");
+    let mut waited = 0;
+    while !started.exists() && waited < 300 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        waited += 1;
+    }
+    assert!(started.exists(), "the decider of the first run did not start its adapter in 30 s");
+    let o = w.run(&second);
+    assert_eq!(code(&o), 4, "the second run found money left while the decider of the first held it: {}", stderr(&o));
+    assert_eq!(w.outcome("r2")["outcome"], "stopped: spend cap");
+    std::fs::write(w.run_dir("r1/bindings/tools/go"), "go\n").unwrap();
+    let o = one.join().unwrap();
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let asked: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/bindings/tools/adapter-request.json")).unwrap()).unwrap();
+    assert_eq!(asked["max_budget_usd"].as_f64(), Some(0.7), "the decider is given what the cap had left (1.00 less the 0.30 of the step): {asked}");
+    assert_eq!(spent(&w), 620_000, "two steps of 0.30 and the decider's own 0.02, the rest of the hold released");
+}
+
 #[test]
 fn a_rejection_by_the_model_decider_is_a_named_result_with_the_deciders_reasons() {
     let w = World::new("e2e-reject");

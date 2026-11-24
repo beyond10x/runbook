@@ -163,7 +163,7 @@ fn a_file_that_states_the_four_values_starts_a_dry_run_from_its_directory_and_fr
     assert!(err(&o).contains(&names[0]), "the generated name is printed: {}", err(&o));
     let outcome: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(runs.join(&names[0]).join("outcome.json")).unwrap()).unwrap();
     assert_eq!(outcome["outcome"], "ended", "{outcome}");
-    assert!(runs.join("spend-ledger.json").is_file(), "the ledger is in the directory of the runs");
+    assert!(!runs.join("spend-ledger.json").exists(), "no ledger is named: none is opened, the cap is counted in the run itself");
     let settings: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(runs.join(&names[0]).join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["models"]["writer"]["model"], "model-from-the-file", "{settings}");
     assert_eq!((settings["max_wall_seconds"].as_u64(), settings["loom"]["cap_micro_usd"].as_u64()), (Some(120), Some(1_000_000)), "{settings}");
@@ -204,28 +204,40 @@ fn a_value_that_has_no_default_is_refused_with_its_name_and_the_line_to_add() {
     assert!(err(&o).contains("--confinement") && err(&o).contains("runbook.toml"), "{}", err(&o));
 }
 
-fn a_cap_stays_required(tag: &str, drop: &str, flag: &str, value: &str) {
+/// The settings the one run under `runs` started with.
+fn started_settings(runs: &Path) -> serde_json::Value {
+    let names = run_names(runs);
+    assert_eq!(names.len(), 1, "{names:?}");
+    serde_json::from_str(&std::fs::read_to_string(runs.join(&names[0]).join("settings.json")).unwrap()).unwrap()
+}
+
+/// A cap the file does not state and no option names is no limit (`AGENTS.md`: no run is refused for a
+/// missing money cap): the run starts and records the cap as null; the option or the line names it.
+fn a_cap_is_optional(tag: &str, drop: &str, flag: &str, value: &str, recorded: fn(&serde_json::Value) -> &serde_json::Value) {
     let rig = Rig::new(tag);
     rig.fixture();
     let text: String = FOUR.lines().filter(|l| !l.starts_with(drop)).map(|l| format!("{l}\n")).collect();
     rig.put("runbook.toml", &text);
     let o = dry(&rig, &rig.root, "idea.txt");
-    assert_eq!(code(&o), 64, "{drop}: {}", err(&o));
-    assert!(err(&o).contains(flag) && err(&o).contains(&format!("{drop} = ")), "{drop}: {}", err(&o));
-    assert!(!rig.p("runs").exists());
-    // the option takes the place of the line
+    assert_eq!(code(&o), 0, "{drop}: {}", err(&o));
+    assert!(recorded(&started_settings(&rig.p("runs"))).is_null(), "{drop}: a cap nobody named is recorded as null");
+    // the option names it
+    let rig = Rig::new(&format!("{tag}-option"));
+    rig.fixture();
+    rig.put("runbook.toml", &text);
     let o = rig.run(&rig.root, &["run", "engine-demo", "--intake", "idea.txt", "--dry", flag, value]);
     assert_eq!(code(&o), 0, "{drop} given as an option: {}", err(&o));
+    assert_eq!(recorded(&started_settings(&rig.p("runs"))).to_string(), value, "{drop}: the option names the cap");
 }
 
 #[test]
-fn the_cap_in_micro_usd_stays_required_as_it_is_and_the_file_may_state_it() {
-    a_cap_stays_required("cap-usd", "cap_micro_usd", "--cap-micro-usd", "1000000");
+fn the_cap_in_micro_usd_is_optional_and_the_file_or_the_option_may_state_it() {
+    a_cap_is_optional("cap-usd", "cap_micro_usd", "--cap-micro-usd", "1000000", |s| &s["loom"]["cap_micro_usd"]);
 }
 
 #[test]
-fn the_cap_on_model_calls_stays_required_as_it_is_and_the_file_may_state_it() {
-    a_cap_stays_required("cap-calls", "max_llm_calls", "--max-llm-calls", "100");
+fn the_cap_on_model_calls_is_optional_and_the_file_or_the_option_may_state_it() {
+    a_cap_is_optional("cap-calls", "max_llm_calls", "--max-llm-calls", "100", |s| &s["max_llm_calls"]);
 }
 
 // ---- where a value comes from ----
@@ -244,7 +256,7 @@ fn config_prints_every_value_with_its_origin_and_an_option_is_the_origin_of_its_
     }
     assert!(row(&o, "confinement").contains("\"local\""), "{}", row(&o, "confinement"));
     assert!(row(&o, "runs_dir").contains(&rig.p("runs").display().to_string()) && row(&o, "runs_dir").contains("built-in"), "{}", row(&o, "runs_dir"));
-    assert!(row(&o, "spend_ledger").contains(&rig.p("runs/spend-ledger.json").display().to_string()) && row(&o, "spend_ledger").contains("built-in"), "{}", row(&o, "spend_ledger"));
+    assert!(row(&o, "spend_ledger").contains("not stated") && row(&o, "spend_ledger").contains("no ledger is opened"), "{}", row(&o, "spend_ledger"));
     assert!(row(&o, "run").contains("generated") && row(&o, "run").contains("built-in"), "{}", row(&o, "run"));
 
     let o = rig.run(&rig.root, &["config", "--confinement", "substrate", "--cap-micro-usd", "7", "--runs-dir", "elsewhere"]);
@@ -351,12 +363,31 @@ fn init_writes_a_starter_that_is_read_and_refuses_to_overwrite() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), starter, "the file was not changed");
     let o = rig.run(&rig.root, &["config"]);
     assert_eq!(code(&o), 0, "{}", err(&o));
-    for key in ["runs_dir", "confinement", "max_wall_seconds", "cap_micro_usd", "max_llm_calls"] {
+    for key in ["runs_dir", "confinement", "max_wall_seconds"] {
         assert!(row(&o, key).contains(&format!("file {}", file.display())), "{}", row(&o, key));
     }
     assert!(row(&o, "confinement").contains("\"substrate\""), "the starter names the stronger level: {}", row(&o, "confinement"));
-    assert!(row(&o, "spend_ledger").contains("built-in") && row(&o, "run").contains("built-in"));
+    // the starter names no ledger: none is opened (`AGENTS.md`: no ledger nobody named)
+    assert!(row(&o, "spend_ledger").contains("not stated") && row(&o, "run").contains("built-in"), "{}", row(&o, "spend_ledger"));
     assert!(!starter.contains('#'), "a starter has no comment");
+}
+
+/// The starter states no money limit (`AGENTS.md`: no default that requires or implies a cap): none of the cap,
+/// the call limit and the ledger is a key of it, so `runbook config` prints each as not stated.
+#[test]
+fn init_writes_a_starter_that_names_no_cap_no_call_limit_and_no_ledger() {
+    let rig = Rig::new("init-no-cap");
+    let o = rig.run(&rig.root, &["init"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let starter = std::fs::read_to_string(rig.p("runbook.toml")).unwrap();
+    for key in ["cap_micro_usd", "max_llm_calls", "spend_ledger"] {
+        assert!(!starter.lines().any(|l| l.trim_start().starts_with(key)), "the starter names {key}:\n{starter}");
+    }
+    let o = rig.run(&rig.root, &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    for key in ["cap_micro_usd", "max_llm_calls", "spend_ledger"] {
+        assert!(row(&o, key).contains("not stated"), "{}", row(&o, key));
+    }
 }
 
 // ---- what a refusal never prints ----

@@ -37,8 +37,8 @@ if [ -z "$(pick out)$(pick err)$(pick exit)$(pick sh)" ]; then
   echo "fake b10x-loom: no answer scripted for $sub call $k" >&2
   exit 99
 fi
-store=""; prev=""
-for a in "$@"; do [ "$prev" = --store ] && store=$a; prev=$a; done
+store=""; bindings=""; prev=""
+for a in "$@"; do [ "$prev" = --store ] && store=$a; [ "$prev" = --bindings ] && bindings=$a; prev=$a; done
 hook=$(pick sh)
 [ -n "$hook" ] && . "$hook"
 f=$(pick out); [ -n "$f" ] && sed "s|@STORE@|$store|g" "$f"
@@ -101,7 +101,7 @@ impl Fake {
     pub fn open_ok(&self) -> &Fake {
         self.answer("protocols_add", "default", "installed\n", 0);
         self.answer("tree_open", "default", "{\"root\":\"r\"}\n", 0);
-        self.hook("tree_open", "default", "mkdir -p \"$store\" && echo {} > \"$store/tree.json\"\n");
+        self.hook("tree_open", "default", "mkdir -p \"$store\" && printf '{\"bindings\":\"%s\"}\\n' \"$bindings\" > \"$store/tree.json\"\n");
         self.answer("tree_status", "default", "{\"cases\":[],\"format\":\"loom.tree-status/1\"}\n", 0);
         self.answer("tree_verify", "default", "{\"cases\":1}\n", 0);
         self

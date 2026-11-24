@@ -378,7 +378,7 @@ What the driver must check before a tool result counts as evidence:
 ## LLM executor (2026-11-21)
 
 Every agent node binds `argv: ["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` plus an `llm` object:
-`model` (`claude-haiku-5-5`), `max_turns`, `max_budget_usd`, optional `operations`, and `stub`
+`model` (`claude-haiku-5-5`), `max_turns`, optional `max_budget_usd` (none named: no money budget per call) and `operations`, and `stub`
 (the `sdc-tool.sh` subcommand that writes the fixed draft). Agent nodes: `idea.dissect`,
 `questions.write`, `questions.answer`, `requirements.normalise` (intake); `context.default`,
 `vision.write`, `roadmap.write` (direction); `spec.author`; `plan.decompose`;
@@ -445,7 +445,7 @@ with the new adapter lists tools `Glob`, `Read`, `StructuredOutput`, no hook, no
 login copy shares the host's refresh token, as the `metaharness` adapter's does.
 
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
-`request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
+`request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd (optional: with none, the adapter passes no `--max-budget-usd`), record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):
 
 | Value | What runs |
@@ -1020,7 +1020,7 @@ artifact (`revisions_mapped` in the call record).
 |---|---|
 | `stop` (default) | `replay/diverged.json` (`sdc.replay-divergence/1`: place, difference, summary); a work node exits 75 (`terminal_reason: recording_diverged`), so the driver records nothing and stops. The decider gets no reply. The run ends with exit 9 and, under autopilot, a stop record by `rule:autopilot` with cause `recording_diverged` naming the place and the difference |
 | `nearest` | the recorded reply of the same node or decision in the same case: same arrival at the nearest try (an earlier one first), else the latest earlier arrival; marked `reused`. Nothing to reuse: as `stop` |
-| `live` | the real adapter for this one call (`--live-adapter`, default `metaharness`; `dry` for tests), marked `live`, counted and capped by `--live-cap` (default 5); a spent cap ends the run as `stop` |
+| `live` | the real adapter for this one call (`--live-adapter`, default `metaharness`; `dry` for tests), marked `live`, counted, and capped by `--live-cap` when one is named (no default: none named means no limit on live calls); a spent cap ends the run as `stop` |
 
 Every call record has `replay.json` (`sdc.replay-call/1`: key, mode `recorded`, `reused`, `live`
 or `diverged`, source record, differences, fault, virtual milliseconds, `prompt_changed`). The
