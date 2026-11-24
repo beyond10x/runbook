@@ -445,7 +445,7 @@ fn a_failed_call_with_no_cost_counts_as_a_call_and_books_its_reservation() {
 #[test]
 fn the_used_numbers_are_true_after_each_step_and_a_step_with_no_model_call_books_nothing() {
     let rig = Rig::new("caps-used", per_run(1_000_000));
-    let ctx = rig.context("slow", 2);
+    let ctx = rig.context("slow", 1);
     let run = rig.submit(RUNBOOK, Some(ctx), &[]);
     until("step 1 booked", 20, || setting(&rig.row(&run), "used_llm_calls") == Some("1"));
     let mid = rig.row(&run);
