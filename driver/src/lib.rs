@@ -3,6 +3,7 @@
 //! (`runbook`) call in process.
 
 pub mod conform;
+pub mod gateway;
 #[path = "conformance.rs"]
 #[allow(missing_docs, dead_code)]
 pub mod conformance;

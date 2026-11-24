@@ -64,6 +64,9 @@ pub struct Setup {
     /// The program that answers the product's requests for ess (`sdc-conform-adapter`); none:
     /// `SDC_CONFORM_ADAPTER_BIN`, else beside the running program.
     pub adapter: Option<PathBuf>,
+    /// The gateway file of the run (`runbook run` with a `[gateway]`): handed to the model adapter of the
+    /// table node as `SDC_GATEWAY_FILE`, the path only. None: the adapter gets the environment it always got.
+    pub gateway_file: Option<PathBuf>,
     /// The most the node sessions of the whole observation may spend, USD; none: no bound but each
     /// session's own (`SDC_CONFORMANCE_MAX_BUDGET_USD`, none when unset; 2 with a bound). With a bound no session starts
     /// once what the sessions before it cost has reached it (a session that left no cost record
@@ -424,7 +427,12 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
         }
         fs::write(rec.join("request.json"), serde_json::to_string_pretty(&req).unwrap_or_default()).map_err(|e| ("table_missing", e.to_string(), vec![]))?;
         let limit = Duration::from_secs(env("SDC_CONFORMANCE_NODE_TIMEOUT").and_then(|x| x.parse().ok()).unwrap_or(1800));
-        let (code, tail) = run_bounded(Command::new(&node.adapter).arg(rec.join("request.json")), limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
+        let mut adapter = Command::new(&node.adapter);
+        adapter.arg(rec.join("request.json"));
+        if let Some(file) = &node.setup.gateway_file {
+            adapter.env(crate::gateway::FILE_VARIABLE, file);
+        }
+        let (code, tail) = run_bounded(&mut adapter, limit, Some(&rec.join("response.json")), &rec.join("adapter-stderr.txt"));
         let resp = read_json(&rec.join("response.json")).unwrap_or(J::Null);
         match resp["cost_usd"].as_f64() {
             Some(c) => {

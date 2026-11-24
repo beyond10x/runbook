@@ -40,12 +40,13 @@ const OWN_KEYS: [&str; 4] = ["runs_dir", "spend_ledger", "runbooks", "deciders"]
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
 /// `loom_sha256`, `in_process` and `replay` belong to one run and are not defaults.
-const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review"];
+/// `gateway` takes `base_url` and `token_file` here, never `token`: the file holds no token.
+const MEMBER_KEYS: [&str; 8] = ["login_file", "gateway", "autonomy", "decider", "adapter", "models", "efforts", "review"];
 
 /// The keys a file found by a program of a run that has no run directory above it (by the walk or in the user's
-/// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger and the directories
-/// runbooks are loaded from. The floor of the daemon has no key in any file.
-const NESTED_REFUSED_KEYS: [&str; 7] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks"];
+/// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger, the directories
+/// runbooks are loaded from and the gateway of the model programs. The floor of the daemon has no key in any file.
+const NESTED_REFUSED_KEYS: [&str; 8] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway"];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
 /// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
@@ -628,7 +629,7 @@ fn read_text(found: &Found) -> Result<File, String> {
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
     if found.nested && !found.via.chosen() {
         if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
-            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger or the runbook directories; name the file with --config to use it)")));
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories or the gateway; name the file with --config to use it)")));
         }
     }
     for key in top.keys() {
@@ -657,6 +658,20 @@ fn read_text(found: &Found) -> Result<File, String> {
             _ => return Err(fail("login_file: a path as text (a path, never content)".to_owned())),
         }
     }
+    if let Some(gateway) = top.get_mut(crate::loom_run::gateway::KEY).and_then(Value::as_object_mut) {
+        if gateway.contains_key("token") {
+            return Err(fail("gateway.token: not a key of runbook.toml (the file holds no token: name gateway.token_file, or put the token in a --settings file)".to_owned()));
+        }
+        match gateway.get_mut("token_file") {
+            None => {}
+            Some(Value::String(s)) if !s.is_empty() && !content_like(s) => {
+                if !Path::new(s.as_str()).is_absolute() {
+                    *s = dir.join(s.as_str()).display().to_string();
+                }
+            }
+            Some(_) => return Err(fail("gateway.token_file: a path as text (a path, never content)".to_owned())),
+        }
+    }
     if let Some(reply) = top.get_mut("decider").and_then(Value::as_object_mut).and_then(|d| d.get_mut("reply_bin")) {
         match reply {
             Value::String(s) if !s.is_empty() && !content_like(s) => {
@@ -680,6 +695,8 @@ fn read_text(found: &Found) -> Result<File, String> {
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
 /// login file is named by path and is not opened here.
 fn check_members(members: &Map<String, Value>) -> Result<(), String> {
+    // the shape refusals name the member and never a value
+    crate::loom_run::gateway::check_shape(&Value::Object(members.clone())).map_err(|e| mask(&e))?;
     let mut v = members.clone();
     v.shift_remove(settings::LOGIN_KEY);
     let mut v = Value::Object(v);
@@ -842,6 +859,11 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
     out.push(item("max_wall_seconds", "--max-wall-seconds", "no built-in default, a run is refused without it", values.max_wall_seconds.as_ref().map(|(n, o)| (n.to_string(), o))));
     out.push(item("cap_micro_usd", "--cap-micro-usd", "no spend limit without it", values.cap_micro_usd.as_ref().map(|(n, o)| (n.to_string(), o))));
     out.push(item("max_llm_calls", "--max-llm-calls", "no limit on model calls without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
+    // a gateway token of a settings file is named, never printed, whatever its form (`docs/loom-run-settings.md`)
+    let mut merged = merged.clone();
+    if let Some(token) = merged.get_mut(crate::loom_run::gateway::KEY).and_then(|g| g.get_mut("token")) {
+        *token = Value::String("named".to_owned());
+    }
     if let Some(members) = merged.as_object() {
         for (key, v) in members {
             leaves(segment(key), v, &settings_origin(key), &mut out);
@@ -1057,6 +1079,25 @@ mod tests {
         let keys: Vec<&String> = merged.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["autonomy", "decider", "adapter", "models"]);
         assert_eq!(merged["decider"], serde_json::json!({"kind": "rule"}));
+    }
+
+    #[test]
+    fn a_gateway_in_runbook_toml_takes_an_address_and_a_token_file_never_a_token_and_a_file_in_a_run_names_none() {
+        let token = "tok-config-5c1e93a0";
+        let found = |text: &str, nested: bool, via: Via| Found { path: PathBuf::from("/x/runbook.toml"), via, text: text.to_owned(), nested };
+        let f = parse(&found("[gateway]\nbase_url = \"http://127.0.0.1:8080\"\ntoken_file = \"gw-token\"\n", false, Via::Walk)).unwrap();
+        assert_eq!(f.members["gateway"], serde_json::json!({"base_url": "http://127.0.0.1:8080", "token_file": "/x/gw-token"}), "a relative token file is relative to the file");
+        let inline = parse(&found(&format!("[gateway]\nbase_url = \"http://127.0.0.1:8080\"\ntoken = \"{token}\"\n"), false, Via::Option)).unwrap_err();
+        assert!(inline.contains("gateway.token") && !inline.contains(token), "{inline}");
+        let both = parse(&found("login_file = \"/l\"\n[gateway]\nbase_url = \"http://127.0.0.1:8080\"\ntoken_file = \"/t\"\n", false, Via::Option)).unwrap_err();
+        assert!(both.contains("gateway") && both.contains("login_file") && !both.contains("/t"), "{both}");
+        let shape = parse(&found("[gateway]\nbase_url = \"ftp://h\"\ntoken_file = \"/secret-place\"\n", false, Via::Option)).unwrap_err();
+        assert!(shape.contains("gateway.base_url") && !shape.contains("ftp") && !shape.contains("secret-place"), "{shape}");
+        // a file a program of a run finds by the walk has no gateway; a file it names does
+        let text = "[gateway]\nbase_url = \"http://127.0.0.1:8080\"\ntoken_file = \"/t\"\n";
+        let nested = parse(&found(text, true, Via::Walk)).unwrap_err();
+        assert!(nested.contains("gateway: not a key of runbook.toml found by a program of a run"), "{nested}");
+        assert!(parse(&found(text, true, Via::Option)).is_ok());
     }
 
     #[test]

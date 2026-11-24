@@ -105,6 +105,7 @@ effort = "low"
 | `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level. `runbook serve` reads the same key as its default level for a submit that names none (`--default-confinement` wins; `docs/daemon-api.md`) |
 | `cap_micro_usd` | whole number | none | `normalise`, `with_named_caps` | names the spend cap when `--cap-micro-usd` is not given; beside the option, equal to it |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
+| `gateway` | table | none | `materialise`, decider, conformance | an address and a token for the model programs instead of the login file; never with `login_file`. See `[gateway]`. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | names the call cap when `--max-llm-calls` is not given; beside the option, equal to it; text, a float and a date are refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |
 | `autonomy` | `A0` to `A5` | none | decider, `materialise` | the decider answers only at `A5`; with no level every decision stops the run for a person |
@@ -157,6 +158,128 @@ its members in another order).
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |
 | `principal` | text | none | all | model, rule: accepted when it is what the kind gives (`decider:model`, `decider:approve`, `decider:reject`) and then taken out; another value is refused. scripted: the principal of every answer that names none (an answer's own `principal` wins); none given: the principal Loom printed is kept |
 | `answers`, `max_call_micro_usd` | list of tables, whole number | none | scripted | the double's answers and its reservation |
+
+## `[gateway]`
+
+An address and a token (none for a gateway without ingress auth) that every model program of the run reaches its model through, instead of the login
+file. It is the other way to give a run its model access: a settings file names a gateway or a `login_file`,
+never both. There is no default address and no default token.
+
+```toml
+[gateway]
+base_url = "http://127.0.0.1:8080"
+token = "placeholder"
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `base_url` | text, required | `http://` or `https://`, then a host (and a port and a path if wanted); at most 2048 bytes; no user name, no query, no fragment, no blank or control character. A host that is not loopback is accepted: the choice of the address is the user's. With an `http://` address at a host that is not loopback the token travels in clear text; no refusal stands in the way |
+| `token` | text | the token itself: one line of visible text, 8 to 8192 bytes (the adapter replaces every occurrence of the token in what a model program prints, so a shorter token is refused) |
+| `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists. It is opened without blocking and without following a link in the last component of the path (a link in a directory of the path is followed): a link as the last component, a FIFO, a socket, a device and a directory are refused |
+
+At most one of `token` and `token_file`. A gateway without ingress auth needs no token: name neither (below,
+"No token"). A token in a settings file lies where the file lies: use
+`token_file` and keep that file readable by its owner alone.
+
+A `runbook.toml` can carry the table as a default (`docs/loom-run.md`, "Where a value comes from") with
+`base_url` and, for a gateway that takes a token, `token_file`: `gateway.token` there is refused by name, as the file holds no token, and a
+relative `token_file` is relative to the file. A `gateway` of the `--settings` file replaces the file's table as
+a whole. A `runbook.toml` that a program of a run finds by the walk has no `gateway` key.
+
+Refusals (exit 2, nothing written, no run directory, no private directory, no call of Loom). Each names the
+member, as `gateway.base_url`, and never a value, a part of a value or the path of a file:
+
+- the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host, or longer than
+  2048 bytes
+- both `token` and `token_file`
+- a `token_file` that is not absolute, not a readable file (a link as the last component, a FIFO, a socket, a
+  device and a directory are none), empty, or more than one line
+- a `token` that is empty, shorter than 8 bytes or not one line of visible text (also as the content of a
+  `token_file`)
+- a member that is none of the three
+- a `gateway` and a `login_file` (in the place `loom.login_file` of the old form too)
+- no `XDG_RUNTIME_DIR` of the user (the same rule as for the login file: the file lies in the private directory)
+- `confinement = substrate` (below)
+- an adapter that cannot take it: `adapter = "metaharness"`, and a model decider whose `decider.adapter` is
+  `metaharness`, which is the decider's default (below)
+
+What a run does with it:
+
+1. The runner writes one file, `gateway`, into its private directory `$XDG_RUNTIME_DIR/runbook/<run>/`
+   (mode 700, the directory of the login link). The file has mode 600 and two lines, `base_url=<address>` and
+   `token=<token>`. With a gateway no login file is linked, copied or required. The file and the directory are
+   made only in a run that has a model node, after the opening decided (`docs/loom-run.md`, "A run without a model
+   node"); a run without one writes neither, and its copy names a path where no file is.
+2. It writes `--gateway-file <that file>` into the argv of every `sdc-node` node of its copy of the bindings
+   (the way `--claude-credentials` is written for a login). The file's path is in the copy; the token is not.
+3. `sdc-node` hands the path to the adapter in `SDC_GATEWAY_FILE`. The adapter reads the file with the sh
+   function `sdc_gateway_read` (`bindings/tools/gateway.sh`; the Rust reader is `sdc_tools::gateway::read`),
+   and starts `claude` with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` in the environment of that one
+   start, a fresh `CLAUDE_CONFIG_DIR` that holds no login, and every other `ANTHROPIC_*` and `CLAUDE_CODE_*`
+   variable of the caller removed (that includes `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; the
+   adapter's own `CLAUDE_CODE_` settings stay; the names are read from the environment at the call). The two
+   values are exported only inside the subshell of that start (the shell's own `export`) and are in no argv
+   and in no environment but that of `claude`. What `claude` prints to its two streams passes a filter that
+   replaces every occurrence of the token, also its form inside JSON text, by `<gateway token>` before
+   `events.jsonl` and `stderr.txt` of the call are written; a filter that cannot run ends the call with exit
+   127 and keeps neither file. Loom's contract is unchanged: a program Loom starts has `PATH` and `LOOM_*` and
+   nothing of the gateway.
+4. The starts that are not a node take it the same way: the model decider (`SDC_GATEWAY_FILE` in the
+   environment the runner builds for its adapter), the adapter calls of `sdc-reply` (it clears nothing, so
+   its adapter has the variable of the process that started it) and the conformance
+   observation (`--conformance observe`, whose adapter is started while the private directory exists).
+5. The private directory and the file go with the run: after a normal end, after an error and after
+   SIGTERM, SIGINT and SIGHUP that the caller did not ignore. A SIGHUP that the caller ignored (a run under
+   `nohup`) stays ignored and does not end the run. A SIGKILL leaves the directory; the next run of that name
+   refuses to start over it, by its path, and the user removes it.
+6. The token is in no argv, no environment of a program Loom starts, no log line, no event, no file that the
+   runner or an adapter writes into the run directory and not in the copy. The filter of item 3 covers what
+   `claude` prints to its two streams and the files made from it; a file that `claude` writes by its own tools
+   is not covered. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
+
+No token. A gateway without ingress auth needs no token: the table names `base_url` alone, the gateway file
+holds the address line alone, and the adapter starts `claude` with `ANTHROPIC_BASE_URL` and
+`ANTHROPIC_AUTH_TOKEN=runbook-gateway-no-token`. That value is a fixed text of the adapter, not a credential
+and not a secret: `claude` refuses to start without any credential, and the gateway ignores it. It is no token
+of the user, so the output of `claude` is not filtered for it. Everything else holds as with a token: no login
+file is linked, copied or required, no other `ANTHROPIC_*` or `CLAUDE_CODE_*` variable of the caller reaches
+`claude`, and a table that names both `token` and `token_file` is refused. A gateway that names a token gives
+`claude` that token and never the placeholder. The cases are in `driver/tests/gateway_model_and_no_token.rs`
+and `runbook/tests/loom_run/gateway.rs` (`a_gateway_without_a_token_reaches_claude_with_the_address_and_the_placeholder_and_no_login`).
+
+Where a gateway works:
+
+| `--confinement` | A gateway on loopback |
+|---|---|
+| `local` | works: the bound program runs on the host's network |
+| `substrate` | refused by the name `gateway`: a bound program at that level has no network, so no address (not even loopback) is reachable (`loom-substrate` `NetworkMode::None`, no egress aperture). The runner changes no confinement |
+
+The model names a gateway sees. A gateway that routes by model name gets, as `claude --model <name>`, the
+model the request of each program names; the settings already carry one per program, so the table has no
+`model` of its own:
+
+| Program | The key that names its model | Without it |
+|---|---|---|
+| a model node of the copy | `models.<role>.model` for the node's role (`writer`, `implement`, `review`, `other`; `bindings/tools/node-classes.json`) | the model the binding names (a `claude-*` name) |
+| the review step (`change.review`, role `review`) | `models.review.model` | as above |
+| the model decider | `decider.model` (required) | refused |
+| the conformance observation | `SDC_LLM_MODEL_CONFORMANCE` in the environment of `runbook run` | `claude-sonnet-5-5` |
+
+So a gateway whose one route is `qwen` takes a settings file that names `model = "qwen"` under each of the
+four `[models.<role>]` tables and in `[decider]`. The cases: `under_a_gateway_the_model_of_each_role_is_written_into_every_model_node_of_the_role_the_review_step_among_them`
+(`runbook/src/loom_run/bindings_copy/tests.rs`), `under_a_gateway_the_model_decider_asks_its_adapter_for_the_model_decider_model_names`
+(`runbook/tests/loom_run/gateway.rs`) and `a_node_under_a_gateway_hands_claude_the_model_it_names`
+(`driver/tests/gateway_model_and_no_token.rs`).
+
+The only adapter that takes a gateway is `claude-cli`. `metaharness` starts its own proxy and removes every
+`ANTHROPIC_*` variable of its environment, so it cannot carry the token: the setting and the adapter refuse it
+(the adapter with exit 127, before any process starts). `stub`, `dry` and `fixture` call no model and ignore the
+option.
+
+`runbook run --dry` presets the adapter `dry`: it checks the shape of the table (the refusals above except
+those that read a file or the runtime directory), reads no `token_file`, writes no private directory and
+no option, and records `"gateway": "named"`. The daemon starts runs from a flat text map of settings and has
+no place for a gateway: a run it starts has none.
 
 ## What `sdc-experiment run` writes, and what a run does with it
 

@@ -30,6 +30,10 @@
 # In every other case nothing changes: metaharness gets the HOME the caller has (the driver's runs).
 # With SDC_LLM_ENDPOINT the credentials are none and no login is copied.
 set -uo pipefail
+# A gateway (SDC_GATEWAY_FILE, docs/loom-run-settings.md "[gateway]") cannot be carried by this adapter:
+# metaharness removes every ANTHROPIC_* variable from its environment and runs its own proxy, so it would
+# use the operator's login, not the gateway. The adapter ends before any process starts.
+[[ -z ${SDC_GATEWAY_FILE:-} ]] || { echo "llm-adapter-metaharness.sh: SDC_GATEWAY_FILE is set and metaharness cannot take a gateway (it removes ANTHROPIC_* and starts its own proxy): use the adapter claude-cli" >&2; exit 127; }
 for p in jq "${METAHARNESS:-metaharness}"; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-metaharness.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 req=$(cat "$1")
 r() { jq -r "$1" <<< "$req"; }
