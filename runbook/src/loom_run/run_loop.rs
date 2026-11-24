@@ -15,7 +15,7 @@ use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Ope
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
-use crate::loom_run::record_write::{make_dir_in, read_regular_text, Held};
+use crate::loom_run::record_write::{make_dir_in, Held};
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -552,11 +552,10 @@ impl Runner<'_> {
     /// every `from: effect` entry of the action lists. `None`: the copy names no such action.
     fn declared_results(&self, action: &str) -> Result<Option<Vec<String>>, Halt> {
         let mut declared: Option<Vec<String>> = None;
-        let entries = std::fs::read_dir(&self.bindings_dir).map_err(|e| format!("{}: {e}", self.bindings_dir.display()))?;
-        let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-        files.sort();
-        for file in files {
-            let text = read_regular_text(&file)?;
+        let held = Held::open(&self.bindings_dir)?;
+        for name in held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")) {
+            let file = self.bindings_dir.join(&name);
+            let text = held.read_text(&name)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {

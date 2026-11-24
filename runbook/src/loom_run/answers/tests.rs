@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::assets::testdir::Dir;
+use std::path::PathBuf;
 
 fn file_with(tag: &str, text: &str) -> (Dir, PathBuf) {
     let dir = Dir::new(tag);

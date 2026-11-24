@@ -82,11 +82,10 @@ impl<'a> LibraryHost<'a> {
             return Ok(DEFAULT_PRINCIPAL.to_owned());
         };
         let mut found: Vec<String> = Vec::new();
-        let entries = std::fs::read_dir(&self.bindings_dir).map_err(|e| format!("{}: {e}", self.bindings_dir.display()))?;
-        let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-        files.sort();
-        for file in files {
-            let text = crate::loom_run::record_write::read_regular_text(&file)?;
+        let held = crate::loom_run::record_write::Held::open(&self.bindings_dir)?;
+        for name in held.names()?.into_iter().filter(|n| std::path::Path::new(n).extension().is_some_and(|x| x == "yaml")) {
+            let file = self.bindings_dir.join(&name);
+            let text = held.read_text(&name)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {

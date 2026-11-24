@@ -258,6 +258,83 @@ impl Held {
         Ok(Held { dir: make_dir_in(base, dir)?, path: dir.to_path_buf() })
     }
 
+    /// The directory `dir`, which must exist, opened and held: its parent is opened by path and `dir` relative to it with
+    /// `O_NOFOLLOW | O_DIRECTORY`, so a link, a file or anything else that is not a directory at its name is an error that
+    /// names `dir`, and nothing is made.
+    pub(crate) fn open(dir: &Path) -> Result<Held, String> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::fs::OpenOptionsExt;
+        let parent = dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let leaf = dir.file_name().ok_or_else(|| format!("{}: not a directory name", dir.display()))?;
+        let c_leaf = leaf_name(leaf, parent)?;
+        let above = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(parent).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // SAFETY: `above` is an open directory for the call and `c_leaf` is a NUL-terminated name that outlives it.
+        let raw = unsafe { libc::openat(above.as_raw_fd(), c_leaf.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        if raw < 0 {
+            let e = std::io::Error::last_os_error();
+            return Err(match e.raw_os_error() {
+                Some(libc::ELOOP | libc::ENOTDIR) => format!("{}: not a directory (a link or a file lies there)", dir.display()),
+                _ => format!("{}: {e}", dir.display()),
+            });
+        }
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        Ok(Held { dir: unsafe { File::from_raw_fd(raw) }, path: dir.to_path_buf() })
+    }
+
+    /// The names in this directory, listed through the descriptor (`.` and `..` left out), sorted.
+    pub(crate) fn names(&self) -> Result<Vec<std::ffi::OsString>, String> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        // SAFETY: `dup` of a descriptor `self` keeps open; the new descriptor is handed to `fdopendir`, which owns it from then on.
+        let fd = unsafe { libc::dup(self.dir.as_raw_fd()) };
+        if fd < 0 {
+            return Err(format!("{}: {}", self.path.display(), std::io::Error::last_os_error()));
+        }
+        // SAFETY: `fd` is a new descriptor of this directory; on failure it is closed here.
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            let e = std::io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(format!("{}: {e}", self.path.display()));
+        }
+        // SAFETY: the stream starts at the first entry whatever an earlier listing of the same directory read.
+        unsafe { libc::rewinddir(stream) };
+        let mut names = Vec::new();
+        loop {
+            // SAFETY: `stream` is open until `closedir` below; an entry is read before the next call.
+            let entry = unsafe { libc::readdir(stream) };
+            if entry.is_null() {
+                break;
+            }
+            // SAFETY: `d_name` of an entry `readdir` returned is a NUL-terminated name.
+            let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let name = std::ffi::OsStr::from_bytes(name.to_bytes());
+            if name != "." && name != ".." {
+                names.push(name.to_os_string());
+            }
+        }
+        // SAFETY: `stream` is open and closed once; it closes `fd`.
+        unsafe { libc::closedir(stream) };
+        names.sort();
+        Ok(names)
+    }
+
+    /// Whether the name `leaf` of this directory is a regular file, a link followed (`fstatat`): the answer of
+    /// `Path::is_file`, asked of the descriptor.
+    pub(crate) fn is_file(&self, leaf: impl AsRef<std::ffi::OsStr>) -> bool {
+        use std::os::fd::AsRawFd;
+        let Ok(c_leaf) = leaf_name(leaf.as_ref(), &self.path) else { return false };
+        // SAFETY: as in `symlink`; `stat` is a zeroed buffer the call fills.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        unsafe { libc::fstatat(self.dir.as_raw_fd(), c_leaf.as_ptr(), &mut stat, 0) == 0 && stat.st_mode & libc::S_IFMT == libc::S_IFREG }
+    }
+
+    /// The text of the file `leaf` of this directory ([`Held::read`]); a file that is not UTF-8 is an error.
+    pub(crate) fn read_text(&self, leaf: impl AsRef<std::ffi::OsStr>) -> Result<String, String> {
+        let leaf = leaf.as_ref();
+        String::from_utf8(self.read(leaf)?).map_err(|_| format!("{}: not UTF-8 text", self.path.join(leaf).display()))
+    }
+
     /// The path the directory was made at.
     pub(crate) fn path(&self) -> &Path {
         &self.path

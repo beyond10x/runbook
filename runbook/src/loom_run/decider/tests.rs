@@ -1841,5 +1841,5 @@ fn a_named_pipe_a_program_put_at_the_divergence_record_does_not_hold_the_runner(
     if got.is_err() {
         let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
     }
-    assert!(got.is_ok(), "the runner waited for a writer of a pipe a program put at replay/diverged.json");
+    assert!(got.is_ok(), "the divergence record is read as a regular file and no pipe is waited for");
 }

@@ -18,7 +18,7 @@
 //! by this runner. See `docs/loom-run-directory.md`.
 
 use crate::loom_run::events::{Event, StartSource};
-use crate::loom_run::record_write::{append, read_regular_text, write_atomic};
+use crate::loom_run::record_write::{append, write_atomic, Held};
 use crate::loom_run::run_files::event_json;
 use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, TestExecution, TestRunner};
 use b10x_loom_intake_slice::executor::TestCommand;
@@ -94,11 +94,10 @@ fn words(v: Option<&serde_yaml::Value>) -> Vec<String> {
 
 /// The actions of the bindings copy in `dir` that run a program.
 fn bound_actions(dir: &Path) -> Vec<Bound> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir).map(|e| e.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect()).unwrap_or_default();
-    files.sort();
+    let Ok(held) = Held::open(dir) else { return Vec::new() };
     let mut found = Vec::new();
-    for file in files {
-        let Ok(text) = read_regular_text(&file) else { continue };
+    for name in held.names().unwrap_or_default().into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")) {
+        let Ok(text) = held.read_text(&name) else { continue };
         let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else { continue };
         let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
         for entry in actions {

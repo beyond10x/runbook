@@ -4,21 +4,19 @@
 //! `max_turns`, `max_tokens`) at load on a non-agent binding, so this module never adds or keeps
 //! such a member.
 
+use crate::loom_run::record_write::Held;
 use serde_yaml::Value;
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::Path;
 
 const ARG: &str = "--max-budget-usd";
 
-fn yaml_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let p = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-        if p.is_file() && p.extension().is_some_and(|x| x == "yaml" || x == "yml") {
-            files.push(p);
-        }
-    }
-    files.sort();
-    Ok(files)
+/// The bindings directory `dir`, held ([`Held::open`]: a link at its name is an error), and the names of its `*.yaml` and
+/// `*.yml` files, listed through the descriptor.
+fn yaml_files(dir: &Path) -> Result<(Held, Vec<OsString>), String> {
+    let held = Held::open(dir)?;
+    let files = held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml" || x == "yml") && held.is_file(n)).collect();
+    Ok((held, files))
 }
 
 fn usd_text_to_micro(s: &str) -> Option<u64> {
@@ -89,22 +87,26 @@ fn walk_limit(v: &mut Value, limit: u64) -> bool {
 /// The largest per-call budget the bindings in `dir` name (`--max-budget-usd` values), micro USD; `None` when they name none.
 pub fn largest_call_budget(dir: &Path) -> Result<Option<u64>, String> {
     let mut best = None;
-    for file in yaml_files(dir)? {
-        let text = crate::loom_run::record_write::read_regular_text(&file)?;
-        let v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
+    let (held, files) = yaml_files(dir)?;
+    for name in files {
+        let text = held.read_text(&name)?;
+        let v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", dir.join(&name).display()))?;
         walk_largest(&v, &mut best);
     }
     Ok(best)
 }
 
-/// Lowers every per-call budget in the bindings copy `dir` to at most `micro_usd`.
+/// Lowers every per-call budget in the bindings copy `dir` to at most `micro_usd`. The directory is held for the whole
+/// call: every file is read and written through its descriptor, never through its path.
 pub fn limit_call_budgets(dir: &Path, micro_usd: u64) -> Result<(), String> {
-    for file in yaml_files(dir)? {
-        let text = crate::loom_run::record_write::read_regular_text(&file)?;
+    let (held, files) = yaml_files(dir)?;
+    for name in files {
+        let file = dir.join(&name);
+        let text = held.read_text(&name)?;
         let mut v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if walk_limit(&mut v, micro_usd) {
             let out = serde_yaml::to_string(&v).map_err(|e| format!("{}: {e}", file.display()))?;
-            crate::loom_run::record_write::write_atomic(&file, out.as_bytes())?;
+            held.write(&name, out.as_bytes())?;
         }
     }
     Ok(())
@@ -113,6 +115,7 @@ pub fn limit_call_budgets(dir: &Path, micro_usd: u64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn dir(tag: &str) -> PathBuf {
         let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("loomrun-budget-{tag}-{}", std::process::id()));
