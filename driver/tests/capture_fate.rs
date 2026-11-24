@@ -61,7 +61,10 @@ fn detail(reply: &J) -> String {
 /// not start: the adapter says so for any exit within `timeout_s` ("the product did not start: the
 /// product exited before it answered (exit status: 1)"), as the base commit did after 1.1 s. A
 /// fixed wait after the end of the stream would call an exit that comes later a capture the table
-/// got wrong.
+/// got wrong. While the product sleeps, the adapter asks `start.ready` on its port; the port is held
+/// for the product, so no other server answers there (on a port freed and handed on, another case's
+/// product answered in 2 of 5 runs of these modules, and the end was called the table's capture).
+/// The case still proves that a product that ends after its output stream closed did not start.
 #[test]
 fn a_product_that_redirects_its_output_and_ends_a_second_later_did_not_start() {
     let (reply, took) = begin_scenario("p2-redirect-then-exit", "exec > \"$2/server.log\" 2>&1\nsleep 1\necho 'cannot bind'\nexit 1", 20);
