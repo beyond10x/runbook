@@ -15,6 +15,8 @@ scope:
   path: bindings/sdc-bugfix.yaml
 - confidence: cited
   path: cases/12-bugfix-red-first
+- confidence: cited
+  path: cycles/old-suite-names.txt
 - confidence: inferred
   path: cycles/seeds/bugfix-pager
 - confidence: cited
@@ -23,8 +25,14 @@ scope:
   path: docs/bugfix.md
 - confidence: inferred
   path: docs/cycles-suite.md
+- confidence: cited
+  path: docs/loom-bindings.md
+- confidence: cited
+  path: docs/reject-routes.md
 - confidence: inferred
   path: driver/examples/sdc
+- confidence: cited
+  path: driver/examples/sdc/fixtures/bugfix-pager
 - confidence: cited
   path: driver/src/bin/sdc-bugfix.rs
 - confidence: inferred
@@ -39,7 +47,7 @@ scope:
   path: protocol/simulate/sdc-bugfix.txt
 - confidence: inferred
   path: website/data/protocols
-revision: 5
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-24T11:47:33Z", actor: "human:operator", revision: 4, executor: "agent:runbook", correlation: "host-operator-2026-11-24-spec-first-handback"}
 - {from: "proposed", to: "active", at: "2026-11-24T11:47:33Z", actor: "human:operator", revision: 5, executor: "agent:runbook", correlation: "host-operator-2026-11-24-spec-first-handback"}
@@ -88,9 +96,13 @@ hand-back; a refused one goes back to the step that wrote the description and ne
 - There is no state `fixed` and no move `fixed -> handback`: a case of `sdc.bugfix` ends at one
   outcome, and the hand-back of `story:bugfix-hands-back-a-branch-and-a-merge-request` takes a run
   that ended `fixed`. So the hand-back point is the outcome `fixed`: it requires `spec.referenced`
-  besides the gate. A fix that passed the gate and whose reference is refused ends at a new outcome
-  `spec_refused` once the description writer is spent. The model is not bent: hand-back is still an
-  outcome read from recorded facts.
+  besides the gate. No outcome reads a refused reference: Loom ends a case at its first legitimate
+  outcome (`docs/cycles-suite.md`, `bugfix-not-red`), so such an outcome would end the case before
+  the refusal sends the writer back. A refused reference therefore leaves the case without an
+  outcome; the writer runs again, and when its runs are spent the tree is stuck (runner exit 3,
+  `runbook test` exit 4), as a spent rework allowance ends elsewhere in this repository. `canon
+  simulate` reports that state as one cycle finding, re-pinned with this reason. The model is not
+  bent: hand-back is still an outcome read from recorded facts.
 - The action that opens the code merge request does not exist yet. A precondition cannot name an
   action that is not there, so the rule is a check: a test reads the protocol and fails for any action
   named `handback.*` other than `handback.describe` and `handback.spec-check` whose precondition does
@@ -115,10 +127,11 @@ hand-back; a refused one goes back to the step that wrote the description and ne
    record `ok` whose blob is the check's `spec-first: allowed:` line (`bugfix-full` of
    `cycles/tree-suite.yaml`).
 2. A bug-fix cycle whose description carries no reference records `spec_reference` `refused`, runs
-   `handback.describe` again, never ends `fixed` and ends `spec_refused` (a new entry of
-   `cycles/tree-suite.yaml`).
+   `handback.describe` again, never ends `fixed` and ends stuck once the writer is spent
+   (`bugfix-spec-refused`, a new entry of `cycles/tree-suite.yaml`).
 3. Canon's evaluation of the protocol: with the gate passed and `spec_reference` refused, `fixed` is
-   blocked and `handback.describe` is admissible; with `ok`, `fixed` is legitimate (`cases/12-bugfix-red-first`).
+   blocked, no outcome is legitimate and `handback.describe` is admissible; with `ok`, `fixed` is
+   legitimate (`cases/12-bugfix-red-first`).
 4. The default check, kind `change`: a description with a spec merge request link or a path under the
    named spec directory exits 0 with `spec-first: allowed:`; one with only a code line exits 77 with
    `spec-first: refused:`. Kind `defect`: a `<file>:<line>` reference, a link with a line anchor or
@@ -130,6 +143,9 @@ hand-back; a refused one goes back to the step that wrote the description and ne
    tests).
 7. `canon check` of `sdc.bugfix` reports 0 findings, `scripts/check-bindings.sh` and `runbook check`
    pass.
+8. A test reads the protocol and fails for any `handback.*` action, other than the two above, whose
+   precondition does not require `spec.referenced`, and for any outcome other than `fixed` that
+   reads the spec reference.
 
 ## Origin
 

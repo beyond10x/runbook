@@ -30,6 +30,28 @@
       ],
       "status": "blocked"
     },
+    "handback.describe": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "handback.spec-check": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "handback.described",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "repro.run": {
       "reasons": [
         {
@@ -87,6 +109,9 @@
     "gate.passed": {
       "value": "unknown"
     },
+    "handback.described": {
+      "value": "unknown"
+    },
     "repro.checked": {
       "value": "true"
     },
@@ -94,6 +119,12 @@
       "value": "true"
     },
     "repro.written": {
+      "value": "unknown"
+    },
+    "spec.checked": {
+      "value": "unknown"
+    },
+    "spec.referenced": {
       "value": "unknown"
     },
     "story.updated": {
@@ -131,6 +162,28 @@
           {
             "claim": "tests.pass",
             "value": "false"
+          }
+        ],
+        "status": "blocked"
+      },
+      "handback.describe": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "handback.spec-check": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "handback.described",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -221,6 +274,16 @@
         ],
         "value": "unknown"
       },
+      "handback.described": {
+        "because": [
+          {
+            "kind": "description_written",
+            "status": "absent",
+            "subject": "description"
+          }
+        ],
+        "value": "unknown"
+      },
       "repro.checked": {
         "because": [
           {
@@ -245,6 +308,26 @@
             "kind": "repro_written",
             "status": "absent",
             "subject": "repro"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.checked": {
+        "because": [
+          {
+            "kind": "spec_reference",
+            "status": "absent",
+            "subject": "description"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.referenced": {
+        "because": [
+          {
+            "kind": "spec_reference",
+            "status": "absent",
+            "subject": "description"
           }
         ],
         "value": "unknown"
@@ -283,6 +366,9 @@
         "artifacts": {
           "change": {
             "revision": "c2"
+          },
+          "description": {
+            "revision": "m1"
           },
           "dissection": {
             "revision": "d1"

@@ -1,6 +1,7 @@
 format: sdc.ticket/1
 id: PAGER-7
 kind: bug
+change_kind: defect
 title: The last partial page is never shown
 text: >-
   An invented ticket. With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and
@@ -10,6 +11,9 @@ context:
 - kind: comment
   ref: comment-1
   text: Seen with every total that is not a multiple of the page size.
+- kind: doc
+  ref: spec
+  text: The spec says nothing about a partial last page.
 source:
   system: example
   url: https://tickets.example.invalid/PAGER-7

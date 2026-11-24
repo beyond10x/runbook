@@ -4,6 +4,7 @@
 
 mod retry_feedback_copy;
 mod answers;
+mod bugfix_handback;
 mod bugfix_languages;
 mod bugfix_prompt;
 mod check_bindings_budget;

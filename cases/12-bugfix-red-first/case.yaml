@@ -13,3 +13,5 @@ artifacts:
     revision: c2
   story:
     revision: s2
+  description:
+    revision: m1

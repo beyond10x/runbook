@@ -5,7 +5,7 @@ setup, a run, an expected verdict) into data, `cycles/suite.yaml` (format `runbo
 Loom's `loom.tree-suite/1` then took the cycles that can be said in it over, as
 `cycles/tree-suite.yaml`. `story:driver-runtime-removed` deleted the script, `cycles/suite.yaml` and
 the driver the script ran. This file stays as the table of the 130 entries of the deleted suite: each
-row says what holds the entry now. The 130 names, and `spec-person-wait` (a cycle added after the deletion, so the list holds 131 names), are committed in `cycles/old-suite-names.txt`.
+row says what holds the entry now. The 130 names, and `spec-person-wait` and `bugfix-spec-refused` (cycles added after the deletion, so the list holds 132 names), are committed in `cycles/old-suite-names.txt`.
 
 ## What holds an entry now
 
@@ -33,7 +33,7 @@ Every entry is in one of four states. The `state` cell of its row says exactly t
 and fails when it is not format `loom.tree-suite/1`, repeats a cycle name, has an entry without a
 `name`, or names a seed (`seed: [{from: ...}]`, in `defaults` or in a cycle) that is not under
 `cycles/`. It reads `cycles/old-suite-names.txt` and fails when a cycle of the file is not one of the
-131 names. While this file exists it reads the rows of its tables headed `| entry | state |` and fails
+132 names. While this file exists it reads the rows of its tables headed `| entry | state |` and fails
 when a name has no row or more than one, when a row names an entry that is not in the list, when the state of a row is none of the four words
 above (the refusal names the row and the word), when a row
 says converted or pending and the suite file says otherwise, or when a row of another state names a
@@ -103,7 +103,7 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-131 entries (the 130 of the deleted suite and `spec-person-wait`): 40 converted, 15 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
+132 entries (the 130 of the deleted suite, `spec-person-wait` and `bugfix-spec-refused`): 41 converted, 15 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
 `scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending).
 At Loom `db2726ff` every `pending` entry was run once. `run-stop`, `replay-sibling` and `decider-rework` run as expected and lost
 `pending` (`story:tree-suite-stop-resume-reopen-steps`, `story:tree-replay-command`). `decider-rework-spent` and
@@ -330,7 +330,8 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | review-invalid-stop | dropped with the driver | same |
 | review-adapter-refused | dropped with the driver | same, and the refusal is the exit 64 of `sdc-drive` before a run, not a cycle's outcome |
 | reopen-review-invalid | dropped with the driver | same, and a `--reopen` of a stopped run |
-| bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run |
+| bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run, and one `spec_reference` `ok` whose blob is the default check's `spec-first: allowed: defect:` line (the report's text says the spec says nothing; `docs/bugfix.md`, "Hand-back: the spec reference") |
+| bugfix-spec-refused | converted | added after the deletion (`story:a-bug-fix-hands-back-only-with-a-spec-reference`): the report `cycles/seeds/bugfix-pager/bug-no-spec.yaml` names no spec; the fix passes the gate, the default check refuses the description (`spec_reference` `refused`, its blob the `spec-first: refused: defect:` line), `handback.describe` runs a second time and is spent, and the tree is stuck (exit 4) without `fixed` |
 | bugfix-not-red | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_reproduced`: the first `repro_run` `not_red` makes `not_reproduced` legitimate and Loom ends the case before the test writer is sent back; the protocol has no claim for "the writer is spent" |
 | bugfix-edited-test | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_fixed`: the first `test_run` is `failed` and Loom ends the case `not_fixed` before `change.fix` is sent back; same missing "writer is spent" |
 | bugfix-never-red | converted | ends `not_reproduced` with no red, no fix and no suite run; Loom ends the case at the first legitimate outcome, after one `test.reproduce` run (the old cycle ran the writer to its allowance) |

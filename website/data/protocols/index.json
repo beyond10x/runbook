@@ -150,12 +150,24 @@
           "name": "gate.run",
           "opens": null,
           "step": 7
+        },
+        {
+          "executor": "program",
+          "name": "handback.describe",
+          "opens": null,
+          "step": 8
+        },
+        {
+          "executor": "program",
+          "name": "handback.spec-check",
+          "opens": null,
+          "step": 9
         }
       ],
-      "actions": 8,
+      "actions": 10,
       "children": [],
-      "claims": 12,
-      "evidence": 8,
+      "claims": 15,
+      "evidence": 10,
       "id": "sdc.bugfix",
       "outcomes": [
         "fixed",
@@ -164,7 +176,7 @@
       ],
       "parents": [],
       "revision": 1,
-      "simulate_findings": 0,
+      "simulate_findings": 1,
       "states": null,
       "stem": "sdc-bugfix",
       "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes."
@@ -1118,7 +1130,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "2fd1abf9f1394b01c6188ec057746d9894096eeed8d832bd04a3ee6716f9d3bb"
+      "sha256": "bc189ac10a964921d6f53ecc9f82dc1d1a9f20f3d9f427e5272d68ff9c045b3e"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
@@ -1154,7 +1166,7 @@
     },
     {
       "path": "protocol/sdc-bugfix.protocol.yaml",
-      "sha256": "d3cb15dea45488422ac8e3e356b07021c1a41d9c97b120dec63346b7f2e9f022"
+      "sha256": "e724134b6e3648741174fce1e6001c7a36d99c50110cfb445abe8cff104567d0"
     },
     {
       "path": "protocol/sdc-direction.protocol.yaml",
@@ -1194,7 +1206,7 @@
     },
     {
       "path": "protocol/simulate/sdc-bugfix.txt",
-      "sha256": "9ccfa37e970c83be0903d985957db902974f92b40c68b2e4bdadc5981f3deacb"
+      "sha256": "54a29be9591fed326e0b9b2e7fb013be5cb6c842263299c3ef5d37b5d7c9c5fe"
     },
     {
       "path": "protocol/simulate/sdc-direction.txt",
