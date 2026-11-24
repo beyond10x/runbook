@@ -243,9 +243,8 @@ fn the_rust_reader_refuses_a_fifo_a_socket_a_directory_a_device_and_a_link_to_a_
     // A FIFO that holds a good gateway text, with a reader and a writer already open: only the kind can refuse it.
     let fifo = dir.join("fifo");
     assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
-    let _hold = fs::OpenOptions::new().read(true).custom_flags(O_NONBLOCK_LINUX).open(&fifo).unwrap();
+    let mut hold = fs::OpenOptions::new().read(true).custom_flags(O_NONBLOCK_LINUX).open(&fifo).unwrap();
     let mut writer = fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK_LINUX).open(&fifo).unwrap();
-    writer.write_all(good.as_bytes()).unwrap();
     // A FIFO with no peer at all.
     let lonely = dir.join("lonely");
     assert!(Command::new("mkfifo").arg(&lonely).status().unwrap().success());
@@ -259,16 +258,39 @@ fn the_rust_reader_refuses_a_fifo_a_socket_a_directory_a_device_and_a_link_to_a_
     let folder = dir.join("folder");
     fs::create_dir(&folder).unwrap();
     let mut wrong = Vec::new();
-    for (what, path) in [
-        ("a FIFO holding a good text", fifo),
-        ("a FIFO with no peer", lonely),
-        ("a socket", socket),
-        ("a directory", folder),
-        ("/dev/null", PathBuf::from("/dev/null")),
-        ("/dev/zero", PathBuf::from("/dev/zero")),
-        ("a link to a FIFO holding a good text", link),
+    for (what, path, holds_text) in [
+        ("a FIFO holding a good text", fifo, true),
+        ("a FIFO with no peer", lonely, false),
+        ("a socket", socket, false),
+        ("a directory", folder, false),
+        ("/dev/null", PathBuf::from("/dev/null"), false),
+        ("/dev/zero", PathBuf::from("/dev/zero"), false),
+        ("a link to a FIFO holding a good text", link, true),
     ] {
-        match read_bounded(path) {
+        if holds_text {
+            writer.write_all(good.as_bytes()).unwrap();
+        }
+        let answer = read_bounded(path);
+        if holds_text {
+            // No byte read, exactly: every byte written is still in the FIFO, read from here, the writer still open.
+            let mut left = Vec::new();
+            let mut chunk = [0u8; 256];
+            loop {
+                match std::io::Read::read(&mut hold, &mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => left.extend_from_slice(&chunk[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(e) => panic!("{what}: reading what is left: {e}"),
+                }
+            }
+            match answer {
+                Ok((false, _)) if left == good.as_bytes() => {}
+                Ok((ok, _)) => wrong.push(format!("{what}: ok={ok}, {} of {} bytes left in the FIFO", left.len(), good.len())),
+                Err(_) => wrong.push(format!("{what}: no end within 5 s")),
+            }
+            continue;
+        }
+        match answer {
             Ok((false, bytes)) if bytes <= 3 => {} // a reading of the counter may grow by a digit; the file text is 61 bytes
             Ok((ok, bytes)) => wrong.push(format!("{what}: ok={ok}, {bytes} bytes read")),
             Err(_) => wrong.push(format!("{what}: no end within 5 s")),
