@@ -144,6 +144,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         llm_calls: 0,
         steps: 0,
         spent: 0,
+        recorded_micro_usd: 0,
+        recorded_llm_calls: 0,
         start,
         wall_cap_noted: false,
         decided: std::collections::HashMap::new(),
@@ -223,6 +225,9 @@ struct Runner<'a> {
     llm_calls: u64,
     steps: u64,
     spent: u64,
+    /// What a re-drive took from its recording: the cost and the number of calls (never counted in `spent` and `llm_calls`).
+    recorded_micro_usd: u64,
+    recorded_llm_calls: u64,
     start: u64,
     wall_cap_noted: bool,
     decided: std::collections::HashMap<String, bool>,
@@ -295,7 +300,10 @@ impl Runner<'_> {
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
             std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
-        self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
+        // A re-drive that cannot start a live call spends nothing: its ledger is not opened, so it is neither created nor changed.
+        if !self.spends_nothing() {
+            self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
+        }
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         // The copy is made and no bound program has run: who decides is read now and not again.
         self.decider.pin_routing(&self.run_dir);
@@ -336,10 +344,10 @@ impl Runner<'_> {
                     return Ok(Outcome::Ended { tree_outcome });
                 }
                 4 => {
-                    // A program ended by a signal leaves its action undone and the tree stuck: the run names the signal, not only the stuck tree.
-                    return Ok(match runbook::engine::refusal::program_signalled(&self.store) {
-                        Some(reason) => Outcome::Refused { cause: runbook::engine::refusal::PROGRAM_SIGNALLED, reason, loom_exit: None, stderr_tail: None },
-                        None => Outcome::Stuck,
+                    // A program that Loom refused (ended by a signal, or by an exit that `exits.error` lists) leaves its action undone and the tree stuck: the run names the refusal, not only the stuck tree.
+                    return Ok(match runbook::engine::refusal::program_refused(&self.store) {
+                        Some(refused) => Outcome::Refused { cause: refused.cause, reason: refused.text, loom_exit: None, stderr_tail: None },
+                        None => Outcome::Stuck { reason: runbook::engine::refusal::stuck_on(&self.store) },
                     });
                 }
                 5 if steps > 0 => {}
@@ -389,7 +397,25 @@ impl Runner<'_> {
         self.ledger.as_ref().expect("the ledger is opened before the loop")
     }
 
+    /// Whether a re-drive (`--recorded`) is the whole of this run and cannot start a live call: no
+    /// `--on-divergence live`, or `--live-cap 0`. Every reply of such a run comes from the recording,
+    /// so it spends nothing: it opens no ledger, reserves nothing and books nothing.
+    fn spends_nothing(&self) -> bool {
+        use crate::loom_run::ports::OnDivergence;
+        let replay = &self.args.ports.replay;
+        replay.recorded.is_some() && (replay.on_divergence != Some(OnDivergence::Live) || replay.live_cap == Some(0))
+    }
+
+    /// Whether the cost line of a model call is a reply taken from the recording: the adapter of a
+    /// re-drive writes `recorded` or `reused` there and `live` for a call it started.
+    fn is_recorded_call(&self, record: &Value) -> bool {
+        self.args.ports.replay.recorded.is_some() && matches!(record.get("adapter").and_then(Value::as_str), Some("recorded" | "reused"))
+    }
+
     fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
+        if self.spends_nothing() {
+            return Ok(Reservation { id: String::new(), micro_usd: want });
+        }
         let r = self.ledger().reserve(&self.args.run, self.args.cap_micro_usd, want)?;
         if want > 0 && r.micro_usd == 0 {
             let spent = self.ledger().spent()?;
@@ -397,6 +423,37 @@ impl Runner<'_> {
             return Err(Halt::Done(Outcome::StoppedSpendCap));
         }
         Ok(r)
+    }
+
+    /// Books `micro_usd` of the reservation as spent: into the ledger and `spent`.
+    fn book(&mut self, reservation: &Reservation, what: &str, micro_usd: u64) -> Result<(), String> {
+        if self.spends_nothing() {
+            return Ok(());
+        }
+        self.ledger().commit(reservation, &self.args.run, what, micro_usd)?;
+        self.spent += micro_usd;
+        Ok(())
+    }
+
+    /// Gives the reservation back without booking anything.
+    fn release(&self, reservation: &Reservation) -> Result<(), String> {
+        if self.spends_nothing() {
+            return Ok(());
+        }
+        self.ledger().release(reservation)
+    }
+
+    /// Counts one decider answer: what a re-drive that cannot go live took from its recording is
+    /// recorded, every other cost is booked as spent.
+    fn book_decider(&mut self, reservation: &Reservation, cost_micro_usd: u64, model_calls: u64) -> Result<(), String> {
+        if self.spends_nothing() {
+            self.recorded_micro_usd = self.recorded_micro_usd.saturating_add(cost_micro_usd);
+            self.recorded_llm_calls += model_calls;
+            return Ok(());
+        }
+        self.book(reservation, "decider", cost_micro_usd)?;
+        self.llm_calls += model_calls;
+        Ok(())
     }
 
     /// Reads what the step spent and books it. A cost that cannot be read books the whole
@@ -408,19 +465,41 @@ impl Runner<'_> {
     fn book_step(&mut self, reservation: &Reservation) -> Result<(), Halt> {
         match self.reader.read_new(&self.workspace) {
             Ok(cost) => {
-                let unknown = cost.unknown.len() as u64;
-                let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
-                let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
-                self.ledger().commit(reservation, &self.args.run, what, booked)?;
-                self.spent += booked;
-                self.llm_calls += cost.records.len() as u64 + unknown;
+                // A reply taken from the recording costs what the recording says and is not spent by this run.
+                let micro_of = |record: &Value| record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+                // The adapter's word decides what was recorded; the policy only decides what may be live. A re-drive that cannot go live holds no live call: a line that says it started one is an error of the run.
+                if self.spends_nothing() {
+                    if let Some(record) = cost.records.iter().chain(cost.unknown.iter()).find(|r| !self.is_recorded_call(r)) {
+                        let text = |key: &str| record.get(key).and_then(Value::as_str).unwrap_or("none").to_owned();
+                        return Err(Halt::Failed(format!(
+                            "model step {}: the cost line says adapter {}, a call this re-drive started, but a re-drive with no --on-divergence live or with --live-cap 0 starts none",
+                            text("action"),
+                            text("adapter")
+                        )));
+                    }
+                }
+                let (recorded, started): (Vec<&Value>, Vec<&Value>) = cost.records.iter().partition(|r| self.is_recorded_call(r));
+                let (recorded_unknown, started_unknown): (Vec<&Value>, Vec<&Value>) = cost.unknown.iter().partition(|r| self.is_recorded_call(r));
+                let recorded_micro = recorded.iter().map(|r| micro_of(r)).fold(0u64, u64::saturating_add);
+                let started_micro = started.iter().map(|r| micro_of(r)).fold(0u64, u64::saturating_add);
+                let (recorded_calls, started_calls) = (recorded.len() as u64, started.len() as u64);
+                // A failed call without a cost books the reservation, the most it could have spent; a reused one started nothing and is a recorded call at cost 0.
+                let unknown_started = started_unknown.len() as u64;
+                let unknown_booked = reservation.micro_usd.saturating_mul(unknown_started);
+                let booked = started_micro.saturating_add(unknown_booked);
+                let what = if unknown_started == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
+                self.book(reservation, what, booked)?;
+                self.llm_calls += unknown_started + started_calls;
+                self.recorded_llm_calls += recorded_unknown.len() as u64 + recorded_calls;
+                self.recorded_micro_usd = self.recorded_micro_usd.saturating_add(recorded_micro);
                 for record in cost.records {
-                    let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+                    let micro = micro_of(&record);
                     self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
                 }
                 for mut record in cost.unknown {
+                    let micro = if self.is_recorded_call(&record) { 0 } else { reservation.micro_usd };
                     record["cost_unknown"] = Value::Bool(true);
-                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: reservation.micro_usd, record })?;
+                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
                 }
                 for note in cost.no_call {
                     let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
@@ -430,8 +509,7 @@ impl Runner<'_> {
                 Ok(())
             }
             Err(reason) => {
-                self.ledger().commit(reservation, &self.args.run, "step, cost unknown: reservation booked", reservation.micro_usd)?;
-                self.spent += reservation.micro_usd;
+                self.book(reservation, "step, cost unknown: reservation booked", reservation.micro_usd)?;
                 Err(Halt::Failed(reason))
             }
         }
@@ -485,19 +563,16 @@ impl Runner<'_> {
             };
             let (approve, principal, cost, calls, reasons) = match verdict {
                 Verdict::CannotDecide { reason } => {
-                    self.ledger().release(&reservation)?;
+                    self.release(&reservation)?;
                     return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
-                    self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
-                    self.spent += reservation.micro_usd;
+                    self.book(&reservation, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
                     return Err(Halt::Failed("the decider answered without a cost".to_owned()));
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
-            self.ledger().commit(&reservation, &self.args.run, "decider", cost)?;
-            self.spent += cost;
-            self.llm_calls += calls;
+            self.book_decider(&reservation, cost, calls)?;
             if cost > 0 || calls > 0 {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }
@@ -712,6 +787,8 @@ impl Runner<'_> {
             exit_code: outcome.exit_code(),
             steps: self.steps,
             spent_micro_usd: self.spent,
+            recorded_micro_usd: self.recorded_micro_usd,
+            recorded_llm_calls: self.recorded_llm_calls,
             llm_calls: self.llm_calls,
         };
         if let Err(e) = self.emit(ended) {

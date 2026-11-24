@@ -16,6 +16,7 @@ mod model_call;
 mod pages;
 mod replay;
 mod replay_boundaries;
+mod replay_spend;
 mod run_dir;
 mod settings;
 mod settings_guards;
