@@ -368,6 +368,18 @@ fn a_run_left_without_a_move_by_a_refused_action_says_which_action_and_exit() {
 }
 
 #[test]
+fn the_runtime_failed_reason_of_a_refused_action_names_no_state_or_home_path() {
+    let rig = Rig::build_with("fix1-engine-path", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    until("the run to end", 40, || rig.state_of(&run) == "Ended");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
+    let (dir, home) = (rig.dir.display().to_string(), rig.home.display().to_string());
+    assert!(reason.contains("ProgramError: action draft.write: "), "{reason}");
+    assert!(!reason.contains(&dir) && !reason.contains(&home), "the reason names a path of the state directory or the home: {reason}");
+}
+
+#[test]
 fn every_run_log_line_reaches_the_record_unchanged() {
     let rig = Rig::new("engine-record", &[Confinement::Local]);
     let run = rig.submit();

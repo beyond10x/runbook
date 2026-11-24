@@ -95,3 +95,24 @@ fn the_loom_run_page_says_which_refusals_are_exit_12_and_which_stay_exit_1() {
         assert!(text.contains(needed), "docs/loom-run.md lacks: {needed}");
     }
 }
+
+/// A refusal is read by the name it leads with: a text of another refusal that holds a program refusal's lead is none.
+#[test]
+fn a_refusal_text_is_read_by_its_leading_name_only() {
+    use runbook::engine::refusal::program_refused_in;
+    let line = |refusal: &str| format!(r#"{{"seq":4,"kind":"ActionFinished","action":"a","refusal":"{refusal}"}}"#);
+    let stop = r#"{"seq":5,"kind":"Stopped","stop":"Stuck","next":[]}"#;
+    for text in ["ResultNotInTable: action a: the report said ProgramError: x", "RunsSpent: action a: x ProgramSignalled: y"] {
+        assert_eq!(program_refused_in(&format!("{}\n{stop}", line(text))), None, "{text}");
+    }
+}
+
+/// A refusal followed by the case's evaluation and nothing else is no longer what the tree is stuck on.
+#[test]
+fn a_refusal_the_case_was_evaluated_after_is_not_the_reason_of_the_stop() {
+    use runbook::engine::refusal::program_refused_in;
+    let refused = r#"{"seq":4,"kind":"ActionFinished","action":"a","refusal":"ProgramError: action a: p ended exit status 69"}"#;
+    let evaluated = r#"{"seq":5,"kind":"Evaluated","case_revision":2}"#;
+    let stop = r#"{"seq":6,"kind":"Stopped","stop":"Stuck","next":[]}"#;
+    assert_eq!(program_refused_in(&format!("{refused}\n{evaluated}\n{stop}")), None);
+}

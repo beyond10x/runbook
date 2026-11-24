@@ -1154,3 +1154,81 @@ fn guard_an_events_file_with_no_permission_does_not_stop_the_run() {
 fn guard_an_events_file_that_is_read_only_does_not_stop_the_run() {
     an_events_file_a_program_made_unusable_does_not_stop_the_run("mode444", "chmod 444 ../events.jsonl");
 }
+
+/// The text of a refused action leaves the run in `outcome.json`, `events.jsonl` and `run-stopped.json`: it names
+/// the action and the exit, and no absolute path of the machine (the run dir, the runbook home, the fixture root).
+#[test]
+fn a_refused_action_reason_names_no_absolute_path() {
+    let rig = Rig::new("fix1-path");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let root = rig.root.display().to_string();
+    for file in ["outcome.json", "events.jsonl", "run-stopped.json"] {
+        let text = std::fs::read_to_string(rig.run_dir("r1").join(file)).unwrap();
+        assert!(!text.contains(&root), "{file} names the path {root}: {text}");
+    }
+    let reason = rig.outcome("r1")["reason"].as_str().unwrap().to_owned();
+    assert!(!reason.contains("/home") && !reason.contains("/tmp") && !reason.contains(env!("CARGO_MANIFEST_DIR")), "{reason}");
+}
+
+/// The same with `--runs-dir` given as a relative word and the working directory beside it: the text Loom wrote
+/// names the bindings copy by the path the runner gave it; no absolute path of the machine reaches the outcome.
+#[test]
+fn a_refused_action_reason_names_no_absolute_path_under_a_relative_runs_dir() {
+    let rig = Rig::new("fix1-relpath");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let mut args = rig.args("r1", 1_000_000);
+    let i = args.iter().position(|a| a == "--runs-dir").unwrap();
+    args[i + 1] = "runs".to_owned();
+    let o = rig.command(&args).current_dir(&rig.root).output().unwrap();
+    assert_eq!(code(&o), 12, "{}", stderr(&o));
+    let root = rig.root.display().to_string();
+    for file in ["outcome.json", "events.jsonl", "run-stopped.json"] {
+        let text = std::fs::read_to_string(rig.run_dir("r1").join(file)).unwrap();
+        assert!(!text.contains(&root), "{file} names the path {root}: {text}");
+    }
+}
+
+/// A writer that is run again after a rejection and is refused on that second try ends the run `refused` too.
+#[test]
+fn a_retry_refused_on_its_second_try_ends_the_run_refused_program_error() {
+    let rig = Rig::new("fix1-retry");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\n[ -z \"$LOOM_RETRY_FEEDBACK\" ] || exit 69\necho draft >> draft.txt\n");
+    rig.answers(&[reject("again"), json!({"approve": true, "cost_micro_usd": 0}), json!({"approve": true, "cost_micro_usd": 0})], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str(), code(&o)), (Some("refused"), Some("program_error"), 12), "{outcome} {}", stderr(&o));
+    assert!(outcome["reason"].as_str().unwrap().starts_with("ProgramError: action draft.write: "), "{outcome}");
+}
+
+/// A bound program that cannot be started (its file is gone) is a refusal too: the run must not end `stuck` with a
+/// null reason, whatever Loom calls the refusal.
+#[test]
+fn a_bound_program_that_cannot_start_does_not_end_the_run_stuck_with_a_null_reason() {
+    let rig = Rig::new("fix1-nospawn");
+    std::fs::remove_file(rig.root.join("fx/bindings/tools/draft-write.sh")).unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert!(!(outcome["outcome"] == "stuck" && outcome["reason"].is_null()), "exit {}: {outcome} {}", code(&o), stderr(&o));
+}
+
+/// A program that Loom refuses for an exit its binding has no result for (`ResultNotInTable`, what a program killed
+/// at its timeout, exit 124, reaches) leaves the tree without a move with Loom's refusal text in the case's run log.
+/// The run must not end `stuck` with `reason: null` and the text only in the log.
+#[test]
+fn a_refusal_that_is_not_a_program_error_is_not_dropped_with_a_null_reason() {
+    let rig = Rig::new("fix1-table");
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let anchor = "results: {\"0\": valid, \"*\": invalid}";
+    assert!(text.contains(anchor), "{text}");
+    std::fs::write(&file, text.replace(anchor, "results: {\"0\": valid}")).unwrap();
+    std::fs::write(rig.root.join("fx/bindings/tools/draft-check.sh"), "#!/bin/sh\nexit 124\n").unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let outcome = rig.outcome("r1");
+    assert!(outcome["reason"].is_string(), "outcome {} exit {}: the refusal text is in the case log only: {outcome}", outcome["outcome"], code(&o));
+}
