@@ -65,8 +65,7 @@ the daemon's `--runbook-home` and the target is the run's directory.
 The daemon's copy is bounded: a runbook of more than 4096 entries (directories and files; a link
 counts as what it is copied as, so links that lead to the same directory many times end at the
 bound) or 16 MiB is refused before the first write, naming no path (`engine::copy::MAX_ENTRIES`,
-`MAX_BYTES`; the home of this repository holds 661 entries and 1.1 MB, counted over `bindings/`,
-`protocol/`, `instructions/`, `views/`, `driver/examples/` and `tools/`). It is private to the
+`MAX_BYTES`). It is private to the
 daemon's user: `runs/<run id>/` and every directory of the copy are `0o700`, every file `0o600`, or
 `0o700` when the source has an executable bit. The plan names each file it will copy by device,
 inode and length; the copy opens each source without following a link and refuses the whole copy,
@@ -104,7 +103,11 @@ to the client and the run has not seen it.
 No reason, record or question that leaves the engine toward a client (a refusal, a failure at the start,
 an event of the run, the text of a question) names a path of the daemon's state directory or of the
 runbook home: an entry is named relative to the run's copy or to the home, and a directory itself is
-named `.`.
+named `.`. This holds whatever the directory's name holds: a path is taken out as the file system names
+it, with each control character read as a space (a failure is cleaned before it leaves) and as Rust's
+`Debug` escapes it (Loom names a refused file that way), and a directory given as a relative word is taken
+out by its absolute form only, so a word of a reason that spells it stays (`engine::hide`,
+`daemon::copy_integrity::names_of_paths`).
 
 The check is a read before a call, not a guard around each program. Inside one round a bound program at
 confinement `local` is unconfined: it can change the copy, and a later program of the same round runs
