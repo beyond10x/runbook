@@ -749,14 +749,22 @@ fn program_sources(dir: &Path, out: &mut Vec<(PathBuf, String)>, refused: &mut V
 
 /// The Rust sources of the programs that replaced `llm-node.sh` and `decider.sh`: `sdc-node` (its
 /// file and its directory) and the runner's `loom_run` module tree, which holds the decider (its
-/// module root `decider.rs` and `decider/`), and the files the cut refused. A new file is in the
-/// set without an edit here.
+/// module root `decider.rs` and `decider/`), the modules of the runner that moved from `loom_run`
+/// into the library crate, and the files the cut refused. A new file in a walked directory is in
+/// the set without an edit here.
 fn guarded_sources() -> (Vec<(PathBuf, String)>, Vec<String>) {
     let (mut sources, mut refused) = (Vec::new(), Vec::new());
     let node = manifest().join("src/bin/sdc-node.rs");
     sources.push((node.clone(), fs::read_to_string(&node).unwrap()));
     program_sources(&manifest().join("src/bin/sdc-node"), &mut sources, &mut refused);
     program_sources(&repo().join("runbook/src/loom_run"), &mut sources, &mut refused);
+    for rel in ["runbook/src/budget.rs", "runbook/src/cost.rs", "runbook/src/ledger.rs", "runbook/src/record_write.rs"] {
+        let p = repo().join(rel);
+        match non_test_text(&fs::read_to_string(&p).unwrap()) {
+            Ok(text) => sources.push((p, text)),
+            Err(e) => refused.push(format!("{}: {e}", p.display())),
+        }
+    }
     (sources, refused)
 }
 
@@ -811,12 +819,18 @@ fn pasted_instruction_line() -> (Vec<String>, String) {
 fn a_line_pasted_into_a_scanned_file_is_found() {
     let (lines, paste) = pasted_instruction_line();
     let (sources, _) = guarded_sources();
-    for rel in ["runbook/src/loom_run/decider.rs", "runbook/src/loom_run/ledger.rs", "runbook/src/loom_run/decider/prompt.rs", "driver/src/bin/sdc-node/call.rs", "driver/src/bin/sdc-node.rs"] {
+    for rel in ["runbook/src/loom_run/decider.rs", "runbook/src/ledger.rs", "runbook/src/loom_run/decider/prompt.rs", "driver/src/bin/sdc-node/call.rs", "driver/src/bin/sdc-node.rs"] {
         let path = repo().join(rel);
         assert!(sources.iter().any(|(p, _)| *p == path), "{rel} is not scanned");
         let real = fs::read_to_string(&path).unwrap();
-        let cut = if rel.ends_with("sdc-node.rs") { format!("{real}{paste}") } else { non_test_text(&format!("{real}{paste}")).unwrap() };
-        assert!(first_instruction_line_in(&cut, &lines).is_some(), "a line pasted at the end of {rel} is not found");
+        // A file that ends in its inline test module takes the line just before that module: a line
+        // after it is refused by the cut itself.
+        let pasted = match real.find("\n#[cfg(test)]\nmod tests {") {
+            Some(at) => format!("{}{paste}{}", &real[..at], &real[at..]),
+            None => format!("{real}{paste}"),
+        };
+        let cut = if rel.ends_with("sdc-node.rs") { pasted } else { non_test_text(&pasted).unwrap() };
+        assert!(first_instruction_line_in(&cut, &lines).is_some(), "a line pasted into the program text of {rel} is not found");
     }
 }
 
