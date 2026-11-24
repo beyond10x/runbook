@@ -263,7 +263,7 @@ test('idle-handles: 200 pages that connect and leave leave no timer, no stream a
   for (let b = 0; b < 10; b++) await Promise.all(Array.from({length: 20}, (_, k) => one(k % 2 === 0, b * 20 + k)));
   await sleep(1000);
   const r1 = (await reads()).rounds;
-  await sleep(2 * 700 + 300);
+  await sleep(1700);
   const r2 = (await reads()).rounds;
   const fd1 = fds(pid);
   const c0 = cpuTicks(pid);

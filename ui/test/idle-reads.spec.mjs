@@ -75,7 +75,7 @@ function watch(source) {
 test('with no page connected no round runs and no run file is read (50 runs, 3 rounds of a page that is not there)', async () => {
   const a = await reads();
   expect(Object.keys(a)).toEqual(['rounds', 'total', 'byRun']);
-  await new Promise((r) => setTimeout(r, 3 * 700 + 300));
+  await new Promise((r) => setTimeout(r, 2400));
   const b = await reads();
   expect(b.rounds).toBe(0);
   expect(b.total).toBe(a.total);
