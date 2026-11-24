@@ -399,3 +399,24 @@ fn the_model_decider_starts_its_adapter_with_the_gateway_file_and_neither_a_logi
     assert!(!private_dir(&w, "r1").exists());
 }
 
+#[test]
+fn under_a_gateway_the_model_decider_asks_its_adapter_for_the_model_decider_model_names() {
+    // a gateway that routes by model name: `decider.model` is the name the decider's adapter is asked for,
+    // and the adapter passes a request's model to `claude` as `--model` (driver/tests/gateway_model_and_no_token.rs)
+    let w = World::new("gateway-decider-model");
+    super::decider::install_decider(&w, super::decider::APPROVE);
+    super::decider::tree_with_approval(&w, "0.30");
+    let mut v = super::decider::fixture_settings(&w, 5_000_000);
+    v.as_object_mut().unwrap().remove("login_file");
+    v["adapter"] = json!("claude-cli");
+    v["gateway"] = gateway();
+    v["decider"]["model"] = json!("qwen");
+    super::decider::write_settings(&w, &v);
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let request: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/bindings/tools/adapter-request.json")).expect("the decider's adapter was not started")).unwrap();
+    assert_eq!(request["model"], "qwen", "{request}");
+    let env = std::fs::read_to_string(w.run_dir("r1/bindings/tools/env.txt")).unwrap();
+    assert!(env.contains("SDC_GATEWAY_FILE=") && !env.contains(TOKEN), "{env}");
+}
+

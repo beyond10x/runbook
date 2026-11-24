@@ -243,6 +243,23 @@ Where a gateway works:
 | `local` | works: the bound program runs on the host's network |
 | `substrate` | refused by the name `gateway`: a bound program at that level has no network, so no address (not even loopback) is reachable (`loom-substrate` `NetworkMode::None`, no egress aperture). The runner changes no confinement |
 
+The model names a gateway sees. A gateway that routes by model name gets, as `claude --model <name>`, the
+model the request of each program names; the settings already carry one per program, so the table has no
+`model` of its own:
+
+| Program | The key that names its model | Without it |
+|---|---|---|
+| a model node of the copy | `models.<role>.model` for the node's role (`writer`, `implement`, `review`, `other`; `bindings/tools/node-classes.json`) | the model the binding names (a `claude-*` name) |
+| the review step (`change.review`, role `review`) | `models.review.model` | as above |
+| the model decider | `decider.model` (required) | refused |
+| the conformance observation | `SDC_LLM_MODEL_CONFORMANCE` in the environment of `runbook run` | `claude-sonnet-5-5` |
+
+So a gateway whose one route is `qwen` takes a settings file that names `model = "qwen"` under each of the
+four `[models.<role>]` tables and in `[decider]`. The cases: `under_a_gateway_the_model_of_each_role_is_written_into_every_model_node_of_the_role_the_review_step_among_them`
+(`runbook/src/loom_run/bindings_copy/tests.rs`), `under_a_gateway_the_model_decider_asks_its_adapter_for_the_model_decider_model_names`
+(`runbook/tests/loom_run/gateway.rs`) and `a_node_under_a_gateway_hands_claude_the_model_it_names`
+(`driver/tests/gateway_model_and_no_token.rs`).
+
 The only adapter that takes a gateway is `claude-cli`. `metaharness` starts its own proxy and removes every
 `ANTHROPIC_*` variable of its environment, so it cannot carry the token: the setting and the adapter refuse it
 (the adapter with exit 127, before any process starts). `stub`, `dry` and `fixture` call no model and ignore the

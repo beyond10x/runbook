@@ -27,6 +27,7 @@ mod gateway;
 mod gateway_hardening;
 mod gateway_descriptors_bound_and_kinds;
 mod gateway_readers_and_filter;
+mod gateway_model_and_no_token;
 mod impl_gate;
 mod not_called_writes;
 mod plugin;

@@ -615,6 +615,31 @@ fn a_gateway_file_is_named_in_every_model_node_of_the_copy_and_the_token_is_in_n
 }
 
 #[test]
+fn under_a_gateway_the_model_of_each_role_is_written_into_every_model_node_of_the_role_the_review_step_among_them() {
+    // a gateway that routes by model name: the four roles name its route, and every model node carries it
+    let dir = Dir::new("copy-gateway-model");
+    let file = dir.path().join("private/gateway");
+    let dst = dir.path().join("run/bindings");
+    std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    let models: serde_json::Map<String, Value> = ROLES.iter().map(|role| ((*role).to_owned(), json!({"model": "qwen"}))).collect();
+    let settings = json!({"gateway": "named", "adapter": "claude-cli", "models": models});
+    materialise_with(&committed(), &dst, "sdc", &settings, None, Some(&file)).unwrap();
+    let (mut nodes, mut review) = (0, 0);
+    for (name, action) in actions(&dst) {
+        let argv = argv_of_any(&action);
+        if argv.first().is_some_and(|tool| tool.ends_with("sdc-node")) {
+            assert_eq!(option_of(&argv, "--model").as_deref(), Some("qwen"), "{name}");
+            assert_eq!(option_of(&argv, "--gateway-file"), Some(file.display().to_string()), "{name}");
+            nodes += 1;
+            review += usize::from(name.ends_with(":change.review"));
+        }
+    }
+    assert_eq!(nodes, 14);
+    // the review step is the model node change.review (spec.review is a check of sdc-tool.sh, no model)
+    assert_eq!(review, 1, "the review step is among them");
+}
+
+#[test]
 fn a_gateway_file_and_a_login_together_are_refused_by_name_and_without_a_path() {
     let dir = Dir::new("copy-gateway-login");
     let login = dir.path().join("private-login-dir/credentials.json");
