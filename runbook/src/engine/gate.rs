@@ -1,22 +1,29 @@
 //! What keeps a daemon run inside its caps (`crate::caps`): before each step the wall time and the
-//! model calls used are held against their caps and the spend ledger of the runbook reserves what the
-//! step may cost; after it, the cost records the bound programs wrote are booked. The ledger, the
-//! cost reader and the call-budget reader are the ones `runbook run` uses.
+//! model calls used are held against their caps; a bound program that names a per-call budget
+//! reserves it in the spend ledger of the runbook as it starts; after the step, the cost records the
+//! bound programs wrote are booked. The ledger, the cost reader and the call-budget reader are the
+//! ones `runbook run` uses.
 //!
-//! A step reserves the largest per-call budget (`--max-budget-usd`) of the bindings of the runbook,
-//! never the whole cap, so two runs of one runbook do not stop each other while each stays under
-//! the cap. Bindings with no per-call budget reserve nothing; what their steps cost is booked all the
-//! same, from the cost records, and the next step is refused once the cap is reached.
+//! The spend cap is the run's own: a reservation is held against the cap less what this run spent and
+//! holds, and what other runs of the runbook spent or hold never reduces it. The ledger is one file
+//! per runbook, with each entry and each reservation keyed by the run.
+//!
+//! What a step reserves is the budget of the program it starts (`--max-budget-usd` in that program's
+//! own arguments, which come from the bindings the run reads and nowhere else). A program that names
+//! none makes no model call and reserves nothing; what such a step costs is booked all the same, from
+//! the cost records, and the next step is refused once the cap is reached.
 
 use crate::budget;
 use crate::caps::{Caps, Usage};
 use crate::cost::CostReader;
 use crate::ledger::{Ledger, Reservation};
 use crate::runtime::EventSink;
+use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, ConfinementRefusal, TestExecution, TestRunner};
+use b10x_loom_intake_slice::executor::TestCommand;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// The file of a run's usage, in the run's own directory: what a restarted daemon and the view of an
@@ -82,41 +89,129 @@ fn write_usage(run_dir: &Path, u: Usage) -> Result<(), String> {
     std::fs::rename(&tmp, run_dir.join(USAGE_FILE)).map_err(|e| format!("{}: {e}", run_dir.join(USAGE_FILE).display()))
 }
 
-/// What to do before a step.
-pub enum Admit {
-    /// Run the step; the reservation is booked after it.
-    Go(Reservation),
-    /// The step is over a cap: the run stops here.
-    Stop(Cap, String),
+/// Why a step was ended before its program started.
+pub enum Stopped {
+    /// The reservation for a program is less than the program may cost: the spend cap.
+    Spend(String),
+    /// The ledger could not be read or written: the run fails closed.
+    Ledger(String),
+}
+
+/// What the run's thread and the runner of its programs share: the run's spend ledger and what the
+/// step in progress holds.
+struct Held {
+    ledger: Ledger,
+    run_id: String,
+    cap_micro_usd: u64,
+    reserved: Mutex<Vec<Reservation>>,
+    stopped: Mutex<Option<Stopped>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Held {
+    /// Reserves `want` for a program about to start. A grant under `want` is released and the step
+    /// stops before the program starts.
+    fn reserve(&self, want: u64) -> Result<(), ConfinementError> {
+        let refuse = |why: &str| ConfinementError { reason: ConfinementRefusal::Cancelled, detail: why.to_owned() };
+        let granted = match self.ledger.reserve_for_run(&self.run_id, self.cap_micro_usd, want) {
+            Ok(r) => r,
+            Err(why) => {
+                *lock(&self.stopped) = Some(Stopped::Ledger(why));
+                return Err(refuse("the spend ledger is not readable; nothing started"));
+            }
+        };
+        if granted.micro_usd >= want {
+            lock(&self.reserved).push(granted);
+            return Ok(());
+        }
+        let outcome = self.ledger.release(&granted).and_then(|()| self.ledger.spent_by_run(&self.run_id));
+        *lock(&self.stopped) = Some(match outcome {
+            Ok(spent) => Stopped::Spend(format!("{spent} of {} micro USD spent, and the next call may cost {want}", self.cap_micro_usd)),
+            Err(why) => Stopped::Ledger(why),
+        });
+        Err(refuse("the reservation for the program is less than it may cost; nothing started"))
+    }
+}
+
+/// The runner every bound program of a daemon run starts through: it reserves the per-call budget a
+/// program names before the program starts, and starts nothing when the reservation is short (the
+/// step is then ended as a cancelled one, which the run reads as the spend cap).
+struct Reserving {
+    inner: Arc<dyn TestRunner>,
+    held: Arc<Held>,
+}
+
+impl TestRunner for Reserving {
+    fn run(&self, command: &TestCommand, root: &Path) -> Result<TestExecution, ConfinementError> {
+        self.inner.run(command, root)
+    }
+
+    fn backend(&self) -> Backend {
+        self.inner.backend()
+    }
+
+    fn label(&self) -> String {
+        self.inner.label()
+    }
+
+    fn local_reason(&self) -> Option<&str> {
+        self.inner.local_reason()
+    }
+
+    fn run_child(&self, child: &ChildCommand) -> Result<TestExecution, ConfinementError> {
+        if let Some(want) = budget::call_budget_of_args(child.args()).filter(|w| *w > 0) {
+            self.held.reserve(want)?;
+        }
+        self.inner.run_child(child)
+    }
+
+    fn preflight_child(&self, root: &Path) -> Result<(), ConfinementError> {
+        self.inner.preflight_child(root)
+    }
 }
 
 pub struct Gate {
     pub caps: Caps,
     pub meter: Arc<Meter>,
-    run_id: String,
+    held: Arc<Held>,
     run_dir: PathBuf,
     workspace: PathBuf,
-    ledger: Ledger,
-    want: u64,
     reader: CostReader,
 }
 
 impl Gate {
-    /// The gate of a run: its ledger is `<state>/ledgers/<runbook>.json`, one per runbook. `resumed`: the
-    /// run has a store from an earlier process, whose usage is read and whose cost records are
-    /// not booked again.
+    /// The gate of a run: its ledger is `<state>/ledgers/<runbook>.json`, one per runbook, each entry
+    /// and reservation keyed by the run. A reservation the run's id left in it (the run's earlier
+    /// process ended with the step in progress) is dropped: a run that is not alive holds nothing.
+    /// `resumed`: the run has a store from an earlier process, whose usage is read and whose cost
+    /// records are not booked again.
     #[allow(clippy::too_many_arguments)]
-    pub fn open(caps: Caps, state_dir: &Path, runbook: &str, run_id: &str, run_dir: &Path, workspace: &Path, bindings_dir: &Path, resumed: bool, meter: Arc<Meter>) -> Result<Gate, String> {
+    pub fn open(caps: Caps, state_dir: &Path, runbook: &str, run_id: &str, run_dir: &Path, workspace: &Path, resumed: bool, meter: Arc<Meter>) -> Result<Gate, String> {
         let dir = state_dir.join("ledgers");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let ledger = Ledger::open(&dir.join(format!("{runbook}.json")))?;
-        let want = budget::largest_call_budget(bindings_dir)?.unwrap_or(0);
+        ledger.release_run(run_id)?;
         let mut reader = CostReader::with_home(std::env::var("HOME").ok());
         if resumed {
             // what the earlier process wrote was booked then (or is lost with it): it is not booked again
             let _ = reader.read_new(workspace);
         }
-        Ok(Gate { caps, meter, run_id: run_id.to_owned(), run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), ledger, want, reader })
+        let held = Arc::new(Held { ledger, run_id: run_id.to_owned(), cap_micro_usd: caps.cap_micro_usd, reserved: Mutex::new(Vec::new()), stopped: Mutex::new(None) });
+        Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader })
+    }
+
+    /// The runner of the run's bound programs: `inner`, reserving the budget of each program that
+    /// names one as it starts.
+    pub fn runner(&self, inner: Arc<dyn TestRunner>) -> Arc<dyn TestRunner> {
+        Arc::new(Reserving { inner, held: self.held.clone() })
+    }
+
+    /// Why the step just run ended before a program started, if it did (taken once).
+    pub fn take_stopped(&self) -> Option<Stopped> {
+        lock(&self.held.stopped).take()
     }
 
     /// Whether the run's wall time is used up.
@@ -124,51 +219,61 @@ impl Gate {
         self.meter.usage().wall_seconds >= self.caps.max_wall_seconds
     }
 
-    /// The caps held against the use before the next step: the model calls, then the spend (the cap
-    /// reached, or the reservation over what is left).
-    pub fn admit(&self) -> Result<Admit, String> {
+    /// The caps held against the use before the next step: the model calls, then the spend of this
+    /// run (the cap reached). The reservation of a program is held as it starts, against what this
+    /// run has left.
+    pub fn admit(&self) -> Result<Option<(Cap, String)>, String> {
         let used = self.meter.usage();
         if used.llm_calls >= self.caps.max_llm_calls {
-            return Ok(Admit::Stop(Cap::Calls, format!("{} of {} calls", used.llm_calls, self.caps.max_llm_calls)));
+            return Ok(Some((Cap::Calls, format!("{} of {} calls", used.llm_calls, self.caps.max_llm_calls))));
         }
         let cap = self.caps.cap_micro_usd;
-        let spent = self.ledger.spent()?;
+        let spent = self.held.ledger.spent_by_run(&self.held.run_id)?;
         if spent >= cap {
-            return Ok(Admit::Stop(Cap::Spend, format!("{spent} of {cap} micro USD spent")));
+            return Ok(Some((Cap::Spend, format!("{spent} of {cap} micro USD spent"))));
         }
-        let reservation = self.ledger.reserve(&self.run_id, cap, self.want)?;
-        if reservation.micro_usd < self.want {
-            self.ledger.release(&reservation)?;
-            return Ok(Admit::Stop(Cap::Spend, format!("{spent} of {cap} micro USD spent, and the next step may cost {}", self.want)));
-        }
-        Ok(Admit::Go(reservation))
+        Ok(None)
     }
 
     /// Books what the step spent: the cost records written since the last step, at their cost, and a
-    /// call that failed with no cost at its reservation. A record that cannot be read books the whole
-    /// reservation and is an error (fail closed).
-    pub fn book(&mut self, reservation: &Reservation, sink: &dyn EventSink) -> Result<(), String> {
-        match self.reader.read_new(&self.workspace) {
+    /// call that failed with no cost at its reservation (the largest the step held). The step's
+    /// reservations are released: the first is committed with the whole cost, the others released. A
+    /// record that cannot be read books the reservations and is an error (fail closed).
+    pub fn book(&mut self, sink: &dyn EventSink) -> Result<(), String> {
+        let held: Vec<Reservation> = std::mem::take(&mut *lock(&self.held.reserved));
+        let largest = held.iter().map(|r| r.micro_usd).max().unwrap_or(0);
+        let result = self.reader.read_new(&self.workspace);
+        let (booked, what, calls, outcome) = match result {
             Ok(cost) => {
                 let unknown = cost.unknown.len() as u64;
-                let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
+                let booked = cost.micro_usd.saturating_add(largest.saturating_mul(unknown));
                 let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
-                self.ledger.commit(reservation, &self.run_id, what, booked)?;
-                let calls = cost.records.len() as u64 + unknown;
-                self.meter.spent.fetch_add(booked, Ordering::SeqCst);
-                self.meter.calls.fetch_add(calls, Ordering::SeqCst);
-                if calls > 0 {
-                    sink.record("runbook.cost-booked", json!({"calls": calls, "micro_usd": booked, "spent_micro_usd": self.meter.usage().spent_micro_usd}));
-                }
-                self.persist();
-                Ok(())
+                (booked, what, cost.records.len() as u64 + unknown, Ok(()))
             }
             Err(reason) => {
-                self.ledger.commit(reservation, &self.run_id, "step, cost unknown: reservation booked", reservation.micro_usd)?;
-                self.meter.spent.fetch_add(reservation.micro_usd, Ordering::SeqCst);
-                self.persist();
-                Err(reason)
+                let all = held.iter().fold(0u64, |a, r| a.saturating_add(r.micro_usd));
+                (all, "step, cost unknown: reservation booked", 0, Err(reason))
             }
+        };
+        self.commit(&held, what, booked)?;
+        self.meter.spent.fetch_add(booked, Ordering::SeqCst);
+        self.meter.calls.fetch_add(calls, Ordering::SeqCst);
+        if calls > 0 {
+            sink.record("runbook.cost-booked", json!({"calls": calls, "micro_usd": booked, "spent_micro_usd": self.meter.usage().spent_micro_usd}));
+        }
+        self.persist();
+        outcome
+    }
+
+    fn commit(&self, held: &[Reservation], what: &str, booked: u64) -> Result<(), String> {
+        let ledger = &self.held.ledger;
+        let run = &self.held.run_id;
+        match held.split_first() {
+            Some((first, rest)) => {
+                ledger.commit(first, run, what, booked)?;
+                rest.iter().try_for_each(|r| ledger.release(r))
+            }
+            None => ledger.commit(&Reservation { id: String::new(), micro_usd: 0 }, run, what, booked),
         }
     }
 

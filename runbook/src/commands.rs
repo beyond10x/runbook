@@ -243,6 +243,28 @@ pub struct CloseSession {
     pub session_id: String,
 }
 
+/// The settings of a submit: every value a string. A value of another JSON type is refused naming
+/// the setting, and for a cap (`crate::caps::KEYS`) saying that a cap is written as a string.
+fn settings_of_strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    let raw = BTreeMap::<String, Value>::deserialize(d)?;
+    raw.into_iter()
+        .map(|(key, value)| match value {
+            Value::String(text) => Ok((key, text)),
+            other => {
+                let kind = match other {
+                    Value::Null => "null",
+                    Value::Bool(_) => "a boolean",
+                    Value::Number(_) => "a number",
+                    Value::Array(_) => "an array",
+                    _ => "an object",
+                };
+                let hint = if crate::caps::KEYS.contains(&key.as_str()) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+                Err(serde::de::Error::custom(format!("the setting {key} must be a string, not {kind}{hint}")))
+            }
+        })
+        .collect()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
@@ -251,7 +273,7 @@ pub struct SubmitRun {
     pub intake: String,
     #[serde(default)]
     pub context_path: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "settings_of_strings")]
     pub settings: BTreeMap<String, String>,
     /// Absent means `linux`.
     #[serde(default)]

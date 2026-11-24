@@ -64,9 +64,11 @@ cgroup it may delegate (`Engine::new`); anything else is refused before the stor
 
 The engine is made with a caps policy (`Engine::new(home, state_dir, caps)`): the daemon's three caps
 and their ceilings. A run is driven one step at a time (`max_steps` of 1 for each `run_tree`), and
-before each step `engine/gate.rs` holds the wall time and the model calls against their caps and
-reserves the step's cost in the ledger of the runbook (`<state dir>/ledgers/<runbook>.json`); after it
-the cost records are booked. A run at a cap ends `stopped: wall time`, `stopped: llm calls` or
+before each step `engine/gate.rs` holds the wall time, the model calls and the run's own spend against
+their caps; the runner every bound program starts through reserves, as the program starts, the per-call
+budget that program names (none: nothing) in the ledger of the runbook
+(`<state dir>/ledgers/<runbook>.json`, entries and reservations keyed by the run), against the run's own
+cap; after the step the cost records are booked. A run at a cap ends `stopped: wall time`, `stopped: llm calls` or
 `stopped: spend cap`. A wall cap ends a sleeping step through a flag of the run's own that the
 cancel handle of `run_tree` reads, and a client's cancel wins over it. The options, the request, the
 ceilings and the view are in `docs/daemon-api.md`, "Caps of a run".

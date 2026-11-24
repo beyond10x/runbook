@@ -86,6 +86,21 @@ fn walk_limit(v: &mut Value, limit: u64) -> bool {
     changed
 }
 
+/// The per-call budget (`--max-budget-usd`) a program's arguments name, micro USD: the largest when
+/// they name it more than once; `None` when they name none, which is a program that makes no model
+/// call.
+pub fn call_budget_of_args(args: &[String]) -> Option<u64> {
+    let mut best = None;
+    for (i, a) in args.iter().enumerate() {
+        if a == ARG {
+            if let Some(m) = args.get(i + 1).and_then(|v| usd_text_to_micro(v)) {
+                best = Some(best.map_or(m, |b: u64| b.max(m)));
+            }
+        }
+    }
+    best
+}
+
 /// The largest per-call budget the bindings in `dir` name (`--max-budget-usd` values), micro USD; `None` when they name none.
 pub fn largest_call_budget(dir: &Path) -> Result<Option<u64>, String> {
     let mut best = None;

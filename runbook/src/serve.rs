@@ -59,7 +59,7 @@ pub struct ServeArgs {
     /// The most model calls of a run, when its submit names none. Required with `--runtime loom`; no default.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     pub max_llm_calls: Option<u64>,
-    /// The most spend, micro USD, of the runs of one runbook together, when a submit names none. Required with `--runtime loom`; no default.
+    /// The most spend, micro USD, of one run, when its submit names none: each run has its own cap, and the spend of other runs of the runbook never reduces it. Required with `--runtime loom`; no default.
     #[arg(long, value_name = "MICRO_USD", value_parser = clap::value_parser!(u64).range(1..))]
     pub cap_micro_usd: Option<u64>,
     /// The most a submit may name as `max_wall_seconds`. Default: `--max-wall-seconds`.

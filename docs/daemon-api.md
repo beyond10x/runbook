@@ -242,9 +242,12 @@ cap (`runbook/src/caps.rs`, `runbook/src/engine/gate.rs`).
 Where a request names them. `SubmitRun` has no member for a cap (the request is generated from
 `ess/domains/daemon.yaml` and gains none), so a submit names them in its `settings`, as it names
 anything else: `max_wall_seconds`, `max_llm_calls` and `cap_micro_usd`, each a string of a whole number
-of 1 or more. A cap the submit does not name is the daemon's option of that name. A cap over the
+of 1 or more (`"max_llm_calls": "50"`; every value of `settings` is a string, over HTTP and through the
+MCP tool `submit_run`). A cap the submit does not name is the daemon's option of that name. A cap over the
 daemon's ceiling is refused at submit as an invalid request (`400`), naming the cap, the value and the
-ceiling, and no run is made. A value that is no whole number of 1 or more is refused the same way. A
+ceiling, and no run is made. A value that is no whole number of 1 or more is refused the same way, and
+so is a value of another JSON type than a string (`"max_llm_calls": 50` is a number): the refusal names the
+cap and says a cap is a string. A
 submit may name a lower cap or a higher one, up to the ceiling. The caps of a run are stored with it
 in `settings`, so the run view shows the three that applied, and a run taken up again has the same ones.
 
@@ -256,25 +259,29 @@ any run:
 |---|---|---|
 | `max_wall_seconds` | `stopped: wall time` | Counted from the start of the run, waits on a decision included. A step that is running, or a wait on a decision, is ended when the time is up; what the run asked is withdrawn. A cancel by a client wins over the cap. |
 | `max_llm_calls` | `stopped: llm calls` | A step is not started when the calls made reach the cap. A call is a cost record the bound programs write (`.sdc/llm/calls.jsonl`). |
-| `cap_micro_usd` | `stopped: spend cap` | A step is not started when the spend has reached the cap, or when the reservation for it is less than the step may cost. |
+| `cap_micro_usd` | `stopped: spend cap` | A step is not started when this run's spend has reached its cap, and a program is not started when the reservation for it is less than it may cost. |
 
-Spend. It is booked in a ledger under the state directory, `ledgers/<runbook id>.json`, one per
-runbook and shared by every run of it: the module of `runbook run` (`runbook/src/ledger.rs`), with the
-cost reader and the call-budget reader of that command. The cap is therefore the most the runs of one
-runbook spend together, over the life of the ledger; another runbook has its own ledger. A step
-reserves only what it may cost: the largest per-call budget (`--max-budget-usd`) of the bindings of
-the runbook, never the whole cap, so two runs of one runbook do not stop each other while the sum of
-what they hold and have spent fits under the cap. Bindings that name no per-call budget reserve
-nothing; what their steps cost is booked all the same, and the next step is refused once the cap is
-reached. Every step reserves, one that makes no model call included. After a step the cost records are
-booked at their cost; a failed call with no cost is booked at the reservation, and a record that cannot be
-read books the reservation and ends the run as a runtime failure.
+Spend. The cap is the run's own: it is the most that one run spends, and what other runs of the
+runbook spent, or hold while they run, never reduces it. Spend is booked in a ledger under the state
+directory, `ledgers/<runbook id>.json`, one file per runbook with each entry and each reservation
+keyed by the run id: the module of `runbook run` (`runbook/src/ledger.rs`), with the cost reader and
+the call-budget reader of that command. A run's admission and its reservations are held against its cap
+less what it has spent and holds itself. A reservation of a run that no longer lives counts against no
+run: it is keyed by that run's id, and a run that starts again under its id drops what its id held.
+What a step reserves is what the program it starts may cost: the per-call budget
+(`--max-budget-usd`) in that program's own arguments, which come from the bindings the run reads
+(the root's bindings file and the children it names) and nowhere else, never the whole cap. A step
+whose program names no per-call budget makes no model call and reserves nothing; what it costs is
+booked all the same, from the cost records, and the next step is refused once the run's cap is
+reached. After a step the cost records are booked at their cost; a failed call with no cost is booked
+at the largest reservation the step held (nothing when it held none), and a record that cannot be read books
+the reservations and ends the run as a runtime failure.
 
 The view. `read_run` shows each cap and what is used so far as `settings` members: `max_wall_seconds`,
 `max_llm_calls` and `cap_micro_usd`, and `used_wall_seconds`, `used_llm_calls` and
 `spent_micro_usd`. A running run shows its use live; an ended run shows its last. The use is kept in
-`runs/<run id>/caps-used.json`. `spent_micro_usd` is the spend of this run, and the ledger holds the
-total of the runbook.
+`runs/<run id>/caps-used.json`. `spent_micro_usd` is the spend of this run; the ledger holds the entries
+of every run of the runbook, each under its run id.
 
 What is not done. The stub runtime takes no caps. A run is not taken up again after a restart
 (`docs/engine.md`, "Cancel and recover"), so the use a restart would carry over is kept and not yet read

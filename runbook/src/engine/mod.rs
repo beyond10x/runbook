@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use gate::{Admit, Cap, Gate, Meter};
+use gate::{Cap, Gate, Meter, Stopped};
 use tail::LogTail;
 
 /// The directory of a run's tree store, inside the run's own directory.
@@ -61,6 +61,23 @@ struct Slot {
     state: Mutex<SlotState>,
     cv: Condvar,
     meter: Mutex<Option<Arc<Meter>>>,
+}
+
+/// How a run whose own flag is set ends.
+#[derive(Debug, PartialEq, Eq)]
+enum Halt {
+    Cancelled,
+    Wall,
+}
+
+/// The daemon's cancel wins over the wall cap: the run ends at the wall cap only when it was not
+/// cancelled and the wall cap set the flag.
+fn halt_of(cancelled: bool, wall_hit: bool) -> Halt {
+    if cancelled || !wall_hit {
+        Halt::Cancelled
+    } else {
+        Halt::Wall
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -203,8 +220,7 @@ impl Engine {
         let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
         let meter = Arc::new(Meter::new(before));
         *lock(&slot.meter) = Some(meter.clone());
-        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resolved.bindings.parent().unwrap_or(&resolved.bindings), resume, meter)
-            .map_err(failure)?;
+        let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter).map_err(failure)?;
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.
@@ -240,11 +256,12 @@ impl Engine {
 
     /// The run's own flag is set: a cancel by the daemon wins over the wall cap.
     fn halted(cancel: &AtomicBool, wall_hit: &AtomicBool, slot: &Slot, gate: &Gate, sink: &dyn EventSink) -> Finish {
-        if Self::cancelled(cancel, slot) || !wall_hit.load(Ordering::SeqCst) {
-            Finish::Cancelled
-        } else {
-            let used = gate.meter.usage().wall_seconds;
-            Finish::Outcome(gate.reached(Cap::Wall, &format!("{used} of {} seconds", gate.caps.max_wall_seconds), sink))
+        match halt_of(Self::cancelled(cancel, slot), wall_hit.load(Ordering::SeqCst)) {
+            Halt::Cancelled => Finish::Cancelled,
+            Halt::Wall => {
+                let used = gate.meter.usage().wall_seconds;
+                Finish::Outcome(gate.reached(Cap::Wall, &format!("{used} of {} seconds", gate.caps.max_wall_seconds), sink))
+            }
         }
     }
 
@@ -264,7 +281,9 @@ impl Engine {
         tail: &mut LogTail<'_>,
         gate: &mut Gate,
     ) -> Result<Finish, RuntimeFailure> {
-        let settings = calls::run_settings(runner, request.confinement, Some(1));
+        // The programs of the steps start through the gate's runner, which reserves the budget of each
+        // one that names a per-call budget; the answers of a wait use the runner as it is.
+        let settings = calls::run_settings(gate.runner(runner.clone()), request.confinement, Some(1));
         loop {
             if gate.wall_over() {
                 wall_hit.store(true, Ordering::SeqCst);
@@ -273,20 +292,26 @@ impl Engine {
             if local.load(Ordering::SeqCst) {
                 return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
             }
-            let reservation = match gate.admit().map_err(failure)? {
-                Admit::Go(r) => r,
-                Admit::Stop(cap, detail) => return Ok(Finish::Outcome(gate.reached(cap, &detail, sink))),
-            };
+            if let Some((cap, detail)) = gate.admit().map_err(failure)? {
+                return Ok(Finish::Outcome(gate.reached(cap, &detail, sink)));
+            }
             let ran = {
                 let mut observer = tail.observer();
                 calls::run(store, catalog, &settings, Some(&mut observer), Some(local))
             };
-            let booked = gate.book(&reservation, sink);
+            let booked = gate.book(sink);
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
+            }
+            // A program that would have started over what the run has left was not started.
+            match gate.take_stopped() {
+                Some(Stopped::Ledger(why)) => return Err(failure(why)),
+                Some(Stopped::Spend(_)) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Some(Stopped::Spend(detail)) => return Ok(Finish::Outcome(gate.reached(Cap::Spend, &detail, sink))),
+                None => {}
             }
             match ran.stop {
                 TreeStop::Terminal => {
@@ -310,7 +335,7 @@ impl Engine {
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran.decisions, request, store, catalog, &settings.runner, sink, local, slot, tail)? {
+                    if !self.round(&ran.decisions, request, store, catalog, &runner, sink, local, slot, tail)? {
                         return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
                     }
                 }
@@ -472,3 +497,15 @@ impl Runtime for Engine {
     }
 }
 
+#[cfg(test)]
+mod halt_tests {
+    use super::*;
+
+    #[test]
+    fn a_client_cancel_wins_over_the_wall_cap_whichever_came_first() {
+        assert_eq!(halt_of(true, true), Halt::Cancelled, "the wall cap was hit and the client had cancelled");
+        assert_eq!(halt_of(true, false), Halt::Cancelled);
+        assert_eq!(halt_of(false, false), Halt::Cancelled, "the flag was set by neither");
+        assert_eq!(halt_of(false, true), Halt::Wall);
+    }
+}

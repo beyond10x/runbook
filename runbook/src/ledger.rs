@@ -20,7 +20,7 @@ pub const FORMAT: &str = "runbook.spend-ledger/1";
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 /// A handle on the ledger file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ledger {
     path: PathBuf,
 }
@@ -61,6 +61,17 @@ impl State {
 
     fn reserved_total(&self) -> u64 {
         self.reserved.values().filter_map(Value::as_u64).fold(0u64, |a, b| a.saturating_add(b))
+    }
+
+    /// What the entries of `run` add up to.
+    fn spent_by(&self, run: &str) -> u64 {
+        self.entries.iter().filter(|e| e.get("run").and_then(Value::as_str) == Some(run)).filter_map(|e| e.get("micro_usd").and_then(Value::as_u64)).fold(0u64, |a, b| a.saturating_add(b))
+    }
+
+    /// What `run` holds: the reservations whose id starts with the run's id (`reserve` names them so).
+    fn reserved_by(&self, run: &str) -> u64 {
+        let prefix = format!("{run}-");
+        self.reserved.iter().filter(|(id, _)| id.starts_with(&prefix)).filter_map(|(_, v)| v.as_u64()).fold(0u64, |a, b| a.saturating_add(b))
     }
 
     fn render(&self) -> String {
@@ -108,17 +119,42 @@ impl Ledger {
     }
 
     /// Under the lock: reserves `min(want_micro_usd, cap - spent - reserved)` for run `run` and
-    /// returns it; a grant of 0 means the cap is reached.
+    /// returns it; a grant of 0 means the cap is reached. The cap is shared by every run of the
+    /// ledger: what all runs spent and hold counts (`runbook run`).
     pub fn reserve(&self, run: &str, cap_micro_usd: u64, want_micro_usd: u64) -> Result<Reservation, String> {
+        self.grant(run, want_micro_usd, |s| cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total()))
+    }
+
+    /// Under the lock: reserves `min(want_micro_usd, cap - spent - reserved)` for run `run`, where
+    /// `spent` and `reserved` are the run's own (its entries and its reservations): the cap is the
+    /// run's, and what other runs of the ledger spent or hold never reduces it (the daemon).
+    pub fn reserve_for_run(&self, run: &str, cap_micro_usd: u64, want_micro_usd: u64) -> Result<Reservation, String> {
+        self.grant(run, want_micro_usd, |s| cap_micro_usd.saturating_sub(s.spent_by(run)).saturating_sub(s.reserved_by(run)))
+    }
+
+    fn grant(&self, run: &str, want_micro_usd: u64, remaining: impl FnOnce(&State) -> u64) -> Result<Reservation, String> {
         self.with_state(|s| {
-            let remaining = cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total());
-            let grant = want_micro_usd.min(remaining);
+            let grant = want_micro_usd.min(remaining(s));
             let id = format!("{run}-{}-{}", std::process::id(), s.entries.len() + s.reserved.len());
             if grant > 0 {
                 s.reserved.insert(id.clone(), Value::from(grant));
             }
             Ok(Reservation { id, micro_usd: grant })
         })
+    }
+
+    /// Under the lock: drops every reservation `run` holds (a run that is not alive holds nothing).
+    pub fn release_run(&self, run: &str) -> Result<(), String> {
+        let prefix = format!("{run}-");
+        self.with_state(|s| {
+            s.reserved.retain(|id, _| !id.starts_with(&prefix));
+            Ok(())
+        })
+    }
+
+    /// Under the lock: what the entries of `run` add up to, micro USD.
+    pub fn spent_by_run(&self, run: &str) -> Result<u64, String> {
+        self.with_state(|s| Ok(s.spent_by(run)))
     }
 
     /// Under the lock: releases `reservation` and adds `actual_micro_usd` as spent (an entry
