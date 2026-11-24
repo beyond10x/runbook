@@ -208,15 +208,22 @@ check_budget() {
 # expands it, and a mapping is an object whatever keys it holds: the text of each scalar travels in
 # a list beside the actions, never as a member of a mapping of the file. `check-bindings.sh --budget <root>` runs this check
 # alone over <root>/bindings/*.yaml (driver/tests/check_bindings_budget.rs).
+# A link that points at nothing is left out (the exits step refused it by name), and so is a file yq
+# cannot read, which stops this step with the finding below beside yq's message that names the file.
+# A file that is no mapping, an `actions` that is no list and an entry that is no mapping are left out
+# of the budget read: the exits step refuses each by name, and Loom reads no budget from them.
 budget_files=()
 budget_refused=""
+budget_unreadable=""
 while IFS= read -r f; do
+  [[ -e $sdc/$f ]] || continue
+  if ! (cd "$sdc" && yq -o=json -I=0 'tag' "$f" > /dev/null); then budget_unreadable="a file this step reads could not be read (the message of yq is above)"$'\n'; continue; fi
   why=$(cd "$sdc" && refused_document "$f")
   if [[ -n $why ]]; then budget_refused+="$f: $why"$'\n'; else budget_files+=("$f"); fi
 done < <(cd "$sdc" && printf '%s\n' bindings/*.yaml)
 budget_findings=""
 if [[ ${#budget_files[@]} -gt 0 ]]; then
-budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "limits": [.actions[] | ((select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map") | {"tag": tag, "text": ("" + .)}) // null)], "actions": (((.actions[] | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= null) | .actions)}' "${budget_files[@]}" | jq -rn '
+budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "limits": [(.actions? | select(tag == "!!seq") | .[]) | ((select(tag == "!!map") | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map") | {"tag": tag, "text": ("" + .)}) // null)], "actions": (((.actions? | select(tag == "!!seq") | .[] | select(tag == "!!map") | select(.budget | tag == "!!map") | .budget | select(has("rework_limit")) | .rework_limit | select(tag != "!!seq" and tag != "!!map")) |= null) | .actions?)}' "${budget_files[@]}" | jq -rn '
   def shown: if . == null then "null" elif type == "string" then tojson elif type == "array" then "a list" elif type == "object" then "an object" else tostring end;
   def intform: test("^\\+?(0|[1-9][0-9]*)$") or test("^\\+?(0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+)$");
   def inrange: sub("^\\+"; "") as $t
@@ -260,7 +267,7 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "li
       end;
   [inputs] | .[]
   | .f as $f | .limits as $limits | ([.actions[]?] | to_entries[])
-  | .key as $i | .value as $a | $limits[$i] as $lim
+  | .key as $i | .value as $a | select($a | type == "object") | $limits[$i] as $lim
   | (($a.budget // {}) | if type == "object" then . else {} end) as $b
   | (($a.retry_when // {}) | if type == "object" then to_entries else [] end
       | map({key, value: (if (.value | type) == "array" then .value else [] end)})) as $rw
@@ -281,7 +288,7 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "li
           | select(listed($rw; $k; $r) | not)
           | "budget.rework_on lists \($k) \($r), which retry_when does not list; a rejection is a record that sends the action back")
        end),
-      (($a.executor.kind // "") as $kind
+      ((($a.executor | if type == "object" then .kind else null end) // "") as $kind
        | if $kind == "" or $kind == "program" or $kind == "person" then empty
          else ("rework_limit", "rework_on", "runs_per") as $m
            | select($b | has($m))
@@ -290,7 +297,7 @@ budget_findings=$(cd "$sdc" && yq -o=json -I=0 'explode(.) | {"f": filename, "li
     ] | .[0] // empty
   | "\($f) \($a.action): \(.)"')
 fi
-budget_findings=$(printf '%s%s' "$budget_refused" "$budget_findings")
+budget_findings=$(printf '%s%s%s' "$budget_unreadable" "$budget_refused" "$budget_findings")
 if [[ -n $budget_findings ]]; then
   echo "FAIL budget"; echo "$budget_findings" | sed 's/^/  /'; fail=1
 else
