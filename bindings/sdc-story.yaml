@@ -26,7 +26,7 @@ actions:
       kind: program
       argv: [sdc-node, change.implement, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.implement.md","coverage":"instructions/change.implement.coverage.md","coverage_inputs":"instructions/change.implement.coverage.inputs.md"}', --stub, stub-tree, impl, impl]
     exits: {error: [75, 126, 127], not_called: [79]}
-    budget: {max_runs: 3}
+    budget: {max_runs: 3, runs_per: rejection, rework_limit: 2, rework_on: {code_review: [rejected], merge_approval: [rejected]}}
     timeout_seconds: 1500
     retry_when:
       implementation_change: [coverage_refused]

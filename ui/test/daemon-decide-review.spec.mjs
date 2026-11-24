@@ -136,10 +136,10 @@ test('hostile fields of an open decision, in every place the page shows or store
 
 // Invariant 8: a daemon that refuses every read (a token the cookie no longer proves, a Host the daemon
 // refuses) is asked at a bounded rate, and a refused command is not sent again by the page.
-async function rate(page, ms) {
+async function rate(page) {
   const all = reqs(page);
   const before = all.length;
-  await page.waitForTimeout(ms);
+  await page.waitForTimeout(5000);
   return all.slice(before);
 }
 
@@ -154,7 +154,7 @@ test('a daemon that answers 401 to every read is polled at a bounded rate and no
   const all = reqs(page);
   await card(page, 0).locator('button[data-answer="A"]').click();
   await expect(page.locator('#dd-msg')).toContainText('401');
-  const seen = await rate(page, 5000);
+  const seen = await rate(page);
   const perSecond = seen.length / 5;
   console.log(`401 REQUESTS in 5 s: ${seen.length} (${perSecond.toFixed(1)}/s): ${[...new Set(seen.map((r) => new URL(r.url()).pathname))].join(' ')}`);
   expect(perSecond).toBeLessThanOrEqual(4);
@@ -171,7 +171,7 @@ test('a daemon that answers 403 to every request is polled at a bounded rate and
   const all = reqs(page);
   await card(page, 0).locator('button[data-answer="A"]').click();
   await expect(page.locator('#dd-msg')).toContainText('403');
-  const seen = await rate(page, 5000);
+  const seen = await rate(page);
   const perSecond = seen.length / 5;
   console.log(`403 REQUESTS in 5 s: ${seen.length} (${perSecond.toFixed(1)}/s)`);
   expect(perSecond).toBeLessThanOrEqual(4);

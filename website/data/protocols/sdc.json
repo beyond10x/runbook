@@ -755,8 +755,8 @@
   },
   "source": {
     "path": "protocol/sdc.protocol.yaml",
-    "tag": "0.8.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.8.0/protocol/sdc.protocol.yaml"
+    "tag": "0.9.2",
+    "url": "https://github.com/beyond10x/runbook/blob/0.9.2/protocol/sdc.protocol.yaml"
   },
   "stem": "sdc",
   "summary": "Take an idea, from three words to a short paragraph, through the software delivery cycle (docs/phases.md).",

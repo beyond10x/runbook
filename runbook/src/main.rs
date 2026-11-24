@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "runbook", version, about = "Run a runbook: a fixed, checked way to handle a case")]
+#[command(name = "runbook", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("RUNBOOK_COMMIT"), ")"), about = "Run a runbook: a fixed, checked way to handle a case")]
 struct Cli {
     #[command(flatten)]
     source: config::Source,
@@ -142,6 +142,9 @@ enum ParityCmd {
 const USAGE_ERROR: u8 = 64;
 
 fn main() -> ExitCode {
+    if let Some(path) = assets::Lookup::from_process().path_with_libexec() {
+        std::env::set_var("PATH", path);
+    }
     let cli = match Cli::try_parse() {
         Ok(c) => c,
         Err(e) => {

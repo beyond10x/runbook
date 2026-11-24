@@ -830,3 +830,34 @@ fn a_status_the_binary_refuses_ends_the_run_with_its_exit_code_and_stderr() {
     assert!(outcome["reason"].as_str().unwrap().contains("protocol catalog"));
     assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "no step after the refused status");
 }
+
+// 10. the step in flight, under the child
+
+#[test]
+fn the_child_path_writes_its_start_event_before_the_step_ends_and_names_no_action() {
+    let w = World::new("in-flight");
+    w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, None, "[]"), 0);
+    w.fake.hook("tree_run", "1", "while [ ! -f \"$D/go\" ]; do sleep 0.05; done\n");
+    let mut child = w.command(&w.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let events = w.run_dir("r1").join("events.jsonl");
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(50);
+    let started = loop {
+        let text = std::fs::read_to_string(&events).unwrap_or_default();
+        if let Some(line) = text.lines().find(|l| l.contains("\"action_started\"")) {
+            break serde_json::from_str::<Value>(line).unwrap();
+        }
+        assert!(std::time::Instant::now() < limit, "no action_started event while the fake tree run waits");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert!(!std::fs::read_to_string(&events).unwrap().contains("\"step_made\""), "the step was made before the fake tree run ended");
+    assert_eq!((started["source"].as_str(), started["case"].is_null(), started["action"].is_null(), started["try"].is_null()), (Some("step_call"), true, true, true), "{started}");
+    assert!(started["at"].as_u64().is_some(), "{started}");
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1").join("runner.json")).unwrap()).unwrap();
+    assert_eq!(record["pid"].as_u64(), Some(u64::from(child.id())), "{record}");
+    assert!(record["closed_at"].is_null(), "{record}");
+    std::fs::write(w.fake.dir.join("go"), "").unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.code().is_some(), "{status:?}");
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1").join("runner.json")).unwrap()).unwrap();
+    assert!(record["closed_at"].as_u64().is_some(), "{record}");
+}

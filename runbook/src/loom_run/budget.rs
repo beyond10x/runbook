@@ -137,6 +137,17 @@ mod tests {
     }
 
     #[test]
+    fn limiting_keeps_the_rework_members_of_a_budget_as_they_were() {
+        let d = dir("rework");
+        let text = BINDINGS.replace("budget: {max_runs: 3}", "budget: {max_runs: 3, runs_per: rejection, rework_limit: 2, rework_on: {code_review: [rejected], merge_approval: [rejected]}}");
+        std::fs::write(d.join("sdc.yaml"), &text).unwrap();
+        limit_call_budgets(&d, 300_000).unwrap();
+        let v: Value = serde_yaml::from_str(&std::fs::read_to_string(d.join("sdc.yaml")).unwrap()).unwrap();
+        let want: Value = serde_yaml::from_str("{max_runs: 3, runs_per: rejection, rework_limit: 2, rework_on: {code_review: [rejected], merge_approval: [rejected]}}").unwrap();
+        assert_eq!(v["actions"][0]["budget"], want, "{v:?}");
+    }
+
+    #[test]
     fn nothing_is_written_when_no_budget_is_above_the_limit() {
         let d = dir("nochange");
         std::fs::write(d.join("sdc.yaml"), BINDINGS).unwrap();

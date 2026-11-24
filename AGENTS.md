@@ -33,7 +33,7 @@
 - The driver runtime (its main file, the trial and cycles scripts, the model-node and decider
   shell tools) is deleted: a run on Loom matched the driver's (`story:parity-run-on-loom`), then
   `story:driver-runtime-removed` removed it. `runbook run` is the way to run a case. The pinned Loom
-  commit is `c9b4c1777c646afdfae843dae691da36859f56ee` (`c9b4c177`; Loom 0.59.0, branch `wave/2026-11-21-w7` of the engine, on the forge, in no tag; it replaced `db2726ff`), for the library the
+  commit is `d8944d49254253ef869ded8d6668d1b18f463c0c` (`d8944d49`; Loom 0.59.0, branch `wave/2026-11-21-w7` of the engine, on the forge, an ancestor of Loom's tag `0.60.0` (`49499053`); it replaced `c9b4c177`, and `db2726ff` before it), for the library the
   crate links; the child binary of `runbook run --loom` is still the one of `70b0e6e0` (`docs/loom-run.md`). A run of `stub-cycle` through `runbook loom-run` (the former name of `runbook run`) on `5af3f9c2`
   (`--confinement local`, scripted approvals, no model) compared `parity: identical` with the
   driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
@@ -59,7 +59,7 @@
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
 - `eval/` levels, personas, quality checks and reports; the scripts that drove the old driver are deleted, and `reports/` and `baseline.json` are the record of its evaluation, not ported (`eval/README.md`, `docs/eval-design.md`).
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
-- `scripts/` check and evaluate scripts.
+- `scripts/` check and evaluate scripts, and `scripts/install.sh --prefix <dir>` (POSIX sh: builds `runbook`, the helper programs a run starts and `sdc-watch` with `--locked --release` and writes them with the asset directories under one prefix, helpers in `libexec/runbook/`; its tests are `runbook/tests/install/`, the release build is `task test:install`).
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
 - `docs/` design notes and research results; start with `phases.md`, `loom-run.md`, `orchestration.md`.
 - `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
@@ -79,6 +79,7 @@
 - The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
   slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
   ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
+  `ui/test/lanes.mjs` is the one list of which spec runs at which size: a file in `WIDE_ONLY` runs at 1600x1000 only (the laptop project ignores it, so no skipped entry waits for the end of the run), a file in `BOTH` runs at both sizes; `ui/test/budget.spec.mjs` fails when a spec is in neither list or in both, or when a wide-only spec that names a size, a position or a visibility matcher of the list in `ui/test/lanes.mjs` lacks an entry in `SIZE_EXCEPTIONS`. A spec waits for an event (`settled` in `ui/test/settled.mjs`, the hold file that `fixture-run.mjs` gets as its fourth argument); a sleep (a `waitForTimeout`, a `setTimeout` that a `new Promise` with an arrow function waits for or a window `Date.now() + <number>`, counted per call site in the gate's specs and every file they import by a relative path; the spellings the check does not find are listed in `ui/README.md`) is made only where `FIXED_WAITS` in `ui/test/lanes.mjs` names the file, the count and the sum of the literal milliseconds, and `budget.spec.mjs` fails any other count or sum, and a sleep that takes its time from a helper's argument unless the entry says `variable` with a reason, the helper and the largest number its call sites pass; a beforeAll plays its fixtures and starts its servers at once (`playFixtures` in `ui/test/fixtures.mjs`, `Promise.all` over `startServer`).
   A test child (server, fixture player, daemon) is started with `spawnChild` or `startServer` of `ui/test/child.mjs` and `ui/test/serve.mjs`, never with `spawn`: it ends with its parent, also after SIGKILL (`ui/test/guard.mjs`, `ui/test/child.spec.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate

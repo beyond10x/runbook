@@ -602,3 +602,538 @@ fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
     assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("not_a_person_action")), "{outcome}");
     assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
 }
+
+// ---- the allowance of runs after a rejection (`budget.runs_per: rejection`) ----
+
+/// The writer of the fixture bound with `members` more lines under its executor (4 spaces each).
+fn writer_binding(rig: &Rig, members: &str) {
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let anchor = "      argv: [tools/draft-write.sh]\n";
+    assert!(text.contains(anchor), "the writer was not found: {text}");
+    std::fs::write(&file, text.replacen(anchor, &format!("{anchor}{members}"), 1)).unwrap();
+}
+
+fn reject(reasons: &str) -> Value {
+    json!({"approve": false, "reasons": reasons, "cost_micro_usd": 0})
+}
+
+/// The `refusal` of every `ActionFinished` line of the run's logs that names `RunsSpent`.
+fn runs_spent_refusals(rig: &Rig, name: &str) -> Vec<String> {
+    let store = rig.run_dir(name).join("store");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&store).unwrap().flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if !file.starts_with("runlog-case-") {
+            continue;
+        }
+        for line in std::fs::read_to_string(entry.path()).unwrap().lines() {
+            let line: Value = serde_json::from_str(line).unwrap();
+            if let Some(text) = line["refusal"].as_str().filter(|t| t.starts_with("RunsSpent:")) {
+                found.push(text.to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// The writer's `rework_limit` bounds the rejections it answers: with 2, the writer runs three times
+/// (the first run and one after each of the first two rejections) and the third rejection is
+/// answered by Loom's `RunsSpent` in its first text, naming the rejection and who made it. The
+/// runner ends the run `stuck` (exit 3, cause `stuck`): Loom's refusal is no reason of a tree call.
+#[test]
+fn a_rejection_past_the_rework_limit_ends_the_run_stuck_with_the_first_runs_spent_text() {
+    let rig = Rig::new("rework-limit");
+    writer_binding(&rig, "    budget: {max_runs: 3, runs_per: rejection, rework_limit: 2, rework_on: {draft_review: [rejected]}}\n");
+    rig.answers(&[reject("first"), reject("second"), reject("third"), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 3, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "stuck", "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "stuck", "{stopped}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\ndraft\ndraft\n", "the writer ran three times: once, and once after each of two rejections");
+    let answered: Vec<Value> = rig.events("r1").into_iter().filter(|e| e["event"] == "decision_answered").collect();
+    assert_eq!(answered.len(), 3, "three rejections were answered and the fourth answer was never asked for: {answered:?}");
+    let refusals = runs_spent_refusals(&rig, "r1");
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    let text = &refusals[0];
+    assert!(text.contains("draft.write was rejected 3 times in case "), "{text}");
+    assert!(text.contains(", the latest ") && text.contains(" by reviewer; its budget.rework_limit is 2"), "{text}");
+}
+
+/// The second text: the runs since the latest rejection reach `max_runs` without another rejection.
+/// The first check passes the (empty) draft and the review rejects it; the rework then writes, and
+/// every check fails what it wrote. A failed check is in `retry_when` and not in `rework_on`, so it
+/// sends the writer back and opens no window: two runs fill the window of 2, and the third is
+/// refused naming the rejection it counts from. Same end as the first text: `stuck`, exit 3, cause
+/// `stuck`.
+#[test]
+fn a_full_window_after_a_rejection_ends_the_run_stuck_with_the_second_runs_spent_text() {
+    let rig = Rig::new("rework-window");
+    writer_binding(&rig, "    budget: {max_runs: 2, runs_per: rejection, rework_limit: 5, rework_on: {draft_review: [rejected]}}\n");
+    let file = rig.root.join("fx/bindings/engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let retry_when = "    retry_when:\n      draft_review: [rejected]\n";
+    assert!(text.contains(retry_when), "the retry_when was not found: {text}");
+    std::fs::write(&file, text.replacen(retry_when, &format!("{retry_when}      draft_check: [invalid]\n"), 1)).unwrap();
+    let check = rig.root.join("fx/bindings/tools/draft-check.sh");
+    std::fs::write(&check, "#!/bin/sh\nn=$(cat checks.txt 2>/dev/null || echo 0)\necho $((n + 1)) > checks.txt\n[ \"$n\" = 0 ]\n").unwrap();
+    rig.answers(&[reject("first"), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 3, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "stuck", "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "stuck", "{stopped}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\ndraft\n", "the two runs of the window after the rejection");
+    let refusals = runs_spent_refusals(&rig, "r1");
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    let text = &refusals[0];
+    assert!(text.contains("draft.write has run 2 times in case "), "{text}");
+    assert!(text.contains(" since the rejection ") && text.contains(" by reviewer, its budget.max_runs is 2"), "{text}");
+}
+
+/// What Loom refuses at the opening, by name: each of these ends the run `refused` (exit 12, cause
+/// `bindings_refused`) with the refusal's text, and no program ran.
+#[test]
+fn the_rework_members_loom_refuses_end_the_run_refused_by_name_before_any_program_runs() {
+    let original = "      argv: [tools/draft-write.sh]\n    retry_when:\n      draft_review: [rejected]\n";
+    let head = "      argv: [tools/draft-write.sh]\n";
+    let retry_when = "    retry_when:\n      draft_review: [rejected]\n";
+    for (what, members, listed, want) in [
+        ("runs_per rejection with a retry_when that lists no result", "    budget: {runs_per: rejection}\n", false, "budget.runs_per"),
+        ("rework_on a pair retry_when does not list", "    budget: {runs_per: rejection, rework_on: {draft_check: [invalid]}}\n", true, "budget.rework_on"),
+        ("rework_limit beside runs_per case", "    budget: {runs_per: case, rework_limit: 2}\n", true, "budget.rework_limit"),
+        ("an empty rework_on", "    budget: {runs_per: rejection, rework_on: {}}\n", true, "budget.rework_on"),
+        ("a runs_per that is neither case nor rejection", "    budget: {runs_per: window}\n", true, "budget.runs_per"),
+        ("a rework_limit of 0", "    budget: {runs_per: rejection, rework_limit: 0}\n", true, "budget.rework_limit"),
+    ] {
+        let rig = Rig::new("rework-refused");
+        let file = rig.root.join("fx/bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(original), "the writer was not found: {text}");
+        let tail = if listed { retry_when } else { "" };
+        std::fs::write(&file, text.replacen(original, &format!("{head}{members}{tail}"), 1)).unwrap();
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        assert_eq!(code(&o), 12, "{what}: {}", stderr(&o));
+        let outcome = rig.outcome("r1");
+        assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{what}: {outcome}");
+        let reason = outcome["reason"].as_str().unwrap_or_default();
+        assert!(reason.contains("InvalidBudget") && reason.contains(want), "{what}: {outcome}");
+        assert!(!rig.work("r1").join("draft.txt").exists(), "{what}: a program ran after the opening was refused");
+    }
+}
+
+// ---- the step in flight: the event of an action that starts and the record of the runner ----
+
+/// Polls `ready` until it holds; the limit is only the bound of the test, never a pause the test relies on.
+fn until(what: &str, mut ready: impl FnMut() -> bool) {
+    let limit = Instant::now() + Duration::from_secs(50);
+    while !ready() {
+        assert!(Instant::now() < limit, "{what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Field 22 of `/proc/<pid>/stat`: the start time of the process, in clock ticks since boot.
+fn start_ticks(pid: u32) -> u64 {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let after = &stat[stat.rfind(')').unwrap() + 2..];
+    after.split_whitespace().nth(19).unwrap().parse().unwrap()
+}
+
+fn runner_record(rig: &Rig, name: &str) -> Option<Value> {
+    let text = std::fs::read_to_string(rig.run_dir(name).join("runner.json")).ok()?;
+    Some(serde_json::from_str(&text).unwrap())
+}
+
+/// A writer that ends when the case writes `go.txt` in its work directory.
+const WAITING_WRITER: &str = "#!/bin/sh\nwhile [ ! -f go.txt ]; do sleep 0.05; done\necho draft >> draft.txt\n";
+
+fn started_events(rig: &Rig, name: &str) -> Vec<Value> {
+    let Ok(text) = std::fs::read_to_string(rig.run_dir(name).join("events.jsonl")) else { return Vec::new() };
+    text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter(|e| e["event"] == "action_started").collect()
+}
+
+#[test]
+fn an_action_that_starts_is_in_the_events_file_before_its_program_ends_and_the_runner_is_on_record() {
+    let rig = Rig::new("in-flight");
+    rig.writer(WAITING_WRITER);
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    until("no action_started event for draft.write while its program waits", || started_events(&rig, "r1").iter().any(|e| e["action"] == "draft.write"));
+    // the program is still waiting: the event is not a record written after the step
+    assert!(!rig.work("r1").join("draft.txt").exists());
+    let events = rig.events("r1");
+    let at = events.iter().position(|e| e["event"] == "action_started" && e["action"] == "draft.write").unwrap();
+    assert!(events[at + 1..].iter().all(|e| e["event"] != "step_made"), "a step was made after the start of draft.write, with its program still waiting");
+    let e = &events[at];
+    assert_eq!((e["case"].as_str().map(|c| !c.is_empty()), e["try"].as_u64(), e["source"].as_str(), e["role"].as_str()), (Some(true), Some(1), Some("program_start"), Some("program")), "{e}");
+    assert!(e["at"].as_u64().is_some_and(|t| t > 1_700_000_000), "{e}");
+    // the record of the runner: its process and the start time the kernel gave it, nothing else
+    let record = runner_record(&rig, "r1").expect("runner.json while the run is live");
+    assert_eq!(record["format"], "runbook.runner/1", "{record}");
+    assert_eq!(record["pid"].as_u64(), Some(u64::from(pid)), "{record}");
+    assert_eq!(record["start_ticks"].as_u64(), Some(start_ticks(pid)), "{record}");
+    assert!(record["started_at"].as_u64().is_some() && record["closed_at"].is_null(), "{record}");
+    let mut keys: Vec<&str> = record.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["closed_at", "format", "pid", "start_ticks", "started_at"], "{record}");
+    // no environment, no argv, no path in either
+    let dir = rig.run_dir("r1");
+    let files = format!("{}\n{}", std::fs::read_to_string(dir.join("runner.json")).unwrap(), serde_json::to_string(e).unwrap());
+    for needle in ["marker-value-8842", "RUNBOOK_MARKER_VARIABLE", "sk-fake-token-5517", "/marker-home-dir", "draft-write.sh", "/home", "/tmp", "/usr", "/var", "/root"] {
+        assert!(!files.contains(needle), "{needle} is in the records:\n{files}");
+    }
+    assert!(!files.contains(&*dir.to_string_lossy()), "the path of the run directory is in the records:\n{files}");
+    std::fs::write(rig.work("r1").join("go.txt"), "").unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.success(), "{status:?}");
+    let events = rig.events("r1");
+    let started = events.iter().position(|e| e["event"] == "action_started" && e["action"] == "draft.write").unwrap();
+    let made = events.iter().rposition(|e| e["event"] == "step_made").unwrap();
+    assert!(started < made, "the start of draft.write is after the last step");
+    let closed = runner_record(&rig, "r1").expect("runner.json closed, not removed");
+    assert!(closed["closed_at"].as_u64().is_some_and(|t| t >= record["started_at"].as_u64().unwrap()), "{closed}");
+    assert_eq!(closed["pid"], record["pid"], "{closed}");
+}
+
+#[test]
+fn a_try_after_a_rejection_is_counted_and_a_check_program_names_its_action() {
+    let rig = Rig::new("tries");
+    rig.answers(&[json!({"approve": false, "reasons": "again", "cost_micro_usd": 0}), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let started = started_events(&rig, "r1");
+    let writes: Vec<u64> = started.iter().filter(|e| e["action"] == "draft.write").filter_map(|e| e["try"].as_u64()).collect();
+    assert_eq!(writes, [1, 2], "{started:?}");
+    assert!(started.iter().any(|e| e["action"] == "draft.check"), "{started:?}");
+    assert!(started.iter().all(|e| e["role"] == "program" && e["source"] == "program_start"), "{started:?}");
+}
+
+#[test]
+fn a_runner_ended_by_sigterm_mid_step_closes_its_record() {
+    let rig = Rig::new("in-flight-term");
+    rig.writer("#!/bin/sh\nwhile [ ! -f go.txt ]; do sleep 0.05; done\n");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    until("no action_started event while the program waits", || started_events(&rig, "r1").iter().any(|e| e["action"] == "draft.write"));
+    assert!(runner_record(&rig, "r1").is_some_and(|r| r["closed_at"].is_null()));
+    assert!(Command::new("kill").args(["-TERM", &child.id().to_string()]).status().unwrap().success());
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(7), "{status:?}");
+    let closed = runner_record(&rig, "r1").expect("runner.json after the signal");
+    assert!(closed["closed_at"].as_u64().is_some(), "{closed}");
+}
+
+#[test]
+fn a_run_that_fails_closes_the_record_of_the_runner() {
+    let rig = Rig::new("in-flight-failed");
+    // the ledger path is a directory: the run directory exists, the run fails when it opens the ledger
+    std::fs::create_dir_all(rig.ledger()).unwrap();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    let closed = runner_record(&rig, "r1").expect("runner.json after a failed run");
+    assert!(closed["started_at"].as_u64().is_some() && closed["closed_at"].as_u64().is_some(), "{closed}");
+}
+
+// ---- what a program that can write the run directory (`--confinement local`) does to the records of the runner ----
+
+/// The time the runner has to end after a program planted its file: what is left of a run then is one more program start and
+/// the end, which take seconds even under load. A runner that waits on a file the program planted is still there.
+const AFTER_PLANT_SECS: u64 = 12;
+
+/// Waits for the child to end: up to 45 s for the program to plant (`planted.txt` in the work directory of `r1`), then
+/// `AFTER_PLANT_SECS` more. A child still running at the limit is killed (it is the child of this test) and `None` is answered.
+fn ended_after_plant(rig: &Rig, child: &mut std::process::Child) -> Option<std::process::ExitStatus> {
+    let planted = rig.work("r1").join("planted.txt");
+    let mut limit = Instant::now() + Duration::from_secs(45);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if planted.exists() && limit > Instant::now() + Duration::from_secs(AFTER_PLANT_SECS) {
+            limit = Instant::now() + Duration::from_secs(AFTER_PLANT_SECS);
+        }
+        if Instant::now() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Waits up to `secs` for the child to end; a child still running at the limit is killed (it is the child of this test) and `None` is answered.
+fn ended_within(child: &mut std::process::Child, secs: u64) -> Option<std::process::ExitStatus> {
+    let limit = Instant::now() + Duration::from_secs(secs);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if Instant::now() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A writer that makes its draft, runs `plant` (sh) from the work directory, whose parent is the run directory, and then
+/// writes `planted.txt` in the work directory.
+fn planting_writer(rig: &Rig, plant: &str) {
+    rig.writer(&format!("#!/bin/sh\necho draft >> draft.txt\n{plant}\ntouch planted.txt\n"));
+}
+
+/// A file outside the run directory that must keep its text.
+fn outside(rig: &Rig) -> PathBuf {
+    let file = rig.root.join("outside.txt");
+    std::fs::write(&file, "keep\n").unwrap();
+    file
+}
+
+#[test]
+fn an_events_file_a_program_replaced_by_a_named_pipe_does_not_hold_the_next_program_start() {
+    let rig = Rig::new("events-fifo");
+    planting_writer(&rig, "rm -f ../events.jsonl\nmkfifo ../events.jsonl");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let status = ended_after_plant(&rig, &mut child);
+    assert!(status.is_some_and(|s| s.success()), "the run did not end within {AFTER_PLANT_SECS} s of the plant: the start event of the next program (draft.check) opens events.jsonl by its path and waits there for a reader of the pipe that a program put in its place; the event is a record for a reader and must not hold the step");
+}
+
+#[test]
+fn a_named_pipe_a_program_left_at_the_temporary_name_of_the_record_does_not_hold_the_end_of_the_run() {
+    let rig = Rig::new("tmp-fifo");
+    planting_writer(&rig, "mkfifo ../runner.tmp");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let status = ended_after_plant(&rig, &mut child);
+    assert!(status.is_some_and(|s| s.success()), "the run did not end within {AFTER_PLANT_SECS} s of the plant: closing runner.json writes runner.tmp by its path and waits there for a reader of the pipe that a program left");
+}
+
+#[test]
+fn an_events_file_a_program_replaced_by_a_link_is_not_appended_through() {
+    let rig = Rig::new("events-link");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("rm -f ../events.jsonl\nln -s '{}' ../events.jsonl", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "the start event of the next program was appended to a file outside the run directory, through a link a program put at events.jsonl");
+}
+
+#[test]
+fn a_link_a_program_left_at_the_temporary_name_of_the_record_is_not_written_through() {
+    let rig = Rig::new("tmp-link");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("ln -s '{}' ../runner.tmp", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "closing runner.json wrote the record into a file outside the run directory, through a link a program put at runner.tmp");
+}
+
+#[test]
+fn an_events_file_a_program_replaced_by_a_second_name_of_a_file_outside_is_not_appended_to() {
+    let rig = Rig::new("events-hardlink");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("rm -f ../events.jsonl\nln '{}' ../events.jsonl", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "the start event of the next program was appended to a file with another name outside the run directory");
+}
+
+#[test]
+fn a_named_pipe_a_program_left_at_the_temporary_name_of_the_outcome_does_not_hold_the_end_of_the_run() {
+    let rig = Rig::new("outcome-fifo");
+    planting_writer(&rig, "mkfifo ../outcome.tmp");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let status = ended_after_plant(&rig, &mut child);
+    assert!(status.is_some_and(|s| s.success()), "the run did not end within {AFTER_PLANT_SECS} s of the plant: writing outcome.json waits on a pipe at its temporary name");
+    assert!(rig.outcome("r1")["outcome"].is_string(), "outcome.json is not the runner's record");
+}
+
+#[test]
+fn a_link_a_program_left_at_the_temporary_name_of_the_outcome_is_not_written_through() {
+    let rig = Rig::new("outcome-link");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("ln -s '{}' ../outcome.tmp", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "writing outcome.json wrote the record into a file outside the run directory, through a link at its temporary name");
+    assert!(std::fs::symlink_metadata(rig.run_dir("r1").join("outcome.json")).unwrap().is_file(), "outcome.json is not a regular file");
+}
+
+#[test]
+fn the_tree_records_are_written_past_a_pipe_and_a_link_left_at_their_temporary_names() {
+    let rig = Rig::new("tree-tmp");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("mkfifo ../tree-status.tmp\nln -s '{}' ../tree-verify.tmp", outside.display()));
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let status = ended_after_plant(&rig, &mut child);
+    assert!(status.is_some_and(|s| s.success()), "the run did not end within {AFTER_PLANT_SECS} s of the plant: a tree record waits on a pipe at its temporary name");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "tree-verify.json was written through a link at its temporary name");
+    for name in ["tree-status.json", "tree-verify.json"] {
+        assert!(std::fs::symlink_metadata(rig.run_dir("r1").join(name)).unwrap().is_file(), "{name} is not a regular file");
+    }
+}
+
+#[test]
+fn guard_a_runner_json_a_program_replaced_by_a_link_or_a_lie_is_replaced_by_the_runners_own_close() {
+    let rig = Rig::new("record-link");
+    let outside = outside(&rig);
+    planting_writer(&rig, &format!("rm -f ../runner.json\nln -s '{}' ../runner.json", outside.display()));
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    assert!(ended_within(&mut child, 40).is_some_and(|s| s.success()));
+    let path = rig.run_dir("r1").join("runner.json");
+    assert!(std::fs::symlink_metadata(&path).unwrap().is_file(), "runner.json is still a link after the close");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "the close wrote through the link");
+    let record = runner_record(&rig, "r1").unwrap();
+    assert_eq!((record["pid"].as_u64(), record["closed_at"].as_u64().is_some()), (Some(u64::from(pid)), true), "{record}");
+    // a lie in place of the record: replaced by the close as well
+    let rig = Rig::new("record-lie");
+    planting_writer(&rig, "echo '{\"format\":\"runbook.runner/1\",\"pid\":1,\"start_ticks\":1,\"started_at\":1,\"closed_at\":null}' > ../runner.json");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    assert!(ended_within(&mut child, 40).is_some_and(|s| s.success()));
+    let record = runner_record(&rig, "r1").unwrap();
+    assert_eq!((record["pid"].as_u64(), record["closed_at"].as_u64().is_some()), (Some(u64::from(pid)), true), "{record}");
+}
+
+#[test]
+fn guard_a_second_runner_on_the_same_run_directory_is_refused_and_leaves_the_record_of_the_first() {
+    let rig = Rig::new("second");
+    let first = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&first), 0, "{}", stderr(&first));
+    let before = std::fs::read_to_string(rig.run_dir("r1").join("runner.json")).unwrap();
+    let events_before = std::fs::read_to_string(rig.run_dir("r1").join("events.jsonl")).unwrap();
+    let second = rig.run(&rig.args("r1", 1_000_000));
+    assert_ne!(code(&second), 0, "{}", stderr(&second));
+    assert_eq!(std::fs::read_to_string(rig.run_dir("r1").join("runner.json")).unwrap(), before, "the second runner rewrote the record of the first");
+    assert_eq!(std::fs::read_to_string(rig.run_dir("r1").join("events.jsonl")).unwrap(), events_before, "the second runner wrote into the events of the first");
+}
+
+#[test]
+fn guard_a_runner_whose_file_name_holds_a_closing_parenthesis_records_its_own_start_time() {
+    let rig = Rig::new("odd-name");
+    rig.writer(WAITING_WRITER);
+    // the name of the file is the name of the process in field 2 of its stat: spaces, a bracket and a closing parenthesis
+    let odd = rig.root.join("a) 1 (b]");
+    if std::fs::hard_link(BIN, &odd).is_err() {
+        std::fs::copy(BIN, &odd).unwrap();
+    }
+    let mut command = Command::new(&odd);
+    command.args(rig.args("r1", 1_000_000)).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = command.spawn().unwrap();
+    let pid = child.id();
+    let limit = Instant::now() + Duration::from_secs(40);
+    let record = loop {
+        if let Some(record) = runner_record(&rig, "r1") {
+            break record;
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the runner ended ({status:?}) before it wrote runner.json");
+        }
+        assert!(Instant::now() < limit, "no runner.json in 40 s");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap().contains(')'), "the process name has no closing parenthesis: the case does not test the parse");
+    assert_eq!(record["start_ticks"].as_u64(), Some(start_ticks(pid)), "{record}");
+    until("no action_started event while the program waits", || !started_events(&rig, "r1").is_empty());
+    std::fs::write(rig.work("r1").join("go.txt"), "").unwrap();
+    assert!(ended_within(&mut child, 40).is_some_and(|s| s.success()));
+}
+
+// ---- the names the writer of the records tries, and an events file a program made unusable ----
+
+/// sh that plants, for the four records the runner writes through `write_atomic`, an entry at every temporary name the
+/// writer can try for its own process id (the parent of the program: `$PPID`) and the counters `from` to `to`: a directory,
+/// a pipe, a link to `outside` and a second name of `outside`. The pid is written to `ppid.txt` in the work directory.
+fn plant_names(outside: &Path, from: u32, to: u32) -> String {
+    let o = outside.display();
+    format!(
+        "P=$PPID\necho $P > ppid.txt\nn={from}\nwhile [ $n -le {to} ]; do\n for leaf in runner.json outcome.json tree-status.json tree-verify.json; do\n  t=\"../.$leaf.$P.$n.tmp\"\n  case $((n % 4)) in\n   0) mkdir \"$t\";;\n   1) mkfifo \"$t\";;\n   2) ln -s '{o}' \"$t\";;\n   3) ln '{o}' \"$t\";;\n  esac\n done\n n=$((n+1))\ndone\n"
+    )
+}
+
+fn spawn_to_files(rig: &Rig, tag: &str) -> (std::process::Child, PathBuf, PathBuf) {
+    let out = rig.root.join(format!("{tag}-stdout.txt"));
+    let err = rig.root.join(format!("{tag}-stderr.txt"));
+    let child = rig
+        .command(&rig.args("r1", 1_000_000))
+        .stdout(Stdio::from(std::fs::File::create(&out).unwrap()))
+        .stderr(Stdio::from(std::fs::File::create(&err).unwrap()))
+        .spawn()
+        .unwrap();
+    (child, out, err)
+}
+
+#[test]
+fn a_run_whose_next_temporary_names_a_program_took_still_writes_its_records() {
+    let rig = Rig::new("temp-names-taken");
+    let outside = outside(&rig);
+    planting_writer(&rig, &plant_names(&outside, 0, 12));
+    let (mut child, _out, err) = spawn_to_files(&rig, "taken");
+    let status = ended_after_plant(&rig, &mut child);
+    let err = std::fs::read_to_string(err).unwrap_or_default();
+    assert!(status.is_some_and(|s| s.success()), "the run did not end well within {AFTER_PLANT_SECS} s of the plant: {status:?} {err}");
+    let record = runner_record(&rig, "r1").unwrap();
+    let ppid: u64 = std::fs::read_to_string(rig.work("r1").join("ppid.txt")).unwrap().trim().parse().unwrap();
+    assert_eq!(record["pid"].as_u64(), Some(ppid), "the program's parent is not the runner: the case plants the wrong names ({record})");
+    assert!(record["closed_at"].as_u64().is_some(), "the close of runner.json did not get past the names a program took: {record}");
+    assert!(rig.outcome("r1")["outcome"].is_string(), "outcome.json is not the runner's record");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
+    for name in ["runner.json", "outcome.json", "tree-status.json", "tree-verify.json"] {
+        let meta = std::fs::symlink_metadata(rig.run_dir("r1").join(name));
+        assert!(meta.is_ok_and(|m| m.is_file()), "{name} is not a regular file");
+    }
+}
+
+#[test]
+fn a_run_whose_every_temporary_name_a_program_took_ends_with_an_error_that_names_nothing_outside_the_run() {
+    let rig = Rig::new("temp-names-all-taken");
+    let outside = outside(&rig);
+    planting_writer(&rig, &plant_names(&outside, 0, 400));
+    let (mut child, out, err) = spawn_to_files(&rig, "all-taken");
+    let status = ended_after_plant(&rig, &mut child);
+    let text = format!("{}{}", std::fs::read_to_string(&out).unwrap_or_default(), std::fs::read_to_string(&err).unwrap_or_default());
+    assert!(status.is_some(), "the run did not end within {AFTER_PLANT_SECS} s of the plant: the writer of a record does not stop at its bound ({text})");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "a record was written into a file outside the run");
+    assert!(!text.contains("outside.txt"), "a message names the file outside the run: {text}");
+    assert!(status.is_some_and(|s| !s.success()), "the run ended without an error although no record could be written ({status:?}): {text}");
+    let ppid: u64 = std::fs::read_to_string(rig.work("r1").join("ppid.txt")).unwrap().trim().parse().unwrap();
+    assert!(text.contains(&format!(".{ppid}.")), "the error does not name the temporary file in the run directory: {text}");
+}
+
+#[test]
+fn guard_a_run_leaves_no_temporary_file_in_its_directory() {
+    let rig = Rig::new("no-temp-file-left");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let left: Vec<String> = std::fs::read_dir(rig.run_dir("r1")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".tmp")).collect();
+    assert!(left.is_empty(), "temporary files left: {left:?}");
+}
+
+fn an_events_file_a_program_made_unusable_does_not_stop_the_run(tag: &str, plant: &str) {
+    let rig = Rig::new(&format!("events-unusable-{tag}"));
+    planting_writer(&rig, plant);
+    let (mut child, _out, err) = spawn_to_files(&rig, tag);
+    let status = ended_after_plant(&rig, &mut child);
+    let err = std::fs::read_to_string(err).unwrap_or_default();
+    assert!(status.is_some_and(|s| s.success()), "{tag}: the run did not end well within {AFTER_PLANT_SECS} s of the plant: {status:?} {err}");
+    assert!(rig.outcome("r1")["outcome"].is_string(), "{tag}: outcome.json is not the runner's record");
+}
+
+#[test]
+fn guard_an_events_file_that_is_a_directory_does_not_stop_the_run() {
+    an_events_file_a_program_made_unusable_does_not_stop_the_run("dir", "rm -f ../events.jsonl\nmkdir ../events.jsonl");
+}
+
+#[test]
+fn guard_an_events_file_with_no_permission_does_not_stop_the_run() {
+    an_events_file_a_program_made_unusable_does_not_stop_the_run("mode0", "chmod 000 ../events.jsonl");
+}
+
+#[test]
+fn guard_an_events_file_that_is_read_only_does_not_stop_the_run() {
+    an_events_file_a_program_made_unusable_does_not_stop_the_run("mode444", "chmod 444 ../events.jsonl");
+}
