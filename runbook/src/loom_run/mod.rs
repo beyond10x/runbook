@@ -154,6 +154,8 @@ pub const EXIT_REJECTED: u8 = 10;
 pub const EXIT_DIVERGED: u8 = 11;
 /// Exit code: Loom refused a call of the run by a named reason (`TreeStopped`, `ConfinementRefused`,
 /// `PersonProgramFailed`, ...): the cause in `outcome.json` and `run-stopped.json` is the reason's name.
+/// Also a tree left without a move by a bound program that Loom refused (`ProgramSignalled`,
+/// `ProgramError`): the cause is `program_signalled` or `program_error`.
 pub const EXIT_LOOM_REFUSED: u8 = 12;
 
 /// How a run ended; the `outcome` of `outcome.json`.

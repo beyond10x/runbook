@@ -1,14 +1,14 @@
 //! The pages that say what a refused run writes are held against `src/engine/refusal.rs`: a cause
 //! the code can write and the page does not list is a failure here. Reads files of the checkout only.
 
-use runbook::engine::refusal::{cause, PROGRAM_SIGNALLED, REASONS};
+use runbook::engine::refusal::{cause, PROGRAM_REFUSALS, REASONS};
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Every cause the code can write: one per reason, and `program_signalled`.
+/// Every cause the code can write: one per reason, and one per refusal of a bound program.
 fn real_causes() -> BTreeSet<String> {
     let mut v: BTreeSet<String> = REASONS.iter().map(|r| cause(*r).to_owned()).collect();
-    v.insert(PROGRAM_SIGNALLED.to_owned());
+    v.extend(PROGRAM_REFUSALS.iter().map(|(_, c)| (*c).to_owned()));
     v
 }
 
@@ -21,7 +21,9 @@ fn the_run_directory_page_says_a_refused_run_writes_one_of_the_reason_causes() {
     let text = page("docs/loom-run-directory.md");
     let row = text.lines().find(|l| l.starts_with("| `run-stopped.json`")).expect("the row of run-stopped.json");
     assert!(row.contains("refused"), "the cause column does not name the refused outcome: {row}");
-    assert!(row.contains(PROGRAM_SIGNALLED), "the cause column does not name {PROGRAM_SIGNALLED}: {row}");
+    for (_, program_cause) in PROGRAM_REFUSALS {
+        assert!(row.contains(program_cause), "the cause column does not name {program_cause}: {row}");
+    }
     assert!(row.contains("docs/loom-run.md"), "the cause column does not say where the reason causes are listed: {row}");
 }
 
@@ -29,9 +31,7 @@ fn the_run_directory_page_says_a_refused_run_writes_one_of_the_reason_causes() {
 fn the_loom_run_page_lists_every_cause_a_refusal_writes() {
     let text = page("docs/loom-run.md");
     let mut missing: Vec<&str> = REASONS.iter().map(|r| cause(*r)).filter(|c| !text.contains(&format!("`{c}`"))).collect();
-    if !text.contains(&format!("`{PROGRAM_SIGNALLED}`")) {
-        missing.push(PROGRAM_SIGNALLED);
-    }
+    missing.extend(PROGRAM_REFUSALS.iter().map(|(_, c)| *c).filter(|c| !text.contains(&format!("`{c}`"))));
     assert_eq!(missing, Vec::<&str>::new(), "docs/loom-run.md does not list these causes of refusal.rs");
 }
 
