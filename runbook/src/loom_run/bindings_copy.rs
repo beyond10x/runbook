@@ -10,6 +10,7 @@
 
 use crate::loom_run::answers::Answers;
 use crate::loom_run::decider;
+use runbook::engine::copy::{copy_dirs, Links};
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
 use std::collections::BTreeMap;
@@ -211,10 +212,10 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
     if let Some((_, to)) = companions.iter().find(|(_, to)| to.exists()) {
         return Err(format!("{}: exists", to.display()));
     }
-    copy_dir(src, &dst)?;
-    for (from, to) in &companions {
-        copy_dir(from, to)?;
-    }
+    // One routine copies a runbook's files, for this command and for the daemon's engine.
+    let mut jobs: Vec<(&Path, &Path)> = vec![(src, dst.as_path())];
+    jobs.extend(companions.iter().map(|(from, to)| (from.as_path(), to.as_path())));
+    copy_dirs(&jobs, Links::Keep)?;
     let login_argument = login_link.map(|l| l.display().to_string());
     rewrite_files(&dst, &plan, login_argument.as_deref())?;
     let root = dst.join(format!("{root_protocol_name}.yaml"));
@@ -222,32 +223,6 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
         return Err(format!("{}: the root bindings file is missing in the copy", root.display()));
     }
     Ok(root)
-}
-
-fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| format!("{}: {e}", dst.display()))?;
-    let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("{}: {e}", src.display()))?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let kind = entry.file_type().map_err(|e| format!("{}: {e}", from.display()))?;
-        if kind.is_symlink() {
-            // A link stays a link: the fixtures hold links to directories and to programs.
-            let target = std::fs::read_link(&from).map_err(|e| format!("{}: {e}", from.display()))?;
-            std::os::unix::fs::symlink(&target, &to).map_err(|e| format!("{}: {e}", to.display()))?;
-        } else if kind.is_dir() {
-            copy_dir(&from, &to)?;
-        } else {
-            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
-            // A read-only source is copied writable: the copy is the run's.
-            let mut permissions = std::fs::metadata(&to).map_err(|e| format!("{}: {e}", to.display()))?.permissions();
-            use std::os::unix::fs::PermissionsExt;
-            permissions.set_mode(permissions.mode() | 0o200);
-            std::fs::set_permissions(&to, permissions).map_err(|e| format!("{}: {e}", to.display()))?;
-        }
-    }
-    Ok(())
 }
 
 fn class_of(classes: &Value, action: &str) -> String {
