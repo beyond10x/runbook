@@ -119,7 +119,8 @@ function daemonStream() {
   return {addEventListener: (name, f) => (handlers[name] ||= []).push(f), set onerror(f) { on.error = f; }, close() { closed = true; clearInterval(timer); }};
 }
 
-export const openEvents = () => (daemon ? daemonStream() : new EventSource('/events'));
+// the stream names the run the page shows: the server reads that run while the stream is open, and no other
+export const openEvents = (source = 0) => (daemon ? daemonStream() : new EventSource(`/events?source=${source}`));
 
 // Read the daemon's views again: the run list and the open decisions of the selected run. The daemon records no
 // event when a run starts to wait or goes on after an answer, so the page asks again after an answer of its own

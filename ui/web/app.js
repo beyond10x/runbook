@@ -196,6 +196,7 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
+  if (stream && !daemon) connect(); // the stream names the run on screen
   showProduct({kind: 'list'});
   await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
@@ -635,8 +636,10 @@ window.__sdcSync = async () => {
   await drain();
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 };
+let stream = null;
 function connect() {
-  const es = openEvents();
+  stream?.close();
+  const es = stream = openEvents(S.src);
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });
   es.addEventListener('change', (m) => {
     const d = JSON.parse(m.data);
