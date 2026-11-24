@@ -144,7 +144,7 @@ no new obligation. Model `SDC_LLM_MODEL_CONFORMANCE` (default `claude-sonnet-5-5
 `SDC_LLM_EFFORT_CONFORMANCE`, else `SDC_LLM_EFFORT_OTHER`, else `SDC_LLM_EFFORT`, else the class
 default in `tools/node-classes.json`; both and their sources are recorded in `oracle.json`
 (`conformance.table`). Limits: `SDC_CONFORMANCE_MAX_TURNS` (40), `SDC_CONFORMANCE_MAX_BUDGET_USD`
-(2.00), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
+(no default: unset or empty means the node's request names no money budget, except that a run under a spend cap gives each session at most what is left of the cap, 2 USD when the variable names none; a value that is set must be a finite number of at least 0, 0 spending nothing, or the observation is refused as `table_missing` with a line that names the variable, after the pin check and before `ess compile`; a value that is no text is refused too: a budget that is named never becomes none), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
 
 The reply is constrained by a response schema and then checked by the program; a refused reply is
 asked again with the check's reasons at most twice, then the slot is uncounted (`table_refused`).
@@ -204,9 +204,15 @@ external outcome is what they are for.
 
 `sdc-conform-adapter` speaks `ess-conformance-target/1` (ESS `docs/design/conformance-target-process.md`
 at tag `0.97.0`). Each scenario gets a fresh product process from `start.argv`, run in the tree
-copy, on a free port on 127.0.0.1, with an empty data directory and no environment but `PATH`,
+copy, on a port of 127.0.0.1 that the adapter holds, with an empty data directory and no environment but `PATH`,
 `LANG`, `HOST`, `PORT`, and `HOME` and `TMPDIR` set to the scenario's directory; `end_scenario`
-kills its process group. The product's stdout and stderr go to the scenario's `product.log`; each
+kills its process group. The adapter holds the port with a socket bound with `SO_REUSEADDR` that
+never listens, until the product ends: the kernel gives the port to no other process that asks for
+one, so no other server takes it before the product binds it or answers on it while the product
+starts (a port freed and handed on was taken so in about one of two runs of the driver's 58
+conformance cases). The product binds it as a server that sets `SO_REUSEADDR` does; a product that
+cannot (its log says "address already in use") is started once more on a port that is not held
+(logged `port_not_held`). The product's stdout and stderr go to the scenario's `product.log`; each
 capture is read from them within its `timeout_s` of the start. When its stream ended without the
 value, what the product does within the same `timeout_s` decides: it exits (the run is `product_not_started`),
 it answers `start.ready` (the capture is the table's fault: "the product closed <stream> without printing it" when
@@ -246,7 +252,9 @@ a product that answers 404 for a removed or finished entity fails that scenario.
 tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
 record: `result`, `k`, `f`, `p` (of f, refused for a precondition the specification does not
 model), `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
-`summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
+`summary`, `cause`, `why`, `table_cost_usd` (all slots; a session that left no cost record counts 0 in it),
+`cost_unknown_sessions` (how many node sessions ended with no cost record: `runbook run` books the reservation
+of a spend cap for an observation where it is above 0), `tables` (per slot: source, model,
 effort, attempts, `cost_usd`, `retried_after_run`, `one_more_session`, `evidence`, `counted`, `cause`, `why`, the
 final run's `k`, `f`, `u`, `e` (errors), `unverified` (checks), `n`, `conformance_status`, `declared_missing`, `build`,
 `precondition_not_in_spec` and `refused_after_run` when that rule counted the slot,

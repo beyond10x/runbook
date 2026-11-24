@@ -10,15 +10,18 @@ use crate::loom_run::cost::CostReader;
 use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider;
 use crate::loom_run::events::{Cap, CostSource, Event, EventSink, StartSource};
-use crate::loom_run::in_flight::{Announcing, RunnerRecord};
+use crate::loom_run::in_flight::{announcing, RunnerRecord};
 use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Opening};
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
+use crate::loom_run::model_node::{self, ModelNode};
 use crate::loom_run::private::PrivateDir;
+use crate::loom_run::record_write::{make_dir_in, Held};
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
 use crate::loom_run::{Args, Outcome, Way};
+use runbook::engine::shape::{self, Unshaped};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -61,22 +64,51 @@ fn install_signal_handlers() {
     }
 }
 
-/// Runs the whole command. `Err` is a refusal before anything was written (exit 2); `Ok` is how
-/// the run ended, written into the outcome file.
-pub fn run(args: &Args) -> Result<Outcome, String> {
+/// A refusal before anything was written: exit 2.
+#[derive(Debug)]
+pub struct Refused(String);
+
+impl Refused {
+    /// The exit code of the refusal.
+    pub fn exit_code(&self) -> u8 {
+        crate::loom_run::EXIT_REFUSED
+    }
+}
+
+impl From<String> for Refused {
+    fn from(text: String) -> Self {
+        Refused(text)
+    }
+}
+
+impl From<&str> for Refused {
+    fn from(text: &str) -> Self {
+        Refused(text.to_owned())
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Runs the whole command. `Err` is a refusal before anything was written (exit 2, or 64 for a
+/// usage error); `Ok` is how the run ended, written into the outcome file.
+pub fn run(args: &Args) -> Result<Outcome, Refused> {
     install_signal_handlers();
     run_with(args, &SystemClock, &SIGNALLED)
 }
 
 /// [`run`] with the clock and the cancel flag given.
-pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, String> {
+pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, Refused> {
     // The way to Loom is checked before anything else: one of the two, and a binary that is the
     // file its digest names, or a level the library can give.
     let (identity, library) = match args.way()? {
         Way::Child { loom, sha256 } => {
             let sha = file_sha256(loom).map_err(|e| format!("--loom: {e}"))?;
             if sha != sha256.trim().to_ascii_lowercase() {
-                return Err(format!("--loom has sha256 {sha}, not the {sha256} that --loom-sha256 names"));
+                return Err(format!("--loom has sha256 {sha}, not the {sha256} that --loom-sha256 names").into());
             }
             (Identity::Binary { sha256: sha }, None)
         }
@@ -86,7 +118,11 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::bugfix::check(args)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
-    let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    // a cap the settings file names and no option does is the cap of the run
+    let raw = settings::merged(args)?;
+    let named = settings::with_named_caps(args, &raw);
+    let args = &named;
+    let given = settings::normalise(&raw, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let (given, gateway) = super::gateway::take(args, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
@@ -100,19 +136,18 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     super::goals::check_settings(&args.ports, &settings_value)?;
     let protocols = protocol_files(&args.protocols)?;
     if args.intake.is_empty() {
-        return Err("--intake is empty: a run needs the idea's text".to_owned());
+        return Err("--intake is empty: a run needs the idea's text".into());
     }
     if !args.bindings.is_dir() {
-        return Err(format!("--bindings {} is not a directory", args.bindings.display()));
+        return Err(format!("--bindings {} is not a directory", args.bindings.display()).into());
     }
     if run_dir.exists() {
-        return Err(format!("the run directory {} exists", run_dir.display()));
+        return Err(format!("the run directory {} exists", run_dir.display()).into());
     }
     let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
-    let private = PrivateDir::create_with(&args.run, login.as_deref(), gateway.as_ref())?;
-    if let Some(file) = private.as_ref().and_then(|p| p.gateway_file()) {
-        decider.use_gateway(file);
-    }
+    // nothing is made for the login or the gateway yet: the private directory is made after the opening, in a run that
+    // has a model node; what it would refuse is refused here, before the run directory exists
+    let planned = PrivateDir::check(&args.run, login.as_deref(), gateway.is_some())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     // the runner's record: open from here, closed on every way out of this function (its Drop), and at the end below
@@ -131,10 +166,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
         }
         (Identity::Library { .. }, Some((level, runner))) => {
-            let announcing: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(Announcing::new(runner, run_dir.clone(), run_dir.join("bindings")));
-            Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announcing, cancel))
+            let announced: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(announcing(runner, run_dir.clone(), run_dir.join("bindings")));
+            Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announced, cancel))
         }
-        (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
+        (Identity::Library { .. }, None) => return Err("the library was not prepared".into()),
     };
     let mut runner = Runner {
         args,
@@ -150,18 +185,24 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         decider,
         sinks: Vec::new(),
         reader: CostReader::with_home(std::env::var("HOME").ok()),
+        node: ModelNode::With { because: "the opening has not decided yet".to_owned() },
         ledger: None,
         llm_calls: 0,
         steps: 0,
         spent: 0,
+        recorded_micro_usd: 0,
+        recorded_llm_calls: 0,
         start,
         wall_cap_noted: false,
         decided: std::collections::HashMap::new(),
         answers: Answers::default(),
         answered: std::collections::HashMap::new(),
         reasons_written: 0,
-        login_link: private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf),
-        gateway_file: private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf),
+        login_link: planned.link,
+        login_file: login,
+        gateway_file: planned.gateway,
+        gateway,
+        private: None,
     };
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
@@ -179,7 +220,9 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
     record.close(clock.now_secs());
     super::replay::seal(args, &run_dir);
-    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, private.as_ref().and_then(|p| p.gateway_file()));
+    // the observation's model adapter is given the gateway file while the private directory still exists
+    let gateway_file = runner.private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome, &mut observation::ObservationGate::new(&mut runner), gateway_file.as_deref());
     Ok(outcome)
 }
 
@@ -230,10 +273,17 @@ struct Runner<'a> {
     decider: Box<dyn Decider>,
     sinks: Vec<Box<dyn EventSink>>,
     reader: CostReader,
+    /// Whether the run has a model node: decided once at the opening (`drive_inner`), never again.
+    /// Until then it is "with": unclear counts as a model node.
+    node: ModelNode,
+    /// Open only in a run with a model node.
     ledger: Option<Ledger>,
     llm_calls: u64,
     steps: u64,
     spent: u64,
+    /// What a re-drive took from its recording: the cost and the number of calls (never counted in `spent` and `llm_calls`).
+    recorded_micro_usd: u64,
+    recorded_llm_calls: u64,
     start: u64,
     wall_cap_noted: bool,
     decided: std::collections::HashMap<String, bool>,
@@ -241,9 +291,16 @@ struct Runner<'a> {
     answers: Answers,
     answered: std::collections::HashMap<String, u64>,
     reasons_written: u64,
+    /// The path the link to the login file has, or will have: the bindings copy names it. The link
+    /// exists only in a run that has a model node, and only after the opening decided.
     login_link: Option<PathBuf>,
-    /// The gateway file of the private directory, when the settings name a gateway: the copy names it.
+    login_file: Option<PathBuf>,
+    /// The path the gateway file has, or will have, when the settings name a gateway: the copy names it.
+    /// The file exists only in a run that has a model node, and only after the opening decided.
     gateway_file: Option<PathBuf>,
+    /// The gateway the settings name, written into the private directory at the opening (never elsewhere).
+    gateway: Option<sdc_tools::gateway::Gateway>,
+    private: Option<PrivateDir>,
 }
 
 /// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
@@ -306,20 +363,46 @@ impl Runner<'_> {
     fn drive_inner(&mut self, root_name: &str, protocols: &[(String, PathBuf)], redacted: &Value) -> Result<Outcome, Halt> {
         self.emit(Event::RunStarted { run: self.args.run.clone(), settings: redacted.clone() })?;
         for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
-            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+            make_dir_in(&self.run_dir, &d)?;
         }
-        self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise_with(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref(), self.gateway_file.as_deref())?;
         // The copy is made and no bound program has run: who decides is read now and not again.
         self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;
+        // The one decision of the run: whether it has a model node. It is made here, from the
+        // options, the decider and the copy before any program of the run has started, written to
+        // the records, and never made again. It gates the link to the login file and nothing else:
+        // the caps and the ledger hold for every run that names them.
+        self.node = model_node::decide(self.args, &self.settings, &*self.decider, &self.bindings_dir);
+        self.emit(Event::ModelNodeDecided { has_model_node: self.node.has_model_node(), because: self.node.because() })?;
+        // A ledger is opened only when the run names one. A re-drive that cannot start a live call spends nothing: its
+        // ledger is not opened, so it is neither created nor changed.
+        if let Some(path) = self.args.spend_ledger.as_deref().filter(|_| !self.spends_nothing()) {
+            self.ledger = Some(Ledger::open(path)?);
+        }
+        if self.node.has_model_node() {
+            // the link to the login file and the gateway file are for the model programs of a run that has one
+            self.private = PrivateDir::create_with(&self.args.run, self.login_file.as_deref(), self.gateway.as_ref())?;
+            self.login_link = self.private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf);
+            self.gateway_file = self.private.as_ref().and_then(|p| p.gateway_file()).map(Path::to_path_buf);
+            if let Some(file) = &self.gateway_file {
+                self.decider.use_gateway(file);
+            }
+        } else {
+            // a run without a model node gives its bound programs no way to the login or the gateway
+            self.login_link = None;
+            self.gateway_file = None;
+        }
+        // the token is in the private directory now, or nowhere: the runner keeps no copy of it
+        self.gateway = None;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         if let Some(goals) = &self.args.ports.goals {
             super::goals::copy(goals, &self.workspace)?;
         }
+        super::seeded::write(&self.run_dir, &self.workspace, self.clock.now_secs())?;
         let copies = self.run_dir.join("protocols");
-        std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
+        make_dir_in(&self.run_dir, &copies)?;
         for (_, file) in protocols {
             let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
             std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -328,7 +411,7 @@ impl Runner<'_> {
         let mut index = 0u64;
         loop {
             self.check_stop()?;
-            if self.llm_calls >= self.args.max_llm_calls {
+            if self.calls_cap_reached() {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Ok(Outcome::StoppedLlmCalls);
             }
@@ -349,10 +432,10 @@ impl Runner<'_> {
                     return Ok(Outcome::Ended { tree_outcome });
                 }
                 4 => {
-                    // A program ended by a signal leaves its action undone and the tree stuck: the run names the signal, not only the stuck tree.
-                    return Ok(match runbook::engine::refusal::program_signalled(&self.store) {
-                        Some(reason) => Outcome::Refused { cause: runbook::engine::refusal::PROGRAM_SIGNALLED, reason, loom_exit: None, stderr_tail: None },
-                        None => Outcome::Stuck,
+                    // A program that Loom refused (ended by a signal, or by an exit that `exits.error` lists) leaves its action undone and the tree stuck: the run names the refusal, not only the stuck tree.
+                    return Ok(match runbook::engine::refusal::program_refused(&self.store) {
+                        Some(refused) => Outcome::Refused { cause: refused.cause, reason: refused.text, loom_exit: None, stderr_tail: None },
+                        None => Outcome::Stuck { reason: runbook::engine::refusal::stuck_on(&self.store) },
                     });
                 }
                 5 if steps > 0 => {}
@@ -366,21 +449,41 @@ impl Runner<'_> {
     /// Runs a `b10x-loom` call that may start model programs: the ledger reserves what the largest
     /// per-call budget of the bindings copy allows (at most what the cap has left), the copy is
     /// limited to it, and what the call spent is booked after it.
+    ///
+    /// With no `--cap-micro-usd` named nothing is held: the call is given the budget the bindings
+    /// name (none when they name none), a call of known cost books that cost, and a call of unknown
+    /// cost books nothing and is recorded as unknown (see [`Runner::held`]).
+    ///
+    /// In a run opened without a model node, with a spend cap or a call cap named, the printed command
+    /// of a handoff takes one step, so the caps are read between two steps. In a run opened with a model
+    /// node it runs as printed (the story `handoff-under-a-named-cap-runs-one-step-at-a-time`).
     fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
-        let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
+        let want = budget::largest_call_budget(&self.bindings_dir)?.or(self.args.cap_micro_usd).unwrap_or(u64::MAX);
         let reservation = self.reserve(want)?;
-        budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+        if self.args.cap_micro_usd.is_some() {
+            budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+        }
+        let one_step = !self.node.has_model_node() && (self.args.cap_micro_usd.is_some() || self.args.max_llm_calls.is_some());
         if !self.host.announces_starts() {
             self.emit(Event::ActionStarted { source: StartSource::StepCall, role: None, case: None, action: None, try_number: None })?;
         }
         let result = match handoff {
             None => self.host.step(),
-            Some(answer) => self.host.handoff(answer),
+            Some(answer) => self.host.handoff(answer, one_step),
         };
         let cost_halt = self.book_step(&reservation);
         let result = result?;
         cost_halt?;
         Ok(result)
+    }
+
+    /// Records an answer with Loom (`tree approve`, which runs the program a person action binds).
+    /// Once a named cap is reached (the spend cap with nothing left, or the call cap) no answer is
+    /// made: the decision stays open and the run ends at the cap.
+    fn take_answer(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
+        self.stop_when_a_cap_is_reached()?;
+        self.host.answer(answer)?;
+        Ok(())
     }
 
     /// Runs `tree status` and writes `tree-status.json` (atomically, paths relative to the run
@@ -398,18 +501,142 @@ impl Runner<'_> {
         Ok(())
     }
 
-    fn ledger(&self) -> &Ledger {
-        self.ledger.as_ref().expect("the ledger is opened before the loop")
+    /// Whether a named `--max-llm-calls` is reached: no cap named is never reached, a cap of 0 is
+    /// reached before the first call.
+    fn calls_cap_reached(&self) -> bool {
+        self.args.max_llm_calls.is_some_and(|max| self.llm_calls >= max)
     }
 
-    fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
-        let r = self.ledger().reserve(&self.args.run, self.args.cap_micro_usd, want)?;
-        if want > 0 && r.micro_usd == 0 {
-            let spent = self.ledger().spent()?;
-            self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {} micro USD spent", self.args.cap_micro_usd) })?;
-            return Err(Halt::Done(Outcome::StoppedSpendCap));
+    /// What a call of unknown cost is booked at: its reservation when a spend cap is named (the
+    /// most it could have spent), nothing when none is named. A run with no cap holds no
+    /// reservation, so there is no amount to book, and a number nobody reserved never goes into the
+    /// ledger every other run shares nor into the total of the run.
+    fn held(&self, reservation: &Reservation) -> u64 {
+        if self.args.cap_micro_usd.is_some() {
+            reservation.micro_usd
+        } else {
+            0
         }
-        Ok(r)
+    }
+
+    /// Whether a re-drive (`--recorded`) is the whole of this run and cannot start a live call: no
+    /// `--on-divergence live`, or `--live-cap 0`. Every reply of such a run comes from the recording,
+    /// so it spends nothing: it opens no ledger, reserves nothing and books nothing.
+    fn spends_nothing(&self) -> bool {
+        use crate::loom_run::ports::OnDivergence;
+        let replay = &self.args.ports.replay;
+        replay.recorded.is_some() && (replay.on_divergence != Some(OnDivergence::Live) || replay.live_cap == Some(0))
+    }
+
+    /// Whether the cost line of a model call is a reply taken from the recording: the adapter of a
+    /// re-drive writes `recorded` or `reused` there and `live` for a call it started.
+    fn is_recorded_call(&self, record: &Value) -> bool {
+        self.args.ports.replay.recorded.is_some() && matches!(record.get("adapter").and_then(Value::as_str), Some("recorded" | "reused"))
+    }
+
+    /// Reserves what a call may cost, at most `want` micro USD. With a named `--cap-micro-usd` it
+    /// grants at most what the cap has left: over all runs of the ledger when the run names one, over
+    /// this run's own spend when it does not. With none named it grants `want` and holds nothing in
+    /// the ledger (a run without a cap must not starve a run with one that shares the file). A named
+    /// cap with nothing left ends the run (exit 4) when the call wants something or the run may
+    /// spend (see [`Runner::may_spend`]): a bound program of it is not started with nothing left,
+    /// whatever the bindings name, and a wanted amount of 0 (a model tool that names no budget
+    /// option, a decider that costs nothing) is no way round it. A re-drive that cannot go live
+    /// ([`Runner::spends_nothing`]) reserves nothing and is not stopped by the spend cap.
+    fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
+        if self.spends_nothing() {
+            return Ok(Reservation { id: String::new(), micro_usd: want, left: u64::MAX });
+        }
+        let granted = self.grant(want)?;
+        if let Some(cap) = self.args.cap_micro_usd.filter(|_| granted.left == 0 && (want > 0 || self.may_spend())) {
+            return Err(self.end_at_spend_cap(cap)?);
+        }
+        Ok(granted)
+    }
+
+    /// The grant of [`Runner::reserve`] before any stop is decided: held in the ledger when the run
+    /// names one and a cap.
+    fn grant(&self, want: u64) -> Result<Reservation, String> {
+        Ok(match (&self.ledger, self.args.cap_micro_usd) {
+            (Some(ledger), Some(cap)) => ledger.reserve(&self.args.run, cap, want)?,
+            (None, Some(cap)) => Reservation { id: String::new(), micro_usd: want.min(cap.saturating_sub(self.spent)), left: cap.saturating_sub(self.spent) },
+            (_, None) => Reservation { id: String::new(), micro_usd: want, left: u64::MAX },
+        })
+    }
+
+    /// Whether what the run starts next may spend: the opening decided it has a model node, or the
+    /// run has booked or counted something, or its copy of the bindings names a model tool now (a
+    /// bound program may have written one into it) or cannot be read. A run in which none of this
+    /// holds spends nothing, so a cap with nothing left has nothing to stop in it.
+    fn may_spend(&self) -> bool {
+        self.node.has_model_node() || self.spent > 0 || self.llm_calls > 0 || bindings_copy::model_node_in(&self.bindings_dir).is_some()
+    }
+
+    /// Ends the run at the spend cap: the event and the outcome of a reached cap.
+    fn end_at_spend_cap(&mut self, cap: u64) -> Result<Halt, Halt> {
+        let spent = match &self.ledger {
+            Some(ledger) => ledger.spent()?,
+            None => self.spent,
+        };
+        self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {cap} micro USD spent") })?;
+        Ok(Halt::Done(Outcome::StoppedSpendCap))
+    }
+
+    /// Ends the run when a named cap is reached: the call cap, or the spend cap with nothing left
+    /// while the run may spend. Asked before every program that answers a decision (`tree approve`
+    /// runs the program a person action binds, and so do the programs of an answers file), where no
+    /// amount is reserved.
+    fn stop_when_a_cap_is_reached(&mut self) -> Result<(), Halt> {
+        if self.calls_cap_reached() {
+            self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
+            return Err(Halt::Done(Outcome::StoppedLlmCalls));
+        }
+        let Some(cap) = self.args.cap_micro_usd.filter(|_| !self.spends_nothing()) else { return Ok(()) };
+        let left = match &self.ledger {
+            Some(ledger) => ledger.left(cap)?,
+            None => cap.saturating_sub(self.spent),
+        };
+        if left == 0 && self.may_spend() {
+            return Err(self.end_at_spend_cap(cap)?);
+        }
+        Ok(())
+    }
+
+    /// Books `micro_usd` of the reservation as spent: into the ledger when the run names one, and
+    /// into the run's own total (`spent`).
+    fn book(&mut self, reservation: &Reservation, what: &str, micro_usd: u64) -> Result<(), String> {
+        if self.spends_nothing() {
+            return Ok(());
+        }
+        if let Some(ledger) = &self.ledger {
+            ledger.commit(reservation, &self.args.run, what, micro_usd)?;
+        }
+        self.spent = self.spent.saturating_add(micro_usd);
+        Ok(())
+    }
+
+    /// Gives the reservation back without booking anything (the ledger's, when the run names one).
+    fn release(&self, reservation: &Reservation) -> Result<(), String> {
+        if self.spends_nothing() {
+            return Ok(());
+        }
+        match &self.ledger {
+            Some(ledger) => ledger.release(reservation),
+            None => Ok(()),
+        }
+    }
+
+    /// Counts one decider answer: what a re-drive that cannot go live took from its recording is
+    /// recorded, every other cost is booked as spent.
+    fn book_decider(&mut self, reservation: &Reservation, cost_micro_usd: u64, model_calls: u64) -> Result<(), String> {
+        if self.spends_nothing() {
+            self.recorded_micro_usd = self.recorded_micro_usd.saturating_add(cost_micro_usd);
+            self.recorded_llm_calls += model_calls;
+            return Ok(());
+        }
+        self.book(reservation, "decider", cost_micro_usd)?;
+        self.llm_calls = self.llm_calls.saturating_add(model_calls);
+        Ok(())
     }
 
     /// Reads what the step spent and books it. A cost that cannot be read books the whole
@@ -421,19 +648,52 @@ impl Runner<'_> {
     fn book_step(&mut self, reservation: &Reservation) -> Result<(), Halt> {
         match self.reader.read_new(&self.workspace) {
             Ok(cost) => {
-                let unknown = cost.unknown.len() as u64;
-                let booked = cost.micro_usd.saturating_add(reservation.micro_usd.saturating_mul(unknown));
-                let what = if unknown == 0 { "step" } else { "step, cost unknown for a failed call: reservation booked" };
-                self.ledger().commit(reservation, &self.args.run, what, booked)?;
-                self.spent += booked;
-                self.llm_calls += cost.records.len() as u64 + unknown;
+                // A reply taken from the recording costs what the recording says and is not spent by this run.
+                let micro_of = |record: &Value| record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+                // The adapter's word decides what was recorded; the policy only decides what may be live. A re-drive that cannot go live holds no live call: a line that says it started one is an error of the run.
+                if self.spends_nothing() {
+                    if let Some(record) = cost.records.iter().chain(cost.unknown.iter()).find(|r| !self.is_recorded_call(r)) {
+                        let text = |key: &str| record.get(key).and_then(Value::as_str).unwrap_or("none").to_owned();
+                        return Err(Halt::Failed(format!(
+                            "model step {}: the cost line says adapter {}, a call this re-drive started, but a re-drive with no --on-divergence live or with --live-cap 0 starts none",
+                            text("action"),
+                            text("adapter")
+                        )));
+                    }
+                }
+                let (recorded, started): (Vec<&Value>, Vec<&Value>) = cost.records.iter().partition(|r| self.is_recorded_call(r));
+                let (recorded_unknown, started_unknown): (Vec<&Value>, Vec<&Value>) = cost.unknown.iter().partition(|r| self.is_recorded_call(r));
+                let recorded_micro = recorded.iter().map(|r| micro_of(r)).fold(0u64, u64::saturating_add);
+                let started_micro = started.iter().map(|r| micro_of(r)).fold(0u64, u64::saturating_add);
+                let (recorded_calls, started_calls) = (recorded.len() as u64, started.len() as u64);
+                // A failed call without a cost books the reservation when a spend cap is named, the most it could have
+                // spent, and nothing when none is (see [`Runner::held`]); a reused one started nothing and is a recorded
+                // call at cost 0.
+                let unknown_started = started_unknown.len() as u64;
+                let held = self.held(reservation);
+                let unknown_booked = held.saturating_mul(unknown_started);
+                let booked = started_micro.saturating_add(unknown_booked);
+                let what = match (unknown_started, self.args.cap_micro_usd.is_some()) {
+                    (0, _) => "step",
+                    (_, true) => "step, cost unknown for a failed call: reservation booked",
+                    (_, false) => "step, cost unknown for a failed call: nothing booked, no cap is named",
+                };
+                self.book(reservation, what, booked)?;
+                self.llm_calls = self.llm_calls.saturating_add(unknown_started + started_calls);
+                self.recorded_llm_calls += recorded_unknown.len() as u64 + recorded_calls;
+                self.recorded_micro_usd = self.recorded_micro_usd.saturating_add(recorded_micro);
                 for record in cost.records {
-                    let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+                    let micro = micro_of(&record);
                     self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
                 }
                 for mut record in cost.unknown {
+                    let recorded = self.is_recorded_call(&record);
+                    let micro = if recorded { 0 } else { held };
                     record["cost_unknown"] = Value::Bool(true);
-                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: reservation.micro_usd, record })?;
+                    if !recorded && self.args.cap_micro_usd.is_none() {
+                        record["cost_booked"] = Value::Bool(false);
+                    }
+                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
                 }
                 for note in cost.no_call {
                     let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
@@ -443,8 +703,8 @@ impl Runner<'_> {
                 Ok(())
             }
             Err(reason) => {
-                self.ledger().commit(reservation, &self.args.run, "step, cost unknown: reservation booked", reservation.micro_usd)?;
-                self.spent += reservation.micro_usd;
+                let held = self.held(reservation);
+                self.book(reservation, "step, cost unknown: reservation booked", held)?;
                 Err(Halt::Failed(reason))
             }
         }
@@ -480,7 +740,7 @@ impl Runner<'_> {
                 continue;
             }
             let want = self.decider.max_call_micro_usd();
-            if want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if want > 0 && self.calls_cap_reached() {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -498,19 +758,17 @@ impl Runner<'_> {
             };
             let (approve, principal, cost, calls, reasons) = match verdict {
                 Verdict::CannotDecide { reason } => {
-                    self.ledger().release(&reservation)?;
+                    self.release(&reservation)?;
                     return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
-                    self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
-                    self.spent += reservation.micro_usd;
+                    let held = self.held(&reservation);
+                    self.book(&reservation, "decider, cost unknown: reservation booked", held)?;
                     return Err(Halt::Failed("the decider answered without a cost".to_owned()));
                 }
                 Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls, reasons } => (approve, principal, cost, model_calls, reasons),
             };
-            self.ledger().commit(&reservation, &self.args.run, "decider", cost)?;
-            self.spent += cost;
-            self.llm_calls += calls;
+            self.book_decider(&reservation, cost, calls)?;
             if cost > 0 || calls > 0 {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }
@@ -525,7 +783,7 @@ impl Runner<'_> {
                 // A close the decider does not want is not run: Loom prints one per outcome.
                 "Close" if !approve => {}
                 "Close" => {
-                    self.host.answer(&answer)?;
+                    self.take_answer(&answer)?;
                     closed.push(case);
                 }
                 "Handoff" => {
@@ -536,7 +794,7 @@ impl Runner<'_> {
                 _ => {
                     let reasons_file = self.person_answer(&mut answer, reasons.as_deref())?;
                     answer.reasons_file = reasons_file.as_deref();
-                    self.host.answer(&answer)?;
+                    self.take_answer(&answer)?;
                 }
             }
             self.decided.insert(key, approve);
@@ -548,7 +806,7 @@ impl Runner<'_> {
     /// A handoff's printed command is `tree run`: it runs as printed, through the ledger like every
     /// call that may start a model program, and what it printed is read like any `tree run`.
     fn run_handoff(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
-        if self.llm_calls >= self.args.max_llm_calls {
+        if self.calls_cap_reached() {
             self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
             return Err(Halt::Done(Outcome::StoppedLlmCalls));
         }
@@ -560,115 +818,36 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// The results a person action declares, from the bindings copy: the keys of `results` that
-    /// every `from: effect` entry of the action lists. `None`: the copy names no such action.
-    fn declared_results(&self, action: &str) -> Result<Option<Vec<String>>, Halt> {
-        let mut declared: Option<Vec<String>> = None;
-        let entries = std::fs::read_dir(&self.bindings_dir).map_err(|e| format!("{}: {e}", self.bindings_dir.display()))?;
-        let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-        files.sort();
-        for file in files {
-            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-            let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-            let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
-            for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
-                if entry.get("executor").and_then(|e| e.get("kind")).and_then(serde_yaml::Value::as_str) != Some("person") {
-                    continue;
-                }
-                let evidence = entry.get("evidence").and_then(serde_yaml::Value::as_sequence).cloned().unwrap_or_default();
-                for item in evidence.iter().filter(|i| i.get("from").and_then(serde_yaml::Value::as_str) == Some("effect")) {
-                    let keys: Vec<String> = item
-                        .get("results")
-                        .and_then(serde_yaml::Value::as_mapping)
-                        .map(|m| m.keys().filter_map(|k| k.as_str().map(str::to_owned)).collect())
-                        .unwrap_or_default();
-                    declared = Some(match declared {
-                        None => keys,
-                        Some(have) => have.into_iter().filter(|k| keys.contains(k)).collect(),
-                    });
-                }
-                declared.get_or_insert_with(Vec::new);
-            }
-        }
-        Ok(declared)
-    }
-
     /// Names the result of a person action (`result`) where the action declares results:
     /// `performed` for an approval, `rejected` and a reasons file for a rejection (returned). A
     /// result the action does not declare ends the run before Loom is called. A decision with no
     /// action (an approval of a capability) takes no result; its rejection is a denial (`deny`).
     fn person_answer(&mut self, answer: &mut Answer<'_>, reasons: Option<&str>) -> Result<Option<PathBuf>, Halt> {
-        let decision = answer.decision;
-        let approve = answer.approve;
-        let action = decision.get("action").and_then(Value::as_str).filter(|a| !a.is_empty());
-        let Some(action) = action.filter(|_| answer.kind == "ApproveAction") else {
-            answer.deny = !approve;
-            return Ok(None);
+        let shaped = match shape::person_result(&self.bindings_dir, answer.decision, answer.kind, answer.approve, answer.principal, reasons) {
+            Ok(shaped) => shaped,
+            // A rejection nothing can record: no rework path. The run is stopped, with the step, the case and
+            // what the rejection said, and nothing is sent to Loom.
+            Err(Unshaped::Rejected(reason)) => return Err(Halt::Done(Outcome::StoppedRejected { reason })),
+            Err(Unshaped::Failed(why)) => return Err(Halt::Failed(why)),
         };
-        let declared = self.declared_results(action)?.unwrap_or_default();
-        let result = if approve { "performed" } else { "rejected" };
-        if !declared.iter().any(|k| k == result) {
-            if approve && declared.is_empty() {
-                return Ok(None);
-            }
-            let listed = if declared.is_empty() { "none".to_owned() } else { declared.join(", ") };
-            if !approve {
-                // A rejection nothing can record: no rework path. The run is stopped, with the step,
-                // the case and what the rejection said, and nothing is sent to Loom.
-                let case = decision.get("case").and_then(Value::as_str).unwrap_or("");
-                let who = answer.principal.unwrap_or("the decider");
-                let subject = decision.get("subject").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("it");
-                let revision = decision.get("revision").and_then(Value::as_str).unwrap_or("");
-                let said = reasons.map(|r| r.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "no reasons given".to_owned());
-                let said: String = said.chars().take(400).collect();
-                return Err(Halt::Done(Outcome::StoppedRejected {
-                    reason: format!(
-                        "{action} in {case}: {who} rejected {subject} {revision} ({said}); rejected_without_rework_path: the bindings declare the results {listed} for the action, so nothing records a rejection and no step reworks the rejected revision; it waits on a protocol path for a rejected revision"
-                    ),
-                }));
-            }
-            return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
-        }
-        answer.result = Some(result);
-        if approve && !reasons.is_some_and(|r| !r.trim().is_empty()) {
-            return Ok(None);
-        }
-        Ok(Some(self.write_reasons(action, reasons)?))
+        answer.result = shaped.result;
+        answer.deny = shaped.deny;
+        let Some(said) = shaped.reasons else { return Ok(None) };
+        let action = answer.decision.get("action").and_then(Value::as_str).unwrap_or("");
+        Ok(Some(self.write_reasons(action, Some(&said))?))
     }
 
     /// Writes the reasons of a rejection into the workspace (Loom reads a regular file below it,
     /// at most 60 lines and 65536 bytes) and returns its path. The text has the login file's path,
     /// the run directory and the home directory taken out.
     fn write_reasons(&mut self, action: &str, reasons: Option<&str>) -> Result<PathBuf, Halt> {
-        let mut text = reasons.unwrap_or("").to_owned();
-        if let Some(login) = self.settings.get(settings::LOGIN_KEY).and_then(Value::as_str).filter(|l| !l.is_empty()) {
-            text = text.replace(login, "<login file>");
-        }
-        text = text.replace(&self.run_dir.display().to_string(), "<run>");
-        if let Some(home) = std::env::var("HOME").ok().filter(|h| h.len() > 1) {
-            text = text.replace(&home, "~");
-        }
-        let mut kept: Vec<&str> = text.lines().take(60).collect();
-        while kept.last().is_some_and(|l| l.trim().is_empty()) {
-            kept.pop();
-        }
-        let mut text = kept.join("\n");
-        if text.len() > 65_000 {
-            let mut end = 65_000;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-        }
-        if text.trim().is_empty() {
-            text = "The decider rejected this and gave no reasons.".to_owned();
-        }
+        let text = shape::clean_reasons(reasons, self.settings.get(settings::LOGIN_KEY).and_then(Value::as_str), &self.run_dir, std::env::var("HOME").ok().as_deref());
         self.reasons_written += 1;
         let safe: String = action.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
         let dir = self.workspace.join(".sdc").join("reasons");
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let file = dir.join(format!("{:03}-{safe}.txt", self.reasons_written));
-        std::fs::write(&file, format!("{text}\n")).map_err(|e| format!("{}: {e}", file.display()))?;
+        let name = format!("{:03}-{safe}.txt", self.reasons_written);
+        let file = dir.join(&name);
+        Held::make(&self.run_dir, &dir)?.write(&name, format!("{text}\n").as_bytes())?;
         Ok(file)
     }
 
@@ -725,6 +904,8 @@ impl Runner<'_> {
             exit_code: outcome.exit_code(),
             steps: self.steps,
             spent_micro_usd: self.spent,
+            recorded_micro_usd: self.recorded_micro_usd,
+            recorded_llm_calls: self.recorded_llm_calls,
             llm_calls: self.llm_calls,
         };
         if let Err(e) = self.emit(ended) {
@@ -755,6 +936,10 @@ fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
 }
 
 mod declared;
+mod observation;
+
+#[cfg(test)]
+mod no_model_node_tests;
 
 #[cfg(test)]
 #[allow(dead_code)] // fake.rs is shared with the integration binary; this unit test uses part of it
@@ -779,7 +964,7 @@ mod tests {
         }
     }
 
-    fn world(tag: &str) -> (PathBuf, fake::Fake) {
+    pub(super) fn world(tag: &str) -> (PathBuf, fake::Fake) {
         let exe = std::env::current_exe().unwrap();
         let root = exe.parent().unwrap().join(format!("loomrun-unit-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -794,7 +979,7 @@ mod tests {
         (root, f)
     }
 
-    fn args(root: &Path, f: &fake::Fake, wall: u64) -> Args {
+    pub(super) fn args(root: &Path, f: &fake::Fake, wall: u64) -> Args {
         Args {
             run: "r1".into(),
             runs_dir: root.join("runs"),
@@ -806,12 +991,14 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
-            settings: root.join("settings.toml"),
-            spend_ledger: root.join("ledger.json"),
-            cap_micro_usd: 1_000_000,
-            max_llm_calls: 100,
+            settings: Some(root.join("settings.toml")),
+            defaults: Default::default(),
+            spend_ledger: Some(root.join("ledger.json")),
+            cap_micro_usd: Some(1_000_000),
+            max_llm_calls: Some(100),
             max_wall_seconds: wall,
             ports: Default::default(),
+            config: None,
         }
     }
 

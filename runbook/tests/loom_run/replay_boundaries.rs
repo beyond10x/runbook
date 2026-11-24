@@ -63,7 +63,7 @@ impl Rig {
         let bin = repo().join("driver/target/debug/sdc-replay");
         assert!(bin.is_file(), "{} is not built", bin.display());
         let mut command = Command::new(bin);
-        command.arg(rec.join("request.json")).stdin(Stdio::null()).env_remove("SDC_REPLAY");
+        command.arg(rec.join("request.json")).stdin(Stdio::null()).env_remove("SDC_REPLAY").env("RUNBOOK_NO_CONFIG", "1");
         if let Some(plan) = plan {
             command.env("SDC_REPLAY", plan);
         }
@@ -103,11 +103,12 @@ fn an_adapter_given_no_plan_takes_none_from_above_its_call() {
     assert!(said.contains("SDC_REPLAY"), "the refusal names what is missing: {said}");
 }
 
-/// The live cap fails closed: a cap that is absent, text, negative, fractional or null starts no
-/// live call; neither does a spent cap.
+/// A live cap that is named fails closed: one that is text, negative or fractional starts no live
+/// call; neither does a spent cap (a cap that is absent or null is no cap named: no limit, see
+/// `with_no_live_cap_named_every_live_call_starts_and_a_named_cap_still_stops`).
 #[test]
 fn a_live_cap_that_cannot_be_read_or_is_spent_starts_no_live_call() {
-    for (what, cap) in [("absent", None), ("text", Some(json!("3"))), ("negative", Some(json!(-1))), ("fraction", Some(json!(1.5))), ("null", Some(json!(null))), ("zero", Some(json!(0)))] {
+    for (what, cap) in [("text", Some(json!("3"))), ("negative", Some(json!(-1))), ("fraction", Some(json!(1.5))), ("zero", Some(json!(0)))] {
         let rig = Rig::new("cap");
         let mut live = rig.live(json!(null));
         match cap {
@@ -131,6 +132,30 @@ fn a_live_cap_that_cannot_be_read_or_is_spent_starts_no_live_call() {
     rig.plan(&rig.root.join("run"), "live", rig.live(json!(1)));
     let (code, said) = rig.call(Some(&rig.run_plan()));
     assert!(rig.marker.exists() && code == 0, "a cap of 1 and no live call yet: {code} {said}");
+}
+
+/// A plan that `prepare` did not write has no readable `live` member (missing, null, text, a number, a
+/// list): it names no adapter and no cap, and it is refused like an unreadable cap, never read as "no
+/// cap named". No live call starts and the call ends 75.
+#[test]
+fn a_plan_whose_live_member_is_missing_or_no_object_starts_no_live_call() {
+    for (what, live) in [("missing", None), ("null", Some(json!(null))), ("text", Some(json!("x"))), ("number", Some(json!(5))), ("list", Some(json!([])))] {
+        let rig = Rig::new("live-member");
+        let run = rig.root.join("run");
+        rig.plan(&run, "live", json!(null));
+        let mut plan: Value = serde_json::from_str(&std::fs::read_to_string(run.join("replay/plan.json")).unwrap()).unwrap();
+        match live {
+            Some(v) => plan["live"] = v,
+            None => {
+                plan.as_object_mut().unwrap().remove("live");
+            }
+        }
+        put(&run.join("replay/plan.json"), &plan.to_string());
+        let (code, said) = rig.call(Some(&rig.run_plan()));
+        assert!(!rig.marker.exists(), "{what}: a live call started: {said}");
+        assert_eq!(code, 75, "{what}: {said}");
+        assert!(said.contains("live"), "{what}: the refusal says what is wrong: {said}");
+    }
 }
 
 /// `docs/cycles-suite.md` quotes `#[ignore = "..."]` attributes of the Rust tests it names; a quoted
@@ -216,6 +241,7 @@ fn run_with_replay_key(tag: &str, extra: &[&str]) -> (Option<i32>, String, bool)
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .args(extra)
         .env_clear()
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .output()
@@ -261,7 +287,7 @@ fn replayed(tag: &str, recorded_in: &[(&str, &str)], now_in: &[(&str, &str)]) ->
         "cwd": rec.join("cwd").display().to_string(), "case_dir": out.join("work").display().to_string()});
     put(&rec.join("request.json"), &request.to_string());
     let bin = repo().join("driver/target/debug/sdc-replay");
-    let o = Command::new(bin).arg(rec.join("request.json")).stdin(Stdio::null()).env("SDC_REPLAY", out.join("replay/plan.json")).output().unwrap();
+    let o = Command::new(bin).arg(rec.join("request.json")).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).env("SDC_REPLAY", out.join("replay/plan.json")).output().unwrap();
     let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     let logged = std::fs::read_to_string(rec.join("replay.json")).unwrap_or_default();
     let mode = serde_json::from_str::<Value>(&logged).ok().and_then(|v| v["mode"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("no replay.json: {said}"));
@@ -352,6 +378,7 @@ fn run_with_settings(tag: &str, settings: Value, extra: &[&str]) -> (Option<i32>
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .args(extra)
         .env_clear()
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .output()
@@ -407,7 +434,7 @@ fn an_adapter_with_a_relative_plan_path_reads_it_from_its_own_directory_only() {
     let rec = root.join("rec");
     put(&rec.join("request.json"), &json!({"node": "n", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(), "cwd": rec.display().to_string(), "case_dir": root.display().to_string()}).to_string());
     let bin = repo().join("driver/target/debug/sdc-replay");
-    let o = Command::new(bin).arg(rec.join("request.json")).current_dir(&root).env("SDC_REPLAY", "replay/plan.json").stdin(Stdio::null()).output().unwrap();
+    let o = Command::new(bin).arg(rec.join("request.json")).current_dir(&root).env("SDC_REPLAY", "replay/plan.json").env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).output().unwrap();
     let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     assert!(!said.contains("is not set"), "{said}");
     assert!(said.contains("recording_diverged") || o.status.code() == Some(75), "a relative SDC_REPLAY is read against the adapter's directory: {said}");
@@ -514,7 +541,7 @@ impl Replay {
         let bin = repo().join("driver/target/debug/sdc-replay");
         assert!(bin.is_file(), "{} is not built", bin.display());
         let mut c = Command::new(bin);
-        c.arg(self.request()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("SDC_REPLAY", self.plan_path());
+        c.arg(self.request()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("SDC_REPLAY", self.plan_path()).env("RUNBOOK_NO_CONFIG", "1");
         c
     }
 
@@ -538,7 +565,7 @@ fn under_local_the_adapter_obeys_a_plan_and_a_call_log_rewritten_after_the_run_b
         &rewrite,
         &format!("#!/bin/sh\ncat > '{}' <<'PLAN'\n{}\nPLAN\n: > '{}'\n", r.plan_path().display(), r.plan_text("live", &r.live, json!(99)), r.run().join("replay/calls.jsonl").display()),
     );
-    assert!(Command::new(&rewrite).status().unwrap().success());
+    assert!(Command::new(&rewrite).env("RUNBOOK_NO_CONFIG", "1").status().unwrap().success());
     assert_eq!((r.call(), r.starts()), (0, 1), "a live call that the run's plan did not allow was started as the adapter's program (a fix that pins the plan flips this case)");
 }
 
@@ -575,14 +602,18 @@ fn a_live_call_that_is_ended_before_it_finishes_counts_against_the_cap() {
 }
 
 /// The cap is one step: two adapter processes that start at the same moment at a cap of 1 start one
-/// live program between them; the other diverges, whichever is first.
+/// live program between them; the other diverges, whichever is first. Both commands are made, and
+/// with them the one request file both read, before either process starts: a request written again
+/// while the first process read it was read cut off at a load of 16 threads, and that process
+/// ended with neither exit.
 #[test]
 fn two_adapters_that_start_together_at_a_cap_of_one_start_one_live_program_between_them() {
     let r = Replay::new("cap-two");
     executable(&r.live, &format!("#!/bin/sh\necho started >> '{}'\nsleep 1\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", r.marker.display()));
     r.write_plan("live", json!(1));
-    let mut first = r.command().spawn().unwrap();
-    let mut second = r.command().spawn().unwrap();
+    let (mut a, mut b) = (r.command(), r.command());
+    let mut first = a.spawn().unwrap();
+    let mut second = b.spawn().unwrap();
     let mut codes = vec![first.wait().unwrap().code().unwrap(), second.wait().unwrap().code().unwrap()];
     codes.sort();
     assert_eq!((r.starts(), codes.clone()), (1, vec![0, 75]), "one live program between two processes at cap 1: starts {}, exits {codes:?}", r.starts());
@@ -621,11 +652,23 @@ struct CapRig {
 impl CapRig {
     /// `nap`: how long the stand-in live program sleeps after it wrote its marker line.
     fn new(tag: &str, cap: Value, nap: &str) -> CapRig {
+        CapRig::holding(tag, cap, &format!("sleep {nap}"))
+    }
+
+    /// A rig whose stand-in live program, after it wrote its marker line, stays live until the case
+    /// calls [`CapRig::release`].
+    fn held(tag: &str, cap: Value) -> CapRig {
+        let release = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cap-{tag}-{}", std::process::id())).join("release");
+        CapRig::holding(tag, cap, &format!("while [ ! -f {} ]; do sleep 0.02; done", release.display()))
+    }
+
+    /// `hold`: what the stand-in live program runs after it wrote its marker line, unless `fast` exists.
+    fn holding(tag: &str, cap: Value, hold: &str) -> CapRig {
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cap-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let marker = root.join("live-starts");
         let live = root.join("live.sh");
-        put(&live, &format!("#!/bin/sh\necho started >> {}\n[ -f {} ] || sleep {nap}\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", marker.display(), root.join("fast").display()));
+        put(&live, &format!("#!/bin/sh\necho started >> {}\n[ -f {} ] || {hold}\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", marker.display(), root.join("fast").display()));
         std::fs::set_permissions(&live, std::fs::Permissions::from_mode(0o755)).unwrap();
         let out = root.join("run");
         let mut live_member = json!({"adapter": "stand-in", "bin": live.display().to_string()});
@@ -660,6 +703,7 @@ impl CapRig {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .env("SDC_REPLAY", out.join("replay/plan.json"))
+            .env("RUNBOOK_NO_CONFIG", "1")
             .spawn()
             .unwrap()
     }
@@ -679,6 +723,11 @@ impl CapRig {
     fn fast(&self) {
         put(&self.root.join("fast"), "");
     }
+
+    /// Ends the hold of a rig made by [`CapRig::held`].
+    fn release(&self) {
+        put(&self.root.join("release"), "");
+    }
 }
 
 #[test]
@@ -693,12 +742,29 @@ fn a_first_call_ended_mid_call_is_counted_at_cap_1() {
     assert_eq!(r.starts(), 1, "one live start in all");
 }
 
+/// Every live program a round started stays live until each process of the round has either started
+/// one or ended: no process can see a live call of the round already finished, however slowly it
+/// starts. The hold ends on that event, not after a fixed time.
 #[test]
 fn processes_starting_together_never_start_more_live_programs_than_the_cap() {
     for (procs, cap) in [(2, 1), (4, 1), (4, 2), (2, 2)] {
         for round in 0..4 {
-            let r = CapRig::new(&format!("race-{procs}-{cap}-{round}"), json!(cap), "0.3");
-            let children: Vec<Child> = (0..procs).map(|_| r.spawn()).collect();
+            let r = CapRig::held(&format!("race-{procs}-{cap}-{round}"), json!(cap));
+            let mut children: Vec<Child> = (0..procs).map(|_| r.spawn()).collect();
+            let mut ended: Vec<Option<i32>> = vec![None; procs];
+            let until = Instant::now() + Duration::from_secs(20);
+            loop {
+                for (child, end) in children.iter_mut().zip(ended.iter_mut()) {
+                    if end.is_none() {
+                        *end = child.try_wait().unwrap().map(|s| s.code().unwrap_or(-1));
+                    }
+                }
+                if ended.iter().filter(|e| e.is_some()).count() + r.starts() >= procs || Instant::now() >= until {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            r.release();
             let codes: Vec<i32> = children.into_iter().map(|mut c| c.wait().unwrap().code().unwrap_or(-1)).collect();
             assert!(r.starts() <= cap, "{procs} processes at cap {cap} round {round}: {} live starts, exit codes {codes:?}", r.starts());
             assert_eq!(r.starts(), cap.min(procs), "{procs} processes at cap {cap}: the cap is used, not undershot: {codes:?}");
@@ -780,11 +846,42 @@ fn a_log_that_is_a_directory_or_unreadable_starts_no_live_call() {
     assert_eq!(r.starts(), 0, "unreadable");
 }
 
+/// No cap named is no limit: a plan with no `live.cap` (or a null one, as `prepare` writes it when
+/// `--live-cap` is not given) lets every live call start, past the fifth too; a named cap still stops.
+#[test]
+fn with_no_live_cap_named_every_live_call_starts_and_a_named_cap_still_stops() {
+    let r = CapRig::new("no-cap", Value::Null, "0");
+    let codes: Vec<i32> = (0..7).map(|_| r.call()).collect();
+    assert_eq!((codes, r.starts()), (vec![0; 7], 7), "no cap in the plan: no limit on live calls");
+    let rig = Rig::new("null-cap");
+    rig.plan(&rig.root.join("run"), "live", rig.live(json!(null)));
+    for n in 1..=7 {
+        let (code, said) = rig.call(Some(&rig.run_plan()));
+        assert!(rig.marker.exists() && code == 0, "a null cap, call {n}: {code} {said}");
+    }
+    let r = CapRig::new("cap-named", json!(6), "0");
+    let codes: Vec<i32> = (0..7).map(|_| r.call()).collect();
+    assert_eq!((codes, r.starts()), (vec![0, 0, 0, 0, 0, 0, 75], 6), "a named cap of 6 stops the seventh");
+}
+
 #[test]
 fn without_a_readable_cap_no_live_call_starts() {
-    for (tag, cap) in [("none", Value::Null), ("text", json!("2")), ("negative", json!(-1))] {
+    for (tag, cap) in [("text", json!("2")), ("negative", json!(-1))] {
         let r = CapRig::new(&format!("cap-{tag}"), cap, "0");
         assert_eq!(r.call(), 75, "{tag}");
         assert_eq!(r.starts(), 0, "{tag}");
     }
+}
+
+/// A plan whose `live` object names the cap twice (a plan edited by hand) cannot be read: no live
+/// program starts, and the later (here larger) cap is not the one that stays.
+#[test]
+fn a_plan_whose_live_object_names_the_cap_twice_starts_no_live_call() {
+    let r = CapRig::new("dup", json!("@@CAP@@"), "0");
+    let path = r.root.join("run/replay/plan.json");
+    let text = std::fs::read_to_string(&path).unwrap().replace("\"cap\":\"@@CAP@@\"", "\"cap\":1,\"cap\":100");
+    assert!(text.contains("\"cap\":100"), "{text}");
+    put(&path, &text);
+    let codes: Vec<i32> = (0..3).map(|_| r.call()).collect();
+    assert_eq!(r.starts(), 0, "two caps named, 1 and 100: {} live starts, exit codes {codes:?}", r.starts());
 }

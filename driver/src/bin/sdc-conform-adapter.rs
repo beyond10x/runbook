@@ -7,8 +7,9 @@
 //! ```
 //!
 //! `ess verify conform run --target process -- sdc-conform-adapter …` starts it. Each scenario gets
-//! a fresh product process, started from the table's `start.argv` in the tree with a free port on
-//! 127.0.0.1 and an empty data directory under `--work`, and killed (its whole process group) at
+//! a fresh product process, started from the table's `start.argv` in the tree with a port of
+//! 127.0.0.1 the adapter holds until the product ends ([`HeldPort`]) and an empty data directory
+//! under `--work`, and killed (its whole process group) at
 //! `end_scenario`. The product gets no environment but `PATH`, `LANG`, `HOST`, `PORT`, and `HOME`
 //! and `TMPDIR` set to the scenario's directory: no credential of the caller reaches it. Its stdout
 //! and stderr go to `product.log`; the table's `captures` are read from them (one regex group, within
@@ -27,6 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
@@ -47,6 +49,8 @@ const SPEAKS: &str = "ess-conformance-target/1";
 struct Product {
     child: Child,
     port: u16,
+    /// Dropped after the product is killed.
+    _held: Option<HeldPort>,
 }
 
 impl Drop for Product {
@@ -142,9 +146,59 @@ fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, (buf, closed, part
     });
 }
 
+/// A port number that was free a moment ago and is not held: another process may be handed it
+/// before the product binds it. Only for a product that cannot bind a [`HeldPort`].
 fn free_port() -> Result<u16, String> {
     let l = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("no free port: {e}"))?;
     l.local_addr().map(|a| a.port()).map_err(|e| e.to_string())
+}
+
+/// A port of 127.0.0.1 the adapter holds for as long as its product runs: a TCP socket bound to it
+/// with `SO_REUSEADDR` that never listens (and is closed on exec, so the product does not inherit
+/// it). The product binds the same port and listens, which a server that sets `SO_REUSEADDR` may
+/// (Rust's std, Go, Node and most servers set it) because neither socket listened before. The
+/// kernel hands a port bound so to no `bind` to port 0 and to no `connect` of another process: the
+/// number the product is told is not given to another server between the adapter's choice and the
+/// product's bind, and no other server answers on it while the product starts.
+struct HeldPort {
+    _socket: OwnedFd,
+    port: u16,
+}
+
+fn hold_port() -> Result<HeldPort, String> {
+    let err = |what: &str| format!("no free port: {what}: {}", std::io::Error::last_os_error());
+    // SAFETY: plain socket calls on a descriptor this function owns from its creation; every
+    // pointer passed points to a local of the size passed with it.
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        if fd < 0 {
+            return Err(err("socket"));
+        }
+        let socket = OwnedFd::from_raw_fd(fd);
+        let one: libc::c_int = 1;
+        let len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+        if libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, (&one as *const libc::c_int).cast(), len) != 0 {
+            return Err(err("SO_REUSEADDR"));
+        }
+        let mut addr: libc::sockaddr_in = std::mem::zeroed();
+        addr.sin_family = libc::AF_INET as libc::sa_family_t;
+        addr.sin_addr.s_addr = u32::from_ne_bytes([127, 0, 0, 1]);
+        let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+        if libc::bind(fd, (&addr as *const libc::sockaddr_in).cast(), len) != 0 {
+            return Err(err("bind"));
+        }
+        if libc::getsockname(fd, (&mut addr as *mut libc::sockaddr_in).cast(), &mut len) != 0 {
+            return Err(err("getsockname"));
+        }
+        Ok(HeldPort { _socket: socket, port: u16::from_be(addr.sin_port) })
+    }
+}
+
+/// Whether the product's log says that it could not bind its port: a product that does not set
+/// `SO_REUSEADDR` cannot bind a [`HeldPort`].
+fn port_refused(log: &Path) -> bool {
+    let text = fs::read_to_string(log).unwrap_or_default().to_lowercase();
+    text.contains("address already in use") || text.contains("addrinuse")
 }
 
 impl Adapter {
@@ -223,8 +277,31 @@ impl Adapter {
         let dir = self.work.join(format!("{:04}", self.scenarios));
         let data = dir.join("data");
         fs::create_dir_all(&data).map_err(|e| Fail::Start(format!("{}: {e}", data.display())))?;
-        let port = free_port().map_err(Fail::Start)?;
         let values = self.start_values();
+        let held = hold_port().map_err(Fail::Start)?;
+        let refused = held.port;
+        match self.launch(&dir, &data, &values, held.port, Some(held)) {
+            Err(Fail::Start(why)) if port_refused(&dir.join("product.log")) => {
+                // The product could not bind the held port: once more on another port that is not held.
+                self.note(json!({"event": "port_not_held", "why": why}));
+                let _ = fs::remove_dir_all(&data);
+                fs::create_dir_all(&data).map_err(|e| Fail::Start(format!("{}: {e}", data.display())))?;
+                let mut port = free_port().map_err(Fail::Start)?;
+                for _ in 0..8 {
+                    if port != refused {
+                        break;
+                    }
+                    port = free_port().map_err(Fail::Start)?;
+                }
+                self.launch(&dir, &data, &values, port, None)
+            }
+            started => started,
+        }
+    }
+
+    /// Starts the product on `port` with the data directory `data`, reads its captures and waits
+    /// until it answers `start.ready`.
+    fn launch(&mut self, dir: &Path, data: &Path, values: &[(String, String)], port: u16, held: Option<HeldPort>) -> Result<(), Fail> {
         let argv: Vec<String> = self.table["start"]["argv"]
             .as_array()
             .into_iter()
@@ -246,8 +323,8 @@ impl Adapter {
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("LANG", "C.UTF-8")
-            .env("HOME", &dir)
-            .env("TMPDIR", &dir)
+            .env("HOME", dir)
+            .env("TMPDIR", dir)
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
             .stdin(Stdio::null())
@@ -274,7 +351,7 @@ impl Adapter {
         if let Some(e) = child.stderr.take() {
             pump(e, log.clone(), (streams[1].clone(), closed[1].clone(), partial[1].clone()));
         }
-        let mut product = Product { child, port };
+        let mut product = Product { child, port, _held: held };
         let exited = |product: &mut Product| -> Option<String> {
             let st = product.child.try_wait().ok().flatten()?;
             // The pumps copy what the product printed last: wait until both streams ended, at most

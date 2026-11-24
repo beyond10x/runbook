@@ -64,7 +64,8 @@ is `step-window`, `tool-window` or `record`.
   most 2 s); `at` is the burst's first event. A path that ends where it started yields no record.
 - `binary` (a NUL byte in the first 8 KiB, or not UTF-8) and `too_large` (either side over 1 MiB)
   have `diff`, `lines_added` and `lines_removed` null. A too-large content is hashed but not
-  stored in `blobs/`. A rename with unchanged content has `diff` null and 0 lines.
+  stored in `blobs/`. A file is read for at most 64 MiB: of a longer file, `before` and `after` are
+  the sha256 of its first 64 MiB followed by its length (8 bytes, big-endian). A rename with unchanged content has `diff` null and 0 lines.
 - `basis`:
   - `tool-window`, inferred: the change's wall time lies in a tool call's [`tool.requested.at`,
     `tool.result.at` + 250 ms] in the agent call's metaharness stream (`<record>/events.jsonl`);
@@ -89,6 +90,10 @@ is `step-window`, `tool-window` or `record`.
   outside a root the case store's `evidence/`, `blobs/`, `evaluations/`.
 
 ## What is attributed under each runner
+
+A file the seed wrote is a `create` of step 1, the same as a file the first step writes: the watcher starts before `work/` exists
+and no record marks the end of the seed, so what the run was seeded with is told from the record `seeded.json` and
+`seeded-files.jsonl` of the run directory by the hash of the content (`docs/loom-run-directory.md`), never by time.
 
 The kind of run directory is detected as `driver/src/run_kind.rs` does (or given with `--kind
 driver|loom`): `settings.json` in it marks a Loom run, `runbook run`'s.

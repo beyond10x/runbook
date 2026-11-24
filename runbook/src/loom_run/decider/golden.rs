@@ -60,7 +60,7 @@ fn prompt_of(tag: &str, req: &Value, final_escalate: bool, prior: usize) -> Stri
     let cwd = dir.dir("cwd");
     dir.dir("cwd/in");
     let renderer = prompt::Renderer { root: repo() };
-    let prepared = inputs::prepare(req, &case, &cwd, &renderer, final_escalate).unwrap();
+    let prepared = inputs::prepare(req, &case, &Held::make(cwd.parent().unwrap(), &cwd).unwrap(), &renderer, final_escalate).unwrap();
     let has_aep = cwd.join("in").join("aep").exists();
     // What the citable set and the later-action note say is fixed here, not read from the fixture:
     // the examples of the citable forms and a later action that meets the open obligations of

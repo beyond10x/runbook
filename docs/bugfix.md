@@ -46,7 +46,9 @@ an artifact: `tree/` (a copy of `impl/`) or `base/` (a copy of the base, `bug.ya
 `mainline/`). It goes through `slot` when slot is on PATH (the wait for a slot is bounded, `--pool-wait`; no slot in time is exit 69 and a job the pool ends at its run limit exit 70, both program errors: `docs/driver.md`, "The build pool wait"), with `checks.yaml` `env` and
 `CARGO_TARGET_DIR=.sdc/bugfix/target`. A program that is not on PATH (or, for a program with a
 `/`, not a file of the tree) exits 127 and an unusable `checks.yaml` 126: program errors, which
-a run never records as a check result. Two kinds of run:
+a run never records as a check result. So does a command whose pool job exits 127 or 126 (the pool,
+or what it ran, could not find or start it): the step exits with that code and a line that names
+the command, `not run: exit <code>: ...`. Two kinds of run:
 
 - the whole suite, `checks.yaml` `test` (Rust: `cargo test --offline --no-fail-fast`);
 - the reproducing test alone, `checks.yaml` `repro` (Rust: `cargo test --offline --test {stem} --
@@ -70,6 +72,33 @@ run cannot tell which target a test line belongs to. In `runs/bugfix-tally-sonne
   only when the test's own run passes (the `green` rule, else exit 0) and the whole suite passes
   (the `suite` rule, else exit 0). Rust's rules keep the earlier meaning: the test reported `ok`
   under its name, nothing `FAILED` and nothing `ignored`.
+
+### The trees a check runs in are git trees
+
+Each copy under `.sdc/bugfix/` (`tree/`, `base/`) is a git repository with one commit of the copied
+files, made by the step when it copies the tree (`git_tree` in `driver/src/bin/sdc-bugfix.rs`). The
+build pool's remote mode sends a job's tree as a git repository and needs one in the job's working
+directory; `git init` and one commit are enough (the consumer's request of 2026-11-24).
+
+- The commit is made with the identity `runbook <runbook@localhost>` and the fixed instant
+  `2000-01-01T00:00:00+0000`, so its id depends on the copied files only: two copies of the same
+  files have the same `HEAD`.
+- Nothing of the host's git configuration is read: no global or system file and no `GIT_*` variable
+  of the step's environment. The repository's own configuration turns maintenance off
+  (`maintenance.auto=false`, `gc.auto=0`) and points `core.hooksPath` at `/dev/null`; the commit
+  runs with `--no-verify`. No hook runs.
+- Every copied file is in the commit, also one a `.gitignore` of the tree names (`git add --force`),
+  so `git status --porcelain --ignored` prints nothing when the command starts.
+- No remote and no history of the source repository: one commit, on `main`.
+- A step copies its tree once and makes the repository once for that copy; the commands of the step
+  share it (`tests-run` runs two). The next step, or a retry, copies again and gets a new repository.
+- The fix's diff is the byte compare of the base and `impl/`, as before, and the `.git` lies only in
+  the copies: it never enters a diff, an artifact (`impl/`, `mainline/`, `repro/`), a digest of one
+  or a copy back. A `.slot/` directory a command writes stays in its copy; the pool's client adds it
+  to `.git/info/exclude` itself.
+- git must be on PATH: without it the step exits 127, a program error.
+
+The cases are `driver/tests/bugfix_git_trees.rs`.
 
 ### The red rule
 

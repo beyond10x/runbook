@@ -1,7 +1,7 @@
 // Security review of slice 2 (answering a decision from the page the daemon serves): the invariants
 // `daemon-decide.spec.mjs` does not measure. Each daemon listens on 127.0.0.1:0 with a state directory of its own.
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
+import {spawnChild, SERVE_CAPS} from './child.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -17,7 +17,7 @@ let dir;
 function start(name, env) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawnChild(bin, ['serve', ...SERVE_CAPS, '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });
@@ -35,7 +35,7 @@ const post = (s, name, body) => fetch(`${s.base}/daemon/commands/${name}`, {meth
 const rows = (s, view, q = '') => fetch(`${s.base}/daemon/views/${view}${q}`, {headers: headers(s)}).then((r) => r.json()).then((j) => j.rows);
 
 async function waiting(s, intake) {
-  const r = await post(s, 'submit-run', {runbook_id: 'stub-decision', intake});
+  const r = await post(s, 'submit-run', {runbook_id: 'stub-decision', intake, confinement: 'linux'});
   const id = r.published[0].payload.run_id;
   await expect.poll(async () => (await rows(s, 'open-decisions', `?run_id=${id}`)).length, {timeout: 15000}).toBe(2);
   return id;

@@ -320,8 +320,9 @@ fn the_programs_of_the_file_get_path_and_the_case_and_nothing_of_the_runners_env
     }
     let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).collect();
     for name in names {
-        assert!(matches!(name, "PATH" | "LOOM_CASE" | "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is not PATH or LOOM_*:\n{env}");
+        assert!(matches!(name, "PATH" | "LOOM_CASE" | "RUNBOOK_NO_CONFIG" | "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is not PATH, LOOM_CASE or RUNBOOK_NO_CONFIG:\n{env}");
     }
+    assert!(env.lines().any(|l| l == "RUNBOOK_NO_CONFIG=1"), "a program of the file may start runbook and is told to read no runbook.toml:\n{env}");
 }
 
 #[test]

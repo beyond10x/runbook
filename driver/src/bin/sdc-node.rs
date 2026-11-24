@@ -13,6 +13,8 @@
 //!          [--stub <argv...>]
 //! ```
 //!
+//! `--max-budget-usd` is optional: with none the request of the adapter names no money budget.
+//!
 //! The working directory is the case's workspace; standard input is one JSON object (empty is
 //! `{}`); `LOOM_CASE` names the case, `LOOM_RETRY_FEEDBACK` a `loom.retry-feedback/1` document on a
 //! retry. The program builds the prompt from the node's declared inputs, copies those into the
@@ -215,6 +217,9 @@ impl Ctx {
         if let Some(code) = self.wait_for_person()? {
             return Ok(Some(code));
         }
+        if let Some(copy) = self.set.copy.take() {
+            setup::write_copy(&self.work, copy)?;
+        }
         self.rejection = self.find_rejection();
 
         let classes = fs::read_to_string(self.set.here.join("node-classes.json")).ok().and_then(|t| Ov::parse(&t).ok());
@@ -258,11 +263,6 @@ fn run(argv: &[String]) -> R<i32> {
     let set = setup::setup(node, &argv[2..])?;
     let mut ctx = Ctx::new(node, set);
     if let Some(code) = ctx.before_call()? {
-        if code == util::NOT_CALLED {
-            if let Some(made) = &ctx.set.made {
-                let _ = fs::remove_dir_all(made);
-            }
-        }
         return Ok(code);
     }
     call::run(&ctx)

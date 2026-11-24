@@ -22,8 +22,9 @@ import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web
 import {installClock, readGate} from './vclock.mjs';
 import {runnerLiveness} from './runnerlive.mjs';
 import {recordNotRead} from './runnerlive.mjs';
-import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir, readCount, within, servedUnder} from './runfiles.mjs';
 import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
+import {readSeeded, writtenOf, finishedSteps} from './written.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -44,8 +45,17 @@ const expDirs = [];
 // checkout is loaded. A run is shown with the first view that covers its protocols; --no-view loads none.
 const viewFiles = [];
 let noView = false;
+// --count-reads (test option): counts the reads of run files and the rounds, and answers them at GET /api/reads; without it the route is not there.
+// With it GET /api/rounds says whether the timer of the rounds runs and how many pages hold a stream, so a test waits for a page's
+// drop and the stop of the rounds as a state, not as a time in which a counter stood still.
+let countReads = false;
+// --round-ms N (test option): the time from one round to the next, 700 ms without it (a whole number of 10 to 700). A test
+// that waits for rounds counts them on a faster clock; what a round reads and sends is the same.
+let roundMs = 700;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
+  else if (args[i] === '--count-reads') countReads = readCount.on = true;
+  else if (args[i] === '--round-ms') roundMs = Number(args[++i]);
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
@@ -54,6 +64,7 @@ for (let i = 0; i < args.length; i++) {
   else paths.push(path.resolve(args[i]));
 }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
+if (!(Number.isInteger(roundMs) && roundMs >= 10 && roundMs <= 700)) { console.error(`--round-ms: a whole number of 10 to 700 milliseconds`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
 if (noView && viewFiles.length) { console.error('--view and --no-view exclude each other'); process.exit(2); }
 if (!viewFiles.length && !noView) {
@@ -155,9 +166,10 @@ const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-set
 // The view of one run: the first loaded view that covers the protocols of its cases (web/view.js viewCovers).
 // A run whose protocols no loaded view covers has none: it renders with the generic parts only and the page
 // says which view is missing (`missing`, `protocols`). No view is a default for another runbook's run.
+// the view of a run depends on its cases (their protocols), so it is made again when a case changed, not when another file of the run did
 const viewCache = new Map();
 function viewOf(src) {
-  const sig = `${src.version}:${src.cases.size}`;
+  const sig = `${src.caseVersion || 0}:${src.cases.size}`;
   const hit = viewCache.get(src.index);
   if (hit && hit.sig === sig) return hit;
   const protocols = [...new Set([...src.cases.values()].map((e) => protocolOf(e.dir)).filter(Boolean))].sort();
@@ -358,7 +370,7 @@ function runSummary(s) {
 // of the run (every step of the leg shares it), so the wall clock of a step comes from here:
 // the mtime of events.jsonl when the server saw a line appear. On first sight only the last line
 // is dated (the file's mtime is when that line was appended); earlier ones stay undated.
-function observe(src, dir) {
+function observe(src, dir, gap = false) {
   let mtime;
   const eventsStat = statOf(path.join(dir, 'events.jsonl'));
   if (!eventsStat) return;
@@ -368,7 +380,8 @@ function observe(src, dir) {
   if (prev && evs.length < prev.n) prev = null; // the file was replaced: date it as on first sight
   const t = prev ? prev.t : {};
   if (!prev) { if (evs.length) t[evs[evs.length - 1].seq] = Math.round(mtime); }
-  else for (const e of evs.slice(prev.n)) if (t[e.seq] == null) t[e.seq] = Math.round(mtime);
+  // after a gap in which nothing looked at the run only the last new line is dated, as on first sight: the mtime is when that one was appended
+  else for (const e of gap ? evs.slice(prev.n).slice(-1) : evs.slice(prev.n)) if (t[e.seq] == null) t[e.seq] = Math.round(mtime);
   src.times.set(dir, {n: evs.length, t});
 }
 
@@ -406,21 +419,27 @@ function runDirOf(src) {
   return p;
 }
 
-function scan(src) {
+// a run nobody looked at for longer than this is dated as on first sight (observe)
+const LOOK_GAP_MS = 5000;
+// `light`: only the cases (what the run picker's row needs), not the run's files and live records
+function scan(src, light = false) {
   const dirs = rootsOf(src).flatMap((r) => walk(r, null, 0, []));
   const changed = [];
   const seen = new Set();
+  const gap = !CLOCK && src.scannedAt != null && Date.now() - src.scannedAt > LOOK_GAP_MS;
+  src.scannedAt = Date.now();
   for (const {dir, parent, depth} of dirs) {
     seen.add(dir);
     const sig = caseSig(dir);
     const prev = src.cases.get(dir);
     if (!prev || prev.sig !== sig) {
-      observe(src, dir);
+      observe(src, dir, gap);
       src.cases.set(dir, {dir, parent, depth, sig, data: null});
       changed.push(dir);
     }
   }
   for (const dir of Array.from(src.cases.keys())) if (!seen.has(dir)) { src.cases.delete(dir); src.times.delete(dir); changed.push(dir); }
+  if (light) { if (changed.length) { src.version++; src.caseVersion = (src.caseVersion || 0) + 1; } return {changed, runChanged: false, liveChanged: false}; }
   const runDir = runDirOf(src);
   const runSig = ['run.log', 'console.txt', 'llm-calls.jsonl', 'decisions.jsonl', 'ui-actions.jsonl', 'run-stopped.json', 'run-settings.jsonl'].map((f) => statSig(path.join(runDir, f))).join('|') + listDir(runDir).join(',');
   const runChanged = runSig !== src.runSig;
@@ -428,6 +447,7 @@ function scan(src) {
   const liveSig = liveSignature(src, runDir);
   const liveChanged = liveSig !== src.liveSig;
   src.liveSig = liveSig;
+  if (changed.length) src.caseVersion = (src.caseVersion || 0) + 1;
   if (changed.length || runChanged) src.version++;
   return {changed, runChanged, liveChanged};
 }
@@ -552,37 +572,64 @@ function recordProgress(r, runDir) {
 // runs/<run>/fs/changes.jsonl (docs/fs-changes.md), read incrementally; the list keeps every
 // field but `diff`, which /api/fschange reads back from the line's byte offset. A late
 // `sdc.fs-attribution/1` line (no seq) replaces the attribution of the change it names.
+// The answer says when the reader stopped before the end of the file: `stopped` is null, or `{cause, offset, size}` where the
+// cause is `line` (a line longer than FS_CHUNK, or bytes with no line end in a whole chunk: nothing after it is read),
+// `records` (the list holds MAX_RECORDS records, the most the server keeps for one run: nothing after them is read) or `bytes`
+// (the records kept hold MAX_RECORD_BYTES bytes, their lines without the diff: nothing after them is read). `rev` moves
+// when a record that was read is changed afterwards (a late attribution).
 const fsCache = new Map();
 const FS_CHUNK = 32 * 1048576;
+// a bound named by the environment is a whole number of at least 1 that a number holds exactly (at most 2^53 - 1); any other value
+// (0, negative, a fraction, text, empty, 1e300) is the default
+const boundOf = (value, dflt) => { const n = Number(value); return Number.isSafeInteger(n) && n >= 1 ? n : dflt; };
+const MAX_RECORDS = boundOf(process.env.SDC_UI_MAX_RECORDS, 100000);
+const MAX_RECORD_BYTES = boundOf(process.env.SDC_UI_MAX_RECORD_BYTES, 64 * 1048576);
+const fsSig = (file) => { try { const s = fs.lstatSync(file); return `${s.size}:${s.mtimeMs}:${s.ino}`; } catch { return '-'; } };
 function fsChanges(runDir) {
   const file = path.join(runDir, 'fs', 'changes.jsonl');
   let c = fsCache.get(runDir);
+  // a reader that stopped does not read the same bytes again: the file as it was, or a bound that more bytes do not lift
+  if (c?.stopped && (c.stopped.sig === fsSig(file) || (c.stopped.cause !== 'line' && Number(fsSig(file).split(':')[0]) >= c.stopped.size))) {
+    return {present: true, list: c.list, stopped: {cause: c.stopped.cause, offset: c.stopped.offset, size: c.stopped.size}, rev: c.rev};
+  }
   // read through the checked open of runfiles.mjs (one name, regular, under the run), a chunk at a time from the offset
   for (;;) {
     const r = readRegular(file, {root: runDir, at: c ? c.offset : 0, limit: FS_CHUNK});
     if (r.state !== 'ok') { fsCache.delete(runDir); return {present: false, list: []}; }
     if (!c || r.size < c.offset) {
-      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map()};
+      c = {offset: 0, list: [], at: new Map(), bySeq: new Map(), late: new Map(), lateLen: new Map(), rev: 0, bytes: 0, maxSeq: -Infinity, stopped: null};
       fsCache.set(runDir, c);
       if (r.from !== 0) continue; // the file is shorter than what was read: read it again from its start
     }
+    c.stopped = null;
     const buf = r.bytes;
-    let start = 0;
+    let start = 0, full = null;
     for (let i = 0; i < buf.length; i++) {
       if (buf[i] !== 10) continue;
       const line = buf.subarray(start, i).toString('utf8');
-      const off = c.offset + start, len = i - start;
+      const off = c.offset + start, len = i - start, lineStart = start;
       start = i + 1;
       if (!line.trim()) continue;
       try {
         const r = JSON.parse(line);
         if (r.format === 'sdc.fs-attribution/1') {
+          // a line for a change that has one already replaces it: it adds what it holds beyond the longest line counted for that change
+          const counted = c.lateLen.get(r.change), grow = Math.max(0, len - (counted ?? 0));
+          if (counted === undefined && c.late.size >= MAX_RECORDS) { start = lineStart; full = 'records'; break; }
+          if (c.bytes + grow > MAX_RECORD_BYTES) { start = lineStart; full = 'bytes'; break; }
+          c.bytes += grow;
+          c.lateLen.set(r.change, Math.max(len, counted ?? 0));
           const late = {...r.attribution, late_at: r.at};
           c.late.set(r.change, late);
           const x = c.bySeq.get(r.change);
-          if (x) x.attribution = late;
+          if (x) { x.attribution = late; c.rev++; }
           continue;
         }
+        const held = len - (typeof r.diff === 'string' ? r.diff.length : 0);
+        if (c.list.length >= MAX_RECORDS) { start = lineStart; full = 'records'; break; }
+        if (c.bytes + held > MAX_RECORD_BYTES) { start = lineStart; full = 'bytes'; break; }
+        c.bytes += held;
+        if (typeof r.seq === 'number' && r.seq > c.maxSeq) c.maxSeq = r.seq;
         const {diff, ...rest} = r;
         if (c.late.has(r.seq)) rest.attribution = c.late.get(r.seq);
         if (rest.lines_added == null && diff) Object.assign(rest, (({add, del}) => ({lines_added: add, lines_removed: del}))(diffCounts(diff)));
@@ -594,9 +641,11 @@ function fsChanges(runDir) {
       } catch { /* not JSON: skipped */ }
     }
     c.offset += start; // a line without its newline yet is read on the next call
+    // a whole chunk with no line end in it is a line the reader cannot take: it stops there and says so
+    if (full || (start === 0 && buf.length >= FS_CHUNK)) { c.stopped = {cause: full || 'line', offset: c.offset, size: r.size, sig: fsSig(file)}; break; }
     if (start === 0 || c.offset >= r.size) break;
   }
-  return {present: true, list: c.list};
+  return {present: true, list: c.list, stopped: c.stopped && {cause: c.stopped.cause, offset: c.stopped.offset, size: c.stopped.size}, rev: c.rev};
 }
 function fsChange(runDir, seq) {
   fsChanges(runDir);
@@ -647,6 +696,14 @@ function workFacts(src) {
 const posix = (p) => p.split(path.sep).join('/');
 // the directories of a run whose files are served and listed: its work/ and the work/ of each of its cases
 const workRoots = (src) => [...new Set([path.join(runDirOf(src), 'work'), ...Array.from(src.cases.values()).map((e) => path.join(e.dir, 'work'))])];
+const STOP_WHY = {
+  line: 'a line of it is longer than the inspector reads (32 MiB) or is not a line, and the records after it are not read',
+  records: `it holds more records than the inspector keeps for one run (${MAX_RECORDS}), and the records after them are not read`,
+  bytes: `its records hold more bytes than the inspector keeps for one run (${MAX_RECORD_BYTES}), and the records after them are not read`,
+};
+// what every answer built from the kept list of a run says when the list is not the whole record: null, or the cause, where the
+// reader stopped, the size of the file and how many records the list holds
+const stopOf = (changes) => (changes.stopped ? {...changes.stopped, read: changes.list.length, why: STOP_WHY[changes.stopped.cause]} : null);
 function productsOf(src) {
   const runDir = runDirOf(src);
   const entries = Array.from(src.cases.values());
@@ -657,17 +714,30 @@ function productsOf(src) {
       if (typeof f === 'string') for (const base of [path.join(runDir, 'work'), path.join(e.dir, 'work')]) artifacts.set(posix(path.relative(runDir, path.join(base, f))), name);
     }
   }
-  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
   const {view, runbook, protocols} = viewOf(src);
   const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
-  return {served: true, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
+  // the files the run's records name as written by an action (written.mjs), when the run has both records; else today's listing
+  // a record file the reader stopped in before it read one record is not "no action has written a file": the listing, with the reason
+  const seeded = readSeeded(runDir), changes = fsChanges(runDir);
+  const unread = changes.present && changes.stopped && !changes.list.length;
+  if (seeded.state === 'ok' && changes.present && !unread) {
+    const {isInput, last, ...answer} = writtenOf({runDir, roots: [...new Set(roots)], seeded, changes: changes.list, rev: changes.rev, finished: finishedSteps(runDir), artifacts});
+    const written = {...answer, last, isInput};
+    // an answer says what it left out: lines past the bound, an action name cut, records the reader did not get to
+    const stop = stopOf(changes);
+    const cut = answer.notShown > 0 ? 'lines' : stop ? 'records' : answer.cutStrings > 0 ? 'strings' : answer.linkCut > 0 ? 'links' : null;
+    return {served: true, basis: 'records', product: productOf({runDir, roots, files: answer.files, view, ids, written}), ...answer, recordsStopped: stop, truncated: cut != null, cut};
+  }
+  const why = seeded.state !== 'ok' ? seeded.why : !changes.present ? 'this run has no record of its file changes (fs/changes.jsonl): it was not started with --watch' : `the record of its file changes (fs/changes.jsonl) cannot be read: ${STOP_WHY[changes.stopped.cause]}`;
+  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
+  return {served: true, basis: 'listing', basisNote: `${why}: every file under work/ is listed`, product: productOf({runDir, roots, files: listing.files, view, ids}), ...listing};
 }
 
 function liveInfo(src) {
   const runDir = runDirOf(src);
   const records = openRecords(runDir).map((r) => recordProgress(r, runDir));
   const changes = fsChanges(runDir);
-  return {now: Date.now(), runDir, records, liveness: livenessOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000)}};
+  return {now: Date.now(), runDir, records, liveness: livenessOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000), recordsStopped: stopOf(changes)}};
 }
 
 function loadCase(src, entry) {
@@ -823,7 +893,9 @@ function ctx(src) {
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, parts: c.parts, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
 
 // ---- HTTP ------------------------------------------------------------------------------------
-const clients = new Set();
+// the event streams of the pages, each with the source its page shows (/events?source=N)
+const clients = new Map();
+const watchedBy = (index) => { for (const c of clients.values()) if (c.source === index) return true; return false; };
 // Every path leaves the server relative to the repository (sdc/), its workspace (../) or ~, never
 // as an absolute home path: what the page shows and what a screenshot or a saved page keeps.
 const HOME = process.env.HOME || '/nonexistent';
@@ -837,27 +909,69 @@ const givenDirs = () => [...new Set([...runsDirs.map((d) => path.join(d, 'x')), 
 const givenRel = (s, d) => s.split(d + '/').join(path.basename(d) + '/');
 const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
-function push(name, data) {
+// a `change` goes to the pages that show its source; `sources` (no source) to every page
+function push(name, data, source = null) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
-  for (const res of clients) res.write(msg);
+  for (const [res, c] of clients) if (source == null || c.source === source) tell(res, msg);
+}
+// A page that is further behind than this many bytes of unsent output is not reading: its stream is ended (the page opens
+// it again), so the memory held for a page is bounded and the rounds stop when it was the last one.
+const MAX_PENDING = 1048576;
+function tell(res, msg) {
+  if (res.writableLength > MAX_PENDING) { clients.delete(res); res.destroy(); stopRounds(); return; }
+  res.write(msg);
 }
 
-let sourcesSig = '';
-function tick() {
-  discover();
-  for (const src of sources) guardRun(src, () => inView(src, () => {
-    const existed = src.exists;
-    src.exists = fs.existsSync(src.path);
-    const {changed, runChanged, liveChanged} = scan(src);
-    if (changed.length || runChanged || liveChanged || existed !== src.exists) {
-      push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
-    }
-  }));
-  // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
-  // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => guardRun(s, () => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`), `${s.path}:unreadable`)).join('|');
-  if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
+// One source brought up to date: what a round does for each run a page shows, and what a request does for the run
+// it asks about when no round has (a run nobody watches is read on request, not on a timer).
+function roundOf(src, light = false) {
+  const existed = src.exists;
+  src.exists = fs.existsSync(src.path);
+  const {changed, runChanged, liveChanged} = scan(src, light);
+  if (changed.length || runChanged || liveChanged || existed !== src.exists) {
+    push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0}, src.index);
+  }
 }
+const refresh = (src, light = false) => { if (!CLOCK) guardRun(src, () => inView(src, () => roundOf(src, light))); };
+
+// A round runs only while a page is connected (the timer is started by the first stream and stopped by the last) and
+// reads only the sources a page shows. With SDC_CLOCK_DIR set (the clock of the ux loop) every source is read on each step
+// of the clock, as before.
+// look for runs that appeared under --runs and tell the pages
+const findRuns = () => { if (discover().length) push('sources', {count: sources.length}); };
+let rounds = 0;
+// what the run picker's row of a run shows of its state, as one string: a store that came, a run that started, closed or was stopped
+const stateSigOf = (src) => guardRun(src, () => inView(src, () => `${src.path}:${fs.existsSync(src.path)}:${statSig(path.join(runDirOf(src), 'run-stopped.json'))}:${runSummary(src).state}`), `${src.path}:unreadable`);
+const stateSigs = new Map();
+// The states the lists served by /api/sources carried in the last LISTED_WINDOW_MS, by source. A page opens its stream within
+// seconds of its list; when the run's state now is not one of those a list carried (the run changed between the list and the
+// stream), the page is sent `sources` once at the stream's start, so that the list it holds is read again.
+const LISTED_WINDOW_MS = 60000;
+const listed = new Map();
+function noteListed(src, sig) {
+  const now = Date.now();
+  const kept = (listed.get(src.index) || []).filter((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig);
+  kept.push({sig, at: now});
+  listed.set(src.index, kept.slice(-8));
+}
+const listStale = (src, sig) => { const now = Date.now(); return (listed.get(src.index) || []).some((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig); };
+function tick() {
+  rounds++;
+  findRuns();
+  let stateChanged = false;
+  for (const src of sources) {
+    if (!CLOCK && !watchedBy(src.index)) continue;
+    guardRun(src, () => inView(src, () => roundOf(src)));
+    // the list the run picker shows is announced for the runs a page shows; the picker reads the list again when it opens
+    const sig = stateSigOf(src);
+    if (stateSigs.has(src.index) && stateSigs.get(src.index) !== sig) stateChanged = true;
+    stateSigs.set(src.index, sig);
+  }
+  if (stateChanged) push('sources', {count: sources.length});
+}
+let roundTimer = null;
+const startRounds = () => { if (!CLOCK && !roundTimer) roundTimer = setInterval(tick, roundMs); };
+const stopRounds = () => { if (roundTimer && !clients.size) { clearInterval(roundTimer); roundTimer = null; } };
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};
 const send = (res, code, body, type = 'application/json; charset=utf-8') => {
@@ -888,6 +1002,8 @@ function addressedToThisServer(req) {
   return !!o && o[1].toLowerCase() === host.toLowerCase();
 }
 
+// routes that read no run of their own: /api/sources brings each run up to date itself
+const NO_REFRESH = new Set(['/api/sources', '/api/clock', '/api/meta', '/api/reads', '/api/rounds']);
 // The one guard of every request: a value a request carries (the request line, a header, a query) that makes
 // the code throw ends in an answer, never in the end of the process.
 const server = http.createServer((req, res) => {
@@ -895,7 +1011,12 @@ const server = http.createServer((req, res) => {
     if (!addressedToThisServer(req)) return send(res, 421, {error: 'this request is not for this server'});
     let url;
     try { url = new URL(req.url, 'http://x'); } catch { return send(res, 400, {error: 'bad request'}); }
-    const src = sources[Number(url.searchParams.get('source') || 0)];
+    const want = Number(url.searchParams.get('source') || 0);
+    // a run that appeared since the last round is found when a request names it
+    if (!sources[want]) findRuns();
+    const src = sources[want];
+    // the run a request names is brought up to date before the request is answered under its view (a route that reads no run is left out)
+    if (src && url.pathname.startsWith('/api/') && !NO_REFRESH.has(url.pathname)) refresh(src);
     inView(src, () => handle(req, res, url));
   } catch (e) {
     console.error(`sdc-ui: ${req.method} request failed: ${e?.stack || e}`);
@@ -912,13 +1033,26 @@ function handle(req, res, url) {
   if (p === '/events') {
     res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive'});
     res.write(`event: hello\ndata: ${JSON.stringify({versions: sources.map((s) => s.version)})}\n\n`);
-    clients.add(res);
-    req.on('close', () => clients.delete(res));
+    const shown = Number(url.searchParams.get('source') || 0);
+    clients.set(res, {source: shown});
+    if (src) {
+      const sig = stateSigOf(src);
+      if (listStale(src, sig)) res.write(`event: sources\ndata: ${JSON.stringify({count: sources.length})}\n\n`);
+      if (!stateSigs.has(shown)) stateSigs.set(shown, sig);
+    }
+    startRounds();
+    req.on('close', () => { clients.delete(res); stopRounds(); });
     return;
   }
-  if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
+  if (p === '/api/sources') { findRuns(); return send(res, 200, sources.map((s) => { refresh(s, true); noteListed(s, stateSigOf(s)); return sourceRow(s); })); }
   if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
+  if (countReads && p === '/api/reads') {
+    const byRun = {};
+    for (const [dir, n] of readCount.byRun) { const name = sources.find((s) => within(dir, runDirOf(s)))?.name ?? 'other'; byRun[name] = (byRun[name] || 0) + n; }
+    return send(res, 200, {rounds, total: readCount.total, byRun});
+  }
+  if (countReads && p === '/api/rounds') return send(res, 200, {running: roundTimer !== null, pages: clients.size, rounds});
   if (p === '/api/view') return send(res, 200, src ? viewOf(src).view : null);
   if (p === '/api/view-info') return send(res, 200, src ? viewInfo(src) : null);
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
@@ -944,8 +1078,13 @@ function handle(req, res, url) {
     return sendRun(res, r ? 200 : 404, r ?? {error: 'no such action finish'});
   }
   if (p === '/api/fschange') {
-    const r = fsChange(runDirOf(src), Number(url.searchParams.get('seq')));
-    return send(res, r ? 200 : 404, r || {error: 'no such change'});
+    const run = runDirOf(src), seq = Number(url.searchParams.get('seq'));
+    const r = fsChange(run, seq);
+    if (r) return send(res, 200, r);
+    // a change after the last record the list holds, when the list is not the whole record, is past the bound: not "no such change"
+    const stop = stopOf(fsChanges(run));
+    if (stop && seq > (fsCache.get(run)?.maxSeq ?? Infinity)) return send(res, 404, {error: `this change lies past the bound of what the inspector reads of fs/changes.jsonl: ${stop.why}`, recordsStopped: stop});
+    return send(res, 404, {error: 'no such change'});
   }
   if (p === '/api/inbox') {
     const x = ctx(src);
@@ -962,15 +1101,13 @@ function handle(req, res, url) {
     return send(res, r.state === 'ok' ? 200 : 404, r.state === 'ok' ? r.bytes.toString('utf8') : 'not found', 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);
-  const abs = path.join(here, 'web', file);
-  if (!abs.startsWith(path.join(here, 'web')) || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
+  const abs = servedUnder(path.join(here, 'web'), file);
+  if (!abs || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
   return send(res, 200, fs.readFileSync(abs), MIME[path.extname(abs)] || 'application/octet-stream');
 }
 
-tick();
-if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
-else setInterval(tick, 700);
-setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
+if (CLOCK) { tick(); setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25); }
+setInterval(() => { for (const res of clients.keys()) tell(res, ': ping\n\n'); }, 15000);
 // --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
 server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {

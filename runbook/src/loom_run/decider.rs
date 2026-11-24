@@ -12,6 +12,7 @@
 
 use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
+use crate::loom_run::record_write::{make_dir_in, Held};
 use serde_json::{json, Map, Value};
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -46,12 +47,11 @@ const MODEL_KEYS: [&str; 15] = [
 const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
 const APPROVAL_KINDS: [&str; 3] = ["ApproveAction", "Approve", "Close"];
-/// Driver default of `SDC_MAX_DECIDER_CALLS`.
-const DEFAULT_MAX_CALLS: u64 = 20;
 /// Driver default of `SDC_DECIDER_RETRIES`.
 const DEFAULT_RETRIES: u64 = 2;
-/// Driver default of `SDC_DECIDER_MAX_BUDGET_USD` (0.25), micro USD.
-const DEFAULT_MAX_CALL_MICRO_USD: u64 = 250_000;
+/// What a decider limit is when the settings name none: no limit (`decider.max_calls`,
+/// `decider.max_budget_usd` hold as named).
+const NO_LIMIT: u64 = u64::MAX;
 const DEFAULT_TIMEOUT_SECONDS: u64 = 900;
 const OUTPUT_CAP: u64 = 1 << 20;
 
@@ -208,7 +208,7 @@ impl NativeDecider {
             if decider.get("max_calls").is_some() && decider.get("max_decider_calls").is_some() {
                 return Err("decider: max_calls and max_decider_calls name the same limit; give one".to_owned());
             }
-            let max_calls = number_key(decider, "max_calls", 1)?.or(number_key(decider, "max_decider_calls", 1)?).unwrap_or(DEFAULT_MAX_CALLS);
+            let max_calls = number_key(decider, "max_calls", 1)?.or(number_key(decider, "max_decider_calls", 1)?).unwrap_or(NO_LIMIT);
             let escalate = match decider.get("escalate") {
                 None => false,
                 Some(Value::String(s)) if s == "stop" => false,
@@ -227,7 +227,7 @@ impl NativeDecider {
                 }
             }
             let max_call = match decider.get("max_budget_usd") {
-                None => DEFAULT_MAX_CALL_MICRO_USD,
+                None => NO_LIMIT,
                 Some(v) => match v.as_f64() {
                     Some(usd) if usd.is_finite() && usd > 0.0 => (usd * 1_000_000.0).round() as u64,
                     _ => return Err("decider.max_budget_usd: a number above 0".to_owned()),
@@ -373,7 +373,7 @@ impl NativeDecider {
             .map(|(_, v)| v.clone())
             .ok_or("the runner's child environment has no PATH")?;
         let home = request.run_dir.join("home");
-        std::fs::create_dir_all(&home).map_err(|e| format!("decider home directory: {}", e.kind()))?;
+        make_dir_in(request.run_dir, &home).map_err(|e| format!("decider home directory: {e}"))?;
         let mut env = vec![("PATH".to_owned(), path), ("HOME".to_owned(), home.display().to_string())];
         if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
@@ -398,7 +398,7 @@ impl NativeDecider {
     /// The reply of the decider to the request `body` in the record directory `rec`: by rule, or
     /// from one model call. The reply and what the adapter wrote on its standard error are kept in
     /// `rec` (`reply.json`, `decider-stderr.txt`), the login path replaced by `<login file>`.
-    fn reply(&self, body: &Value, rec: &Path, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
+    fn reply(&self, body: &Value, rec: &Held, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
         let replied = match &self.mode {
             Mode::Rule { verdict } => Replied { reply: rules::rule_reply(verdict, body), stderr: String::new() },
             Mode::Model { model, adapter, effort, max_turns, .. } => {
@@ -423,19 +423,19 @@ impl NativeDecider {
                 .map_err(|reason| self.redact(&reason))?
             }
         };
-        let _ = std::fs::write(rec.join("decider-stderr.txt"), self.redact(&replied.stderr));
-        let _ = std::fs::write(rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)));
+        rec.write("decider-stderr.txt", self.redact(&replied.stderr).as_bytes()).map_err(|e| self.redact(&format!("decider stderr file: {e}")))?;
+        rec.write("reply.json", self.redact(&format!("{}\n", replied.reply)).as_bytes()).map_err(|e| self.redact(&format!("decider reply file: {e}")))?;
         Ok(replied.reply)
     }
 
     fn decide_rule(&self, verdict: &str, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
-        let rec = request.run_dir.join("decider").join("rule");
-        if let Err(e) = std::fs::create_dir_all(&rec) {
-            return Self::cannot(format!("decider record directory: {}", e.kind()));
-        }
-        let body = decide_request(approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-            return Self::cannot(format!("decider request file: {}", e.kind()));
+        let rec = match Held::make(request.run_dir, &request.run_dir.join("decider").join("rule")) {
+            Ok(rec) => rec,
+            Err(e) => return Self::cannot(format!("decider record directory: {e}")),
+        };
+        let body = decide_request(approval, &PathBuf::new(), rec.path(), None);
+        if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
+            return Self::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, request, 0) {
             Ok(reply) => reply,
@@ -490,23 +490,23 @@ impl NativeDecider {
             if budget <= spent_micro {
                 return Self::cannot(format!("the per-call budget of {} micro USD is spent", budget));
             }
-            let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&approval.action)));
-            if let Err(e) = std::fs::create_dir_all(&rec) {
-                return Self::cannot(format!("decider record directory: {}", e.kind()));
-            }
+            let rec = match Held::make(request.run_dir, &decider_dir.join(format!("{number:03}-{}", safe_part(&approval.action)))) {
+                Ok(rec) => rec,
+                Err(e) => return Self::cannot(format!("decider record directory: {e}")),
+            };
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let mut body = decide_request(approval, &case_dir, &rec, retry);
+            let mut body = decide_request(approval, &case_dir, rec.path(), retry);
             if let Some(class) = &routed {
                 requester::tag(&mut body, class, request.run_dir);
                 if let Some(level) = &self.autonomy {
                     body["autonomy"] = json!(level);
                 }
             }
-            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-                return Self::cannot(format!("decider request file: {}", e.kind()));
+            if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
+                return Self::cannot(format!("decider request file: {e}"));
             }
-            if let Err(e) = std::fs::write(rec.join("loom-decision.json"), format!("{}\n", request.decision)) {
-                return Self::cannot(format!("decider record file: {}", e.kind()));
+            if let Err(e) = rec.write("loom-decision.json", format!("{}\n", request.decision).as_bytes()) {
+                return Self::cannot(format!("decider record file: {e}"));
             }
             let reply = match self.reply(&body, &rec, request, budget - spent_micro) {
                 Ok(reply) => reply,
@@ -568,6 +568,11 @@ impl Decider for NativeDecider {
             Mode::Rule { .. } => 0,
             Mode::Model { .. } => self.max_call_micro_usd,
         }
+    }
+
+    /// A rule is answered inside the runner; a model decider starts its adapter program.
+    fn may_call_model(&self) -> bool {
+        matches!(self.mode, Mode::Model { .. })
     }
 
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict {

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--no-fail-fast"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "   Compiling pager v0.1.0 ({dir})\n    Finished `test` profile [unoptimized] target(s) in 0.00s\n     Running unittests src/lib.rs ({target}/debug/deps/pager-4be9a7a81d8d5245)\n     Running tests/last_page.rs ({target}/debug/deps/last_page-af05de030b7d2b22)\n   Doc-tests pager\n",
+  "stdout": "\nrunning 5 tests\ntest tests::first_page ... ok\ntest tests::full_pages ... ok\ntest tests::no_items ... ok\ntest tests::page_zero_is_empty ... ok\ntest tests::zero_per_page ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\ntest last_partial_page_is_shown ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+}

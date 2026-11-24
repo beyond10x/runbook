@@ -1,0 +1,37 @@
+format: loom.bindings/1
+protocol: caps-demo@1
+program_root: bindings
+artifacts:
+  idea: idea.yaml
+  note: note.txt
+actions:
+  - action: note.write
+    executor:
+      kind: program
+      argv: [tools/model-step.sh, write, --max-budget-usd, "0.3"]
+    evidence:
+      - kind: note_write
+        subject: idea
+        producer: model-step
+        from: exit
+        results: {"0": written, timeout: failed, "*": failed}
+  - action: note.check
+    executor:
+      kind: program
+      argv: [tools/model-step.sh, check, --max-budget-usd, "0.3"]
+    evidence:
+      - kind: note_check
+        subject: note
+        producer: model-step
+        from: exit
+        results: {"0": valid, timeout: invalid, "*": invalid}
+  - action: note.publish
+    executor:
+      kind: program
+      argv: [tools/publish.sh]
+    evidence:
+      - kind: note_publish
+        subject: note
+        producer: publish
+        from: exit
+        results: {"0": published, timeout: failed, "*": failed}

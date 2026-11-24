@@ -59,7 +59,8 @@
         "program": "sdc-tool.sh ess-gate",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         }
       },
       "name": "spec.gate",
@@ -99,7 +100,8 @@
         "results": {
           "*": "uncovered",
           "0": "covered",
-          "5": "finding"
+          "5": "finding",
+          "timeout": "uncovered"
         }
       },
       "name": "plan.cover",
@@ -216,7 +218,8 @@
         "program": "sdc-tool.sh plan-scope",
         "results": {
           "*": "unassessed",
-          "0": "scoped"
+          "0": "scoped",
+          "timeout": "unassessed"
         }
       },
       "name": "plan.scope",
@@ -261,7 +264,8 @@
         "program": "sdc-tool.sh plan-status",
         "results": {
           "*": "draft",
-          "0": "active"
+          "0": "active",
+          "timeout": "draft"
         }
       },
       "name": "plan.status",
@@ -306,7 +310,8 @@
         "program": "sdc-tool.sh plan-validate",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "plan.validate",
@@ -1082,8 +1087,8 @@
   },
   "source": {
     "path": "protocol/sdc-plan.protocol.yaml",
-    "tag": "0.9.2",
-    "url": "https://github.com/beyond10x/runbook/blob/0.9.2/protocol/sdc-plan.protocol.yaml"
+    "tag": "0.10.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.10.0/protocol/sdc-plan.protocol.yaml"
   },
   "stem": "sdc-plan",
   "summary": "Decompose the epic's complete ESS specification into AEP stories under the epic.",

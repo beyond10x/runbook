@@ -157,23 +157,6 @@ fn stat_line(p: &Path) -> String {
     format!("{} {} {ns}\n", p.display(), m.len())
 }
 
-fn stat_tree(dir: &Path, into: &mut String) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.file_name().is_some_and(|n| n == "node_modules" || n == "target" || n == "runs") {
-            continue;
-        }
-        if p.is_dir() {
-            stat_tree(&p, into);
-        } else if let Ok(m) = fs::symlink_metadata(&p) {
-            let ns = m.modified().map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()).unwrap_or(0);
-            into.push_str(&format!("{} {} {ns}\n", p.display(), m.len()));
-        }
-    }
-}
-
 /// The key of the shared prefix: the script, the built files it takes (path, size, time) and the asset sources.
 fn key() -> String {
     let mut h = Sha256::new();
@@ -182,12 +165,76 @@ fn key() -> String {
     for n in HELPERS {
         h.update(stat_line(&built("debug", n)));
     }
-    let mut tree = String::new();
-    for d in ["protocol", "scripts", "driver/examples/sdc", "bindings", "instructions", "views", "cycles", "tools", "ui"] {
-        stat_tree(&repo().join(d), &mut tree);
-    }
-    h.update(tree);
+    h.update(assets_digest(&repo()));
     h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// The directories whose files the script installs as assets.
+const ASSET_DIRS: [&str; 9] = ["protocol", "scripts", "driver/examples/sdc", "bindings", "instructions", "views", "cycles", "tools", "ui"];
+
+/// The asset sources of the checkout at `root`, as they enter the key: the files of `ASSET_DIRS` that git tracks (the
+/// script copies those and no other), each by its name and its bytes (a link by its target), read from the work tree as
+/// the script reads them.
+fn assets_digest(root: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let o = Command::new("git")
+        .args(["ls-files", "-z", "--"])
+        .args(ASSET_DIRS)
+        .current_dir(root)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .envs(NO_SYSTEM_GIT)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "git ls-files in {}: {}", root.display(), err(&o));
+    let mut h = Sha256::new();
+    for name in o.stdout.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        let p = root.join(std::ffi::OsStr::from_bytes(name));
+        h.update(name);
+        h.update([0]);
+        let body = match fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_symlink() => [b"link ".as_slice(), fs::read_link(&p).unwrap().as_os_str().as_bytes()].concat(),
+            Ok(m) if m.is_file() => [b"file ".as_slice(), &fs::read(&p).unwrap()].concat(),
+            _ => b"absent".to_vec(),
+        };
+        h.update((body.len() as u64).to_le_bytes());
+        h.update(&body);
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The key moves with what the script would copy and with nothing else, so no case removes the prefix another case is
+/// reading while the gate's other steps write beside the tests: a file under `ui/screenshots` (git-ignored, written by
+/// the UI step), an untracked file and a tracked file written again with the same bytes and a new time (the protocol
+/// checks write `protocol/compiled` on every run) leave it; a change of the bytes of a tracked file moves it.
+#[test]
+fn the_key_of_the_shared_prefix_moves_with_the_bytes_of_the_tracked_assets_only() {
+    let root = scratch("key-assets");
+    let git = |args: &[&str]| {
+        let o = Command::new("git").args(args).current_dir(&root).env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").envs(NO_SYSTEM_GIT).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", err(&o));
+    };
+    let put = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    git(&["init", "-q"]);
+    put(".gitignore", "ui/screenshots/\n");
+    put("ui/web/app.js", "app\n");
+    put("protocol/compiled/a.ir.json", "{}\n");
+    git(&["add", "-A"]);
+    let before = assets_digest(&root);
+    put("ui/screenshots/390x844-mobile.png", "png");
+    assert_eq!(assets_digest(&root), before, "a git-ignored file written under ui/");
+    put("ui/web/new.js", "new\n");
+    assert_eq!(assets_digest(&root), before, "an untracked file written under ui/");
+    put("protocol/compiled/a.ir.json", "{}\n");
+    let file = fs::File::options().write(true).open(root.join("protocol/compiled/a.ir.json")).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(86_400)).unwrap();
+    assert_eq!(assets_digest(&root), before, "a tracked file written again with the same bytes and another time");
+    put("protocol/compiled/a.ir.json", "{\"a\":1}\n");
+    assert_ne!(assets_digest(&root), before, "a tracked file with other bytes");
 }
 
 /// The prefix made from the debug builds, built by the first caller under a lock, read by every other.
@@ -244,12 +291,18 @@ fn with_toolchain(cmd: &mut Command) -> &mut Command {
 /// `runbook <args>` from `cwd` with `PATH` = `<prefix>/bin` and the system directories, no `RUNBOOK_HOME`.
 pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
     let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
-    with_toolchain(Command::new("runbook").args(args).env_clear()).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    let mut c = Command::new("runbook");
+    c.args(args).env_clear();
+    crate::isolate(&mut c);
+    with_toolchain(&mut c).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 /// The same command with the build of the checkout.
 pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
-    with_toolchain(Command::new(BIN).args(args).env_clear()).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    let mut c = Command::new(BIN);
+    c.args(args).env_clear();
+    crate::isolate(&mut c);
+    with_toolchain(&mut c).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -383,7 +436,12 @@ pub(crate) fn list_from(prefix: &Path) {
     let mine = out(&o);
     assert!(mine.contains("sdc") && mine.contains("sdc-bugfix"), "{mine}");
     let theirs = from_checkout(&cwd, &["list"]);
-    assert_eq!(mine, out(&theirs), "the installed list equals the checkout's");
+    // the column of the runbook directory differs by design: the share directory of the prefix against the checkout
+    let share = format!("{}", prefix.join("bin/../share/runbook").display());
+    let rows = |text: String, home: &str| text.replace(home, "<home>");
+    assert!(mine.contains(&share), "the installed list names the share directory of the prefix: {mine}");
+    assert!(out(&theirs).contains(repo().to_str().unwrap()), "the checkout's list names the checkout: {}", out(&theirs));
+    assert_eq!(rows(mine, &share), rows(out(&theirs), repo().to_str().unwrap()), "the installed list equals the checkout's");
 }
 
 #[test]
@@ -508,6 +566,11 @@ pub(crate) fn git_in(dir: &Path, args: &[&str]) -> String {
             "commit.gpgsign=false",
             "-c",
             "init.defaultBranch=main",
+            // a commit starts no detached maintenance: its lock file in `.git/objects` came and went under a listing of the tree
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
         ])
         .args(args)
         .current_dir(dir)

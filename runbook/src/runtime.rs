@@ -5,6 +5,7 @@
 //! between steps. The daemon runs each run on its own plain thread. Loom replaces the stub of
 //! `stub.rs` by implementing this trait; the daemon, its commands and its API do not change.
 
+use crate::caps::{Caps, Usage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -37,6 +38,81 @@ impl Confinement {
     pub fn rank(self) -> u8 {
         self as u8
     }
+
+    /// Whether `self` is at least as strong as `floor`. The one comparison of two levels: every pair
+    /// is written out, so a level added to the enum does not compile until it is placed here; there
+    /// is no arm that passes what it did not name.
+    pub fn at_least(self, floor: Confinement) -> bool {
+        match (self, floor) {
+            (Confinement::Local, Confinement::Local) => true,
+            (Confinement::Linux, Confinement::Local) => true,
+            (Confinement::Linux, Confinement::Linux) => true,
+            (Confinement::Local, Confinement::Linux) => false,
+        }
+    }
+}
+
+/// Where the level of a run came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfinementSource {
+    /// The submit named it.
+    Submit,
+    /// The daemon's default level (`--default-confinement`, or `confinement` of `runbook.toml`).
+    DaemonDefault,
+}
+
+impl ConfinementSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfinementSource::Submit => "submit",
+            ConfinementSource::DaemonDefault => "daemon-default",
+        }
+    }
+}
+
+/// How much of a run's decisions a decider takes over from a person (`docs/autonomy-levels.md`), the
+/// levels of the specification (`sdc.decision.AutonomyLevel`). What a level gives to the decider is
+/// the table of the runbook's own `tools/autonomy-levels.json`; the daemon only carries the name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Autonomy {
+    A0,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+}
+
+impl Autonomy {
+    pub const ALL: [Autonomy; 6] = [Autonomy::A0, Autonomy::A1, Autonomy::A2, Autonomy::A3, Autonomy::A4, Autonomy::A5];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Autonomy::A0 => "A0",
+            Autonomy::A1 => "A1",
+            Autonomy::A2 => "A2",
+            Autonomy::A3 => "A3",
+            Autonomy::A4 => "A4",
+            Autonomy::A5 => "A5",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Autonomy> {
+        Autonomy::ALL.into_iter().find(|a| a.as_str() == text)
+    }
+}
+
+/// What a run is given besides its runbook: the autonomy level and the kind of decider that takes the
+/// decisions the level leaves to it. Fixed when the run is submitted and read from its record after
+/// that, never from the daemon's policy of the day. Neither: every decision waits for a client.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Terms {
+    #[serde(default)]
+    pub autonomy: Option<Autonomy>,
+    /// A kind name among the kinds the operator configured (`runbook.toml`, `[deciders.<kind>]`).
+    #[serde(default)]
+    pub decider: Option<String>,
 }
 
 /// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime
@@ -58,6 +134,8 @@ pub struct StartRequest {
     pub context_dir: Option<PathBuf>,
     pub settings: BTreeMap<String, String>,
     pub confinement: Confinement,
+    /// The autonomy level and the decider kind of the run.
+    pub terms: Terms,
     /// The run's record: its store and logs.
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
@@ -75,14 +153,50 @@ pub struct DecisionRequest {
     pub options: Vec<Value>,
 }
 
+/// A program of a run that is about to start (or has ended): what the runtime knows of it before
+/// the program runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Started {
+    /// Counts the programs of one run, from 1: a start and its end carry the same number.
+    pub serial: u64,
+    /// `program` for the program of an action, `check` for its `handoff_when` check.
+    pub role: &'static str,
+    /// The case the program runs for (Loom's `LOOM_CASE` of the child), when the child has one.
+    pub case: Option<String>,
+    /// The action the bindings bind to the program, when exactly one does.
+    pub action: Option<String>,
+    /// The nth start of this action in this case, for the program of an action.
+    pub try_number: Option<u64>,
+}
+
+/// Where the runtime tells that a bound program is about to start and that it ended, on the thread
+/// that starts the program.
+pub trait StartTarget: Send + Sync {
+    /// Called before the program starts.
+    fn started(&self, start: &Started);
+    /// Called after the program ended, however it ended.
+    fn ended(&self, _start: &Started) {}
+}
+
 /// What the runtime reports while a run goes. Called on the run's thread, from inside `start`.
 pub trait EventSink: Send + Sync {
+    /// Where the runtime tells the start and the end of each bound program; none when the sink
+    /// takes no such report (the stub runs no program). There is no default: a sink that wraps
+    /// another forwards it, and one that takes no report says `None`.
+    fn steps(&self) -> Option<std::sync::Arc<dyn StartTarget>>;
+
     /// The runtime took the run up.
     fn started(&self);
     /// One run-log line: its kind and the record, unchanged.
     fn record(&self, kind: &str, record: Value);
     /// The run stops on a decision.
     fn decision_requested(&self, request: DecisionRequest);
+    /// A rule or a decider of the run answered a request the run raised. `by` and `principal` are
+    /// `rule:<name>` or `decider:<kind>`; the daemon records the answer under exactly those and refuses
+    /// anything else, a person's name or a label a client typed. `true`: it is recorded and the runtime
+    /// may apply the answer; `false`: the request stays open for a client and the runtime applies nothing.
+    /// There is no default: a sink that wraps another forwards it, and one that takes no answer says `false`.
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool;
     /// Every decision the run waited on is answered and the runtime took the answers up.
     fn resumed(&self);
 }
@@ -144,4 +258,23 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// Ask the run to stop (the daemon has also set the run's cancel flag).
     fn cancel(&self, run_id: &str);
+
+    /// The caps a run submitted with these `settings` has, or why they are refused (a cap over the
+    /// runtime's ceiling). `None`: this runtime runs nothing that a cap bounds (the stub). Asked at
+    /// submit, before anything is written.
+    fn resolve_caps(&self, _settings: &BTreeMap<String, String>) -> Result<Option<Caps>, String> {
+        Ok(None)
+    }
+
+    /// What the run has used so far, when the runtime counts it.
+    fn usage(&self, _run_id: &str) -> Option<Usage> {
+        None
+    }
+
+    /// Why a run of the runbook is refused at load, when it is (the engine: a per-call budget that is
+    /// no number of USD, or programs that could call a model with no budget anywhere). Asked at
+    /// submit, before anything is written; the reason names no path.
+    fn check_runbook(&self, _runbook: &str, _version: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
 }

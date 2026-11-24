@@ -9,6 +9,10 @@ fn committed() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bindings")
 }
 
+fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
+    copy_dirs(&[(src, dst)], Links::Keep)
+}
+
 fn yaml_files(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
     files.sort();
@@ -624,4 +628,49 @@ fn a_gateway_file_and_a_login_together_are_refused_by_name_and_without_a_path() 
     let e = materialise_with(&committed(), &dir.path().join("b/bindings"), "sdc", &json!({"login_file": secret, "gateway": "named"}), None, Some(&file)).unwrap_err();
     assert!(e.contains("gateway") && e.contains("login_file") && !e.contains(&secret), "{e}");
     assert!(!dir.path().join("a").exists() && !dir.path().join("b").exists(), "a copy was made");
+}
+
+#[test]
+fn the_committed_bindings_hold_a_model_node_and_a_copy_of_them_still_does() {
+    let why = model_node_in(&committed()).expect("the committed bindings name sdc-node");
+    assert!(why.contains(MODEL_TOOL), "{why}");
+    let (_dir, dst, copy) = make("model-node-in-copy", &json!({}));
+    copy.unwrap();
+    assert!(model_node_in(&dst).is_some());
+}
+
+#[test]
+fn model_node_in_counts_what_names_the_tool_and_what_it_cannot_read_and_nothing_else() {
+    let write = |tag: &str, text: &str| {
+        let dir = Dir::new(tag);
+        std::fs::write(dir.path().join("x.yaml"), text).unwrap();
+        dir
+    };
+    let program = |argv: &str| format!("actions:\n  - action: a.b\n    executor: {{kind: program, argv: {argv}}}\n");
+    for (what, text) in [
+        ("tool as first word", program("[sdc-node, x]")),
+        ("tool by path", program("[/opt/bin/sdc-node, x]")),
+        ("tool in a shell word", program("[sh, -c, 'sdc-node x']")),
+        ("argv not a list", program("sdc-node")),
+        ("argv with a number", program("[tools/t.sh, 7]")),
+        ("empty argv", program("[]")),
+        ("unknown kind", "actions:\n  - action: a.b\n    executor: {kind: agent}\n".to_owned()),
+        ("no executor", "actions:\n  - action: a.b\n".to_owned()),
+        ("actions not a list", "actions: {a: b}\n".to_owned()),
+        ("not yaml", "a: [unclosed\n".to_owned()),
+    ] {
+        let dir = write("model-node-in-yes", &text);
+        assert!(model_node_in(dir.path()).is_some(), "{what}");
+    }
+    for (what, text) in [
+        ("tool script", program("[tools/sdc-tool.sh, check-idea]")),
+        ("echo", program("[sh, -c, 'echo hi']")),
+        ("person", "actions:\n  - action: a.b\n    executor: {kind: person, principal: person:owner}\n".to_owned()),
+        ("no actions", "format: loom.bindings/1\n".to_owned()),
+    ] {
+        let dir = write("model-node-in-no", &text);
+        assert_eq!(model_node_in(dir.path()), None, "{what}");
+    }
+    let dir = Dir::new("model-node-in-unreadable");
+    assert!(model_node_in(&dir.path().join("absent")).is_some(), "a directory that cannot be read counts");
 }

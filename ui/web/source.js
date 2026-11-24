@@ -119,7 +119,8 @@ function daemonStream() {
   return {addEventListener: (name, f) => (handlers[name] ||= []).push(f), set onerror(f) { on.error = f; }, close() { closed = true; clearInterval(timer); }};
 }
 
-export const openEvents = () => (daemon ? daemonStream() : new EventSource('/events'));
+// the stream names the run the page shows: the server reads that run while the stream is open, and no other
+export const openEvents = (source = 0) => (daemon ? daemonStream() : new EventSource(`/events?source=${source}`));
 
 // Read the daemon's views again: the run list and the open decisions of the selected run. The daemon records no
 // event when a run starts to wait or goes on after an answer, so the page asks again after an answer of its own
@@ -143,7 +144,7 @@ export function daemonView(src) {
   return {
     feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${list.length} from the daemon, newest first</span></div>`
       + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows}</div>`,
-    tree: `<div class="empty" data-key="dnote"><p>${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}</p>`
+    tree: `<div class="empty" data-key="dnote"><p>${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}${src.daemonRun.autonomy ? ` · autonomy ${esc(src.daemonRun.autonomy)}` : ''}${src.daemonRun.decider ? ` · decider ${esc(src.daemonRun.decider)}` : ''}</p>`
       + '<p class="muted">The daemon records events for a run, not a case store: the case tree, the graph and the phases fill in when it serves them.</p></div>',
   };
 }

@@ -18,6 +18,9 @@ pub enum Seen {
 pub struct Recorder(pub Arc<Mutex<Vec<Seen>>>);
 
 impl EventSink for Recorder {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
+        None
+    }
     fn started(&self) {
         self.0.lock().unwrap().push(Seen::Started);
     }
@@ -26,6 +29,9 @@ impl EventSink for Recorder {
     }
     fn decision_requested(&self, request: DecisionRequest) {
         self.0.lock().unwrap().push(Seen::Asked(request.request_id));
+    }
+    fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+        false
     }
     fn resumed(&self) {
         self.0.lock().unwrap().push(Seen::Resumed);
@@ -56,6 +62,7 @@ pub fn request(run: &str, runbook: &str) -> StartRequest {
         context_dir: None,
         settings: BTreeMap::new(),
         confinement: Confinement::Linux,
+        terms: Default::default(),
         state_dir: "state".into(),
         workspace_dir: "workspace".into(),
     }
@@ -195,10 +202,16 @@ fn a_cancel_ends_a_run_that_waits_on_a_decision() {
 struct Keep(Arc<Mutex<Vec<DecisionRequest>>>);
 
 impl EventSink for Keep {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
+        None
+    }
     fn started(&self) {}
     fn record(&self, _: &str, _: Value) {}
     fn decision_requested(&self, request: DecisionRequest) {
         self.0.lock().unwrap().push(request);
+    }
+    fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+        false
     }
     fn resumed(&self) {}
 }

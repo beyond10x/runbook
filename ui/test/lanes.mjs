@@ -33,6 +33,7 @@ export const WIDE_ONLY = {
   'child.spec.mjs': 'process guard, no page',
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
+  'daemon-level-and-kind.spec.mjs': 'level and kind as text',
   'daemon-start.spec.mjs': 'start form against own daemons',
   'daemon-ui.spec.mjs': 'daemon serves, page lists runs',
   'decisions-reads-the-run.spec.mjs': 'pure reader refuses other runs',
@@ -42,6 +43,10 @@ export const WIDE_ONLY = {
   'fixture-hold.spec.mjs': 'player ends, no page',
   'graph-any-runbook.spec.mjs': 'graph labels per runbook',
   'holder-model.spec.mjs': 'model function, no page',
+  'idle-picker-window.spec.mjs': 'list states and stream events',
+  'idle-reads.spec.mjs': 'reads counted by the server',
+  'idle-server.spec.mjs': 'server answers while idle',
+  'idle-slow-page.spec.mjs': 'page that never reads',
   'lenses-escape.spec.mjs': 'model check, no page',
   'loom-run-record.spec.mjs': 'record shown as text',
   'markdown-bounds.spec.mjs': 'renderer bounds, no layout',
@@ -56,6 +61,7 @@ export const WIDE_ONLY = {
   'run-picker-experiments.spec.mjs': 'keyboard and grouping, no layout',
   'run-picker.spec.mjs': 'sizes set by test blocks',
   'runfiles-at.spec.mjs': 'file reader function',
+  'runfiles-cache.spec.mjs': 'read cache, in process',
   'runfiles-fail-closed.spec.mjs': 'reader refuses, no page',
   'runfiles-inventory.spec.mjs': 'inventory function, no page',
   'runfiles-opens.spec.mjs': 'reader opens only files',
@@ -100,6 +106,11 @@ export const WIDE_ONLY = {
   'view-product.spec.mjs': 'server refuses a bad view',
   'view-race.spec.mjs': 'view swap race, no page',
   'view.spec.mjs': 'view file rules, a text',
+  'written-api.spec.mjs': 'route answers, no page',
+  'written-bounds.spec.mjs': 'bounds of answers, no layout',
+  'written-model.spec.mjs': 'model function, no page',
+  'written-page.spec.mjs': 'sizes set by test blocks',
+  'written-reader.spec.mjs': 'reader answers and page notes',
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
@@ -136,6 +147,8 @@ export const SIZE_EXCEPTIONS = {
   'stopped.spec.mjs': 'sets both gating sizes itself',
   'stub-runs.spec.mjs': 'sets 805x1270 and 390x844 itself',
   'view.spec.mjs': 'presence, not layout',
+  'written-page.spec.mjs': 'sets its sizes itself',
+  'written-reader.spec.mjs': 'presence, not layout',
 };
 
 // The one form of a spec file that the lists above know: `<this directory>/<name>.spec.mjs`, directly under test/ (the pattern
@@ -166,14 +179,16 @@ export const FIXED_WAITS = {
   'daemon-decide-review.spec.mjs': {calls: 2, ms: 5300},
   'daemon-decide.spec.mjs': {calls: 2, ms: 3000},
   'daemon-start.spec.mjs': {calls: 1, ms: 300},
-  'decisions-yaml-parses-what-was-read.spec.mjs': {calls: 1, ms: 8000, window: 'race window, runs in full'},
   'event-log-lines.spec.mjs': {calls: 1, ms: 2500},
   'fixture-hold.spec.mjs': {calls: 1, ms: 20000},
+  'idle-picker-window.spec.mjs': {calls: 1, ms: 0, variable: 'pause of a polling loop', helper: 'sleep', largest: 300},
+  'idle-reads.spec.mjs': {calls: 3, ms: 525},
+  'idle-server.spec.mjs': {calls: 2, ms: 1, variable: 'pause of a polling loop', helper: 'sleep', largest: 3000},
+  'idle-slow-page.spec.mjs': {calls: 1, ms: 0, variable: 'pause of a polling loop', helper: 'sleep', largest: 10000},
   'paths-served.spec.mjs': {calls: 1, ms: 700},
-  'security-products-2-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
+  'runner-live-guards.spec.mjs': {calls: 2, ms: 35000, window: 'bounded writer in a child'},
   'runner-live.spec.mjs': {calls: 2, ms: 50, why: 'polls a pipe, a process'},
   'security-products-3-reads.spec.mjs': {calls: 1, ms: 100},
-  'security-products-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
   'security-start-content.spec.mjs': {calls: 2, ms: 800},
   'security-start-floor-reread.spec.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop', helper: 'later', largest: 250},
   'security-start-gone-runbook.spec.mjs': {calls: 1, ms: 300},
@@ -185,5 +200,4 @@ export const FIXED_WAITS = {
   'security-start-token-places.spec.mjs': {calls: 2, ms: 3700},
   'security-start-token.spec.mjs': {calls: 2, ms: 800},
   'serve.mjs': {calls: 1, ms: 50},
-  'stopped.spec.mjs': {calls: 2, ms: 4400},
 };

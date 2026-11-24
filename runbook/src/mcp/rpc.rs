@@ -123,7 +123,7 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 pub fn handle(be: &dyn Backend, input: &[u8], mut wire: Wire) -> Reply {
     let msg: Value = match serde_json::from_slice(input) {
         Ok(v) => v,
-        Err(e) => return fail(Value::Null, PARSE_ERROR, &format!("not JSON: {e}"), None),
+        Err(e) => return fail(Value::Null, PARSE_ERROR, &format!("not JSON: {}", crate::commands::out_of_range_member(input, &e).unwrap_or_else(|| e.to_string())), None),
     };
     let Some(obj) = msg.as_object() else {
         return fail(Value::Null, INVALID_REQUEST, "a message is one JSON object (batches are not part of this revision)", None);

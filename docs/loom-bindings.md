@@ -76,7 +76,33 @@ beyond `ess specify validate`, `cargo` or `slot` (a compile, a synthesis, a test
 build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `cmp` or an
 `sdc-findings` or `sdc-bugfix` check, which end in seconds, and keep Loom's 60 s. A `person`,
 `open` or `copy` binding runs no program and names none; an `arguments_from` argv (`list-epics`,
-`list-stories`, `spec-domain`: `aep` or `yq` over files) runs under its binding's timeout.
+`list-stories`, `spec-domain`: `aep` or `yq` over files) runs under its binding's timeout, at most 3600 s.
+
+The limits (Loom 0.61.0, `story:bound-program-timeout-above-an-hour`; Loom refuses the bindings file at
+load past them, `TimeoutOutOfRange`):
+
+- A `program` binding's `timeout_seconds` is from 1 to 14400 (`MAX_PROGRAM_TIMEOUT_SECONDS`). Past
+  3600 s the program gets 3600/`timeout_seconds` of one core (a 14400 s step gets a quarter of a core),
+  so a longer limit buys waiting time, not more CPU time than an hour of one core.
+- Every other executor keeps 1 to 3600 (`MAX_TIMEOUT_SECONDS`); Loom's words past it: `<n> is not from
+  1 to 3600; only a program executor may name up to 14400`. A program past 14400: `<n> is not from 1 to
+  14400, the range of a program executor`.
+- A binding's `handoff_when` check and its `arguments_from` program run under the binding's
+  `timeout_seconds` but at most 3600 s, whatever the binding names; `LOOM_TIMEOUT_SECONDS` tells each
+  the limit it runs under. Loom does not refuse a `handoff_when` beside a `timeout_seconds` above 3600:
+  the check keeps the hour.
+- `runbook check` names a `timeout_seconds` past its executor's range in Loom's words
+  (`runbook/src/check.rs`, `timeout_defect`). The cases: `check::tests` in `runbook/src/check.rs` and
+  the two `inproc` cases of `runbook/tests/loom_run/inproc.rs` (a program at 14400 runs and its
+  `handoff_when` check gets 3600; 14401 and a person step at 3601 are refused at the opening).
+
+A run killed at its timeout gives the value `timeout`, and from Loom 0.61.0 only a `timeout` row of
+the table matches it, never `*` (`story:wildcard-result-row-does-not-match-timeout`): a table with a
+`*` row and no `timeout` row ends such a run `ResultNotInTable`, and the case may stop `Stuck`. Every
+program binding of `bindings/*.yaml` and of the test fixtures whose table has a `*` row has a `timeout`
+row with the result `*` gave before (`failed`, `invalid`, `open`, ...), and the JSON copies in
+`driver/examples/sdc/` name it as well, so `scripts/check-bindings.sh` compares equal tables; that
+script takes `timeout` as a key of a `from: exit` table beside the exit codes and `*`.
 
 | Value | Bindings | Why |
 |---|---|---|
@@ -84,12 +110,85 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:245`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 3000, 3000, 4200 (3600 in `bindings/sdc-bugfix.yaml`: Loom refuses more, `TimeoutOutOfRange`) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
+| 3000, 3000, 4200 (4200 in `bindings/sdc-bugfix.yaml` since Loom 0.61.0; it was held at 3600 while Loom refused more) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |
 | 300 | every `amend.upstream` (intake, direction, spec, plan, story) | `timeout_s` of the JSON |
 | 60 (default) | intake `idea.check`, `dissection.check`, `questions.check`, `requirements.check`; direction `context.check`, `roadmap.validate`; spec `spec.validate`, `spec.scan`, `spec.review`; plan `plan.validate`, `plan.scope`, `plan.status`; story `change.merge`; release `release.build`, `release.publish`, `release.observe`; bugfix `dissection.check`, `story.update` | checks over files and copies |
+
+## The budget
+
+`budget: {max_runs: 3}` bounds the runs of an action in a case: the run after the third is refused
+(`RunsSpent`). A run that ends in an exit of `exits` (the error and not-called classes) is not counted.
+Three more members say what a rejection does to that count (Loom `d8944d49`,
+`story:rework-allowance-after-a-rejection`). They are read on a program or a person's action only; on
+an `agent`, `open` or `copy` action Loom refuses them (`MemberNotForExecutor`).
+
+| Member | What a person writes | Default |
+|---|---|---|
+| `runs_per` | `case`: every run of the action in the case counts against `max_runs`. `rejection`: only the runs since the latest rejection count, so a rejection gives the action a new allowance of `max_runs` runs | `case` |
+| `rework_limit` | a whole number from 1: how many rejections the action answers. The run after more rejections than that is refused | 2 |
+| `rework_on` | a map of evidence kind to results, written as `retry_when` is: the records that are a rejection, and no others. Each kind and result has to be in `retry_when` of the same action | absent: every `retry_when` entry that another action's record matches is a rejection |
+
+A rejection is a record of the case that `rework_on` lists (or `retry_when`, when `rework_on` is
+absent) made by anyone: the decider (`decider:<kind>`), a rule (`rule:<name>`) or a person. A record
+that cites a run or an approval of the action itself is not one (an approval record of the person
+action opens no window). The window is the runs of the action since the latest rejection. A failed
+check or a refused coverage that sends the action back through `retry_when`, and is not in
+`rework_on`, stays inside the window: it opens none.
+
+Loom refuses at load (`InvalidBudget`, naming the member): a `runs_per` that is neither `case` nor
+`rejection`; a `rework_limit` that is not a whole number from 1; `rework_limit` or `rework_on` with
+no `runs_per: rejection`; `runs_per: rejection` where `retry_when` lists no result ("lists no result":
+no record could open an allowance); an empty `rework_on`; a `rework_on` kind with no result; a pair
+`rework_on` lists that `retry_when` does not list. `runbook check` and `scripts/check-bindings.sh`
+(`--budget <root>`) refuse the same, in Loom's words, before a run does.
+
+A refused run is `RunsSpent`, in one of two texts: "`<action>` was rejected `<k>` times in case
+`<c>`, the latest `<evidence id>` by `<producer>`; its budget.rework_limit is `<n>`" (the rework
+limit, tested first) and "`<action>` has run `<n>` times in case `<c>` since the rejection
+`<evidence id>` by `<producer>`, its budget.max_runs is `<m>`" (a full window; without `since` when
+no rejection was made). `runbook run` ends such a run as any stuck tree (`docs/loom-run.md`, "The
+runs of an action are spent").
+
+`change.implement` of `bindings/sdc-story.yaml` is bound with `max_runs: 3`, `runs_per: rejection`,
+`rework_limit: 2` and `rework_on: {code_review: [rejected], merge_approval: [rejected]}`: the review
+and the merge approval send the writer back and each gives it three more runs; a failed
+`conformance_run` and a refused coverage (`implementation_change: [coverage_refused]`) are in
+`retry_when` only, so they use the runs of the window; the third rejection ends the run (the writer
+runs once and after each of the first two rejections). The value 2 follows Loom's rules for the two
+entries of `cycles/tree-suite.yaml` that hold it (`decider-rework-spent`: three rejections, then exit 4;
+`rework-fresh-allowance`: two rejections, then four writer runs and exit 0): at 2 the third rejection is
+the last, at 3 a fourth run follows it. No run has told 2 from 3: both entries ended the same way at both
+(before the change of the stub) and, after it, on Loom's 60 s bound in every run, three runs each at
+a one-minute load of 45 to 75 among them, before `change.implement` ran (`docs/cycles-suite.md`). Both
+stay `pending`; nothing here says a run settles them.
+
+## The per-call budget of a program
+
+A run reserves, before each bound program starts, what that program may spend on models
+(`docs/daemon-api.md`, "Caps of a run"; `runbook run`: `docs/loom-run.md`, "The spend ledger"). A
+program that takes the option names it in its argv (`--max-budget-usd <v>` or
+`--max-budget-usd=<v>`). A program that does not take it (a check, a deploy, a script that calls no
+model) gets it from its binding, never through its argv:
+
+| Member | Where | What it says |
+|---|---|---|
+| `max_budget_usd: <number>` | a program action (one with `executor.argv` or `arguments_from`) | the per-call budget, in USD, of that action's programs; `0`: they call no model |
+| `max_budget_usd: <number>` | the top of a bindings file | the same for every program action of that file that names none itself; not for a child file an `open` action names (each file names its own) |
+
+The order a program's budget is read in: `--max-budget-usd` in its argv, the action's member, the
+file's member, and else the largest budget the runbook's bindings name (in an argv or as a member).
+`runbook run` lowers an argv's budget to what its cap has left and leaves a member as written: a
+member is reserved as written (`runbook/src/budget.rs`).
+
+Refused at load, naming the action (or the file, for the file's member): a value that is no YAML
+number of 0 or more (text such as `"0.3"`, `-1`, `.nan`, `.inf`, `null`, `true`, a list); an action
+whose argv and member name two different budgets; a member on an action that runs no program.
+`runbook check` names the same. The member is Runbook's, not Loom's: Loom refuses a member it does
+not know (`UndeclaredMember`), so a run takes the members out of its copy of the bindings and keeps
+them beside it (`bindings/.call-budgets.json`, `budget::seal`); the files of the home keep them.
 
 ## Written in the YAML, carried out by Loom later
 
@@ -103,7 +202,7 @@ proposed order of Loom's open stories, 2026-11-21).
 - A `person`'s record produced by the approving principal, not the literal `person:owner`: `story:tree-run-command`, wave 2.
 - `budget.max_runs`, counted since the case's last arrival as the driver does (D24): `story:run-caps-per-arrival`, wave 6.
 
-`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`c9b4c177`) runs
+`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`d8944d49`) runs
 them. On a step with retry records it sets `LOOM_RETRY_FEEDBACK` on the bound program's child to the
 path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 (`crates/loom-bindings/src/retry.rs:14-17`, `:34`, `:36` of Loom).
@@ -136,7 +235,7 @@ that is not called while it stays due (`retry_when`) was taken again at once at 
 the due set after its not-called exit until the case is evaluated again for a reason other than its
 own moves, so it starts once per evaluation and the run goes on to the next useful action or to the
 handoff check; a not-called writer that moves an artifact, and a writer of evidence on that artifact,
-still alternate until the step or the cycle's time bound. The test of the state of run 1 of record
+still alternate until the step or the cycle's time bound (at `d8944d49` a set-aside action is idle in the due set, the second part of the fix; whether this alternation is gone is not observed here, the entries that show it were not run again). The test of the state of run 1 of record
 `parity-loom-strong-4` is `runbook/tests/test_suite/notcalled.rs`; see `spec-person-wait` and
 `cite-fault-sent-back` in `docs/cycles-suite.md`. The bindings that wait for the build pool (story `tests.run`, release
 `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) list `[69, 70, 75, 126, 127]`: 69 is

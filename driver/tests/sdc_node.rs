@@ -472,6 +472,53 @@ fn an_effort_option_is_on_the_dry_command_and_in_the_request_of_a_node_of_every_
     }
 }
 
+/// One start of `node` on the adapter `dry` with the options of its binding less `--max-budget-usd`
+/// and its value, and `extra`, in a fresh root.
+fn dry_start_without_budget(name: &str, node: &str, extra: &[&str]) -> Run {
+    let root = fresh(name);
+    base_work(&root.join("work"), node);
+    let mut argv = vec!["--adapter".to_string(), "dry".to_string()];
+    let mut rest = binding(node).into_iter();
+    while let Some(a) = rest.next() {
+        if a == "--max-budget-usd" {
+            rest.next();
+        } else {
+            argv.push(a);
+        }
+    }
+    let at = argv.iter().position(|a| a == "--stub").unwrap_or(argv.len());
+    argv.splice(at..at, extra.iter().map(|s| s.to_string()));
+    let mut s = start(node);
+    s.binding = false;
+    s.extra = argv;
+    exec(&root, &s, "IDEA-1.x")
+}
+
+/// A money budget of a call is optional: with none named by the binding, the request of the adapter
+/// and the record of the call carry no `max_budget_usd`, so the adapter passes no cap of its own; one
+/// the binding names is in the request as it is.
+#[test]
+fn a_node_whose_binding_names_no_budget_writes_a_request_without_max_budget_usd() {
+    for node in ["idea.dissect", "change.fix", "spec.author"] {
+        let r = dry_start_without_budget(&format!("budget-none-{node}"), node, &[]);
+        assert_eq!(r.code, Some(0), "{node}: {r:#?}");
+        let request = &r.files[&format!(".sdc/llm/001-{node}/request.json")];
+        assert!(!request.contains("max_budget_usd") && request.contains("\"max_turns\""), "{node}: {request}");
+        let call = &r.files[".sdc/llm/calls.jsonl"];
+        assert!(!call.contains("max_budget_usd") && call.contains("\"max_turns\""), "{node}: {call}");
+        assert!(!r.stderr.contains("max-budget-usd"), "{node}: the dry command names no budget: {r:#?}");
+        let argv = &r.files[&format!(".sdc/llm/001-{node}/argv.json")];
+        assert!(!argv.contains("max-budget-usd") && argv.contains("--max-turns"), "{node}: {argv}");
+    }
+    let r = dry_start_without_budget("budget-named", "change.fix", &["--max-budget-usd", "0.75"]);
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files[".sdc/llm/001-change.fix/request.json"].contains("\"max_budget_usd\": 0.75"), "{r:#?}");
+    assert!(r.files[".sdc/llm/calls.jsonl"].contains("\"max_budget_usd\":0.75"), "{r:#?}");
+    // 0 is a budget a user may name: it is passed as it is.
+    let r = dry_start_without_budget("budget-zero", "change.fix", &["--max-budget-usd", "0"]);
+    assert!(r.files[".sdc/llm/001-change.fix/request.json"].contains("\"max_budget_usd\": 0"), "{r:#?}");
+}
+
 #[test]
 fn a_level_outside_the_set_is_refused_before_the_node_makes_a_call() {
     let r = dry_start("effort-bogus", "change.fix", &["--effort", "bogus"]);
@@ -532,6 +579,35 @@ fn a_persons_rejection_reaches_the_stub() {
     let (_, r) = pair("retry-person", &start("requirements.normalise").env(&RETRY_ENV), &|root| put(root, "feedback-doc.json", &doc));
     assert_eq!(r.code, Some(0), "{r:#?}");
     assert!(r.files["requirements.yaml"].ends_with("# rework of the rejection of requirements.check:\n# - The requirements lack the named risks.\n# - Name the failure modes of a missing connection.\n"), "{r:#?}");
+}
+
+/// The second rejection of an approval by a person with the same reasons, as Loom hands it over: the
+/// first rework made a new revision, so the document of the second holds only the second record
+/// (`retry_records` skips a record about an earlier revision), in the workspace the first rework
+/// ran in. The note says it is the second, so the rework is not the artifact the first rejection
+/// left (a stub that wrote the same lines twice made no new revision and left the tree without a
+/// step to take).
+#[test]
+fn the_second_rejection_of_an_approval_by_a_person_is_numbered_in_the_note() {
+    let reasons = "The requirements lack the named risks.\n";
+    let blob = "5e".repeat(32);
+    let one = |id: &str, revision: &str| json!({"evidence_id": id, "kind": "requirements_approval", "subject": "requirements", "subject_revision": revision, "result": "rejected", "blob_sha256": blob, "action": "requirements.check", "exit": null});
+    let doc = |id: &str, revision: &str| retry_doc(json!([one(id, revision)]), json!([{"blob_sha256": blob, "tail": reasons}]));
+    let on = |file: &str| [("LOOM_RETRY_FEEDBACK", format!("{{root}}/{file}"))];
+    let root = fresh("retry-person-twice");
+    base_work(&root.join("work"), "requirements.normalise");
+    put(&root, "feedback-doc-1.json", &doc("e1", "r1"));
+    put(&root, "feedback-doc-2.json", &doc("e2", "r2"));
+    let first = on("feedback-doc-1.json");
+    let first = start("requirements.normalise").env(&[(first[0].0, first[0].1.as_str())]);
+    let o = spawn(&root, &first, first.case);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let second = on("feedback-doc-2.json");
+    let second = start("requirements.normalise").env(&[(second[0].0, second[0].1.as_str())]);
+    let r = exec(&root, &second, second.case);
+    expect("retry-person-twice", &r);
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files["requirements.yaml"].ends_with("# rework 2 of the rejection of requirements.check:\n# - The requirements lack the named risks.\n"), "{r:#?}");
 }
 
 #[test]
@@ -794,6 +870,63 @@ fn a_max_turns_that_is_no_number_is_refused() {
 #[test]
 fn a_max_budget_that_is_no_number_is_refused() {
     refused("budget", &["--max-budget-usd", "lots"], 64, "--max-budget-usd takes a number");
+}
+
+#[test]
+fn a_max_budget_that_is_named_empty_is_refused_not_read_as_none() {
+    refused("budget-empty", &["--max-budget-usd", ""], 64, "--max-budget-usd takes a number");
+}
+
+/// What `request.json` of the one call a start of `change.fix` made says of `member`; `None` when the
+/// start was refused and made no call record.
+fn requested(r: &Run, member: &str) -> Option<serde_json::Value> {
+    let text = r.files.get(".sdc/llm/001-change.fix/request.json")?;
+    Some(serde_json::from_str::<serde_json::Value>(text).unwrap().get(member).cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// `--max-budget-usd V`: a named value is the request's budget as named (a finite number of at least 0),
+/// or it is refused with exit 64 before a call record exists; below 0 is no budget. 6 starts.
+#[test]
+fn a_max_budget_that_is_named_is_a_finite_number_of_at_least_0_or_refused() {
+    let mut bad = vec![];
+    for (tag, value, equals) in [("zero", "0", Some(0.0)), ("plus", "+2", Some(2.0)), ("neg", "-1", None), ("negfrac", "-0.5", None), ("over", "1e400", None), ("hex", "0x10", None)] {
+        let r = dry_start_without_budget(&format!("budget-named-{tag}"), "change.fix", &["--max-budget-usd", value]);
+        let got = requested(&r, "max_budget_usd");
+        match (r.code, &got, equals) {
+            (Some(0), Some(g), Some(n)) if g.as_f64() == Some(n) => {}
+            (Some(64), None, None) => {}
+            _ => bad.push(format!("{value:?}: exit {:?}, request max_budget_usd {got:?}, named {equals:?}", r.code)),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// `--max-turns V`: a whole number of at least 1 is the request's bound; an empty value (not the node's
+/// default), below 1 and a fraction are refused with exit 64 before a call record exists. 5 starts.
+#[test]
+fn a_max_turns_that_is_named_is_a_whole_number_of_at_least_1_or_refused() {
+    let mut bad = vec![];
+    for (tag, value, equals) in [("seven", "7", Some(7.0)), ("empty", "", None), ("zero", "0", None), ("neg", "-1", None), ("frac", "1.5", None)] {
+        let r = dry_start_without_budget(&format!("turns-named-{tag}"), "change.fix", &["--max-turns", value]);
+        let got = requested(&r, "max_turns");
+        match (r.code, &got, equals) {
+            (Some(0), Some(g), Some(n)) if g.as_f64() == Some(n) => {}
+            (Some(64), None, None) => {}
+            _ => bad.push(format!("--max-turns {value:?}: exit {:?}, request max_turns {got:?}, named {equals:?}", r.code)),
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// A refusal of a money option names it and prints at most 40 bytes of the value.
+#[test]
+fn a_max_budget_refusal_cuts_a_long_value_at_40_bytes() {
+    let value = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let r = dry_start_without_budget("budget-long", "change.fix", &["--max-budget-usd", &value]);
+    assert_eq!(r.code, Some(64), "{r:#?}");
+    let seen = format!("{}{}", r.stdout, r.stderr);
+    assert!(seen.contains("--max-budget-usd"), "{seen}");
+    assert!(!seen.contains(&value[..41]), "more than 40 bytes of the value reach the console: {seen}");
 }
 
 #[test]

@@ -15,12 +15,13 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'read-only');
+const root = path.join(FIXTURE_DIR, 'read-only');
 const KINDS = ['history', 'unknown', 'stopped', 'closed'];
 let base, srv, sources;
 const src = (name) => sources.find((s) => s.path.endsWith(`/${name}/store`)).index;

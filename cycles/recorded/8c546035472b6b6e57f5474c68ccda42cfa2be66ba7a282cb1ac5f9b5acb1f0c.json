@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "cargo",
+    "fmt",
+    "--check"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "",
+  "stdout": ""
+}

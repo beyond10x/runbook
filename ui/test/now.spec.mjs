@@ -1,5 +1,5 @@
 // The "now" band against runs that are happening: test/fixture-run.mjs plays four scenarios out of
-// a recorded run into SDC_UI_FIXTURE_DIR (default test/fixtures/runs/<project>), and this file starts
+// a recorded run into SDC_UI_FIXTURE_DIR (default ui/target/fixture-runs/<project>), and this file starts
 // its own server over them (test/serve.mjs: a port the kernel gives). The agent test plays on a
 // shared clock (test/shared-clock.mjs) with a second server of its own.
 // Screenshots: screenshots/<project>-now-*.png.
@@ -9,6 +9,7 @@ import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun} from './need-run.mjs';
 import {sharedClock} from './shared-clock.mjs';
 import {startServer} from './serve.mjs';
@@ -22,7 +23,7 @@ let base, dir;
 test.beforeAll(async ({}, info) => {
   needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'now.spec.mjs (fixture source)', test);
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs', test);
-  dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
+  dir = path.join(FIXTURE_DIR, info.project.name);
   fs.mkdirSync(dir, {recursive: true});
   const run = (args) => { const p = spawnChild('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   const person = run(['test/fixture-run.mjs', 'person', path.join(dir, 'person')]);

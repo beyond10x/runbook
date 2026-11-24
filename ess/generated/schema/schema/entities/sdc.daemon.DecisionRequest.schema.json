@@ -50,11 +50,11 @@
     },
     "answered_by": {
       "$ref": "#/$defs/sdc.decision.Principal",
-      "description": "The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal."
+      "description": "The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal. A rule or a decider of the run answers under its own name instead, `rule:<name>` or `decider:<kind>`, and a client cannot take a name that starts with either, in any case, or with `router:`, nor one with a non-ASCII or a control character (400)."
     },
     "principal": {
       "$ref": "#/$defs/sdc.decision.Principal",
-      "description": "The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one."
+      "description": "The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one. For an answer of a rule or a decider it is that rule's or decider's own principal (`decider:<verdict>`, `rule:<name>`), never the daemon's, which may be a person's."
     },
     "answered_at": {
       "type": "string",
@@ -79,7 +79,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:00aeab3d735ad25b777e0d5a25a77da508cf36a34ee438a7a3a69ced9e3631c0",
+    "contract_digest": "slice-sha256/2:5c7397ac92cea39de14ec033a56d962d9af1bf993d77a0530f4e6f9fa16d36ab",
     "regenerate": "ess generate"
   },
   "$defs": {

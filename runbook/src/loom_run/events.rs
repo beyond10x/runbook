@@ -41,6 +41,9 @@ pub enum Event {
     /// The run directory exists and the settings are written. `settings` has the login file's
     /// path replaced by the text `named`.
     RunStarted { run: String, settings: Value },
+    /// The opening decided whether the run has a model node, once: `because` names the form that
+    /// counted, or says that none did. It is the event after `RunStarted` and is never repeated.
+    ModelNodeDecided { has_model_node: bool, because: String },
     /// One `tree run --max-steps 1` ended. `stop` is Loom's `stop` field, `steps` its `steps`,
     /// `exit` the exit code of `b10x-loom`.
     StepMade { index: u64, exit: i32, stop: String, steps: i64 },
@@ -65,10 +68,19 @@ pub enum Event {
     ActionStarted { source: StartSource, role: Option<&'static str>, case: Option<String>, action: Option<String>, try_number: Option<u64> },
     /// A cap stopped the run before the next call.
     CapReached { cap: Cap, detail: String },
+    /// The conformance observation of a run that closed was not started for the spend cap (a
+    /// fixed `reason`: no path and no byte of a file). Written after `Ended`.
+    ObservationSkipped { reason: &'static str },
+    /// The conformance observation of a run that closed was booked under a named cap: `reserved`
+    /// is what it held, `record` the cost its own record names (none: not known), `booked` what
+    /// was booked (never more than `reserved`), `spent_micro_usd` the run's total with it.
+    /// Written after `Ended`.
+    ObservationBooked { reserved: u64, record: Option<u64>, booked: u64, spent_micro_usd: u64 },
     /// `tree status` and `tree verify` were stored (exit codes of both).
     TreeStored { status_exit: i32, verify_exit: i32 },
-    /// The run ended: `outcome` is the outcome label, `exit_code` the runner's exit code.
-    Ended { outcome: String, reason: Option<String>, cause: Option<String>, loom_exit: Option<i32>, stderr_tail: Option<String>, exit_code: u8, steps: u64, spent_micro_usd: u64, llm_calls: u64 },
+    /// The run ended: `outcome` is the outcome label, `exit_code` the runner's exit code. `spent_micro_usd` and
+    /// `llm_calls` count what the run started; `recorded_micro_usd` and `recorded_llm_calls` what a re-drive took from its recording.
+    Ended { outcome: String, reason: Option<String>, cause: Option<String>, loom_exit: Option<i32>, stderr_tail: Option<String>, exit_code: u8, steps: u64, spent_micro_usd: u64, llm_calls: u64, recorded_micro_usd: u64, recorded_llm_calls: u64 },
 }
 
 /// Receives the events of a run in order. An error fails the run closed (outcome `error`).

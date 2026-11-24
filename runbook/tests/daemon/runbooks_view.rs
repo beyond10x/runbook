@@ -94,13 +94,29 @@ fn a_runbook_home_lists_the_runbooks_that_have_a_protocol_and_bindings() {
     write(&home.join("protocol/beta.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: beta\n  revision: 1\n");
     write(&home.join("protocol/notes.txt"), "text\n");
     write(&home.join("bindings/gamma.yaml"), "format: loom.bindings/1\n");
-    let engine = Arc::new(Engine::new(home.clone(), dir.join("state")));
+    let engine = Arc::new(Engine::new(home.clone(), dir.join("state"), super::policy()));
     let s = live("loom", engine, None, None, dir);
     let rows = s.rows();
     rows.iter().for_each(|r| openapi::check_row("Runbooks", r));
     assert_eq!(names(&rows), [("alpha".to_string(), Some("3".to_string()))], "{rows:?}");
     assert_eq!(rows[0]["runtime"], json!("loom"));
     assert!(!rows[0].to_string().contains("protocol/"), "{rows:?}");
+}
+
+#[test]
+fn the_runbook_directories_of_the_file_are_listed_before_the_runbook_home() {
+    let dir = scratch("runbooks-dirs");
+    let home = dir.join("home");
+    write(&home.join("protocol/alpha.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 3\n");
+    write(&home.join("bindings/alpha.yaml"), "format: loom.bindings/1\n");
+    let books = dir.join("books");
+    write(&books.join("protocol/delta.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: delta\n  revision: 7\n");
+    write(&books.join("bindings/delta.yaml"), "format: loom.bindings/1\n");
+    let engine = Arc::new(Engine::new(home, dir.join("state"), super::policy()).with_runbook_dirs(vec![books]));
+    let s = live("dirs", engine, None, None, dir);
+    let rows = s.rows();
+    rows.iter().for_each(|r| openapi::check_row("Runbooks", r));
+    assert_eq!(names(&rows), [("alpha".to_string(), Some("3".to_string())), ("delta".to_string(), Some("7".to_string()))], "{rows:?}");
 }
 
 #[test]
@@ -113,7 +129,7 @@ fn every_runbook_the_view_lists_is_one_a_submit_accepts() {
     let rows = s.rows();
     assert_eq!(rows.len(), 2, "{rows:?}");
     for r in rows {
-        let body = json!({"runbook_id": r["runbook_id"], "intake": "text"}).to_string();
+        let body = json!({"runbook_id": r["runbook_id"], "intake": "text", "confinement": "linux"}).to_string();
         let got = send(s.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
         assert_ne!(got.json()["outcome"], json!("no-runbook"), "{r}: {}", got.text());
     }

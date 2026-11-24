@@ -35,7 +35,8 @@
         "program": "sdc-tool.sh ess-gate",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         }
       },
       "name": "spec.gate",
@@ -104,7 +105,8 @@
         "results": {
           "*": "failed",
           "0": "passed",
-          "5": "finding"
+          "5": "finding",
+          "timeout": "failed"
         },
         "timeout_s": 3000
       },
@@ -1032,8 +1034,8 @@
   },
   "source": {
     "path": "protocol/sdc-story.protocol.yaml",
-    "tag": "0.9.2",
-    "url": "https://github.com/beyond10x/runbook/blob/0.9.2/protocol/sdc-story.protocol.yaml"
+    "tag": "0.10.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.10.0/protocol/sdc-story.protocol.yaml"
   },
   "stem": "sdc-story",
   "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision.",

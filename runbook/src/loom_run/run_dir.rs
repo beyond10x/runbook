@@ -17,14 +17,14 @@
 //! Nothing here writes the content of a login file, a path under a home directory or an
 //! environment: every value copied from an event is cleaned first (`Cleaner`).
 //!
-//! This file uses `super::events` and nothing else of the crate, so that the tests of the
+//! This file uses `super::events` and `super::record_write` and nothing else of the crate, so that the tests of the
 //! integration-test binary (there is no library target) can include it as it is.
 
 use super::events::{Cap, CostSource, Event, EventSink};
+use super::record_write;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The placeholder `sdc-experiment` puts in a summary for a string holding an absolute path.
@@ -129,21 +129,16 @@ impl Cleaner {
 
 // ------------------------------------------------------------------------------ small file work
 
-fn io(what: &Path, e: std::io::Error) -> String {
-    format!("{}: {e}", what.display())
-}
-
 /// One line appended to `path` with one write: a killed process leaves whole lines.
+/// The file is made when it is missing and is otherwise only a regular file with one name (`record_write::append`).
 fn append_line(path: &Path, v: &Value) -> Result<(), String> {
-    let mut f = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| io(path, e))?;
     let mut line = serde_json::to_string(v).map_err(|e| e.to_string())?;
     line.push('\n');
-    f.write_all(line.as_bytes()).map_err(|e| io(path, e))?;
-    f.flush().map_err(|e| io(path, e))
+    record_write::append(path, line.as_bytes(), true)
 }
 
 fn read_json(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
+    serde_json::from_slice(&record_write::read_regular(path).ok()?).ok()
 }
 
 fn hex(s: &str) -> String {
@@ -213,7 +208,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
         v
     };
     for p in yaml_files("protocols") {
-        let Some(doc) = fs::read_to_string(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
+        let Some(doc) = record_write::read_regular_text(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
         let Some(id) = doc["protocol"]["id"].as_str() else { continue };
         let f = by_stem.entry(stem(id)).or_default();
         f.id = Some(id.to_string());
@@ -226,7 +221,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
         }
     }
     for p in yaml_files("bindings") {
-        let Some(doc) = fs::read_to_string(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
+        let Some(doc) = record_write::read_regular_text(&p).ok().and_then(|t| serde_yaml::from_str::<serde_yaml::Value>(&t).ok()) else { continue };
         let Some(protocol) = doc["protocol"].as_str() else { continue };
         let name = protocol.split('@').next().unwrap_or(protocol);
         let f = by_stem.entry(stem(name)).or_default();
@@ -280,7 +275,7 @@ struct CaseLog {
 /// Reads `store/runlog-case-<hex>.jsonl`; a line that does not parse (the last one of a killed
 /// run) is left out. `None` when the file does not exist.
 fn read_runlog(store: &Path, case: &str) -> Option<CaseLog> {
-    let text = fs::read_to_string(store.join(format!("runlog-case-{}.jsonl", hex(case)))).ok()?;
+    let text = record_write::read_regular_text(&store.join(format!("runlog-case-{}.jsonl", hex(case)))).ok()?;
     let mut log = CaseLog::default();
     let mut pending: Option<String> = None;
     for (i, raw) in text.lines().enumerate() {
@@ -382,9 +377,9 @@ impl RunDirWriter {
         // "never recorded".
         for f in ["llm-calls.jsonl", "decisions.jsonl"] {
             let p = run_dir.join(f);
-            fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| io(&p, e))?;
+            record_write::append(&p, b"", true)?;
         }
-        fs::create_dir_all(run_dir.join("store")).map_err(|e| io(&run_dir.join("store"), e))?;
+        record_write::make_dir_in(run_dir, &run_dir.join("store"))?;
         let decider_model = settings["decider"]["model"].as_str().filter(|m| !m.is_empty()).map(String::from);
         let root = settings["case"].as_str().map(String::from);
         Ok(RunDirWriter {
@@ -409,20 +404,15 @@ impl RunDirWriter {
         self.run_dir.join(name)
     }
 
-    /// Replaces `path` by `content` through a temporary file and a rename; nothing is written
-    /// when the file already holds it.
+    /// Replaces `path` by `content` through the one writer of the records of a run directory
+    /// (`record_write::write_atomic`); nothing is written when the file already holds it.
     fn put(&mut self, path: &Path, content: Vec<u8>) -> Result<(), String> {
         if self.written.get(path).is_some_and(|c| *c == content) {
             return Ok(());
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
-        }
-        let mut tmp = path.as_os_str().to_os_string();
-        tmp.push(".tmp");
-        let tmp = PathBuf::from(tmp);
-        fs::write(&tmp, &content).map_err(|e| io(&tmp, e))?;
-        fs::rename(&tmp, path).map_err(|e| io(path, e))?;
+        let parent = path.parent().ok_or_else(|| format!("{}: no directory", path.display()))?;
+        let leaf = path.file_name().ok_or_else(|| format!("{}: no file name", path.display()))?;
+        record_write::Held::make(&self.run_dir, parent)?.write(leaf, &content)?;
         self.written.insert(path.to_path_buf(), content);
         Ok(())
     }
@@ -479,8 +469,13 @@ impl RunDirWriter {
         for (k, v) in map {
             line.insert(k, v);
         }
-        // The ledger's number is the one that was booked.
-        line.insert("cost_usd".into(), json!(cost_micro_usd as f64 / 1e6));
+        // The ledger's number is the one that was booked. A call of unknown cost in a run that names
+        // no spend cap books nothing: `cost_usd` is `null` and `cost_unknown` is true.
+        if line.remove("cost_booked") == Some(Value::Bool(false)) {
+            line.insert("cost_usd".into(), Value::Null);
+        } else {
+            line.insert("cost_usd".into(), json!(cost_micro_usd as f64 / 1e6));
+        }
         append_line(&self.path("llm-calls.jsonl"), &Value::Object(line))
     }
 
@@ -780,7 +775,7 @@ impl RunDirWriter {
             }
             if *id == root {
                 let findings = self.path("work/findings.yaml");
-                if let Ok(bytes) = fs::read(&findings) {
+                if let Ok(bytes) = record_write::read_regular(&findings) {
                     self.put(&dir.join("work").join("findings.yaml"), bytes)?;
                 }
             }
@@ -855,8 +850,7 @@ impl EventSink for RunDirWriter {
                 self.last_decider_model = record["model"].as_str().filter(|m| !m.is_empty()).map(String::from);
                 Ok(())
             }
-            Event::ActionStarted { .. } => Ok(()),
-            Event::NoModelCall { .. } => Ok(()),
+            Event::ActionStarted { .. } | Event::NoModelCall { .. } | Event::ModelNodeDecided { .. } | Event::ObservationSkipped { .. } | Event::ObservationBooked { .. } => Ok(()),
             Event::CapReached { cap, detail } => {
                 let cause = match cap {
                     Cap::Spend => "spend_cap",

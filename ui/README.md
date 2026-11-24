@@ -39,6 +39,25 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
   run picker without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
   first and are not listed twice.
+- When the server reads: only for a page that looks, or for a request. With no page connected it does
+  nothing (no timer runs, no run file is read; measured: 50 runs, under 1 % of a core). A page opens
+  `/events?source=<index>` for the run it shows, and while that stream is open a round every 700 ms
+  reads that run only (the stream is opened again when the page shows another run), and a file whose
+  size, modification time, inode and status-change time are those of its last read is answered from memory
+  (the memory held is at most 16 MiB, the entries and their overhead counted, a text with a character above
+  U+00FF at two bytes per character; the least recently used entry goes first; an entry whose file is gone,
+  refused or changed leaves when it is seen; every call still passes the run-path check first). Another run
+  is read when a request names it (`/api/sources` reads each run once, then only what changed), so the run
+  picker is as old as its last opening, except that a page that opens its stream within a minute of a list
+  that showed another state of its run is sent `sources` at once and reads the list again. A line that is
+  written to a run nobody looked at for 5 s is dated by the file's time, as on first sight. A run that
+  appears under `--runs` is announced to every page. A page that is more than 1 MiB of output behind (it
+  does not read) is dropped: its stream is ended and the page opens it again. With the environment variable
+  `SDC_CLOCK_DIR` set (the clock of the ux loop; the server has no option for it) every run is read on each
+  step of the clock, as before. `--count-reads` (a test option) counts the rounds and the reads of run
+  files by run at `GET /api/reads`, and says at `GET /api/rounds` whether the timer of the rounds runs and
+  how many pages hold a stream; without it neither route exists. `--round-ms N` (a test option, 10 to 700)
+  sets the time from one round to the next, 700 ms without it.
 - A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
@@ -293,6 +312,52 @@ The Products tab of the panel (and the product line under the header) shows what
 produced: the evidence records of the case with every field and nested value, the actions with their exit
 code, and the files of the run with their content. It reads and acts on nothing.
 
+**A product is a file an action of the run wrote or changed.** A file the run was seeded with (the copy
+of a repository, the intake, a goals file) is an input, not a product. The tab lists the products grouped
+by the step that wrote them, newest step first, and shows the inputs as one closed line, "Inputs", with
+the seeded trees and their file counts. Two records of the run directory say which is which, and neither
+is compared by time:
+
+- `fs/changes.jsonl` (`docs/fs-changes.md`): every file the watcher saw change under `work/`, with the
+  step that was in flight. It needs a run started with `--watch`.
+- `seeded.json` and `seeded-files.jsonl` (`docs/loom-run-directory.md`): what the runner listed in `work/`
+  when the seed ended, each file with the SHA-256 of its content. A seeded file is a `create` of step 1 in
+  the first record, the same as a file the first step writes, so the hash tells them apart: a path that is
+  listed and whose last change ends at the listed hash is an input and is not listed; listed and ending
+  at another hash it is a product marked `changed`; not listed it is a product (marked `added` when it lies
+  in a seeded tree); listed and deleted by an action it is marked `removed`. A path in either record goes
+  through the run-path check like every other path: one that leaves `work/` or the run is not listed and not
+  opened, and is only counted. A name is looked at one component at a time from the real path of the run, and a
+  link is resolved by the run-path check before the next component is looked at, so a name behind a link that
+  leaves the run is counted as left out (`leftOut`), the same whether or not anything lies behind it; `gone` counts
+  only names that lie in the run and are not there.
+- The answer of `/api/products` has `basis`: `records` (as above: `groups` by step, each with its `actions`
+  and `files`; `files` flat in the same order; `inputs` `{trees, files}`; `total`, `shown`, `notShown`,
+  `truncated`, `cut`, `leftOut`, `gone`, `linkCut`, `maxLinks`, `linksResolved`, `refusedRecords`, `cutStrings`, `maxAction`, `recordsStopped`) or `listing` (an older run, one without
+  `--watch`, or a seed record that is incomplete: every file under `work/` as before, and `basisNote` says
+  why). The products are not cut by depth; the page lists at most 500 and says how many are not shown. Every string of a record
+  that enters the answer has a bound, and the answer says when it cut one: an action name is cut at `maxAction` (256)
+  characters (a character of more than 16 bits counts one, and the cut never falls inside one) and counted in
+  `cutStrings` (`cut: "strings"`), a path longer than 1024 characters is not listed and is counted in `refusedRecords`.
+  An answer resolves at most `maxLinks` (8) link components of one name; a name past it is left out like a name behind a
+  link that leaves the run, and is counted in `linkCut` besides `leftOut` (`cut: "links"`); `linksResolved` is the number
+  of link components the answer resolved over the names it lists (at most 500), at most `maxLinks` per name. The server keeps at most
+  100 000 records of `fs/changes.jsonl` for one run and at most 64 MiB of their lines, without the diff; a late
+  attribution line that replaces one already kept counts what it adds to the longest line counted for that change (the
+  variables `SDC_UI_MAX_RECORDS` and `SDC_UI_MAX_RECORD_BYTES` set the bounds, for a test; a value that is not a whole
+  number of at least 1 that a number holds exactly, at most 2^53 - 1, is the default), and it keeps the state of the records with them, so an answer for a run
+  that did not change reads no record again; each answer still looks at the files it lists. When the reader stops before
+  the end of that file (a line longer than 32 MiB or bytes with no line end in a whole chunk, the 100 000 records or the
+  64 MiB) the answer has `recordsStopped` `{cause: "line" | "records" | "bytes", read, offset, size, why}`,
+  `truncated: true` and `cut: "records"`; a file the reader cannot take one record from is answered as `listing` with the
+  reason. The live feed is cut at the same bound: `/api/live` carries the same `recordsStopped` in `fs` (the feed and the
+  File changes tab show it as a note, the tab also when the list holds no record), and `/api/fschange` answers a change after the last record the list holds as
+  `404` "past the bound" with `recordsStopped`, never as "no such change".
+- The file the product line names is the last file the last finished step wrote (`via: last-written`),
+  never a file of an input tree; a view's `product` or the runbook's own file is refused when it is an
+  unchanged seeded file. For an older run the newest Markdown file is taken, but not one inside a tree with
+  a build manifest at its top.
+
 - Routes, all GET and behind the guard of every route (a Host that is not this server's is 421):
   `/api/products?source=N` (the files under the run's `work/` and the `work/` of each case, with size,
   format and, for a `.txt` step file, its `result:` line; the product and the rule that named it; how many
@@ -376,6 +441,7 @@ code, and the files of the run with their content. It reads and acts on nothing.
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
 `test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/written-model.spec.mjs`, `test/written-api.spec.mjs`, `test/written-page.spec.mjs`,
 `test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
 ## Where "now" comes from
@@ -428,7 +494,7 @@ a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each 
 and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
 `meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
-Each spec of the test step is in one list of `test/lanes.mjs`: `WIDE_ONLY` (runs at 1600x1000 only, with the reason in five words) or `BOTH` (runs at 1600x1000 and 1280x800; today `screens`). The Playwright config reads the list: the laptop project ignores the wide-only files, so a spec that does not need a second size costs no skipped entry. `test/budget.spec.mjs` fails for a spec in no list or in two, for a reason of no word or over five words, for a `BOTH` file that skips on the project name, and for a wide-only spec whose code matches the `SIZE` pattern (`viewport:`, `setViewportSize`, `viewportSize`, `boundingBox`, `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`, `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) without an entry (with its reason) in `SIZE_EXCEPTIONS`. A spec waits for an event: `settled(page)` (`test/settled.mjs`) returns when fonts are loaded and the finite animations have ended; `fixture-run.mjs` stops at the file it gets as its fourth argument until a test writes it (a shell variable holds nothing). A sleep is a `waitForTimeout` (a call, with a space before the bracket, as a bracket member or as a reference), a `setTimeout` that a `new Promise` with an arrow function waits for, or a window `Date.now() + <number>`; it is counted per call site in the gate's specs and in every file they import by `from '<path>'` or `import('<path>')` with a relative path (`./`, `../`, `ux/` too; an `import '<path>'` without bindings is not followed). Any other spelling is not found, among them a `function` callback of a promise, `timers/promises`, `Atomics.wait`, an alias of `setTimeout`, `setInterval` or a window whose time is no number, and it does not count a `waitForFunction` or `expect.poll` timeout or interval, a timer that ends a child or a request or the number of times a loop runs a call. A sleep is made only where `FIXED_WAITS` in `test/lanes.mjs` names the file, the count and the sum of the literal milliseconds, and `budget.spec.mjs` fails any other count or sum. A sleep whose time is the argument of a helper (`later(250)`) needs the entry to say `variable` with a reason, the `helper` and the `largest` number its call sites in the file pass: a call site over it or with no number fails. A window needs `window` with a reason; an entry may carry a `why`; each reason is five words at most. The helper check does not find a second sleep helper in a file, a helper that another file calls, a call written `later.call(null, 60000)` or `later?.(60000)` and an alias (`const l = later`): no file of the gate has one of these forms, and a new one needs a reviewer's eye. The fixture player `test/fixture-run.mjs`, which the specs spawn and do not import, holds 12 `sleep(<ms> / speed)` call sites and one lag timer, `after(1500 / speed, lag)` at line 281, that no entry lists and the check does not read (a case counts the `sleep(` sites). The Playwright config takes a file as a test only as `test/<name>.spec.mjs`, directly under `test/` (`SPEC_FORM` in `test/lanes.mjs` starts at that directory and is matched on the absolute path, so a spec below a subdirectory, also one below a directory that is itself named `test`, is no test; the cases "the config does not take a spec below a nested directory named test" and "the stray check tells a spec below a nested directory named test" hold it), and `budget.spec.mjs` fails a file anywhere below `test/` that Playwright's own default match (`*.spec.*`, `*.test.*`, also in a subdirectory) would take and that form does not; it reads the files of `test/` and its subdirectories except `fixtures/` (git-ignored, written by other specs of the same step) and `recorded/` (committed data). A beforeAll that needs several fixture runs or servers starts them at once (`playFixtures` in `test/fixtures.mjs`, `Promise.all` over `startServer`).
+Each spec of the test step is in one list of `test/lanes.mjs`: `WIDE_ONLY` (runs at 1600x1000 only, with the reason in five words) or `BOTH` (runs at 1600x1000 and 1280x800; today `screens`). The Playwright config reads the list: the laptop project ignores the wide-only files, so a spec that does not need a second size costs no skipped entry. `test/budget.spec.mjs` fails for a spec in no list or in two, for a reason of no word or over five words, for a `BOTH` file that skips on the project name, and for a wide-only spec whose code matches the `SIZE` pattern (`viewport:`, `setViewportSize`, `viewportSize`, `boundingBox`, `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`, `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) without an entry (with its reason) in `SIZE_EXCEPTIONS`. A spec waits for an event: `settled(page)` (`test/settled.mjs`) returns when fonts are loaded and the finite animations have ended; `fixture-run.mjs` stops at the file it gets as its fourth argument until a test writes it (a shell variable holds nothing). A sleep is a `waitForTimeout` (a call, with a space before the bracket, as a bracket member or as a reference), a `setTimeout` that a `new Promise` with an arrow function waits for, or a window `Date.now() + <number>`; it is counted per call site in the gate's specs and in every file they import by `from '<path>'` or `import('<path>')` with a relative path (`./`, `../`, `ux/` too; an `import '<path>'` without bindings is not followed). Any other spelling is not found, among them a `function` callback of a promise, `timers/promises`, `Atomics.wait`, an alias of `setTimeout`, `setInterval` or a window whose time is no number, and it does not count a `waitForFunction` or `expect.poll` timeout or interval, a timer that ends a child or a request or the number of times a loop runs a call. A sleep is made only where `FIXED_WAITS` in `test/lanes.mjs` names the file, the count and the sum of the literal milliseconds, and `budget.spec.mjs` fails any other count or sum. A sleep whose time is the argument of a helper (`later(250)`) needs the entry to say `variable` with a reason, the `helper` and the `largest` number its call sites in the file pass: a call site over it or with no number fails. A window needs `window` with a reason; an entry may carry a `why`; each reason is five words at most. The helper check does not find a second sleep helper in a file, a helper that another file calls, a call written `later.call(null, 60000)` or `later?.(60000)` and an alias (`const l = later`): no file of the gate has one of these forms, and a new one needs a reviewer's eye. The fixture player `test/fixture-run.mjs`, which the specs spawn and do not import, holds 12 `sleep(<ms> / speed)` call sites and one lag timer, `after(1500 / speed, lag)` at line 281, that no entry lists and the check does not read (a case counts the `sleep(` sites). The Playwright config takes a file as a test only as `test/<name>.spec.mjs`, directly under `test/` (`SPEC_FORM` in `test/lanes.mjs` starts at that directory and is matched on the absolute path, so a spec below a subdirectory, also one below a directory that is itself named `test`, is no test; the cases "the config does not take a spec below a nested directory named test" and "the stray check tells a spec below a nested directory named test" hold it), and `budget.spec.mjs` fails a file anywhere below `test/` that Playwright's own default match (`*.spec.*`, `*.test.*`, also in a subdirectory) would take and that form does not; it reads the files of `test/` and its subdirectories except `fixtures/` (git-ignored scratch; the other specs write their run directories under `target/fixture-runs`, `test/fixture-dir.mjs`) and `recorded/` (committed data). A beforeAll that needs several fixture runs or servers starts them at once (`playFixtures` in `test/fixtures.mjs`, `Promise.all` over `startServer`).
 
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
 `stall-model.spec.mjs` test the derivations without a browser; `runner-live-model.spec.mjs` does it for the three

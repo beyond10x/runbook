@@ -21,6 +21,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 fn cli_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> Output {
     let mut c = Command::new(BIN);
     c.args(args).env_clear().env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
+    crate::isolate(&mut c);
     for (k, v) in env {
         c.env(k, v);
     }
@@ -149,9 +150,10 @@ fn run_without_detach_runs_in_process_and_names_the_options_it_lacks() {
     let o = cli_in(&dir, &["run", "sdc", "--intake", "i"], &[], None);
     assert_eq!(code(&o), 64);
     let text = err(&o);
-    for flag in ["--run", "--runs-dir", "--confinement", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds"] {
-        assert!(text.contains(flag), "{flag} is not named: {text}");
-    }
+    // the run, the directory of the runs and the settings have defaults now, the money options are optional; the
+    // confinement has none
+    assert!(text.contains("--confinement") && text.contains("confinement = ") && text.contains("runbook.toml"), "the first value that is not stated is not named with its line: {text}");
+    assert!(!text.contains("--runs-dir") && !text.contains("--settings") && !text.contains("--spend-ledger"), "{text}");
     assert!(!text.contains("waits for"), "{text}");
     assert_eq!(out(&o), "");
 }
@@ -426,7 +428,8 @@ fn runs_events_resumes_with_last_event_id_after_a_dropped_connection_and_prints_
 #[test]
 fn a_connection_that_cannot_be_made_exits_69() {
     let dir = super::state::scratch("cc-refused");
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    // Held for the case: nothing listens there and no other server is handed the port.
+    let (_held, port) = super::http::refusing_port();
     let o = cli_in(&dir, &["runs", "list", "--daemon", &format!("http://127.0.0.1:{port}")], &[], None);
     assert_eq!(code(&o), exit::UNREACHABLE as i32);
     assert!(err(&o).contains("connection refused"), "{}", err(&o));

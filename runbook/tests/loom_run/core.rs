@@ -13,16 +13,23 @@ const BINDINGS: &str = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - 
 
 /// A shell snippet for a `tree_run` hook: one model call that costs `COST` USD, or less when the
 /// budget the runner wrote into the bindings copy is lower (as the claude CLI honours its budget).
+/// The budget is the line after the last `--max-budget-usd` of the copy, its digits and dots (1
+/// when there is none). The snippet runs once per step of many cases: it starts one `awk` and at
+/// most two `mkdir`, the record directory is counted and named with the shell's own words.
 pub fn model_call_hook(cost: &str) -> String {
     format!(
-        "w=work/.sdc/llm; mkdir -p \"$w\"\n\
-i=$(( $(find \"$w\" -mindepth 1 -maxdepth 1 -type d | wc -l) + 1 ))\n\
-d=$(printf '%03d-node.write' $i); mkdir -p \"$w/$d\"\n\
-b=$(grep -A1 -e '--max-budget-usd' bindings/sdc.yaml | tail -1 | tr -dc '0-9.')\n\
-c=$(awk -v b=\"${{b:-1}}\" -v c={cost} 'BEGIN{{ if (c+0 > b+0) c=b; printf \"%s\", c }}')\n\
+        "w=work/.sdc/llm; [ -d \"$w\" ] || mkdir -p \"$w\"\n\
+{RECORD_DIR}\
+c=$(awk -v c={cost} 'take {{ b = $0; take = 0 }} /--max-budget-usd/ {{ b = $0; take = 1 }} END {{ gsub(/[^0-9.]/, \"\", b); if (b == \"\") b = 1; if (c+0 > b+0) c = b; printf \"%s\", c }}' bindings/sdc.yaml)\n\
+[ -n \"$c\" ] || c=$(awk -v c={cost} 'BEGIN {{ if (c+0 > 1) c = 1; printf \"%s\", c }}')\n\
 printf '{{\"action\":\"node.write\",\"record\":\"%s/%s\",\"cost_usd\":%s}}\\n' \"$PWD/$w\" \"$d\" \"$c\" >> \"$w/calls.jsonl\"\n"
     )
 }
+
+/// sh that makes the next record directory `NNN-node.write` under `$w` and names it `$d`: one more
+/// than the directories `$w` holds, three digits.
+pub const RECORD_DIR: &str = "i=1; for e in \"$w\"/*/; do [ -d \"$e\" ] && i=$((i + 1)); done\n\
+d=$i; while [ ${#d} -lt 3 ]; do d=\"0$d\"; done; d=\"$d-node.write\"; mkdir -p \"$w/$d\"\n";
 
 /// The TOML text of a settings value: the form `runbook run --settings` reads.
 pub fn toml_text(v: &Value) -> String {
@@ -148,6 +155,7 @@ impl World {
             .env("SDC_SECRET_MARKER", "marker-secret-value")
             .env("ANTHROPIC_API_KEY", "marker")
             .stdin(Stdio::null());
+        crate::isolate(&mut c);
         c
     }
 
@@ -268,8 +276,9 @@ fn the_child_environment_is_built_and_not_inherited() {
     for call in &calls {
         let keys: Vec<&str> = call.env.iter().map(|(k, _)| k.as_str()).collect();
         for k in &keys {
-            assert!(["PATH", "HOME", "XDG_DATA_HOME", "PWD", "SHLVL", "_", "OLDPWD"].contains(k), "unexpected variable {k} in {keys:?}");
+            assert!(["PATH", "HOME", "XDG_DATA_HOME", "RUNBOOK_NO_CONFIG", "PWD", "SHLVL", "_", "OLDPWD"].contains(k), "unexpected variable {k} in {keys:?}");
         }
+        assert!(call.env.iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a program of the run is not told to read no runbook.toml: {keys:?}");
         let text = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n");
         for marker in ["marker-secret-value", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
             assert!(!text.contains(marker), "{marker} reached the child: {text}");

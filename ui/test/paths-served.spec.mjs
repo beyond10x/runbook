@@ -5,12 +5,13 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const HOME_PATH = '/' + 'home/';
-const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'paths', 'run');
+const dir = path.join(FIXTURE_DIR, 'paths', 'run');
 let base;
 const hits = (text) => text.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => l.includes(HOME_PATH)).map(([n, l]) => `${n}: ${l.slice(0, 160)}`);
 let srv;

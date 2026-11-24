@@ -1,2 +1,2 @@
-rework of the rejection of {{action}}:
+rework{{nth}} of the rejection of {{action}}:
 {{reasons}}

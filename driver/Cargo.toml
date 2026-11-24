@@ -1,6 +1,6 @@
 [package]
 name = "sdc-tools"
-version = "0.9.2"
+version = "0.10.0"
 edition = "2021"
 publish = false
 autotests = false
@@ -89,6 +89,10 @@ path = "src/bin/sdc-run-timeline.rs"
 name = "sdc-free-agent"
 path = "src/bin/sdc-free-agent.rs"
 
+[[bin]]
+name = "sdc-recorded-pool"
+path = "src/bin/sdc-recorded-pool.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"
@@ -97,6 +101,7 @@ serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
 toml = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
+libc = "0.2"
 
 [profile.dev.package.sha2]
 opt-level = 3

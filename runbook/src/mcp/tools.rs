@@ -42,7 +42,7 @@ const TOOLS: [Tool; 7] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
-        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
+        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
         read_only: false,
         kind: Kind::Command("submit-run"),
     },
@@ -91,14 +91,14 @@ const TOOLS: [Tool; 7] = [
 ];
 
 /// The members of a command's input the HTTP handler fills; a client never sends them.
-pub const SUBMIT_FILLED: [&str; 5] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at"];
+pub const SUBMIT_FILLED: [&str; 6] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source"];
 
 /// The members of the input of `answer-decision` the handler fills: the instant and the daemon's own
 /// principal, which no tool argument sets.
 pub const ANSWER_FILLED: [&str; 2] = ["at", "principal"];
 
 /// The members of a command's input the daemon defaults when the client leaves them out.
-pub const SUBMIT_DEFAULTED: [&str; 2] = ["settings", "confinement"];
+pub const SUBMIT_DEFAULTED: [&str; 1] = ["settings"];
 
 fn input_schema(tool: &Tool) -> Value {
     match &tool.kind {

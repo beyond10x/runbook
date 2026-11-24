@@ -267,7 +267,7 @@ fn replay_recording_clean_holds_no_home_path_prompt_or_transcript() {
 fn replay_helper(args: &[&str]) -> Value {
     let bin = repo().join("driver/target/debug/sdc-replay");
     assert!(bin.is_file(), "{} is not built (cargo build --locked --bins in driver/)", bin.display());
-    let out = std::process::Command::new(&bin).args(args).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = std::process::Command::new(&bin).args(args).env("RUNBOOK_NO_CONFIG", "1").stdin(std::process::Stdio::null()).output().unwrap();
     assert!(out.status.success(), "sdc-replay {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     serde_json::from_slice(&out.stdout).unwrap()
 }
@@ -288,6 +288,43 @@ fn replay_index_lists_every_recorded_call_under_its_own_key() {
         assert!(keys.insert(key.clone()), "two calls have the key {key:?}");
     }
     assert!(index.iter().any(|c| c["kind"] == "work") && index.iter().any(|c| c["kind"] == "decider"));
+}
+
+/// `--live-cap` has no default: a plan made without it names no cap (`live.cap` is null, no limit on
+/// live calls), a plan made with it names that value, and `settings` says which. No run.
+#[test]
+fn replay_prepare_names_no_live_cap_unless_one_is_given() {
+    let source = recording();
+    for (tag, extra, want) in [("none", vec![], Value::Null), ("three", vec!["--live-cap", "3"], serde_json::json!(3)), ("zero", vec!["--live-cap", "0"], serde_json::json!(0))] {
+        let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("replay-live-cap-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        let tree = repo();
+        let mut args = vec!["prepare", "--source", source.to_str().unwrap(), "--out", out.to_str().unwrap(), "--tree", tree.to_str().unwrap(), "--on-divergence", "live"];
+        args.extend(extra);
+        replay_helper(&args);
+        assert_eq!(read_json(&out.join("replay/plan.json"))["live"]["cap"], want, "{tag}");
+        assert_eq!(replay_helper(&["settings", "--out", out.to_str().unwrap()])["live_cap"], want, "{tag}");
+    }
+}
+
+/// A refusal of `prepare --live-cap` names the option and prints at most 40 bytes of the value, and
+/// leaves no out directory.
+#[test]
+fn prepare_refuses_a_live_cap_that_cannot_be_read_and_cuts_a_long_value_at_40_bytes() {
+    let value = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("prepare-long-{}", std::process::id()));
+    let o = std::process::Command::new(repo().join("driver/target/debug/sdc-replay"))
+        .args(["prepare", "--source", recording().to_str().unwrap(), "--out", out.to_str().unwrap(), "--live-cap", &value])
+        // the helper reads no `runbook.toml`; named as every start of a program by path is (`config_guards.rs`)
+        .env("RUNBOOK_NO_CONFIG", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_ne!(o.status.code(), Some(0), "{said}");
+    assert!(said.contains("--live-cap"), "{said}");
+    assert!(!said.contains(&value[..41]), "more than 40 bytes of the value reach the console: {said}");
+    assert!(!out.exists(), "the refusal came after the out directory was made");
 }
 
 /// The settings of a re-drive come from the plan alone: the plan of the committed recording names

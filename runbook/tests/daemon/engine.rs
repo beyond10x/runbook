@@ -4,13 +4,17 @@
 //! `rejected`.
 
 use super::state::scratch;
+use runbook::clock::SetClock;
 use runbook::commands::{AnswerDecision, CancelRun, Config, Daemon, SubmitRun};
+use runbook::engine::copy::digest;
 use runbook::engine::{Engine, StoreState};
-use runbook::runtime::{Confinement, Recovery, Runtime};
-use serde_json::Value;
-use std::collections::BTreeSet;
+use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest, StartTarget, Started};
+use serde_json::{json, Value};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const RUNBOOK: &str = "engine-demo";
@@ -48,6 +52,20 @@ fn listing(dir: &Path) -> BTreeSet<String> {
 
 /// The command names of every process below this one.
 fn descendants() -> Vec<String> {
+    descendant_processes().into_iter().map(|(_, c)| c).collect()
+}
+
+/// Ends every `sleep` below this process: a step whose program pauses (`pause.txt`) goes on at once, when the case has seen
+/// what it waited for, instead of after the pause.
+fn end_the_pauses() {
+    for (pid, _) in descendant_processes().into_iter().filter(|(_, c)| c == "sleep") {
+        // SAFETY: a plain signal to a process id this case just read below its own process.
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
+}
+
+/// The process id and the command name of every process below this one.
+fn descendant_processes() -> Vec<(u32, String)> {
     let mut table: Vec<(u32, u32, String)> = Vec::new();
     for e in std::fs::read_dir("/proc").unwrap().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
@@ -64,7 +82,7 @@ fn descendants() -> Vec<String> {
         }
         below.extend(more);
     }
-    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(_, _, c)| c).collect()
+    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(p, _, c)| (p, c)).collect()
 }
 
 fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
@@ -92,6 +110,12 @@ impl Rig {
     /// (`tools/draft-hold.sh`: sleeps the seconds of `pause.txt`, exits 1), so a check runs before
     /// the writer's step.
     fn build(tag: &str, levels: &[Confinement], hold: bool) -> Rig {
+        Rig::build_with(tag, levels, hold, false)
+    }
+
+    /// `refuse`: the writer's binding lists the exit 69 in `exits.error` and the writer ends with
+    /// it, so Loom refuses the step `ProgramError` and the tree is left without a move.
+    fn build_with(tag: &str, levels: &[Confinement], hold: bool, refuse: bool) -> Rig {
         let dir = scratch(tag);
         let home = dir.join("home");
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
@@ -105,9 +129,15 @@ impl Rig {
             assert!(text.contains(writer));
             text = text.replace(writer, &format!("{writer}    handoff: Write the draft by hand.\n    handoff_when: [tools/draft-hold.sh]\n"));
         }
+        if refuse {
+            let writer = "      argv: [tools/draft-write.sh]\n";
+            assert!(text.contains(writer));
+            text = text.replace(writer, &format!("{writer}    exits: {{error: [69]}}\n"));
+            std::fs::write(home.join("bindings/tools/draft-write.sh"), "#!/bin/sh\nexit 69\n").unwrap();
+        }
         std::fs::write(&binding, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
-        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels));
+        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels, super::policy()));
         let mut rig = Rig { dir, home, levels: levels.to_vec(), engine, d: None };
         rig.d = Some(Daemon::start(rig.config(), rig.engine.clone()).unwrap());
         rig
@@ -124,7 +154,7 @@ impl Rig {
     /// Drop the daemon and its engine and start both again on the same directory.
     fn restart(&mut self) {
         self.d.take().unwrap().stop();
-        self.engine = Arc::new(Engine::with_levels(self.home.clone(), self.dir.join("state"), &self.levels));
+        self.engine = Arc::new(Engine::with_levels(self.home.clone(), self.dir.join("state"), &self.levels, super::policy()));
         self.d = Some(Daemon::start(self.config(), self.engine.clone()).unwrap());
     }
 
@@ -342,6 +372,32 @@ fn a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_
 }
 
 #[test]
+fn a_run_left_without_a_move_by_a_refused_action_says_which_action_and_exit() {
+    // The daemon ends a run the engine could not go on with as `runtime-failure` and keeps the
+    // engine's reason in `runbook.runtime-failed`: the reason names Loom's refusal of the action
+    // (`ProgramError`, its exit), not only that the tree is stuck.
+    let rig = Rig::build_with("engine-program-error", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    until("the run to end", 40, || rig.state_of(&run) == "Ended");
+    assert_eq!(rig.row(&run)["outcome"], "runtime-failure");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
+    assert!(reason.contains("ProgramError: action draft.write: ") && reason.contains("exit status 69"), "{reason}");
+}
+
+#[test]
+fn the_runtime_failed_reason_of_a_refused_action_names_no_state_or_home_path() {
+    let rig = Rig::build_with("fix1-engine-path", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    until("the run to end", 40, || rig.state_of(&run) == "Ended");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
+    let (dir, home) = (rig.dir.display().to_string(), rig.home.display().to_string());
+    assert!(reason.contains("ProgramError: action draft.write: "), "{reason}");
+    assert!(!reason.contains(&dir) && !reason.contains(&home), "the reason names a path of the state directory or the home: {reason}");
+}
+
+#[test]
 fn every_run_log_line_reaches_the_record_unchanged() {
     let rig = Rig::new("engine-record", &[Confinement::Local]);
     let run = rig.submit();
@@ -422,10 +478,14 @@ fn a_confinement_level_the_engine_cannot_give_is_refused_before_anything_starts(
 fn only_the_programs_of_the_runbook_run_and_nothing_is_written_beside_the_state_directory() {
     let rig = Rig::new("engine-sample", &[Confinement::Local]);
     let home_before = listing(&rig.home);
-    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    // the writer pauses until the sample has seen it (its `sleep`); the sample covers the whole run
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
     let mut seen: BTreeSet<String> = BTreeSet::new();
     until("the run to end", 50, || {
         seen.extend(descendants());
+        if seen.contains("sleep") {
+            end_the_pauses();
+        }
         match rig.state_of(&run).as_str() {
             "WaitingOnDecision" => {
                 for d in rig.d().open_decisions_of_run(&run) {
@@ -445,4 +505,682 @@ fn only_the_programs_of_the_runbook_run_and_nothing_is_written_beside_the_state_
     }
     assert_eq!(listing(&rig.home), home_before, "the runbook directory was written into");
     assert!(rig.store(&run).starts_with(rig.dir.join("state")));
+}
+
+// ---- the step in flight ----
+
+const STARTED: &str = "runbook.action-started";
+
+impl Rig {
+    /// The row of the view `run` as `GET /daemon/views/run` and the MCP tool `read_run` answer it.
+    fn run_view(&self, run: &str) -> Value {
+        let query = std::collections::HashMap::from([("run_id".to_string(), run.to_string())]);
+        let answer = runbook::api::routes::view_answer("run", self.d(), &query);
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.body["rows"][0].clone()
+    }
+
+    fn started(&self, run: &str) -> Vec<Value> {
+        self.d().events_after(run, 0).into_iter().filter(|e| e["kind"] == STARTED).collect()
+    }
+
+    fn wait_started(&self, run: &str, action: &str) -> Value {
+        let mut found = None;
+        until(&format!("{STARTED} of {action}"), 20, || {
+            found = self.started(run).into_iter().find(|e| e["record"]["action"] == action);
+            found.is_some()
+        });
+        found.unwrap()
+    }
+}
+
+#[test]
+fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
+    let rig = Rig::new("engine-in-flight", &[Confinement::Local]);
+    // the writer pauses until the case has read the step in flight; then the case ends the pause
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
+    let event = rig.wait_started(&run, "draft.write");
+    // the program has not ended: no draft, no finished line of the action
+    assert!(!rig.workspace(&run).join("draft.txt").exists(), "the writer ended before its start was recorded");
+    let finished = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"] == "ActionFinished" && e["record"]["action"] == "draft.write").count();
+    assert_eq!(finished, 0, "the action was finished when its start was read");
+    assert_eq!(event["record"]["role"], "program");
+    let case = event["record"]["case"].as_str().expect("the event names the case");
+    assert!(!case.is_empty());
+    // the run view shows it
+    let row = rig.run_view(&run);
+    super::openapi::check_row("RunDetail", &row);
+    let step = &row["step_in_flight"];
+    assert_eq!((step["action"].as_str(), step["case_id"].as_str()), (Some("draft.write"), Some(case)), "{row}");
+    assert_eq!(step["started_at"], event["at"], "{row}");
+    assert!(step["seconds"].as_u64().is_some_and(|s| s <= 3), "{row}");
+    // it is gone once the run waits on the review: the writer and the check ended
+    until("the writer's pause to be seen and ended", 20, || {
+        let pausing = descendants().iter().any(|c| c == "sleep");
+        end_the_pauses();
+        pausing
+    });
+    rig.wait_review(&run);
+    let row = rig.run_view(&run);
+    super::openapi::check_row("RunDetail", &row);
+    assert!(row.get("step_in_flight").is_none(), "a step is shown while the run waits: {row}");
+    assert!(rig.workspace(&run).join("draft.txt").exists());
+}
+
+#[test]
+fn actions_in_turn_give_one_event_each_in_the_order_they_started() {
+    let rig = Rig::new("engine-in-flight-turns", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(1)));
+    rig.wait_review(&run);
+    let events = rig.d().events_after(&run, 0);
+    let mut seen: Vec<(String, u64)> = Vec::new();
+    for e in &events {
+        let position = e["position"].as_u64().unwrap();
+        match e["kind"].as_str().unwrap() {
+            STARTED => seen.push((format!("started {}", e["record"]["action"].as_str().unwrap()), position)),
+            "ActionFinished" => seen.push((format!("finished {}", e["record"]["action"].as_str().unwrap()), position)),
+            _ => {}
+        }
+    }
+    let names: Vec<&str> = seen.iter().map(|(n, _)| n.as_str()).collect();
+    // draft.open is no program (no start event); then the check (no draft yet: invalid), the writer, the check again
+    let mut want = vec!["finished draft.open".to_string()];
+    want.extend(["draft.check", "draft.write", "draft.check"].iter().flat_map(|a| [format!("started {a}"), format!("finished {a}")]));
+    assert_eq!(names, want, "{names:?}");
+    assert!(seen.windows(2).all(|w| w[0].1 < w[1].1), "positions grow: {seen:?}");
+    assert_eq!(rig.started(&run).len(), 3);
+}
+
+#[test]
+fn a_handoff_check_is_recorded_as_a_check_of_its_action() {
+    let rig = Rig::build("engine-in-flight-check", &[Confinement::Local], true);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    let event = rig.wait_started(&run, "draft.write");
+    assert_eq!(event["record"]["role"], "check", "{event}");
+    assert_eq!(rig.run_view(&run)["step_in_flight"]["action"], "draft.write");
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    assert!(rig.run_view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event() {
+    let mut rig = Rig::new("engine-in-flight-orphan", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(20)));
+    rig.wait_started(&run, "draft.write");
+    assert!(rig.run_view(&run).get("step_in_flight").is_some());
+    rig.restart();
+    let row = rig.run_view(&run);
+    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")), "{row}");
+    assert!(row.get("step_in_flight").is_none(), "an orphaned run shows a step: {row}");
+    let actions: Vec<String> = rig.started(&run).iter().map(|e| e["record"]["action"].as_str().unwrap().to_string()).collect();
+    assert_eq!(actions, ["draft.check", "draft.write"], "the journal keeps the start events of the check that failed and of the writer");
+}
+
+// ---- the step in flight, with a runtime the test drives step by step ----
+
+type Act = Box<dyn FnOnce(&Arc<dyn StartTarget>, &dyn EventSink) -> Option<Result<Finish, RuntimeFailure>> + Send>;
+type Call = (Act, mpsc::Sender<()>);
+type Lane = (mpsc::Sender<Call>, Option<mpsc::Receiver<Call>>);
+
+#[derive(Default)]
+struct Gated {
+    chans: Mutex<HashMap<String, Lane>>,
+}
+
+impl Gated {
+    fn tx(&self, run: &str) -> mpsc::Sender<Call> {
+        let mut m = self.chans.lock().unwrap();
+        m.entry(run.to_string()).or_insert_with(|| {
+            let (tx, rx) = mpsc::channel();
+            (tx, Some(rx))
+        })
+        .0
+        .clone()
+    }
+
+    fn rx(&self, run: &str) -> mpsc::Receiver<Call> {
+        self.tx(run);
+        self.chans.lock().unwrap().get_mut(run).unwrap().1.take().expect("one start per run")
+    }
+
+    /// Runs `act` on the run's own thread and returns when it has run.
+    fn on_thread(&self, run: &str, act: impl FnOnce(&Arc<dyn StartTarget>, &dyn EventSink) -> Option<Result<Finish, RuntimeFailure>> + Send + 'static) {
+        let (ack, wait) = mpsc::channel();
+        self.tx(run).send((Box::new(act), ack)).unwrap();
+        wait.recv_timeout(Duration::from_secs(20)).expect("the run's thread did not take the call");
+    }
+}
+
+impl Runtime for Gated {
+    fn recover(&self, _run_id: &str) -> Recovery {
+        Recovery::Gone
+    }
+
+    fn knows_runbook(&self, runbook: &str, _version: Option<&str>) -> bool {
+        runbook == "gated"
+    }
+
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        vec![RunbookInfo { name: "gated".into(), version: None }]
+    }
+
+    fn kind(&self) -> &'static str {
+        "loom"
+    }
+
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, _cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        let rx = self.rx(&request.run_id);
+        sink.started();
+        let target = sink.steps().expect("the daemon's sink takes step reports");
+        loop {
+            let (act, ack) = rx.recv_timeout(Duration::from_secs(40)).map_err(|e| RuntimeFailure { reason: format!("no call: {e}") })?;
+            let done = act(&target, sink);
+            let _ = ack.send(());
+            if let Some(result) = done {
+                return result;
+            }
+        }
+    }
+
+    fn answer(&self, _run_id: &str, _request_id: &str, _answer: &str, _principal: &str) -> Result<(), AnswerFailure> {
+        Err(AnswerFailure::UnknownRun)
+    }
+
+    fn cancel(&self, _run_id: &str) {}
+}
+
+struct Gate {
+    rt: Arc<Gated>,
+    clock: Arc<SetClock>,
+    d: Daemon,
+    runs: Mutex<Vec<String>>,
+}
+
+const T0: &str = "2026-11-24T10:00:00Z";
+
+fn st(serial: u64, role: &'static str, case: Option<&str>, action: Option<&str>, try_number: Option<u64>) -> Started {
+    Started { serial, role, case: case.map(str::to_owned), action: action.map(str::to_owned), try_number }
+}
+
+impl Gate {
+    fn new(tag: &str) -> Gate {
+        let dir = scratch(tag);
+        std::fs::create_dir_all(dir.join("ctx")).unwrap();
+        let rt = Arc::new(Gated::default());
+        let clock = Arc::new(SetClock::at(T0).unwrap());
+        let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() };
+        let d = Daemon::start_with_clock(cfg, rt.clone(), clock.clone()).unwrap();
+        Gate { rt, clock, d, runs: Mutex::new(Vec::new()) }
+    }
+
+    fn submit(&self) -> String {
+        let o = self.d.submit_run(SubmitRun { runbook_id: "gated".into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
+        assert_eq!(o.name, "submitted", "{o:?}");
+        let run = o.run_id.unwrap();
+        self.runs.lock().unwrap().push(run.clone());
+        run
+    }
+
+    fn view(&self, run: &str) -> Value {
+        let query = HashMap::from([("run_id".to_string(), run.to_string())]);
+        let answer = runbook::api::routes::view_answer("run", &self.d, &query);
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.body["rows"][0].clone()
+    }
+
+    fn started_events(&self, run: &str) -> Vec<Value> {
+        self.d.events_after(run, 0).into_iter().filter(|e| e["kind"] == STARTED).collect()
+    }
+
+    fn start(&self, run: &str, s: Started) {
+        self.rt.on_thread(run, move |t, _| {
+            t.started(&s);
+            None
+        });
+    }
+
+    fn end(&self, run: &str, s: Started) {
+        self.rt.on_thread(run, move |t, _| {
+            t.ended(&s);
+            None
+        });
+    }
+
+    fn finish(&self, run: &str) {
+        self.rt.on_thread(run, |_, _| Some(Ok(Finish::Outcome("done".into()))));
+    }
+}
+
+impl Drop for Gate {
+    fn drop(&mut self) {
+        for run in self.runs.lock().unwrap().iter() {
+            let (ack, _wait) = mpsc::channel();
+            let _ = self.rt.tx(run).send((Box::new(|_, _| Some(Ok(Finish::Outcome("done".into())))), ack));
+        }
+        self.d.stop();
+    }
+}
+
+#[test]
+fn the_seconds_of_a_step_are_whole_seconds_since_its_start_by_the_daemons_clock_and_never_negative() {
+    let g = Gate::new("gate-seconds");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    let step = g.view(&run)["step_in_flight"].clone();
+    assert_eq!((step["started_at"].as_str(), step["seconds"].as_u64()), (Some("2026-11-24T10:00:00.000Z"), Some(0)), "{step}");
+    assert!(g.clock.set("2026-11-24T10:00:07.900Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 7);
+    assert!(g.clock.set("2026-11-24T10:25:00Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 1500);
+    assert!(g.clock.set("2026-11-24T09:59:00Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 0, "a clock behind the start gives a negative count");
+}
+
+#[test]
+fn the_record_names_only_what_is_known_and_the_step_does_the_same() {
+    let g = Gate::new("gate-record");
+    let run = g.submit();
+    g.start(&run, st(1, "program", None, None, None));
+    let step = g.view(&run)["step_in_flight"].clone();
+    let mut keys: Vec<&str> = step.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["seconds", "started_at"], "{step}");
+    g.end(&run, st(1, "program", None, None, None));
+    g.start(&run, st(2, "check", Some("c9"), Some("a.nine"), Some(4)));
+    let events = g.started_events(&run);
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert_eq!(events[0]["record"], json!({"role": "program"}));
+    assert_eq!(events[1]["record"], json!({"case": "c9", "action": "a.nine", "role": "check", "try": 4}));
+    assert_eq!(events[1]["sequence"].as_u64().unwrap(), events[0]["sequence"].as_u64().unwrap() + 1);
+}
+
+#[test]
+fn the_start_is_in_the_journal_and_the_view_before_the_announcing_call_returns() {
+    let g = Gate::new("gate-sync");
+    let run = g.submit();
+    let seen: Arc<Mutex<Option<(usize, bool)>>> = Arc::new(Mutex::new(None));
+    let (d, r, s) = (g.d.clone(), run.clone(), seen.clone());
+    g.rt.on_thread(&run, move |t, _| {
+        t.started(&st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+        let n = d.events_after(&r, 0).iter().filter(|e| e["kind"] == STARTED).count();
+        let shown = d.run_detail(&r)[0].get("step_in_flight").is_some();
+        *s.lock().unwrap() = Some((n, shown));
+        None
+    });
+    assert_eq!(*seen.lock().unwrap(), Some((1, true)));
+}
+
+#[test]
+fn two_runs_at_once_each_show_their_own_step_and_one_ending_leaves_the_other() {
+    let g = Gate::new("gate-two");
+    let (a, b) = (g.submit(), g.submit());
+    g.start(&a, st(1, "program", Some("case-a"), Some("a.one"), Some(1)));
+    assert!(g.clock.set("2026-11-24T10:00:05Z"));
+    g.start(&b, st(1, "program", Some("case-b"), Some("a.two"), Some(1)));
+    assert!(g.clock.set("2026-11-24T10:00:08Z"));
+    let (va, vb) = (g.view(&a)["step_in_flight"].clone(), g.view(&b)["step_in_flight"].clone());
+    assert_eq!((va["case_id"].as_str(), va["action"].as_str(), va["seconds"].as_u64()), (Some("case-a"), Some("a.one"), Some(8)), "{va}");
+    assert_eq!((vb["case_id"].as_str(), vb["action"].as_str(), vb["seconds"].as_u64()), (Some("case-b"), Some("a.two"), Some(3)), "{vb}");
+    g.end(&a, st(1, "program", Some("case-a"), Some("a.one"), Some(1)));
+    assert!(g.view(&a).get("step_in_flight").is_none());
+    assert_eq!(g.view(&b)["step_in_flight"]["case_id"], "case-b");
+}
+
+#[test]
+fn a_cancel_clears_the_step_while_the_program_is_reported_running_and_no_start_is_recorded_after_it() {
+    let g = Gate::new("gate-cancel");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert!(g.view(&run).get("step_in_flight").is_some());
+    let o = g.d.cancel_run(CancelRun { run_id: run.clone() }).unwrap();
+    assert!(!o.is_refusal(), "{o:?}");
+    let row = g.view(&run);
+    assert_eq!(row["state"], "Cancelled");
+    assert!(row.get("step_in_flight").is_none(), "a cancelled run shows a step: {row}");
+    // the runtime still reports a program (a report after a cancel): nothing is recorded, nothing shows
+    g.start(&run, st(2, "program", Some("c1"), Some("a.two"), Some(1)));
+    assert_eq!(g.started_events(&run).len(), 1, "a start was recorded after the cancel");
+    assert!(g.view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn an_end_of_an_older_program_leaves_the_newer_step_and_a_run_that_ends_shows_none() {
+    let g = Gate::new("gate-serial");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    g.start(&run, st(2, "program", Some("c2"), Some("a.two"), Some(1)));
+    g.end(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert_eq!(g.view(&run)["step_in_flight"]["case_id"], "c2");
+    g.finish(&run);
+    until("the run to end", 10, || g.view(&run)["state"] == "Ended");
+    assert!(g.view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn a_run_that_waits_on_a_decision_shows_no_step() {
+    let g = Gate::new("gate-waiting");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert!(g.view(&run).get("step_in_flight").is_some());
+    g.rt.on_thread(&run, |_, sink| {
+        sink.decision_requested(DecisionRequest { request_id: "q1".into(), case_id: "c1".into(), action: "a.review".into(), capability: "person".into(), question: "ok?".into(), options: vec![] });
+        None
+    });
+    let row = g.view(&run);
+    assert_eq!(row["state"], "WaitingOnDecision", "{row}");
+    assert!(row.get("step_in_flight").is_none(), "a waiting run shows a step: {row}");
+}
+
+#[test]
+fn a_runtime_failure_while_a_program_runs_leaves_no_step() {
+    let g = Gate::new("gate-failure");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    g.rt.on_thread(&run, |_, _| Some(Err(RuntimeFailure { reason: "boom".into() })));
+    until("the run to end", 10, || g.view(&run)["state"] == "Ended");
+    let row = g.view(&run);
+    assert_eq!(row["outcome"], "runtime-failure", "{row}");
+    assert!(row.get("step_in_flight").is_none());
+}
+
+// ---- the step in flight, real programs ----
+
+#[test]
+fn a_rejected_draft_gives_the_writer_a_second_start_with_try_two_and_the_event_stays_one_per_start() {
+    let rig = Rig::new("engine-flight-try", &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    rig.answer(&run, &first, r#"{"result":"rejected","reasons":"x"}"#, "reviewer");
+    until("a second review", 40, || rig.d().open_decisions_of_run(&run).iter().any(|d| d["request_id"].as_str() != Some(first.as_str())));
+    let events = rig.started(&run);
+    let tries = |action: &str| -> Vec<u64> { events.iter().filter(|e| e["record"]["action"] == action).map(|e| e["record"]["try"].as_u64().unwrap()).collect() };
+    assert_eq!(tries("draft.write"), [1, 2], "{events:?}");
+    let checks = tries("draft.check");
+    assert_eq!(checks, (1..=checks.len() as u64).collect::<Vec<_>>(), "{events:?}");
+    assert!(events.iter().all(|e| e["record"]["role"] == "program"));
+    // the second writer's start comes after the rejection's answer: the positions of the events grow
+    let positions: Vec<u64> = events.iter().map(|e| e["position"].as_u64().unwrap()).collect();
+    assert!(positions.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn two_engine_runs_at_once_each_show_the_step_of_their_own_case() {
+    let rig = Rig::new("engine-flight-two", &[Confinement::Local]);
+    let a = rig.submit_at(Confinement::Local, Some(rig.context(8)));
+    let ea = rig.wait_started(&a, "draft.write");
+    let b = rig.submit_at(Confinement::Local, Some(rig.context(8)));
+    let eb = rig.wait_started(&b, "draft.write");
+    let (va, vb) = (rig.run_view(&a)["step_in_flight"].clone(), rig.run_view(&b)["step_in_flight"].clone());
+    assert_eq!((va["started_at"].clone(), va["case_id"].clone()), (ea["at"].clone(), ea["record"]["case"].clone()), "{va}");
+    assert_eq!((vb["started_at"].clone(), vb["case_id"].clone()), (eb["at"].clone(), eb["record"]["case"].clone()), "{vb}");
+    assert_ne!(va["case_id"], vb["case_id"], "two runs show one case");
+    rig.cancel(&a);
+    rig.cancel(&b);
+    rig.wait_state(&a, "Cancelled");
+    rig.wait_state(&b, "Cancelled");
+    assert!(rig.run_view(&a).get("step_in_flight").is_none() && rig.run_view(&b).get("step_in_flight").is_none());
+}
+
+#[test]
+fn a_writer_that_cannot_start_is_recorded_once_and_leaves_no_step_when_the_run_goes_on() {
+    let rig = Rig::new("engine-flight-cannot-start", &[Confinement::Local]);
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let writer = rig.home.join("bindings/tools/draft-write.sh");
+        std::fs::set_permissions(&writer, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(1)));
+    until("the run to stop", 40, || matches!(rig.state_of(&run).as_str(), "Ended" | "WaitingOnDecision" | "Cancelled" | "FailedToStart"));
+    let writers: Vec<Value> = rig.started(&run).into_iter().filter(|e| e["record"]["action"] == "draft.write").collect();
+    assert_eq!(writers.len(), 1, "{writers:?}");
+    assert!(rig.run_view(&run).get("step_in_flight").is_none(), "{}", rig.run_view(&run));
+}
+
+#[test]
+fn a_cancel_while_the_writer_runs_leaves_one_start_event_of_it_and_no_step() {
+    let rig = Rig::new("engine-flight-cancel-writer", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(20)));
+    let event = rig.wait_started(&run, "draft.write");
+    assert_eq!(event["record"]["try"], 1);
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    until("the engine to let go of the run", 20, || rig.engine.store_state(&run) == runbook::engine::StoreState::Idle);
+    let writers = rig.started(&run).into_iter().filter(|e| e["record"]["action"] == "draft.write").count();
+    assert_eq!(writers, 1);
+    assert!(rig.run_view(&run).get("step_in_flight").is_none());
+    assert!(!rig.workspace(&run).join("draft.txt").exists());
+}
+
+fn replace_in(home: &Path, file: &str, from: &str, to: &str) {
+    let path = home.join(file);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{file} lacks {from:?}");
+    std::fs::write(path, text.replace(from, to)).unwrap();
+}
+
+/// Revision 2 of the fixture runbook: both protocols, both bindings, and a writer that writes another text.
+fn revise(home: &Path) {
+    replace_in(home, "protocol/engine-demo.protocol.yaml", "revision: 1", "revision: 2");
+    replace_in(home, "protocol/engine-draft.protocol.yaml", "revision: 1", "revision: 2");
+    replace_in(home, "bindings/engine-demo.yaml", "protocol: engine-demo@1", "protocol: engine-demo@2");
+    replace_in(home, "bindings/engine-draft.yaml", "protocol: engine-draft@1", "protocol: engine-draft@2");
+    replace_in(home, "bindings/tools/draft-write.sh", "echo draft >>", "echo draft-two >>");
+}
+
+impl Rig {
+    /// Reject the draft the review `first` waits on, so the writer runs again, then approve the second draft and settle.
+    fn finish_after_a_rejection(&self, run: &str, first: &str) {
+        self.answer(run, first, r#"{"result":"rejected","reasons":"once more"}"#, "reviewer");
+        let mut next = None;
+        until("a second review request", 40, || {
+            let state = self.state_of(run);
+            assert!(!matches!(state.as_str(), "Cancelled" | "FailedToStart"), "the run is {state}: {}", self.row(run));
+            next = self.d().open_decisions_of_run(run).into_iter().find(|d| d["request_id"] != first);
+            next.is_some()
+        });
+        let next = next.unwrap();
+        let question = next["question"].as_str().unwrap_or_default();
+        assert!(!question.contains("The earlier answer was refused"), "the answer was refused by Loom: {question}");
+        self.answer(run, next["request_id"].as_str().unwrap(), "performed", "reviewer");
+        self.settle(run, &[]);
+    }
+
+    fn draft(&self, run: &str) -> String {
+        std::fs::read_to_string(self.workspace(run).join("draft.txt")).unwrap_or_default()
+    }
+}
+
+/// A run that waits at its review while `damage` is done to the runbook home ends on the revision it was submitted with.
+fn survives(tag: &str, damage: impl Fn(&Path)) {
+    let rig = Rig::new(tag, &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    damage(&rig.home);
+    rig.finish_after_a_rejection(&run, &first);
+    let row = rig.row(&run);
+    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("delivered")), "{row}");
+    assert_eq!(rig.draft(&run), "draft\ndraft\n");
+}
+
+#[test]
+fn a_revision_of_the_runbook_home_during_a_run_changes_nothing_for_that_run() {
+    survives("engine-pin-revised", revise);
+}
+
+#[test]
+fn bindings_that_do_not_parse_in_the_runbook_home_change_nothing_for_a_run_in_flight() {
+    survives("engine-pin-garbled", |home| {
+        for file in ["bindings/engine-demo.yaml", "bindings/engine-draft.yaml", "protocol/engine-demo.protocol.yaml", "protocol/engine-draft.protocol.yaml"] {
+            std::fs::write(home.join(file), ": : [\n").unwrap();
+        }
+    });
+}
+
+#[test]
+fn a_runbook_home_removed_during_a_run_changes_nothing_for_that_run() {
+    survives("engine-pin-removed", |home| {
+        std::fs::remove_dir_all(home.join("bindings")).unwrap();
+        std::fs::remove_dir_all(home.join("protocol")).unwrap();
+    });
+}
+
+impl Rig {
+    fn state_root(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    /// The run's own directory: its store, its copy of the runbook.
+    fn run_dir(&self, run: &str) -> PathBuf {
+        self.state_root().join("runs").join(run)
+    }
+
+    fn copy_of(&self, run: &str) -> PathBuf {
+        self.run_dir(run).join("runbook")
+    }
+
+    fn submit_version(&self, version: &str) -> runbook::commands::Outcome {
+        self.d().submit_run(SubmitRun { runbook_id: RUNBOOK.into(), runbook_version: Some(version.into()), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap()
+    }
+
+    fn event_of(&self, run: &str, kind: &str) -> Value {
+        let events = self.d().events_after(run, 0);
+        let found: Vec<&Value> = events.iter().filter(|e| e["kind"] == kind).collect();
+        assert_eq!(found.len(), 1, "one {kind} event: {events:?}");
+        found[0]["record"].clone()
+    }
+}
+
+#[test]
+fn a_second_submit_takes_the_new_revision_and_each_record_names_its_revision_and_digest() {
+    let rig = Rig::new("engine-pin-second", &[Confinement::Local]);
+    let digest_one = digest(&rig.home.join("bindings")).unwrap();
+    let one = rig.submit();
+    let review = rig.wait_review(&one);
+    revise(&rig.home);
+    let digest_two = digest(&rig.home.join("bindings")).unwrap();
+    assert_ne!(digest_one, digest_two);
+    let stale = rig.submit_version("1");
+    assert!(stale.is_refusal() && stale.name == "no-runbook", "{stale:?}");
+    let accepted = rig.submit_version("2");
+    assert_eq!(accepted.name, "submitted", "{accepted:?}");
+    let two = accepted.run_id.unwrap();
+    rig.settle(&two, &["performed"]);
+    assert_eq!(rig.row(&two)["outcome"], "delivered");
+    assert_eq!(rig.draft(&two), "draft-two\n");
+    rig.finish_after_a_rejection(&one, &review);
+    assert_eq!(rig.row(&one)["outcome"], "delivered");
+    assert_eq!(rig.draft(&one), "draft\ndraft\n");
+    let (pin_one, pin_two) = (rig.event_of(&one, "runbook.pinned"), rig.event_of(&two, "runbook.pinned"));
+    assert_eq!((pin_one["protocol"].as_str(), pin_one["revision"].as_i64(), pin_one["bindings_sha256"].as_str()), (Some("engine-demo"), Some(1), Some(digest_one.as_str())), "{pin_one}");
+    assert_eq!((pin_two["protocol"].as_str(), pin_two["revision"].as_i64(), pin_two["bindings_sha256"].as_str()), (Some("engine-demo"), Some(2), Some(digest_two.as_str())), "{pin_two}");
+    // The copy of a run is the runbook as it was at its submit.
+    assert_eq!(digest(&rig.copy_of(&one).join("bindings")).unwrap(), digest_one);
+    assert_eq!(digest(&rig.copy_of(&two).join("bindings")).unwrap(), digest_two);
+}
+
+/// A run whose copy of the runbook is changed while it waits ends with a named refusal and runs
+/// nothing of the changed copy: the writer would run again after the rejection and leave `marker.txt`.
+fn copy_changed(tag: &str, damage: impl Fn(&Path)) {
+    let rig = Rig::new(tag, &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    damage(&rig.copy_of(&run));
+    rig.answer(&run, &first, r#"{"result":"rejected","reasons":"once more"}"#, "reviewer");
+    rig.wait_state(&run, "Ended");
+    assert_eq!(rig.row(&run)["outcome"], "runtime-failure");
+    let failed = rig.event_of(&run, "runbook.runtime-failed");
+    assert!(failed["reason"].as_str().is_some_and(|r| r.starts_with("RunbookCopyChanged")), "{failed}");
+    assert!(!rig.workspace(&run).join("marker.txt").exists(), "a changed file was run");
+    assert_eq!(rig.draft(&run), "draft\n", "a step ran after the copy changed");
+}
+
+#[test]
+fn a_program_of_the_copy_that_is_edited_during_the_run_is_never_run() {
+    copy_changed("engine-pin-edited-program", |copy| std::fs::write(copy.join("bindings/tools/draft-write.sh"), "#!/bin/sh\necho x > marker.txt\n").unwrap());
+}
+
+#[test]
+fn a_file_added_to_the_copy_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-added", |copy| std::fs::write(copy.join("bindings/tools/extra.sh"), "#!/bin/sh\necho x > marker.txt\n").unwrap());
+}
+
+#[test]
+fn a_file_removed_from_the_copy_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-removed-from-copy", |copy| std::fs::remove_file(copy.join("bindings/tools/draft-check.sh")).unwrap());
+}
+
+#[test]
+fn bindings_of_the_copy_that_are_edited_during_the_run_are_never_read() {
+    copy_changed("engine-pin-edited-bindings", |copy| replace_in(copy, "bindings/engine-draft.yaml", "protocol: engine-draft@1", "protocol: engine-draft@9"));
+}
+
+#[test]
+fn a_protocol_of_the_copy_that_is_edited_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-edited-protocol", |copy| replace_in(copy, "protocol/engine-demo.protocol.yaml", "revision: 1", "revision: 7"));
+}
+
+#[test]
+fn a_link_out_of_the_runbook_home_is_refused_before_the_run_holds_anything_of_the_runbook() {
+    for (tag, make_link) in [("file", true), ("directory", false)] {
+        let rig = Rig::new(&format!("engine-pin-link-{tag}"), &[Confinement::Local]);
+        let outside = rig.dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "not for a run\n").unwrap();
+        let (target, name) = if make_link { (outside.join("secret.txt"), "leak.sh") } else { (outside.clone(), "leak") };
+        std::os::unix::fs::symlink(target, rig.home.join("bindings/tools").join(name)).unwrap();
+        let run = rig.submit();
+        rig.wait_state(&run, "FailedToStart");
+        let failure = rig.row(&run)["failure"].as_str().unwrap().to_string();
+        assert!(failure.contains("leaves the runbook home"), "{failure}");
+        assert!(!rig.copy_of(&run).exists(), "the run's directory holds a copy");
+        assert!(!rig.run_dir(&run).join("runbook-pin.json").exists());
+        assert!(!rig.store(&run).exists(), "a store was made");
+        assert!(!rig.workspace(&run).join("draft.txt").exists());
+    }
+}
+
+#[test]
+fn a_link_inside_the_runbook_home_is_copied_as_the_file_it_names() {
+    let rig = Rig::new("engine-pin-link-inside", &[Confinement::Local]);
+    std::os::unix::fs::symlink("draft-write.sh", rig.home.join("bindings/tools/draft-again.sh")).unwrap();
+    let run = rig.submit();
+    rig.settle(&run, &["performed"]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    let meta = std::fs::symlink_metadata(rig.copy_of(&run).join("bindings/tools/draft-again.sh")).unwrap();
+    assert!(meta.is_file() && !meta.file_type().is_symlink());
+}
+
+#[test]
+fn a_submit_names_a_runbook_by_name_and_version_and_never_by_a_path() {
+    let rig = Rig::new("engine-pin-by-name", &[Confinement::Local]);
+    let runs = |rig: &Rig| std::fs::read_dir(rig.state_root().join("runs")).map(|d| d.count()).unwrap_or(0);
+    let before = runs(&rig);
+    let home = rig.home.to_string_lossy().into_owned();
+    for id in ["../elsewhere/engine-demo","bindings/engine-demo", &format!("{home}/bindings/engine-demo"), "/etc/hostname", ".hidden", ""] {
+        let o = rig.d().submit_run(SubmitRun { runbook_id: id.into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
+        assert!(o.is_refusal() && o.name == "no-runbook", "{id:?}: {o:?}");
+    }
+    let o = rig.submit_version("../x");
+    assert!(o.is_refusal() && o.name == "no-runbook", "{o:?}");
+    assert_eq!(runs(&rig), before, "a refused submit made a run directory");
+}
+
+#[test]
+fn the_copy_lies_outside_the_work_directory_and_no_record_names_its_path() {
+    let rig = Rig::new("engine-pin-not-served", &[Confinement::Local]);
+    let run = rig.submit();
+    rig.settle(&run, &["performed"]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    let copy = rig.copy_of(&run);
+    assert!(copy.join("bindings/engine-demo.yaml").is_file());
+    assert!(!copy.starts_with(rig.workspace(&run)) && !copy.starts_with(rig.state_root().join("workspaces")));
+    let product = listing(&rig.workspace(&run));
+    assert!(product.iter().all(|f| !f.starts_with("bindings/") && !f.starts_with("protocol/") && !f.starts_with("runbook/") && !f.contains("draft-write.sh")), "{product:?}");
+    let state = rig.state_root().to_string_lossy().into_owned();
+    let own: Vec<Value> = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"].as_str().unwrap().starts_with("runbook.")).collect();
+    assert!(own.iter().any(|e| e["kind"] == "runbook.pinned"));
+    for e in own {
+        assert!(!e.to_string().contains(&state), "an event of the daemon names a path of the state directory: {e}");
+    }
 }

@@ -17,4 +17,4 @@ actions:
         subject: note
         producer: note-check
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}

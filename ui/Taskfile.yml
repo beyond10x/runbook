@@ -10,10 +10,11 @@ tasks:
       - node server.mjs --port {{.PORT | default "7490"}} {{.CLI_ARGS | default "../runs/trial-todo-1/store ../runs/full-cycle-1/store"}}
 
   test:
-    desc: "The UI test step (the gate's lane): needs no runs/ directory and no server of its own (it builds the runbook binary first, for daemon-ui.spec.mjs); every server it starts takes a free port. Four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Run it as `task test` in ui/."
+    desc: "The UI test step (the gate's lane): needs no runs/ directory and no server of its own (it builds the runbook binary first, for daemon-ui.spec.mjs); every server it starts takes a free port. Four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed, then ../scripts/check-tree-links.sh (the run directories of the specs lie under target/fixture-runs). Run it as `task test` in ui/."
     cmds:
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
       - slot npx playwright test --workers=4
+      - ../scripts/check-tree-links.sh
 
   slow:
     desc: "The slow lane (test/lanes.mjs names each spec and what it needs): specs that read runs/, the built driver and a canon binary (SDC_UI_CANON). Not part of the step; 180 s a test, no run budget."

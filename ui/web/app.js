@@ -196,6 +196,7 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
+  if (stream && !daemon) connect(); // the stream names the run on screen
   showProduct({kind: 'list'});
   await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
@@ -296,7 +297,7 @@ function render() {
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
   patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
-  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom)));
+  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom), S.liveData?.fs?.recordsStopped));
   patch($('#tree'), renderTree(cases, ns, now));
   const last = lastSeq(c);
   const at = S.atSeq ?? last;
@@ -635,8 +636,10 @@ window.__sdcSync = async () => {
   await drain();
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 };
+let stream = null;
 function connect() {
-  const es = openEvents();
+  stream?.close();
+  const es = stream = openEvents(S.src);
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });
   es.addEventListener('change', (m) => {
     const d = JSON.parse(m.data);

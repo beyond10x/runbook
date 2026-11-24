@@ -101,6 +101,40 @@ The seeds are in `cycles/seeds/stub/`: `settings/<name>.yaml` and `replies/<name
 per cycle (`{from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}`). They are written by
 hand from the old entries; no recording of a model call is a seed.
 
+### Recorded build and test results
+
+A cycle builds nothing. The build and test commands of the bound programs (`cargo test` of
+`tests.run`'s implementation gate in `sdc-tool.sh`, the `repro`, `test` and `gate` commands of
+`sdc-bugfix`) start through `slot`, and the `slot` first on the PATH that `task test:cycles-loom`
+gives `runbook test` (and Loom gives every bound program) is `sdc-recorded-pool`
+(`driver/src/bin/sdc-recorded-pool.rs`, linked as `driver/target/cycles-pool/slot`). It answers a
+command from `cycles/recorded/<digest>.json` (`sdc.recorded-pool/1`: argv, exit, stdout, stderr),
+where the digest is the sha256 of the command's argv and of the tree it runs in (every file's path,
+kind and bytes; `target/` and `.git` left out), so a changed fixture, seed or stub writer misses
+instead of reading an old result. The `.git` is the repository each bug-fix check tree carries
+(`docs/bugfix.md`, "The trees a check runs in are git trees"): its index and objects differ with
+every copy, so it is not part of the tree, and the copy of record mode leaves it out too
+(`driver/tests/recorded_pool.rs`). A miss is a program error (exit 127) whose one line, on the program's output
+in the store, starts `error: recorded pool: no recording <digest>`.
+
+Why: a cycle's work directory is under `$XDG_RUNTIME_DIR`, which the build pool does not sync to the
+build node (`slot shell: refused: rsync path ... is outside ...`), a build on this host outside the
+pool is not allowed, and a build through the node from a tree it syncs took 13.5 s for one
+`cargo test` of the fixture crate (8 s of it waiting for a slot), against Loom's 60 s bound per
+cycle. Until 2026-11-24 the suite's programs built through the pool on this host; the host's `slot`
+on an agent's PATH then became a wrapper that reads `HOME`, which Loom does not give a program, and
+every such command ended exit 127 (`/.local/bin/slot: No such file or directory`).
+
+`task test:cycles-record` writes the recordings: the same run with the link in
+`driver/target/cycles-record/`, beside a file `record`, so a command with no recording runs through
+the next `slot` on PATH (with the user's HOME), in a copy of its tree under `target/cycles-recording/`,
+and its output is written with slot's own lines dropped, durations written `in 0.00s` and the
+copy's paths written `{dir}` and `{target}`; a recording that would name the home directory is not
+written. Run it after a change to a tree a cycle builds and commit the new files. A cycle that
+records several commands can end on Loom's 60 s bound; run the lane again, a recorded command takes
+no time the second time. A recording no cycle reads any more is not found by a check: delete
+`cycles/recorded/` and record again to drop them.
+
 ### Totals and time
 
 131 entries (the 130 of the deleted suite and `spec-person-wait`): 40 converted, 15 pending, 39 held by a Rust test, 37 dropped with the driver (29 full-cycle, 9 re-drive, 9 other and 83 trial entries).
@@ -121,6 +155,7 @@ At Loom `c9b4c177` every `pending` entry was run once alone (`runbook test cycle
 Eight entries that the layout change may touch (the `change.review` and request entries) were run the same way at a load of 94 to 156. Seven ended `CycleTimedOut` at the bound: `review-reject-once` (wall 62 s, load 156), `review-minimal-input` (61 s, 145), `review-invalid` (61 s, 151), `review-spent` (61 s, 137), `implement-request-review-rework` (61 s, 125), `coverage-complete` (60 s, 111), `implement-request-path-escape` (62 s, 94). `review-invalid-named` ended as expected in 49 s (load 155). A rerun of `review-reject-once` (60.6 s, load 79) and `review-minimal-input` (60.4 s, load 117) ended on the bound again, and the adversary's runs of `review-reject-once` (60.9 s), `coverage-complete` (60.4 s) and `review-spent` (60.6 s) at a load of 76 to 88 did too; the work directory of `review-reject-once` shows the cycle still progressing (files written until 1 s before the bound), not spinning.
 No entry lost `pending`. That no entry changes from expected to another state is not observed on this host at this load: seven of the eight entries above never ended inside the bound. It is observed by one run of the suite at a load where a cycle ends inside Loom's 60 s bound; that run has not been made.
 The driver reads the new layout (`Facts::open`, `sdc-node`, `llm-adapter-fixture.sh`: `sdc_tools::reply::records::case_work`): `sdc-reply rejections` on a workspace at `work/<n>` counted 0 before the change and 1 after, and `driver/tests/workspace_layout.rs` holds it; no whole `change.review` cycle has shown it yet.
+At Loom `d8944d49` (a rejection gives an action a new allowance of runs) `decider-rework-spent` and `rework-fresh-allowance` were run alone with the binding of `change.implement` at `rework_limit: 2` and at `3` (`bindings/sdc-story.yaml`, `runs_per: rejection`), before the change of the stub. Measured, as `entry, state, seconds, one-minute load at the start`: limit 2 `decider-rework-spent` pending 43.5 s, 98, `three-rejections: expected 3, found 2`; `rework-fresh-allowance` pending 37.5 s, 94, `exit: expected 0, found 4`; limit 3 `rework-fresh-allowance` pending 35.0 s, 38, same difference; `decider-rework-spent` pending 53.6 s, 35, same difference. The same difference at both limits. With a first form of the stub's numbering, which counted the rejections in one document and so never changed a note under Loom (Loom gives a program only the records about the subject's current revision), both entries ended on Loom's 60 s bound in four runs each (60 s to 64 s, load 51 to 89): neither red nor green. The numbering now counts the evidence ids of the person's rejections that the stub has numbered in its workspace and those of the document it was given (`driver/src/bin/sdc-node/rework.rs`; held by `driver/tests/rework_numbering.rs`, which feeds it one current-revision record per rework). With that, `decider-rework-spent`, `rework-fresh-allowance` and `implement-percause` were run alone three times each (`runbook test cycles/tree-suite.yaml --only <entry>`, one-minute load at the start in brackets): `decider-rework-spent` 60.5 s (45), 61.0 s (65), 60.2 s (63); `rework-fresh-allowance` 61.1 s (57), 61.8 s (75), 62.4 s (65); `implement-percause` 60.6 s (59), 60.1 s (62), 60.5 s (98). All nine ended `CycleTimedOut` on Loom's 60 s bound, in the work directory of each before `change.implement` had run (no `impl` directory, no `.sdc/rework-seen`), so no run has shown the numbering at work, and none has shown any of the three as expected. The three keep `pending` with the stories their rows name. `rework_limit: 2` follows Loom's rules (`docs/loom-bindings.md`, "The budget"); no run has told 2 from 3. The other entries that name rejections of `change.implement` or its budget were run once alone (seconds, load at the start): `story-spent` as expected 41.5 s, 72; `review-spent` 40.9 s, 86; `review-reject-once` 45.0 s, 93; `decider-rework` 45.6 s, 111; `coverage-spent` 30.0 s, 116; `implement-request-review-rework` 41.9 s, 118; `writer-sees-test-failure` 53.7 s, 90; `coverage-not-built` 46.2 s, 96; `implement-request-tests-rework` 50.5 s, 93; `implement-request-invalid-retry` 40.6 s, 102; `coverage-reply-retry` 34.7 s, 105. `story-decision` (pending) ended exit 4 for the expected 0 in two runs (33.0 s, 54.9 s at load 108 and 130; `change.implement` ends exit 79 on its second run and the tree is `Stuck`) and on the bound in two. `implement-percause` (pending) passed once (53.8 s, load 100) and ended on the bound in three runs: it keeps `pending`. No entry changed state.
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
 50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
@@ -143,6 +178,12 @@ pending`; the ten slowest cycles took 51.6 s (`implement-request-path-escape`), 
 (`writer-sees-test-failure`), 37.3 s (`spec-own-default`), 35.4, 34.5, 34.5, 33.2, 33.0, 32.3 and 30.4 s,
 so the scripted-reply cycles come within 8 s of Loom's 60 s bound. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
 cycles would have to share an opened tree (the format has no member for it).
+With the build and test commands answered from `cycles/recorded/` (2026-11-24, Loom `d8944d49`), the whole
+file (55 cycles) took 346 s wall at a one-minute load of 3 to 6 and ended `40 of 40 as expected, 15 pending`;
+the slowest cycle took 11.8 s (`superseded-answer`) and `bugfix-full` 2.2 s. The run of
+`task test:cycles-record` that wrote the 27 recordings took 477 s, its slowest cycle `bugfix-full` 40.6 s
+(nine pool jobs on the build node). `implement-percause`, `decider-rework-spent` and `rework-fresh-allowance`
+printed `pending, passing` in both runs; they keep `pending` until runs on more than one host load show it.
 
 ### Entries a Rust test of the runner holds (class d) and the ones that wait for the engine
 
@@ -179,7 +220,7 @@ is held by the tests named):
 | finding-program | converted | `amend.upstream` of `sdc-direction` takes `retry_when: {context_defaults: [finding]}`, so the writer runs again after the check that found the finding; `handoff_when` finds no finding that waits for a person |
 | offline-decision | converted | `handoff_when` (`findings-wait`) exits 0 for the finding that waits for a person: the run stops `AwaitingPerson` at the handoff, exit 3 |
 | finding-person | pending | the person's decision is written into `findings.yaml` between two runs; the suite has no step that writes a workspace file (gap, no Loom story yet) |
-| story-decision | pending | same: a person's decision written into `findings.yaml` between two runs (gap) |
+| story-decision | pending | same: a person's decision written into `findings.yaml` between two runs (gap). At Loom `d8944d49`, alone: exit 4 for the expected 0 (33.0 s and 54.9 s, load 108 and 130); the second run of `change.implement` ends exit 79 and the tree is `Stuck`, so `fresh-allowance-four-runs` is not reached |
 | story-late-person | pending | same (gap) |
 | trace-gap-drop | pending | same (gap) |
 | trace-constraint-decided | pending | same (gap) |
@@ -246,7 +287,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 - Runbook's autopilot loop after a stop: 9.
 - the rule approver: 5.
 - bindings the pinned Loom refuses (the bugfix cycles): 4, now in the file. `bindings/sdc-bugfix.yaml`
-  has `gate.run` at 3600 s (D531), and the bugfix protocol records `dissection_written` and
+  had `gate.run` at 3600 s (D531; 4200 s, its need, since Loom 0.61.0 loads a program up to 14400 s), and the bugfix protocol records `dissection_written` and
   `repro_written` so that no check runs before its writer (`docs/bugfix.md`).
 - the requester decider (2), the environment of a bound program (2), a `--dry` listing (1, held as a Rust test), a ticket
   read before the tree opens (1).
@@ -274,7 +315,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-rework-context | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework-model | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | decider-rework | converted | the scripted rejection and approval of `merge.approve` (`approve` with `result` and `reasons`, Loom `db2726ff`, `story:tree-suite-stop-resume-reopen-steps`): the writer is sent back once and the case ends well; 24.7 s at a one-minute load of 34 (the same cycle ended on Loom's 60 s wall bound, exit 5, in three runs at a load of 100 to 177) |
-| decider-rework-spent | pending | three scripted rejections of `merge.approve` (Loom `db2726ff`, `story:tree-suite-stop-resume-reopen-steps`): the cycle runs to its end in 17.8 s and fails on its check, `three-rejections (count, CheckFailed): expected 3, found 2`. After the second rejection `change.implement` runs a third time and leaves no revision (`revisions: []`), so `tests.run` and the review are not offered again, and the writer is offered a fourth run: `RunsSpent: action change.implement: change.implement has run 3 times in case root.billing.invoices, its budget.max_runs is 3` (`bindings/sdc-story.yaml:27`). The tree ends `Stuck` (exit 4, as the entry expects). The gap: `budget.max_runs` counts every run of an action in a case; a rejection gives no new allowance. Loom's `story:rework-allowance-after-a-rejection` is the story for it; the entry stays `pending` until it lands (re-run at `c9b4c177`: see the totals) |
+| decider-rework-spent | pending | three scripted rejections of `merge.approve` (Loom `db2726ff`, `story:tree-suite-stop-resume-reopen-steps`). Measured at Loom `d8944d49`, alone, before the change of the stub, with the binding of `change.implement` at `rework_limit` 2 (43.5 s, load 98) and at 3 (53.6 s, load 35): the same difference at both, `three-rejections (count, CheckFailed): expected 3, found 2`. After the second rejection the writer ran three times with `revisions: []`, then `RunsSpent` (second text) and the tree ended `Stuck`. The stub then wrote the same `.rework` for the same reasons; it now numbers a person's nth rejection from the evidence ids it has numbered (`driver/src/bin/sdc-node/rework.rs`, held by `driver/tests/rework_numbering.rs`). With a first form of that numbering four runs ended on Loom's 60 s bound (load 70 to 89), and with the present one three runs did (60.2 s to 61.0 s, load 45 to 65 at the start), before `change.implement` ran: neither red nor green, and the numbering at work is not observed. The entry keeps `pending` |
 | rework-cap | dropped with the driver | class: Runbook's decider answers the stops (`MAX_REJECTIONS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-not-called | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-no-rework-prompt | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
@@ -303,14 +344,14 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | requester-no-ground | held by a Rust test | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
 | models | held by a Rust test | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
 | decider-question-reject | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered` |
-| rework-fresh-allowance | pending | two scripted rejections of `merge.approve` (Loom `db2726ff`): the cycle runs to its end in 18.9 s and fails on `steps[1].exit (exit, ExitDiffers): expected 0, found 4`. The writer runs three times before the second rejection (the first run, the run after the failing test that the fixture starts with, the run after the first rejection); after the second rejection `change.implement` is offered a fourth time and refused, `RunsSpent: ... has run 3 times in case root.billing.invoices, its budget.max_runs is 3` (`bindings/sdc-story.yaml:27`), and the tree ends `Stuck`. The entry expects four writer runs, a fresh allowance for the rework after a rejection (the name of the entry); The gap: `budget.max_runs` counts every run of an action in a case; a rejection gives no new allowance. Loom's `story:rework-allowance-after-a-rejection` is the story for it; the entry stays `pending` until it lands (re-run at `c9b4c177`: see the totals) |
+| rework-fresh-allowance | pending | two scripted rejections of `merge.approve` (Loom `db2726ff`), the fixture starting with a failing test. Measured at Loom `d8944d49`, alone, before the change of the stub, with the binding of `change.implement` at `rework_limit` 2 (37.5 s, load 94) and at 3 (35.0 s, load 38): the same difference at both, `steps[1].exit (exit, ExitDiffers): expected 0, found 4`. The writer ran after the second rejection three times with `revisions: []`, then `RunsSpent` (second text) and the tree ended `Stuck`. The stub now numbers a person's nth rejection from the evidence ids it has numbered (`rework 2 of the rejection of ...`; `driver/tests/rework_numbering.rs`). With a first form of that numbering four runs ended on Loom's 60 s bound (61 s to 64 s, load 51 to 80), and with the present one three runs did (61.1 s to 62.4 s, load 57 to 75 at the start), before `change.implement` ran: neither red nor green, and the numbering at work is not observed. The entry keeps `pending` |
 | scope-unattributed-reject | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | finding-refused-reask | held by a Rust test | In part: `runbook/tests/loom_run/answers.rs` `a_request_that_comes_back_a_fourth_time_ends_the_run_naming_it` holds the stop; the refusal text is not put to the decider again (the refusal is the findings tool's) |
 | rework-spent-dropped | dropped with the driver | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-abandoned | dropped with the driver | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | review-invalid-named | converted | |
 | writer-own-error | converted | `questions.answer` records `answer_applied` (`sdc.intake` revision 10: exit 0 empty, exit 1 `refused`) and its binding has `retry_when: {answer_applied: [refused]}`: the refused apply is a retry record, the next run reads its log in `in/feedback.md`; the fixture never fixes the answer, so the run ends after the third refusal (`RunsSpent`, stop at `scope.answer`, exit 3) |
-| implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
+| implement-percause | pending | expects exit 0, outcome `operating`, four `change.implement` runs that each end exit 0 and none without an exit (`four-implement-runs`, `no-writer-run-without-exit`). At `db2726ff` it stopped at the finding that `amend.upstream` raises after a test failure (exit 3, a person's decision written into `findings.yaml` between two runs); at `c9b4c177` its one run ended on Loom's 60 s bound (load 139). At Loom `d8944d49` it passed once, alone (`pending, passing`, 53.8 s, load 100), and three runs ended on the bound (load 117 to 131); after the numbering of the stub changed, three more ended on the bound (60.1 s to 60.6 s, load 59 to 98 at the start): one passing run is not an observation of `expected`, so it keeps `pending` |
 | writer-sees-test-failure | converted | the failing test's message and the absence of a pool line are read from the second call's `in/feedback.md` (`files`, `follow: file`) |
 | implement-request-build | converted | the request record (`reply-schema.json`, `implement-inputs.json`) is read the same way; not said: the written `impl/src/lib.rs` equal to the fixture's file, and a non-empty `commands` in the inputs |
 | implement-request-tests-rework | converted | the second request is read from `.sdc/llm/002-change.implement/prompt.md` |

@@ -258,3 +258,33 @@ fn requester_no_ground_under_final_takes_the_best_option_and_says_so() {
     assert_eq!((decisions[0]["decision"].as_str(), decisions[0]["principal"].as_str()), (Some("approve"), Some("decider:requester")));
     assert_eq!(principal_of(&w.fake.calls_of(&["tree", "approve"])[0].argv), "decider:requester");
 }
+
+#[test]
+fn a_run_without_a_seed_lists_only_the_intake_file_in_the_seeded_record() {
+    let w = World::new("seeded-none");
+    w.one_decision_tree();
+    w.scripted_approve();
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let dir = w.run_dir("r1");
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("seeded.json")).unwrap()).unwrap();
+    assert_eq!((record["files"].as_u64(), record["complete"].as_bool()), (Some(1), Some(true)), "{record}");
+    let list = std::fs::read_to_string(dir.join("seeded-files.jsonl")).unwrap();
+    let names: Vec<String> = list.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["path"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(names, ["idea.yaml"]);
+}
+
+#[test]
+fn a_goals_copy_is_in_the_seeded_record() {
+    let w = World::new("seeded-goals");
+    w.one_decision_tree();
+    w.scripted_approve();
+    std::fs::write(w.root.join("goals.yaml"), GOALS).unwrap();
+    let mut args = w.args("r1", 5_000_000);
+    args.extend(["--goals".to_owned(), w.root.join("goals.yaml").display().to_string()]);
+    let o = w.run(&args);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let list = std::fs::read_to_string(w.run_dir("r1/seeded-files.jsonl")).unwrap();
+    let names: Vec<String> = list.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["path"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(names, ["goals.yaml", "idea.yaml"]);
+}

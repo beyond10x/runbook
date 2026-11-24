@@ -7,30 +7,47 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier, the ESS specification and its generated output and the planning store.
+    desc: "Build, test and lint driver, watch, goals and runbook: the test steps of the driver, of runbook and of ui/ and check:steps (the steps that need no result of a test step), side by side; then the protocol checks (fast lane), bindings and fixture cases. check-protocols.sh and evaluate-cases.sh write protocol/compiled/ by a redirection, which cuts a file to nothing before it is written again, and tests of the driver and of runbook and the servers the UI specs start read those files: the writers start when the readers have ended."
     deps:
       - test:driver
       - test:runbook
       - test:ui
+      - check:steps
+    cmds:
+      - task: check:protocols
+      - scripts/check-bindings.sh
+      - scripts/evaluate-cases.sh
+
+  check:steps:
+    desc: "The steps of task check that need no result of a test step and write nothing a test reads, one after another, beside the test steps: the CI change classifier, the ESS specification and its generated output, the cycles suite, the unreferenced files, build and clippy (warnings denied) of driver, watch, goals and runbook, the tests of watch and goals, and the planning store."
     cmds:
       - task: check:ci-paths
       - task: check:ess-generated
       - task: check:cycles-suite
       - task: check:unreferenced
-      - task: check:protocols
-      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
-      - for c in watch goals; do (cd "$c" && cargo test --locked) || exit 1; done
-      - scripts/check-bindings.sh
-      - scripts/evaluate-cases.sh
+      - task: check:task-output
+      - task: check:crates:lint
+      - task: check:crates:test
       - task: plan
+
+  check:crates:lint:
+    desc: "Build and clippy (warnings denied) of driver, watch, goals and runbook, one after another (part of check:steps)."
+    cmds:
+      - '{ for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done; } >> /dev/stdout 2>> /dev/stderr'
+
+  check:crates:test:
+    desc: "The tests of watch and goals with cargo-nextest (part of check:steps)."
+    cmds:
+      - '{ for c in watch goals; do (cd "$c" && cargo nextest run --locked --color never) || exit 1; done; } >> /dev/stdout 2>> /dev/stderr'
 
   test:ui:
     dir: ui
-    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes its output and its errors into a pipe of its own that cat drains: node turns a pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest). Every step of `task check` that prints the output of a runner opens the output again for one command or one group (`>> /dev/stdout`, `{ ...; } >> /dev/stdout 2>> /dev/stderr`): an open file of its own, which stays blocking whatever turns the shared one non-blocking. Never by `exec` with redirections only: go-task 3.52, the forge's, closes that file at the end of its line (check:task-output)."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
-      - slot npx playwright test --workers=4
+      - set -o pipefail; slot npx playwright test --workers=4 2>&1 | cat >> /dev/stdout
+      - ../scripts/check-tree-links.sh
 
   test:loom-real:
     desc: "Slow lane of runbook/: the stub cycle through runbook run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
@@ -56,14 +73,26 @@ tasks:
       - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
 
   test:cycles-loom:
-    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call. Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
+    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call and no build: the `slot` first on the PATH of the bound programs is sdc-recorded-pool, which answers their build and test commands from cycles/recorded/ (a command with no recording is a program error; `task test:cycles-record` records it). Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
     env:
       SLOT_TIMEOUT: 30m
     cmds:
       - cd driver && cargo build --locked --bins
       - cd goals && cargo build --locked
       - cd runbook && cargo build --locked --bin runbook
-      - PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+      - mkdir -p driver/target/cycles-pool && ln -sfn ../debug/sdc-recorded-pool driver/target/cycles-pool/slot && rm -f driver/target/cycles-pool/record
+      - PATH="$PWD/driver/target/cycles-pool:$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+
+  test:cycles-record:
+    desc: "Slow lane that writes cycles/recorded/: test:cycles-loom with sdc-recorded-pool in record mode, so a build or test command of a bound program that has no recording runs through the next `slot` on PATH in a copy of its tree under target/cycles-recording/ and its output is written as the recording. Run it after a change to a tree a cycle builds (a fixture, a seed, a stub writer) and commit the new files; a cycle that records several commands can end on Loom's 60 s bound, then run it again. ONLY=<name>[,<name>...] as there. Start it in the background, not under `slot` (docs/cycles-suite.md)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
+      - cd runbook && cargo build --locked --bin runbook
+      - mkdir -p driver/target/cycles-record && ln -sfn ../debug/sdc-recorded-pool driver/target/cycles-record/slot && touch driver/target/cycles-record/record
+      - PATH="$PWD/driver/target/cycles-record:$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
   test:loom-in-process:
     desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/70b0e6e0/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
@@ -115,6 +144,7 @@ tasks:
     cmds:
       - cargo nextest run --locked --color never --no-run
       - |
+        {
         set -u
         log=target/nextest-driver.log
         code=0
@@ -128,22 +158,37 @@ tasks:
         if awk -v s="$secs" -v b="$budget" 'BEGIN { exit !(s > b) }'; then echo "the test run took ${secs}s, over the ${budget}s budget"; exit 1; fi
         echo "test run ${secs}s of ${budget}s"
         exit $code
+        } >> /dev/stdout 2>> /dev/stderr
 
   test:runbook:
     silent: true
     dir: runbook
-    desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
+    desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment, such as the build pool's, does not apply to it). RUNBOOK_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), so a local run meets the budget as the forge does: the forge's step took 123 s where 2 CPUs of the build node took 127 s and all of its 64 CPUs 91 s, at the same 4 threads. Other work on those CPUs slows the run: it prints the load average before and after. Needs cargo-nextest and, for RUNBOOK_TEST_FORGE, taskset."
+    vars:
+      FORGE_CPUS: 2
     cmds:
       - cargo build --locked --manifest-path ../watch/Cargo.toml
       - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
       - cargo nextest run --locked --color never --no-run
       - |
+        {
         set -u
         log=target/nextest-runbook.log
         code=0
         trap_dir=$(cd ../scripts/host-tool-traps && pwd)
-        PATH="$trap_dir:$PATH" cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
+        profile=default
+        limit=""
+        if [ -n "${CI:-}" ]; then
+          profile=forge
+        elif [ -n "${RUNBOOK_TEST_FORGE:-}" ]; then
+          profile=forge
+          limit="taskset -c 0-$(({{.FORGE_CPUS}} - 1))"
+        fi
+        if [ "$profile" = forge ]; then unset NEXTEST_TEST_THREADS; fi
+        echo "nextest profile $profile${limit:+, held to {{.FORGE_CPUS}} CPUs by $limit}; test threads ${NEXTEST_TEST_THREADS:-of the profile}; load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
+        PATH="$trap_dir:$PATH" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
         cat "$log"
+        echo "load average after the run: $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
         secs=$(sed -n 's/^ *Summary \[ *\([0-9.]*\)s\].*/\1/p' "$log" | tail -1)
@@ -152,6 +197,7 @@ tasks:
         if awk -v s="$secs" -v b="$budget" 'BEGIN { exit !(s > b) }'; then echo "the test run took ${secs}s, over the ${budget}s budget"; exit 1; fi
         echo "test run ${secs}s of ${budget}s"
         exit $code
+        } >> /dev/stdout 2>> /dev/stderr
 
   check:ci-paths:
     silent: true
@@ -202,6 +248,161 @@ tasks:
         if [ -z "$bare" ]; then echo "ok   every nextest call of Taskfile.yml has --color never"; else echo "FAIL a nextest call without --color never (the forge sets CARGO_TERM_COLOR=always and the tasks parse the log):"; echo "$bare"; fail=1; fi
         echo "$n cases"
         exit $fail
+
+  check:task-output:
+    desc: "Part of task check, no network (about 4 s): fails on `exec` with redirections only in Taskfile.yml or ui/Taskfile.yml (the interpreter of go-task 3.52, the release the forge installs, closes the file that form opens at the end of its line and the block writes on into the closed file, so not one line after it reached the forge's log), then runs test:driver, test:runbook and test:ui of a copy of this Taskfile in target/task-output with stand-ins for cargo, npx, slot and check-tree-links.sh the way of task check: under the go-task that runs it, side by side with a node process on their shared output, which node makes non-blocking, read late; and counts the runner lines, the summary, the ten slowest and the budget line that arrive. The forge's way is check:task-output:forge."
+    cmds:
+      - task: task-output
+        vars: { FORGE: "" }
+
+  check:task-output:forge:
+    desc: "Not part of task check; run it when a shell block of Taskfile.yml or ui/Taskfile.yml changes (about 8 s, fetches go-task once): check:task-output, and test:driver, test:runbook, test:ui, check:crates:lint and check:crates:test of the copy the forge's way: go-task of the TASK_VERSION of .github/workflows/pages.yml, fetched once into target/forge-task/<version> and checked against its TASK_SHA256, CI set, stdout and stderr each a pipe read by a process of its own; and the way of task check under that go-task too."
+    cmds:
+      - task: task-output
+        vars: { FORGE: "1" }
+
+  task-output:
+    silent: true
+    internal: true
+    cmds:
+      - |
+        {
+        forge_lane="{{.FORGE}}"
+        set -eu
+        set -o pipefail
+        root=$PWD
+        wf=.github/workflows/pages.yml
+        pin=$(sed -n 's/^ *TASK_VERSION: *"\([0-9.]*\)" *$/\1/p' "$wf")
+        sum=$(sed -n 's/^ *TASK_SHA256: *\([0-9a-f]\{64\}\) *$/\1/p' "$wf")
+        if [ -z "$pin" ] || [ -z "$sum" ]; then echo "FAIL no TASK_VERSION and TASK_SHA256 of go-task in $wf"; exit 1; fi
+        fail=0 n=0
+        n=$((n + 1))
+        bad=$(grep -nE '(^|[^[:alnum:]_-])exe[c] +[0-9]*[<>]' Taskfile.yml ui/Taskfile.yml || true)
+        if [ -z "$bad" ]; then
+          echo "ok   no exec with redirections only in Taskfile.yml and ui/Taskfile.yml"
+        else
+          echo "FAIL exec with redirections only (go-task $pin, the forge's, closes that file at the end of the line; open the output for a group instead: { ...; } >> /dev/stdout 2>> /dev/stderr):"
+          echo "$bad"
+          fail=1
+        fi
+        here={{.TASK_EXE}}
+        command -v "$here" > /dev/null 2>&1 || here=task
+        dir=$root/target/forge-task/$pin
+        forge=$dir/task
+        if [ -n "$forge_lane" ] && [ ! -x "$forge" ]; then
+          mkdir -p "$dir"
+          curl --fail --silent --show-error --location --output "$dir/task.tar.gz" "https://github.com/go-task/task/releases/download/v$pin/task_linux_amd64.tar.gz" || { echo "FAIL could not fetch go-task $pin, the release $wf installs"; exit 1; }
+          echo "$sum  $dir/task.tar.gz" | sha256sum --check --strict --status || { echo "FAIL $dir/task.tar.gz is not the TASK_SHA256 of $wf"; exit 1; }
+          tar -xzf "$dir/task.tar.gz" -C "$dir" task
+        fi
+        sb=$root/target/task-output
+        mkdir -p "$sb/bin" "$sb/driver/target" "$sb/runbook/target" "$sb/watch" "$sb/goals" "$sb/ui/node_modules" "$sb/scripts/host-tool-traps"
+        cp Taskfile.yml "$sb/Taskfile.yml"
+        cat > "$sb/bin/cargo" <<'STUB'
+        #!/bin/sh
+        tag=${PWD##*/}
+        case " $* " in
+        *" --no-run "*) echo "stub $tag no-run" ;;
+        *" nextest run "*)
+          i=0
+          while [ -n "${STUB_READY:-}" ] && [ ! -e "$STUB_READY" ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
+          awk -v n="$STUB_LINES" -v t="$tag" 'BEGIN { for (i = 1; i <= n; i++) print "stub " t " " i }'
+          echo "        PASS [   0.010s] stub::$tag"
+          echo "     Summary [   1.000s] 1 test run: 1 passed, 0 skipped"
+          ;;
+        *) echo "stub $tag cargo $1" ;;
+        esac
+        STUB
+        cat > "$sb/bin/npx" <<'STUB'
+        #!/bin/sh
+        awk -v n="$STUB_LINES" 'BEGIN { for (i = 1; i <= n; i++) print "stub ui " i }'
+        echo "stub ui end"
+        STUB
+        printf '#!/bin/sh\nexec "$@"\n' > "$sb/bin/slot"
+        printf '#!/bin/sh\necho "stub links"\n' > "$sb/scripts/check-tree-links.sh"
+        chmod +x "$sb/bin/cargo" "$sb/bin/npx" "$sb/bin/slot" "$sb/scripts/check-tree-links.sh"
+        cat > "$sb/Probe.yml" <<'PROBE'
+        version: '3'
+        includes:
+          gate: ./Taskfile.yml
+        tasks:
+          node:
+            silent: true
+            cmds:
+              - node -e 'process.stdout.write(""); require("fs").writeFileSync(process.env.STUB_READY, ""); setTimeout(() => {}, 2000)'
+          steps:
+            cmds:
+              - task: gate:test:driver
+              - task: gate:test:runbook
+              - task: gate:test:ui
+          check:
+            deps: [node, steps]
+        PROBE
+        want() {
+          got=$(grep -cE "$2" "$1" || true)
+          if [ "$got" -ne "$3" ]; then echo "     $4: $got of $3 lines"; miss=1; fi
+        }
+        verdict() {
+          n=$((n + 1))
+          if [ "$code" -ne 0 ]; then echo "     exit $code"; miss=1; fi
+          if [ "$miss" = 0 ]; then echo "ok   $1"; return; fi
+          echo "FAIL $1 (the output: $2)"
+          if [ -s "$3" ]; then echo "     its stderr ends:"; tail -n 3 "$3" | sed 's/^/       /'; fi
+          fail=1
+        }
+        [ -p "$sb/err.fifo" ] || mkfifo "$sb/err.fifo"
+        lanes="test:driver test:runbook test:ui check:crates:lint check:crates:test"
+        bins=$here
+        if [ -n "$forge_lane" ]; then bins="$here $forge"; else lanes=""; fi
+        for t in $lanes; do
+          out=$sb/forge-$t.out
+          cat "$sb/err.fifo" > "$sb/forge-$t.err" &
+          code=0
+          (cd "$sb" && CI=true STUB_LINES=500 PATH="$sb/bin:$PATH" "$forge" --taskfile Taskfile.yml "$t" 2> err.fifo | cat > "$out") || code=$?
+          wait
+          miss=0
+          case $t in
+          test:driver)
+            want "$out" '^stub driver [0-9]+$' 500 "runner lines"
+            want "$out" '^ten slowest tests:$' 1 "ten slowest"
+            want "$out" '^0\.010s stub::driver$' 1 "slowest test"
+            want "$out" '^test run 1\.000s of 120s$' 1 "budget line" ;;
+          test:runbook)
+            want "$out" '^nextest profile forge; ' 1 "profile line"
+            want "$out" '^stub runbook [0-9]+$' 500 "runner lines"
+            want "$out" '^ten slowest tests:$' 1 "ten slowest"
+            want "$out" '^0\.010s stub::runbook$' 1 "slowest test"
+            want "$out" '^test run 1\.000s of 120s$' 1 "budget line" ;;
+          test:ui)
+            want "$out" '^stub ui [0-9]+$' 500 "runner lines"
+            want "$out" '^stub ui end$' 1 "last runner line"
+            want "$out" '^stub links$' 1 "link check" ;;
+          check:crates:lint)
+            want "$out" '^stub (driver|watch|goals|runbook) cargo (build|clippy)$' 8 "build and clippy lines" ;;
+          check:crates:test)
+            want "$out" '^stub (watch|goals) [0-9]+$' 1000 "runner lines" ;;
+          esac
+          verdict "forge way, go-task $pin, CI set, $t: every line arrives" "$out" "$sb/forge-$t.err"
+        done
+        k=0
+        for bin in $bins; do
+          k=$((k + 1))
+          ver=$("$bin" --version 2>/dev/null | head -n 1)
+          out=$sb/check-$k.out
+          rm -f target/task-output/node.ready
+          code=0
+          (cd "$sb" && STUB_LINES=200000 STUB_READY="$sb/node.ready" PATH="$sb/bin:$PATH" "$bin" --taskfile Probe.yml check 2> "$sb/check-$k.err" | { i=0; while [ ! -e node.ready ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done; sleep 0.5; cat > "$out"; }) || code=$?
+          miss=0
+          want "$out" '^stub driver [0-9]+$' 200000 "driver runner lines"
+          want "$out" '^stub runbook [0-9]+$' 200000 "runbook runner lines"
+          want "$out" '^stub ui [0-9]+$' 200000 "ui runner lines"
+          want "$out" '^test run 1\.000s of 120s$' 2 "budget lines"
+          want "$out" '^stub links$' 1 "link check"
+          verdict "task check way, go-task $ver, the three test steps beside node on a shared output read late: every line arrives" "$out" "$sb/check-$k.err"
+        done
+        echo "$n cases"
+        exit $fail
+        } >> /dev/stdout 2>> /dev/stderr
 
   check:cycles-suite:
     desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/tree-suite.yaml against the list of the old entries (cycles/old-suite-names.txt) and the table of docs/cycles-suite.md."

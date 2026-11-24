@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "85b21a9cb62ef5b3cd027f8e51791dcf502e71d674c08e4e36dfaea15d0f87b4",
-    "contract_digest": "686ef23a960fed2dcb176b20ab6e63d7ad04b61a69fed76251c92c6d00436aec",
+    "spec_digest": "77a4b866b87a5baf86299823ac0ffe3f0d125b3fb5cac3f62d877a41c95b679a",
+    "contract_digest": "b45bb73b7052729c8f65cccd668ee8fdacf41f841c6c136a609f5eb65ab2a30f",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -334,11 +334,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -367,6 +375,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -1157,11 +1169,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -1209,7 +1229,15 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -1375,6 +1403,287 @@
         {
           "kind": "actor",
           "name": "sdc.daemon.Runtime"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-a-submit-without-a-level-takes-the-daemons-default": {
+      "purpose": "A submit that names no confinement is taken: the handler fills the daemon's default level and the run is Submitted. A submit that names a level below the floor is still refused.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-23T10:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-23T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "confinement_source": {
+              "kind": "literal",
+              "value": "daemon-default"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-no-level"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-23T10:02:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-low"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.Runs"
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.Runs",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "run_id": {
+                "kind": "literal",
+                "value": "run-no-level"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Submitted"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Run.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunOutcome"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "below-floor"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.Runs"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
         }
       ]
     },
@@ -2072,11 +2381,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -2117,6 +2434,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -2763,11 +3084,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -2804,6 +3133,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -3388,11 +3721,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -3441,6 +3782,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -4005,11 +4350,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -4046,6 +4399,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -4385,11 +4742,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -4422,6 +4787,14 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -5026,11 +5399,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -5075,6 +5456,10 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -5659,11 +6044,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -5696,6 +6089,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -6127,11 +6524,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -6164,6 +6569,14 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -6769,11 +7182,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -6814,6 +7235,14 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -7151,11 +7580,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -7188,6 +7625,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",
@@ -8257,11 +8698,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.ContextPath"
         },
         {
           "kind": "type",
           "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
         },
         {
           "kind": "type",
@@ -8302,6 +8751,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
         },
         {
           "kind": "type",

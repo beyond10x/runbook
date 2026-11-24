@@ -25,6 +25,13 @@ pub struct PrivateDir {
     gateway: Option<PathBuf>,
 }
 
+/// The paths [`PrivateDir::check`] plans: the link to the login file or the gateway file, never both.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Planned {
+    pub link: Option<PathBuf>,
+    pub gateway: Option<PathBuf>,
+}
+
 fn owned_directory(path: &Path, what: &str) -> Result<(), String> {
     let meta = std::fs::symlink_metadata(path).map_err(|e| format!("{what} {}: {}", path.display(), e.kind()))?;
     // SAFETY: geteuid has no preconditions.
@@ -36,13 +43,47 @@ fn owned_directory(path: &Path, what: &str) -> Result<(), String> {
 }
 
 impl PrivateDir {
+    /// What [`PrivateDir::create_with`] would refuse, without making anything, and the paths the
+    /// link and the gateway file would have (both `None` when neither a login file nor a gateway is
+    /// named). A run without a model node makes neither: the runner checks here before anything is
+    /// written and calls `create_with` only in a run that has a model node, after the opening decided.
+    pub fn check(run: &str, login: Option<&Path>, gateway: bool) -> Result<Planned, String> {
+        if login.is_some() && gateway {
+            return Err("gateway and login_file: a run has one or the other, never both".to_owned());
+        }
+        if let Some(login) = login {
+            if !login.is_absolute() || !login.is_file() {
+                return Err("login_file: not an absolute path of a file that exists".to_owned());
+            }
+        } else if !gateway {
+            return Ok(Planned::default());
+        }
+        let named = if gateway { "a gateway" } else { "a login file" };
+        let base = match std::env::var_os("XDG_RUNTIME_DIR") {
+            Some(v) if !v.is_empty() => PathBuf::from(v),
+            _ => return Err(format!("{named} is named and XDG_RUNTIME_DIR is not set: what it needs lives in $XDG_RUNTIME_DIR/runbook/<run>/, not in the run directory")),
+        };
+        if !base.is_absolute() {
+            return Err("XDG_RUNTIME_DIR is not an absolute path".to_owned());
+        }
+        owned_directory(&base, "XDG_RUNTIME_DIR")?;
+        let parent = base.join("runbook");
+        if std::fs::symlink_metadata(&parent).is_ok() {
+            owned_directory(&parent, "the runtime directory")?;
+        }
+        let dir = parent.join(run);
+        if std::fs::symlink_metadata(&dir).is_ok() {
+            return Err(format!("{}: exists (left by a run that was killed? remove it when no run of this name is on)", dir.display()));
+        }
+        Ok(if gateway { Planned { link: None, gateway: Some(dir.join("gateway")) } } else { Planned { link: Some(dir.join("login")), gateway: None } })
+    }
+
     /// Makes the private directory of `run` when `login` is given, with the link in it; returns
     /// `None` when no login file is named (nothing is made, `XDG_RUNTIME_DIR` is not needed).
     /// Refused, with nothing made, when `XDG_RUNTIME_DIR` is unset, not absolute, not a directory
     /// or not owned by the user, when the login file is not an absolute path of a file that
     /// exists, and when the directory of this run name exists already. No message holds the login
     /// file's path.
-    #[cfg(test)]
     pub fn create(run: &str, login: Option<&Path>) -> Result<Option<PrivateDir>, String> {
         PrivateDir::create_with(run, login, None)
     }

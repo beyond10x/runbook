@@ -457,7 +457,10 @@ fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
         if flag {
             args.push("--mcp");
         }
-        let mut child = Command::new(BIN).args(&args).env_remove("RUNBOOK_TOKEN").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut cmd = Command::new(BIN);
+        cmd.args(&args).env_remove("RUNBOOK_TOKEN").stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::isolate(&mut cmd);
+        let mut child = cmd.spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let addr: SocketAddr = line.trim().strip_prefix("runbook: listening on http://").unwrap_or_else(|| panic!("{line:?}")).parse().unwrap();
@@ -588,6 +591,49 @@ fn http_tool_calls_give_what_the_http_routes_give() {
     assert_eq!((unknown.status, unknown.json()["error"]["code"].clone()), (400, json!(-32602)));
 }
 
+// ---- a cap of the wrong JSON type ----
+
+#[test]
+fn a_submit_run_with_a_cap_of_the_wrong_json_type_is_an_error_naming_the_cap() {
+    let d = Daemon::start("mcp-cap-type", None, "127.0.0.1:0");
+    let r = d.modern("tools/call", json!({"name": "submit_run", "arguments": {"runbook_id": "hold", "intake": "x", "settings": {"max_llm_calls": 5}}}));
+    let result = r.json()["result"].clone();
+    assert_eq!(result["isError"], true, "{}", r.text());
+    assert!(result.to_string().contains("max_llm_calls"), "the refusal does not name the cap: {}", r.text());
+    let list = d.modern("tools/call", json!({"name": "list_runs", "arguments": {}})).json();
+    assert_eq!(list["result"]["structuredContent"]["rows"], json!([]), "a refused submit made a run");
+}
+
+#[test]
+fn a_submit_run_with_a_cap_as_an_out_of_range_number_is_an_error_naming_the_cap() {
+    let d = Daemon::start("mcp-cap-range", None, "127.0.0.1:0");
+    let mut report = Vec::new();
+    for key in ["max_wall_seconds", "max_llm_calls", "cap_micro_usd"] {
+        let request = modern_request(1, "tools/call", json!({"name": "submit_run", "arguments": {"runbook_id": "hold", "intake": "x", "settings": {key: "NUMBER"}}}));
+        let body = request.to_string().replace("\"NUMBER\"", "1e999");
+        let h = [("Content-Type", "application/json"), ("Accept", "application/json, text/event-stream"), ("MCP-Protocol-Version", MODERN), ("Mcp-Method", "tools/call"), ("Mcp-Name", "submit_run")];
+        let r = send(d.addr, "POST", "/mcp", &h, Some(body.as_bytes()));
+        let text = r.text();
+        if !text.contains(key) || text.contains("/home") {
+            report.push(format!("{key}=1e999: {} {text}", r.status));
+        }
+    }
+    let list = d.modern("tools/call", json!({"name": "list_runs", "arguments": {}})).json();
+    assert_eq!(list["result"]["structuredContent"]["rows"], json!([]), "a refused submit made a run");
+    assert!(report.is_empty(), "{}", report.join("\n"));
+}
+
+#[test]
+fn the_submit_run_tool_says_the_caps_are_strings() {
+    let tools = mcp::tools::list();
+    let submit = tools.iter().find(|t| t["name"] == "submit_run").unwrap();
+    let text = submit["description"].as_str().unwrap();
+    for cap in ["max_wall_seconds", "max_llm_calls", "cap_micro_usd"] {
+        assert!(text.contains(cap), "the description of submit_run does not name {cap}: {text}");
+    }
+    assert!(text.contains("string"), "{text}");
+}
+
 // ---- acceptance 5: an unknown run id ----
 
 #[test]
@@ -642,10 +688,8 @@ fn stdio_sends_the_token_it_reads_from_the_environment_and_never_has_it_in_argv(
 
 #[test]
 fn stdio_with_the_daemon_gone_is_a_tool_error_that_does_not_carry_the_token() {
-    let port = {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
-    };
+    // Held for the case: nothing listens there and no other server is handed the port.
+    let (_held, port) = super::http::refusing_port();
     let url = format!("http://127.0.0.1:{port}");
     let mut c = Stdio1::spawn(&["--daemon", &url], &[("RUNBOOK_TOKEN", "s3cret-token")]);
     c.initialize();

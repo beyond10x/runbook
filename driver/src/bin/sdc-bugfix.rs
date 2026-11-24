@@ -96,6 +96,12 @@ fn main() -> ExitCode {
             // at its run limit (docs/driver.md, "The build pool wait").
             ExitCode::from(if e.starts_with(POOL_WAIT) {
                 POOL_WAIT_EXIT
+            } else if let Some(rest) = e.strip_prefix(NOT_RUN) {
+                if rest.starts_with("exit 126") {
+                    126
+                } else {
+                    127
+                }
             } else if e.starts_with(POOL_OVER) {
                 OVER_TIME_EXIT
             } else if e.contains("not on PATH") {
@@ -1398,12 +1404,57 @@ fn tree_diff(a: &Path, b: &Path, except: &str) -> R<Vec<String>> {
     Ok(all.into_iter().filter(|f| fs::read(a.join(f)).ok() != fs::read(b.join(f)).ok()).collect())
 }
 
-/// `from` copied to .sdc/bugfix/<name>, the directory a command runs in.
+/// `from` copied to .sdc/bugfix/<name>, the directory a command runs in, made a git tree.
 fn copy_to(from: &Path, name: &str) -> R<PathBuf> {
     let tree = Path::new(".sdc/bugfix").join(name);
     reset_dir(&tree)?;
     copy_tree(from, &tree)?;
+    git_tree(&tree)?;
     fs::canonicalize(&tree).map_err(|e| e.to_string())
+}
+
+/// The identity and instant of the one commit of a check tree: fixed, so its id depends on the
+/// copied files only.
+const TREE_GIT_IDENTITY: [&str; 4] = ["-c", "user.name=runbook", "-c", "user.email=runbook@localhost"];
+const TREE_GIT_DATE: &str = "2000-01-01T00:00:00+0000";
+
+/// `tree` made a git repository with one commit of its files (docs/bugfix.md, "The trees a check
+/// runs in"): the build pool's remote mode needs one. No remote, no history; maintenance off and no
+/// hook in its own configuration. Nothing of the host's git configuration is read: no global or
+/// system file, and no `GIT_*` variable of the environment reaches the git calls.
+fn git_tree(tree: &Path) -> R<()> {
+    let git = |args: &[&str]| -> R<()> {
+        let mut c = Command::new("git");
+        for (k, _) in std::env::vars_os().filter(|(k, _)| k.to_string_lossy().starts_with("GIT_")) {
+            c.env_remove(k);
+        }
+        let o = c
+            .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+            .args(args)
+            .current_dir(tree)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_DATE", TREE_GIT_DATE)
+            .env("GIT_COMMITTER_DATE", TREE_GIT_DATE)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("git is not on PATH: a check runs in a git tree (docs/bugfix.md): {e}"))?;
+        if o.status.success() {
+            Ok(())
+        } else {
+            Err(format!("git {} in {}: {}", args.join(" "), tree.display(), String::from_utf8_lossy(&o.stderr).trim()))
+        }
+    };
+    git(&["init", "-q"])?;
+    for (k, v) in [("maintenance.auto", "false"), ("gc.auto", "0"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", "--local", k, v])?;
+    }
+    // Every copied file, also one a .gitignore of the tree names.
+    git(&["add", "--all", "--force", "."])?;
+    let mut commit = TREE_GIT_IDENTITY.to_vec();
+    commit.extend(["commit", "-q", "--no-verify", "--allow-empty", "-m", "the code tree as copied for a check"]);
+    git(&commit)
 }
 
 fn copy_of_impl() -> R<PathBuf> {
@@ -1491,8 +1542,18 @@ fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
         }
     };
     let out = fs::read_to_string(&log).unwrap_or_default();
+    // Through the pool, 127 and 126 are the shell's "not found" and "cannot run": the pool, or what
+    // it ran, could not run the command, so the exit says nothing about the code.
+    if pooled && (code == 126 || code == 127) {
+        let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        return Err(format!("{NOT_RUN}exit {code}: `{}` did not run through slot: {last}", argv.join(" ")));
+    }
     Ok((code, out))
 }
+
+/// The start of the error of a pool job that exited 126 or 127: `not run: exit <code>: ...`; the
+/// step exits with that code, a program error.
+const NOT_RUN: &str = "not run: ";
 
 /// `slot` exits so when the pool ended a started job at its run limit (slot 0.22).
 const POOL_KILL: i32 = 124;

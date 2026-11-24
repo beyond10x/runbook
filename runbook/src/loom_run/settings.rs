@@ -13,10 +13,21 @@ pub fn read(path: &Path) -> Result<Value, String> {
     parse(&text).map_err(|e| format!("--settings {}: {e}", path.display()))
 }
 
+/// The settings a run reads: the `--settings` file when one is named, over the members `runbook.toml`
+/// carries (a member of the file replaces the default's whole). With neither, an empty table.
+pub fn merged(args: &crate::loom_run::Args) -> Result<Value, String> {
+    let over = args.settings.as_deref().map(read).transpose()?;
+    Ok(crate::config::merge(&args.defaults, over.as_ref()))
+}
+
 /// The settings of a TOML text as the JSON value the loop, the decider and the bindings copy read:
 /// a table is an object in file order, an integer a whole number, a float a float (so no guard that
 /// wants a whole number takes it). A date or a time is no value of any setting.
 pub fn parse(text: &str) -> Result<Value, String> {
+    read_table(text).map_err(|e| crate::config::printable(&e))
+}
+
+fn read_table(text: &str) -> Result<Value, String> {
     if looks_like_json(text) {
         return Err("this is JSON, and the settings file is TOML now: write the same members as TOML, the members that were under `loom` at the top level (the form and an example: docs/loom-run-settings.md)".to_owned());
     }
@@ -61,7 +72,7 @@ fn table_of(t: &toml::de::DeTable<'_>, at: &str) -> Result<Value, String> {
     let mut object = serde_json::Map::new();
     for (k, x) in t.iter() {
         let k = k.get_ref().to_string();
-        let member = json_of(x.get_ref(), &format!("{at}.{k}"))?;
+        let member = json_of(x.get_ref(), &format!("{at}.{}", crate::config::segment(&k)))?;
         object.insert(k, member);
     }
     Ok(Value::Object(object))
@@ -109,6 +120,29 @@ fn same_number(v: &Value, want: u64, what: &str, option: &str) -> Result<(), Str
     }
 }
 
+/// A member that names a cap, beside an option that may be absent: a member without the option
+/// names the cap (`with_named_caps` took it), a member beside the option must equal it.
+fn same_named(v: &Value, option_value: Option<u64>, what: &str, option: &str) -> Result<(), String> {
+    match option_value {
+        Some(want) => same_number(v, want, what, option),
+        None => Err(format!("{what}: a whole number")),
+    }
+}
+
+/// The arguments of the run with the caps the settings name: a member `cap_micro_usd` or
+/// `max_llm_calls` of the file names the cap when its option is not given. A member that is not a
+/// whole number names nothing here; [`normalise`] refuses it.
+pub fn with_named_caps(args: &crate::loom_run::Args, raw: &Value) -> crate::loom_run::Args {
+    let mut named = args.clone();
+    if named.cap_micro_usd.is_none() {
+        named.cap_micro_usd = raw.get("cap_micro_usd").and_then(Value::as_u64);
+    }
+    if named.max_llm_calls.is_none() {
+        named.max_llm_calls = raw.get("max_llm_calls").and_then(Value::as_u64);
+    }
+    named
+}
+
 /// The refusal of a `loom` member of the JSON form: every member is named with its new place.
 fn old_place(loom: &Value) -> String {
     let Some(loom) = loom.as_object() else {
@@ -130,7 +164,8 @@ fn old_place(loom: &Value) -> String {
 /// level and a `loom` table are refused by name (the latter with the new place of its members). The
 /// members that only repeat an option (`format`, `run`, `loom_sha256`, `in_process`, `confinement`,
 /// `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`) are checked against the options and must
-/// agree; the first six are taken out, in the order the file has the rest. A `decider.principal` of
+/// agree (a member of `cap_micro_usd` or `max_llm_calls` without its option names the cap, see
+/// [`with_named_caps`]); the first six are taken out, in the order the file has the rest. A `decider.principal` of
 /// a model or rule decider must be the one the kind gives (`decider:model`, `decider:<verdict>`) and
 /// is taken out. Everything else is passed on untouched.
 pub fn normalise(raw: &Value, args: &crate::loom_run::Args) -> Result<Value, String> {
@@ -177,10 +212,10 @@ pub fn normalise(raw: &Value, args: &crate::loom_run::Args) -> Result<Value, Str
         }
     }
     if let Some(value) = top.shift_remove("cap_micro_usd") {
-        same_number(&value, args.cap_micro_usd, "cap_micro_usd", "--cap-micro-usd")?;
+        same_named(&value, args.cap_micro_usd, "cap_micro_usd", "--cap-micro-usd")?;
     }
     if let Some(n) = top.get("max_llm_calls") {
-        same_number(n, args.max_llm_calls, "max_llm_calls", "--max-llm-calls")?;
+        same_named(n, args.max_llm_calls, "max_llm_calls", "--max-llm-calls")?;
     }
     if let Some(n) = top.get("max_wall_seconds") {
         same_number(n, args.max_wall_seconds, "max_wall_seconds", "--max-wall-seconds")?;
@@ -230,8 +265,9 @@ pub fn fill_decider(settings: &mut Value, path: Option<&std::ffi::OsStr>) -> Res
 /// The redacted settings with what the command was given added, as `RunStarted` carries them (the
 /// members `sdc-experiment check --runs-dir` compares): `loom` (`sha256` of the binary, or
 /// `in_process` and the pinned `commit` of the library; `confinement`, `cap_micro_usd`),
-/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`. The options win over a member of
-/// the same name in the file. The path of the binary is not in them.
+/// `max_llm_calls`, `max_wall_seconds`, `case`, `root_protocol`, and `config` when a `runbook.toml` gave a
+/// value (its name and how it was found, never its path). The options win over a member of the same name
+/// in the file. The path of the binary is not in them.
 pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::loom_run::host::Identity) -> Value {
     use crate::loom_run::host::Identity;
     let mut v = redacted.clone();
@@ -249,6 +285,9 @@ pub fn with_run(redacted: &Value, args: &crate::loom_run::Args, loom: &crate::lo
         o.insert("max_wall_seconds".to_owned(), Value::from(args.max_wall_seconds));
         o.insert("case".to_owned(), Value::from(args.case.clone()));
         o.insert("root_protocol".to_owned(), Value::from(args.root_protocol.clone()));
+        if let Some(config) = &args.config {
+            o.insert("config".to_owned(), Value::from(config.clone()));
+        }
     }
     v
 }
@@ -295,13 +334,23 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "text: x\n".into(),
             confinement: Confinement::Local,
-            settings: PathBuf::from("settings.toml"),
-            spend_ledger: PathBuf::from("ledger.json"),
-            cap_micro_usd: 5_000_000,
-            max_llm_calls: 100,
+            settings: Some(PathBuf::from("settings.toml")),
+            defaults: Default::default(),
+            spend_ledger: Some(PathBuf::from("ledger.json")),
+            cap_micro_usd: Some(5_000_000),
+            max_llm_calls: Some(100),
             max_wall_seconds: 3600,
             ports: Default::default(),
+            config: None,
         }
+    }
+
+    #[test]
+    fn a_refusal_of_the_reader_is_masked_by_parse_itself_for_a_form_that_only_the_whole_path_has() {
+        // the keys `eyJa` and `eyJb` and the member `c`: no one segment of the path is a web token, the path is
+        let head = ["ey", "Ja.eyJb"].concat();
+        let e = parse(&format!("[{head}]\nc = 1979-05-27\n")).unwrap_err();
+        assert!(e.contains("a date or a time") && !e.contains(&head) && e.contains("<a key or token>"), "{e}");
     }
 
     #[test]

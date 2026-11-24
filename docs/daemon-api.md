@@ -22,9 +22,24 @@ runtime.
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 
-Confinement levels, weakest first: `local` (not confined), `linux`. The default of a submit is
-`linux`, the daemon's default floor is `linux`; `local` must be asked for by name and is refused
-under a `linux` floor.
+Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
+`confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
+`confinement` of `runbook.toml`). The daemon has no built-in default: a daemon with none refuses a
+submit that names no level, `400` and by name, and writes nothing. The run's row and its first
+event (`runbook.submitted`) carry `confinement_source`: `submit` or `daemon-default`. The daemon's
+default floor is `linux`; `local` must be asked for by name or stated as the daemon's default, and
+is refused under a `linux` floor. The floor is never read as a default.
+
+A submit may also carry `autonomy` (`A0` to `A5`) and `decider` (a kind name among those the operator
+configured in `runbook.toml`); what it leaves out comes from `--autonomy` and `--decider`. A run with a
+level and a kind has its decisions answered by that decider where the level gives them to it, and the
+rest stay open for `answer-decision` (`docs/engine.md`, "Autonomy and a decider"). The run's row, the
+view `run` and the `runbook.submitted` event carry `autonomy` and `decider`; a kind that is not
+configured, an unknown level and a level with no kind are refused `400` before anything is written. An
+answer of a rule or a decider is recorded as `rule:<name>` or `decider:<kind>` in `answered_by` and
+`principal`. A client label is trimmed of ASCII whitespace and refused `400` when it holds a
+non-ASCII or a control character, or starts, in any case, with `rule:`, `decider:` or `router:`
+(the refusal prints no byte of it).
 
 ## Client commands
 
@@ -93,7 +108,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `runs-of-session` | `session_id` | the runs of a session |
 | `runs-in-state` | `state` | the runs in a state |
 | `runs-of-session-in-state` | `session_id`, `state` | both filters |
-| `run` | `run_id` | one run with everything it was submitted with |
+| `run` | `run_id` | one run with everything it was submitted with, and `step_in_flight` while a program of it runs (below) |
 | `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks |
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
@@ -119,6 +134,32 @@ rows from the host when asked.
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
 
+### The step in flight
+
+A step of a run (a lint, a ship) can take twenty minutes and more, and the events of the run say
+nothing while it runs: Loom writes a line when an action finishes. So the runtime (the engine,
+`--runtime loom`) tells the daemon before each bound program starts, through the hook Loom gives
+`runbook run` too (`runbook/src/engine/announce.rs`, the `run_child` of the runner), and the daemon
+records the run event `runbook.action-started` before the program starts. The record has `case`
+(Loom's `LOOM_CASE` of the program), `action` (the action whose argv is the program's, when exactly
+one is), `role` (`program`, or `check` for a `handoff_when` check of the action) and `try` (the nth
+start of the action in the case, for a program); a member that is not known is absent. One event
+for each program, in the order the programs start, between the `ActionFinished` lines of the run
+log; an action that runs no program (an `open` or a `person` action) has none.
+
+While the program runs, the view `run` (and the MCP tool `read_run`) has one more member,
+`step_in_flight`: `action`, `case_id`, `started_at` (the `at` of the event) and `seconds` (whole
+seconds since, by the daemon's clock, read with the view). It is absent when no program runs: between
+steps, while the run waits on a decision, after a cancel, when the run is over, and after a restart
+of the daemon (a run that was live is ended as `orphaned`; the event stays in its events). The step
+is kept in the daemon's process and not in the journal, which holds the event only. The language has
+no command that sets `step_in_flight`, so the specification declares the member of `Run` and states
+where its value comes from, as for `Runbook`. `step_in_flight` is a new optional member of a run
+row: a client that validates rows strictly against the schema of 0.9.3 refuses a row that has it and
+must take the new schema. The stub runtime runs no program and tells nothing.
+The daemon page reads the views `runs` and the event stream and not `run`; it shows the event as
+any other `runbook.*` event and not the step (a separate change).
+
 ## Event streams
 
 Three views page the events by `position`:
@@ -135,10 +176,14 @@ The `sequence` of an event is only its place within its run.
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
-`runbook.run-orphaned`, `runbook.answer-undeliverable` (an answer the runtime could not take up) and
-`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
+`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
+`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`) and
+`runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
-run event from a command, so no row of the interpreted target stands for them.
+run event from a command, so no row of the interpreted target stands for them. The runtime
+`--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,
+`revision`, `bindings_sha256`, `copy_sha256`: the runbook the run copied at its submit,
+`docs/engine.md`, "The run's copy of the runbook"); the specification does not declare it.
 
 ### Event streams
 
@@ -168,8 +213,9 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 - Where it ends. The stream of a run ends (the daemon closes it) when the run is `Ended`,
   `Cancelled` or `FailedToStart` and its last event has been sent. The stream of a session ends when
   the session is closed, every run of the session is terminal and the last event has been sent. The
-  stream of the daemon ends at shutdown only. On SIGINT or SIGTERM every open stream is closed and
-  the daemon exits within 2 s, also when a client does not read. A client that gets the end of a
+  stream of the daemon ends at shutdown only. When a stop ends (SIGINT or SIGTERM and no live run, or the
+  end of the drain: see "Stopping the daemon") every open stream is closed and the daemon exits within
+  2 s, also when a client does not read; during a drain the streams stay open. A client that gets the end of a
   stream before it expected one reconnects with `Last-Event-ID`.
 - Keep-alive. A comment line, `: keep-alive`, is sent every 15 s on a stream that has nothing else to
   send, so that a proxy does not close it; a client ignores it.
@@ -186,7 +232,11 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ```
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
-              [--token-file FILE] [--ui] [--mcp]
+              [--default-confinement local|linux] [--autonomy A0..A5] [--decider KIND] [--token-file FILE] [--ui] [--mcp]
+              [--drain-seconds SECONDS]
+              [--runtime loom --runbook-home DIR
+               --max-wall-seconds N --max-llm-calls N --cap-micro-usd N
+               [--max-wall-seconds-ceiling N] [--max-llm-calls-ceiling N] [--cap-micro-usd-ceiling N]]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -194,8 +244,9 @@ stub a run is scripted, it records one note and ends, and nothing is executed. O
 requests at once (the question is the run's intake, the options are A and B), waits until both are
 answered, records `stub.answered` and ends `approved`; it is how a client or the web page is tried
 against a run in `WaitingOnDecision`. The daemon says so on standard error when it starts. It prints
-`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM;
-open event streams are closed then (see "Event streams").
+`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM
+and then until its live runs have ended (see "Stopping the daemon"); open event streams are closed
+then (see "Event streams").
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -205,8 +256,14 @@ open event streams are closed then (see "Event streams").
 | `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
+| `--default-confinement` | the `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` is `linux`), else none | The level of a submit that names none. The option wins over the file. It is never the floor: a default below `--min-confinement` stops the daemon at start, exit 1, with a message that names the two values and nothing else of the file. With none, a submit without a level is refused `400` by name and writes nothing. |
+| `--autonomy` | none | The autonomy level (`A0` to `A5`) of a submit that names none. With none, such a run has no level and every decision of it waits for a client. It needs `--decider`, or the daemon does not start (exit 1). |
+| `--decider` | none | The decider kind of a submit that names none: a kind of `[deciders.<kind>]` in `runbook.toml` (`rule`, `model`). A name that is not configured stops the daemon at start. Both need `--runtime loom`: the stub has no decider. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
+| `--max-wall-seconds`, `--max-llm-calls`, `--cap-micro-usd` | none, each required with `--runtime loom` | The caps of a run that names none (see "Caps of a run"). A daemon started without one refuses to start, exit 1, naming each missing option, before anything is bound or written. There is no binary default. A value is a whole number of 1 or more. The stub takes none. |
+| `--max-wall-seconds-ceiling`, `--max-llm-calls-ceiling`, `--cap-micro-usd-ceiling` | the cap itself | The most a submit may name for that cap. A ceiling below its cap is refused at start, naming the cap. |
+| `--drain-seconds` | none: no bound | The most seconds a drain takes after the first SIGINT or SIGTERM. When they have passed with a run still live, the daemon stops at once as on a second signal (see "Stopping the daemon"). |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
 `Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
@@ -223,11 +280,167 @@ Limits. A body over 6 MiB + 64 KiB is refused `413` before it is read whole (the
 1,048,576 bytes; JSON writes a control character as six). Answers outside the specification have the
 body `{"refused": <what>, "message": <why>}`: `400` for a body or query the daemon cannot read, `401`,
 `403` and `415` (see "Requests from a browser"), `404` for an unknown route, `405` for the wrong
-method, `413`. None of `401`, `403` and `415` is in the specification (`ess/domains/daemon.yaml`,
-the generated OpenAPI): they are the security floor of the realization and are written here only. The
+method, `413`, and `503` for a submit while the daemon drains (see "Stopping the daemon"; the body
+has `live_runs` too). None of `401`, `403`, `415` and `503` is in the specification (`ess/domains/daemon.yaml`,
+the generated OpenAPI): the first three are the security floor of the realization, the fourth is the
+daemon's own stop, and they are written here only. The
 `403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
 authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
 `message`, never an `actor`.
+
+## Caps of a run
+
+A run of the Loom runtime is never unbound: it has a wall time, a number of model calls and a spend
+cap (`runbook/src/caps.rs`, `runbook/src/engine/gate.rs`).
+
+Where a request names them. `SubmitRun` has no member for a cap (the request is generated from
+`ess/domains/daemon.yaml` and gains none), so a submit names them in its `settings`, as it names
+anything else: `max_wall_seconds`, `max_llm_calls` and `cap_micro_usd`, each a string of a whole number
+of 1 or more (`"max_llm_calls": "50"`; every value of `settings` is a string, over HTTP and through the
+MCP tool `submit_run`). A cap the submit does not name is the daemon's option of that name. A cap over the
+daemon's ceiling is refused at submit as an invalid request (`400`), naming the cap, the value and the
+ceiling, and no run is made. A value that is no whole number of 1 or more is refused the same way, and
+so is a value of another JSON type than a string (`"max_llm_calls": 50` is a number): the refusal names the
+cap and says a cap is a string. A
+submit may name a lower cap or a higher one, up to the ceiling. The caps of a run are stored with it
+in `settings`, so the run view shows the three that applied, and a run taken up again has the same ones.
+
+What each cap stops. Before each step of a run the engine holds the use against the caps; a run that
+has reached one ends with an outcome and an event `runbook.cap-reached` (`cap`, `detail`), the same as
+any run:
+
+| Cap | Outcome | Rule |
+|---|---|---|
+| `max_wall_seconds` | `stopped: wall time` | Counted from the start of the run, waits on a decision included. A step that is running, or a wait on a decision, is ended when the time is up; what the run asked is withdrawn. A cancel by a client wins over the cap. |
+| `max_llm_calls` | `stopped: llm calls` | A step is not started when the calls made reach the cap. A call is a cost record the bound programs write (`.sdc/llm/calls.jsonl`). |
+| `cap_micro_usd` | `stopped: spend cap` | A step is not started when this run's spend has reached its cap, and a program is not started when the reservation for it is less than it may cost. |
+
+Spend. The cap is the run's own: it is the most that one run spends, and what other runs of the
+runbook spent, or hold while they run, never reduces it. Spend is booked in a ledger under the state
+directory, `ledgers/<runbook id>.json`, one file per runbook with each entry and each reservation
+keyed by the run id: the module of `runbook run` (`runbook/src/ledger.rs`), with the cost reader and
+the call-budget reader of that command. A run's admission and its reservations are held against its cap
+less what it has spent and holds itself. A reservation of a run that no longer lives counts against no
+run: it is keyed by that run's id, and a run that starts again under its id drops what its id held.
+What a program reserves as it starts is what it may cost, never the whole cap. A run is never
+unbound in money:
+
+- A program that names its per-call budget (`--max-budget-usd <v>` or `--max-budget-usd=<v>` in its
+  own arguments, the largest when it names it more than once) reserves that budget. The arguments come
+  from the bindings the run reads (the root's bindings file and the children it names) and nowhere
+  else.
+- A binding states the per-call budget of its programs without the argv, for a program that does not
+  take the option (`docs/loom-bindings.md`, "The per-call budget of a program"): the member
+  `max_budget_usd: <number>` of a program action (an action with `executor.argv` or `arguments_from`),
+  and the same member at the top of a bindings file for every program action of that file that names
+  none itself; it does not reach a child file an `open` action names (each file names its own). It is
+  never passed to the program; `0` says the program calls no model and reserves nothing. The order:
+  the argv's budget, then the action's member, then the file's member, then the largest budget below.
+- A program whose budget none of these names may call a model all the same: it reserves the largest
+  per-call budget the runbook's own bindings name (in an argv or as a member), root and children. A
+  step near the cap whose program makes no model call may therefore be stopped; a program that names
+  `--max-budget-usd 0` or `max_budget_usd: 0` reserves nothing.
+- A runbook with a program whose budget no source names and no budget in any of its bindings is
+  refused at submit as an invalid request (`400`), naming the reason and the action; no run is made. A
+  runbook whose every program has a budget from one of the sources needs no budget elsewhere. Refused
+  the same way: a budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing
+  after the option; for a member also text such as `"0.3"`, `null`, `true`, a list), naming the action
+  and the bindings file, or the bindings file for its own member; an action whose argv and member name
+  two different budgets, naming the action; a member on an action that runs no program. A run checks
+  the same on its own copy before it opens; the copy's files hold no member (Loom refuses a member it
+  does not know) and the members are kept beside them in `bindings/.call-budgets.json`, inside the
+  copy's digest.
+- A program a person's answer starts (a person action whose binding names an `argv`) reserves the
+  same way before it starts and is booked after, also when the run ends right after it (a wall cap
+  spent while it ran); when its reservation is short it does not start and the run ends at the spend
+  cap. A run that reaches a cap while it takes the last answer of a wait ends like one that reached
+  it while it waited.
+
+After a step or such an answer the cost records are booked at their cost; a failed call with no
+cost is booked at the largest reservation it held (nothing when it held none), and a record that
+cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
+and through `submit_run`.
+
+The view. `read_run` shows each cap and what is used so far as `settings` members: `max_wall_seconds`,
+`max_llm_calls` and `cap_micro_usd`, and `used_wall_seconds`, `used_llm_calls` and
+`spent_micro_usd`. A running run shows its use live; an ended run shows its last. The use is kept in
+`runs/<run id>/caps-used.json`. `spent_micro_usd` is the spend of this run; the ledger holds the entries
+of every run of the runbook, each under its run id.
+
+What is not done. The stub runtime takes no caps. A run is not taken up again after a restart
+(`docs/engine.md`, "Cancel and recover"), so the use a restart would carry over is kept and not yet read
+by a live run.
+
+## Stopping the daemon
+
+A run lives on a thread of the daemon's process. A daemon that exits ends the runs it holds: the
+runtime has no run of them at the next start and they end as `orphaned` (see "State directory"). So
+the daemon does not exit on its first stop signal while a run is live; it drains.
+
+- The first SIGTERM or SIGINT begins the drain. A submit is refused `503` with the body
+  `{"refused": "draining", "message": ..., "live_runs": <n>}` (the MCP tool `submit_run` gives the
+  same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
+  event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
+  asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
+  (`Submitted`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
+  inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
+  `configuration` has no member for it.
+- The journal records `daemon.draining` with the ids of the live runs, and when the last of them
+  has ended, `daemon.drained`. The daemon then closes its streams and exits 0. With no live run at the
+  first signal both lines are written and it exits at once.
+- A run that waits on a decision keeps the drain open until the decision is answered or the run is
+  cancelled: a drain waits as long as its runs do.
+- A second SIGTERM or SIGINT, or `--drain-seconds <n>` seconds after the first (`n` is any number
+  from 0 to 18446744073709551615; a value too large to be a point in time is no bound), ends the daemon at
+  once. It exits 75 when at least one run was live and is orphaned, and 0 when none was left (the last
+  run ended in the same moment). Each live run then ends as `orphaned` in that moment, with its decision requests
+  withdrawn and one `runbook.run-orphaned` event whose `reason` is `the daemon was stopped while the
+  run was live` (the reason after a start is `the daemon started again and the runtime holds no live
+  run of this id`). `daemon.drained` is not written. A run in `Submitted` at that moment is
+  `FailedToStart` at the next start, as after a kill.
+- SIGKILL, a crash and a power cut give no drain: the runs end as `orphaned` at the next start, with
+  the reason of a start.
+- A stop that fails inside the daemon (a panic of the task that waits for the drain) ends the live runs
+  as `orphaned` with the reason of a stop and exits 1, or 75 when it orphaned a run. A write to standard
+  error that fails (a pipe whose reader is gone) is ignored and does not end the drain.
+
+The exit codes of `runbook serve`: 0 the daemon stopped and no run was left live; 1 the start was refused
+or the server failed; 75 the stop left at least one run orphaned (a task that stops the daemon reads this
+as "a run was lost"); 2 and 64 usage errors of the command line.
+
+A person or a task stops the daemon so that no run is lost by sending SIGTERM and waiting for the
+process to exit, for example `kill -TERM <pid>` and then waiting on that process id. A restart that
+installs a new runbook is: stop and wait, install, start. Waiting is the point: a new daemon cannot
+open the state directory while the old one holds `daemon.lock`.
+
+Under systemd the unit must not cut the drain short. systemd.service(5), `TimeoutStopSec=` (the
+text of systemd 261 as the host's `man 5 systemd.service` prints it): "Second, it configures the time to
+wait for the service itself to stop. If it does not terminate in the specified time, it will be forcibly
+terminated by SIGKILL (see KillMode= in systemd.kill(5)). Takes a unit-less value in seconds, or a time
+span value such as "5min 20s". Pass "infinity" to disable the timeout logic. Defaults to
+DefaultTimeoutStopSec= from the manager configuration file (see systemd-system.conf(5))." On a host where
+`systemctl show -p DefaultTimeoutStopUSec` prints `DefaultTimeoutStopUSec=1min 30s` that default is 90
+seconds, shorter than a step of a run, so a unit that keeps it sends SIGKILL in the middle of the drain.
+And systemd.kill(5), `KillMode=`: "If set to control-group, all remaining processes in the control group
+of this unit will be killed on unit stop (for services: after the stop command is executed, as configured
+with ExecStop=). If set to mixed, the SIGTERM signal (see below) is sent to the main process while the
+subsequent SIGKILL signal (see below) is sent to all remaining processes of the unit's control group."
+`control-group` is the default, and it would also end the programs a run's step has started. So the unit
+has
+
+```
+[Service]
+KillMode=mixed
+TimeoutStopSec=infinity
+```
+
+`TimeoutStopSec=infinity` waits for as long as the longest run; a value longer than the longest step of
+the longest run does the same with an end. To bound the drain inside the daemon instead, give
+`--drain-seconds <n>` in `ExecStart` and a `TimeoutStopSec=` of more than `n` seconds: the daemon ends
+the drain at `n` itself, and its live runs end as `orphaned` with the reason of a stop. `systemctl stop`
+and `systemctl restart` of such a unit return when the drain has ended.
 
 ## Requests from a browser
 
@@ -257,7 +470,7 @@ State directory:
 | Path | Holds |
 |---|---|
 | `daemon.lock` | Held while a daemon runs on the directory; a second daemon exits 1 with "in use by another daemon". |
-| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. |
+| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. A drain adds two lines of its own: `daemon.draining` (the ids of the live runs) and `daemon.drained` (see "Stopping the daemon"). |
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
@@ -268,7 +481,9 @@ command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (t
 `outcome` of the `run` view), its Open decision requests are withdrawn in the same step, as a cancel
 does, the event `RunOrphaned` is published and the run's event stream gets one event of kind
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
-nothing. The stub runtime always answers `gone`.
+nothing. The stub runtime always answers `gone`. A daemon that was stopped by its signal has no such
+run unless its drain was cut off: it ended them itself, as `orphaned`, with the reason `the daemon was
+stopped while the run was live` (see "Stopping the daemon").
 
 ## The web UI
 
@@ -344,9 +559,10 @@ Without `--ui`, `GET /` is `404`.
   started a run: look in the list of runs). The levels offered start at the daemon's floor
   (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
   level, Start stays disabled until then, and the form says what the floor is. The form presets no level; the
-  command does: a `submit-run` without the member `confinement` runs at `linux` (the specification says so in
-  the summary of `sdc.daemon.ConfinementLevel`, `ess/domains/daemon.yaml`: "The default of a submit is linux
-  (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
+  command does: a `submit-run` without the member `confinement` runs at the daemon's default level, else at
+  `linux` (the specification says so in the summary of `sdc.daemon.ConfinementLevel`,
+  `ess/domains/daemon.yaml`, and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`; the page
+  sends no level it was not given, so the one it picked is the one that runs). A level
   the person picked while the form was still reading the floor and the list stays picked when the floor just
   read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
   `below-floor`). The page checks the level against the floor it read when the form opened; when the daemon

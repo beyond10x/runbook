@@ -19,7 +19,10 @@
 //!   says so): they are the calls of the command layer that a runtime's reports map to, made on the
 //!   same daemon by a runtime double (`Manual`) that takes a run up and then reports nothing on its own;
 //! - StartDaemon is the start of the process: the daemon is started with the floor the scenario's first
-//!   StartDaemon names, and the step is witnessed through the configuration row, never by a flag;
+//!   StartDaemon names, and the step is witnessed through the configuration row, never by a flag. The
+//!   daemon states its default level as the operator would (`--default-confinement`): the floor, because a
+//!   daemon has no built-in level and StartDaemon has no member for one, so the scenario of a submit without
+//!   a level (the handler fills the daemon's default) is asked of a daemon that states one;
 //! - facts the specification takes from the host (`runbook_known`, `context_inside_roots`) are made true
 //!   or false in the host: the runtime double knows the runbook or not, the context is a directory under
 //!   the context root or a path outside it;
@@ -41,7 +44,7 @@
 use super::http::send;
 use runbook::api::{self, routes};
 use runbook::clock::{parse_instant, SetClock};
-use runbook::commands::{Config, Daemon, Outcome, SubmitRun};
+use runbook::commands::{Config, Daemon, Outcome, Policy, SubmitRun};
 use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest as RtRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -302,7 +305,7 @@ impl Scn {
             std::fs::create_dir_all(&root).map_err(|e| Stop::Fail(e.to_string()))?;
             let root = std::fs::canonicalize(root).map_err(|e| Stop::Fail(e.to_string()))?;
             let cfg = Config { state_dir: self.dir.join("state"), confinement_floor: self.floor, context_roots: vec![root.clone()], runbook_dir: None, principal: CONFORMANCE_PRINCIPAL.into() };
-            let daemon = Daemon::start_with_clock(cfg, self.runtime.clone(), self.clock.clone()).map_err(|e| Stop::Fail(format!("the daemon did not start: {e}")))?;
+            let daemon = Daemon::start_full(cfg, Policy { default_confinement: Some(self.floor), ..Policy::default() }, self.runtime.clone(), self.clock.clone()).map_err(|e| Stop::Fail(format!("the daemon did not start: {e}")))?;
             let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|e| Stop::Fail(e.to_string()))?;
             let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).map_err(|e| Stop::Fail(e.to_string()))?;
             let addr = listener.local_addr().map_err(|e| Stop::Fail(e.to_string()))?;

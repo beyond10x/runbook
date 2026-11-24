@@ -1,0 +1,36 @@
+---
+format: aep.planning-md/3
+id: review-result:security-run-without-model-node-needs-no-caps-pass-2
+kind: review-result
+status: active
+title: 'Security pass 2 of the unit run-without-model-node-needs-no-caps at 91dfb5d4: red, 1 blocker, 1 warning, 5 notes'
+summary: In a run through the Loom child process the printed command of a handoff took more than one step between two checks of the runner. The manifest check before an approval was held by no committed case. The committed bindings never reach workspace code without caps.
+relations:
+- reviews: story:run-without-model-node-needs-no-caps
+revision: 1
+---
+verdict: NEEDS-CHANGE
+
+unit: `story:run-without-model-node-needs-no-caps` at `91dfb5d4`, tree `<trees>/b10x/runbook/zero-caps`, branch `impl/run-without-model-node-needs-no-caps`
+
+cases: executed 99 to 110 (the suite `no_model_node login bindings_copy ledger budget review2`; 3 more are ignored), red 1 (the reviewer's handoff case, run in the slow lane). Suite: `Summary [  51.288s] 110 tests run: 110 passed, 685 skipped`, exit 0, 95 s wall, load 102.25 before and 100.17 after. The reviewer's 10 cases alone: `Summary [  11.312s] 10 tests run: 10 passed, 619 skipped`. Slow lane, `child_loom`: `Summary [  15.179s] 2 tests run: 1 passed, 1 failed, 627 skipped`, exit 100. Tests over 5 s: a measurement with caps 52 s (bounded by its own 50 s wall cap), the child-Loom handoff 15.2 s, its control 12.1 s, two manifest-form cases 11.2 s and 9.3 s, a probe 6.4 s.
+
+origin: introduced 3 / pre-existing 4 / undecided 0, counted from the findings block; the report gives no count.
+
+What held: the committed bindings as they are never reach workspace code without caps: bug-fix, story and the whole directory are refused for the missing ledger with exit 2, a seed is refused for the release protocol, and the release bindings alone open without caps on a workspace that holds no code tree. Two `bindings` members, a list member, a hard link and a path through a directory link are each decided as Loom would read them. Catalog, case files and run logs cannot add a program. No login path or text is in the environment, an argument or any file of the run directory. Every sentence of the limit section has a case except the trust clause, the network paragraph and the sentence on where the rule applies. Eleven of twelve mutants are killed by assertion with no timeout. Five further forms count as a model node. The suite is green and the source changes of the fix round are in `run_loop.rs`, `private.rs` and `commands.rs`.
+
+What did not hold: in a run without a model node through the Loom child process, the `tree run` of a handoff had no step bound; Loom reads the bindings again before each step, so a program could be started inside that call and the run ended with exit 13 only afterwards (blocker). No committed case held the manifest check before an approval: the mutant that skips it there passed all 87 cases. The trust sentence on the page names only a program the runbook's author wrote, while the committed test steps also run the code of a ticket's repository with the same reach, and caps count nothing of it. The tool's name in another letter case counts as no model node and the page does not list it. The window between the runner's check and Loom's read stays open.
+
+coordinator: fix round 2 takes F9, F11, F12 and F10 and the decision D659. D659, from the operator's delegate: a run without a model node and with caps of 0 starts only under a confinement that takes the network from bound programs; under `local` it is refused by name before anything is written and needs caps, as before this unit. Which level counts is read from the pinned Loom and Substrate source; if no level could be shown to count, caps of 0 would be refused under every level. F9: no Loom call takes more than one step between two checks of the runner; the handoff's printed command is bounded to one step or refused, with a fast case on the fake Loom and the reviewer's case in the slow lane. F11: the reviewer's approval case is committed with a name that says what it holds. F12 and F10: one sentence each on the page. The reviewer's other cases are committed where they hold something no committed case holds. F5 (Loom to bind the bytes) and F8 are not taken and go to the backlog. The reach note on the release bindings: not recorded. The question whether F2 is reachable without the author's own program is answered no.
+
+```findings
+[
+ {"file":"runbook/src/loom_run/child_host.rs","line":170,"category":"guard-bypass","severity":"blocker","verdict":"NEEDS-CHANGE","origin":"introduced","message":"In a run without a model node through the Loom child process, the tree run of a handoff had no step bound, so Loom read the bindings again before each step of that one call and the run ended with exit 13 only after a model program had started. Broken by review2::child_loom_a_copy_rewritten_during_the_tree_run_of_a_handoff_starts_no_model_program. A guard must hold that no Loom call of such a run takes more than one step between two checks of the runner."},
+ {"file":"runbook/src/loom_run/run_loop.rs","line":492,"category":"test-gap","severity":"warning","verdict":"NEEDS-CHANGE","origin":"introduced","message":"The manifest check before an approval was held by no committed case: the mutant that skips it there passed all 87 cases. review2::claim5_a_manifest_rewritten_after_the_status_of_a_step_is_refused_before_the_approval kills it."},
+ {"file":"runbook/src/loom_run/run_loop.rs","line":420,"category":"race","severity":"note","verdict":"INFEASIBLE","origin":"pre-existing","message":"A guard must hold that the bytes Loom reads are the bytes the runner checked. Between the runner's check and Loom's read a declared model program can still start, and only a recorded call ends the run. This needs Loom to bind the bindings to the bytes checked. Backlog."},
+ {"file":"runbook/src/loom_run/bindings_copy.rs","category":"classification","severity":"note","verdict":"CONFIRMED","origin":"pre-existing","message":"The tool's name in another letter case counts as no model node. On Linux it is another program name and falls under the documented limit; the page did not list it. One line added to the page."},
+ {"file":"docs/loom-run.md","line":347,"category":"documentation","severity":"note","verdict":"NEEDS-CHANGE","origin":"introduced","message":"The trust sentence named only a bound program the runbook's author wrote. The committed test steps also run the code of a ticket's repository with the same reach, and caps count nothing of it. One sentence added; the page's wording of the decision differs from the decision's text by one word."},
+ {"file":"runbook/tests/loom_run/inproc.rs","line":462,"category":"test-flakiness","severity":"note","verdict":"CONFIRMED","origin":"pre-existing","message":"The wall-time assertion reported in pass 1 was not rerun in this pass. Backlog."},
+ {"file":"bindings/sdc-release.yaml","category":"reach","severity":"note","verdict":"CONFIRMED","origin":"pre-existing","message":"With the committed bindings as they are, no run without caps reaches workspace code; the release bindings alone open without caps on a workspace that holds no code tree. A guard must hold this for every bindings file that carries no model node and binds a test step."}
+]
+```

@@ -95,6 +95,26 @@ fn command_argv(words: &[String], principal: Option<&str>) -> (Vec<String>, Stri
     (argv, used)
 }
 
+/// The argv of a handoff's printed `tree run` bounded to one step: a `--max-steps` the command
+/// carries is replaced, and `--max-steps 1` is added when it carries none. A printed command that is
+/// no `tree run` is refused: only that command can be bounded.
+fn one_step_argv(mut argv: Vec<String>) -> Result<Vec<String>, Halt> {
+    if argv.len() < 2 || argv[0] != "tree" || argv[1] != "run" {
+        return Err(Halt::Failed("the printed command of a handoff is no `tree run`: it cannot be bounded to one step, so it is not run in a run without a model node while a spend cap or a call cap is named".to_owned()));
+    }
+    let mut kept: Vec<String> = Vec::with_capacity(argv.len() + 2);
+    let mut words = argv.drain(..);
+    while let Some(word) = words.next() {
+        if word == "--max-steps" {
+            words.next();
+        } else if !word.starts_with("--max-steps=") {
+            kept.push(word);
+        }
+    }
+    kept.extend(["--max-steps".to_owned(), "1".to_owned()]);
+    Ok(kept)
+}
+
 impl LoomHost for ChildHost<'_> {
     fn has_exit_codes(&self) -> bool {
         true
@@ -167,9 +187,13 @@ impl LoomHost for ChildHost<'_> {
         true
     }
 
-    fn handoff(&mut self, a: &Answer<'_>) -> Result<Call, Halt> {
+    fn handoff(&mut self, a: &Answer<'_>, one_step: bool) -> Result<Call, Halt> {
         let words = command_words(a.decision)?;
         let (argv, _) = command_argv(&words, a.principal);
+        if !one_step {
+            return self.call_argv(&argv);
+        }
+        let argv = one_step_argv(argv)?;
         self.call_argv(&argv)
     }
 

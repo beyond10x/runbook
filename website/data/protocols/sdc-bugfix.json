@@ -54,7 +54,8 @@
         "program": "sdc-tool.sh bugfix dissection-check",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "dissection.check",
@@ -147,7 +148,8 @@
         "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
         "results": {
           "*": "not_red",
-          "0": "red"
+          "0": "red",
+          "timeout": "not_red"
         },
         "timeout_s": 3000
       },
@@ -230,7 +232,8 @@
         "program": "sdc-tool.sh bugfix tests-run --pool-wait 1200",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         },
         "timeout_s": 3000
       },
@@ -322,7 +325,8 @@
         "program": "sdc-tool.sh bugfix gate-run --pool-wait 1200",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         },
         "timeout_s": 4200
       },
@@ -1158,8 +1162,8 @@
   },
   "source": {
     "path": "protocol/sdc-bugfix.protocol.yaml",
-    "tag": "0.9.2",
-    "url": "https://github.com/beyond10x/runbook/blob/0.9.2/protocol/sdc-bugfix.protocol.yaml"
+    "tag": "0.10.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.10.0/protocol/sdc-bugfix.protocol.yaml"
   },
   "stem": "sdc-bugfix",
   "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes.",

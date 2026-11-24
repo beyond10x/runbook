@@ -29,3 +29,4 @@ cycles/seeds/fixtures/test-failure cycles/tree-suite.yaml a cycle seeds this dir
 cycles/seeds/fixtures/trace-constraint cycles/tree-suite.yaml a cycle seeds this directory whole into its workspace (from: seeds/fixtures/trace-constraint)
 cycles/seeds/fixtures/trace-gap cycles/tree-suite.yaml a cycle seeds this directory whole into its workspace (from: seeds/fixtures/trace-gap)
 cycles/seeds/fixtures/trace-gap-drop cycles/tree-suite.yaml a cycle seeds this directory whole into its workspace (from: seeds/fixtures/trace-gap-drop)
+cycles/recorded driver/src/bin/sdc-recorded-pool.rs the stand-in slot of the cycles suite reads one recording per command, named by the digest of the command and its tree

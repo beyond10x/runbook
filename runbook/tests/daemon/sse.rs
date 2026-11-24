@@ -600,7 +600,7 @@ fn sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s() {
     let dir = super::state::scratch("sse-sigterm");
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
     cmd.arg("serve").args(["--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state")).args(["--listen", "127.0.0.1:0"]);
-    cmd.env_remove("RUNBOOK_TOKEN").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    cmd.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
     let mut child = cmd.spawn().unwrap();
     struct Guard(std::process::Child);
     impl Drop for Guard {
@@ -620,7 +620,7 @@ fn sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s() {
     let line = rx.recv_timeout(Duration::from_secs(10)).expect("no first line within 10 s");
     let addr: SocketAddr = line.trim().strip_prefix("runbook: listening on http://").unwrap().parse().unwrap();
     // One run, so that the streams have events, and three streams: one of each view, none of them ended.
-    let body = json!({"runbook_id": "sdc", "intake": "hello"}).to_string();
+    let body = json!({"runbook_id": "sdc", "intake": "hello", "confinement": "linux"}).to_string();
     let r = super::http::send(addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
     assert_eq!(r.status, 202, "{}", r.text());
     let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_string();
@@ -712,14 +712,19 @@ fn recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconne
     let (last, took) = done.recv_timeout(Duration::from_secs(30)).expect("recording waited for a stream that does not read");
     recorder.join().unwrap();
     println!("recording {} events while a client reads nothing: {took:?}", BIG_EVENTS + SMALL_EVENTS);
-    // The client reads again: it receives events in order up to a point, then the server ends the stream.
+    // The client reads again: it receives the events after the first in order up to a point, then the
+    // server ends the stream with a comment that names that point. How many events come before the
+    // end is the scheduler's: a server whose stream read the state only after the recording was done
+    // found more than the bound waiting at once and sent none (on the forge after 20 ms of recording;
+    // here with the server's two workers held for 300 ms). The case holds that what came is every
+    // position from the first's next to the one the end names, none missing and none twice, and that
+    // the end came before the last event.
     let (events, comments) = stream.until_closed();
-    assert!(!events.is_empty());
-    let got = positions(&events);
-    assert!(got.windows(2).all(|w| w[1] == w[0] + 1), "no gap and no repeat before the end");
-    let cut = *got.last().unwrap();
+    let named: Vec<u64> = comments.iter().filter_map(|c| c.split_once("Last-Event-ID: ").and_then(|(_, n)| n.trim().parse().ok())).collect();
+    assert_eq!(named.len(), 1, "the end says once how to resume: {comments:?}");
+    let cut = named[0];
+    assert_eq!(positions(&events), (first + 1..=cut).collect::<Vec<_>>(), "the events before the end are not every position up to the one it names");
     assert!(cut < last, "the stream was ended with {} events behind", last - cut);
-    assert!(comments.iter().any(|c| c.contains("Last-Event-ID")), "the end says how to resume: {comments:?}");
     // It resumes by position and gets the rest, once.
     let header = cut.to_string();
     let mut again = s.open(&path("daemon-events", &format!("after_position={base}")), &[("Last-Event-ID", &header)]);

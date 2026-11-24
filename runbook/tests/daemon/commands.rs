@@ -1,6 +1,6 @@
 use super::state::scratch;
 use super::stub::ask;
-use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Fault, OpenSession, Outcome, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
+use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Fault, OpenSession, Outcome, Policy, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
 use runbook::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use runbook::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunState, State};
 use runbook::stub::{Script, Step, StubRuntime};
@@ -27,6 +27,12 @@ pub fn config(dir: &Path) -> Config {
     }
 }
 
+/// A daemon that states a default confinement (`linux`, never below a floor of these fixtures): the binary has
+/// none of its own, so a submit that names no level is refused by a daemon started with `Daemon::start`.
+pub fn start(cfg: Config, runtime: Arc<dyn Runtime>) -> std::io::Result<Daemon> {
+    Daemon::start_with(cfg, Policy { default_confinement: Some(Confinement::Linux), ..Policy::default() }, runtime)
+}
+
 impl Fx {
     pub fn new(tag: &str) -> Fx {
         let dir = scratch(tag);
@@ -38,7 +44,7 @@ impl Fx {
         stub.script("ask", Script::new(vec![Step::Ask(vec![ask("q1")]), Step::End("approved".into())]));
         stub.script("ask2", Script::new(vec![Step::Ask(vec![ask("q1"), ask("q2")]), Step::End("approved".into())]));
         stub.script("ask-b", Script::new(vec![Step::Ask(vec![ask("q3")]), Step::End("approved".into())]));
-        let d = Daemon::start(config(&dir), stub.clone()).unwrap();
+        let d = start(config(&dir), stub.clone()).unwrap();
         Fx { dir, stub, d: Some(d) }
     }
 
@@ -49,20 +55,20 @@ impl Fx {
     /// Stop the daemon and start it again on the same directory.
     pub fn restart(&mut self) {
         self.d.take().unwrap().stop();
-        self.d = Some(Daemon::start(config(&self.dir), self.stub.clone()).unwrap());
+        self.d = Some(start(config(&self.dir), self.stub.clone()).unwrap());
     }
 
     /// Stop the daemon, let `edit` change the journal file, and start it again on the same directory.
     pub fn restart_editing(&mut self, edit: impl FnOnce(&Path)) {
         self.d.take().unwrap().stop();
         edit(&self.dir.join("state/journal.jsonl"));
-        self.d = Some(Daemon::start(config(&self.dir), self.stub.clone()).unwrap());
+        self.d = Some(start(config(&self.dir), self.stub.clone()).unwrap());
     }
 
     /// Stop the daemon and start it again on the same directory over another runtime.
     pub fn restart_with(&mut self, runtime: Arc<dyn Runtime>) {
         self.d.take().unwrap().stop();
-        self.d = Some(Daemon::start(config(&self.dir), runtime).unwrap());
+        self.d = Some(start(config(&self.dir), runtime).unwrap());
     }
 
     pub fn submit(&self, book: &str) -> String {
@@ -127,7 +133,7 @@ fn a_submit_makes_a_run_that_the_runtime_takes_to_its_outcome() {
             Step::End("passed".into()),
         ]),
     );
-    let o = fx.d().submit_run(SubmitRun { runbook_id: "book".into(), intake: "the intake".into(), ..SubmitRun::default() }).unwrap();
+    let o = fx.d().submit_run(SubmitRun { runbook_id: "book".into(), intake: "the intake".into(), confinement: Some(Confinement::Linux), ..SubmitRun::default() }).unwrap();
     assert_eq!((o.name, o.status, o.is_refusal()), ("submitted", 202, false));
     assert_eq!(o.published[0].0, "sdc.daemon.RunSubmitted");
     let run = o.run_id.clone().unwrap();
@@ -138,7 +144,7 @@ fn a_submit_makes_a_run_that_the_runtime_takes_to_its_outcome() {
     let row = &fx.d().run_detail(&run)[0];
     assert_eq!(row["outcome"], "passed");
     assert_eq!(row["intake"], "the intake");
-    assert_eq!(row["confinement"], "linux", "the default of a submit");
+    assert_eq!(row["confinement"], "linux", "the level the submit named");
     assert!(row["started_at"].is_string() && row["ended_at"].is_string());
     let runs = fx.d().runs();
     assert_eq!(runs.len(), 1);
@@ -283,7 +289,7 @@ fn with_no_context_root_every_context_path_is_refused() {
     std::fs::create_dir_all(dir.join("ctx")).unwrap();
     let stub = Arc::new(StubRuntime::new());
     stub.script("quick", Script::new(vec![]));
-    let d = Daemon::start(Config { context_roots: vec![], ..config(&dir) }, stub).unwrap();
+    let d = start(Config { context_roots: vec![], ..config(&dir) }, stub).unwrap();
     let o = d.submit_run(with_context(&dir.join("ctx"))).unwrap();
     assert_eq!(o.name, "context-outside-roots");
     let none = d.submit_run(SubmitRun { runbook_id: "quick".into(), intake: "x".into(), ..SubmitRun::default() }).unwrap();
@@ -556,7 +562,7 @@ fn the_floor_refuses_below_it_and_the_view_shows_it() {
     std::fs::create_dir_all(dir.join("ctx")).unwrap();
     let stub = Arc::new(StubRuntime::new());
     stub.script("quick", Script::new(vec![]));
-    let d = Daemon::start(Config { confinement_floor: Confinement::Local, ..config(&dir) }, stub).unwrap();
+    let d = start(Config { confinement_floor: Confinement::Local, ..config(&dir) }, stub).unwrap();
     assert_eq!(d.submit_run(local).unwrap().name, "submitted", "local must be asked for by name, and a local floor takes it");
     assert_eq!(d.daemon_configuration()[0]["confinement_floor"], "local");
     d.stop();
@@ -741,6 +747,8 @@ fn a_run_that_was_only_submitted_when_the_daemon_stopped_is_failed_to_start() {
             context_path: None,
             settings: BTreeMap::new(),
             confinement: Confinement::Linux,
+            confinement_source: None,
+            terms: Default::default(),
             session_id: None,
             idempotency_key: None,
             submitted_at: "t".into(),
@@ -752,7 +760,7 @@ fn a_run_that_was_only_submitted_when_the_daemon_stopped_is_failed_to_start() {
         }))
         .unwrap();
     }
-    let d = Daemon::start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
+    let d = start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
     let row = &d.run_detail("r1")[0];
     assert_eq!(row["state"], "FailedToStart");
     assert!(row["failure"].as_str().unwrap().contains("daemon stopped"));
@@ -928,7 +936,7 @@ fn an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run() {
         }))
         .unwrap();
     }
-    let d = Daemon::start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
+    let d = start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
     let o = d.answer_decision(AnswerDecision { run_id: "ghost".into(), request_id: "ghost-q".into(), answer: "A".into(), answered_by: "me".into() }).unwrap();
     assert_eq!((o.name, o.status, o.error), ("no-run", 409, Some("NoSuchRun")));
     d.stop();
@@ -943,6 +951,8 @@ fn journal_run(id: &str) -> Run {
         context_path: None,
         settings: BTreeMap::new(),
         confinement: Confinement::Linux,
+        confinement_source: None,
+        terms: Default::default(),
         session_id: None,
         idempotency_key: None,
         submitted_at: "t".into(),
@@ -984,7 +994,7 @@ fn an_open_request_whose_run_does_not_wait_is_refused_run_not_waiting() {
         st.commit(Fact::DecisionRequested(journal_request("q1", "r1"))).unwrap();
         st.commit(Fact::RunCancelled { run_id: "r1".into(), at: "t".into() }).unwrap();
     }
-    let d = Daemon::start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
+    let d = start(config(&dir), Arc::new(StubRuntime::new())).unwrap();
     let o = d.answer_decision(AnswerDecision { run_id: "r1".into(), request_id: "q1".into(), answer: "A".into(), answered_by: "me".into() }).unwrap();
     assert_eq!((o.name, o.status, o.error), ("run-not-waiting", 409, Some("RunNotWaiting")));
     assert_eq!(o.payload, Some(json!({"run_id": "r1"})));

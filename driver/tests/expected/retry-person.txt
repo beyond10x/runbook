@@ -16,6 +16,8 @@ written:
     |     "log": "<root>/work/.sdc/loom-feedback/bbf5fc73b87c8cac/5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
     |   }
     | ]
+453129e8ff004d9d  .sdc/rework-seen
+    | requirements.check e1
 1fdba03bb9b2108c  requirements.yaml
     | requirements:
     |   - id: r1

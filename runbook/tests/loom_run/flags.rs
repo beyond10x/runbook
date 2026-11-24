@@ -25,7 +25,7 @@ fn run(root: &Path, extra: &[&str]) -> Output {
     args.extend(["--settings", &p("settings.toml"), "--spend-ledger", &p("ledger.json")].map(String::from));
     args.extend(["--cap-micro-usd", "1", "--max-llm-calls", "1", "--max-wall-seconds", "1"].map(String::from));
     args.extend(extra.iter().map(|s| (*s).to_owned()));
-    Command::new(BIN).args(&args).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap()
+    Command::new(BIN).args(&args).env_clear().env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap()
 }
 
 fn refused(root: &Path, extra: &[&str], line: &str) {
@@ -113,8 +113,26 @@ fn the_port_options_belong_to_a_run_in_process_not_to_detach() {
     for extra in [&["--dry"][..], &["--watch"], &["--goals", "g.yaml"], &["--conformance", "observe"]] {
         let mut args = vec!["run", "sdc", "--intake", "i", "--detach", "--daemon", "http://127.0.0.1:1"];
         args.extend(extra);
-        let o = Command::new(BIN).args(&args).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap();
+        let o = Command::new(BIN).args(&args).env_clear().env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap();
         assert_ne!(o.status.code(), Some(0), "{extra:?}");
         assert!(!String::from_utf8_lossy(&o.stderr).contains("not built yet"), "{extra:?}");
     }
+}
+
+/// A `--live-cap` that is named and is no whole number of at least 0 is refused by its name before the
+/// next check, and a long value is shown at most 40 bytes of; 0 is a value that was given.
+#[test]
+fn a_live_cap_that_cannot_be_read_is_refused_by_name_and_cut_at_40_bytes() {
+    let root = scratch("live-cap-bad");
+    refused(&root, &["--live-cap", "0"], "--live-cap needs --recorded <source>");
+    let source = root.join("no-such-recording").display().to_string();
+    for bad in ["-1", "1.5", ""] {
+        refused(&root, &["--recorded", &source, "--live-cap", bad], &format!("--live-cap takes a whole number of at least 0, got {bad:?}"));
+    }
+    let long = format!("sk-ant-api03-{}", "Q".repeat(100));
+    let o = run(&root, &["--recorded", &source, "--live-cap", &long]);
+    let err = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_eq!(o.status.code(), Some(64), "{err}");
+    assert!(err.contains("--live-cap"), "{err}");
+    assert!(!err.contains(&long[..41]), "more than 40 bytes of the value reach the console: {err}");
 }

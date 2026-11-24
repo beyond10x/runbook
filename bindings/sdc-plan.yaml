@@ -24,7 +24,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
   - action: plan.decompose
     executor:
       kind: program
@@ -47,7 +47,7 @@ actions:
         subject: plan
         producer: aep
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
         upstream: [spec]
   - action: plan.cover
     executor:
@@ -60,7 +60,7 @@ actions:
         subject: plan
         producer: sdc-check
         from: exit
-        results: {"0": covered, "5": finding, "*": uncovered}
+        results: {"0": covered, "5": finding, timeout: uncovered, "*": uncovered}
         upstream: [spec]
   - action: plan.scope
     executor:
@@ -72,7 +72,7 @@ actions:
         subject: plan
         producer: aep
         from: exit
-        results: {"0": scoped, "*": unassessed}
+        results: {"0": scoped, timeout: unassessed, "*": unassessed}
   - action: plan.status
     executor:
       kind: program
@@ -83,7 +83,7 @@ actions:
         subject: plan
         producer: aep
         from: exit
-        results: {"0": active, "*": draft}
+        results: {"0": active, timeout: draft, "*": draft}
   - action: amend.upstream
     executor:
       kind: program

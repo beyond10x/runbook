@@ -100,6 +100,26 @@ fn a_dry_run_prints_every_command_runs_no_model_and_spends_nothing() {
 }
 
 #[test]
+fn a_dry_run_needs_none_of_the_three_money_options() {
+    let w = World::new("dry-bare");
+    approval_tree(&w);
+    w.fake.hook("tree_run", "1", DRY_CALL_HOOK);
+    settings_without_login(&w, &json!({}));
+    let mut a = dry_args(&w, "r1");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        let i = a.iter().position(|x| x == flag).unwrap();
+        a.drain(i..i + 2);
+    }
+    let o = w.run(&a);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let outcome = w.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["spent_micro_usd"].as_u64()), (Some("ended"), Some(0)), "{outcome}");
+    assert_eq!(outcome["llm_calls"], 1, "the dry call is counted and costs nothing: {outcome}");
+    assert!(!w.ledger().exists(), "no ledger is opened");
+    assert!(w.run_dir("r1").join("dry-commands.txt").is_file());
+}
+
+#[test]
 fn the_person_s_decision_is_approved_by_the_rule_decider_and_the_run_says_it_is_a_stand_in() {
     let w = World::new("dry-person");
     approval_tree(&w);
@@ -168,7 +188,7 @@ fn the_adapter_in_the_settings_is_refused_with_the_flag_and_dry_is_refused_witho
 fn the_required_options_stay_required_with_dry() {
     let w = World::new("dry-required");
     settings_without_login(&w, &json!({}));
-    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement", "--spend-ledger"] {
+    for flag in ["--max-wall-seconds", "--confinement"] {
         let mut a = dry_args(&w, "r1");
         let i = a.iter().position(|x| x == flag).unwrap();
         a.drain(i..i + 2);
@@ -437,6 +457,7 @@ impl Inproc {
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", "/marker-home-dir")
             .stdin(Stdio::null());
+        crate::isolate(&mut c);
         c.output().unwrap()
     }
 }
@@ -458,4 +479,40 @@ fn in_process_the_rule_decider_approves_the_review_with_no_settings_and_no_login
     // Without the flag the same run has no decider and stops at the first decision.
     let o = rig.run("r2", &[]);
     assert_eq!(code(&o), 8, "{}", stderr(&o));
+}
+
+// ---- the list of the commands of a dry run is appended as every other record of the run directory is ----
+
+#[test]
+fn a_link_a_program_put_at_the_list_of_dry_commands_is_not_appended_through() {
+    let w = World::new("dry-link");
+    approval_tree(&w);
+    let outside = w.root.join("outside.txt");
+    std::fs::write(&outside, "keep\n").unwrap();
+    w.fake.hook("tree_run", "1", &format!("ln -s '{}' dry-commands.txt\n{DRY_CALL_HOOK}", outside.display()));
+    settings_without_login(&w, &json!({}));
+    let o = w.run(&dry_args(&w, "r1"));
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n", "a command of a dry run was appended to a file outside the run directory, through a link a program put at dry-commands.txt ({}: {})", code(&o), stderr(&o));
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_list_of_dry_commands_does_not_hold_the_end_of_the_run() {
+    let w = World::new("dry-fifo");
+    approval_tree(&w);
+    w.fake.hook("tree_run", "1", &format!("mkfifo dry-commands.txt\n{DRY_CALL_HOOK}"));
+    settings_without_login(&w, &json!({}));
+    let mut child = w.command(&dry_args(&w, "r1")).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(25);
+    let ended = loop {
+        if child.try_wait().unwrap().is_some() {
+            break true;
+        }
+        if std::time::Instant::now() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(ended, "the run did not end within 25 s: the append of a dry command opens dry-commands.txt by its path and waits there for a reader of the pipe that a program put in its place");
 }

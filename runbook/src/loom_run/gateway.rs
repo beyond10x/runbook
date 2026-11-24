@@ -133,12 +133,14 @@ mod tests {
             case: "IDEA-1".into(),
             intake: "x".into(),
             confinement,
-            settings: "settings.toml".into(),
-            spend_ledger: "ledger.json".into(),
-            cap_micro_usd: 1,
-            max_llm_calls: 1,
+            settings: Some("settings.toml".into()),
+            defaults: Default::default(),
+            spend_ledger: Some("ledger.json".into()),
+            cap_micro_usd: Some(1),
+            max_llm_calls: Some(1),
             max_wall_seconds: 1,
             ports: Default::default(),
+            config: None,
         };
         a.ports.dry = dry;
         a

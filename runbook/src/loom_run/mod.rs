@@ -3,9 +3,11 @@
 //! process (no `--loom`, `library.rs`); the loop reaches either through the trait of `host.rs`.
 //!
 //! The runner loops one step at a time (`tree run --max-steps 1`), asks a [`decide::Decider`] for
-//! every person or authority decision Loom gives, keeps the spend of the model calls in a ledger
-//! shared between runs, and writes a run directory. Files by owner (so that three units can work at
-//! once):
+//! every person or authority decision Loom gives, counts the model calls and their spend, and
+//! writes a run directory. The money options (`--spend-ledger`, `--cap-micro-usd`,
+//! `--max-llm-calls`) are each optional: none named is no limit and no ledger; a cap that is named
+//! stops the run when it is reached, a ledger that is named records what every run sharing it
+//! spent. Files by owner (so that three units can work at once):
 //!
 //! - this unit (R1): `mod.rs`, `settings.rs`, `ledger.rs`, `child.rs`, `cost.rs`, `budget.rs`,
 //!   `events.rs`, `decide.rs`, `run_files.rs`, `run_loop.rs`, `host.rs`, `child_host.rs`,
@@ -14,13 +16,14 @@
 //! - R3 (run directory writer): `run_dir.rs`.
 
 pub mod answers;
+pub mod arbiter;
 pub mod bindings_copy;
-pub mod budget;
+pub use runbook::budget;
 pub mod bugfix;
 pub mod child;
 pub mod child_host;
 pub mod conformance;
-pub mod cost;
+pub use runbook::cost;
 pub mod decide;
 pub mod decider;
 pub mod dry;
@@ -30,14 +33,17 @@ pub mod goals;
 pub mod here;
 pub mod host;
 pub mod in_flight;
-pub mod ledger;
+pub use runbook::ledger;
 pub mod library;
+pub mod model_node;
 pub mod ports;
 pub mod private;
+pub use runbook::record_write;
 pub mod replay;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;
+pub mod seeded;
 pub mod settings;
 pub mod watch;
 
@@ -88,18 +94,27 @@ pub struct Args {
     pub intake: String,
     /// The confinement of every bound program.
     pub confinement: Confinement,
-    /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
-    pub settings: PathBuf,
-    /// The spend ledger shared by every run that counts against the same cap.
-    pub spend_ledger: PathBuf,
-    /// The spend cap in micro USD over all runs that share the ledger.
-    pub cap_micro_usd: u64,
-    /// The most model calls of this run (steps and decisions together).
-    pub max_llm_calls: u64,
+    /// The run settings file (TOML, `docs/loom-run-settings.md`) the caller named, if any: its
+    /// members win over `defaults`.
+    pub settings: Option<PathBuf>,
+    /// The run settings members of `runbook.toml` (`config.rs`): the defaults under `settings`.
+    pub defaults: serde_json::Map<String, serde_json::Value>,
+    /// The spend ledger shared by every run that counts against the same cap. `None`: no ledger is
+    /// opened; a cap that is named is then counted in the run itself.
+    pub spend_ledger: Option<PathBuf>,
+    /// The spend cap in micro USD over all runs that share the ledger. `None`: no spend cap. A
+    /// named 0 means spend nothing.
+    pub cap_micro_usd: Option<u64>,
+    /// The most model calls of this run (steps and decisions together). `None`: no limit. A named
+    /// 0 means no call.
+    pub max_llm_calls: Option<u64>,
     /// The most wall seconds of this run.
     pub max_wall_seconds: u64,
     /// The options of the six ports of the old driver's launcher (`ports.rs`).
     pub ports: ports::Ports,
+    /// The `runbook.toml` the values were taken from, by name and origin (never the path): the member
+    /// `config` of the run's start record. `None`: no file, or a file that stated nothing.
+    pub config: Option<String>,
 }
 
 /// How the run reaches Loom, from the options: one of the two ways.
@@ -155,6 +170,8 @@ pub const EXIT_REJECTED: u8 = 10;
 pub const EXIT_DIVERGED: u8 = 11;
 /// Exit code: Loom refused a call of the run by a named reason (`TreeStopped`, `ConfinementRefused`,
 /// `PersonProgramFailed`, ...): the cause in `outcome.json` and `run-stopped.json` is the reason's name.
+/// Also a tree left without a move by a bound program that Loom refused (`ProgramSignalled`,
+/// `ProgramError`): the cause is `program_signalled` or `program_error`.
 pub const EXIT_LOOM_REFUSED: u8 = 12;
 
 /// How a run ended; the `outcome` of `outcome.json`.
@@ -162,8 +179,8 @@ pub const EXIT_LOOM_REFUSED: u8 = 12;
 pub enum Outcome {
     /// The root case was terminated; the tree's own outcome name when Loom printed one.
     Ended { tree_outcome: Option<String> },
-    /// `tree run` exit 4.
-    Stuck,
+    /// `tree run` exit 4: no move and, when a bound program was refused for something other than an exit or a signal, the lead of that refusal (`<Reason>: action <name>`).
+    Stuck { reason: Option<String> },
     /// The spend cap was reached before the next call.
     StoppedSpendCap,
     /// The wall-time cap was reached.
@@ -205,7 +222,7 @@ impl Outcome {
     pub fn label(&self) -> &'static str {
         match self {
             Outcome::Ended { .. } => "ended",
-            Outcome::Stuck => "stuck",
+            Outcome::Stuck { .. } => "stuck",
             Outcome::StoppedSpendCap => "stopped: spend cap",
             Outcome::StoppedWallTime => "stopped: wall time",
             Outcome::StoppedLlmCalls => "stopped: llm calls",
@@ -226,6 +243,7 @@ impl Outcome {
             Outcome::StoppedDecider { reason } | Outcome::StoppedRejected { reason } | Outcome::Error { reason } | Outcome::LoomFailed { reason, .. } | Outcome::Diverged { reason } | Outcome::Refused { reason, .. } => Some(reason),
             Outcome::Denied { action } => Some(action),
             Outcome::Ended { tree_outcome } => tree_outcome.as_deref(),
+            Outcome::Stuck { reason } => reason.as_deref(),
             _ => None,
         }
     }
@@ -234,7 +252,7 @@ impl Outcome {
     pub fn exit_code(&self) -> u8 {
         match self {
             Outcome::Ended { .. } => EXIT_ENDED,
-            Outcome::Stuck => EXIT_STUCK,
+            Outcome::Stuck { .. } => EXIT_STUCK,
             Outcome::StoppedSpendCap => EXIT_SPEND_CAP,
             Outcome::StoppedWallTime => EXIT_WALL_TIME,
             Outcome::StoppedLlmCalls => EXIT_LLM_CALLS,
@@ -277,7 +295,7 @@ mod outcome_tests {
         let outcomes = [
             Outcome::Ended { tree_outcome: None },
             Outcome::Error { reason: String::new() },
-            Outcome::Stuck,
+            Outcome::Stuck { reason: None },
             Outcome::StoppedSpendCap,
             Outcome::StoppedWallTime,
             Outcome::StoppedLlmCalls,

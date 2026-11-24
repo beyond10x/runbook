@@ -50,6 +50,13 @@ pub trait Decider {
     fn use_gateway(&self, _file: &Path) {}
     /// The most one call can cost, micro USD (0 for a rule). The ledger reserves it before the call.
     fn max_call_micro_usd(&self) -> u64;
+    /// Whether this decider can start a model program or reserve an amount for one. A run whose
+    /// bindings hold no model node still has a model node when its decider says `true` (the
+    /// default, so a decider that does not say counts); the answer is read once, at the opening
+    /// (`model_node.rs`).
+    fn may_call_model(&self) -> bool {
+        true
+    }
     /// Answers `request`.
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict;
     /// Whether this decider answers the requests of the answers file (a question or a finding, see
@@ -69,6 +76,9 @@ pub struct RefusingDecider;
 impl Decider for RefusingDecider {
     fn max_call_micro_usd(&self) -> u64 {
         0
+    }
+    fn may_call_model(&self) -> bool {
+        false
     }
     fn decide(&self, _request: &DecisionRequest<'_>) -> Verdict {
         Verdict::CannotDecide { reason: "no decider configured".to_owned() }
@@ -128,6 +138,12 @@ impl ScriptedDecider {
 impl Decider for ScriptedDecider {
     fn max_call_micro_usd(&self) -> u64 {
         self.max_call
+    }
+    /// A scripted decider calls a model when it reserves an amount or any answer says it made a
+    /// call or spent something: the double stands for a model decider then.
+    fn may_call_model(&self) -> bool {
+        let answers = self.answers.lock().unwrap();
+        self.max_call > 0 || answers.iter().any(|a| matches!(a, Verdict::Answer { cost_micro_usd, model_calls, .. } if *model_calls > 0 || cost_micro_usd.unwrap_or(0) > 0))
     }
     fn decide(&self, _request: &DecisionRequest<'_>) -> Verdict {
         let mut answers = self.answers.lock().unwrap();

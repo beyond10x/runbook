@@ -24,6 +24,7 @@ impl Runner<'_> {
         if !self.decider.answers_requests() {
             return Ok(false);
         }
+        self.stop_when_a_cap_is_reached()?;
         let bindings = self.bindings_dir.clone();
         let workspace = self.workspace.clone();
         let path = self.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()).unwrap_or_default();
@@ -47,7 +48,7 @@ impl Runner<'_> {
                 )));
             }
             let want = self.decider.max_call_micro_usd();
-            if want > 0 && self.llm_calls >= self.args.max_llm_calls {
+            if want > 0 && self.calls_cap_reached() {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Err(Halt::Done(Outcome::StoppedLlmCalls));
             }
@@ -68,11 +69,9 @@ impl Runner<'_> {
                 self.emit(Event::AnswerRecorded { line: line.clone() })?;
             }
             if asked.result.is_err() && asked.cost_micro_usd == 0 && asked.model_calls == 0 {
-                self.ledger().release(&reservation)?;
+                self.release(&reservation)?;
             } else {
-                self.ledger().commit(&reservation, &self.args.run, "decider", asked.cost_micro_usd)?;
-                self.spent += asked.cost_micro_usd;
-                self.llm_calls += asked.model_calls;
+                self.book_decider(&reservation, asked.cost_micro_usd, asked.model_calls)?;
                 let model = asked.lines.iter().rev().find_map(|l| l.get("model").and_then(Value::as_str).map(str::to_owned));
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: asked.cost_micro_usd, record: serde_json::json!({"model_calls": asked.model_calls, "model": model}) })?;
             }
@@ -81,6 +80,8 @@ impl Runner<'_> {
                 Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{action} in {case}: {reason} (decision kind {kind:?})") })),
             };
             self.answered.insert(count_key, times + 1);
+            // the decider's own cost may have taken the cap: no program of the file starts after it
+            self.stop_when_a_cap_is_reached()?;
             let who = answer.principal.clone().unwrap_or_else(|| self.host.principal(&Answer { decision, kind, approve: true, principal: None, result: None, reasons_file: None, deny: false }));
             let applied = place.run(&declaration.apply, &[("id", &request.id), ("answer", &answer.answer), ("principal", &who), ("case", case), ("type", &request.kind)])?;
             ran_ok(&declaration.apply, &applied)?;
@@ -89,6 +90,7 @@ impl Runner<'_> {
         }
         let who = taken_by.unwrap_or_default();
         if let Some(then) = &declaration.then {
+            self.stop_when_a_cap_is_reached()?;
             let done = place.run(then, &[("principal", &who), ("case", case)])?;
             ran_ok(then, &done)?;
         }
@@ -102,7 +104,7 @@ impl Runner<'_> {
         } else {
             let reasons_file = self.person_answer(&mut answer, Some(&answers::reasons_text(&given)))?;
             answer.reasons_file = reasons_file.as_deref();
-            self.host.answer(&answer)?;
+            self.take_answer(&answer)?;
         }
         self.emit(Event::DeclaredTaken { decision: decision.clone(), principal })?;
         Ok(true)
