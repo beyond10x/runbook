@@ -52,6 +52,20 @@ fn listing(dir: &Path) -> BTreeSet<String> {
 
 /// The command names of every process below this one.
 fn descendants() -> Vec<String> {
+    descendant_processes().into_iter().map(|(_, c)| c).collect()
+}
+
+/// Ends every `sleep` below this process: a step whose program pauses (`pause.txt`) goes on at once, when the case has seen
+/// what it waited for, instead of after the pause.
+fn end_the_pauses() {
+    for (pid, _) in descendant_processes().into_iter().filter(|(_, c)| c == "sleep") {
+        // SAFETY: a plain signal to a process id this case just read below its own process.
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
+}
+
+/// The process id and the command name of every process below this one.
+fn descendant_processes() -> Vec<(u32, String)> {
     let mut table: Vec<(u32, u32, String)> = Vec::new();
     for e in std::fs::read_dir("/proc").unwrap().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
@@ -68,7 +82,7 @@ fn descendants() -> Vec<String> {
         }
         below.extend(more);
     }
-    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(_, _, c)| c).collect()
+    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(p, _, c)| (p, c)).collect()
 }
 
 fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
@@ -464,10 +478,14 @@ fn a_confinement_level_the_engine_cannot_give_is_refused_before_anything_starts(
 fn only_the_programs_of_the_runbook_run_and_nothing_is_written_beside_the_state_directory() {
     let rig = Rig::new("engine-sample", &[Confinement::Local]);
     let home_before = listing(&rig.home);
-    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    // the writer pauses until the sample has seen it (its `sleep`); the sample covers the whole run
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
     let mut seen: BTreeSet<String> = BTreeSet::new();
     until("the run to end", 50, || {
         seen.extend(descendants());
+        if seen.contains("sleep") {
+            end_the_pauses();
+        }
         match rig.state_of(&run).as_str() {
             "WaitingOnDecision" => {
                 for d in rig.d().open_decisions_of_run(&run) {
@@ -519,7 +537,8 @@ impl Rig {
 #[test]
 fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
     let rig = Rig::new("engine-in-flight", &[Confinement::Local]);
-    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    // the writer pauses until the case has read the step in flight; then the case ends the pause
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
     let event = rig.wait_started(&run, "draft.write");
     // the program has not ended: no draft, no finished line of the action
     assert!(!rig.workspace(&run).join("draft.txt").exists(), "the writer ended before its start was recorded");
@@ -536,6 +555,11 @@ fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
     assert_eq!(step["started_at"], event["at"], "{row}");
     assert!(step["seconds"].as_u64().is_some_and(|s| s <= 3), "{row}");
     // it is gone once the run waits on the review: the writer and the check ended
+    until("the writer's pause to be seen and ended", 20, || {
+        let pausing = descendants().iter().any(|c| c == "sleep");
+        end_the_pauses();
+        pausing
+    });
     rig.wait_review(&run);
     let row = rig.run_view(&run);
     super::openapi::check_row("RunDetail", &row);
