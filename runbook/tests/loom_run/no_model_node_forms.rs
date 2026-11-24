@@ -1,6 +1,7 @@
 //! Forms of a bindings copy that the rule counts as a model node, which no other case holds
 //! (`docs/loom-run.md`, "A run without a model node"). Each form is run under `substrate` with none of
-//! the three money options: it starts, and the records say it has a model node. A fake `b10x-loom`:
+//! the three money options: it starts, and the records say it has a model node (a link in the copy then ends the
+//! run closed, as every read of the copy after the opening refuses a link). A fake `b10x-loom`:
 //! no model call, no network request.
 
 use super::core::{code, stderr, World};
@@ -53,13 +54,17 @@ fn more_forms_the_scan_cannot_read_count_as_a_model_node() {
         })),
         ("the tool's name with a trailing space", Box::new(|w: &World| file(w, "bindings/sdc.yaml", &one_action("{kind: program, argv: [\"sdc-node \", a.b]}")))),
     ];
+    // A link in the bindings copy is read by no reader of the runner after the opening (`record_write.rs`): the run
+    // ends `error` on it, naming the link, and the opening has counted it as a model node.
+    let link_form = "a child bindings file that is a link to a file outside the copy";
     let mut wrong: Vec<String> = Vec::new();
     for (what, setup) in &forms {
         let w = World::new("more-forms");
         setup(&w);
         w.fake.answer("tree_run", "1", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
         let o = w.run(&bare(&w));
-        if code(&o) != 0 {
+        let want = if *what == link_form { 1 } else { 0 };
+        if code(&o) != want || (want == 1 && !stderr(&o).contains("child.yaml")) {
             wrong.push(format!("{what}: exit {} ({})", code(&o), stderr(&o).lines().last().unwrap_or("")));
         } else if w.outcome("r1")["has_model_node"] != true {
             wrong.push(format!("{what}: recorded as no model node"));

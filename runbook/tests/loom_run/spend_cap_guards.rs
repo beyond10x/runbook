@@ -627,6 +627,7 @@ fn a_recorded_run_with_a_live_part_under_a_cap_of_0_starts_no_tree_run() {
         .arg(&rec)
         .args(["--on-divergence", "live", "--live-adapter", "dry", "--live-cap", "1"])
         .env_clear()
+        .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:{}", drv.display(), std::env::var("PATH").unwrap_or_default()))
         .env("HOME", std::env::var("HOME").unwrap_or_default())
         .stdin(Stdio::null())

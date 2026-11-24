@@ -529,7 +529,7 @@ fn doctor_of_a_prefix_with_the_marker_says_incomplete_install_and_fails() {
                     .nth(1)
                     == Some("install")
             })
-            .unwrap_or_else(|| panic!("no install line:\n{}", out(o)))
+            .unwrap_or_else(|| panic!("no install line:\n{}{}", out(o), err(o)))
             .to_owned()
     };
     fs::write(prefix.join("share/runbook/INSTALLING"), "").unwrap();

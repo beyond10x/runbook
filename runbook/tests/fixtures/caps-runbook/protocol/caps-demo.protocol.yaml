@@ -1,0 +1,48 @@
+format: protocol/1
+protocol:
+  id: caps-demo
+  revision: 1
+  description: >-
+    The runbook of the caps tests: a program writes a note and a program checks it, each a stand-in for a model call that books a fixed cost, then a program publishes it. It asks no one.
+artifacts:
+  idea: {}
+  note: {}
+evidence_kinds:
+  note_write: {}
+  note_check: {}
+  note_publish: {}
+claims:
+  note.written:
+    true_when:
+      evidence: {kind: note_write, subject: idea, result: written}
+  note.valid:
+    true_when:
+      evidence: {kind: note_check, subject: note, result: valid}
+  note.published:
+    true_when:
+      evidence: {kind: note_publish, subject: note, result: published}
+actions:
+  note.write:
+    effect: write
+    precondition: {claim: note.written, is: unknown}
+    may_produce:
+      - evidence: note_write
+  note.check:
+    effect: read
+    precondition:
+      all:
+        - {claim: note.written}
+        - {claim: note.valid, is: unknown}
+    may_produce:
+      - evidence: note_check
+  note.publish:
+    effect: write
+    precondition:
+      all:
+        - {claim: note.valid}
+        - {claim: note.published, is: unknown}
+    may_produce:
+      - evidence: note_publish
+outcomes:
+  finished:
+    requires: {claim: note.published}

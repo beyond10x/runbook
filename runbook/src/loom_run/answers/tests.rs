@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::assets::testdir::Dir;
+use std::path::PathBuf;
 
 fn file_with(tag: &str, text: &str) -> (Dir, PathBuf) {
     let dir = Dir::new(tag);
@@ -135,4 +136,17 @@ fn the_file_committed_in_the_bindings_is_valid_and_declares_both_steps() {
     assert!(answers.find("Handoff", "amend.upstream").unwrap().then.is_none());
     assert!(is_answer_step_in(&bindings, "scope.answer"));
     assert!(!is_answer_step_in(&bindings, "amend.upstream"));
+}
+
+#[test]
+fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_answer_steps() {
+    let dir = Dir::new("answer-step-link");
+    let bindings = dir.dir("bindings");
+    let outside = dir.dir("outside");
+    let step = "actions:\n- action: scope.answer\n  executor: {kind: person}\n";
+    std::fs::write(outside.join("steps.yaml"), step).unwrap();
+    std::os::unix::fs::symlink(outside.join("steps.yaml"), bindings.join("b.yaml")).unwrap();
+    assert!(!is_answer_step_in(&bindings, "scope.answer"), "a file outside the run was read through a link at a bindings file");
+    std::fs::write(bindings.join("c.yaml"), step).unwrap();
+    assert!(is_answer_step_in(&bindings, "scope.answer"));
 }

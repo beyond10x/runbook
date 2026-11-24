@@ -242,6 +242,7 @@ impl Lib {
         Command::new(BIN)
             .args(args)
             .env_clear()
+            .env("RUNBOOK_NO_CONFIG", "1")
             .env("PATH", format!("{}:{}", r("bin"), std::env::var("PATH").unwrap_or_default()))
             .env("HOME", "/marker-home-dir")
             .env("XDG_RUNTIME_DIR", self.root.join("xdg"))
@@ -273,7 +274,9 @@ impl Lib {
     }
 }
 
-const NAME_THE_TOOL: &str = "s#\\[tools/draft-check.sh\\]#[sdc-node, draft.check]#";
+/// The program of `draft.check` (`[tools/draft-check.sh, --max-budget-usd, "0.01"]` in the fixture) replaced by the
+/// model tool, its per-call budget kept.
+const NAME_THE_TOOL: &str = "s#\\[tools/draft-check.sh, #[sdc-node, draft.check, #";
 
 /// The real library Loom, under `local`, with caps: a run whose bindings name no model node starts,
 /// counts nothing and states `has_model_node` false; the ledger is opened and holds 0.
@@ -324,7 +327,7 @@ fn documented_limit_under_local_with_caps_a_model_program_reached_by_a_name_the_
     type Setup = Box<dyn Fn(&Lib) + Sync>;
     let forms: Vec<(&str, bool, Setup)> = vec![
         ("a script of tools/ that builds the name from two parts", true, Box::new(|lib: &Lib| lib.tool("draft-check.sh", "#!/bin/sh\np=sdc-\n\"${p}node\" draft.check\n"))),
-        ("a shell word of the argv that builds the name", true, Box::new(|lib: &Lib| lib.bindings(|t| t.replace("argv: [tools/draft-check.sh]", "argv: [sh, -c, 'n=node; \"sdc-$n\" draft.check']")))),
+        ("a shell word of the argv that builds the name", true, Box::new(|lib: &Lib| lib.bindings(|t| t.replace("argv: [tools/draft-check.sh,", "argv: [sh, -c, 'n=node; \"sdc-$n\" draft.check',")))),
         ("a copy of the program in tools/ under another name", true, Box::new(|lib: &Lib| {
             let text = std::fs::read_to_string(lib.root.join("bin/sdc-node")).unwrap();
             lib.tool("draft-check.sh", &text);

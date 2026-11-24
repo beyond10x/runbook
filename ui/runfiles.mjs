@@ -141,10 +141,29 @@ export function readText(p, root, limit = TEXT_LIMIT) {
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.nlink > 1 || st.size > limit) return null;
     counted(abs, root);
-    const text = fs.readFileSync(fd, 'utf8');
+    const text = readBounded(fd, limit, st.size);
+    if (text == null) return null;
     keep(abs, run, real, st, text);
     return text;
   } catch { return null; } finally { if (fd != null) fs.closeSync(fd); }
+}
+
+// The text of the descriptor `fd` from its start, or null when it holds more than `limit` bytes. The bound is held by the read
+// itself, not by the size seen before it: a file a program of the run makes longer after its size was checked is read for
+// at most `limit` + 1 bytes, never to its end. `hint` is the size seen by the check (the first buffer; later ones are 1 MiB).
+function readBounded(fd, limit, hint) {
+  const chunks = [];
+  let total = 0, want = hint + 1;
+  for (;;) {
+    const buf = Buffer.allocUnsafe(Math.max(1, Math.min(want, limit + 1 - total)));
+    const n = fs.readSync(fd, buf, 0, buf.length, null);
+    if (n === 0) break;
+    total += n;
+    chunks.push(n === buf.length ? buf : buf.subarray(0, n));
+    if (total > limit) return null;
+    want = 1048576;
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
 }
 export const readJson = (p, fallback = null, root) => {
   const text = readText(p, root);

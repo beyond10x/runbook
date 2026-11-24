@@ -745,6 +745,7 @@ fn probe(tag: &str, level: &str) -> Probe {
         .args(["--intake", &a("idea.yaml"), "--confinement", level, "--settings", &a("settings.toml"), "--spend-ledger", &a("ledger.json")])
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .env_clear()
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .output()
@@ -794,4 +795,18 @@ fn under_substrate_a_bound_program_writes_none_of_the_run_copy_and_no_replay_pla
     // The run directory is not in the program's view at all: a replayed model node cannot read its plan there either.
     assert!(p.probe_txt().lines().any(|l| l == "read unreadable"), "the run directory was readable from the sandbox: {}", p.probe_txt());
     let _ = &p.root;
+}
+
+#[test]
+fn a_link_a_program_put_at_a_bindings_file_of_the_run_is_not_read_for_the_results_of_an_action() {
+    let w = World::new("bindings-link");
+    bindings(&w, PERSON_BINDINGS);
+    one_person_decision(&w);
+    w.scripted_approve();
+    let outside = w.root.join("outside-bindings.yaml");
+    std::fs::write(&outside, PERSON_BINDINGS).unwrap();
+    w.fake.hook("tree_run", "1", &format!("rm -f bindings/sdc.yaml\nln -s '{}' bindings/sdc.yaml\n", outside.display()));
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "the results of the action were taken from a file outside the run, through a link at a bindings file: {}", stderr(&o));
+    assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "an approval was sent to Loom");
 }

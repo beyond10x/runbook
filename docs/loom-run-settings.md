@@ -11,6 +11,11 @@ hold the path of the login file. One format serves the loop (`docs/loom-run.md`)
 the last section lists what it writes. The reading is `runbook/src/loom_run/settings.rs` (`read`,
 `normalise`, `fill_decider`), `decider.rs` (`from_settings`) and `bindings_copy.rs` (`materialise`).
 
+A `runbook.toml` (`docs/loom-run.md` "Where a value comes from") may carry the members `login_file`,
+`autonomy`, `decider`, `adapter`, `models`, `efforts` and `review` of this format as defaults, read by the same reader; a
+member of the `--settings` file replaces the file's member as a whole. `format`, `run`, `loom_sha256`,
+`in_process` and `replay` belong to one run and are refused in that file.
+
 Each setting has one place. A table exists only where it groups: `[decider]`, `[models.<role>]`,
 `[efforts.<role>]` and `[review]`. There is no `[loom]` table: what lived under `loom` in the JSON form
 is at the top level (the table at the end of this section lists the old and the new place).
@@ -97,7 +102,7 @@ effort = "low"
 | `run` | text | none | `normalise` | when present, equal to `--run` |
 | `loom_sha256` | text | none | `normalise` | when present, equal to `--loom-sha256`; refused when Loom is a library (no `--loom`) |
 | `in_process` | `true` | none | `normalise` | `true` only when Loom is a library (no `--loom`); `false` and any other value are refused |
-| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
+| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level. `runbook serve` reads the same key as its default level for a submit that names none (`--default-confinement` wins; `docs/daemon-api.md`) |
 | `cap_micro_usd` | whole number | none | `normalise`, `with_named_caps` | names the spend cap when `--cap-micro-usd` is not given; beside the option, equal to it |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | names the call cap when `--max-llm-calls` is not given; beside the option, equal to it; text, a float and a date are refused |
@@ -210,3 +215,18 @@ sha256 of the fake binary, and runs it to the end; neither test builds the other
 quote, a backslash and a letter outside ASCII has its own fixture,
 `runbook/tests/fixtures/loom-run-settings-odd-path.toml`, which the writer's test compares byte for byte
 and the runner's reader reads back to the same path.
+
+## `[deciders.<kind>]` of the daemon
+
+`runbook serve` reads one more table of `runbook.toml`, `[deciders.<kind>]`, for the runs of the daemon that take
+an autonomy level and a decider kind (`docs/engine.md`, "Autonomy and a decider"). `runbook run` does not read it: it has
+the one `decider` of its settings. A kind is `rule` or `model`; the table holds the members of `[decider]` without
+`kind`. A table the decider's reader refuses, a kind the daemon does not take and a `kind` member that is not the
+table's own name end `runbook serve` with exit 2, naming the table and no value.
+
+| Where | Meaning |
+|---|---|
+| `runbook serve --autonomy A0..A5` | the level of a submit that names none; none given: such a run has no level and every decision of it waits for a client; needs `--decider`, or the daemon does not start |
+| `runbook serve --decider <kind>` | the kind of a submit that names none; a kind that is not configured and the daemon does not start |
+| `submit_run` `autonomy`, `decider` | the run's own level and kind; they win over the daemon's; an unknown level, a kind that is not configured and a level with no kind are refused (400) before anything is written |
+| `login_file`, `cap_micro_usd`, `max_llm_calls` | read for the model decider of a run only; none is required, and a rule needs none |

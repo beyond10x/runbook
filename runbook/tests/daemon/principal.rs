@@ -18,6 +18,7 @@ fn serve(tag: &str, args: &[&str]) -> (Command, std::path::PathBuf) {
     let mut cmd = Command::new(BIN);
     cmd.arg("serve").args(["--listen", "127.0.0.1:0"]).arg("--state-dir").arg(dir.join("state")).args(args);
     cmd.env_remove("RUNBOOK_TOKEN").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    crate::isolate(&mut cmd);
     (cmd, dir)
 }
 

@@ -5,3 +5,9 @@ protocol:
   revision: 2
   description: >-
     Fixture root runbook that starts child cases. Only its first sentence is the title.
+
+actions:
+  story.open:
+    case_open:
+      protocol: sdc.story
+      subject: idea

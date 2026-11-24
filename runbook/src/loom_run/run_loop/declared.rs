@@ -71,9 +71,7 @@ impl Runner<'_> {
             if asked.result.is_err() && asked.cost_micro_usd == 0 && asked.model_calls == 0 {
                 self.release(&reservation)?;
             } else {
-                self.commit(&reservation, "decider", asked.cost_micro_usd)?;
-                self.spent = self.spent.saturating_add(asked.cost_micro_usd);
-                self.llm_calls = self.llm_calls.saturating_add(asked.model_calls);
+                self.book_decider(&reservation, asked.cost_micro_usd, asked.model_calls)?;
                 let model = asked.lines.iter().rev().find_map(|l| l.get("model").and_then(Value::as_str).map(str::to_owned));
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: asked.cost_micro_usd, record: serde_json::json!({"model_calls": asked.model_calls, "model": model}) })?;
             }

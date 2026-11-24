@@ -39,6 +39,7 @@ printf '%s\\n' \"$@\" > .seed-args
 pwd > .seed-cwd
 ls ../store > .seed-store 2>&1
 date +%s > .seed-time
+env > .seed-env
 case $2 in
   --ticket) { echo 'ticket:'; echo '  id: PAGER-7'; sed 's/^/# /' \"$3\"; } > bug.yaml ;;
   --from) printf 'text: %s\\n' \"$5\" > bug.yaml; printf 'story: %s\\n' \"$7\" >> bug.yaml ;;
@@ -108,6 +109,7 @@ impl Rig {
             .env_clear()
             .env("PATH", path_dirs)
             .env("HOME", "/marker-home-dir")
+            .env("RUNBOOK_CONFIG", crate::empty_config())
             .env("RUNBOOK_HOME", self.root.join("fx"))
             .stdin(Stdio::null())
             .output()
@@ -188,6 +190,18 @@ fn a_ticket_seeds_the_root_case_before_the_tree_opens() {
     let settings: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir().join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["case"], "BUG-1", "{settings}");
     assert_eq!(settings["root_protocol"], "sdc-bugfix@1", "{settings}");
+}
+
+#[test]
+fn the_seed_helper_gets_no_walk_of_runbook_toml_and_nothing_of_the_runners_environment() {
+    // docs/loom-run.md: the runner gives RUNBOOK_NO_CONFIG to the programs it starts itself, the seed helper
+    // of `--bugfix` among them, so a `runbook` the helper starts reads no file of the work tree it seeds
+    let rig = Rig::new("seed-env");
+    let o = rig.run(&rig.args("sdc-bugfix", &["--bugfix-ticket", &rig.p("ticket.yaml")]));
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let dump = rig.seen(".seed-env");
+    assert!(dump.lines().any(|l| l == "RUNBOOK_NO_CONFIG=1"), "the seed helper got no RUNBOOK_NO_CONFIG=1; its environment:\n{dump}");
+    assert!(!dump.contains("marker-home-dir") && !dump.contains("RUNBOOK_CONFIG="), "the seed helper got the runner's own environment:\n{dump}");
 }
 
 #[test]
@@ -358,6 +372,7 @@ fn real_run(scratch: &Path, name: &str, extra: &[&str]) -> Output {
         .env_clear()
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("RUNBOOK_HOME", &root)
         .stdin(Stdio::null())
         .output()
@@ -466,4 +481,57 @@ fn bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constra
     let prompt = fix_prompt(&scratch.join("runs/bugfix-from-ticket")).expect("the dry adapter wrote no change.fix prompt");
     assert!(prompt.contains("- Keep the public API of the crate unchanged."), "{prompt}");
     assert!(!prompt.contains("Standard library only"));
+}
+
+// ---- the record of what the run was seeded with (`seeded.json`, `seeded-files.jsonl`) ----
+
+/// A stand-in seed with a tree of files: nested files, an empty directory, a dot-directory, a dot file and a link.
+const TREE_SEED: &str = "#!/bin/sh
+[ \"$1\" = seed ] || exit 64
+mkdir -p mainline/sub impl/sub empty .cache
+echo one > mainline/a.txt
+echo two > mainline/sub/b.txt
+echo one > impl/a.txt
+echo three > impl/sub/c.txt
+echo hidden > mainline/.hidden
+echo token > .cache/token.txt
+echo 'text: a report' > bug.yaml
+echo 'format: sdc.checks/1' > checks.yaml
+ln -s ../../bug.yaml impl/link
+";
+
+fn sha_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[test]
+fn the_seed_leaves_a_record_that_names_every_seeded_file_with_its_hash() {
+    let rig = Rig::new("seeded-record");
+    rig.helper(TREE_SEED);
+    let o = rig.run(&rig.args("sdc-bugfix", &["--bugfix", &rig.p("seed")]));
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let run = rig.run_dir();
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(run.join("seeded.json")).unwrap()).unwrap();
+    assert_eq!((record["format"].as_str(), record["complete"].as_bool()), (Some("runbook.seeded/1"), Some(true)), "{record}");
+    assert!(record["at"].as_u64().is_some_and(|t| t > 0), "{record}");
+    let entries: Vec<(String, String, u64)> = record["entries"].as_array().unwrap().iter().map(|e| (e["path"].as_str().unwrap().to_owned(), e["kind"].as_str().unwrap().to_owned(), e["files"].as_u64().unwrap())).collect();
+    let want = [("bug.yaml", "file", 1), ("checks.yaml", "file", 1), ("empty", "dir", 0), ("idea.yaml", "file", 1), ("impl", "dir", 2), ("mainline", "dir", 2)];
+    assert_eq!(entries, want.map(|(p, k, n)| (p.to_owned(), k.to_owned(), n)), "{record}");
+    assert_eq!(record["files"], 7);
+    let want_files = [
+        ("bug.yaml", "text: a report\n".to_owned()),
+        ("checks.yaml", "format: sdc.checks/1\n".to_owned()),
+        ("idea.yaml", std::fs::read_to_string(run.join("work/idea.yaml")).unwrap()),
+        ("impl/a.txt", "one\n".to_owned()),
+        ("impl/sub/c.txt", "three\n".to_owned()),
+        ("mainline/a.txt", "one\n".to_owned()),
+        ("mainline/sub/b.txt", "two\n".to_owned()),
+    ];
+    let want_list: Vec<(String, String)> = want_files.iter().map(|(p, c)| ((*p).to_owned(), sha_hex(c.as_bytes()))).collect();
+    let list_text = std::fs::read_to_string(run.join("seeded-files.jsonl")).unwrap();
+    let list: Vec<(String, String)> = list_text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).map(|v| (v["path"].as_str().unwrap().to_owned(), v["sha256"].as_str().unwrap().to_owned())).collect();
+    assert_eq!(list, want_list);
+    let all = format!("{record}{list_text}");
+    assert!(!all.contains(rig.root.to_str().unwrap()), "an absolute path is in the record: {all}");
 }

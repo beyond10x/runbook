@@ -48,6 +48,39 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
     Ok(Resolved { protocol_dir, bindings, protocol_id, revision })
 }
 
+/// The one of `homes` that has the protocol file of the runbook `name` (`runbooks::locate`: a name that is in
+/// two homes is refused by its name, never taken from the configured one); the last home when none has it, so
+/// that `resolve` says why.
+pub fn home_of(homes: &[PathBuf], name: &str) -> Result<PathBuf, String> {
+    if !plain(name) {
+        return Err(format!("{name:?} is not a runbook name"));
+    }
+    match crate::runbooks::locate(homes, name)? {
+        Some(home) => Ok(home),
+        None => homes.last().cloned().ok_or_else(|| "no runbook home".to_owned()),
+    }
+}
+
+/// The runbook `name` in the home that `home_of` names, or why it is not there.
+pub fn resolve_in(homes: &[PathBuf], name: &str, version: Option<&str>) -> Result<Resolved, String> {
+    resolve(&home_of(homes, name)?, name, version)
+}
+
+/// The runbooks of every home, each name once, in the order of the homes: exactly the names `resolve_in`
+/// accepts, so a name that two homes hold (a submit of it is refused) is listed from neither.
+pub fn list_in(homes: &[PathBuf]) -> Vec<RunbookInfo> {
+    let mut seen = std::collections::BTreeSet::new();
+    homes
+        .iter()
+        .flat_map(|h| list(h))
+        .filter(|r| seen.insert(r.name.clone()))
+        .filter_map(|r| {
+            let found = resolve_in(homes, &r.name, None).ok()?;
+            Some(RunbookInfo { name: r.name, version: Some(found.revision.to_string()) })
+        })
+        .collect()
+}
+
 /// The runbooks under `home`: every `protocol/<name>.protocol.yaml` that `resolve` accepts, with the
 /// revision of its root protocol as the version. A file that does not resolve is not listed.
 pub fn list(home: &Path) -> Vec<RunbookInfo> {
@@ -63,10 +96,12 @@ pub fn list(home: &Path) -> Vec<RunbookInfo> {
         .collect()
 }
 
-/// The path, in the workspace, the root bindings place the artifact `idea` at.
+/// The path, in the workspace, the root bindings place the artifact `idea` at. A failure names the
+/// file as `bindings/<file>`, never the path it was read at.
 pub fn idea_path(bindings: &Path) -> Result<Option<String>, String> {
-    let text = std::fs::read_to_string(bindings).map_err(|e| format!("{}: {e}", bindings.display()))?;
-    let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", bindings.display()))?;
+    let named = format!("bindings/{}", bindings.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()));
+    let text = std::fs::read_to_string(bindings).map_err(|e| format!("{named}: {e}"))?;
+    let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{named}: {e}"))?;
     Ok(doc["artifacts"]["idea"].as_str().map(str::to_string))
 }
 

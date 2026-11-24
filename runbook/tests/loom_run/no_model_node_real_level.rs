@@ -105,6 +105,7 @@ impl Rig {
         Command::new(BIN)
             .args(args)
             .env_clear()
+            .env("RUNBOOK_NO_CONFIG", "1")
             .env("PATH", format!("{}:{}", r("bin"), std::env::var("PATH").unwrap_or_default()))
             .env("HOME", "/marker-home-dir")
             .env("XDG_RUNTIME_DIR", self.root.join("xdg"))

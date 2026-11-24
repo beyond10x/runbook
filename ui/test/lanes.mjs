@@ -33,6 +33,7 @@ export const WIDE_ONLY = {
   'child.spec.mjs': 'process guard, no page',
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
+  'daemon-level-and-kind.spec.mjs': 'level and kind as text',
   'daemon-start.spec.mjs': 'start form against own daemons',
   'daemon-ui.spec.mjs': 'daemon serves, page lists runs',
   'decisions-reads-the-run.spec.mjs': 'pure reader refuses other runs',
@@ -105,6 +106,11 @@ export const WIDE_ONLY = {
   'view-product.spec.mjs': 'server refuses a bad view',
   'view-race.spec.mjs': 'view swap race, no page',
   'view.spec.mjs': 'view file rules, a text',
+  'written-api.spec.mjs': 'route answers, no page',
+  'written-bounds.spec.mjs': 'bounds of answers, no layout',
+  'written-model.spec.mjs': 'model function, no page',
+  'written-page.spec.mjs': 'sizes set by test blocks',
+  'written-reader.spec.mjs': 'reader answers and page notes',
 };
 export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 
@@ -141,6 +147,8 @@ export const SIZE_EXCEPTIONS = {
   'stopped.spec.mjs': 'sets both gating sizes itself',
   'stub-runs.spec.mjs': 'sets 805x1270 and 390x844 itself',
   'view.spec.mjs': 'presence, not layout',
+  'written-page.spec.mjs': 'sets its sizes itself',
+  'written-reader.spec.mjs': 'presence, not layout',
 };
 
 // The one form of a spec file that the lists above know: `<this directory>/<name>.spec.mjs`, directly under test/ (the pattern
@@ -180,6 +188,7 @@ export const FIXED_WAITS = {
   'idle-slow-page.spec.mjs': {calls: 2, ms: 6000, variable: 'pause of a polling loop', helper: 'sleep', largest: 10000, window: 'bounded wait for a round'},
   'paths-served.spec.mjs': {calls: 1, ms: 700},
   'security-products-2-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},
+  'runner-live-guards.spec.mjs': {calls: 2, ms: 35000, window: 'bounded writer in a child'},
   'runner-live.spec.mjs': {calls: 2, ms: 50, why: 'polls a pipe, a process'},
   'security-products-3-reads.spec.mjs': {calls: 1, ms: 100},
   'security-products-race.spec.mjs': {calls: 1, ms: 10000, window: 'race window, runs in full'},

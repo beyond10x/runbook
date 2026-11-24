@@ -117,7 +117,7 @@ export function fileAnswer(runDir, rel, roots = [path.join(runDir, 'work')]) {
 
 // ---- the files of a run --------------------------------------------------------------------------
 // The result line of a step file (`result: valid`), or null: the first `result:` line of a short text file.
-function resultOf(abs, runDir, scope) {
+export function resultOf(abs, runDir, scope) {
   const r = readRegular(abs, {root: runDir, limit: RESULT_BYTES, accept: (real) => refusalOf(scope, real)});
   if (r.state !== 'ok') return null;
   const text = utf8Text(r.bytes, {cutEnd: r.cut});
@@ -188,10 +188,18 @@ function servable(runDir, rel, scope) {
   if (real == null || refusalOf(scope, real)) return false;
   try { const st = fs.statSync(real); return st.isFile() && st.nlink <= 1; } catch { return false; }
 }
-export function productOf({runDir, roots = [path.join(runDir, 'work')], files, view, ids}) {
+// With the records of what the run wrote (`written`, ./written.mjs) a file of an input tree is never the product: the view's
+// file and the runbook's file are taken only when they are not an unchanged seeded file, and the rule after them is the last
+// file the last finished step wrote. Without the records (an older run) the newest Markdown file is taken, never one inside
+// a tree that holds a build manifest at its top (a repository the run was given): the one input tree a listing can recognise.
+const MANIFESTS = new Set(['Cargo.toml', 'package.json', 'go.mod', 'pyproject.toml', 'pom.xml']);
+const recognisedInputTrees = (files) => new Set(files.filter((f) => /^work\/[^/]+\/[^/]+$/.test(f.path) && MANIFESTS.has(f.path.split('/')[2])).map((f) => f.path.split('/')[1]));
+export function productOf({runDir, roots = [path.join(runDir, 'work')], files, view, ids, written = null}) {
   const scope = scopeOf(runDir, roots);
+  const input = (p) => written != null && written.isInput(p);
   if (typeof view?.product === 'string') {
     const p = view.product.split('/').filter((n) => n !== '' && n !== '.').join('/');
+    if (input(p)) return {via: 'view', path: p, missing: true, note: `the view names ${p}; it is a file the run was seeded with, an input, not a product`};
     if (servable(runDir, p, scope)) return {via: 'view', path: p, missing: false, note: 'named by the view'};
     const there = runPath(path.join(runDir, p), runDir) != null;
     return {via: 'view', path: p, missing: true, note: there ? `the view names ${p}; the inspector does not serve it (only a file under a work/ directory, with one link)` : `the view names ${p}; this run has not written it`};
@@ -199,9 +207,14 @@ export function productOf({runDir, roots = [path.join(runDir, 'work')], files, v
   for (const id of ids) {
     if (!ID.test(id)) continue;
     const p = `work/${id}/${id}.md`;
-    if (servable(runDir, p, scope)) return {via: 'runbook-file', path: p, missing: false, note: `work/<runbook>/<runbook>.md for the runbook ${id}`};
+    if (!input(p) && servable(runDir, p, scope)) return {via: 'runbook-file', path: p, missing: false, note: `work/<runbook>/<runbook>.md for the runbook ${id}`};
   }
-  const md = files.filter((f) => f.format === 'markdown' && /^work\/([^/]+\/)?[^/]+$/.test(f.path)).sort((a, b) => b.mtime - a.mtime || (a.path < b.path ? -1 : 1));
+  if (written) {
+    if (written.last) return {via: 'last-written', path: written.last.path, missing: false, note: written.last.step == null ? 'the last file an action wrote' : `the last file step ${written.last.step} wrote, the last step that finished`, others: written.last.others};
+    return {via: null, path: null, missing: false, note: written.total ? 'no step has finished yet: nothing is named' : 'no action has written a file yet'};
+  }
+  const inputs = recognisedInputTrees(files);
+  const md = files.filter((f) => f.format === 'markdown' && /^work\/([^/]+\/)?[^/]+$/.test(f.path) && !inputs.has(f.path.split('/')[1])).sort((a, b) => b.mtime - a.mtime || (a.path < b.path ? -1 : 1));
   if (md.length) return {via: 'newest-markdown', path: md[0].path, missing: false, note: 'the newest Markdown file under work/', others: md.slice(1, 6).map((f) => ({path: f.path, mtime: f.mtime}))};
   return {via: null, path: null, missing: false, note: 'not named by this run'};
 }

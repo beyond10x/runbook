@@ -1,14 +1,14 @@
 //! The pages that say what a refused run writes are held against `src/engine/refusal.rs`: a cause
 //! the code can write and the page does not list is a failure here. Reads files of the checkout only.
 
-use runbook::engine::refusal::{cause, PROGRAM_SIGNALLED, REASONS};
+use runbook::engine::refusal::{cause, PROGRAM_REFUSALS, REASONS};
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Every cause the code can write: one per reason, and `program_signalled`.
+/// Every cause the code can write: one per reason, and one per refusal of a bound program.
 fn real_causes() -> BTreeSet<String> {
     let mut v: BTreeSet<String> = REASONS.iter().map(|r| cause(*r).to_owned()).collect();
-    v.insert(PROGRAM_SIGNALLED.to_owned());
+    v.extend(PROGRAM_REFUSALS.iter().map(|(_, c)| (*c).to_owned()));
     v
 }
 
@@ -21,7 +21,9 @@ fn the_run_directory_page_says_a_refused_run_writes_one_of_the_reason_causes() {
     let text = page("docs/loom-run-directory.md");
     let row = text.lines().find(|l| l.starts_with("| `run-stopped.json`")).expect("the row of run-stopped.json");
     assert!(row.contains("refused"), "the cause column does not name the refused outcome: {row}");
-    assert!(row.contains(PROGRAM_SIGNALLED), "the cause column does not name {PROGRAM_SIGNALLED}: {row}");
+    for (_, program_cause) in PROGRAM_REFUSALS {
+        assert!(row.contains(program_cause), "the cause column does not name {program_cause}: {row}");
+    }
     assert!(row.contains("docs/loom-run.md"), "the cause column does not say where the reason causes are listed: {row}");
 }
 
@@ -29,9 +31,7 @@ fn the_run_directory_page_says_a_refused_run_writes_one_of_the_reason_causes() {
 fn the_loom_run_page_lists_every_cause_a_refusal_writes() {
     let text = page("docs/loom-run.md");
     let mut missing: Vec<&str> = REASONS.iter().map(|r| cause(*r)).filter(|c| !text.contains(&format!("`{c}`"))).collect();
-    if !text.contains(&format!("`{PROGRAM_SIGNALLED}`")) {
-        missing.push(PROGRAM_SIGNALLED);
-    }
+    missing.extend(PROGRAM_REFUSALS.iter().map(|(_, c)| *c).filter(|c| !text.contains(&format!("`{c}`"))));
     assert_eq!(missing, Vec::<&str>::new(), "docs/loom-run.md does not list these causes of refusal.rs");
 }
 
@@ -94,4 +94,34 @@ fn the_loom_run_page_says_which_refusals_are_exit_12_and_which_stay_exit_1() {
     ] {
         assert!(text.contains(needed), "docs/loom-run.md lacks: {needed}");
     }
+}
+
+/// The page says what `reason` a `stuck` run carries: the refusal's lead when a refusal stopped the tree.
+#[test]
+fn the_loom_run_page_says_a_stuck_run_names_the_refusal_that_stopped_its_tree() {
+    let text = page("docs/loom-run.md");
+    for needed in ["no run ends `stuck` with\n`reason: null` when a refusal stopped its tree", "`RunsSpent: action <name>`", "a tree with no move and no refusal ends `stuck` with\n`reason: null`"] {
+        assert!(text.contains(needed), "docs/loom-run.md lacks: {needed}");
+    }
+}
+
+/// A refusal is read by the name it leads with: a text of another refusal that holds a program refusal's lead is none.
+#[test]
+fn a_refusal_text_is_read_by_its_leading_name_only() {
+    use runbook::engine::refusal::program_refused_in;
+    let line = |refusal: &str| format!(r#"{{"seq":4,"kind":"ActionFinished","action":"a","refusal":"{refusal}"}}"#);
+    let stop = r#"{"seq":5,"kind":"Stopped","stop":"Stuck","next":[]}"#;
+    for text in ["ResultNotInTable: action a: the report said ProgramError: x", "RunsSpent: action a: x ProgramSignalled: y"] {
+        assert_eq!(program_refused_in(&format!("{}\n{stop}", line(text))), None, "{text}");
+    }
+}
+
+/// A refusal followed by the case's evaluation and nothing else is no longer what the tree is stuck on.
+#[test]
+fn a_refusal_the_case_was_evaluated_after_is_not_the_reason_of_the_stop() {
+    use runbook::engine::refusal::program_refused_in;
+    let refused = r#"{"seq":4,"kind":"ActionFinished","action":"a","refusal":"ProgramError: action a: p ended exit status 69"}"#;
+    let evaluated = r#"{"seq":5,"kind":"Evaluated","case_revision":2}"#;
+    let stop = r#"{"seq":6,"kind":"Stopped","stop":"Stuck","next":[]}"#;
+    assert_eq!(program_refused_in(&format!("{refused}\n{evaluated}\n{stop}")), None);
 }

@@ -31,7 +31,9 @@ and opens none, so its run belongs to no session; `--json` shows the daemon's an
 | Command | Route | Prints (text) |
 |---|---|---|
 | `runbook run <runbook> --intake <file\|-> [--context <dir>] [--set k=v]... --detach` | `POST /daemon/commands/submit-run` | the run id |
-| `runbook run <runbook> --intake <file\|-> --run <name> --runs-dir <dir> --confinement <level> --settings <file.toml> --max-wall-seconds <n> [--spend-ledger <file>] [--cap-micro-usd <n>] [--max-llm-calls <n>]` | none: the run is made in this process | one line on standard error; the exit code is the outcome's (`docs/loom-run.md`). No money limit is built in: `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are each optional, alone and together, for every run and every `--confinement`; a run that names none opens no ledger and refuses nothing. A named cap stops the run when reached (exit 4 for the spend cap, exit 6 for the call cap), a named 0 means spend nothing, a spend cap with nothing left starts no `tree run`, handoff, `tree approve`, program of an answers file or conformance observation (`docs/loom-run.md`, "What the spend cap promises"), a cap without a ledger is counted in the run itself, and a ledger without a cap records and stops nothing (`docs/loom-run.md`, "The money options"). The runner decides once, at the opening, whether the run has a model node (a binding that names `sdc-node`, a decider that calls a model, `--recorded`, `--conformance observe`; unclear counts); the decision is recorded and gates only the link to the login file |
+| `runbook run <runbook> --intake <file\|-> [--run <name>] [--runs-dir <dir>] [--confinement <level>] [--settings <file.toml>] [--spend-ledger <file>] [--cap-micro-usd <n>] [--max-llm-calls <n>] [--max-wall-seconds <n>]` | none: the run is made in this process | one line on standard error; the exit code is the outcome's (`docs/loom-run.md`). Each option is the default of a `runbook.toml` key; the confinement and the wall time are refused (exit 64) when neither states them. No money limit is built in: `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are each optional, alone and together, for every run and every `--confinement`; a run that names none opens no ledger and refuses nothing. A named cap stops the run when reached (exit 4 for the spend cap, exit 6 for the call cap), a named 0 means spend nothing, a spend cap with nothing left starts no `tree run`, handoff, `tree approve`, program of an answers file or conformance observation (`docs/loom-run.md`, "What the spend cap promises"), a cap without a ledger is counted in the run itself, and a ledger without a cap records and stops nothing (`docs/loom-run.md`, "The money options"). The runner decides once, at the opening, whether the run has a model node (a binding that names `sdc-node`, a decider that calls a model, `--recorded`, `--conformance observe`; unclear counts); the decision is recorded and gates only the link to the login file |
+| `runbook config [--config <file>] [--no-config] [the value options of run]` | none | every effective value of a run with its origin (`docs/loom-run.md` "Where a value comes from"); opens no login file; exit 2 for a refused file |
+| `runbook init` | none | writes a starter `runbook.toml` (mode 600) into the working directory; exit 2 when one exists |
 | `runbook run <runbook> … [--dry] [--recorded <dir> [--on-divergence stop\|nearest\|live] [--live-adapter <a>] [--live-cap <n>] [--inject <fault>]... [--set k=v]... [--take-recorded <actions>] [--source-tree <commit>]] [--bugfix <dir>] [--bugfix-ticket <file>] [--conformance off\|observe]` | none: the options of the old driver's launcher | `--dry` runs the stub cycle on the adapter `dry`, prints every model command and runs none (no login, spend 0; `docs/loom-run.md` "A dry run"); `--recorded <dir>` re-drives the case tree with every model call answered from a recording or a run directory by `sdc-replay` (`docs/loom-run.md` "A recorded run"): `--on-divergence` (default `stop`), `--live-adapter`, `--live-cap`, `--inject`, `--set` and `--take-recorded` need it (exit 64 without), a source that is no directory is exit 64, and a divergence ends the run with exit 11; the options of the other ports not built yet are accepted and refused with exit 64 and `<option> is not built yet`; `--conformance off` is the default and changes nothing; `--conformance observe` is built: after a run that ended closed it writes `oracle.json` into the run directory (`docs/conformance.md`) |
 | `runbook run <sdc-bugfix\|sdc> … (--bugfix <dir> \| --bugfix-ticket <file>)` | none: a bug-fix case in this process | opens root `BUG-1` on `sdc-bugfix` after `sdc-bugfix seed` ran in `work/`; a missing directory or file, both options, another runbook or root protocol, or no `sdc-bugfix` helper is refused before anything is written (`docs/loom-run.md`, `docs/bugfix.md`) |
 | `runbook run <runbook> … --goals <file>` | none: the option of the old driver's launcher | copies the goals document unchanged to `work/goals.yaml` of the run before the tree opens; a path that is no file is refused with exit 64; with `decider.requester` in the settings the decider answers the requester-side decisions from it |
@@ -95,6 +97,12 @@ goes to standard error, with the error's code and message as the daemon's body g
 The views answer `200` with no row for an unknown run; `runs show` and `runs events` turn that into
 exit 66 (`no such run`).
 
+`runbook serve` is not a client and has its own exit codes: 0 the daemon stopped and no run was left
+live (the drain ended, or the stop found none); 1 the start was refused or the server failed; 2 and 64
+the usage errors of the command line; 75 the stop left at least one live run orphaned (a second signal
+or `--drain-seconds` ended the drain with a run still live). A task that stops the daemon reads 75 as
+"a run was lost" (`daemon-api.md`, "Stopping the daemon").
+
 ## `runbook test`
 
 ```
@@ -107,7 +115,9 @@ Runs the cycles of a `loom.tree-suite/1` file (one after another, or `--workers`
 client of a daemon. No `b10x-loom` or `canon` process is started; the process tree of a
 run holds `runbook` and the bound programs, and a bound program gets `PATH` and `LOOM_*` from Loom
 and nothing of this process's environment. The protocols are the files of the asset root's
-`protocol/` directory (`RUNBOOK_HOME`, else the checkout). The suite's seeds, bindings and suite
+`protocol/` directory (`RUNBOOK_HOME`, else the checkout). The commands `list`, `check`, `doctor --for`,
+`run` and `serve` also read the `runbooks` directories of `runbook.toml` (`docs/loom-run.md`, "Runbook
+directories"); `check --for <name>` checks the directory of one runbook. The suite's seeds, bindings and suite
 sources are paths below the suite file's own directory (Loom's rule).
 
 - `--confinement` is required (except with `--list`), has no default and is passed on unchanged. Loom's

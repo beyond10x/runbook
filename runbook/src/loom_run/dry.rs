@@ -23,9 +23,9 @@
 
 use super::events::{CostSource, Event, EventSink};
 use super::ports::{Ports, Refusal};
+use super::record_write;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The adapter of every model call of a dry run.
@@ -105,8 +105,8 @@ fn shell_word(text: &str) -> String {
 /// The line the dry adapter prints for the call whose record directory is `record`: the metaharness
 /// command with the prompt as `"$(cat <prompt file>)"`. `None` when the directory holds no `argv.json`.
 pub fn command_line(record: &Path) -> Option<String> {
-    let argv: Vec<String> = serde_json::from_slice(&std::fs::read(record.join("argv.json")).ok()?).ok()?;
-    let prompt = std::fs::read(record.join("request.json"))
+    let argv: Vec<String> = serde_json::from_slice(&record_write::read_regular(&record.join("argv.json")).ok()?).ok()?;
+    let prompt = record_write::read_regular(&record.join("request.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .and_then(|r| r.get("prompt_file").and_then(Value::as_str).map(str::to_owned))
@@ -134,8 +134,7 @@ impl CommandSink {
         let Some(line) = command_line(record) else { return Ok(()) };
         println!("  {line}");
         let log = self.run_dir.join(LOG);
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&log).map_err(|e| format!("{}: {e}", log.display()))?;
-        writeln!(file, "{line}").map_err(|e| format!("{}: {e}", log.display()))
+        record_write::append(&log, format!("{line}\n").as_bytes(), true)
     }
 
     /// The calls the decider made: one directory per call below `decider/` of the run directory.

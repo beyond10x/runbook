@@ -15,10 +15,14 @@ runbook run <runbook> --intake <file|-> --run <name> --runs-dir <dir> --confinem
 ```
 
 `<runbook>` is the id of a protocol file under the protocols directory (`sdc`, `sdc-bugfix`; the
-code of `runbook list`). Required, with no default: `<runbook>`, `--intake`, `--run`, `--runs-dir`,
-`--confinement`, `--settings` and `--max-wall-seconds`; a missing one is a usage error (exit 64)
-that names it. `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are optional, each alone
-and together, for every run and under every `--confinement` ("The money options" below). Optional:
+code of `runbook list`). Required: `<runbook>`, `--intake`, and each of `--confinement` and
+`--max-wall-seconds` that neither an option nor a `runbook.toml` states ("Where a value comes from"
+below); a missing one is a usage error (exit 64) that names the option and the line to add to the
+file. `--run`, `--runs-dir` and `--settings` are optional now: `runbook run sdc --intake idea.txt
+--dry` is the whole command once a `runbook.toml` states the two values. `--spend-ledger`,
+`--cap-micro-usd` and `--max-llm-calls` are optional, each alone and together, for every run and
+under every `--confinement` ("The money options" below); an option or a `runbook.toml` may state
+each. Optional:
 `--bindings` and `--protocols` default to `bindings/` and `protocol/` of the asset root
 (`RUNBOOK_HOME`, the installed share directory or the checkout the executable lies in; the lookup
 of `runbook doctor`), `--root-protocol` to `<protocol id with . as ->@<revision>` of the runbook's
@@ -52,6 +56,155 @@ the last three lines the seed printed (`sdc-bugfix` quotes the ticket's id and n
 The text of a ticket is in `work/` and in no other file the runner writes and on neither stream
 (`runbook/tests/loom_run/bugfix.rs`). The bug-fix runbook works on Rust repositories only
 (`docs/bugfix.md`).
+
+## Where a value comes from
+
+`story:runbook-toml-carries-defaults`. A `runbook.toml` that the binary finds supplies the defaults, so
+`runbook run <runbook> --intake <file>` needs nothing else once the file states the values that have no
+built-in default. `runbook init` writes a starter (mode 600, never over a file that is there);
+`runbook config` prints every effective value of a run and its origin and opens no login file. It prints
+no value that has the form of a key or a token, from any source (the file, `--settings`, an option, a
+variable): the key and its origin are printed and the value is `<a key or token>`.
+
+A value comes from, in this order: an option of the command line; a member of a `--settings` file (a
+member of that file replaces the file's member as a whole, a table is not merged with a table); the
+`runbook.toml`; a built-in default where a wrong value does no harm. Only the second and third are the
+settings of a run (`autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file`; read by the
+one reader of `docs/loom-run-settings.md`); `format`, `run`, `loom_sha256`, `in_process` and `replay`
+belong to one run and are no key of the file. A file value never lowers what an option sets, and the
+confinement and the wall time have no built-in default: a run that is not told them is refused
+(exit 64, the option and the line to add are named).
+
+```toml runbook.toml
+runs_dir = "runs"
+spend_ledger = "runs/spend-ledger.json"
+confinement = "substrate"
+max_wall_seconds = 3600
+cap_micro_usd = 5000000
+max_llm_calls = 200
+autonomy = "A5"
+login_file = "/path/to/the/login-file"
+
+[decider]
+kind = "model"
+model = "claude-opus-5-5"
+without_claims = true
+
+[models.writer]
+model = "claude-sonnet-5-5"
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `runs_dir` | path | `runs/` beside the file | directory of the run directories (`--runs-dir`) |
+| `spend_ledger` | path | none: no ledger is opened | the ledger shared by the runs that count against one cap (`--spend-ledger`) |
+| `confinement` | `local`, `substrate` | none: refused | `--confinement`; there is no built-in level and no file lowers one |
+| `max_wall_seconds` | whole number | none: refused | `--max-wall-seconds` |
+| `cap_micro_usd` | whole number | none: no spend limit | `--cap-micro-usd` |
+| `max_llm_calls` | whole number | none: no limit on model calls | `--max-llm-calls` |
+| `runbooks` | list of paths | none: the built-in set only | directories runbooks are loaded from, before the built-in set (below, "Runbook directories") |
+| `autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file` | as in `docs/loom-run-settings.md` | none | the run settings members |
+
+A relative path of the file is relative to the directory of the file. A run name that is not given is
+generated (the runbook, a time and a random part, unique) and printed on standard error.
+
+The file is found in this order and the first hit wins; two files are never merged: `--config <file>`;
+the variable `RUNBOOK_CONFIG`; `runbook.toml` in the working directory or a parent; then
+`$XDG_CONFIG_HOME/runbook/runbook.toml` (else `<home>/.config/runbook/runbook.toml`). `--no-config` and
+the variable `RUNBOOK_NO_CONFIG` read no file. The runner gives `RUNBOOK_NO_CONFIG` to the programs it
+starts itself: the `b10x-loom` child, the programs of an answers file and the seed helper of `--bugfix`.
+A bound program of a runbook gets `PATH` and `LOOM_*` only (Loom's program contract, unchanged here). A
+`runbook` that one of them starts inside the run's tree is kept from the file by the rule below, that the
+walk reads nothing inside a run, as long as the run directory is above the program's working directory by
+the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
+`/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
+`runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
+floor, a level, a cap, the spend ledger or the runbook directories: a `runbook` that has `LOOM_CASE` in its
+environment (Loom gives it to every bound program) and no run directory above its working directory refuses
+`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger` and `runbooks`
+in a file it found by the walk or in the user's directory, by name, with no value printed, and a key that would
+lower the daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a
+run reads under `local`, states its confinement as before.) `LOOM_CASE` is a hint, not a guard: a program of a
+run controls its own environment and its own directories, so one that clears the variable, or makes a run
+directory above its working directory, is read as a person's start and takes the keys of the file it finds.
+What holds then is that the nested run keeps its sandbox and its `--confinement`: a value of a file never
+lowers what an option or the daemon's floor sets, and the nested run runs inside the same confinement. A file
+named with `--config` or `RUNBOOK_CONFIG` is the caller's own choice.
+
+`runbook run` says on standard error, before anything starts, which `runbook.toml` it took values from and
+how it was found (`--config`, `RUNBOOK_CONFIG`, found in the working directory or a parent, found in the
+user's configuration directory): one line, the path and nothing of the file's content. A file that states no
+key took no value and is not named, and with no file nothing is printed. The run's own start record, the
+member `config` of `settings.json`, of `run-settings.jsonl` and of the settings in the `run_started` event, holds the same
+without the path (`runbook.toml (found in the working directory or a parent)`): a record is copied away from
+the machine, a path of the user's tree is not part of it. `runbook config` names the file and how it was
+found too.
+
+What the file can never do. A refusal names the file and the key, and prints no line, value or part of a
+value of it. A key named like a login, a token or a key, a value that has the form of one (the vendors'
+key prefixes, a private key block, a web token, a bearer value: the word `bearer` in any case and the value after it, wherever they stand in a value, up to a break, a quote or the end of an item; each also after a name and an equals sign or a dot, as in an environment assignment) and an unknown key at any level are
+refused; `runbook config` and the refusal of a run print none of these forms, in a value, a key or a key path; a login is named by its path, never held by content. A file found by the walk or in the user's
+directory is a regular file with one name that its user owns and that group and others cannot write; a
+link, a file with a second name and a writable file are refused by name (`--config` and
+`RUNBOOK_CONFIG` get the same checks except the owner). The checks run on the opened file, not on the
+directories above it: a file the user owns in a directory that others can write passes, as an `.npmrc`
+does. A file in a parent directory that fails a check is refused by name, never skipped, so it stops
+`runbook run` below it until it is fixed or taken out.
+
+The walk never reads a `runbook.toml` inside a run directory, in the directory of runs that holds it, in
+the directory of runs it is started in, or inside a tree of the daemon: `<state>/workspaces/<id>` and
+`<state>/runs/<id>` of a state directory that holds `daemon.lock` and `journal.jsonl` (the files the daemon
+writes there). So a file a model wrote into a run or a workspace is no source; the runner resolves the file
+once, before the run directory exists. `runbook config` names each such file that it did not read, with the
+reason. A project that has `events.jsonl`, `work/` and `bindings/` itself reads as a run directory.
+
+## Runbook directories
+
+`story:runbooks-load-from-configured-paths`. A `runbooks` list in the `runbook.toml` names directories
+runbooks are loaded from. `list`, `run`, `serve`, `check` and `doctor --for` resolve a name through one
+function (`runbook::runbooks::load`) over those directories in the order of the list, then the built-in
+set (the checkout or `share/runbook`, `RUNBOOK_HOME`), which is always last.
+
+```toml runbook.toml
+runbooks = ["runbooks/team", "/srv/runbooks/shared"]
+```
+
+A runbook directory holds `protocol/` and `bindings/` and may hold `views/` and `instructions/`, laid out
+as the built-in set is. A relative path is relative to the directory of the file that names it.
+
+- `runbook list` prints name, kind, version and directory of every protocol, then its title. A protocol
+  that no protocol of the set opens with `case_open` is a runbook (a person can start it); the others are
+  the children of one. No name is fixed in the program: a protocol says itself whether it can be started.
+- The same name in two directories is an error that names both directories (also a name that a
+  configured directory shares with the built-in set). Nothing is listed or started from such a set. A
+  name of the built-in set is never taken from a configured directory: the daemon checks the name again at
+  each submit, and a name that a directory gained after the daemon started is refused at that submit
+  (`no-runbook`, and the view `runbooks` no longer lists it; a start that reaches the engine is refused
+  with a message that names the runbook and no directory) until the daemon is restarted and refuses the
+  set. A configured runbook cannot turn a built-in one into a child: whether a
+  built-in protocol can be started is read from the built-in set alone.
+- A directory that is missing, is no directory, or holds no `protocol/` or no `bindings/` is an error that
+  names it.
+- A configured directory goes through the checks of the built-in set: its files are regular files, a
+  link that leads out of the directory or nowhere is refused. Reading a directory only reads: nothing of
+  it is executed at `list`, `check` or `doctor`.
+- `runbook run <name>` takes `protocol/` and `bindings/` from the directory the name is found in;
+  `--bindings` and `--protocols` still name them themselves. `runbook serve` reads the same list at its
+  start and refuses a set that `list` refuses, before it listens; its engine looks a name up in the same
+  order. It says on standard error, before it listens, the one line `runbook run` says about the file it
+  took the directories from (`runbook serve: values from runbook.toml <path> (<how it was found>)`); with
+  no file, or a file that states no key, nothing is printed. The list is the one value `serve` takes from
+  the file: `cap_micro_usd`, `max_llm_calls` and `max_wall_seconds` of the file are the defaults of one
+  `runbook run`, never the caps or ceilings of the daemon, which come from its own options
+  (`docs/daemon-api.md`, "Caps of a run"); a daemon of the Loom runtime started without them refuses to
+  start and names each missing option, whatever the file states.
+- `runbook check` reads every directory (layout `protocol/`, `bindings/`, the binding files, instruction
+  files and views; the cycles list is the built-in set's); `runbook check --for <name>` the directory
+  of one runbook. `runbook doctor --for <name>` asks the layout of that directory and the programs and
+  helpers every runbook needs; a runbook other than `sdc` and `sdc-bugfix` is asked what both need.
+- `runbook config` prints `runbooks` with the file it comes from.
+
+Tests: `runbook/tests/loom_run/runbook_dirs.rs`, `runbook/tests/daemon/runbooks_view.rs`.
 
 ## The two ways to Loom
 
@@ -133,7 +286,7 @@ child".
    |---|---|---|
    | 0 | terminal | ends: outcome `ended` |
    | 3 | waits for a decision | asks the decider for each entry of `decisions[]`, runs the printed command, loops |
-   | 4 | stuck | ends: outcome `stuck` (runner exit 3) |
+   | 4 | stuck | ends: outcome `stuck` (runner exit 3, `reason` the lead of the refusal the tree is stuck on, `<Reason>: action <name>`, null when no action was refused); outcome `refused` (runner exit 12, cause `program_signalled` or `program_error`) when the tree is stuck on an action of a bound program that was ended by a signal or by an exit `exits.error` lists (below) |
    | 5 | the step budget of one step is spent | loops (that is every normal step) |
    | anything else | not known | ends: outcome `error` with the exit code and the tail of standard error |
 
@@ -311,7 +464,7 @@ What each path does:
 - A child `b10x-loom` (`--loom`) that refuses prints `b10x-loom: tree refused: <Reason>: ...`. The runner reads that line after `tree open`, `tree run`, the printed command of an answer and the handoff, so the same cause and exit 12 arise with `--loom`, with the child's exit code and the tail of its standard error in `outcome.json`. A child that exits non-zero with no such line is a failed call: exit 1 `error`, no cause.
 - A refusal that is no reason of a tree call (a failure of the runner's own files, a document that does not parse) stays exit 1 `error`.
 
-The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a_tree`, `store_not_empty`, `workspace_unusable`, `bindings_refused`, `agent_not_run_yet`, `unknown_protocol`, `invalid_revision`, `invalid_instant`, `case_not_in_tree`, `case_terminated`, `outcome_not_legitimate`, `not_a_person_action`, `confinement_refused`, `store_unreadable`, `log_refused`, `stored_protocol_changed`, `duplicate_protocol`, `protocol_refused`, `protocol_link_leaves_directory`, `protocol_not_in_directory`, `no_protocol_files`, `unknown_status_format`, `handoff_check_failed`, `person_program_failed`, `tree_stopped`, `tree_already_stopped`, `tree_not_stopped` and `stop_unusable`; a test (`runbook/tests/loom_run/pages.rs`) holds this page to the list of `runbook/src/engine/refusal.rs`. The one cause that is no reason is `program_signalled` (below). `ProgramSignalled` (a program ended by a signal; exit 137 gives it) is not a reason of a tree call: Loom writes it into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled`, with Loom's text as the reason, instead of `stuck` (exit 3). A signalled program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on.
+The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a_tree`, `store_not_empty`, `workspace_unusable`, `bindings_refused`, `agent_not_run_yet`, `unknown_protocol`, `invalid_revision`, `invalid_instant`, `case_not_in_tree`, `case_terminated`, `outcome_not_legitimate`, `not_a_person_action`, `confinement_refused`, `store_unreadable`, `log_refused`, `stored_protocol_changed`, `duplicate_protocol`, `protocol_refused`, `protocol_link_leaves_directory`, `protocol_not_in_directory`, `no_protocol_files`, `unknown_status_format`, `handoff_check_failed`, `person_program_failed`, `tree_stopped`, `tree_already_stopped`, `tree_not_stopped` and `stop_unusable`; a test (`runbook/tests/loom_run/pages.rs`) holds this page to the list of `runbook/src/engine/refusal.rs`. The two causes that are no reason are `program_signalled` and `program_error` (below). `ProgramSignalled` (a program ended by a signal; exit 137 gives it) and `ProgramError` (a program that ended with an exit the binding's `exits.error` lists) are not reasons of a tree call: Loom writes each into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled` or `program_error`, with Loom's text as the reason (it names the action and, for `ProgramError`, the exit status), instead of `stuck` (exit 3). A refused program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on. The other refusals of a bound program that Loom writes the same way (`ResultNotInTable`, `ReportUnreadable`, `ArgumentsUnreadable`, `RunsSpent`, `CaseOfAnotherProtocol`, `ArtifactUnreadable`, `Cancelled`) are not in the table of `PROGRAM_REFUSALS` (`runbook/src/engine/refusal.rs`): a tree they leave without a move still ends `stuck`. The daemon's engine (`runbook serve`) ends such a run as `runtime-failure` for every failure, and keeps the engine's reason in the `runbook.runtime-failed` event: for a stuck tree that reason names the refusal text of the table (`the tree is stuck at case <case>: ProgramError: action <action>: ...`), and says that no action is useful only when there is none.
 
 The run log has two new kinds, `StopRecorded` (the principal and the reason of a hold) and `StopLifted` (the principal and the `seq` of the hold it lifts). The run directory's reader (`run_dir.rs`), the daemon's tail (`engine/tail.rs`, through Loom's reader) and the driver tools (`sdc-replay`) take both without error, each with a test. The run directory's projection (`events.jsonl`) skips both kinds, so they are not events of a run; the inspector reads that projected `events.jsonl` (never the run log `runlog-case-*.jsonl`) and so never meets them.
 
@@ -428,7 +581,10 @@ and releases the rest. Two runs at once therefore never grant more than the cap:
 each want 0.60 USD against a cap of 2.00 USD spend at most 2.00 USD between them.
 
 With a cap named, the per-call budget is the `--max-budget-usd` argv value of the model tools in
-the copy, lowered before each step to the reservation. No `max_budget_micro_usd` is written: in a tree only `max_runs`
+the copy, lowered before each step to the reservation. A member `max_budget_usd` of a binding (`docs/loom-bindings.md`,
+"The per-call budget of a program") counts toward the largest budget a step reserves and is not
+lowered: it is reserved as written. The copy holds no member (Loom refuses one it does not know); the
+members are kept beside it in `bindings/.call-budgets.json`. No `max_budget_micro_usd` is written: in a tree only `max_runs`
 acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes
@@ -476,8 +632,14 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
 line of the case's run log (no `exit`), as it does `ProgramSignalled`, so `runbook/src/engine/refusal.rs`
 has no cause for it. The action stays undone, and when nothing else is due the tree is `Stuck`
 (`tree run` exit 4). `runbook run` ends such a run `stuck`, exit 3, cause `stuck`, and `outcome.reason`
-is null: the text is in the run log of the case only. Unlike `program_signalled` it never ends
-`refused`, exit 12. Two texts (Loom `d8944d49`), each held by a test with `sh` programs
+(and the `reason` of `run-stopped.json`) is the lead of the refusal, `RunsSpent: action <name>`: its
+reason word and its action, never the rest of Loom's text, which may hold a path or a value of the run
+(that text is in the run log of the case). The same holds for every refusal of a bound program that is
+no signal and no listed error exit (`ResultNotInTable`, `ReportUnreadable`, ...): no run ends `stuck` with
+`reason: null` when a refusal stopped its tree, and a tree with no move and no refusal ends `stuck` with
+`reason: null`. The daemon's engine ends the same runs `runtime-failure`, and its reason ends with the
+lead in brackets. Unlike `program_signalled` it never ends
+`refused`, exit 12 (`ProgramError` and `ProgramSignalled` are the two that do). Two texts (Loom `d8944d49`), each held by a test with `sh` programs
 (`runbook/tests/loom_run/inproc.rs`):
 
 | Text | When | Test |
@@ -618,9 +780,37 @@ refusals (`runbook/tests/loom_run/flags.rs`), the settings and the reading of `d
 (unit tests in `runbook/src/loom_run/replay.rs`), the clean recording, the indexer on the
 committed recording and the plan-only settings (`replay.rs` of the tests), each under 0.1 s.
 
+#### A re-drive spends nothing it did not start
+
+A reply the adapter takes from the recording (the `adapter` of its cost line in
+`.sdc/llm/calls.jsonl` is `recorded` or `reused`) costs what the recording says, and that is not money
+this run spent. `outcome.json` and the `ended` event keep two pairs of numbers: `spent_micro_usd` and
+`llm_calls` count what the run started, `recorded_micro_usd` and `recorded_llm_calls` what it took
+from the recording (both are 0 in a run without `--recorded`). A recorded call counts against neither
+the spend cap nor the model-call cap and is not in the spend ledger; the `costed_call` event and
+`llm-calls.jsonl` still carry the cost the recording gives it.
+
+- A re-drive that cannot start a live call (a policy other than `--on-divergence live`, or
+  `--live-cap 0`) spends nothing at all: it opens no ledger, reserves nothing and books nothing, so a
+  ledger already at its cap does not stop it and the ledger file is byte-equal after the run. Every
+  cost of its steps and of its decider is a recorded cost.
+- A re-drive that may go live reserves and books as a run does, but only for the calls the adapter
+  started live (`adapter` `live`); the recorded ones are named in the recorded pair. The decider's
+  cost is booked as spent there, because the decider's reply does not say how it was taken.
+- The adapter's `adapter` word decides what a call was, never the policy: `recorded` and `reused` are
+  recorded calls, anything else is a call the run started. A reused call that failed and has no cost is
+  a recorded call at cost 0, never booked as spent. A re-drive that cannot start a live call and holds
+  a line that says `live` (or any other word) ends as `error`, with a reason that names the call's
+  action and the adapter's word; nothing of it is booked as recorded or as spent.
+
+Tests: `runbook/tests/loom_run/replay_spend.rs`, with a stand-in `sdc-replay` and the fake
+`b10x-loom` (no recording, no model call).
+
 ### Fail closed
 
-The run ends as `error` (exit 1) when: a ledger that was named is unreadable or invalid, a decider answers
+The run ends as `error` (exit 1) when: a ledger that was named is unreadable or invalid (not for a
+re-drive that cannot go live: a re-drive that cannot go live opens no ledger, so an unreadable ledger does not end it),
+a call of a re-drive that cannot go live says it was started live, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
 a model step has no cost record, `tree status` is refused, or an event sink fails.
 
@@ -740,8 +930,11 @@ copy holds is outside it (see the limit of the rule under "A run without a model
                                    stderr_tail, exit_code, steps, spent_micro_usd, llm_calls,
                                    has_model_node (the decision of the opening; true when the run
                                    ended before it was made),
+                                   recorded_micro_usd, recorded_llm_calls (what a --recorded
+                                   re-drive took from the recording; spent_micro_usd and
+                                   llm_calls count only what the run started),
                                    cause (only when outcome is refused: the reason's name in
-                                   snake case, or program_signalled)
+                                   snake case, program_signalled or program_error)
                   tree-status.json, tree-verify.json
                   protocols/ bindings/ work/ store/ home/
 ```

@@ -99,8 +99,10 @@ fn an_unread_model_program_is_started_and_gets_no_login() {
         assert!(!env.contains(needle), "{needle} is in the environment of the program:\n{env}");
     }
     let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).filter(|k| !["PWD", "OLDPWD", "SHLVL", "_"].contains(k)).collect();
-    let other: Vec<&&str> = names.iter().filter(|k| !["PATH", "HOME", "XDG_DATA_HOME"].contains(k) && !k.starts_with("LOOM_")).collect();
-    assert!(other.is_empty(), "the program is given more than PATH, HOME, XDG_DATA_HOME (inside the run directory) and LOOM_*: {other:?}");
+    // the fake child runs the hook in the environment the runner gives `b10x-loom`, which names the empty configuration
+    // (`RUNBOOK_NO_CONFIG`, as `core.rs` allows for every call of the child); it carries no login
+    let other: Vec<&&str> = names.iter().filter(|k| !["PATH", "HOME", "XDG_DATA_HOME", "RUNBOOK_NO_CONFIG"].contains(k) && !k.starts_with("LOOM_")).collect();
+    assert!(other.is_empty(), "the program is given more than PATH, HOME, XDG_DATA_HOME (inside the run directory), RUNBOOK_NO_CONFIG and LOOM_*: {other:?}");
     let run_dir = w.run_dir("r1").display().to_string();
     for l in env.lines().filter(|l| l.starts_with("HOME=") || l.starts_with("XDG_DATA_HOME=")) {
         assert!(l.split_once('=').unwrap().1.starts_with(&run_dir), "{l} is not inside the run directory");
@@ -226,6 +228,7 @@ fn the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_
     let o: Output = Command::new(super::core::BIN)
         .args(&args)
         .env_clear()
+        .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:{}", r("bin"), std::env::var("PATH").unwrap_or_default()))
         .env("HOME", "/marker-home-dir")
         .env("XDG_RUNTIME_DIR", root.join("xdg"))

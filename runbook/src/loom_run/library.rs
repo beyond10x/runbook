@@ -82,11 +82,10 @@ impl<'a> LibraryHost<'a> {
             return Ok(DEFAULT_PRINCIPAL.to_owned());
         };
         let mut found: Vec<String> = Vec::new();
-        let entries = std::fs::read_dir(&self.bindings_dir).map_err(|e| format!("{}: {e}", self.bindings_dir.display()))?;
-        let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
-        files.sort();
-        for file in files {
-            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let held = crate::loom_run::record_write::Held::open(&self.bindings_dir)?;
+        for name in held.names()?.into_iter().filter(|n| std::path::Path::new(n).extension().is_some_and(|x| x == "yaml")) {
+            let file = self.bindings_dir.join(&name);
+            let text = held.read_text(&name)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
@@ -232,5 +231,24 @@ mod tests {
     #[test]
     fn the_pinned_commit_is_forty_hex_digits() {
         assert!(COMMIT.len() == 40 && COMMIT.chars().all(|c| c.is_ascii_hexdigit()), "{COMMIT}");
+    }
+
+    #[test]
+    fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_principal_of_an_action() {
+        let dir = crate::assets::testdir::Dir::new("library-principal-link");
+        let (level, runner) = prepare(Confinement::Local).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut host = LibraryHost::new(dir.path().join("store"), dir.path().join("work"), level, runner, &cancel);
+        host.bindings_dir = dir.dir("bindings");
+        let outside = dir.dir("outside");
+        let text = "actions:\n- action: a.one\n  executor:\n    kind: person\n    principal: person:owner\n";
+        std::fs::write(outside.join("steps.yaml"), text).unwrap();
+        std::os::unix::fs::symlink(outside.join("steps.yaml"), host.bindings_dir.join("b.yaml")).unwrap();
+        let decision = serde_json::json!({"action": "a.one"});
+        let got = host.bound_principal(&decision);
+        assert!(got.is_err(), "the principal was taken from a file outside the run, through a link at a bindings file: {got:?}");
+        std::fs::remove_file(host.bindings_dir.join("b.yaml")).unwrap();
+        std::fs::write(host.bindings_dir.join("b.yaml"), text).unwrap();
+        assert_eq!(host.bound_principal(&decision), Ok("person:owner".to_owned()));
     }
 }

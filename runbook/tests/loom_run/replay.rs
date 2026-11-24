@@ -267,7 +267,7 @@ fn replay_recording_clean_holds_no_home_path_prompt_or_transcript() {
 fn replay_helper(args: &[&str]) -> Value {
     let bin = repo().join("driver/target/debug/sdc-replay");
     assert!(bin.is_file(), "{} is not built (cargo build --locked --bins in driver/)", bin.display());
-    let out = std::process::Command::new(&bin).args(args).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = std::process::Command::new(&bin).args(args).env("RUNBOOK_NO_CONFIG", "1").stdin(std::process::Stdio::null()).output().unwrap();
     assert!(out.status.success(), "sdc-replay {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     serde_json::from_slice(&out.stdout).unwrap()
 }
@@ -315,6 +315,8 @@ fn prepare_refuses_a_live_cap_that_cannot_be_read_and_cuts_a_long_value_at_40_by
     let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("prepare-long-{}", std::process::id()));
     let o = std::process::Command::new(repo().join("driver/target/debug/sdc-replay"))
         .args(["prepare", "--source", recording().to_str().unwrap(), "--out", out.to_str().unwrap(), "--live-cap", &value])
+        // the helper reads no `runbook.toml`; named as every start of a program by path is (`config_guards.rs`)
+        .env("RUNBOOK_NO_CONFIG", "1")
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();

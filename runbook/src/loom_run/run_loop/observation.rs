@@ -70,7 +70,13 @@ impl Gate for ObservationGate<'_, '_> {
             }
             Spent::Unknown => ("conformance observation, cost unknown: reservation booked", None, held),
         };
-        if self.runner.commit(&reservation, what, micro).is_err() {
+        // booked as a step books, in the ledger when the run names one; the observation starts a model session
+        // whatever the run re-drove, so it is booked in a re-drive that cannot go live too (no ledger is open there)
+        let failed = match &self.runner.ledger {
+            Some(ledger) => ledger.commit(&reservation, &self.runner.args.run, what, micro).is_err(),
+            None => false,
+        };
+        if failed {
             eprintln!("runbook run: conformance: what the observation cost could not be booked in the spend ledger");
         }
         self.runner.spent = self.runner.spent.saturating_add(micro);

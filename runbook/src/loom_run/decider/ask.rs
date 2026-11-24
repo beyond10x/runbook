@@ -30,13 +30,13 @@ impl NativeDecider {
     }
 
     fn ask_rule(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
-        let rec = r.run_dir.join("decider").join("rule");
-        if let Err(e) = std::fs::create_dir_all(&rec) {
-            return Asked::cannot(format!("decider record directory: {}", e.kind()));
-        }
-        let body = ask_body(r, approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
-            return Asked::cannot(format!("decider request file: {}", e.kind()));
+        let rec = match Held::make(r.run_dir, &r.run_dir.join("decider").join("rule")) {
+            Ok(rec) => rec,
+            Err(e) => return Asked::cannot(format!("decider record directory: {e}")),
+        };
+        let body = ask_body(r, approval, &PathBuf::new(), rec.path(), None);
+        if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
+            return Asked::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, dreq, 0) {
             Ok(reply) => reply,
@@ -103,21 +103,23 @@ impl NativeDecider {
                 asked.result = Err(format!("the per-call budget of {budget} micro USD is spent"));
                 return asked;
             }
-            let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&r.request.id)));
-            if let Err(e) = std::fs::create_dir_all(&rec) {
-                asked.result = Err(format!("decider record directory: {}", e.kind()));
-                return asked;
-            }
+            let rec = match Held::make(r.run_dir, &decider_dir.join(format!("{number:03}-{}", safe_part(&r.request.id)))) {
+                Ok(rec) => rec,
+                Err(e) => {
+                    asked.result = Err(format!("decider record directory: {e}"));
+                    return asked;
+                }
+            };
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let mut body = ask_body(r, approval, &case_dir, &rec, retry);
+            let mut body = ask_body(r, approval, &case_dir, rec.path(), retry);
             if let Some(class) = routed {
                 requester::tag(&mut body, class, r.run_dir);
             }
             if let Some(level) = &self.autonomy {
                 body["autonomy"] = json!(level);
             }
-            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
-                asked.result = Err(format!("decider request file: {}", e.kind()));
+            if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()).and_then(|()| rec.write("loom-decision.json", format!("{}\n", r.decision).as_bytes())) {
+                asked.result = Err(format!("decider request file: {e}"));
                 return asked;
             }
             let reply = match self.reply(&body, &rec, dreq, budget - asked.cost_micro_usd) {

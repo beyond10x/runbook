@@ -40,13 +40,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ccedfa7a793800f12341dd4c71cdd31d8f71bf2129f7293d7b024b5df3e5b420",
+    "contract_digest": "slice-sha256/2:88aeea585821fc29672ee59cf02c91f285b3d2d8ddd1298d15b8527d875e5041",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.AnswererLabel": {
       "title": "AnswererLabel",
-      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): ASCII text without control characters, at most 200 characters. The daemon trims it of ASCII whitespace and refuses (400) a longer one, one that holds a non-ASCII or a control character, and one whose lower case starts with `rule:`, `decider:` or `router:`, the names it keeps for the answers of a rule, a decider and a router. It is stored and shown trimmed and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.",
       "x-ess-name": "sdc.daemon.AnswererLabel",
       "x-ess-kind": "newtype",
       "type": "string",

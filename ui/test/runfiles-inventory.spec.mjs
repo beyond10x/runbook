@@ -12,7 +12,7 @@ const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CALLS = ['fs.openSync(', 'fs.readSync(', 'fs.readFileSync(', 'fs.createReadStream(', 'fs.opendirSync(', 'fs.readdirSync(', 'execFileSync(', 'execSync(', 'spawnSync(', 'spawn(', 'fork('];
 // what each module may call, and why it is not an open of a run's file by name
 const ALLOWED = {
-  'runfiles.mjs': {'fs.openSync(': 1, 'fs.readSync(': 1, 'fs.readFileSync(': 1, 'fs.readdirSync(': 1}, // openChecked and what reads its descriptor; listDir after runPath
+  'runfiles.mjs': {'fs.openSync(': 1, 'fs.readSync(': 2, 'fs.readdirSync(': 1}, // openChecked and what reads its descriptor (readBounded: at most the limit plus one byte; readAt); listDir after runPath
   'products.mjs': {'fs.opendirSync(': 1}, // the listing walk: names of a real directory under a work/ root, entry by entry
   'decisions.mjs': {'execFileSync(': 1}, // yq, given the text on standard input
   'runnerlive.mjs': {'fs.readFileSync(': 1}, // /proc/<pid>/stat of the runner: the kernel's start time of a process, not a file of a run

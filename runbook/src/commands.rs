@@ -6,13 +6,14 @@
 //! The daemon mints run ids (UUID version 7) and fills `daemon_id`, the time and the facts it reads
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
-use crate::clock::{Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
+use crate::clock::{parse_instant, Clock, SystemClock};
+use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest, StartTarget, Started, Terms};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -24,8 +25,15 @@ pub const MAX_INTAKE_BYTES: usize = 1_048_576;
 /// The outcome of a run that ended because the runtime held no live run of it when the daemon started
 /// again: the cause, in the `outcome` of the run (`EndOrphanedRun` sets this literal).
 pub const ORPHANED: &str = "orphaned";
+/// The reason of `runbook.run-orphaned` when the runtime holds no run of the id at the next start.
+pub const ORPHANED_AT_START: &str = "the daemon started again and the runtime holds no live run of this id";
+/// The reason of `runbook.run-orphaned` when the daemon ends while the run lives (a second stop signal,
+/// or the drain bound): the run does not wait for the next start to be orphaned.
+pub const ORPHANED_AT_STOP: &str = "the daemon was stopped while the run was live";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
+/// The kind of the run event the daemon records when a program of a run is about to start.
+pub const ACTION_STARTED: &str = "runbook.action-started";
 
 /// Whether `text` is a principal: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`.
 pub fn check_principal(text: &str) -> Result<(), String> {
@@ -55,11 +63,103 @@ pub struct Config {
     pub principal: String,
 }
 
+/// What the operator sets besides `Config`: what a submit that names less gets. Nothing here is
+/// read from a request, and the floor is never read as a default.
+#[derive(Clone, Debug, Default)]
+pub struct Policy {
+    /// The level of a submit that names none (`--default-confinement`, else `confinement` of
+    /// `runbook.toml`); none: a submit that names no level is refused.
+    pub default_confinement: Option<Confinement>,
+    /// The autonomy level of a submit that names none; none: every decision of such a run waits for a client.
+    pub autonomy: Option<Autonomy>,
+    /// The decider kind of a submit that names none.
+    pub decider: Option<String>,
+    /// The decider kinds the operator configured, sorted: the only names a run may take. The runtime
+    /// that answers for them is the engine's; none configured: no run takes a level or a kind.
+    pub kinds: Vec<String>,
+}
+
+/// The configured kinds as a sentence part.
+fn listed(kinds: &[String]) -> String {
+    if kinds.is_empty() {
+        "none".to_owned()
+    } else {
+        kinds.join(", ")
+    }
+}
+
+/// A name a client typed, short and on one line, for a refusal.
+fn shown(text: &str) -> String {
+    text.chars().take(64).map(|c| if c.is_control() { '?' } else { c }).collect()
+}
+
+/// The refusal of a level or a kind a daemon cannot give: a kind that is not one the operator
+/// configured, or a level with no kind to take it. Names the kinds that are configured and no others.
+/// It runs before anything of the run is written, and at the start of the daemon for its own defaults.
+pub fn check_terms(terms: &Terms, kinds: &[String]) -> Result<(), String> {
+    if let Some(kind) = &terms.decider {
+        if !kinds.contains(kind) {
+            return Err(format!("the decider kind {}: not configured; the configured kinds are {}", shown(kind), listed(kinds)));
+        }
+    }
+    if let (Some(level), None) = (terms.autonomy, &terms.decider) {
+        return Err(format!(
+            "the autonomy level {} needs a decider kind to take the decisions it leaves to one: name one in `decider`, or start the daemon with a default; the configured kinds are {}",
+            level.as_str(),
+            listed(kinds)
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `text` is a name a rule or a decider answers under: `rule:<name>` or `decider:<kind>`.
+fn decider_label(text: &str) -> bool {
+    let rest = text.strip_prefix("rule:").or_else(|| text.strip_prefix("decider:"));
+    rest.is_some_and(|r| !r.is_empty()) && long_enough(text) && !text.chars().any(char::is_control)
+}
+
+/// The label a client's answer is recorded under. The one function that reads it: the text is
+/// trimmed of ASCII whitespace, and what is left is ASCII with no control character (a label with
+/// any other character is refused, so no look-alike of a reserved prefix reaches the record), at
+/// most `MAX_LABEL_CHARS` long, and does not start with `rule:`, `decider:` or `router:` in any
+/// case: those are the daemon's own names for an answer of a rule, a decider or a router. A
+/// refusal names the field and the rule and prints no byte of the label.
+pub fn client_label(field: &str, text: &str) -> Result<String, String> {
+    if !long_enough(text) {
+        return Err(format!("{field} is longer than {MAX_LABEL_CHARS} characters"));
+    }
+    let label = text.trim_matches(|c: char| c.is_ascii_whitespace());
+    if !label.bytes().all(|b| b.is_ascii_graphic() || b == b' ') {
+        return Err(format!("{field}: a label is printable ASCII; this one holds a character that is not (or a control character) and is refused"));
+    }
+    let lower = label.to_ascii_lowercase();
+    if ["rule:", "decider:", "router:"].iter().any(|p| lower.starts_with(p)) {
+        return Err(format!("{field}: the names that start with `rule:`, `decider:` or `router:` are the daemon's own for an answer of a rule, a decider or a router; a client's answer takes another label"));
+    }
+    Ok(label.to_owned())
+}
+
+/// The refusal of a default level below the floor, naming both values. The daemon does not start
+/// with one: a default that every submit it applies to would refuse is a configuration that
+/// disagrees with itself.
+pub fn check_default_confinement(floor: Confinement, default: Confinement) -> Result<(), String> {
+    if default.at_least(floor) {
+        return Ok(());
+    }
+    Err(format!(
+        "the default confinement {} is below the floor {}: --default-confinement (or `confinement` of runbook.toml) and --min-confinement disagree; raise the default or lower the floor",
+        default.as_str(),
+        floor.as_str()
+    ))
+}
+
 /// A request the daemon cannot take at all (no outcome of the specification), or a failure of its own.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Fault {
     Invalid(String),
     Internal(String),
+    /// The daemon got its stop signal and waits for `live_runs` runs to end: it takes no new run.
+    Draining { live_runs: usize },
 }
 
 impl From<io::Error> for Fault {
@@ -243,6 +343,57 @@ pub struct CloseSession {
     pub session_id: String,
 }
 
+/// The settings of a submit: every value a string. A value of another JSON type is refused naming
+/// the setting, and for a cap (`crate::caps::KEYS`) saying that a cap is written as a string.
+fn settings_of_strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    let raw = BTreeMap::<String, Value>::deserialize(d)?;
+    raw.into_iter()
+        .map(|(key, value)| match value {
+            Value::String(text) => Ok((key, text)),
+            other => {
+                let kind = match other {
+                    Value::Null => "null",
+                    Value::Bool(_) => "a boolean",
+                    Value::Number(_) => "a number",
+                    Value::Array(_) => "an array",
+                    _ => "an object",
+                };
+                let hint = if crate::caps::KEYS.contains(&key.as_str()) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+                Err(serde::de::Error::custom(format!("the setting {key} must be a string, not {kind}{hint}")))
+            }
+        })
+        .collect()
+}
+
+/// What a body serde refused for a number out of range (`1e999`) is refused for, naming the member
+/// whose value it was: serde refuses the whole body before a setting is read, and its message names
+/// only a line and a column. `None` when the error is another, or no member stands before the number.
+pub fn out_of_range_member(body: &[u8], e: &serde_json::Error) -> Option<String> {
+    if !e.to_string().starts_with("number out of range") {
+        return None;
+    }
+    let text = std::str::from_utf8(body).ok()?;
+    let mut offset = 0usize;
+    for (n, line) in text.split('\n').enumerate() {
+        if n + 1 == e.line() {
+            offset += line.char_indices().nth(e.column()).map_or(line.len(), |(i, _)| i);
+            break;
+        }
+        offset += line.len() + 1;
+    }
+    let before = text.get(..offset.min(text.len()))?;
+    let colon = before.rfind(':')?;
+    let after = before[colon + 1..].trim_start();
+    let digits = after.find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))).unwrap_or(after.len());
+    if digits == 0 || !after[digits..].chars().all(|c| c.is_whitespace() || matches!(c, ',' | '}' | ']')) {
+        return None;
+    }
+    let quoted = before[..colon].trim_end().strip_suffix('"')?;
+    let key = &quoted[quoted.rfind('"')? + 1..];
+    let hint = if crate::caps::KEYS.contains(&key) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+    Some(format!("the setting {key} is a number out of range, not a string{hint}"))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
@@ -251,11 +402,17 @@ pub struct SubmitRun {
     pub intake: String,
     #[serde(default)]
     pub context_path: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "settings_of_strings")]
     pub settings: BTreeMap<String, String>,
-    /// Absent means `linux`.
+    /// Absent: the daemon's default level; a daemon with none refuses the submit by name.
     #[serde(default)]
     pub confinement: Option<Confinement>,
+    /// Absent: the daemon's default level, else none and every decision waits for a client.
+    #[serde(default)]
+    pub autonomy: Option<Autonomy>,
+    /// Absent: the daemon's default kind. A kind name among those the operator configured.
+    #[serde(default)]
+    pub decider: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -277,12 +434,25 @@ pub struct AnswerDecision {
 
 // ---- the daemon ----
 
+/// The step of a live run whose program is running now. It lives in the process only: the event
+/// `runbook.action-started` that told of its start is in the journal, a restarted daemon has no step
+/// in flight and its runs are ended as orphaned.
+struct Step {
+    serial: u64,
+    case: Option<String>,
+    action: Option<String>,
+    /// The `at` of the event that recorded the start.
+    started_at: String,
+}
+
 struct Inner {
     cfg: Config,
+    policy: Policy,
     daemon_id: String,
     state: Mutex<State>,
     runtime: Arc<dyn Runtime>,
     cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    steps: Mutex<HashMap<String, Step>>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     stopping: AtomicBool,
 }
@@ -312,7 +482,22 @@ impl Daemon {
     /// process (`clock::SetClock`); `runbook serve` calls `start`, and no option, environment variable
     /// or request reaches this.
     pub fn start_with_clock(cfg: Config, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, Policy::default(), runtime, clock)
+    }
+
+    /// `start` with the operator's policy.
+    pub fn start_with(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, policy, runtime, Arc::new(SystemClock))
+    }
+
+    /// Everything `start` takes. A default level below the floor is refused before the state directory is opened.
+    pub fn start_full(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
         check_principal(&cfg.principal).map_err(io::Error::other)?;
+        if let Some(default) = policy.default_confinement {
+            check_default_confinement(cfg.confinement_floor, default).map_err(io::Error::other)?;
+        }
+        let defaults = Terms { autonomy: policy.autonomy, decider: policy.decider.clone() };
+        check_terms(&defaults, &policy.kinds).map_err(|e| io::Error::other(format!("the daemon's default decider: {e}")))?;
         let mut roots = Vec::new();
         for r in &cfg.context_roots {
             let canon = std::fs::canonicalize(r).map_err(|e| io::Error::new(e.kind(), format!("context root {}: {e}", r.display())))?;
@@ -321,15 +506,18 @@ impl Daemon {
             }
             roots.push(canon);
         }
-        let cfg = Config { context_roots: roots, ..cfg };
+        let state_dir = std::path::absolute(&cfg.state_dir).map_err(|_| io::Error::other("the state directory cannot be made absolute: the daemon has no current directory"))?;
+        let cfg = Config { context_roots: roots, state_dir, ..cfg };
         let state = State::open_with_clock(&cfg.state_dir, clock)?;
         let d = Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
                 cfg,
+                policy,
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
+                steps: Mutex::new(HashMap::new()),
                 threads: Mutex::new(Vec::new()),
                 stopping: AtomicBool::new(false),
             }),
@@ -378,6 +566,56 @@ impl Daemon {
         }
     }
 
+    /// Whether the daemon got its stop signal and refuses a submit.
+    pub fn is_draining(&self) -> bool {
+        self.st().draining()
+    }
+
+    /// The ids of the runs that are not terminal.
+    pub fn live_runs(&self) -> Vec<String> {
+        self.st().live_run_ids()
+    }
+
+    /// A receiver whose value changes whenever the state does (`State::subscribe`).
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.st().subscribe()
+    }
+
+    /// Begin the drain on the stop signal: from now a submit is refused (`Fault::Draining`); the runs go
+    /// on, reads and decisions are served. The journal records `daemon.draining` with the ids of the live
+    /// runs, and they are returned. The refusal and the flag are decided under the one lock a submit takes,
+    /// so no run is submitted after the ids are read. A second call changes nothing and returns the live runs.
+    pub fn begin_drain(&self) -> Result<Vec<String>, Fault> {
+        let mut st = self.st();
+        let run_ids = st.live_run_ids();
+        if !st.draining() {
+            let at = st.now();
+            st.commit(Fact::DaemonDraining { run_ids: run_ids.clone(), at })?;
+        }
+        Ok(run_ids)
+    }
+
+    /// The drain ended because no run is live: the journal records `daemon.drained`.
+    pub fn finish_drain(&self) -> Result<(), Fault> {
+        let mut st = self.st();
+        let at = st.now();
+        st.commit(Fact::DaemonDrained { at })?;
+        Ok(())
+    }
+
+    /// The daemon ends now with runs still live (a second stop signal, or the drain bound): it stops
+    /// reporting for them, and each run that is `Running` or `WaitingOnDecision` ends as `orphaned` with an
+    /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn.
+    /// No thread is joined: `stop` does that. The number of runs that were live and are ended now.
+    pub fn orphan_live_runs(&self) -> usize {
+        self.inner.stopping.store(true, Ordering::SeqCst);
+        let live = self.live_runs();
+        for run_id in &live {
+            let _ = self.end_orphaned_run_because(run_id, ORPHANED_AT_STOP);
+        }
+        live.len()
+    }
+
     /// The runs the record holds as live when the daemon starts. Submitted: the specification has
     /// `fail_to_start` from Submitted, so it is FailedToStart. Running and WaitingOnDecision: the
     /// daemon asks the runtime (`Runtime::recover`); `Gone` is `EndOrphanedRun` (the run ends with the
@@ -398,8 +636,12 @@ impl Daemon {
     /// `EndOrphanedRun`, issued by the daemon itself (never by a client): the run ends with the outcome
     /// `orphaned`, then `WithdrawDecision` is issued for each of its Open requests, as a cancel does.
     pub fn end_orphaned_run(&self, run_id: &str) -> Reply {
+        self.end_orphaned_run_because(run_id, ORPHANED_AT_START)
+    }
+
+    fn end_orphaned_run_because(&self, run_id: &str, reason: &str) -> Reply {
         let mut st = self.st();
-        let out = end_orphaned_run_locked(&mut st, run_id)?;
+        let out = end_orphaned_run_locked(&mut st, run_id, reason)?;
         if !out.is_refusal() {
             let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
             for request_id in open {
@@ -460,8 +702,16 @@ impl Daemon {
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
+        draining_fault(&self.st())?;
+        // The level and the kind of the run: the submit's, else the daemon's. Refused before anything is written.
+        let terms = Terms { autonomy: input.autonomy.or(self.inner.policy.autonomy), decider: input.decider.clone().or_else(|| self.inner.policy.decider.clone()) };
+        check_terms(&terms, &self.inner.policy.kinds).map_err(Fault::Invalid)?;
         let run_id = uuid::Uuid::now_v7().to_string();
-        let confinement = input.confinement.unwrap_or(Confinement::Linux);
+        let (confinement, source) = match (input.confinement, self.inner.policy.default_confinement) {
+            (Some(named), _) => (named, ConfinementSource::Submit),
+            (None, Some(default)) => (default, ConfinementSource::DaemonDefault),
+            (None, None) => return Err(Fault::Invalid("confinement: name it in the submit, or start the daemon with --default-confinement or a `confinement` in runbook.toml".to_owned())),
+        };
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
         // The two facts the specification takes from the host.
         let runbook_known = self.runbook_known(&input.runbook_id, input.runbook_version.as_deref());
@@ -477,8 +727,19 @@ impl Daemon {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
         let context_dir = context.flatten();
+        // The caps of the run: what the submit names within the runtime's ceilings, else its defaults.
+        // They are part of the run's settings from here on, so a run taken up again has the same ones.
+        let mut settings = input.settings.clone();
+        match self.inner.runtime.resolve_caps(&settings) {
+            Ok(Some(caps)) => caps.put(&mut settings),
+            Ok(None) => {}
+            Err(why) => return Err(Fault::Invalid(why)),
+        }
+        // What the runtime refuses a run of the runbook for at load (a run never unbound in money).
+        self.inner.runtime.check_runbook(&input.runbook_id, input.runbook_version.as_deref()).map_err(Fault::Invalid)?;
 
         let mut st = self.st();
+        draining_fault(&st)?;
         let floor = match st.daemon() {
             Some(d) if d.daemon_id == daemon_id => d.confinement_floor,
             _ => return refused("no-daemon", json!({"daemon_id": daemon_id})),
@@ -487,7 +748,7 @@ impl Daemon {
         if let Some((sid, None)) = &session {
             return refused("no-session", json!({"session_id": sid}));
         }
-        if confinement.rank() < floor.rank() {
+        if !confinement.at_least(floor) {
             return refused("below-floor", json!({"run_id": run_id, "confinement": confinement}));
         }
         if let Some((sid, Some(SessionState::Closed))) = &session {
@@ -505,7 +766,8 @@ impl Daemon {
         }
 
         let (run_dir, workspace) = (st.run_dir(&run_id), st.workspace_dir(&run_id));
-        std::fs::create_dir_all(&run_dir)?;
+        // The run's directory holds its copy of the runbook and its store: private to the daemon's user.
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&run_dir)?;
         std::fs::create_dir_all(&workspace)?;
         let run = Run {
             run_id: run_id.clone(),
@@ -513,8 +775,10 @@ impl Daemon {
             runbook_version: input.runbook_version.clone(),
             intake: input.intake.clone(),
             context_path: input.context_path.clone(),
-            settings: input.settings.clone(),
+            settings: settings.clone(),
             confinement,
+            confinement_source: Some(source),
+            terms: terms.clone(),
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
             submitted_at: st.now(),
@@ -526,7 +790,14 @@ impl Daemon {
         };
         st.commit(Fact::RunSubmitted(run))?;
         let payload = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement});
-        record_event_locked(&mut st, &run_id, "runbook.submitted", payload.clone())?;
+        let mut record = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement, "confinement_source": source.as_str()});
+        if let Some(level) = terms.autonomy {
+            record["autonomy"] = json!(level);
+        }
+        if let Some(kind) = &terms.decider {
+            record["decider"] = json!(kind);
+        }
+        record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         drop(st);
 
         let request = StartRequest {
@@ -535,8 +806,9 @@ impl Daemon {
             version: input.runbook_version,
             intake: input.intake,
             context_dir,
-            settings: input.settings,
+            settings,
             confinement,
+            terms,
             state_dir: run_dir,
             workspace_dir: workspace,
         };
@@ -570,9 +842,8 @@ impl Daemon {
     }
 
     pub fn answer_decision(&self, input: AnswerDecision) -> Reply {
-        if !long_enough(&input.answered_by) {
-            return Err(Fault::Invalid(format!("answered_by is longer than {MAX_LABEL_CHARS} characters")));
-        }
+        let mut input = input;
+        input.answered_by = client_label("answered_by", &input.answered_by).map_err(Fault::Invalid)?;
         let mut st = self.st();
         let (run_id, request_id) = (input.run_id.clone(), input.request_id.clone());
         let Some(request) = st.decision(&request_id) else {
@@ -593,26 +864,37 @@ impl Daemon {
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
         }
-        let now = st.now();
         let principal = self.inner.cfg.principal.clone();
-        st.commit(Fact::DecisionAnswered {
-            request_id: request_id.clone(),
-            answer: input.answer.clone(),
-            answered_by: input.answered_by.clone(),
-            principal: Some(principal.clone()),
-            at: now,
-        })?;
+        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
+        // The answer is on the journal before the run is handed it (a journal that cannot take the line
+        // is an error to the client and the run has not seen the answer), and the state takes it only
+        // after the run took it, all under the lock: a runtime that has failed while its run's thread has
+        // not reported yet (the run is on its way to `runtime-failure`) answers `UnknownRun`, and then
+        // the line is taken out of the journal again and the answer is refused, not recorded as given.
+        let now = st.now();
+        let mut delivered = Ok(());
+        let recorded = st.commit_if(
+            Fact::DecisionAnswered {
+                request_id: request_id.clone(),
+                answer: input.answer.clone(),
+                answered_by: input.answered_by.clone(),
+                principal: Some(principal.clone()),
+                at: now,
+            },
+            || {
+                delivered = self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal);
+                !(matches!(delivered, Err(AnswerFailure::UnknownRun)) && lock(&self.inner.cancels).contains_key(&run_id))
+            },
+        )?;
+        if !recorded {
+            return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id})));
+        }
+        if delivered.is_err() {
+            // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
+            let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
+        }
         drop(st);
         let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by, "principal": principal});
-        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
-        match self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal) {
-            Ok(()) => {}
-            Err(AnswerFailure::UnknownRun) | Err(AnswerFailure::Refused(_)) => {
-                // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
-                let mut st = self.st();
-                let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
-            }
-        }
         Ok(done("answer-decision", "answered", vec![("DecisionAnswered", published)]))
     }
 
@@ -707,15 +989,33 @@ impl Daemon {
 
     /// The view `RunDetail` (wire name `run`): zero or one row.
     pub fn run_detail(&self, run_id: &str) -> Vec<Value> {
-        self.st()
-            .run(run_id)
+        // What the run has used is the runtime's to say; asked before the state is locked.
+        let used = self.inner.runtime.usage(run_id);
+        let st = self.st();
+        st.run(run_id)
             .map(|r| {
                 let mut row = run_row(r);
                 let m = row.as_object_mut().unwrap();
                 m.insert("intake".into(), json!(r.intake));
-                m.insert("settings".into(), json!(r.settings));
+                let mut settings = r.settings.clone();
+                if let Some(used) = used {
+                    used.put(&mut settings);
+                }
+                m.insert("settings".into(), json!(settings));
                 if let Some(c) = &r.context_path {
                     m.insert("context_path".into(), json!(c));
+                }
+                if r.state == RunState::Running {
+                    if let Some(step) = lock(&self.inner.steps).get(run_id) {
+                        let now = st.now_millis();
+                        let seconds = parse_instant(&step.started_at).map_or(0, |at| (now - at).max(0) / 1000);
+                        let mut s = Map::new();
+                        put(&mut s, "action", &step.action);
+                        put(&mut s, "case_id", &step.case);
+                        s.insert("started_at".into(), json!(step.started_at));
+                        s.insert("seconds".into(), json!(seconds));
+                        m.insert("step_in_flight".into(), Value::Object(s));
+                    }
                 }
                 row
             })
@@ -861,6 +1161,21 @@ impl Daemon {
         threads.push(handle);
     }
 
+    /// A run the runtime failed on while it waited on decisions can only end from Running: its open
+    /// requests are withdrawn (as a cancel does) and the run is Running again.
+    fn leave_wait(&self, run_id: &str) {
+        let mut st = self.st();
+        if st.run(run_id).map(|r| r.state) != Some(RunState::WaitingOnDecision) {
+            return;
+        }
+        let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
+        for request_id in open {
+            let _ = withdraw_decision_locked(&mut st, &request_id);
+        }
+        drop(st);
+        let _ = self.resume_run(run_id);
+    }
+
     fn run_thread(&self, request: StartRequest, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
         if let (Some(from), false) = (&request.context_dir, cancel.load(Ordering::SeqCst)) {
@@ -878,12 +1193,17 @@ impl Daemon {
             // A refusal below means the run is Cancelled already (a report after a cancel).
             match result {
                 Ok(Finish::Outcome(outcome)) => {
+                    // A run stopped while it waited on decisions (a cap, also one reached while the
+                    // last answer was taken, with nothing left open): what it asked is withdrawn and
+                    // it ends from Running.
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, &outcome);
                 }
                 // CancelRun moved the run already.
                 Ok(Finish::Cancelled) => {}
                 Err(f) if sink.started.load(Ordering::SeqCst) => {
                     let _ = self.record_run_event(&run_id, "runbook.runtime-failed", json!({"reason": f.reason}));
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, "runtime-failure");
                 }
                 Err(f) => {
@@ -891,7 +1211,45 @@ impl Daemon {
                 }
             }
         }
+        lock(&self.inner.steps).remove(&run_id);
         lock(&self.inner.cancels).remove(&run_id);
+    }
+}
+
+/// The start and the end of the programs of one run, as the runtime tells them
+/// (`EventSink::steps`): the start is recorded as the run event `runbook.action-started` before the
+/// program starts and the step is kept as the run's step in flight until the program ends.
+struct RunSteps {
+    daemon: Daemon,
+    run_id: String,
+}
+
+impl StartTarget for RunSteps {
+    fn started(&self, start: &Started) {
+        if self.daemon.is_stopping() {
+            return;
+        }
+        let mut st = self.daemon.st();
+        let mut record = Map::new();
+        put(&mut record, "case", &start.case);
+        put(&mut record, "action", &start.action);
+        record.insert("role".into(), json!(start.role));
+        if let Some(n) = start.try_number {
+            record.insert("try".into(), json!(n));
+        }
+        // A refusal means the run is closed (a report after a cancel): nothing is in flight then.
+        if !matches!(record_event_locked_outcome(&mut st, &self.run_id, ACTION_STARTED, Value::Object(record)), Ok(o) if !o.is_refusal()) {
+            return;
+        }
+        let Some(started_at) = st.last_event_of(&self.run_id).map(|e| e.at.clone()) else { return };
+        lock(&self.daemon.inner.steps).insert(self.run_id.clone(), Step { serial: start.serial, case: start.case.clone(), action: start.action.clone(), started_at });
+    }
+
+    fn ended(&self, start: &Started) {
+        let mut steps = lock(&self.daemon.inner.steps);
+        if steps.get(&self.run_id).is_some_and(|s| s.serial == start.serial) {
+            steps.remove(&self.run_id);
+        }
     }
 }
 
@@ -904,6 +1262,10 @@ struct RunSink {
 }
 
 impl EventSink for RunSink {
+    fn steps(&self) -> Option<Arc<dyn StartTarget>> {
+        Some(Arc::new(RunSteps { daemon: self.daemon.clone(), run_id: self.run_id.clone() }))
+    }
+
     fn started(&self) {
         if self.daemon.is_stopping() {
             return;
@@ -929,6 +1291,19 @@ impl EventSink for RunSink {
         let _ = request_decision_locked(&mut st, &self.run_id, request);
     }
 
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        if self.daemon.is_stopping() || !decider_label(by) || !decider_label(principal) {
+            return false;
+        }
+        let mut st = self.daemon.st();
+        match st.decision(request_id) {
+            Some(d) if d.run_id == self.run_id && d.state == DecisionState::Open => {}
+            _ => return false,
+        }
+        let now = st.now();
+        st.commit(Fact::DecisionAnswered { request_id: request_id.to_owned(), answer: answer.to_owned(), answered_by: by.to_owned(), principal: Some(principal.to_owned()), at: now }).is_ok()
+    }
+
     fn resumed(&self) {
         if !self.daemon.is_stopping() {
             let _ = self.daemon.resume_run(&self.run_id);
@@ -937,6 +1312,15 @@ impl EventSink for RunSink {
 }
 
 // ---- commands that run with the state already locked ----
+
+/// The refusal of a submit while the daemon drains: a fault of the daemon's own, no outcome of the
+/// specification, with the count of the runs it waits for.
+fn draining_fault(st: &State) -> Result<(), Fault> {
+    if st.draining() {
+        return Err(Fault::Draining { live_runs: st.live_run_ids().len() });
+    }
+    Ok(())
+}
 
 fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
@@ -951,12 +1335,12 @@ fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     }
 }
 
-fn end_orphaned_run_locked(st: &mut State, run_id: &str) -> Reply {
+fn end_orphaned_run_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("end-orphaned-run", "no-run", json!({"run_id": run_id}))),
         Some(state @ (RunState::Running | RunState::WaitingOnDecision)) => {
             // The run's stream says so while the run is still live (a closed run takes no event).
-            let record = json!({"run_id": run_id, "state": state.as_str(), "reason": "the daemon started again and the runtime holds no live run of this id"});
+            let record = json!({"run_id": run_id, "state": state.as_str(), "reason": reason});
             record_event_locked(st, run_id, "runbook.run-orphaned", record)?;
             let now = st.now();
             st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: now })?;
@@ -1078,6 +1462,13 @@ fn run_row(r: &Run) -> Value {
     put(&mut m, "runbook_version", &r.runbook_version);
     m.insert("state".into(), json!(r.state));
     m.insert("confinement".into(), json!(r.confinement));
+    if let Some(source) = r.confinement_source {
+        m.insert("confinement_source".into(), json!(source));
+    }
+    if let Some(level) = r.terms.autonomy {
+        m.insert("autonomy".into(), json!(level));
+    }
+    put(&mut m, "decider", &r.terms.decider);
     put(&mut m, "session_id", &r.session_id);
     m.insert("submitted_at".into(), json!(r.submitted_at));
     put(&mut m, "started_at", &r.started_at);
