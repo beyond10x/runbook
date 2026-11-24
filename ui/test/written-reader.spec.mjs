@@ -562,7 +562,9 @@ test('the Products tab redraws when only the count of names past the link bound 
   fs.symlinkSync('.', path.join(dir, 'work/l'));
   const after = await products('pageredraw');
   expect([after.json.leftOut, after.json.linkCut]).toEqual([1, 1]);
-  await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(1, {timeout: 20000});
+  // a change of the record file is what makes the page ask again (at most every 1.5 s); a late line changes no file of the list
+  const notes = () => page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/}).count();
+  await expect.poll(async () => { append(dir, [late(900, 'again')]); return notes(); }, {timeout: 20000, intervals: [1600]}).toBe(1);
 });
 
 test('an action name that is markup and is cut inside it is shown as text, with the note', async ({page}) => {
