@@ -2,9 +2,11 @@
 //! test file is added here as a `mod` line; `autotests = false` in `Cargo.toml` keeps cargo from
 //! building each file as a binary of its own.
 
+mod retry_feedback_copy;
 mod answers;
 mod bugfix_languages;
 mod bugfix_prompt;
+mod check_bindings_budget;
 mod check_bindings_exits;
 mod check_bindings_exits_inputs;
 mod check_bindings_exits_links_and_shapes;
@@ -27,6 +29,7 @@ mod producer_ids;
 mod progress;
 mod questions_check;
 mod reply_bytes;
+mod rework_numbering;
 mod capture_buffer_bound;
 mod bounds_and_digest;
 mod capture_fate;
