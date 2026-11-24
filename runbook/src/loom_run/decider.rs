@@ -417,8 +417,8 @@ impl NativeDecider {
                 .map_err(|reason| self.redact(&reason))?
             }
         };
-        let _ = write_atomic(&rec.join("decider-stderr.txt"), self.redact(&replied.stderr).as_bytes());
-        let _ = write_atomic(&rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)).as_bytes());
+        write_atomic(&rec.join("decider-stderr.txt"), self.redact(&replied.stderr).as_bytes()).map_err(|e| self.redact(&format!("decider stderr file: {e}")))?;
+        write_atomic(&rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)).as_bytes()).map_err(|e| self.redact(&format!("decider reply file: {e}")))?;
         Ok(replied.reply)
     }
 
