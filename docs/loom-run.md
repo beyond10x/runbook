@@ -116,13 +116,17 @@ walk reads nothing inside a run, as long as the run directory is above the progr
 the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
 `/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
 `runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
-floor or a level: a `runbook` that has `LOOM_CASE` in its environment (Loom gives it to every bound
-program) and no run directory above its working directory refuses `confinement` and `autonomy` in a file it
-found by the walk or in the user's directory, by name, with no value printed, and a key that would lower the
-daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a run
-reads under `local`, states its confinement as before.) A file
-named with `--config` or `RUNBOOK_CONFIG` is the caller's own choice. A value of a file never lowers what an
-option or the daemon's floor sets: the nested run runs inside the same confinement.
+floor, a level, a cap, the spend ledger or the runbook directories: a `runbook` that has `LOOM_CASE` in its
+environment (Loom gives it to every bound program) and no run directory above its working directory refuses
+`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger` and `runbooks`
+in a file it found by the walk or in the user's directory, by name, with no value printed, and a key that would
+lower the daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a
+run reads under `local`, states its confinement as before.) `LOOM_CASE` is a hint, not a guard: a program of a
+run controls its own environment and its own directories, so one that clears the variable, or makes a run
+directory above its working directory, is read as a person's start and takes the keys of the file it finds.
+What holds then is that the nested run keeps its sandbox and its `--confinement`: a value of a file never
+lowers what an option or the daemon's floor sets, and the nested run runs inside the same confinement. A file
+named with `--config` or `RUNBOOK_CONFIG` is the caller's own choice.
 
 `runbook run` says on standard error, before anything starts, which `runbook.toml` it took values from and
 how it was found (`--config`, `RUNBOOK_CONFIG`, found in the working directory or a parent, found in the

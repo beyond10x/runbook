@@ -171,7 +171,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("runbook config: {e}");
+                eprintln!("runbook config: {}", config::printable(&e));
                 ExitCode::from(loom_run::EXIT_REFUSED)
             }
         },
@@ -196,7 +196,7 @@ fn main() -> ExitCode {
             let file = match config::load(&cli.source) {
                 Ok(f) => f,
                 Err(e) => {
-                    eprintln!("runbook serve: {e}");
+                    eprintln!("runbook serve: {}", config::printable(&e));
                     return ExitCode::from(loom_run::EXIT_REFUSED);
                 }
             };
@@ -207,7 +207,7 @@ fn main() -> ExitCode {
             let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {
-                    eprintln!("runbook serve: {e}");
+                    eprintln!("runbook serve: {}", config::printable(&e));
                     return ExitCode::from(code);
                 }
             };
@@ -306,7 +306,7 @@ fn check_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) -
     let world = match catalog::open(source).and_then(catalog::World::need_some) {
         Ok(w) => w,
         Err((code, e)) => {
-            eprintln!("runbook check: {e}");
+            eprintln!("runbook check: {}", config::printable(&e));
             return ExitCode::from(code);
         }
     };
@@ -357,7 +357,7 @@ fn doctor_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) 
                 // a built-in name needs no catalog: the report names what is wrong with the install itself
                 Err(_) if !matches!(doctor::Scope::runbook(id), doctor::Scope::Other) => None,
                 Err((code, e)) => {
-                    eprintln!("runbook doctor: {e}");
+                    eprintln!("runbook doctor: {}", config::printable(&e));
                     return ExitCode::from(code);
                 }
             };
@@ -402,7 +402,7 @@ fn list_cmd(source: &config::Source, json: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err((code, e)) => {
-            eprintln!("runbook list: {e}");
+            eprintln!("runbook list: {}", config::printable(&e));
             ExitCode::from(code)
         }
     }

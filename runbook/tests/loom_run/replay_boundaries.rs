@@ -63,7 +63,7 @@ impl Rig {
         let bin = repo().join("driver/target/debug/sdc-replay");
         assert!(bin.is_file(), "{} is not built", bin.display());
         let mut command = Command::new(bin);
-        command.arg(rec.join("request.json")).stdin(Stdio::null()).env_remove("SDC_REPLAY");
+        command.arg(rec.join("request.json")).stdin(Stdio::null()).env_remove("SDC_REPLAY").env("RUNBOOK_NO_CONFIG", "1");
         if let Some(plan) = plan {
             command.env("SDC_REPLAY", plan);
         }
@@ -262,7 +262,7 @@ fn replayed(tag: &str, recorded_in: &[(&str, &str)], now_in: &[(&str, &str)]) ->
         "cwd": rec.join("cwd").display().to_string(), "case_dir": out.join("work").display().to_string()});
     put(&rec.join("request.json"), &request.to_string());
     let bin = repo().join("driver/target/debug/sdc-replay");
-    let o = Command::new(bin).arg(rec.join("request.json")).stdin(Stdio::null()).env("SDC_REPLAY", out.join("replay/plan.json")).output().unwrap();
+    let o = Command::new(bin).arg(rec.join("request.json")).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).env("SDC_REPLAY", out.join("replay/plan.json")).output().unwrap();
     let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     let logged = std::fs::read_to_string(rec.join("replay.json")).unwrap_or_default();
     let mode = serde_json::from_str::<Value>(&logged).ok().and_then(|v| v["mode"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("no replay.json: {said}"));
@@ -409,7 +409,7 @@ fn an_adapter_with_a_relative_plan_path_reads_it_from_its_own_directory_only() {
     let rec = root.join("rec");
     put(&rec.join("request.json"), &json!({"node": "n", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(), "cwd": rec.display().to_string(), "case_dir": root.display().to_string()}).to_string());
     let bin = repo().join("driver/target/debug/sdc-replay");
-    let o = Command::new(bin).arg(rec.join("request.json")).current_dir(&root).env("SDC_REPLAY", "replay/plan.json").stdin(Stdio::null()).output().unwrap();
+    let o = Command::new(bin).arg(rec.join("request.json")).current_dir(&root).env("SDC_REPLAY", "replay/plan.json").env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).output().unwrap();
     let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     assert!(!said.contains("is not set"), "{said}");
     assert!(said.contains("recording_diverged") || o.status.code() == Some(75), "a relative SDC_REPLAY is read against the adapter's directory: {said}");
@@ -516,7 +516,7 @@ impl Replay {
         let bin = repo().join("driver/target/debug/sdc-replay");
         assert!(bin.is_file(), "{} is not built", bin.display());
         let mut c = Command::new(bin);
-        c.arg(self.request()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("SDC_REPLAY", self.plan_path());
+        c.arg(self.request()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("SDC_REPLAY", self.plan_path()).env("RUNBOOK_NO_CONFIG", "1");
         c
     }
 
@@ -540,7 +540,7 @@ fn under_local_the_adapter_obeys_a_plan_and_a_call_log_rewritten_after_the_run_b
         &rewrite,
         &format!("#!/bin/sh\ncat > '{}' <<'PLAN'\n{}\nPLAN\n: > '{}'\n", r.plan_path().display(), r.plan_text("live", &r.live, json!(99)), r.run().join("replay/calls.jsonl").display()),
     );
-    assert!(Command::new(&rewrite).status().unwrap().success());
+    assert!(Command::new(&rewrite).env("RUNBOOK_NO_CONFIG", "1").status().unwrap().success());
     assert_eq!((r.call(), r.starts()), (0, 1), "a live call that the run's plan did not allow was started as the adapter's program (a fix that pins the plan flips this case)");
 }
 
@@ -662,6 +662,7 @@ impl CapRig {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .env("SDC_REPLAY", out.join("replay/plan.json"))
+            .env("RUNBOOK_NO_CONFIG", "1")
             .spawn()
             .unwrap()
     }

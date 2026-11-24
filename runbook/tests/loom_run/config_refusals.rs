@@ -91,6 +91,9 @@ fn config_hides_every_token_form_after_every_joiner_the_unit_names() {
 
 // ---- a refusal that names a key prints no part of a key that holds a token form ----
 
+/// A file of a shape, made from a key.
+type Shape<'a> = (&'static str, Box<dyn Fn(&str) -> String + 'a>);
+
 /// Joiners that a key can hold between a name and a token form; the form of the whole key does not begin at them.
 fn key_joiners() -> Vec<(&'static str, &'static str)> {
     vec![("a slash", "see/"), ("a colon", "see:"), ("a space", "see "), ("a backslash", "see\\"), ("an at sign", "see@"), ("a comma", "see,"), ("a semicolon", "see;"), ("a new line", "see\n")]
@@ -102,7 +105,7 @@ fn a_refusal_of_runbook_toml_prints_no_key_that_holds_a_token_form() {
     let rig = Rig::new("refusal-keys");
     rig.fixture();
     let secret = format!("ghp_{MARK}");
-    let shapes: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+    let shapes: Vec<Shape<'_>> = vec![
         ("an unknown top level key", Box::new(|k| format!("{} = 1\n", basic(k)))),
         ("an unknown key of the decider", Box::new(|k| format!("[decider]\n{} = 1\n", basic(k)))),
         ("a table of the review", Box::new(|k| format!("[review.{}]\nx = 1\n", basic(k)))),
@@ -135,7 +138,7 @@ fn a_refusal_of_a_settings_file_prints_no_key_that_holds_a_token_form() {
     // a date is no value of any setting: the refusal names the key path of the member
     let rig = Rig::new("refusal-settings");
     let secret = format!("ghp_{MARK}");
-    let shapes: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+    let shapes: Vec<Shape<'_>> = vec![
         ("a top level key", Box::new(|k| format!("{} = 1979-05-27\n", basic(k)))),
         ("a table of the models", Box::new(|k| format!("[models.{}]\nx = 1979-05-27\n", basic(k)))),
         ("a key of the models", Box::new(|k| format!("[models]\n{} = 1979-05-27\n", basic(k)))),
@@ -157,6 +160,47 @@ fn a_refusal_of_a_settings_file_prints_no_key_that_holds_a_token_form() {
         }
     }
     assert!(leaked.is_empty(), "a refusal of a settings file printed a key that holds a token form ({} of {n}):\n{}", leaked.len(), leaked.join("\n"));
+}
+
+const FOUR: &str = "confinement = \"local\"\nmax_wall_seconds = 120\ncap_micro_usd = 1000000\nmax_llm_calls = 100\n";
+
+#[test]
+fn a_refusal_of_a_run_that_names_a_key_of_its_settings_prints_no_key_that_holds_a_token_form() {
+    // the settings reader of the run names an unknown top level key; `runbook run` prints what the run refused
+    let rig = Rig::new("refusal-run");
+    rig.fixture();
+    rig.put("runbook.toml", FOUR);
+    let secret = format!("ghp_{MARK}");
+    let mut leaked = Vec::new();
+    for (n, (joiner, pre)) in key_joiners().into_iter().enumerate() {
+        let file = rig.put(&format!("s-{n}.toml"), &format!("{} = 1\n", basic(&format!("{pre}{secret}"))));
+        let o = rig.run(&rig.root, &["run", "engine-demo", "--intake", "idea.txt", "--dry", "--settings", &file.display().to_string()]);
+        assert_eq!(code(&o), 2, "{joiner}: {}", both(&o));
+        assert!(err(&o).contains("not a setting of the format"), "{joiner}: the run does not refuse the key: {}", err(&o));
+        if has_mark(&both(&o)) {
+            leaked.push(format!("{joiner}: {}", leak_line(&both(&o))));
+        }
+    }
+    assert!(leaked.is_empty(), "a run printed a key of its settings that holds a token form:\n{}", leaked.join("\n"));
+}
+
+#[test]
+fn a_refusal_that_names_a_runbook_directory_prints_no_part_of_a_name_that_holds_a_token_form() {
+    // the catalog names the directory it cannot load; `list`, `check`, `run` and `config` print its path
+    let rig = Rig::new("refusal-dir");
+    rig.fixture();
+    let secret = format!("ghp_{MARK}");
+    let mut leaked = Vec::new();
+    for (joiner, pre) in key_joiners() {
+        rig.put("runbook.toml", &format!("runbooks = [{}]\n", basic(&format!("{pre}{secret}"))));
+        for args in [vec!["list"], vec!["check"], vec!["config"], vec!["run", "engine-demo", "--intake", "idea.txt", "--dry"]] {
+            let o = rig.run(&rig.root, &args);
+            if has_mark(&both(&o)) {
+                leaked.push(format!("a directory with {joiner}, `runbook {}`: {}", args[0], leak_line(&both(&o))));
+            }
+        }
+    }
+    assert!(leaked.is_empty(), "a refusal printed the name of a runbook directory that holds a token form:\n{}", leaked.join("\n"));
 }
 
 // ---- a file found inside a program of a run ----

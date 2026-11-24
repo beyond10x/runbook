@@ -428,7 +428,7 @@ fn run_gate(work: &Path, bin: &Path) -> Output {
         .args(["ess-gate", "--action", "spec.gate"])
         .current_dir(work)
         .env("PATH", path)
-        .env("LOOM_CASE", "root.billing")
+        .env("LOOM_CASE", "root.billing").env("RUNBOOK_NO_CONFIG", "1")
         .stdin(Stdio::null())
         .output()
         .unwrap()

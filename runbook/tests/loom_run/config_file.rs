@@ -30,6 +30,22 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// Fails loudly when the walk from a rig below `base` would read a file the case did not write: a `runbook.toml` in
+/// `base` or above it, or a directory the walk stops at (a run directory, the state directory of a daemon).
+fn refuse_ancestors(base: &Path) {
+    for dir in base.ancestors() {
+        if std::fs::symlink_metadata(dir.join("runbook.toml")).is_ok() {
+            panic!("a rig cannot stand below {}: it holds a runbook.toml that every case below it would find; take it out of the way", dir.display());
+        }
+        if dir.join("events.jsonl").is_file() && dir.join("work").is_dir() && dir.join("bindings").is_dir() {
+            panic!("a rig cannot stand below {}: it is a run directory, and the walk stops at it", dir.display());
+        }
+        if dir.join("daemon.lock").is_file() && dir.join("journal.jsonl").is_file() {
+            panic!("a rig cannot stand below {}: it is the state directory of a daemon, and the walk stops at it", dir.display());
+        }
+    }
+}
+
 pub struct Rig {
     pub root: PathBuf,
 }
@@ -52,6 +68,7 @@ impl Rig {
 
     /// The same in the directory `base`.
     pub fn new_in(base: &Path, tag: &str) -> Rig {
+        refuse_ancestors(base);
         let root = base.join(format!("runbook-rig-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for d in ["home", "xdg", "work/sub"] {

@@ -1095,32 +1095,226 @@ fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() 
 
 /// What the scan of the starts found in one text.
 struct Starts {
-    /// The starts of a program that is not named by a string literal and may be the binary.
+    /// The starts of a program that no string literal names: the binary may be any of them.
     starts: usize,
     /// The lines of the starts that name no empty configuration.
     unguarded: Vec<usize>,
 }
 
-/// The starts of the binary in a source text and the lines of those that name no empty configuration.
-fn scan_starts(text: &str) -> Starts {
-    let shapes = ["env!(\"CARGO_BIN_EXE_runbook\")", "BIN)", "super::core::BIN)", "&odd)", "prefix.join(\"bin/runbook\")", "&program)", "program)"];
-    let guards = ["isolate(", "RUNBOOK_CONFIG", "RUNBOOK_NO_CONFIG", "--no-config", "XDG_CONFIG_HOME"];
-    let others = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "\"decide\""];
-    let mut unguarded = Vec::new();
-    let mut starts = 0;
-    for (at, _) in text.match_indices("Command::new(") {
-        let after = &text[at + "Command::new(".len()..];
-        if !shapes.iter().any(|s| after.starts_with(s)) {
+/// The text with its comments blanked (same length, same lines) and, per byte, whether it lies inside a string literal.
+fn lex(text: &str) -> (String, Vec<bool>) {
+    let b = text.as_bytes();
+    let mut clean = b.to_vec();
+    let mut in_str = vec![false; b.len()];
+    let mut i = 0;
+    while i < b.len() {
+        let raw_hashes = (b[i] == b'r' && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))).then(|| b[i + 1..].iter().take_while(|c| **c == b'#').count()).filter(|n| b.get(i + 1 + n) == Some(&b'"'));
+        if let Some(hashes) = raw_hashes {
+            let close: Vec<u8> = std::iter::once(b'"').chain(std::iter::repeat_n(b'#', hashes)).collect();
+            let from = i + 2 + hashes;
+            let end = b[from..].windows(close.len()).position(|w| w == close.as_slice()).map_or(b.len(), |p| from + p + close.len());
+            in_str[i..end].iter_mut().for_each(|x| *x = true);
+            i = end;
             continue;
         }
-        let from = ["\nfn ", "\npub fn ", "\n    fn ", "\n#[test]"].iter().filter_map(|m| text[..at].rfind(m)).max().unwrap_or(0);
-        let to = ["\nfn ", "\npub fn ", "\n#[test]"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
-        let region = &text[from..to];
-        if others.iter().any(|o| region.contains(o)) && !region.contains("\"serve\"") {
+        match b[i] {
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    i += if b[i] == b'\\' { 2 } else { 1 };
+                }
+                let end = (i + 1).min(b.len());
+                in_str[start..end].iter_mut().for_each(|x| *x = true);
+                i = end;
+            }
+            b'\'' if b.get(i + 1) == Some(&b'\\') => {
+                i += 2;
+                while i < b.len() && b[i] != b'\'' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'\'' if b.get(i + 2) == Some(&b'\'') => i += 3,
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    clean[i] = b' ';
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                let end = b[i + 2..].windows(2).position(|w| w == b"*/").map_or(b.len(), |p| i + 2 + p + 2);
+                (i..end).filter(|k| b[*k] != b'\n').for_each(|k| clean[k] = b' ');
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    (String::from_utf8(clean).unwrap_or_default(), in_str)
+}
+
+/// The end of the statement that holds the byte `from`: the `;` at its own depth, the `{` that opens a block, or the
+/// closer of the call or block around it.
+fn statement_end(code: &[u8], in_str: &[bool], from: usize) -> usize {
+    let mut depth = 0usize;
+    for (i, c) in code.iter().enumerate().skip(from) {
+        if in_str[i] {
+            continue;
+        }
+        match c {
+            b'(' | b'[' => depth += 1,
+            b'{' if depth == 0 => return i,
+            b'{' => depth += 1,
+            b')' | b']' | b'}' if depth == 0 => return i,
+            b')' | b']' | b'}' => depth -= 1,
+            b';' if depth == 0 => return i + 1,
+            _ => {}
+        }
+    }
+    code.len()
+}
+
+/// The start of the statement that holds the byte `at`: after the `;`, the `{` or the `}` before it; a call that
+/// opens around it (`isolate(Command::new(..))`) is part of the statement.
+fn statement_start(code: &[u8], in_str: &[bool], at: usize) -> usize {
+    let mut depth = 0usize;
+    for i in (0..at).rev() {
+        if in_str[i] {
+            continue;
+        }
+        match code[i] {
+            b')' | b']' => depth += 1,
+            b'}' if depth == 0 => return i + 1,
+            b'}' => depth += 1,
+            b'(' | b'[' | b'{' if depth > 0 => depth -= 1,
+            b'{' => return i + 1,
+            b';' if depth == 0 => return i + 1,
+            _ => {}
+        }
+    }
+    0
+}
+
+/// Whether `name` stands in `text` as a whole identifier.
+fn mentions(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(i, _)| {
+        let before = text[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        let after = text[i + name.len()..].chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        !before && !after
+    })
+}
+
+/// The statement chain of a start: its own statement and, when it binds the start to a variable, every later
+/// statement of the block that names the variable.
+fn chain_of(code: &str, in_str: &[bool], at: usize) -> String {
+    let bytes = code.as_bytes();
+    let from = statement_start(bytes, in_str, at);
+    let to = statement_end(bytes, in_str, at);
+    let own = &code[from..to];
+    let mut chain = own.to_owned();
+    let bound = own.trim_start().strip_prefix("let ").map(|rest| rest.trim_start().trim_start_matches("mut ").trim_start()).and_then(|rest| rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).next()).filter(|n| !n.is_empty());
+    if let Some(name) = bound {
+        let mut next = to;
+        while next < code.len() {
+            let end = statement_end(bytes, in_str, next);
+            if end <= next || bytes.get(end).is_some_and(|c| matches!(c, b')' | b']' | b'}')) && !code[next..end].contains(';') && end >= code.len() {
+                break;
+            }
+            let piece = &code[next..end];
+            if mentions(piece, name) {
+                chain.push_str(piece);
+            }
+            // a piece that ends at a block opener holds the block; a closer ends the enclosing block
+            match bytes.get(end) {
+                Some(b'{') => {
+                    let mut depth = 0usize;
+                    let mut k = end;
+                    while k < code.len() {
+                        if !in_str[k] {
+                            match bytes[k] {
+                                b'{' => depth += 1,
+                                b'}' => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        k += 1;
+                    }
+                    if mentions(&code[end..(k + 1).min(code.len())], name) {
+                        chain.push_str(&code[end..(k + 1).min(code.len())]);
+                    }
+                    next = (k + 1).min(code.len());
+                }
+                Some(b')' | b']' | b'}') => break,
+                _ => next = end,
+            }
+        }
+    }
+    chain
+}
+
+/// The first literal argument of the chain (`.arg("list")`, `.args(["list", ..])`): the subcommand.
+fn subcommand(chain: &str) -> Option<&str> {
+    let at = [".arg(\"", ".args([\""].iter().filter_map(|p| chain.find(p).map(|i| i + p.len())).min()?;
+    chain[at..].split('"').next()
+}
+
+/// The chain without its `env_remove(..)` calls: a variable taken out again names no empty configuration.
+fn without_removals(chain: &str) -> String {
+    let mut out = String::new();
+    let mut rest = chain;
+    while let Some(i) = rest.find("env_remove(") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i..];
+        let close = after.find(')').map_or(after.len(), |c| c + 1);
+        rest = &after[close..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The starts of the binary in a source text and the lines of those that name no empty configuration. A start is any
+/// `Command::new` whose program no string literal names; its statement chain (the statement, and the later statements
+/// that name the variable it is bound to) must name the empty configuration (`RUNBOOK_NO_CONFIG`, `RUNBOOK_CONFIG`,
+/// `--no-config`), run under `isolate(`, or stand in the private directory of a `Rig` (`XDG_CONFIG_HOME` set from
+/// `self.p(..)`), unless its subcommand reads no file. A word in a comment or in a string is no guard.
+fn scan_starts(text: &str) -> Starts {
+    let (code, in_str) = lex(text);
+    let others = ["parity", "canon", "mcp", "runs", "test", "--version", "frobnicate", "help", "decide"];
+    let mut unguarded = Vec::new();
+    let mut starts = 0;
+    for (at, _) in code.match_indices("Command::new(") {
+        if in_str[at] {
+            continue;
+        }
+        let open = at + "Command::new(".len();
+        let mut depth = 1usize;
+        let mut close = open;
+        while close < code.len() && depth > 0 {
+            if !in_str[close] {
+                match code.as_bytes()[close] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+            }
+            close += 1;
+        }
+        if code[open..close.saturating_sub(1).max(open)].trim_start().starts_with('"') {
             continue;
         }
         starts += 1;
-        if !guards.iter().any(|g| region.contains(g)) {
+        let chain = chain_of(&code, &in_str, at);
+        if subcommand(&chain).is_some_and(|s| others.contains(&s)) {
+            continue;
+        }
+        let kept = without_removals(&chain);
+        let guarded = ["isolate(", "\"RUNBOOK_CONFIG\"", "\"RUNBOOK_NO_CONFIG\"", "\"--no-config\"", ".env(\"XDG_CONFIG_HOME\", self.p("].iter().any(|g| kept.contains(g));
+        if !guarded {
             unguarded.push(text[..at].matches('\n').count() + 1);
         }
     }

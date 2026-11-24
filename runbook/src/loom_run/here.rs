@@ -245,7 +245,7 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
     let file = match config::load(source) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("runbook run: {e}");
+            eprintln!("runbook run: {}", config::printable(&e));
             return ExitCode::from(EXIT_REFUSED);
         }
     };
@@ -256,12 +256,12 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
     let (args, generated) = match args_of(&base, here, file.as_ref()) {
         Ok(a) => a,
         Err((code, line)) => {
-            eprintln!("runbook run: {line}");
+            eprintln!("runbook run: {}", config::printable(&line));
             return ExitCode::from(code);
         }
     };
     if let Err((code, line)) = refuse_unbuilt(&args.ports) {
-        eprintln!("runbook run: {line}");
+        eprintln!("runbook run: {}", config::printable(&line));
         return ExitCode::from(code);
     }
     if let Some(name) = generated {
@@ -276,7 +276,7 @@ pub fn command(base: RunArgs, here: HereOptions, source: &config::Source) -> Exi
             ExitCode::from(outcome.exit_code())
         }
         Err(refusal) => {
-            eprintln!("runbook run: refused: {}", config::mask(&refusal));
+            eprintln!("runbook run: refused: {}", config::printable(&refusal));
             ExitCode::from(EXIT_REFUSED)
         }
     }

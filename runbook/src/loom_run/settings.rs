@@ -24,6 +24,10 @@ pub fn merged(args: &crate::loom_run::Args) -> Result<Value, String> {
 /// a table is an object in file order, an integer a whole number, a float a float (so no guard that
 /// wants a whole number takes it). A date or a time is no value of any setting.
 pub fn parse(text: &str) -> Result<Value, String> {
+    read_table(text).map_err(|e| crate::config::printable(&e))
+}
+
+fn read_table(text: &str) -> Result<Value, String> {
     if looks_like_json(text) {
         return Err("this is JSON, and the settings file is TOML now: write the same members as TOML, the members that were under `loom` at the top level (the form and an example: docs/loom-run-settings.md)".to_owned());
     }

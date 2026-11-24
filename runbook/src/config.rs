@@ -42,9 +42,10 @@ const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls",
 /// `loom_sha256`, `in_process` and `replay` belong to one run and are not defaults.
 const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review"];
 
-/// The keys that state a level: a file found by a program of a run that has no run directory above it (by the
-/// walk or in the user's directory) has none of them; the floor of the daemon has no key in any file.
-const LEVEL_KEYS: [&str; 2] = ["confinement", "autonomy"];
+/// The keys a file found by a program of a run that has no run directory above it (by the walk or in the user's
+/// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger and the directories
+/// runbooks are loaded from. The floor of the daemon has no key in any file.
+const NESTED_REFUSED_KEYS: [&str; 7] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks"];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement.
 pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\ncap_micro_usd = 5000000\nmax_llm_calls = 200\n";
@@ -406,7 +407,13 @@ impl File {
 
 /// Locates and reads the file the process names or finds.
 pub fn load(source: &Source) -> Result<Option<File>, String> {
-    locate(&Lookup::from_process(source))?.map(|f| parse(&f)).transpose()
+    locate(&Lookup::from_process(source)).map_err(|e| mask(&e))?.map(|f| parse(&f)).transpose()
+}
+
+/// The one wrapper every refusal passes through before a command prints it (`config`, `list`, `check`, `run`,
+/// `doctor`, `serve`): a word with the form of a key or a token is replaced, whatever joins it to the text around it.
+pub fn printable(message: &str) -> String {
+    mask(message)
 }
 
 /// A character of a word of a text: a key, a token and a path segment are words.
@@ -443,7 +450,18 @@ fn form_at_start(s: &str) -> bool {
 /// each as the whole text and as any part of it that follows a name and an equals sign (`GH_TOKEN=<token>`)
 /// or a dot.
 pub fn token_form(s: &str) -> bool {
-    form_at_start(s) || bearer_value(s) || s.split('=').any(|part| form_at_start(part) || part.split('.').any(form_at_start)) || s.split('.').any(form_at_start)
+    form_at_start(s) || bearer_value(s) || joined_form(s)
+}
+
+/// The most segments a form spans: a web token has three, joined by dots.
+const FORM_SEGMENTS: usize = 3;
+
+/// Whether a form begins at the start of any segment of the text, the segments being what stands between dots and
+/// equals signs, and spans up to `FORM_SEGMENTS` of them (`a.b=c.<web token>`).
+fn joined_form(s: &str) -> bool {
+    let ends: Vec<usize> = s.match_indices(['.', '=']).map(|(i, _)| i).chain(std::iter::once(s.len())).collect();
+    let starts = std::iter::once(0).chain(ends.iter().map(|e| e + 1));
+    starts.zip(0..ends.len()).any(|(from, k)| (k..ends.len().min(k + FORM_SEGMENTS)).any(|e| s.get(from..ends[e]).is_some_and(form_at_start)))
 }
 
 /// A path as text, not content: no control character (a newline) and no JSON or array opening.
@@ -457,7 +475,7 @@ fn scan(v: &Value, at: &str) -> Result<(), String> {
         Value::Object(map) => {
             for (key, x) in map {
                 let here = if at.is_empty() { key.clone() } else { format!("{at}.{key}") };
-                if token_form(key) {
+                if mask(key) != *key {
                     let table = if at.is_empty() { "the top level".to_owned() } else { at.to_owned() };
                     return Err(format!("{table}: a key has the form of a key or a token: the file names a login file by path, never by content"));
                 }
@@ -476,7 +494,7 @@ const HIDDEN: &str = "<a key or token>";
 
 /// The message with every word that has the form of a key or a token replaced: a key of the file can
 /// be one, and the reader names the key it stops at.
-pub(crate) fn mask(message: &str) -> String {
+fn mask(message: &str) -> String {
     let chars: Vec<char> = message.chars().collect();
     let mut out = String::new();
     let mut at = 0;
@@ -494,11 +512,15 @@ pub(crate) fn mask(message: &str) -> String {
                 at += 1;
             } else {
                 while at < chars.len() && value_end(&chars, at).is_none() {
-                    at += 1;
+                    at += if is_escaped_backslash(&chars, at) { 2 } else { 1 };
                 }
                 out.push_str(HIDDEN);
                 after_bearer = false;
             }
+        } else if is_escaped_backslash(&chars, at) {
+            // the character after it is the next character of the text, not the end of a break (`\\n` is a backslash and an `n`)
+            out.extend(&chars[at..at + 2]);
+            at += 2;
         } else if let Some(n) = escape_len(&chars, at) {
             out.extend(&chars[at..at + n]);
             at += n;
@@ -514,6 +536,11 @@ pub(crate) fn mask(message: &str) -> String {
         }
     }
     out
+}
+
+/// Whether two backslashes stand at `at`: a JSON string writes one backslash so.
+fn is_escaped_backslash(chars: &[char], at: usize) -> bool {
+    chars.get(at) == Some(&'\\') && chars.get(at + 1) == Some(&'\\')
 }
 
 /// The length of a break a JSON string writes as an escape (`\n`, `\t`, `\r`, `\b`, `\f`, `\u0000`): it ends a
@@ -541,7 +568,7 @@ fn value_end(chars: &[char], at: usize) -> Option<usize> {
 fn scrub(message: String) -> String {
     let key: String = message.split(|c: char| c == ':' || c.is_whitespace()).next().unwrap_or("").chars().take(120).collect();
     let key = key.split('.').map(segment).collect::<Vec<_>>().join(".");
-    format!("{key}: refused (the reader's own words are not printed here, they can hold a value; the form: docs/loom-run-settings.md)")
+    mask(&format!("{key}: refused (the reader's own words are not printed here, they can hold a value; the form: docs/loom-run-settings.md)"))
 }
 
 fn path_in(top: &mut Map<String, Value>, key: &str, dir: &Path) -> Result<Option<PathBuf>, String> {
@@ -582,6 +609,10 @@ fn whole(top: &mut Map<String, Value>, key: &str) -> Result<Option<u64>, String>
 /// Reads the text of a found file: the one settings reader for the syntax and the members, then the
 /// keys of its own. An error names the file, the table and the key, and a line at most.
 pub fn parse(found: &Found) -> Result<File, String> {
+    read_text(found).map_err(|e| mask(&e))
+}
+
+fn read_text(found: &Found) -> Result<File, String> {
     let name = found.path.display();
     let fail = |e: String| format!("{name}: {e}");
     let dir = found.path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -591,8 +622,8 @@ pub fn parse(found: &Found) -> Result<File, String> {
     };
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
     if found.nested && !found.via.chosen() {
-        if let Some(key) = LEVEL_KEYS.iter().find(|k| top.contains_key(**k)) {
-            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor or a level; name the file with --config to use it)")));
+        if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger or the runbook directories; name the file with --config to use it)")));
         }
     }
     for key in top.keys() {
@@ -759,7 +790,7 @@ fn shown(v: &Value) -> String {
 /// A key of a member as one segment of the dotted name printed for a value: a key that has the form of a
 /// token is replaced by `HIDDEN` (the prefix before a dot would hide it from `mask`).
 pub(crate) fn segment(key: &str) -> &str {
-    if token_form(key) {
+    if mask(key) != key {
         HIDDEN
     } else {
         key
@@ -812,6 +843,10 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
 
 /// `runbook config`: the effective values and where each comes from. Never opens a login file.
 pub fn show(source: &Source, options: &ValueOptions) -> Result<String, String> {
+    show_text(source, options).map_err(|e| mask(&e))
+}
+
+fn show_text(source: &Source, options: &ValueOptions) -> Result<String, String> {
     let lookup = Lookup::from_process(source);
     let found = locate(&lookup)?;
     let file = found.as_ref().map(parse).transpose()?;
@@ -944,6 +979,41 @@ mod tests {
         // the line a JSON string has: the break is the two characters backslash and n
         assert_eq!(mask("\"Authorization: Bearer\\n  hunter2\""), "\"Authorization: Bearer\\n  <a key or token>\"");
         assert_eq!(mask("\"x\\nBearer\\thunter2\""), "\"x\\nBearer\\t<a key or token>\"");
+    }
+
+    #[test]
+    fn mask_ends_a_word_at_every_break_a_json_string_writes_and_a_bearer_value_at_every_end_of_an_item() {
+        let token = ["gh", "p_x"].concat();
+        for brk in ["\\n", "\\t", "\\r", "\\b", "\\f", "\\u000a", "\\u0009"] {
+            assert_eq!(mask(&format!("\"a{brk}{token}\"")), format!("\"a{brk}{HIDDEN}\""), "{brk}");
+        }
+        // `\u` that is no escape of a character is no break
+        let plain = format!("a\\u00zz{token}");
+        assert_eq!(mask(&plain), plain, "a bad escape is no break: the word after the backslash is one plain word");
+        for (text, want) in [
+            ("Bearer abc,tea", "Bearer <a key or token>,tea"),
+            ("[Bearer abc]", "[Bearer <a key or token>]"),
+            ("{x: Bearer abc}", "{x: Bearer <a key or token>}"),
+            ("Bearer 'abc' x", "Bearer '<a key or token>' x"),
+            ("Bearer \\\"abc\\\" x", "Bearer \\\"<a key or token>\\\" x"),
+            ("Bearer abc\\\\def x", "Bearer <a key or token> x"),
+        ] {
+            assert_eq!(mask(text), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn every_refusal_of_the_file_is_masked_where_it_is_made_and_the_printed_text_is_masked_again() {
+        let token = ["gh", "p_x"].concat();
+        let path = PathBuf::from(format!("/nonexistent/see/{token}/runbook.toml"));
+        let source = Source { config: Some(path.clone()), no_config: false };
+        for e in [load(&source).unwrap_err(), show(&source, &ValueOptions::default()).unwrap_err()] {
+            assert!(e.contains(HIDDEN) && !e.contains(&token), "{e}");
+        }
+        let found = Found { path, via: Via::Option, text: "unknown_key = 1\n".to_owned(), nested: false };
+        let e = parse(&found).unwrap_err();
+        assert!(e.contains(HIDDEN) && !e.contains(&token) && e.contains("unknown_key"), "{e}");
+        assert_eq!(printable(&format!("x/{token}")), format!("x/{HIDDEN}"));
     }
 
     #[test]
