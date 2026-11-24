@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- A bug-fix run hands each check command a git tree (story `a-bug-fix-run-hands-its-checks-git-trees`): the copy of `impl/` and the copy of the base under `.sdc/bugfix/` that `repro-run`, `tests-run` and `gate-run` run the commands of `checks.yaml` in is a git repository with one commit of the copied files, because the build pool's remote mode needs a git repository in a job's tree. The commit has the identity `runbook <runbook@localhost>` and a fixed instant, so its id depends on the copied files only; nothing of the host's git configuration is read (no global or system file, no `GIT_*` variable), the repository's own configuration turns maintenance off and runs no hook, every copied file is committed (also one a `.gitignore` names), and there is no remote and no history. Each copy gets its repository once; the next step or a retry copies again. The fix's diff, the artifacts and their bytes are unchanged: the `.git` lies only in the copies. git must be on PATH (without it the step exits 127). `docs/bugfix.md` "The trees a check runs in are git trees"; the cases are `driver/tests/bugfix_git_trees.rs` (each under 1 s).
+
 ## [0.10.0] - 2026-11-24
 
 Two entries are marked breaking: the daemon has no built-in confinement, and `runbook run` has no money limit built in.
