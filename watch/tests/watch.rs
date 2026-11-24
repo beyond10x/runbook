@@ -736,6 +736,40 @@ fn a_link_a_program_put_at_the_name_of_a_stored_blob_is_not_read_into_a_diff() {
     assert!(diffs.iter().all(|d| !d.contains("outside the run")), "a stored blob is read without following a link at its name: no text from outside the run is in a diff: {diffs:?}");
 }
 
+/// A run whose stored blob of its first text is replaced by `plant` after it was stored, and whose file is then written
+/// again; the run is returned with the watcher still running.
+fn run_with_a_stored_blob_replaced(tag: &str, plant: &dyn Fn(&Path)) -> Run {
+    let mut r = Run::new(tag);
+    r.start();
+    let first = "first text of a file of the run\n";
+    fs::write(r.work().join("a.txt"), first).unwrap();
+    r.pause();
+    let blob = r.dir.join("fs/blobs").join(blob_name(&r, first));
+    assert!(blob.is_file(), "the blob of the first text was not stored");
+    fs::remove_file(&blob).unwrap();
+    plant(&blob);
+    fs::write(r.work().join("a.txt"), "second text of a file of the run\n").unwrap();
+    r.pause();
+    r
+}
+
+#[test]
+fn a_stored_blob_replaced_by_a_named_pipe_does_not_hold_the_watcher() {
+    let mut r = run_with_a_stored_blob_replaced("blob-fifo-after", &mkfifo);
+    assert!(ends_within_10s_of_sigterm(&mut r), "a stored blob is read as a regular file and no pipe is waited for: the watcher ends within 10 s of SIGTERM");
+}
+
+#[test]
+fn a_stored_blob_replaced_by_a_link_is_not_read_into_a_diff() {
+    let outside = base().join(format!("outside-blob-after-{}.txt", std::process::id()));
+    fs::write(&outside, "text of a file outside the run\n").unwrap();
+    let mut r = run_with_a_stored_blob_replaced("blob-link-after", &|blob| std::os::unix::fs::symlink(&outside, blob).unwrap());
+    let c = r.stop();
+    let _ = fs::remove_file(&outside);
+    let diffs: Vec<String> = c.iter().filter_map(|v| v["diff"].as_str().map(String::from)).collect();
+    assert!(diffs.iter().all(|d| !d.contains("outside the run")), "a stored blob is read without following a link at its name: no text from outside the run is in a diff: {diffs:?}");
+}
+
 #[test]
 fn the_watcher_writes_nothing_below_a_link_that_replaced_its_output_directory() {
     let mut r = Run::new("out-link");
