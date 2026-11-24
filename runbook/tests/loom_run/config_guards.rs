@@ -439,6 +439,7 @@ fn bound_at_mnt(rig: &Rig, work: &str, args: &[&str]) -> Output {
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", rig.p("home"))
         .env("XDG_CONFIG_HOME", rig.p("xdg"))
+        .env("LOOM_CASE", "a-case")
         .stdin(Stdio::null())
         .output()
         .unwrap()
@@ -462,7 +463,7 @@ fn a_work_directory_bound_at_another_path_reads_its_own_file_by_the_keys_of_any_
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert!(first_line(&o).contains("/mnt/runbook.toml") && first_line(&o).contains("found in the working directory or a parent"), "{}", first_line(&o));
     assert!(out(&o).lines().any(|l| l.starts_with("max_wall_seconds = 1 ")), "{}", out(&o));
-    for lowering in ["min_confinement = \"local\"\n", "[serve]\nmin_confinement = \"local\"\n", "floor = \"local\"\n"] {
+    for lowering in ["min_confinement = \"local\"\n", "[serve]\nmin_confinement = \"local\"\n", "floor = \"local\"\n", "confinement = \"local\"\n", "autonomy = \"A5\"\n"] {
         rig.put("runs/r1/work/runbook.toml", lowering);
         let o = bound_at_mnt(&rig, "runs/r1/work", &["config"]);
         assert_eq!(code(&o), 2, "{lowering}: {}{}", out(&o), err(&o));
@@ -839,4 +840,430 @@ fn config_refuses_a_settings_file_that_is_not_toml_without_a_part_of_a_value() {
         let shown = config_of(&rig, &text);
         assert!(!shown.contains(BODY), "a refusal of a settings file that is not TOML printed a part of a value: {shown}");
     }
+}
+
+// ---- what `runbook config` and the refusals print: a token after a name and an equals sign, key paths, word forms ----
+
+fn both(o: &Output) -> String {
+    format!("{}{}", out(o), err(o))
+}
+
+/// A TOML basic string with the characters that need an escape escaped.
+fn basic(v: &str) -> String {
+    let mut s = String::from("\"");
+    for c in v.chars() {
+        match c {
+            '\\' => s.push_str("\\\\"),
+            '"' => s.push_str("\\\""),
+            '\n' => s.push_str("\\n"),
+            '\t' => s.push_str("\\t"),
+            c => s.push(c),
+        }
+    }
+    s.push('"');
+    s
+}
+
+/// The output of `runbook config --settings <text>` (stdout and stderr), in the rig's own directory.
+fn config_of_settings(rig: &Rig, name: &str, text: &str) -> String {
+    let settings = rig.put(name, text);
+    both(&rig.run(&rig.root, &["config", "--settings", &settings.display().to_string()]))
+}
+
+/// The output of `runbook config` of a `runbook.toml` with the text, found by the walk.
+fn config_of_file(rig: &Rig, text: &str) -> String {
+    rig.put("runbook.toml", text);
+    both(&rig.run(&rig.root, &["config"]))
+}
+
+// ---- F24: a token that follows a name and an equals sign ----
+
+#[test]
+fn config_hides_a_token_that_follows_a_name_and_an_equals_sign() {
+    let aws = ["AKIA", "ZZINVENTEDBODY01"].concat();
+    let jwt = ["eyJ", BODY, ".", BODY, ".", BODY].concat();
+    let words: Vec<(&str, String)> = vec![
+        ("an environment assignment of a vendor token", format!("GH_TOKEN={} runner", ["gh", "p_", BODY].concat())),
+        ("an option with a vendor token", format!("runner --token={}", ["gl", "pat-", BODY].concat())),
+        ("an assignment of an aws key", format!("AWS_ACCESS_KEY_ID={aws} runner")),
+        ("an assignment of a web token", format!("API_TOKEN={jwt}")),
+        ("an assignment of a bearer value", format!("AUTH=Bearer {BODY}")),
+        ("a vendor token after a dot", format!("x.{}", ["gh", "p_", BODY].concat())),
+    ];
+    // the string members the settings file has, and the members `runbook.toml` takes (it refuses an adapter
+    // that is no adapter name)
+    let members: Vec<(&str, bool, Box<dyn Fn(&str) -> String>)> = vec![
+        ("adapter", false, Box::new(|v| format!("adapter = {}\n", basic(v)))),
+        ("a model", true, Box::new(|v| format!("[models.writer]\nmodel = {}\n", basic(v)))),
+        ("a path", true, Box::new(|v| format!("runs_dir = {}\n", basic(&format!("/srv/{v}/runs"))))),
+    ];
+    let mut leaked = Vec::new();
+    for (name, v) in &words {
+        for (member, in_file, make) in &members {
+            let text = make(v);
+            let mut sources = vec![("--settings", config_of_settings(&Rig::new("assign"), "settings-shape.toml", &text))];
+            if *in_file {
+                sources.push(("runbook.toml", config_of_file(&Rig::new("assign-file"), &text)));
+            }
+            for (source, shown) in sources {
+                if shown.contains(BODY) || shown.contains(&aws) {
+                    leaked.push(format!("{name} in {member} via {source}: {}", shown.lines().find(|l| l.contains(BODY) || l.contains(&aws)).unwrap_or("")));
+                }
+            }
+        }
+    }
+    assert!(leaked.is_empty(), "runbook config printed a token that follows a name and an equals sign: {leaked:#?}");
+}
+
+// ---- F26: a refusal that names the key path of a member ----
+
+#[test]
+fn a_refusal_that_names_the_key_of_a_member_names_no_key_in_the_form_of_a_token() {
+    // a date is no value of any setting: the refusal names the key path of the member and no value
+    let shapes: Vec<(&str, String)> = vec![
+        ("a vendor token as a key", format!("[models.{}]\nx = 1979-05-27\n", ["gh", "p_", BODY].concat())),
+        ("a bearer value as a quoted key", format!("[models.{}]\nx = 1979-05-27\n", basic(&["Bear", "er ", BODY].concat()))),
+        ("a vendor token as a top level key", format!("{} = 1979-05-27\n", ["gh", "p_", BODY].concat())),
+    ];
+    let mut leaked = Vec::new();
+    for (name, text) in &shapes {
+        let rig = Rig::new("refuse-key");
+        for (source, shown) in [("--settings", config_of_settings(&rig, "settings-shape.toml", text)), ("runbook.toml", config_of_file(&Rig::new("refuse-key-file"), text))] {
+            if shown.contains(BODY) {
+                leaked.push(format!("{name} via {source}: {}", shown.lines().find(|l| l.contains(BODY)).unwrap_or("")));
+            }
+        }
+    }
+    assert!(leaked.is_empty(), "a refusal printed a key in the form of a token: {leaked:#?}");
+}
+
+// ---- item 4: the word forms and key forms that hold ----
+
+#[test]
+fn config_hides_a_secret_in_every_key_form_and_in_the_word_forms_of_a_bearer_value() {
+    let vendor = ["gh", "p_", BODY].concat();
+    let bearer = ["Bear", "er"].concat();
+    // a secret as a value or a key, in the words of the forms the round claims to hide
+    let words: Vec<(&str, String)> = vec![
+        ("a bearer value", format!("{bearer} {BODY}")),
+        ("bearer in lower case", format!("{} {BODY}", bearer.to_lowercase())),
+        ("bearer in capitals", format!("{} {BODY}", bearer.to_uppercase())),
+        ("a header", format!("Authorization: {bearer} {BODY}")),
+        ("a header without a space after the colon", format!("Authorization:{bearer} {BODY}")),
+        ("a colon after the word", format!("{bearer}:  {BODY}")),
+        ("a tab after the word", format!("{bearer}\t{BODY}")),
+        ("a new line after the word", format!("{bearer}\n{BODY}")),
+        ("a new line and an indent after the word", format!("Authorization: {bearer}\n    {BODY}\n")),
+        ("a quoted bearer value", format!("curl -H 'Authorization: {bearer} {BODY}'")),
+        ("a quote between the word and the value", format!("{bearer} \"{BODY}\"")),
+        ("a bearer value with a slash in it", format!("{bearer} abc/{BODY}")),
+        ("a bearer value with a colon in it", format!("Authorization: {bearer} abc:{BODY}")),
+        ("a vendor token", vendor.clone()),
+        ("a vendor token after a colon", format!("x:{vendor}")),
+        ("a vendor token after a slash", format!("/usr/bin/{vendor}")),
+        ("a vendor token after words", format!("curl -H x {vendor}")),
+        ("a vendor token in quotes", format!("'{vendor}'")),
+        ("a vendor token after a bearer word", format!("{bearer} {vendor}")),
+    ];
+    let value_forms: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+        ("a string member", Box::new(|v| format!("adapter = {}\n", basic(v)))),
+        ("a member of a table", Box::new(|v| format!("[models.writer]\nmodel = {}\n", basic(v)))),
+        ("a dotted key", Box::new(|v| format!("models.writer.model = {}\n", basic(v)))),
+        ("an inline table", Box::new(|v| format!("models = {{ writer = {{ model = {} }} }}\n", basic(v)))),
+        ("an array", Box::new(|v| format!("review = [\"a\", {}]\n", basic(v)))),
+        ("an array of inline tables", Box::new(|v| format!("review = [{{ x = {} }}]\n", basic(v)))),
+        ("a multi-line string", Box::new(|v| format!("adapter = \"\"\"\n{v}\"\"\"\n"))),
+    ];
+    let key_forms: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
+        ("a table inside a member table", Box::new(|v| format!("[models.{}]\nx = 1\n", basic(v)))),
+        ("a key of a member table", Box::new(|v| format!("[models]\n{} = 1\n", basic(v)))),
+        ("a dotted key", Box::new(|v| format!("models.writer.{} = 1\n", basic(v)))),
+        ("an inline table", Box::new(|v| format!("models = {{ {} = 1 }}\n", basic(v)))),
+        ("a key in an array of inline tables", Box::new(|v| format!("review = [{{ {} = 1 }}]\n", basic(v)))),
+        ("a table of an array of tables", Box::new(|v| format!("[[review]]\n{} = 1\n", basic(v)))),
+    ];
+    let mut leaked = Vec::new();
+    let rig = Rig::new("matrix");
+    let mut n = 0;
+    for (word, v) in &words {
+        for (form, make) in value_forms.iter().chain(key_forms.iter()) {
+            let text = make(v);
+            n += 1;
+            let shown = config_of_settings(&rig, &format!("shape-{n}.toml"), &text);
+            if shown.contains(BODY) {
+                leaked.push(format!("{word} as {form} (--settings): {}", shown.lines().find(|l| l.contains(BODY)).unwrap_or("")));
+            }
+        }
+    }
+    assert!(leaked.is_empty(), "runbook config printed the body of a secret: {leaked:#?}");
+}
+// ---- the view and the submit ----
+
+#[test]
+fn the_view_lists_exactly_the_names_a_submit_accepts_in_every_source() {
+    use runbook::runtime::Runtime;
+    let rig = Rig::new("view-matrix");
+    let put = |rel: &str, text: &str| {
+        let path = rig.p(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let book = |dir: &str, name: &str, revision: u32| {
+        put(&format!("{dir}/protocol/{name}.protocol.yaml"), &format!("format: protocol/1\nprotocol:\n  id: {name}\n  revision: {revision}\n"));
+        put(&format!("{dir}/bindings/{name}.yaml"), "format: loom.bindings/1\n");
+    };
+    // the built-in home, two configured directories (one of them also named by a link), a directory that
+    // repeats a built-in name, a directory that repeats it with a protocol that has no bindings, a link to a
+    // protocol file, a protocol that is not YAML, and a name that is no runbook name
+    book("home", "alpha", 3);
+    book("home", "beta", 2);
+    book("a", "gamma", 1);
+    book("a", "delta", 4);
+    std::os::unix::fs::symlink(rig.p("a"), rig.p("a-link")).unwrap();
+    book("b", "beta", 8);
+    put("e/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 5\n");
+    std::fs::create_dir_all(rig.p("e/bindings")).unwrap();
+    put("c-real/eps.protocol.yaml", "format: protocol/1\nprotocol:\n  id: eps\n  revision: 6\n");
+    put("c/bindings/eps.yaml", "format: loom.bindings/1\n");
+    std::fs::create_dir_all(rig.p("c/protocol")).unwrap();
+    std::os::unix::fs::symlink(rig.p("c-real/eps.protocol.yaml"), rig.p("c/protocol/eps.protocol.yaml")).unwrap();
+    put("d/protocol/zeta.protocol.yaml", ": : not yaml [\n");
+    put("d/bindings/zeta.yaml", "format: loom.bindings/1\n");
+    put("d/protocol/a b.protocol.yaml", "format: protocol/1\nprotocol:\n  id: ab\n  revision: 1\n");
+    let dirs: Vec<PathBuf> = ["a", "a-link", "b", "c", "d", "e", "late"].iter().map(|d| rig.p(d)).collect();
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(dirs.clone());
+    // a directory that gains a runbook after the daemon started
+    book("late", "omega", 7);
+    let mut listed: Vec<(String, Option<String>)> = engine.runbooks().into_iter().map(|r| (r.name, r.version)).collect();
+    listed.sort();
+    let mut every = std::collections::BTreeSet::new();
+    for home in dirs.iter().chain(std::iter::once(&rig.p("home"))) {
+        for entry in std::fs::read_dir(home.join("protocol")).into_iter().flatten().flatten() {
+            if let Some(name) = entry.file_name().to_string_lossy().strip_suffix(".protocol.yaml") {
+                every.insert(name.to_owned());
+            }
+        }
+    }
+    for name in &every {
+        let accepted = engine.knows_runbook(name, None);
+        let shown = listed.iter().any(|(n, _)| n == name);
+        assert_eq!(accepted, shown, "the name {name:?}: a submit accepts it ({accepted}), the view lists it ({shown}); view {listed:?}");
+    }
+    for (name, version) in &listed {
+        let version = version.as_deref().unwrap();
+        assert!(engine.knows_runbook(name, Some(version)), "{name}: a submit of the listed version {version} is refused");
+        assert!(!engine.knows_runbook(name, Some("999")), "{name}: a submit of a version that is not there is accepted");
+    }
+    let names: Vec<&str> = listed.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["delta", "eps", "gamma", "omega"], "{listed:?}");
+}
+
+// ---- every start of the binary in the cases names the empty configuration, the daemon names its file ----
+
+fn test_sources(dir: &Path, into: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            test_sources(&path, into);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            into.push(path);
+        }
+    }
+}
+
+#[test]
+fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() {
+    // `serve`, `run`, `list`, `check`, `doctor` and `config` read a `runbook.toml` of the working directory's
+    // parents and of the user's directories; a case that starts one of them without naming the empty file reads
+    // what the host has
+    let mut files = Vec::new();
+    test_sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
+    let shapes = ["env!(\"CARGO_BIN_EXE_runbook\")", "BIN)", "super::core::BIN)", "&odd)", "prefix.join(\"bin/runbook\")", "&program)", "program)"];
+    // `XDG_CONFIG_HOME` is the private HOME and configuration directory of a `Rig`, whose working directory
+    // lies in its own tree
+    let guards = ["isolate(", "RUNBOOK_CONFIG", "RUNBOOK_NO_CONFIG", "--no-config", "XDG_CONFIG_HOME"];
+    let others = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "\"decide\""];
+    let mut unguarded = Vec::new();
+    let mut starts = 0;
+    for file in files {
+        let name = file.file_name().unwrap().to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(&file).unwrap();
+        for (at, _) in text.match_indices("Command::new(") {
+            let after = &text[at + "Command::new(".len()..];
+            if !shapes.iter().any(|s| after.starts_with(s)) {
+                continue;
+            }
+            let from = ["\nfn ", "\npub fn ", "\n    fn ", "\n#[test]"].iter().filter_map(|m| text[..at].rfind(m)).max().unwrap_or(0);
+            let to = ["\nfn ", "\npub fn ", "\n#[test]"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
+            let region = &text[from..to];
+            if others.iter().any(|o| region.contains(o)) && !region.contains("\"serve\"") {
+                continue;
+            }
+            starts += 1;
+            if !guards.iter().any(|g| region.contains(g)) {
+                unguarded.push(format!("{name}:{}", text[..at].matches('\n').count() + 1));
+            }
+        }
+    }
+    assert!(starts >= 8, "the scan found only {starts} starts of the binary");
+    assert!(unguarded.is_empty(), "starts of the binary in the cases that name no empty configuration and read what the host has: {unguarded:?}");
+}
+
+/// The lines `runbook serve` writes before it listens: standard error from its own pipe, and whether it listened.
+fn serve_says(rig: &Rig, args: &[&str]) -> (Option<i32>, Vec<String>) {
+    use std::io::{BufRead, BufReader};
+    use std::sync::mpsc;
+    let mut c = rig.command(&rig.root, args);
+    let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let (tx, rx) = mpsc::channel::<String>();
+    let out_pipe = child.stdout.take().unwrap();
+    let err_pipe = child.stderr.take().unwrap();
+    std::thread::spawn(move || BufReader::new(out_pipe).lines().map_while(Result::ok).for_each(|l| drop(tx.send(l))));
+    let errors = std::thread::spawn(move || BufReader::new(err_pipe).lines().map_while(Result::ok).collect::<Vec<String>>());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut exited = None;
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(l) if l.contains("listening") => break,
+            Ok(_) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                exited = child.wait().ok().and_then(|s| s.code());
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if std::time::Instant::now() > deadline {
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    (exited, errors.join().unwrap())
+}
+
+fn serve_args(rig: &Rig) -> Vec<String> {
+    ["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local"].iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn serve_reads_the_file_of_the_users_directory_when_nothing_names_one() {
+    // what an unisolated start of `serve` in the cases would read of the host: the user's directory
+    let rig = Rig::new("serve-user-dir");
+    rig.fixture();
+    let dir = rig.p("books/a");
+    std::fs::create_dir_all(dir.join("protocol")).unwrap();
+    std::fs::create_dir_all(dir.join("bindings")).unwrap();
+    std::fs::write(dir.join("protocol/example.protocol.yaml"), "protocol:\n  id: example\n  revision: 1\n").unwrap();
+    std::fs::write(dir.join("bindings/example.yaml"), "format: loom.bindings/1\n").unwrap();
+    let file = rig.put("xdg/runbook/runbook.toml", &format!("runbooks = [\"{}\"]\n", dir.display()));
+    let args = serve_args(&rig);
+    let (_, lines) = serve_says(&rig, &args.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(lines.iter().any(|l| l == &format!("runbook serve: values from runbook.toml {} (found in the user's configuration directory)", file.display())), "{lines:?}");
+}
+
+#[test]
+fn serve_says_nothing_of_a_file_that_states_no_key() {
+    // docs/loom-run.md: with no file, or a file that states no key, nothing is printed
+    let rig = Rig::new("serve-empty-file");
+    rig.fixture();
+    rig.put("runbook.toml", "runbooks = []\n");
+    let args = serve_args(&rig);
+    let (_, lines) = serve_says(&rig, &args.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(lines.iter().any(|l| l.contains("this daemon runs")), "the daemon did not start: {lines:?}");
+    assert!(!lines.iter().any(|l| l.contains("values from")), "a file that states no key is named: {lines:?}");
+    std::fs::remove_file(rig.p("runbook.toml")).unwrap();
+    let (_, lines) = serve_says(&rig, &args.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(lines.iter().any(|l| l.contains("this daemon runs")), "the daemon did not start: {lines:?}");
+    assert!(!lines.iter().any(|l| l.contains("values from")), "{lines:?}");
+}
+
+#[test]
+fn serve_names_its_file_before_it_refuses_the_directories_the_file_names() {
+    // the line comes before the daemon reads the directories: a refusal of them says which file they came from
+    let rig = Rig::new("serve-refuses");
+    rig.fixture();
+    let file = rig.put("runbook.toml", "runbooks = [\"missing-books\"]\n");
+    let args = serve_args(&rig);
+    let o = rig.run(&rig.root, &args.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_ne!(code(&o), 0, "{}", both(&o));
+    let text = err(&o);
+    let lines: Vec<&str> = text.lines().collect();
+    let said = lines.iter().position(|l| l.contains(&file.display().to_string()) && l.contains("values from"));
+    assert!(said.is_some(), "a refusal of the directories of a file does not say which file they came from: {lines:?}");
+    let refused = lines.iter().position(|l| l.contains("missing-books")).unwrap_or(usize::MAX);
+    assert!(said.unwrap() < refused, "{lines:?}");
+}
+
+// ---- the file the option or the variable names ----
+
+#[test]
+fn a_file_named_by_the_option_or_no_file_at_all_lists_no_file_of_the_walk() {
+    let rig = Rig::new("named-no-skips");
+    rig.put("runs/r1/events.jsonl", "");
+    std::fs::create_dir_all(rig.p("runs/r1/work")).unwrap();
+    std::fs::create_dir_all(rig.p("runs/r1/bindings")).unwrap();
+    let planted = rig.put("runs/r1/work/runbook.toml", "max_wall_seconds = 4242424\n");
+    let named = rig.put("named.toml", "max_wall_seconds = 90\n");
+    let cwd = rig.p("runs/r1/work");
+    let lists = |o: &Output| out(o).lines().any(|l| l.contains("skipped") && l.contains(&planted.display().to_string()));
+    assert!(lists(&rig.run(&cwd, &["config"])), "without a named file the walk lists the file it did not read");
+    for args in [vec!["config", "--config", named.to_str().unwrap()], vec!["config", "--no-config"]] {
+        let o = rig.run(&cwd, &args);
+        assert_eq!(code(&o), 0, "{}", both(&o));
+        assert!(!lists(&o), "{args:?} lists a file of the walk: {}", out(&o));
+        assert!(!both(&o).contains("4242424"), "{args:?} printed a value of the planted file");
+    }
+    let mut c = rig.command(&cwd, &["config"]);
+    c.env("RUNBOOK_NO_CONFIG", "1");
+    let o = c.output().unwrap();
+    assert!(!lists(&o), "{}", out(&o));
+}
+
+// ---- a file found inside a program of a run: no key for a floor or a level ----
+
+#[test]
+fn a_file_found_inside_a_program_of_a_run_has_no_key_for_a_floor_or_a_level() {
+    // docs/loom-run.md (a nested `runbook` under `substrate` reads the work tree's own file): "it has no key for
+    // a floor or a level". Loom gives every bound program `LOOM_CASE`; a start that has it is a program of a run.
+    for (key, text) in [("confinement", "confinement = \"local\"\n"), ("autonomy", "autonomy = \"A5\"\n")] {
+        let rig = Rig::new("level-key");
+        let file = rig.put("runbook.toml", text);
+        let mut nested = rig.command(&rig.root, &["config"]);
+        nested.env("LOOM_CASE", "a-case");
+        let o = nested.output().unwrap();
+        assert_eq!(code(&o), 2, "{key}: a file found inside a program of a run states a level and is read: {}{}", out(&o), err(&o));
+        assert!(err(&o).contains(key) && err(&o).contains("runbook.toml"), "{key}: the refusal does not name the key: {}", err(&o));
+        assert!(!err(&o).contains("\"local\"") && !err(&o).contains("A5") && !out(&o).contains("local"), "{key}: a value of the file was printed: {}{}", out(&o), err(&o));
+        // the same file, started by a person (no `LOOM_CASE`), is read: the file's confinement is the story
+        let o = rig.run(&rig.root, &["config"]);
+        assert_eq!(code(&o), 0, "{key}: {}", err(&o));
+        // a file the caller names is the caller's own choice
+        let mut named = rig.command(&rig.root, &["config", "--config", &file.display().to_string()]);
+        named.env("LOOM_CASE", "a-case");
+        let o = named.output().unwrap();
+        assert_eq!(code(&o), 0, "{key}: {}", err(&o));
+    }
+}
+
+// ---- the tree of a case stands outside the checkout ----
+
+#[test]
+fn a_rig_stands_outside_the_checkout_and_a_file_in_a_tree_around_another_rig_changes_no_result() {
+    // The walk for `runbook.toml` climbs from the working directory to the root of the file system. A rig below
+    // the checkout (or `target/` of it) found the file at the root of the checkout: seven cases went red when
+    // one stood there. The tree of a rig is a fresh directory of its own in the temporary directory.
+    let canon = |p: &Path| p.canonicalize().unwrap();
+    let rig = Rig::new("outside");
+    let checkout = canon(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap());
+    assert!(!canon(&rig.root).starts_with(&checkout), "the tree of a rig is below the checkout: {}", rig.root.display());
+    assert!(!canon(&rig.root).starts_with(canon(Path::new(env!("CARGO_TARGET_TMPDIR")))), "the tree of a rig is below target/tmp");
+    // a checkout of its own in another rig's tree: a file at its root and one in its build tree
+    let stand_in = Rig::new("stand-in");
+    stand_in.put("checkout/runbook.toml", "max_wall_seconds = 4242424\nrunbooks = [\"nowhere\"]\n");
+    stand_in.put("checkout/runbook/target/tmp/keep", "");
+    let before = rig.run(&rig.p("work/sub"), &["config"]);
+    stand_in.put("checkout/runbook/runbook.toml", "max_llm_calls = 4242424\n");
+    let after = rig.run(&rig.p("work/sub"), &["config"]);
+    assert_eq!((code(&before), out(&before), err(&before)), (code(&after), out(&after), err(&after)));
+    assert!(!out(&after).contains("4242424") && !err(&after).contains("nowhere"), "{}{}", out(&after), err(&after));
 }

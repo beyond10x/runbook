@@ -821,6 +821,31 @@ mod tests {
     }
 
     #[test]
+    fn the_token_forms_after_a_name_and_an_equals_sign_or_a_dot() {
+        let yes: Vec<String> = [["GH_TOKEN=gh", "p_x runner"], ["runner --token=gl", "pat-x"], ["x.gh", "p_x"], ["AUTH=Bear", "er abc"], ["Bear", "er=abc"], ["a=b c=Bear", "er d"], ["API_TOKEN=ey", "Ja.eyJb.c"]].iter().map(|p| p.concat()).collect();
+        for yes in &yes {
+            assert!(token_form(yes), "{yes}");
+        }
+        for no in ["max_wall_seconds=1", "a=b", "key=value.x", "name=bearer", "x.y.z", "a=", "=b", "bearer="] {
+            assert!(!token_form(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn mask_hides_the_word_after_bearer_in_a_header_after_a_break_and_nothing_else() {
+        assert_eq!(mask("Authorization: Bearer hunter2"), "Authorization: Bearer <a key or token>");
+        assert_eq!(mask("Bearer\n  hunter2"), "Bearer\n  <a key or token>");
+        assert_eq!(mask("Bearer: hunter2 and tea"), "Bearer: <a key or token> and tea");
+        assert_eq!(mask("a Bearer b c"), "a Bearer <a key or token> c");
+        assert_eq!(mask("a bear hunter2"), "a bear hunter2");
+        assert_eq!(mask("Bearer"), "Bearer");
+        assert_eq!(mask(""), "");
+        // the line a JSON string has: the break is the two characters backslash and n
+        assert_eq!(mask("\"Authorization: Bearer\\n  hunter2\""), "\"Authorization: Bearer\\n  <a key or token>\"");
+        assert_eq!(mask("\"x\\nBearer\\thunter2\""), "\"x\\nBearer\\t<a key or token>\"");
+    }
+
+    #[test]
     fn the_run_names_are_unique_plain_and_carry_the_runbook() {
         let a = generated_run_name("sdc");
         let b = generated_run_name("sdc");
