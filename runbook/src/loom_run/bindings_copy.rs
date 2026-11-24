@@ -216,6 +216,9 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
     let mut jobs: Vec<(&Path, &Path)> = vec![(src, dst.as_path())];
     jobs.extend(companions.iter().map(|(from, to)| (from.as_path(), to.as_path())));
     copy_dirs(&jobs, Links::Keep)?;
+    // The members `max_budget_usd` leave the copy as written, before the settings touch an argv: Loom
+    // refuses a member it does not know, and the reservation reads them from beside the copy.
+    runbook::budget::seal(&dst.join(format!("{root_protocol_name}.yaml")))?;
     let login_argument = login_link.map(|l| l.display().to_string());
     rewrite_files(&dst, &plan, login_argument.as_deref())?;
     let root = dst.join(format!("{root_protocol_name}.yaml"));

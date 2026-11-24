@@ -8,8 +8,10 @@
 //! read by [`read_regular`], [`read_regular_text`], [`read_regular_prefix`], [`read_regular_within`] or through a held
 //! directory ([`Held::read`], [`Held::read_text`], [`Held::copy_to`]). The bindings copy is held for every read and
 //! write after the first program started ([`Held::open`], listed by [`Held::names`]), so a link at its name ends the
-//! run; the per-call budgets are read and lowered in it by `runbook::budget` and the bound actions are read from it by
-//! `runbook::engine::announce`, both through a [`Held`] of the directory.
+//! run; the per-call budgets are read and lowered in it by `runbook::budget` (with the members kept beside the copy,
+//! `.call-budgets.json`, which `budget::seal` writes through a [`Held`] too) and the bound actions are read from it by
+//! `runbook::engine::announce`, both through a [`Held`] of the directory. `budget::runbook_budgets` reads by path: the
+//! daemon calls it at a run's start, on the runbook home or on the run's pinned copy outside the workspace.
 //!
 //! The file lives in the library so that the runner (`runbook run`, `loom_run::record_write` is this module) and the
 //! code of the library it calls (`budget`, `cost`, `engine::announce`) hold one guard.
@@ -367,6 +369,21 @@ impl Held {
     /// [`write_atomic`] of the file `leaf` of this directory, through the descriptor.
     pub fn write(&self, leaf: impl AsRef<std::ffi::OsStr>, bytes: &[u8]) -> Result<(), String> {
         write_atomic_at(&self.dir, &self.path, leaf.as_ref(), bytes, 0o644)
+    }
+
+    /// The permission bits of the name `leaf` of this directory, no link followed (`fstatat` with
+    /// `AT_SYMLINK_NOFOLLOW`); none when nothing is there.
+    pub fn mode(&self, leaf: impl AsRef<std::ffi::OsStr>) -> Option<u32> {
+        use std::os::fd::AsRawFd;
+        let c_leaf = leaf_name(leaf.as_ref(), &self.path).ok()?;
+        // SAFETY: as in `symlink`; `stat` is a zeroed buffer the call fills.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        (unsafe { libc::fstatat(self.dir.as_raw_fd(), c_leaf.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) } == 0).then_some(stat.st_mode & 0o777)
+    }
+
+    /// [`Held::write`] with the permission bits `mode` for the new file.
+    pub fn write_mode(&self, leaf: impl AsRef<std::ffi::OsStr>, bytes: &[u8], mode: u32) -> Result<(), String> {
+        write_atomic_at(&self.dir, &self.path, leaf.as_ref(), bytes, mode)
     }
 
     /// A copy of `from` to the file `leaf` of this directory (what `copy_atomic` is by path): the source is read as every name of the run is, the

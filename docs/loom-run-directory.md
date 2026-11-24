@@ -59,8 +59,9 @@ written through the open directory of the call, which the runner made and kept o
 made relative to that descriptor, so a program that renames the call's directory while the adapter runs and puts a link or
 another directory at its name does not change where a record goes; the records land in the directory the runner made.
 The bindings copy (`bindings/`) is held the same way once the first program has started: before each step the runner
-opens it without following a link at its name, lists it, reads its files and rewrites the call budget through that
-descriptor, and the answer steps, the principal and the results of an action are read through it too; the bound actions
+opens it without following a link at its name, lists it, reads its files and the members kept beside them
+(`.call-budgets.json`) and rewrites the call budget through that descriptor (the copy is sealed the same way when it is
+made: a link at a bindings file is not written through, and a link at `.call-budgets.json` is an error), and the answer steps, the principal and the results of an action are read through it too; the bound actions
 that the start of a program is announced with (`runbook::engine::announce`, for `runbook run` and the daemon) are read
 through the same `Held` of the directory, as regular files with one name of at most 64 MiB.
 A link or a file at the name `bindings`, or a link at a bindings file, ends the run with an error that names the file
