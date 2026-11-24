@@ -4,7 +4,7 @@
 // list. Kinds: `open` (stub runtime, no token, floor linux) and `token` (the same with the token TOKEN).
 // A test that needs another floor, a runbook directory or the Loom runtime starts a daemon of its own (daemon-start.spec.mjs).
 // The state directory lies under SEC_SCRATCH when it is set, else under node_modules, and is removed when the worker ends.
-import {spawnChild} from './child.mjs';
+import {spawnChild, SERVE_CAPS} from './child.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -25,7 +25,7 @@ function start(kind) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, kind, 'empty'), {recursive: true});
     const env = {...process.env, HOME: path.join(dir, kind), RUNBOOK_TOKEN: kind === 'token' ? TOKEN : ''};
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, kind, 'state')], {cwd: path.join(dir, kind, 'empty'), env, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawnChild(bin, ['serve', ...SERVE_CAPS, '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, kind, 'state')], {cwd: path.join(dir, kind, 'empty'), env, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });

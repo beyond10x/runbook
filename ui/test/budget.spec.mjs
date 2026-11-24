@@ -541,3 +541,14 @@ test('no file under test/ names a listening port: servers take one from the kern
   }
   expect(bad).toEqual([]);
 });
+
+// A line of a file that starts an argv with 'serve' and does not spread SERVE_CAPS (child.mjs), as file:line.
+const uncapped = (files) => Object.entries(files).flatMap(([f, t]) => t.split('\n').map((l, i) => [i + 1, l])
+  .filter(([, l]) => /\[\s*['"]serve['"]/.test(l) && !l.includes('...SERVE_CAPS')).map(([n]) => `${f}:${n}`));
+test('every runbook serve a file of test/ starts is given the caps: its argv spreads SERVE_CAPS of child.mjs', () => {
+  expect(uncapped({'a.mjs': "spawnChild(bin, ['serve', '--ui', ...SERVE_CAPS], {})"})).toEqual([]);
+  expect(uncapped({'a.mjs': "x\nspawnChild(bin, [ \"serve\", '--ui'], {})"})).toEqual(['a.mjs:2']);
+  const files = Object.fromEntries(fs.readdirSync(here).filter((x) => x.endsWith('.mjs') && x !== 'budget.spec.mjs').map((f) => [f, text(f)]));
+  expect(Object.values(files).filter((t) => /\[\s*['"]serve['"]/.test(t)).length, 'files that start a daemon').toBeGreaterThan(0);
+  expect(uncapped(files), 'argv of a serve without the caps').toEqual([]);
+});
