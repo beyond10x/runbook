@@ -446,3 +446,106 @@ fn only_the_programs_of_the_runbook_run_and_nothing_is_written_beside_the_state_
     assert_eq!(listing(&rig.home), home_before, "the runbook directory was written into");
     assert!(rig.store(&run).starts_with(rig.dir.join("state")));
 }
+
+// ---- the step in flight ----
+
+const STARTED: &str = "runbook.action-started";
+
+impl Rig {
+    /// The row of the view `run` as `GET /daemon/views/run` and the MCP tool `read_run` answer it.
+    fn run_view(&self, run: &str) -> Value {
+        let query = std::collections::HashMap::from([("run_id".to_string(), run.to_string())]);
+        let answer = runbook::api::routes::view_answer("run", self.d(), &query);
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.body["rows"][0].clone()
+    }
+
+    fn started(&self, run: &str) -> Vec<Value> {
+        self.d().events_after(run, 0).into_iter().filter(|e| e["kind"] == STARTED).collect()
+    }
+
+    fn wait_started(&self, run: &str, action: &str) -> Value {
+        let mut found = None;
+        until(&format!("{STARTED} of {action}"), 20, || {
+            found = self.started(run).into_iter().find(|e| e["record"]["action"] == action);
+            found.is_some()
+        });
+        found.unwrap()
+    }
+}
+
+#[test]
+fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
+    let rig = Rig::new("engine-in-flight", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    let event = rig.wait_started(&run, "draft.write");
+    // the program has not ended: no draft, no finished line of the action
+    assert!(!rig.workspace(&run).join("draft.txt").exists(), "the writer ended before its start was recorded");
+    let finished = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"] == "ActionFinished" && e["record"]["action"] == "draft.write").count();
+    assert_eq!(finished, 0, "the action was finished when its start was read");
+    assert_eq!(event["record"]["role"], "program");
+    let case = event["record"]["case"].as_str().expect("the event names the case");
+    assert!(!case.is_empty());
+    // the run view shows it
+    let row = rig.run_view(&run);
+    super::openapi::check_row("RunDetail", &row);
+    let step = &row["step_in_flight"];
+    assert_eq!((step["action"].as_str(), step["case_id"].as_str()), (Some("draft.write"), Some(case)), "{row}");
+    assert_eq!(step["started_at"], event["at"], "{row}");
+    assert!(step["seconds"].as_u64().is_some_and(|s| s <= 3), "{row}");
+    // it is gone once the run waits on the review: the writer and the check ended
+    rig.wait_review(&run);
+    let row = rig.run_view(&run);
+    super::openapi::check_row("RunDetail", &row);
+    assert!(row.get("step_in_flight").is_none(), "a step is shown while the run waits: {row}");
+    assert!(rig.workspace(&run).join("draft.txt").exists());
+}
+
+#[test]
+fn actions_in_turn_give_one_event_each_in_the_order_they_started() {
+    let rig = Rig::new("engine-in-flight-turns", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(1)));
+    rig.wait_review(&run);
+    let events = rig.d().events_after(&run, 0);
+    let mut seen: Vec<(String, u64)> = Vec::new();
+    for e in &events {
+        let position = e["position"].as_u64().unwrap();
+        match e["kind"].as_str().unwrap() {
+            STARTED => seen.push((format!("started {}", e["record"]["action"].as_str().unwrap()), position)),
+            "ActionFinished" => seen.push((format!("finished {}", e["record"]["action"].as_str().unwrap()), position)),
+            _ => {}
+        }
+    }
+    let names: Vec<&str> = seen.iter().map(|(n, _)| n.as_str()).collect();
+    // draft.open is no program (no start event); then the check (no draft yet: invalid), the writer, the check again
+    let mut want = vec!["finished draft.open".to_string()];
+    want.extend(["draft.check", "draft.write", "draft.check"].iter().flat_map(|a| [format!("started {a}"), format!("finished {a}")]));
+    assert_eq!(names, want, "{names:?}");
+    assert!(seen.windows(2).all(|w| w[0].1 < w[1].1), "positions grow: {seen:?}");
+    assert_eq!(rig.started(&run).len(), 3);
+}
+
+#[test]
+fn a_handoff_check_is_recorded_as_a_check_of_its_action() {
+    let rig = Rig::build("engine-in-flight-check", &[Confinement::Local], true);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(3)));
+    let event = rig.wait_started(&run, "draft.write");
+    assert_eq!(event["record"]["role"], "check", "{event}");
+    assert_eq!(rig.run_view(&run)["step_in_flight"]["action"], "draft.write");
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    assert!(rig.run_view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event() {
+    let mut rig = Rig::new("engine-in-flight-orphan", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(20)));
+    rig.wait_started(&run, "draft.write");
+    assert!(rig.run_view(&run).get("step_in_flight").is_some());
+    rig.restart();
+    let row = rig.run_view(&run);
+    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")), "{row}");
+    assert!(row.get("step_in_flight").is_none(), "an orphaned run shows a step: {row}");
+    assert_eq!(rig.started(&run).len(), 1, "the journal keeps the start event");
+}
