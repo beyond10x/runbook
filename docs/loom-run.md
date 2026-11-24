@@ -110,9 +110,15 @@ the variable `RUNBOOK_CONFIG`; `runbook.toml` in the working directory or a pare
 `$XDG_CONFIG_HOME/runbook/runbook.toml` (else `<home>/.config/runbook/runbook.toml`). `--no-config` and
 the variable `RUNBOOK_NO_CONFIG` read no file. The runner gives `RUNBOOK_NO_CONFIG` to the programs it
 starts itself: the `b10x-loom` child, the programs of an answers file and the seed helper of `--bugfix`.
-A bound program of a runbook gets `PATH` and `LOOM_*` only (Loom's program contract, unchanged here); a
+A bound program of a runbook gets `PATH` and `LOOM_*` only (Loom's program contract, unchanged here). A
 `runbook` that one of them starts inside the run's tree is kept from the file by the rule below, that the
-walk reads nothing inside a run.
+walk reads nothing inside a run, as long as the run directory is above the program's working directory by
+the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
+`/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
+`runbook.toml`, as a file of the walk. Its keys are checked like those of any file, it has no key for a
+floor or a level (a key that would lower one is refused by name, with no value printed), and a value of a
+file never lowers what an option or the daemon's floor sets: the nested run runs inside the same
+confinement.
 
 `runbook run` says on standard error, before anything starts, which `runbook.toml` it took values from and
 how it was found (`--config`, `RUNBOOK_CONFIG`, found in the working directory or a parent, found in the
@@ -125,7 +131,7 @@ found too.
 
 What the file can never do. A refusal names the file and the key, and prints no line, value or part of a
 value of it. A key named like a login, a token or a key, a value that has the form of one (the vendors'
-key prefixes, a private key block, a web token, a bearer value) and an unknown key at any level are
+key prefixes, a private key block, a web token, a bearer value: the word `bearer` in any case and the word after it, wherever they stand in a value) and an unknown key at any level are
 refused; a login is named by its path, never held by content. A file found by the walk or in the user's
 directory is a regular file with one name that its user owns and that group and others cannot write; a
 link, a file with a second name and a writable file are refused by name (`--config` and
@@ -174,7 +180,9 @@ as the built-in set is. A relative path is relative to the directory of the file
 - `runbook run <name>` takes `protocol/` and `bindings/` from the directory the name is found in;
   `--bindings` and `--protocols` still name them themselves. `runbook serve` reads the same list at its
   start and refuses a set that `list` refuses, before it listens; its engine looks a name up in the same
-  order.
+  order. It says on standard error, before it listens, the one line `runbook run` says about the file it
+  took the directories from (`runbook serve: values from runbook.toml <path> (<how it was found>)`); with
+  no file, or a file that states no key, nothing is printed.
 - `runbook check` reads every directory (layout `protocol/`, `bindings/`, the binding files, instruction
   files and views; the cycles list is the built-in set's); `runbook check --for <name>` the directory
   of one runbook. `runbook doctor --for <name>` asks the layout of that directory and the programs and
