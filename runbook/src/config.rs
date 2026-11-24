@@ -47,8 +47,9 @@ const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", 
 /// runbooks are loaded from. The floor of the daemon has no key in any file.
 const NESTED_REFUSED_KEYS: [&str; 7] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks"];
 
-/// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement.
-pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\ncap_micro_usd = 5000000\nmax_llm_calls = 200\n";
+/// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
+/// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
+pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\n";
 
 /// Where the file is named: the two options every command takes.
 #[derive(Args, Clone, Debug, Default)]
@@ -1062,7 +1063,8 @@ mod tests {
     fn the_starter_is_read() {
         let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned(), nested: false };
         let f = parse(&found).unwrap();
-        assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), Some(5_000_000), Some(200)));
+        assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), None, None));
+        assert_eq!(f.spend_ledger, None, "the starter names no ledger");
         assert_eq!(f.runs_dir, Some(PathBuf::from("/x/runs")));
     }
 }

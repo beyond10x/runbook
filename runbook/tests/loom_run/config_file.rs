@@ -363,13 +363,31 @@ fn init_writes_a_starter_that_is_read_and_refuses_to_overwrite() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), starter, "the file was not changed");
     let o = rig.run(&rig.root, &["config"]);
     assert_eq!(code(&o), 0, "{}", err(&o));
-    for key in ["runs_dir", "confinement", "max_wall_seconds", "cap_micro_usd", "max_llm_calls"] {
+    for key in ["runs_dir", "confinement", "max_wall_seconds"] {
         assert!(row(&o, key).contains(&format!("file {}", file.display())), "{}", row(&o, key));
     }
     assert!(row(&o, "confinement").contains("\"substrate\""), "the starter names the stronger level: {}", row(&o, "confinement"));
     // the starter names no ledger: none is opened (`AGENTS.md`: no ledger nobody named)
     assert!(row(&o, "spend_ledger").contains("not stated") && row(&o, "run").contains("built-in"), "{}", row(&o, "spend_ledger"));
     assert!(!starter.contains('#'), "a starter has no comment");
+}
+
+/// The starter states no money limit (`AGENTS.md`: no default that requires or implies a cap): none of the cap,
+/// the call limit and the ledger is a key of it, so `runbook config` prints each as not stated.
+#[test]
+fn init_writes_a_starter_that_names_no_cap_no_call_limit_and_no_ledger() {
+    let rig = Rig::new("init-no-cap");
+    let o = rig.run(&rig.root, &["init"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let starter = std::fs::read_to_string(rig.p("runbook.toml")).unwrap();
+    for key in ["cap_micro_usd", "max_llm_calls", "spend_ledger"] {
+        assert!(!starter.lines().any(|l| l.trim_start().starts_with(key)), "the starter names {key}:\n{starter}");
+    }
+    let o = rig.run(&rig.root, &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    for key in ["cap_micro_usd", "max_llm_calls", "spend_ledger"] {
+        assert!(row(&o, key).contains("not stated"), "{}", row(&o, key));
+    }
 }
 
 // ---- what a refusal never prints ----
