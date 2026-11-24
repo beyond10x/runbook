@@ -1389,6 +1389,18 @@ fn a_link_a_program_put_at_the_decider_directory_is_not_written_through() {
 }
 
 #[test]
+fn a_link_a_program_put_at_the_home_directory_of_the_decider_is_not_made_the_home_of_the_adapter() {
+    let w = world("decider-home-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-home");
+    std::fs::remove_dir(w.run.join("home")).unwrap();
+    std::os::unix::fs::symlink(&out, w.run.join("home")).unwrap();
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "the adapter ran with a directory outside the run as its home, through a link at home/: {verdict:?}");
+    assert_eq!(names_in(&out), Vec::<String>::new());
+}
+
+#[test]
 fn a_link_a_program_put_at_the_decider_cases_directory_is_not_written_through() {
     let w = world("decider-cases-link", &valid("0.012345"));
     std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
