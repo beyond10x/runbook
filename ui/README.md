@@ -322,7 +322,7 @@ is compared by time:
   `cutStrings` (`cut: "strings"`), a path longer than 1024 characters is not listed and is counted in `refusedRecords`.
   An answer resolves at most `maxLinks` (8) link components of one name; a name past it is left out like a name behind a
   link that leaves the run, and is counted in `linkCut` besides `leftOut` (`cut: "links"`); `linksResolved` is the number
-  of link components the answer resolved over all names, at most `maxLinks` per name. The server keeps at most
+  of link components the answer resolved over the names it lists (at most 500), at most `maxLinks` per name. The server keeps at most
   100 000 records of `fs/changes.jsonl` for one run and at most 64 MiB of their lines, without the diff; a late
   attribution line that replaces one already kept counts what it adds to the longest line counted for that change (the
   variables `SDC_UI_MAX_RECORDS` and `SDC_UI_MAX_RECORD_BYTES` set the bounds, for a test; a value that is not a whole
