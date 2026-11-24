@@ -103,8 +103,8 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
             ("cap_reached", json!({"cap": cap, "detail": detail}))
         }
         Event::TreeStored { status_exit, verify_exit } => ("tree_stored", json!({"status_exit": status_exit, "verify_exit": verify_exit})),
-        Event::Ended { outcome, reason, cause, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls } => {
-            let mut fields = json!({"outcome": outcome, "reason": reason, "loom_exit_code": loom_exit, "stderr_tail": stderr_tail, "exit_code": exit_code, "steps": steps, "spent_micro_usd": spent_micro_usd, "llm_calls": llm_calls});
+        Event::Ended { outcome, reason, cause, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls, recorded_micro_usd, recorded_llm_calls } => {
+            let mut fields = json!({"outcome": outcome, "reason": reason, "loom_exit_code": loom_exit, "stderr_tail": stderr_tail, "exit_code": exit_code, "steps": steps, "spent_micro_usd": spent_micro_usd, "llm_calls": llm_calls, "recorded_micro_usd": recorded_micro_usd, "recorded_llm_calls": recorded_llm_calls});
             if let (Some(cause), Some(map)) = (cause, fields.as_object_mut()) {
                 map.insert("cause".to_owned(), Value::from(cause.as_str()));
             }
@@ -129,7 +129,7 @@ impl EventSink for BasicFiles {
         let line = serde_json::to_string(&event_json(at_secs, event)).map_err(|e| e.to_string())?;
         let line = relative_text(&self.run_dir, &line);
         writeln!(self.log, "{line}").map_err(|e| format!("events.jsonl: {e}"))?;
-        if let Event::Ended { outcome, reason, cause, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls } = event {
+        if let Event::Ended { outcome, reason, cause, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls, recorded_micro_usd, recorded_llm_calls } = event {
             let mut v = json!({
                 "format": "runbook.loom-run-outcome/1",
                 "outcome": outcome,
@@ -140,6 +140,8 @@ impl EventSink for BasicFiles {
                 "steps": steps,
                 "spent_micro_usd": spent_micro_usd,
                 "llm_calls": llm_calls,
+                "recorded_micro_usd": recorded_micro_usd,
+                "recorded_llm_calls": recorded_llm_calls,
             });
             if let (Some(cause), Some(map)) = (cause, v.as_object_mut()) {
                 map.insert("cause".to_owned(), Value::from(cause.as_str()));

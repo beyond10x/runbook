@@ -72,6 +72,10 @@ fn fault(f: Fault) -> Answer {
     match f {
         Fault::Invalid(message) => refused(StatusCode::BAD_REQUEST, "bad request", &message),
         Fault::Internal(message) => refused(StatusCode::INTERNAL_SERVER_ERROR, "internal error", &message),
+        Fault::Draining { live_runs } => {
+            let message = format!("the daemon is draining: it got its stop signal, takes no new run and waits for {live_runs} live run(s) to end; submit again to the daemon that starts next");
+            Answer { status: StatusCode::SERVICE_UNAVAILABLE, body: json!({"refused": "draining", "message": message, "live_runs": live_runs}), location: None }
+        }
     }
 }
 
