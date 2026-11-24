@@ -1017,6 +1017,20 @@ mod tests {
     }
 
     #[test]
+    fn the_scrubbed_message_and_the_refusal_of_a_key_are_masked_by_themselves_and_not_only_by_the_caller() {
+        // a form that no one segment of a dotted key has: only the whole text shows it
+        let jwt = ["ey", "Ja.eyJb.c"].concat();
+        let said = scrub(format!("{jwt}: a value"));
+        assert!(said.contains(HIDDEN) && !said.contains("eyJa"), "{said}");
+        // a key with a token after a space: the word-aware mask hides it, the form at the start of the key does not
+        let key = ["see gh", "p_x"].concat();
+        assert!(!token_form(&key));
+        let object: Value = serde_json::from_str(&format!("{{\"{key}\": 1}}")).unwrap();
+        let refused = scan(&object, "").unwrap_err();
+        assert!(refused.contains("a key has the form of a key or a token") && !refused.contains("p_x"), "{refused}");
+    }
+
+    #[test]
     fn the_run_names_are_unique_plain_and_carry_the_runbook() {
         let a = generated_run_name("sdc");
         let b = generated_run_name("sdc");

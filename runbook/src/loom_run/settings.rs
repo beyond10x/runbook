@@ -319,6 +319,14 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_of_the_reader_is_masked_by_parse_itself_for_a_form_that_only_the_whole_path_has() {
+        // the keys `eyJa` and `eyJb` and the member `c`: no one segment of the path is a web token, the path is
+        let head = ["ey", "Ja.eyJb"].concat();
+        let e = parse(&format!("[{head}]\nc = 1979-05-27\n")).unwrap_err();
+        assert!(e.contains("a date or a time") && !e.contains(&head) && e.contains("<a key or token>"), "{e}");
+    }
+
+    #[test]
     fn the_example_of_the_page_is_read_by_the_reader_and_taken_by_the_decider_and_the_bindings_copy() {
         let given = normalise(&parse(&example()).unwrap(), &args()).unwrap();
         let top = given.as_object().unwrap();
