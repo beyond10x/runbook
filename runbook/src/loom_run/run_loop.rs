@@ -15,7 +15,7 @@ use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Ope
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
-use crate::loom_run::record_write::{make_dir_in, read_regular_text, write_atomic};
+use crate::loom_run::record_write::{make_dir_in, read_regular_text, Held};
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -654,9 +654,9 @@ impl Runner<'_> {
         self.reasons_written += 1;
         let safe: String = action.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
         let dir = self.workspace.join(".sdc").join("reasons");
-        make_dir_in(&self.run_dir, &dir)?;
-        let file = dir.join(format!("{:03}-{safe}.txt", self.reasons_written));
-        write_atomic(&file, format!("{text}\n").as_bytes())?;
+        let name = format!("{:03}-{safe}.txt", self.reasons_written);
+        let file = dir.join(&name);
+        Held::make(&self.run_dir, &dir)?.write(&name, format!("{text}\n").as_bytes())?;
         Ok(file)
     }
 

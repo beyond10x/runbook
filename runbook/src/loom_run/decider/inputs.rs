@@ -2,7 +2,7 @@
 //! claims it reads (`in/checks.json`) and the decision itself (`in/decision.json`).
 
 use super::prompt::{or, raw, Renderer};
-use crate::loom_run::record_write::{copy_atomic, make_dir_in, read_regular, read_regular_text, write_atomic};
+use crate::loom_run::record_write::{read_regular, read_regular_text, Held};
 use sdc_tools::reply::rules::later as protocol_later;
 use sdc_tools::reply::sorted;
 use serde_json::{json, Map, Value};
@@ -25,47 +25,46 @@ pub(super) fn read_json(p: &Path) -> Value {
     sorted(read_regular(p).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null))
 }
 
-/// Copies `from` to `to`, every directory of the copy below `base` made without following a link (`make_dir_in`), a file
-/// through `copy_atomic` and a link as a link.
-fn copy_entry(base: &Path, from: &Path, to: &Path) -> Result<(), String> {
+/// Copies `from` to the name `name` of the held directory `parent`: every directory of the copy is made below the descriptor
+/// without following a link (`Held::sub`), a file is copied through `Held::copy_from` and a link as a link, all relative to
+/// the descriptor of the directory they go into.
+fn copy_entry(parent: &Held, from: &Path, name: &std::ffi::OsStr) -> Result<(), String> {
     let kind = |e: std::io::Error| e.kind().to_string();
     let meta = std::fs::symlink_metadata(from).map_err(kind)?;
     if meta.file_type().is_symlink() {
-        let _ = std::fs::remove_file(to);
-        return std::os::unix::fs::symlink(std::fs::read_link(from).map_err(kind)?, to).map_err(kind);
+        return parent.symlink(&std::fs::read_link(from).map_err(kind)?, name);
     }
     if meta.is_dir() {
-        let made = make_dir_in(base, to)?;
+        let made = parent.sub(Path::new(name))?;
         let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(from).map_err(kind)?.filter_map(Result::ok).map(|e| e.file_name()).collect();
         names.sort();
-        for name in names {
-            if !left_out(&name.to_string_lossy()) {
-                copy_entry(base, &from.join(&name), &to.join(&name))?;
+        for child in names {
+            if !left_out(&child.to_string_lossy()) {
+                copy_entry(&made, &from.join(&child), &child)?;
             }
         }
-        return made.set_permissions(meta.permissions()).map_err(kind);
+        return made.file().set_permissions(meta.permissions()).map_err(kind);
     }
     if meta.is_file() {
-        copy_atomic(from, to)?;
+        parent.copy_from(from, name)?;
     }
     Ok(())
 }
 
 impl Inputs {
-    /// Copies `work/<p>` to `in/<p>` and lists it; nothing when it does not exist. The directories of the copy below `cwd`
-    /// are made without following a link, and a file of `work/` is read as a regular file with one name.
-    pub(super) fn add(&mut self, work: &Path, cwd: &Path, p: &str) -> Result<(), String> {
+    /// Copies `work/<p>` to `in/<p>` and lists it; nothing when it does not exist. The directories of the copy are made
+    /// below the held directory `cwd` without following a link, the file goes in through the descriptor of its directory,
+    /// and a file of `work/` is read as a regular file with one name.
+    pub(super) fn add(&mut self, work: &Path, cwd: &Held, p: &str) -> Result<(), String> {
         let from = work.join(p);
         if !from.exists() {
             return Ok(());
         }
-        let to = cwd.join("in").join(p);
-        let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if let Some(dir) = to.parent() {
-            make_dir_in(cwd, dir).map_err(|e| format!("input {p}: {e}"))?;
-        }
-        if !left_out(&name) {
-            copy_entry(cwd, &from, &to).map_err(|e| format!("input {p}: {e}"))?;
+        let to = Path::new("in").join(p);
+        let name = to.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        let dir = cwd.sub(to.parent().unwrap_or(Path::new("in"))).map_err(|e| format!("input {p}: {e}"))?;
+        if !left_out(&name.to_string_lossy()) {
+            copy_entry(&dir, &from, &name).map_err(|e| format!("input {p}: {e}"))?;
         }
         self.listed.push(format!("in/{p}"));
         Ok(())
@@ -82,7 +81,7 @@ fn story_of(id: &str) -> String {
 
 /// The inputs of a decision: the idea, the intake's results, the direction's artifacts and the
 /// subject under review (a close reads the published result instead of the plan).
-pub(super) fn collect(req: &Value, case_dir: &Path, cwd: &Path) -> Result<Inputs, String> {
+pub(super) fn collect(req: &Value, case_dir: &Path, cwd: &Held) -> Result<Inputs, String> {
     let work = case_dir.join("work");
     let mut inputs = Inputs::default();
     for p in ["idea.yaml", "dissection.yaml", "questions.yaml", "requirements.yaml", "context.yaml"] {
@@ -287,9 +286,9 @@ pub(super) fn decision(req: &Value, item: &Value, touches: &Value, citable: &Val
     d
 }
 
-/// Writes a document as `jq` does: indented, then a newline.
-pub(super) fn write_pretty(path: &Path, value: &Value) -> Result<(), String> {
-    write_atomic(path, format!("{}\n", serde_json::to_string_pretty(value).unwrap_or_default()).as_bytes())
+/// Writes a document as `jq` does, indented and then a newline, as the file `leaf` of the held directory `dir`.
+pub(super) fn write_pretty(dir: &Held, leaf: &str, value: &Value) -> Result<(), String> {
+    dir.write(leaf, format!("{}\n", serde_json::to_string_pretty(value).unwrap_or_default()).as_bytes())
 }
 
 /// Everything below `in/` the model is shown, and the prompt's pieces that come from it.
@@ -301,11 +300,11 @@ pub(super) struct Prepared {
     pub(super) schema: Value,
 }
 
-pub(super) fn prepare(req: &Value, case_dir: &Path, cwd: &Path, r: &Renderer, final_escalate: bool) -> Result<Prepared, String> {
+pub(super) fn prepare(req: &Value, case_dir: &Path, cwd: &Held, r: &Renderer, final_escalate: bool) -> Result<Prepared, String> {
     let work = case_dir.join("work");
     let mut inputs = collect(req, case_dir, cwd)?;
     let checks = checks(req, case_dir);
-    write_pretty(&cwd.join("in").join("checks.json"), &checks)?;
+    write_pretty(&cwd.sub(Path::new("in"))?, "checks.json", &checks)?;
     inputs.listed.push(r.render("input-checks.md", &[])?);
     let item = item_of(req, &work);
     if req["type"] == "finding" {
@@ -313,10 +312,10 @@ pub(super) fn prepare(req: &Value, case_dir: &Path, cwd: &Path, r: &Renderer, fi
     }
     let touches = touches(req, &work);
     let facts = sdc_tools::reply::records::Facts::driver(case_dir);
-    let context = sdc_tools::reply::citations::ctx(cwd, &facts);
+    let context = sdc_tools::reply::citations::ctx(cwd.path(), &facts);
     let citable = sdc_tools::reply::citations::citable_set(&context);
     let prior = if req["type"] == "approval" { sdc_tools::reply::records::rejections(case_dir, req["action"].as_str().unwrap_or("")) } else { json!([]) };
-    write_pretty(&cwd.join("in").join("decision.json"), &decision(req, &item, &touches, &citable, &prior))?;
+    write_pretty(&cwd.sub(Path::new("in"))?, "decision.json", &decision(req, &item, &touches, &citable, &prior))?;
     let finding = &req["finding"];
     let options: Vec<String> = names(or(&finding["options"], &json!([])));
     let rule = !finding["sides"].is_null() || !finding["trace"].is_null();

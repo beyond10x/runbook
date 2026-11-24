@@ -100,7 +100,7 @@ pub(super) fn case_artifacts(decision: &Value, case: &str) -> Vec<(String, Strin
 /// workspace). Under `<run dir>/decider-cases/<case>/`.
 pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) -> Result<PathBuf, String> {
     let dir = request.run_dir.join("decider-cases").join(&approval.case);
-    make_dir_in(request.run_dir, &dir).map_err(|e| format!("decider case directory: {e}"))?;
+    let held = Held::make(request.run_dir, &dir).map_err(|e| format!("decider case directory: {e}"))?;
     let mut artifacts = Map::new();
     for (name, revision) in case_artifacts(request.decision, &approval.case) {
         artifacts.insert(name, json!({ "revision": revision }));
@@ -109,21 +109,15 @@ pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) 
         artifacts.insert(approval.subject.clone(), json!({ "revision": approval.revision }));
     }
     let case = json!({"id": approval.case, "artifacts": artifacts});
-    write_atomic(&dir.join("case.json"), format!("{case}\n").as_bytes()).map_err(|e| format!("decider case file: {e}"))?;
+    held.write("case.json", format!("{case}\n").as_bytes()).map_err(|e| format!("decider case file: {e}"))?;
     // The file the reply's address cites (`<artifact>@<revision>#<entry>`) resolve through: the
     // decision's subject and its path are the one artifact the runner knows a file of.
-    let bindings = dir.join("bindings.json");
     match (approval.subject.is_empty(), &approval.path) {
-        (false, Some(path)) => write_atomic(&bindings, format!("{}\n", json!({"$artifacts": {approval.subject.clone(): path}})).as_bytes()).map_err(|e| format!("decider case file: {e}"))?,
-        _ => {
-            let _ = std::fs::remove_file(bindings);
-        }
+        (false, Some(path)) => held.write("bindings.json", format!("{}\n", json!({"$artifacts": {approval.subject.clone(): path}})).as_bytes()).map_err(|e| format!("decider case file: {e}"))?,
+        _ => held.remove("bindings.json"),
     }
-    let work = dir.join("work");
-    if std::fs::symlink_metadata(&work).is_ok() {
-        std::fs::remove_file(&work).map_err(|e| format!("decider case directory: {e}"))?;
-    }
-    std::os::unix::fs::symlink(request.workspace, &work).map_err(|e| format!("decider case directory: {e}"))?;
+    // `work` is the link to the workspace, put in place through the descriptor of the case directory.
+    held.symlink(request.workspace, "work").map_err(|e| format!("decider case directory: {e}"))?;
     Ok(dir)
 }
 

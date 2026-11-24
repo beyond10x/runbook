@@ -1241,7 +1241,7 @@ fn checks_and_prompt(tag: &str, ir: &str, action: &str, open: &[&str]) -> (Value
     let req = json!({"type": "approval", "case_dir": case.display().to_string(), "action": action, "subject": "x", "revision": "t1", "path": null,
         "position": {"claims": {}, "open_obligations": open, "legitimate_outcomes": []}});
     let renderer = prompt::Renderer { root: Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf() };
-    let prepared = inputs::prepare(&req, &case, &cwd, &renderer, true).unwrap();
+    let prepared = inputs::prepare(&req, &case, &Held::make(cwd.parent().unwrap(), &cwd).unwrap(), &renderer, true).unwrap();
     let parts = prompt::Parts { req: &req, final_escalate: true, inputs: &prepared.inputs, citable: &prepared.citable, prior_rejections: prepared.prior, has_aep: false, met_after: prepared.met_after };
     (json_file(&cwd.join("in/checks.json")), prompt::prompt(&renderer, &parts).unwrap())
 }
@@ -1436,7 +1436,7 @@ fn a_directory_input_is_not_copied_through_a_link_a_program_left_at_its_name() {
     let cwd = w.run.join("decider/001-x/cwd");
     std::fs::create_dir_all(cwd.join("in")).unwrap();
     std::os::unix::fs::symlink(&out, cwd.join("in/d")).unwrap();
-    let _ = super::inputs::Inputs::default().add(&w.work, &cwd, "d");
+    let _ = super::inputs::Inputs::default().add(&w.work, &Held::make(&w.run, &cwd).unwrap(), "d");
     assert_eq!(names_in(&out), vec!["keep.txt".to_owned()], "the copy of a directory made files in a directory outside the run, through a link at its name");
     assert_eq!(std::fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o700, "the copy of a directory changed the permissions of a directory outside the run");
 }
@@ -1450,7 +1450,7 @@ fn a_file_input_is_not_copied_into_a_directory_below_a_link_a_program_left_at_th
     let cwd = w.run.join("decider/001-x/cwd");
     std::fs::create_dir_all(cwd.join("in")).unwrap();
     std::os::unix::fs::symlink(&out, cwd.join("in/d")).unwrap();
-    let added = super::inputs::Inputs::default().add(&w.work, &cwd, "d/e.txt");
+    let added = super::inputs::Inputs::default().add(&w.work, &Held::make(&w.run, &cwd).unwrap(), "d/e.txt");
     assert!(added.is_err(), "a file was copied below a link at the directory of its name");
     assert_eq!(names_in(&out), Vec::<String>::new(), "the copy of a file made a file in a directory outside the run, through a link at the directory of its name");
 }
@@ -1670,4 +1670,113 @@ fn a_link_a_program_put_at_a_bindings_file_is_not_read_through_for_the_largest_c
     std::os::unix::fs::symlink(out.join("b.yaml"), dir.join("b.yaml")).unwrap();
     let got = crate::loom_run::budget::largest_call_budget(&dir);
     assert!(!matches!(got, Ok(Some(_))), "the largest call budget was taken from a file outside the run, through a link at a bindings file: {got:?}");
+}
+
+// --- a link at the name of each directory the decider makes, and at each file the runner reads ---
+
+/// A link at `rel` below the run directory that points at an empty directory outside the run, which is returned.
+fn directory_link(w: &World, rel: &str, out_name: &str) -> PathBuf {
+    let out = empty_directory_outside(w, out_name);
+    let at = w.run.join(rel);
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&out, &at).unwrap();
+    out
+}
+
+fn rule_settings() -> Value {
+    json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}})
+}
+
+#[test]
+fn a_link_a_program_put_at_the_record_directory_of_a_rule_decision_is_not_written_through() {
+    let w = world("rule-record-link", "#!/bin/sh\n");
+    let out = directory_link(&w, "decider/rule", "out-rule");
+    let why = reason(ask(&w, &rule_settings(), &approve_action(&w), 0));
+    assert!(why.contains("decider record directory"), "{why}");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote in a directory outside the run, through a link at decider/rule");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_record_directory_of_a_model_call_is_not_written_through() {
+    let w = world("model-record-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = directory_link(&w, "decider/001-context.approve", "out-record");
+    let why = reason(ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000));
+    assert!(why.contains("decider record directory"), "{why}");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote in a directory outside the run, through a link at its record directory");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_case_directory_of_a_decision_is_not_written_through() {
+    let w = world("case-dir-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = directory_link(&w, "decider-cases/IDEA-1.direction", "out-case");
+    let why = reason(ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000));
+    assert!(why.contains("decider case directory"), "{why}");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote in a directory outside the run, through a link at the directory of the case");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_record_directory_of_a_rule_answer_to_a_question_is_not_written_through() {
+    let w = world("ask-rule-record-link", "#!/bin/sh\n");
+    let out = directory_link(&w, "decider/rule", "out-ask-rule");
+    let decider = from_settings(&rule_settings()).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 0);
+    let why = asked.result.unwrap_err();
+    assert!(why.contains("decider record directory"), "{why}");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote in a directory outside the run, through a link at decider/rule");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_record_directory_of_a_model_answer_to_a_question_is_not_written_through() {
+    let w = world("ask-model-record-link", &answer_reply("approve", ""));
+    let out = directory_link(&w, "decider/001-q1", "out-ask-model");
+    let decider = from_settings(&settings(&w, json!({}))).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    let why = asked.result.unwrap_err();
+    assert!(why.contains("decider record directory"), "{why}");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider wrote in a directory outside the run, through a link at its record directory");
+}
+
+#[test]
+fn a_directory_of_a_directory_input_keeps_the_permissions_of_the_directory_it_is_copied_from() {
+    let w = world("input-copy-mode", "#!/bin/sh\n");
+    let from = w.work.join("d");
+    std::fs::create_dir_all(from.join("e")).unwrap();
+    std::fs::write(from.join("e/a.txt"), "a\n").unwrap();
+    std::fs::set_permissions(from.join("e"), std::fs::Permissions::from_mode(0o750)).unwrap();
+    std::fs::set_permissions(&from, std::fs::Permissions::from_mode(0o705)).unwrap();
+    let cwd = w.run.join("decider/001-x/cwd");
+    super::inputs::Inputs::default().add(&w.work, &Held::make(&w.run, &cwd).unwrap(), "d").unwrap();
+    let mode = |p: &str| std::fs::metadata(cwd.join(p)).unwrap().permissions().mode() & 0o777;
+    assert_eq!((mode("in/d"), mode("in/d/e")), (0o705, 0o750));
+    assert_eq!(std::fs::read_to_string(cwd.join("in/d/e/a.txt")).unwrap(), "a\n");
+}
+
+#[test]
+fn a_json_file_that_is_a_link_is_read_as_missing() {
+    let w = world("read-json-link", "#!/bin/sh\n");
+    let out = empty_directory_outside(&w, "out-json");
+    std::fs::write(out.join("a.json"), "{\"b\":1,\"a\":2}\n").unwrap();
+    std::os::unix::fs::symlink(out.join("a.json"), w.run.join("linked.json")).unwrap();
+    std::fs::write(w.run.join("plain.json"), "{\"b\":1,\"a\":2}\n").unwrap();
+    assert_eq!(super::inputs::read_json(&w.run.join("linked.json")), Value::Null, "a file outside the run was read through a link");
+    assert_eq!(super::inputs::read_json(&w.run.join("plain.json")), json!({"a": 2, "b": 1}));
+}
+
+#[test]
+fn a_case_file_of_loom_that_is_a_link_names_no_artifact() {
+    let w = world("case-artifacts-link", "#!/bin/sh\n");
+    let out = empty_directory_outside(&w, "out-case-file");
+    let store = w.run.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let name = format!("case-{}.json", super::approval::hex("IDEA-1.direction"));
+    let text = r#"{"artifacts":[{"artifact":"goals","revision":"g1"}]}"#;
+    std::fs::write(out.join(&name), text).unwrap();
+    std::os::unix::fs::symlink(out.join(&name), store.join(&name)).unwrap();
+    let decision = json!({"command": ["b10x-loom", "tree", "approve", "--store", store.display().to_string()]});
+    assert_eq!(super::approval::case_artifacts(&decision, "IDEA-1.direction"), Vec::<(String, String)>::new(), "the artifacts were taken from a file outside the run, through a link");
+    std::fs::remove_file(store.join(&name)).unwrap();
+    std::fs::write(store.join(&name), text).unwrap();
+    assert_eq!(super::approval::case_artifacts(&decision, "IDEA-1.direction"), vec![("goals".to_owned(), "g1".to_owned())]);
 }

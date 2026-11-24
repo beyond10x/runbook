@@ -410,10 +410,9 @@ impl RunDirWriter {
         if self.written.get(path).is_some_and(|c| *c == content) {
             return Ok(());
         }
-        if let Some(parent) = path.parent() {
-            record_write::make_dir_in(&self.run_dir, parent)?;
-        }
-        record_write::write_atomic(path, &content)?;
+        let parent = path.parent().ok_or_else(|| format!("{}: no directory", path.display()))?;
+        let leaf = path.file_name().ok_or_else(|| format!("{}: no file name", path.display()))?;
+        record_write::Held::make(&self.run_dir, parent)?.write(leaf, &content)?;
         self.written.insert(path.to_path_buf(), content);
         Ok(())
     }

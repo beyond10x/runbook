@@ -5,7 +5,14 @@
 //! program can leave a link, a pipe, a directory or a second name of a file outside the run at any name the runner will
 //! write, make or read. Every record the runner writes into the run directory after its first program started goes
 //! through this file, every directory it makes there is made by [`make_dir_in`], and every name there that it reads is
-//! read by [`read_regular`] or [`read_regular_within`]; nothing else of the runner opens such a name.
+//! read by [`read_regular`], [`read_regular_text`], [`read_regular_prefix`] or [`read_regular_within`]; nothing else of
+//! the runner opens such a name.
+//!
+//! A directory the runner keeps writing to while a program runs (the directory of a decider call, which stays in use
+//! while the adapter runs) is held: [`Held`] keeps the open descriptor [`make_dir_in`] returned, and every record,
+//! directory, link and removal in it is made relative to that descriptor, so the writes after the program ran go to the
+//! directory the runner made, whatever stands at its path by then. A read opens its file by path and holds the file, not
+//! the directory above it.
 //!
 //! This file uses `std` and `libc` and nothing else of the crate, so that the tests of the integration-test binary (there
 //! is no library target) can include it as it is, with `run_dir.rs`.
@@ -33,17 +40,26 @@ pub(crate) const READ_LIMIT: u64 = 64 * 1024 * 1024;
 /// nothing is made beyond it. A directory that is made by the call has the mode `0o777` less the umask, as
 /// `create_dir_all` makes it. `dir` that does not lie below `base` is an error.
 pub(crate) fn make_dir_in(base: &Path, dir: &Path) -> Result<File, String> {
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::OpenOptionsExt;
     let rel = dir.strip_prefix(base).map_err(|_| format!("{}: not a directory of {}", dir.display(), base.display()))?;
-    let mut current = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(base).map_err(|e| format!("{}: {e}", base.display()))?;
-    let mut walked = base.to_path_buf();
+    let open = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(base).map_err(|e| format!("{}: {e}", base.display()))?;
+    make_dir_at(&open, base, rel)
+}
+
+/// [`make_dir_in`] below a directory that is already open: the directories `rel` below the open directory `base` are
+/// made and opened as there, and the open directory is returned. `shown` is the path of `base`, for the messages only;
+/// nothing is opened by it. A directory that is renamed or replaced after `base` was opened is not found again: the walk
+/// starts at the descriptor.
+pub(crate) fn make_dir_at(base: &File, shown: &Path, rel: &Path) -> Result<File, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    let mut current = base.try_clone().map_err(|e| format!("{}: {e}", shown.display()))?;
+    let mut walked = shown.to_path_buf();
     for part in rel.components() {
         let name = match part {
             Component::Normal(name) => name,
             Component::CurDir => continue,
-            _ => return Err(format!("{}: not a plain path below {}", dir.display(), base.display())),
+            _ => return Err(format!("{}: not a plain path below {}", shown.join(rel).display(), shown.display())),
         };
         walked.push(name);
         let c_name = std::ffi::CString::new(name.as_bytes()).map_err(|_| format!("{}: a name with a NUL byte", walked.display()))?;
@@ -74,8 +90,27 @@ pub(crate) fn make_dir_in(base: &Path, dir: &Path) -> Result<File, String> {
 /// waited for, and anything that is not a regular file with one name (a pipe, a device, a directory, a second name of a
 /// file that may lie outside the run) is an error that names `path` and no other path.
 fn open_regular(path: &Path) -> Result<File, String> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::fs::OpenOptionsExt;
     let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    check_regular(file, path)
+}
+
+/// [`open_regular`] of the name `leaf` in the open directory `dir` (`openat`); `shown` is the path of the directory.
+fn open_regular_at(dir: &File, shown: &Path, leaf: &std::ffi::OsStr) -> Result<File, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let path = shown.join(leaf);
+    let c_leaf = leaf_name(leaf, shown)?;
+    // SAFETY: `dir` is an open directory for the call and `c_leaf` is a NUL-terminated name that outlives it.
+    let raw = unsafe { libc::openat(dir.as_raw_fd(), c_leaf.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    if raw < 0 {
+        return Err(format!("{}: {}", path.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: `raw` is a new descriptor that nothing else owns.
+    check_regular(unsafe { File::from_raw_fd(raw) }, &path)
+}
+
+fn check_regular(file: File, path: &Path) -> Result<File, String> {
+    use std::os::unix::fs::MetadataExt;
     let meta = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
     if !meta.is_file() || meta.nlink() != 1 {
         return Err(format!("{}: not a regular file with one name", path.display()));
@@ -128,26 +163,66 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// [`write_atomic`] with the permission bits `mode` for the new file, for a copy that keeps the bits of its source.
+///
+/// The directory of `path` is opened once and the write goes through that descriptor ([`Held::write`]); a caller that
+/// holds the directory of a record itself writes through [`Held`], so that a replacement of the directory after it was made
+/// is not followed.
 pub(crate) fn write_atomic_mode(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
     use std::os::unix::fs::OpenOptionsExt;
+    let parent = path.parent().unwrap_or(Path::new(""));
+    let leaf = path.file_name().unwrap_or_default();
+    let open = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(if parent.as_os_str().is_empty() { Path::new(".") } else { parent }).map_err(|e| format!("{}: {e}", path.display()))?;
+    write_atomic_at(&open, parent, leaf, bytes, mode)
+}
+
+/// A name that is one plain component: not empty, no `/`, not `.` or `..`, no NUL byte.
+fn leaf_name(leaf: &std::ffi::OsStr, shown: &Path) -> Result<std::ffi::CString, String> {
+    use std::os::unix::ffi::OsStrExt;
+    if leaf.is_empty() || leaf == "." || leaf == ".." || leaf.as_bytes().contains(&b'/') {
+        return Err(format!("{}: not a plain file name", shown.join(leaf).display()));
+    }
+    std::ffi::CString::new(leaf.as_bytes()).map_err(|_| format!("{}: a name with a NUL byte", shown.join(leaf).display()))
+}
+
+/// The write of [`write_atomic`] into the directory `dir`, which is open: the temporary file is made with `openat` and the
+/// rename is `renameat`, both relative to the descriptor. `shown` is the path of the directory, for the messages only.
+fn write_atomic_at(dir: &File, shown: &Path, leaf: &std::ffi::OsStr, bytes: &[u8], mode: u32) -> Result<(), String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
     static WRITES: AtomicU64 = AtomicU64::new(0);
-    let leaf = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let c_leaf = leaf_name(leaf, shown)?;
+    let fd = dir.as_raw_fd();
     let mut last = String::new();
     for _ in 0..NAMES_TRIED {
-        let tmp = path.with_file_name(format!(".{leaf}.{}.{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
-        let mut file = match OpenOptions::new().write(true).create_new(true).mode(mode).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&tmp) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+        let mut tmp_name = std::ffi::OsString::from(".");
+        tmp_name.push(leaf);
+        tmp_name.push(format!(".{}.{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
+        let tmp = shown.join(&tmp_name);
+        let c_tmp = leaf_name(&tmp_name, shown)?;
+        // SAFETY: `fd` is an open directory that `dir` keeps open for the call, and `c_tmp` is a NUL-terminated name that outlives it.
+        let raw = unsafe { libc::openat(fd, c_tmp.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC, mode as libc::c_uint) };
+        if raw < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
                 last = format!("{}: {e}", tmp.display());
                 continue;
             }
-            Err(e) => return Err(format!("{}: {e}", tmp.display())),
-        };
+            return Err(format!("{}: {e}", tmp.display()));
+        }
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let mut file = unsafe { File::from_raw_fd(raw) };
         let written = file.write_all(bytes).and_then(|()| file.flush()).map_err(|e| format!("{}: {e}", tmp.display()));
         drop(file);
-        let renamed = written.and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display())));
+        let renamed = written.and_then(|()| {
+            // SAFETY: as above, for both names.
+            if unsafe { libc::renameat(fd, c_tmp.as_ptr(), fd, c_leaf.as_ptr()) } == 0 {
+                Ok(())
+            } else {
+                Err(format!("{}: {}", shown.join(leaf).display(), std::io::Error::last_os_error()))
+            }
+        });
         if renamed.is_err() {
-            let _ = std::fs::remove_file(&tmp);
+            // SAFETY: as above.
+            unsafe { libc::unlinkat(fd, c_tmp.as_ptr(), 0) };
         }
         return renamed;
     }
@@ -164,6 +239,109 @@ pub(crate) fn copy_atomic(from: &Path, to: &Path) -> Result<(), String> {
     let mode = file.metadata().map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
     let bytes = read_open_within(file, from, READ_LIMIT)?;
     write_atomic_mode(to, &bytes, mode)
+}
+
+/// A directory of the run, made by [`make_dir_in`] and held open: every record the runner writes into it afterwards goes
+/// through the descriptor (`openat`, `renameat`, `unlinkat`, `symlinkat` relative to it), never through its path. A program
+/// of the run can rename the directory and put a link, or another directory, at its name while the runner waits for an
+/// adapter; the runner's later writes then still reach the directory it made, which is a directory of the run, and nothing
+/// reaches the place the link points at. The path is kept for the messages and for what the runner tells a program.
+pub(crate) struct Held {
+    dir: File,
+    path: std::path::PathBuf,
+}
+
+impl Held {
+    /// The directory `dir` below `base`, made and opened by [`make_dir_in`].
+    pub(crate) fn make(base: &Path, dir: &Path) -> Result<Held, String> {
+        Ok(Held { dir: make_dir_in(base, dir)?, path: dir.to_path_buf() })
+    }
+
+    /// The path the directory was made at.
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The open directory, for what is set on the directory itself (its permission bits).
+    pub(crate) fn file(&self) -> &File {
+        &self.dir
+    }
+
+    /// The directory `rel` below this one, made when it is missing and held, by [`make_dir_at`]: the walk starts at the
+    /// descriptor.
+    pub(crate) fn sub(&self, rel: &Path) -> Result<Held, String> {
+        Ok(Held { dir: make_dir_at(&self.dir, &self.path, rel)?, path: self.path.join(rel) })
+    }
+
+    /// [`write_atomic`] of the file `leaf` of this directory, through the descriptor.
+    pub(crate) fn write(&self, leaf: impl AsRef<std::ffi::OsStr>, bytes: &[u8]) -> Result<(), String> {
+        write_atomic_at(&self.dir, &self.path, leaf.as_ref(), bytes, 0o644)
+    }
+
+    /// [`copy_atomic`] of `from` to the file `leaf` of this directory: the source is read as every name of the run is, the
+    /// file is written through the descriptor, and the bits of the source are kept.
+    pub(crate) fn copy_from(&self, from: &Path, leaf: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
+        use std::os::unix::fs::PermissionsExt;
+        let file = open_regular(from)?;
+        let mode = file.metadata().map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
+        let bytes = read_open_within(file, from, READ_LIMIT)?;
+        write_atomic_at(&self.dir, &self.path, leaf.as_ref(), &bytes, mode)
+    }
+
+    /// The file `from_leaf` of this directory, read as every name of the run is (through the descriptor, as a regular file
+    /// with one name, at most [`READ_LIMIT`] bytes), written as the file `to_leaf` of the directory `to` with the bits of the
+    /// source.
+    pub(crate) fn copy_to(&self, from_leaf: impl AsRef<std::ffi::OsStr>, to: &Held, to_leaf: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
+        use std::os::unix::fs::PermissionsExt;
+        let from = self.path.join(from_leaf.as_ref());
+        let file = open_regular_at(&self.dir, &self.path, from_leaf.as_ref())?;
+        let mode = file.metadata().map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
+        let bytes = read_open_within(file, &from, READ_LIMIT)?;
+        write_atomic_at(&to.dir, &to.path, to_leaf.as_ref(), &bytes, mode)
+    }
+
+    /// The file `leaf` of this directory read as every name of the run is (through the descriptor).
+    pub(crate) fn read(&self, leaf: impl AsRef<std::ffi::OsStr>) -> Result<Vec<u8>, String> {
+        let path = self.path.join(leaf.as_ref());
+        read_open_within(open_regular_at(&self.dir, &self.path, leaf.as_ref())?, &path, READ_LIMIT)
+    }
+
+    /// A link `leaf` to `target` in this directory, replacing what lies at the name (a link or a file; a directory stays and
+    /// the call is an error).
+    pub(crate) fn symlink(&self, target: &Path, leaf: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        let leaf = leaf.as_ref();
+        let c_leaf = leaf_name(leaf, &self.path)?;
+        let c_target = std::ffi::CString::new(target.as_os_str().as_bytes()).map_err(|_| format!("{}: a name with a NUL byte", self.path.join(leaf).display()))?;
+        let fd = self.dir.as_raw_fd();
+        // SAFETY: `fd` is an open directory that `self` keeps open for the call and both names are NUL-terminated and outlive it.
+        unsafe { libc::unlinkat(fd, c_leaf.as_ptr(), 0) };
+        // SAFETY: as above.
+        if unsafe { libc::symlinkat(c_target.as_ptr(), fd, c_leaf.as_ptr()) } != 0 {
+            return Err(format!("{}: {}", self.path.join(leaf).display(), std::io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+
+    /// Whether something is at the name `leaf` of this directory, a link followed (`fstatat`): the answer of `Path::exists`,
+    /// asked of the descriptor.
+    pub(crate) fn exists(&self, leaf: impl AsRef<std::ffi::OsStr>) -> bool {
+        use std::os::fd::AsRawFd;
+        let Ok(c_leaf) = leaf_name(leaf.as_ref(), &self.path) else { return false };
+        // SAFETY: as in `symlink`; `stat` is a zeroed buffer the call fills.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        unsafe { libc::fstatat(self.dir.as_raw_fd(), c_leaf.as_ptr(), &mut stat, 0) == 0 }
+    }
+
+    /// Removes the file or link `leaf` of this directory when there is one.
+    pub(crate) fn remove(&self, leaf: impl AsRef<std::ffi::OsStr>) {
+        use std::os::fd::AsRawFd;
+        if let Ok(c_leaf) = leaf_name(leaf.as_ref(), &self.path) {
+            // SAFETY: as in `symlink`.
+            unsafe { libc::unlinkat(self.dir.as_raw_fd(), c_leaf.as_ptr(), 0) };
+        }
+    }
 }
 
 /// Appends `bytes` to `path` in one write, to a regular file with one name.

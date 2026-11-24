@@ -12,7 +12,7 @@
 
 use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
-use crate::loom_run::record_write::{make_dir_in, write_atomic};
+use crate::loom_run::record_write::{make_dir_in, Held};
 use serde_json::{json, Map, Value};
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -392,7 +392,7 @@ impl NativeDecider {
     /// The reply of the decider to the request `body` in the record directory `rec`: by rule, or
     /// from one model call. The reply and what the adapter wrote on its standard error are kept in
     /// `rec` (`reply.json`, `decider-stderr.txt`), the login path replaced by `<login file>`.
-    fn reply(&self, body: &Value, rec: &Path, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
+    fn reply(&self, body: &Value, rec: &Held, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
         let replied = match &self.mode {
             Mode::Rule { verdict } => Replied { reply: rules::rule_reply(verdict, body), stderr: String::new() },
             Mode::Model { model, adapter, effort, max_turns, .. } => {
@@ -417,18 +417,18 @@ impl NativeDecider {
                 .map_err(|reason| self.redact(&reason))?
             }
         };
-        write_atomic(&rec.join("decider-stderr.txt"), self.redact(&replied.stderr).as_bytes()).map_err(|e| self.redact(&format!("decider stderr file: {e}")))?;
-        write_atomic(&rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)).as_bytes()).map_err(|e| self.redact(&format!("decider reply file: {e}")))?;
+        rec.write("decider-stderr.txt", self.redact(&replied.stderr).as_bytes()).map_err(|e| self.redact(&format!("decider stderr file: {e}")))?;
+        rec.write("reply.json", self.redact(&format!("{}\n", replied.reply)).as_bytes()).map_err(|e| self.redact(&format!("decider reply file: {e}")))?;
         Ok(replied.reply)
     }
 
     fn decide_rule(&self, verdict: &str, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
-        let rec = request.run_dir.join("decider").join("rule");
-        if let Err(e) = make_dir_in(request.run_dir, &rec) {
-            return Self::cannot(format!("decider record directory: {e}"));
-        }
-        let body = decide_request(approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+        let rec = match Held::make(request.run_dir, &request.run_dir.join("decider").join("rule")) {
+            Ok(rec) => rec,
+            Err(e) => return Self::cannot(format!("decider record directory: {e}")),
+        };
+        let body = decide_request(approval, &PathBuf::new(), rec.path(), None);
+        if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
             return Self::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, request, 0) {
@@ -484,22 +484,22 @@ impl NativeDecider {
             if budget <= spent_micro {
                 return Self::cannot(format!("the per-call budget of {} micro USD is spent", budget));
             }
-            let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&approval.action)));
-            if let Err(e) = make_dir_in(request.run_dir, &rec) {
-                return Self::cannot(format!("decider record directory: {e}"));
-            }
+            let rec = match Held::make(request.run_dir, &decider_dir.join(format!("{number:03}-{}", safe_part(&approval.action)))) {
+                Ok(rec) => rec,
+                Err(e) => return Self::cannot(format!("decider record directory: {e}")),
+            };
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let mut body = decide_request(approval, &case_dir, &rec, retry);
+            let mut body = decide_request(approval, &case_dir, rec.path(), retry);
             if let Some(class) = &routed {
                 requester::tag(&mut body, class, request.run_dir);
                 if let Some(level) = &self.autonomy {
                     body["autonomy"] = json!(level);
                 }
             }
-            if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+            if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
                 return Self::cannot(format!("decider request file: {e}"));
             }
-            if let Err(e) = write_atomic(&rec.join("loom-decision.json"), format!("{}\n", request.decision).as_bytes()) {
+            if let Err(e) = rec.write("loom-decision.json", format!("{}\n", request.decision).as_bytes()) {
                 return Self::cannot(format!("decider record file: {e}"));
             }
             let reply = match self.reply(&body, &rec, request, budget - spent_micro) {

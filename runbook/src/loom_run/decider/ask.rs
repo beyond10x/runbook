@@ -30,12 +30,12 @@ impl NativeDecider {
     }
 
     fn ask_rule(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
-        let rec = r.run_dir.join("decider").join("rule");
-        if let Err(e) = make_dir_in(r.run_dir, &rec) {
-            return Asked::cannot(format!("decider record directory: {e}"));
-        }
-        let body = ask_body(r, approval, &PathBuf::new(), &rec, None);
-        if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()) {
+        let rec = match Held::make(r.run_dir, &r.run_dir.join("decider").join("rule")) {
+            Ok(rec) => rec,
+            Err(e) => return Asked::cannot(format!("decider record directory: {e}")),
+        };
+        let body = ask_body(r, approval, &PathBuf::new(), rec.path(), None);
+        if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()) {
             return Asked::cannot(format!("decider request file: {e}"));
         }
         let reply = match self.reply(&body, &rec, dreq, 0) {
@@ -103,20 +103,22 @@ impl NativeDecider {
                 asked.result = Err(format!("the per-call budget of {budget} micro USD is spent"));
                 return asked;
             }
-            let rec = decider_dir.join(format!("{number:03}-{}", safe_part(&r.request.id)));
-            if let Err(e) = make_dir_in(r.run_dir, &rec) {
-                asked.result = Err(format!("decider record directory: {e}"));
-                return asked;
-            }
+            let rec = match Held::make(r.run_dir, &decider_dir.join(format!("{number:03}-{}", safe_part(&r.request.id)))) {
+                Ok(rec) => rec,
+                Err(e) => {
+                    asked.result = Err(format!("decider record directory: {e}"));
+                    return asked;
+                }
+            };
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let mut body = ask_body(r, approval, &case_dir, &rec, retry);
+            let mut body = ask_body(r, approval, &case_dir, rec.path(), retry);
             if let Some(class) = routed {
                 requester::tag(&mut body, class, r.run_dir);
             }
             if let Some(level) = &self.autonomy {
                 body["autonomy"] = json!(level);
             }
-            if let Err(e) = write_atomic(&rec.join("decide-request.json"), format!("{body}\n").as_bytes()).and_then(|()| write_atomic(&rec.join("loom-decision.json"), format!("{}\n", r.decision).as_bytes())) {
+            if let Err(e) = rec.write("decide-request.json", format!("{body}\n").as_bytes()).and_then(|()| rec.write("loom-decision.json", format!("{}\n", r.decision).as_bytes())) {
                 asked.result = Err(format!("decider request file: {e}"));
                 return asked;
             }

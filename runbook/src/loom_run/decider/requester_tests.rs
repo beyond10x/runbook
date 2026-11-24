@@ -457,3 +457,48 @@ fn a_link_a_program_put_at_a_file_the_requester_copies_is_not_read_through() {
     }
     assert!(!found.contains("secret-outside-text"), "the text of a file outside the run was copied into the input of the model through a link at work/goals.yaml");
 }
+
+// --- a link at the name of each directory of a requester call ---------------------------------------
+
+fn requester_link(w: &World, rel: &str, out_name: &str) -> PathBuf {
+    let out = w.run.parent().unwrap().join(out_name);
+    std::fs::create_dir_all(&out).unwrap();
+    let at = w.run.join("decider/002-vision.approve").join(rel);
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&out, &at).unwrap();
+    out
+}
+
+fn names_of(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_link_a_program_put_at_the_working_directory_of_a_requester_call_is_not_written_through() {
+    let w = world("requester-cwd-link");
+    let out = requester_link(&w, "cwd", "out-requester-cwd");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the requester made files in a directory outside the run, through a link at cwd");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_inputs_directory_of_a_requester_call_is_not_written_through() {
+    let w = world("requester-in-link");
+    let out = requester_link(&w, "cwd/in", "out-requester-in");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the requester made files in a directory outside the run, through a link at cwd/in");
+}
+
+#[test]
+fn an_input_of_the_requester_is_not_copied_below_a_link_a_program_put_at_a_directory_of_its_name() {
+    let w = world("requester-input-link");
+    let out = requester_link(&w, "cwd/in/aep", "out-requester-input");
+    let _ = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert_eq!(names_of(&out), Vec::<String>::new(), "a copy of work/aep/vision/product.md was made in a directory outside the run, through a link at cwd/in/aep");
+    let listed = std::fs::read_to_string(w.run.join("decider/002-vision.approve/prompt.md")).unwrap_or_default();
+    assert!(!listed.contains("- in/aep/vision/product.md"), "{listed}");
+}
