@@ -170,11 +170,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.10.0`; nothing is published to crates.io. The latest is 0.10.0 (2026-11-24).
+`0.11.0`; nothing is published to crates.io. The latest is 0.11.0 (2026-11-24).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.10.0 over 0.9.3 (nothing is unreleased): a `runbook.toml` supplies the defaults of `runbook run` and names
+- New in 0.11.0 over 0.10.0 (nothing is unreleased): `runbook` links Loom 0.61.0, so a program step may run up to
+  14400 s (`timeout_seconds`), `runbook check` names a `timeout_seconds` out of its executor's range, a bug-fix check
+  runs in a git tree and a check whose command is not found is a program error of the step, and the cycles suite
+  answers build and test commands from recordings. One change is breaking: a `*` row of a binding's result table no
+  longer matches a run killed at its timeout (add a `timeout` row with the result `*` gave). No evaluation run was
+  made on this code ([docs/releases/0.11.0.md](docs/releases/0.11.0.md)).
+- New in 0.10.0 over 0.9.3: a `runbook.toml` supplies the defaults of `runbook run` and names
   the directories runbooks are loaded from; a daemon run is never unbound, takes an autonomy level and a decider and
   records the step in flight; a binding names the per-call budget of its programs; the Products tab lists what the run
   wrote. Two changes are breaking: the daemon has no built-in confinement (start it with `--default-confinement`, or
