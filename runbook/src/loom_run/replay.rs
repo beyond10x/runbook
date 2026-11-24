@@ -445,11 +445,11 @@ mod tests {
         let scratch = crate::assets::testdir::Dir::new("replay-diverged");
         let run = scratch.path();
         assert!(stopped(run).is_none());
-        assert_eq!(diverged(run, Outcome::Stuck), Outcome::Stuck);
+        assert_eq!(diverged(run, Outcome::Stuck { reason: None }), Outcome::Stuck { reason: None });
         std::fs::create_dir_all(run.join("replay")).unwrap();
         std::fs::write(run.join("replay/diverged.json"), json!({"summary": "model call at c/n@1.2: the source made no call"}).to_string()).unwrap();
         let expected = Outcome::Diverged { reason: "model call at c/n@1.2: the source made no call".to_owned() };
-        assert_eq!(diverged(run, Outcome::Stuck), expected);
+        assert_eq!(diverged(run, Outcome::Stuck { reason: None }), expected);
         assert_eq!(diverged(run, Outcome::StoppedDecider { reason: "x".into() }), expected);
         assert_eq!(diverged(run, Outcome::StoppedSignal), Outcome::StoppedSignal);
     }
