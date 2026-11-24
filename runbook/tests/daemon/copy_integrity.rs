@@ -1787,6 +1787,9 @@ impl EventSink for HookedSink<'_> {
     fn decision_requested(&self, request: DecisionRequest) {
         self.inner.decision_requested(request)
     }
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        self.inner.decision_answered(request_id, answer, by, principal)
+    }
     fn resumed(&self) {
         self.inner.resumed()
     }
@@ -1862,6 +1865,9 @@ impl EventSink for AnsweringSink<'_> {
     }
     fn decision_requested(&self, request: DecisionRequest) {
         self.inner.decision_requested(request)
+    }
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        self.inner.decision_answered(request_id, answer, by, principal)
     }
     fn resumed(&self) {
         self.inner.resumed()
@@ -2551,6 +2557,9 @@ mod relative_state_directory {
         fn started(&self) {}
         fn record(&self, _kind: &str, _record: Value) {}
         fn decision_requested(&self, _request: DecisionRequest) {}
+        fn decision_answered(&self, _request_id: &str, _answer: &str, _by: &str, _principal: &str) -> bool {
+            false
+        }
         fn resumed(&self) {}
     }
 

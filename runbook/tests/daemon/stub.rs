@@ -27,6 +27,9 @@ impl EventSink for Recorder {
     fn decision_requested(&self, request: DecisionRequest) {
         self.0.lock().unwrap().push(Seen::Asked(request.request_id));
     }
+    fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+        false
+    }
     fn resumed(&self) {
         self.0.lock().unwrap().push(Seen::Resumed);
     }
@@ -200,6 +203,9 @@ impl EventSink for Keep {
     fn record(&self, _: &str, _: Value) {}
     fn decision_requested(&self, request: DecisionRequest) {
         self.0.lock().unwrap().push(request);
+    }
+    fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+        false
     }
     fn resumed(&self) {}
 }

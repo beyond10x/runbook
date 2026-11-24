@@ -164,9 +164,8 @@ pub trait EventSink: Send + Sync {
     /// `rule:<name>` or `decider:<kind>`; the daemon records the answer under exactly those and refuses
     /// anything else, a person's name or a label a client typed. `true`: it is recorded and the runtime
     /// may apply the answer; `false`: the request stays open for a client and the runtime applies nothing.
-    fn decision_answered(&self, _request_id: &str, _answer: &str, _by: &str, _principal: &str) -> bool {
-        false
-    }
+    /// There is no default: a sink that wraps another forwards it, and one that takes no answer says `false`.
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool;
     /// Every decision the run waited on is answered and the runtime took the answers up.
     fn resumed(&self);
 }

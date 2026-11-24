@@ -128,6 +128,9 @@ mod tests {
             self.0.lock().unwrap().push((kind.to_owned(), record));
         }
         fn decision_requested(&self, _: DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
         fn resumed(&self) {}
     }
 
