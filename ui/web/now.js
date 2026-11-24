@@ -601,11 +601,13 @@ export function renderNowBar(st) {
 }
 
 // ---- file changes of the run ----------------------------------------------------------------------
+// the note of a list of changes that is not the whole record (`fs.recordsStopped` of /api/live), as the Products tab says it; text only
+export const stoppedNote = (stop) => (stop ? `<p class="fd-note fd-cut" data-key="fdcut">${esc(`the list of file changes was read to record ${stop.read} only: ${stop.why}`)}</p>` : '');
 export function renderChanges(live, cases, onlyCase, now = Date.now()) {
   if (!live?.fs?.present && cases.some((x) => x.parts?.loom)) return `<div class="sect">File changes</div><p class="muted">File changes were not recorded for this run: it was started without <code>--watch</code>. <code>runbook run … --watch</code> records every file change of the run in <code>fs/changes.jsonl</code> (docs/fs-changes.md).</p>`;
   if (!live?.fs?.present) return `<div class="sect">File changes</div><p class="muted">No <code>fs/changes.jsonl</code> in the run directory yet. The recorder (<code>sdc-watch</code>, docs/fs-changes.md) writes one line per effective change, with the command that made it.</p>`;
   const list = live.fs.changes.filter((x) => !onlyCase || x.attribution?.case === onlyCase);
-  if (!list.length) return `<div class="sect">File changes</div><p class="muted">No change recorded${onlyCase ? ` in ${esc(onlyCase)}` : ''} yet.</p>`;
+  if (!list.length) return `<div class="sect">File changes</div><p class="muted">No change recorded${onlyCase ? ` in ${esc(onlyCase)}` : ''} yet.</p>${stoppedNote(live.fs.recordsStopped)}`;
   const groups = [];
   for (const x of list) {
     const a = x.attribution || {};
@@ -618,7 +620,7 @@ export function renderChanges(live, cases, onlyCase, now = Date.now()) {
   const t0 = Math.min(...ts), t1 = Math.max(...ts, t0 + 1);
   const add = list.reduce((n, x) => n + (x.lines_added || 0), 0), del = list.reduce((n, x) => n + (x.lines_removed || 0), 0);
   const nfiles = new Set(list.map((x) => x.root + '/' + x.path)).size;
-  let h = `<div class="sect">File changes <span class="muted">${list.length} changes · ${nfiles} files · <span class="fa">+${add}</span> <span class="fd">−${del}</span></span></div>`;
+  let h = `<div class="sect">File changes <span class="muted">${list.length} changes · ${nfiles} files · <span class="fa">+${add}</span> <span class="fd">−${del}</span></span></div>${stoppedNote(live.fs.recordsStopped)}`;
   h += `<div class="chg-strip" data-key="strip">${list.map((x) => { const t = Date.parse(x.at); return `<button class="cs-t op-${x.op} b-${(BASIS[x.attribution?.basis] || BASIS.none)[0]}" data-key="st:${x.seq}" data-fs="${x.seq}" style="left:${(((t - t0) / (t1 - t0)) * 100).toFixed(2)}%" title="${esc(`${clock(t)} ${x.op} ${x.path} +${x.lines_added ?? 0} −${x.lines_removed ?? 0}\n${x.attribution?.action || ''} ${x.attribution?.case || ''}`)}"></button>`; }).join('')}</div><div class="chg-axis"><span>${esc(clock(t0))}</span><span>${esc(clock(t1))}</span></div>`;
   h += `<div class="chg-groups">`;
   for (const g of groups.reverse()) {

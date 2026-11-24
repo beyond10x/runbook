@@ -90,7 +90,13 @@ impl Resp {
 
 /// One HTTP/1.1 request on a fresh connection, read to the end of the response.
 pub fn send(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Resp {
-    let mut s = TcpStream::connect(addr).unwrap();
+    try_send(addr, method, path, headers, body).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// `send` for a daemon that may be on its way out: `Err` says that no answer came (the connection was
+/// refused or reset, or closed before a response head).
+pub fn try_send(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<Resp, String> {
+    let mut s = TcpStream::connect(addr).map_err(|e| format!("connect to {addr}: {e}"))?;
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n");
     for (k, v) in headers {
@@ -100,17 +106,25 @@ pub fn send(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)]
         head.push_str(&format!("Content-Length: {}\r\n", b.len()));
     }
     head.push_str("\r\n");
-    s.write_all(head.as_bytes()).unwrap();
-    if let Some(b) = body {
-        s.write_all(b).unwrap();
+    let mut wrote = s.write_all(head.as_bytes());
+    if let (Ok(()), Some(b)) = (&wrote, body) {
+        wrote = s.write_all(b);
     }
-    read_response(&mut s)
+    // A write the peer refused is reported by the read below when nothing came back.
+    let _ = wrote;
+    try_read_response(&mut s)
 }
 
 fn read_response(s: &mut TcpStream) -> Resp {
+    try_read_response(s).unwrap_or_else(|e| panic!("{e}"))
+}
+
+fn try_read_response(s: &mut TcpStream) -> Result<Resp, String> {
     let mut raw = Vec::new();
     let _ = s.read_to_end(&mut raw);
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or_else(|| panic!("no response head in {:?}", String::from_utf8_lossy(&raw)));
+    let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return Err(format!("no response head in {:?}", String::from_utf8_lossy(&raw)));
+    };
     let head = String::from_utf8_lossy(&raw[..split]).into_owned();
     let mut lines = head.lines();
     let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
@@ -119,7 +133,7 @@ fn read_response(s: &mut TcpStream) -> Resp {
     if headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("transfer-encoding") && v.contains("chunked")) {
         body = dechunk(&body);
     }
-    Resp { status, headers, body }
+    Ok(Resp { status, headers, body })
 }
 
 fn dechunk(mut rest: &[u8]) -> Vec<u8> {

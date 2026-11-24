@@ -253,6 +253,57 @@ pub struct CloseSession {
     pub session_id: String,
 }
 
+/// The settings of a submit: every value a string. A value of another JSON type is refused naming
+/// the setting, and for a cap (`crate::caps::KEYS`) saying that a cap is written as a string.
+fn settings_of_strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    let raw = BTreeMap::<String, Value>::deserialize(d)?;
+    raw.into_iter()
+        .map(|(key, value)| match value {
+            Value::String(text) => Ok((key, text)),
+            other => {
+                let kind = match other {
+                    Value::Null => "null",
+                    Value::Bool(_) => "a boolean",
+                    Value::Number(_) => "a number",
+                    Value::Array(_) => "an array",
+                    _ => "an object",
+                };
+                let hint = if crate::caps::KEYS.contains(&key.as_str()) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+                Err(serde::de::Error::custom(format!("the setting {key} must be a string, not {kind}{hint}")))
+            }
+        })
+        .collect()
+}
+
+/// What a body serde refused for a number out of range (`1e999`) is refused for, naming the member
+/// whose value it was: serde refuses the whole body before a setting is read, and its message names
+/// only a line and a column. `None` when the error is another, or no member stands before the number.
+pub fn out_of_range_member(body: &[u8], e: &serde_json::Error) -> Option<String> {
+    if !e.to_string().starts_with("number out of range") {
+        return None;
+    }
+    let text = std::str::from_utf8(body).ok()?;
+    let mut offset = 0usize;
+    for (n, line) in text.split('\n').enumerate() {
+        if n + 1 == e.line() {
+            offset += line.char_indices().nth(e.column()).map_or(line.len(), |(i, _)| i);
+            break;
+        }
+        offset += line.len() + 1;
+    }
+    let before = text.get(..offset.min(text.len()))?;
+    let colon = before.rfind(':')?;
+    let after = before[colon + 1..].trim_start();
+    let digits = after.find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))).unwrap_or(after.len());
+    if digits == 0 || !after[digits..].chars().all(|c| c.is_whitespace() || matches!(c, ',' | '}' | ']')) {
+        return None;
+    }
+    let quoted = before[..colon].trim_end().strip_suffix('"')?;
+    let key = &quoted[quoted.rfind('"')? + 1..];
+    let hint = if crate::caps::KEYS.contains(&key) { ": a cap is a string of a whole number of 1 or more, such as \"50\"" } else { "" };
+    Some(format!("the setting {key} is a number out of range, not a string{hint}"))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
@@ -261,7 +312,7 @@ pub struct SubmitRun {
     pub intake: String,
     #[serde(default)]
     pub context_path: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "settings_of_strings")]
     pub settings: BTreeMap<String, String>,
     /// Absent means `linux`.
     #[serde(default)]
@@ -556,6 +607,16 @@ impl Daemon {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
         let context_dir = context.flatten();
+        // The caps of the run: what the submit names within the runtime's ceilings, else its defaults.
+        // They are part of the run's settings from here on, so a run taken up again has the same ones.
+        let mut settings = input.settings.clone();
+        match self.inner.runtime.resolve_caps(&settings) {
+            Ok(Some(caps)) => caps.put(&mut settings),
+            Ok(None) => {}
+            Err(why) => return Err(Fault::Invalid(why)),
+        }
+        // What the runtime refuses a run of the runbook for at load (a run never unbound in money).
+        self.inner.runtime.check_runbook(&input.runbook_id, input.runbook_version.as_deref()).map_err(Fault::Invalid)?;
 
         let mut st = self.st();
         draining_fault(&st)?;
@@ -594,7 +655,7 @@ impl Daemon {
             runbook_version: input.runbook_version.clone(),
             intake: input.intake.clone(),
             context_path: input.context_path.clone(),
-            settings: input.settings.clone(),
+            settings: settings.clone(),
             confinement,
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
@@ -616,7 +677,7 @@ impl Daemon {
             version: input.runbook_version,
             intake: input.intake,
             context_dir,
-            settings: input.settings,
+            settings,
             confinement,
             state_dir: run_dir,
             workspace_dir: workspace,
@@ -799,13 +860,19 @@ impl Daemon {
 
     /// The view `RunDetail` (wire name `run`): zero or one row.
     pub fn run_detail(&self, run_id: &str) -> Vec<Value> {
+        // What the run has used is the runtime's to say; asked before the state is locked.
+        let used = self.inner.runtime.usage(run_id);
         let st = self.st();
         st.run(run_id)
             .map(|r| {
                 let mut row = run_row(r);
                 let m = row.as_object_mut().unwrap();
                 m.insert("intake".into(), json!(r.intake));
-                m.insert("settings".into(), json!(r.settings));
+                let mut settings = r.settings.clone();
+                if let Some(used) = used {
+                    used.put(&mut settings);
+                }
+                m.insert("settings".into(), json!(settings));
                 if let Some(c) = &r.context_path {
                     m.insert("context_path".into(), json!(c));
                 }
@@ -997,6 +1064,10 @@ impl Daemon {
             // A refusal below means the run is Cancelled already (a report after a cancel).
             match result {
                 Ok(Finish::Outcome(outcome)) => {
+                    // A run stopped while it waited on decisions (a cap, also one reached while the
+                    // last answer was taken, with nothing left open): what it asked is withdrawn and
+                    // it ends from Running.
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, &outcome);
                 }
                 // CancelRun moved the run already.

@@ -1509,6 +1509,17 @@ html:not(.rp-open) #product { margin-right: 44px; }
 .prod-note { color: var(--text-3); font-size: 12px; margin: 6px 0; display: block; }
 .prod-hidden { color: var(--text-3); font-size: 11.5px; margin: 6px 0; }
 .prod-refused { color: var(--false); }
+.prod-gh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 12px 0 6px; font-size: 12.5px; font-weight: 650; }
+.prod-gh .prod-sub { font-weight: 400; overflow-wrap: anywhere; }
+.prod-mark { font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--line); border-radius: var(--r); color: var(--text-2); }
+.prod-mark-changed { color: var(--accent-2); }
+.prod-mark-removed { color: var(--false); }
+.prod-lists button:disabled { cursor: default; opacity: .7; }
+.prod-inputs { margin: 12px 0; }
+.prod-inputs-s { cursor: pointer; font-size: 12.5px; font-weight: 650; padding: 6px 0; }
+.prod-input { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 2px 0 2px 12px; }
+:where(html.phone) .prod-gh, :where(html.phone) .prod-mark, :where(html.phone) .prod-inputs-s, :where(html.phone) .prod-input { font-size: 14px; }
+:where(html.phone) .prod-inputs-s { display: flex; align-items: center; min-height: 44px; }
 .prod-back { margin: 0 0 10px; }
 .prod-title { margin-top: 4px; }
 .prod-path { font-family: var(--mono); font-size: 12.5px; margin: 4px 0; overflow-wrap: anywhere; }

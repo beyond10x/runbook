@@ -190,7 +190,11 @@ as the built-in set is. A relative path is relative to the directory of the file
   start and refuses a set that `list` refuses, before it listens; its engine looks a name up in the same
   order. It says on standard error, before it listens, the one line `runbook run` says about the file it
   took the directories from (`runbook serve: values from runbook.toml <path> (<how it was found>)`); with
-  no file, or a file that states no key, nothing is printed.
+  no file, or a file that states no key, nothing is printed. The list is the one value `serve` takes from
+  the file: `cap_micro_usd`, `max_llm_calls` and `max_wall_seconds` of the file are the defaults of one
+  `runbook run`, never the caps or ceilings of the daemon, which come from its own options
+  (`docs/daemon-api.md`, "Caps of a run"); a daemon of the Loom runtime started without them refuses to
+  start and names each missing option, whatever the file states.
 - `runbook check` reads every directory (layout `protocol/`, `bindings/`, the binding files, instruction
   files and views; the cycles list is the built-in set's); `runbook check --for <name>` the directory
   of one runbook. `runbook doctor --for <name>` asks the layout of that directory and the programs and

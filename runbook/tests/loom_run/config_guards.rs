@@ -11,6 +11,11 @@ use std::process::{Command, Output, Stdio};
 
 const FOUR: &str = "confinement = \"local\"\nmax_wall_seconds = 120\ncap_micro_usd = 1000000\nmax_llm_calls = 100\n";
 
+/// The caps every engine of these cases runs with: the daemon has no engine without them.
+fn caps() -> runbook::caps::CapPolicy {
+    runbook::caps::CapPolicy::fixed(runbook::caps::Caps { max_wall_seconds: 3600, max_llm_calls: 10_000, cap_micro_usd: 1_000_000_000 }).unwrap()
+}
+
 fn out(o: &Output) -> String {
     String::from_utf8_lossy(&o.stdout).into_owned()
 }
@@ -239,7 +244,7 @@ fn a_directory_that_changes_after_the_daemon_started_never_shadows_a_built_in_na
     std::fs::create_dir_all(rig.p("books/protocol")).unwrap();
     std::fs::create_dir_all(rig.p("books/bindings")).unwrap();
     runbook::runbooks::load(&[rig.p("books")], Some(&rig.p("home"))).unwrap();
-    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books")]);
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state"), caps()).with_runbook_dirs(vec![rig.p("books")]);
     // the directory gains the built-in name after the start
     put("books/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 9\n");
     put("books/bindings/alpha.yaml", "format: loom.bindings/1\n");
@@ -265,7 +270,7 @@ fn a_name_a_directory_gained_after_the_start_is_refused_at_the_submit_by_name_an
         put(&format!("{home}/bindings/{id}.yaml"), "format: loom.bindings/1\n");
     }
     let homes = vec![rig.p("books"), rig.p("home")];
-    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books")]);
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state"), caps()).with_runbook_dirs(vec![rig.p("books")]);
     assert!(runbook::engine::layout::resolve_in(&homes, "alpha", None).is_ok() && engine.knows_runbook("alpha", None));
     assert!(runbook::engine::layout::resolve_in(&homes, "gamma", None).is_ok(), "a name only a configured directory has is refused");
     // the directory gains the built-in name after the start
@@ -674,7 +679,7 @@ fn a_daemon_started_below_a_file_of_the_walk_names_the_file_it_took_its_director
     let rig = Rig::new("serve-says");
     with_books(&rig);
     let file = rig.p("runbook.toml");
-    let mut c = rig.command(&rig.root, &["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local"]);
+    let mut c = rig.command(&rig.root, &["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"]);
     let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let (tx, rx) = mpsc::channel::<String>();
     let out_pipe = child.stdout.take().unwrap();
@@ -719,7 +724,7 @@ fn the_view_lists_no_runbook_the_same_daemon_refuses_to_start() {
     put("home/bindings/beta.yaml", "format: loom.bindings/1\n");
     std::fs::create_dir_all(rig.p("books/protocol")).unwrap();
     std::fs::create_dir_all(rig.p("books/bindings")).unwrap();
-    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books")]);
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state"), caps()).with_runbook_dirs(vec![rig.p("books")]);
     put("books/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 9\n");
     put("books/bindings/alpha.yaml", "format: loom.bindings/1\n");
     put("books/protocol/gamma.protocol.yaml", "format: protocol/1\nprotocol:\n  id: gamma\n  revision: 1\n");
@@ -749,7 +754,7 @@ fn one_directory_named_under_two_paths_is_one_home_for_the_daemon() {
     std::os::unix::fs::symlink(rig.p("books"), rig.p("books-again")).unwrap();
     let homes = vec![rig.p("books"), rig.p("books-again"), rig.p("home")];
     assert_eq!(runbook::runbooks::locate(&homes, "gamma"), Ok(Some(rig.p("books"))), "one directory under two paths was counted as two homes");
-    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books"), rig.p("books-again")]);
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state"), caps()).with_runbook_dirs(vec![rig.p("books"), rig.p("books-again")]);
     assert!(engine.knows_runbook("gamma", None), "a name of a directory that is listed twice is refused");
     let mut names: Vec<String> = engine.runbooks().into_iter().map(|r| r.name).collect();
     names.sort();
@@ -1033,7 +1038,7 @@ fn the_view_lists_exactly_the_names_a_submit_accepts_in_every_source() {
     put("d/bindings/zeta.yaml", "format: loom.bindings/1\n");
     put("d/protocol/a b.protocol.yaml", "format: protocol/1\nprotocol:\n  id: ab\n  revision: 1\n");
     let dirs: Vec<PathBuf> = ["a", "a-link", "b", "c", "d", "e", "late"].iter().map(|d| rig.p(d)).collect();
-    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(dirs.clone());
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state"), caps()).with_runbook_dirs(dirs.clone());
     // a directory that gains a runbook after the daemon started
     book("late", "omega", 7);
     let mut listed: Vec<(String, Option<String>)> = engine.runbooks().into_iter().map(|r| (r.name, r.version)).collect();
@@ -1392,7 +1397,7 @@ fn serve_says(rig: &Rig, args: &[&str]) -> (Option<i32>, Vec<String>) {
 }
 
 fn serve_args(rig: &Rig) -> Vec<String> {
-    ["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local"].iter().map(ToString::to_string).collect()
+    ["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"].iter().map(ToString::to_string).collect()
 }
 
 #[test]
@@ -1442,6 +1447,22 @@ fn serve_names_its_file_before_it_refuses_the_directories_the_file_names() {
     assert!(said.is_some(), "a refusal of the directories of a file does not say which file they came from: {lines:?}");
     let refused = lines.iter().position(|l| l.contains("missing-books")).unwrap_or(usize::MAX);
     assert!(said.unwrap() < refused, "{lines:?}");
+}
+
+#[test]
+fn the_caps_of_runbook_run_in_the_file_are_no_caps_of_the_daemon() {
+    // the file's caps are the defaults of one `runbook run`; a daemon's caps and ceilings come from its options alone
+    let rig = Rig::new("serve-caps-not-from-file");
+    rig.fixture();
+    let file = rig.put("runbook.toml", FOUR);
+    let args: Vec<String> = serve_args(&rig).into_iter().take(11).collect();
+    let (exited, lines) = serve_says(&rig, &args.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(exited, Some(1), "a daemon started with caps only in {}: {lines:?}", file.display());
+    let refusal = lines.iter().find(|l| l.contains("required with --runtime loom")).unwrap_or_else(|| panic!("no refusal of the caps: {lines:?}"));
+    for option in ["--max-wall-seconds", "--max-llm-calls", "--cap-micro-usd"] {
+        assert!(refusal.contains(option), "the refusal does not name {option}: {refusal}");
+    }
+    assert!(!rig.p("state").exists(), "the daemon wrote its state before it refused the caps");
 }
 
 // ---- the file the option or the variable names ----

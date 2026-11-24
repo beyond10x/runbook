@@ -52,7 +52,7 @@ enum Cmd {
         json: bool,
     },
     /// Run the daemon in the foreground: HTTP and JSON on a runtime that is a stub unless --runtime loom runs through Loom in this process.
-    Serve(runbook::serve::ServeArgs),
+    Serve(Box<runbook::serve::ServeArgs>),
     /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
     Mcp(runbook::mcp::stdio::McpArgs),
     /// Run a runbook once in this process, through Loom as a library or a `b10x-loom` child, under a spend ledger and caps; writes a run directory. With `--detach`: submit the run to a daemon and print its id.
@@ -220,7 +220,7 @@ fn main() -> ExitCode {
                 args.runbook_home = world.assets.map(|a| a.root);
             }
             let presets: Vec<&str> = presets.iter().map(String::as_str).collect();
-            runbook::serve::run(args, &presets)
+            runbook::serve::run(*args, &presets)
         }
         Cmd::Test(args) => {
             let protocols = assets::Lookup::from_process().locate().map(|a| a.protocol_dir());

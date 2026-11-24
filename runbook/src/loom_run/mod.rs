@@ -15,12 +15,12 @@
 
 pub mod answers;
 pub mod bindings_copy;
-pub mod budget;
+pub use runbook::budget;
 pub mod bugfix;
 pub mod child;
 pub mod child_host;
 pub mod conformance;
-pub mod cost;
+pub use runbook::cost;
 pub mod decide;
 pub mod decider;
 pub mod dry;
@@ -29,7 +29,7 @@ pub mod goals;
 pub mod here;
 pub mod host;
 pub mod in_flight;
-pub mod ledger;
+pub use runbook::ledger;
 pub mod library;
 pub mod ports;
 pub mod private;
@@ -37,6 +37,7 @@ pub mod replay;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;
+pub mod seeded;
 pub mod settings;
 pub mod watch;
 

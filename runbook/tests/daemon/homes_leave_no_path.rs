@@ -48,7 +48,7 @@ impl Homes {
         spoil(&books, &again);
         std::fs::create_dir_all(base.join("HOMESCTX")).unwrap();
         let state = base.join("HOMESSTATE");
-        let engine = Arc::new(Engine::with_levels(home, state.clone(), &[Confinement::Local]).with_runbook_dirs(vec![books, again]));
+        let engine = Arc::new(Engine::with_levels(home, state.clone(), &[Confinement::Local], super::policy()).with_runbook_dirs(vec![books, again]));
         let cfg = Config { state_dir: state, confinement_floor: Confinement::Local, context_roots: vec![base.join("HOMESCTX")], runbook_dir: None, principal: super::PRINCIPAL.into() };
         Homes { base, d: Daemon::start(cfg, engine).unwrap() }
     }

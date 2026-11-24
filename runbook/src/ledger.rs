@@ -16,11 +16,15 @@ use std::time::{Duration, Instant};
 /// The format id written into the ledger.
 pub const FORMAT: &str = "runbook.spend-ledger/1";
 
+/// The number of the next reservation of this process: with the process id it makes a reservation's
+/// id one that no other reservation of the ledger has, however many were committed or released.
+static NEXT_RESERVATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// How long a run waits for the lock before it fails closed.
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 /// A handle on the ledger file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ledger {
     path: PathBuf,
 }
@@ -61,6 +65,18 @@ impl State {
 
     fn reserved_total(&self) -> u64 {
         self.reserved.values().filter_map(Value::as_u64).fold(0u64, |a, b| a.saturating_add(b))
+    }
+
+    /// What the entries of `run` add up to.
+    fn spent_by(&self, run: &str) -> u64 {
+        self.entries.iter().filter(|e| e.get("run").and_then(Value::as_str) == Some(run)).filter_map(|e| e.get("micro_usd").and_then(Value::as_u64)).fold(0u64, |a, b| a.saturating_add(b))
+    }
+
+    /// What `run` holds: the reservations whose id starts with the run's id and a dash (`grant` names
+    /// them so). The ids of the daemon's runs are minted and of one length, so none starts with another.
+    fn reserved_by(&self, run: &str) -> u64 {
+        let prefix = format!("{run}-");
+        self.reserved.iter().filter(|(id, _)| id.starts_with(&prefix)).filter_map(|(_, v)| v.as_u64()).fold(0u64, |a, b| a.saturating_add(b))
     }
 
     fn render(&self) -> String {
@@ -108,17 +124,42 @@ impl Ledger {
     }
 
     /// Under the lock: reserves `min(want_micro_usd, cap - spent - reserved)` for run `run` and
-    /// returns it; a grant of 0 means the cap is reached.
+    /// returns it; a grant of 0 means the cap is reached. The cap is shared by every run of the
+    /// ledger: what all runs spent and hold counts (`runbook run`).
     pub fn reserve(&self, run: &str, cap_micro_usd: u64, want_micro_usd: u64) -> Result<Reservation, String> {
+        self.grant(run, want_micro_usd, |s| cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total()))
+    }
+
+    /// Under the lock: reserves `min(want_micro_usd, cap - spent - reserved)` for run `run`, where
+    /// `spent` and `reserved` are the run's own (its entries and its reservations): the cap is the
+    /// run's, and what other runs of the ledger spent or hold never reduces it (the daemon).
+    pub fn reserve_for_run(&self, run: &str, cap_micro_usd: u64, want_micro_usd: u64) -> Result<Reservation, String> {
+        self.grant(run, want_micro_usd, |s| cap_micro_usd.saturating_sub(s.spent_by(run)).saturating_sub(s.reserved_by(run)))
+    }
+
+    fn grant(&self, run: &str, want_micro_usd: u64, remaining: impl FnOnce(&State) -> u64) -> Result<Reservation, String> {
         self.with_state(|s| {
-            let remaining = cap_micro_usd.saturating_sub(s.spent).saturating_sub(s.reserved_total());
-            let grant = want_micro_usd.min(remaining);
-            let id = format!("{run}-{}-{}", std::process::id(), s.entries.len() + s.reserved.len());
+            let grant = want_micro_usd.min(remaining(s));
+            let id = format!("{run}-{}-{}", std::process::id(), NEXT_RESERVATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
             if grant > 0 {
                 s.reserved.insert(id.clone(), Value::from(grant));
             }
             Ok(Reservation { id, micro_usd: grant })
         })
+    }
+
+    /// Under the lock: drops every reservation `run` holds (a run that is not alive holds nothing).
+    pub fn release_run(&self, run: &str) -> Result<(), String> {
+        let prefix = format!("{run}-");
+        self.with_state(|s| {
+            s.reserved.retain(|id, _| !id.starts_with(&prefix));
+            Ok(())
+        })
+    }
+
+    /// Under the lock: what the entries of `run` add up to, micro USD.
+    pub fn spent_by_run(&self, run: &str) -> Result<u64, String> {
+        self.with_state(|s| Ok(s.spent_by(run)))
     }
 
     /// Under the lock: releases `reservation` and adds `actual_micro_usd` as spent (an entry
@@ -161,5 +202,43 @@ fn lock(file: &File) -> Result<(), String> {
             }
             Err(TryLockError::Error(e)) => return Err(format!("cannot lock: {e}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ledger(tag: &str) -> Ledger {
+        let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("ledger-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        Ledger::open(&d.join("l.json")).unwrap()
+    }
+
+    #[test]
+    fn a_runs_cap_is_held_against_its_own_spend_and_reservations_only() {
+        let l = ledger("own");
+        let a = l.reserve_for_run("run-a", 1000, 400).unwrap();
+        l.commit(&a, "run-a", "step", 400).unwrap();
+        let held = l.reserve_for_run("run-a", 1000, 500).unwrap();
+        // run-b is not reduced by the 400 spent and the 500 held by run-a
+        let b = l.reserve_for_run("run-b", 1000, 1000).unwrap();
+        assert_eq!((held.micro_usd, b.micro_usd), (500, 1000));
+        // run-a has 100 left of its own
+        assert_eq!(l.reserve_for_run("run-a", 1000, 300).unwrap().micro_usd, 100);
+        assert_eq!((l.spent_by_run("run-a").unwrap(), l.spent_by_run("run-b").unwrap()), (400, 0));
+        // the shared reserve of `runbook run` counts every run
+        assert_eq!(l.reserve("run-c", 1000, 1000).unwrap().micro_usd, 0);
+    }
+
+    #[test]
+    fn a_runs_reservations_are_dropped_by_its_id_and_no_other_runs() {
+        let l = ledger("release");
+        l.reserve_for_run("run-a", 1000, 300).unwrap();
+        l.reserve_for_run("run-ab", 1000, 200).unwrap();
+        l.release_run("run-a").unwrap();
+        assert_eq!(l.reserve_for_run("run-a", 1000, 1000).unwrap().micro_usd, 1000, "its own reservation is gone");
+        assert_eq!(l.reserve_for_run("run-ab", 1000, 1000).unwrap().micro_usd, 800, "the run whose id starts alike keeps its own");
     }
 }

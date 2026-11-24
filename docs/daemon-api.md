@@ -218,6 +218,9 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
               [--token-file FILE] [--ui] [--mcp] [--drain-seconds SECONDS]
+              [--runtime loom --runbook-home DIR
+               --max-wall-seconds N --max-llm-calls N --cap-micro-usd N
+               [--max-wall-seconds-ceiling N] [--max-llm-calls-ceiling N] [--cap-micro-usd-ceiling N]]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -239,6 +242,8 @@ then (see "Event streams").
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
+| `--max-wall-seconds`, `--max-llm-calls`, `--cap-micro-usd` | none, each required with `--runtime loom` | The caps of a run that names none (see "Caps of a run"). A daemon started without one refuses to start, exit 1, naming each missing option, before anything is bound or written. There is no binary default. A value is a whole number of 1 or more. The stub takes none. |
+| `--max-wall-seconds-ceiling`, `--max-llm-calls-ceiling`, `--cap-micro-usd-ceiling` | the cap itself | The most a submit may name for that cap. A ceiling below its cap is refused at start, naming the cap. |
 | `--drain-seconds` | none: no bound | The most seconds a drain takes after the first SIGINT or SIGTERM. When they have passed with a run still live, the daemon stops at once as on a second signal (see "Stopping the daemon"). |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
@@ -263,6 +268,76 @@ daemon's own stop, and they are written here only. The
 `403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
 authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
 `message`, never an `actor`.
+
+## Caps of a run
+
+A run of the Loom runtime is never unbound: it has a wall time, a number of model calls and a spend
+cap (`runbook/src/caps.rs`, `runbook/src/engine/gate.rs`).
+
+Where a request names them. `SubmitRun` has no member for a cap (the request is generated from
+`ess/domains/daemon.yaml` and gains none), so a submit names them in its `settings`, as it names
+anything else: `max_wall_seconds`, `max_llm_calls` and `cap_micro_usd`, each a string of a whole number
+of 1 or more (`"max_llm_calls": "50"`; every value of `settings` is a string, over HTTP and through the
+MCP tool `submit_run`). A cap the submit does not name is the daemon's option of that name. A cap over the
+daemon's ceiling is refused at submit as an invalid request (`400`), naming the cap, the value and the
+ceiling, and no run is made. A value that is no whole number of 1 or more is refused the same way, and
+so is a value of another JSON type than a string (`"max_llm_calls": 50` is a number): the refusal names the
+cap and says a cap is a string. A
+submit may name a lower cap or a higher one, up to the ceiling. The caps of a run are stored with it
+in `settings`, so the run view shows the three that applied, and a run taken up again has the same ones.
+
+What each cap stops. Before each step of a run the engine holds the use against the caps; a run that
+has reached one ends with an outcome and an event `runbook.cap-reached` (`cap`, `detail`), the same as
+any run:
+
+| Cap | Outcome | Rule |
+|---|---|---|
+| `max_wall_seconds` | `stopped: wall time` | Counted from the start of the run, waits on a decision included. A step that is running, or a wait on a decision, is ended when the time is up; what the run asked is withdrawn. A cancel by a client wins over the cap. |
+| `max_llm_calls` | `stopped: llm calls` | A step is not started when the calls made reach the cap. A call is a cost record the bound programs write (`.sdc/llm/calls.jsonl`). |
+| `cap_micro_usd` | `stopped: spend cap` | A step is not started when this run's spend has reached its cap, and a program is not started when the reservation for it is less than it may cost. |
+
+Spend. The cap is the run's own: it is the most that one run spends, and what other runs of the
+runbook spent, or hold while they run, never reduces it. Spend is booked in a ledger under the state
+directory, `ledgers/<runbook id>.json`, one file per runbook with each entry and each reservation
+keyed by the run id: the module of `runbook run` (`runbook/src/ledger.rs`), with the cost reader and
+the call-budget reader of that command. A run's admission and its reservations are held against its cap
+less what it has spent and holds itself. A reservation of a run that no longer lives counts against no
+run: it is keyed by that run's id, and a run that starts again under its id drops what its id held.
+What a program reserves as it starts is what it may cost, never the whole cap. A run is never
+unbound in money:
+
+- A program that names its per-call budget (`--max-budget-usd <v>` or `--max-budget-usd=<v>` in its
+  own arguments, the largest when it names it more than once) reserves that budget. The arguments come
+  from the bindings the run reads (the root's bindings file and the children it names) and nowhere
+  else.
+- A program that names none may call a model all the same: it reserves the largest per-call budget
+  the runbook's own bindings name, root and children. A step near the cap whose program makes no
+  model call may therefore be stopped; a program that names `--max-budget-usd 0` reserves nothing.
+- A runbook with a program that names no budget and no budget in any of its bindings is refused at
+  submit as an invalid request (`400`), naming the reason and the action; no run is made. So is a
+  budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing after the option),
+  naming the action and the bindings file. A run checks the same on its own copy before it opens.
+- A program a person's answer starts (a person action whose binding names an `argv`) reserves the
+  same way before it starts and is booked after, also when the run ends right after it (a wall cap
+  spent while it ran); when its reservation is short it does not start and the run ends at the spend
+  cap. A run that reaches a cap while it takes the last answer of a wait ends like one that reached
+  it while it waited.
+
+After a step or such an answer the cost records are booked at their cost; a failed call with no
+cost is booked at the largest reservation it held (nothing when it held none), and a record that
+cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
+and through `submit_run`.
+
+The view. `read_run` shows each cap and what is used so far as `settings` members: `max_wall_seconds`,
+`max_llm_calls` and `cap_micro_usd`, and `used_wall_seconds`, `used_llm_calls` and
+`spent_micro_usd`. A running run shows its use live; an ended run shows its last. The use is kept in
+`runs/<run id>/caps-used.json`. `spent_micro_usd` is the spend of this run; the ledger holds the entries
+of every run of the runbook, each under its run id.
+
+What is not done. The stub runtime takes no caps. A run is not taken up again after a restart
+(`docs/engine.md`, "Cancel and recover"), so the use a restart would carry over is kept and not yet read
+by a live run.
 
 ## Stopping the daemon
 
