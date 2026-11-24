@@ -1,7 +1,7 @@
 // The run picker groups recent runs by experiment (decision D-009). A run belongs to an experiment by its
 // experiment.json (sdc.experiment-run/1: experiment, variant, ordinal, tree_commit, …) or by its name in an
 // experiment record's variants[].runs (experiments/<id>.yaml, sdc.experiment/1). Eight runs played by
-// test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/experiments/runs, two
+// test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default ui/target/fixture-runs)/experiments/runs, two
 // records beside them, served by a server of its own (a port the kernel gives):
 //   alpha    cmp-effort low #1 and other-rec v #1 (two records), closed delivered
 //   bravo    cmp-effort low #2, closed delivered with a forced decision (not a clean pass)
@@ -17,13 +17,14 @@ import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {axeViolations} from '../ux/core/contract.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const top = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'experiments');
+const top = path.join(FIXTURE_DIR, 'experiments');
 const runs = path.join(top, 'runs'), records = path.join(top, 'records');
 let base;
 const T0 = Date.now() - 60 * 60000;

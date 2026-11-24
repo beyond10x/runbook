@@ -8,11 +8,12 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeWrittenRun, change} from './written-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'written-reader');
+const root = path.join(FIXTURE_DIR, 'written-reader');
 const SECRET = 'OUTSIDE-THE-RUN-SECRET-91c7';
 const servers = {};
 

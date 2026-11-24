@@ -5,11 +5,12 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {spawnChild} from './child.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'fixture-hold');
+const dir = path.join(FIXTURE_DIR, 'fixture-hold');
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'one process, one viewport'));
 test.afterAll(() => fs.rmSync(dir, {recursive: true, force: true}));
 

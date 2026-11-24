@@ -1,6 +1,6 @@
 // Stopped runs, waiting on a person as a failure, and runs that appear later. One server of its own
 // (a port the kernel gives) over a runs directory (--runs) of runs played by test/fixture-run.mjs
-// into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/stopped-runs, plus one explicit store:
+// into SDC_UI_FIXTURE_DIR (default ui/target/fixture-runs)/stopped-runs, plus one explicit store:
 //   person   a person stop, no settings record, not stopped (explicit store argument, source 0)
 //   held     the same stop, with run-settings.jsonl giving the decisions to a decider (haiku)
 //   stopped  the same stop, the same settings, then stopped on purpose (run-stopped.json)
@@ -12,13 +12,14 @@ import {playFixture, playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'stopped-runs');
+const root = path.join(FIXTURE_DIR, 'stopped-runs');
 const runs = path.join(root, 'runs');
 let base;
 const GATING = [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}];

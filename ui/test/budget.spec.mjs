@@ -20,8 +20,8 @@ const gateSpecs = specs.filter((f) => !slowFiles.includes(f));
 const text = (f) => fs.readFileSync(path.join(here, f), 'utf8');
 const textOf = (names) => Object.fromEntries(names.map((f) => [f, text(f)]));
 const maybeText = (f) => (fs.statSync(path.join(here, f), {throwIfNoEntry: false})?.isFile() ? text(f) : undefined);
-// The files of test/ and its subdirectories, but not the two directories of data: fixtures/ (git-ignored; other specs of the
-// same step remove and create run directories in it) and recorded/ (committed data).
+// The files of test/ and its subdirectories, but not the two directories of data: fixtures/ (git-ignored scratch of this file; the
+// other specs write their run directories under target/fixture-runs, fixture-dir.mjs) and recorded/ (committed data).
 const DATA_DIRS = ['fixtures', 'recorded'];
 const testFiles = (dir = here, rel = '') => fs.readdirSync(dir, {withFileTypes: true}).flatMap((e) => (e.isDirectory() ? (rel === '' && DATA_DIRS.includes(e.name) ? [] : testFiles(path.join(dir, e.name), `${rel}${e.name}/`)) : [rel + e.name]));
 // The files a spec of the gate imports, in test/ and in ux/, by their own walk of the imports.

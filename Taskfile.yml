@@ -26,11 +26,12 @@ tasks:
 
   test:ui:
     dir: ui
-    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
       - slot npx playwright test --workers=4
+      - ../scripts/check-tree-links.sh
 
   test:loom-real:
     desc: "Slow lane of runbook/: the stub cycle through runbook run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."

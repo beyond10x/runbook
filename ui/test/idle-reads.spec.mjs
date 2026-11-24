@@ -15,12 +15,13 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, iso} from './loom-run-fixture.mjs';
 import {registerRun, readText, readJson} from '../runfiles.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'idle-reads');
+const root = path.join(FIXTURE_DIR, 'idle-reads');
 const RUNS = 50;
 const name = (i) => `run-${String(i).padStart(3, '0')}`;
 const runDir = (i) => path.join(root, 'runs', name(i));

@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const fixtureRoot = (name) => path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), name);
+export const fixtureRoot = (name) => path.join(FIXTURE_DIR, name);
 export const put = (file, data) => { fs.mkdirSync(path.dirname(file), {recursive: true}); fs.writeFileSync(file, data); };
 
 // GET (or another method) with a bound on the wait: a server that hangs answers nothing, and that is a result

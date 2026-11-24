@@ -5,12 +5,13 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {readSeeded, writtenOf, finishedSteps, cleanRel, MAX_LINES, MAX_PATH, MAX_ACTION} from '../written.mjs';
 import {productOf} from '../products.mjs';
 import {writeWrittenRun, change, sha, WRITTEN} from './written-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'written-model');
+const root = path.join(FIXTURE_DIR, 'written-model');
 let n = 0;
 const fresh = (opts) => {
   const dir = path.join(root, `r${n++}`);
