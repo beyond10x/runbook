@@ -158,6 +158,12 @@ pub enum Fact {
     },
     DecisionWithdrawn { request_id: String },
     EventRecorded(RunEvent),
+    /// The daemon got its stop signal and no longer takes a submit: the ids of the runs it waits for.
+    #[serde(rename = "daemon.draining")]
+    DaemonDraining { run_ids: Vec<String>, at: String },
+    /// The last live run ended while the daemon drained.
+    #[serde(rename = "daemon.drained")]
+    DaemonDrained { at: String },
 }
 
 /// All of the state, for comparing two states.
@@ -175,6 +181,8 @@ pub struct State {
     journal: File,
     _lock: File,
     daemon: Option<DaemonRow>,
+    /// Set by `daemon.draining`; like the configuration row it lives as long as the process.
+    draining: bool,
     sessions: Vec<Session>,
     session_index: HashMap<String, usize>,
     runs: Vec<Run>,
@@ -222,6 +230,7 @@ impl State {
             journal,
             _lock: lock,
             daemon: None,
+            draining: false,
             sessions: vec![],
             session_index: HashMap::new(),
             runs: vec![],
@@ -252,6 +261,7 @@ impl State {
         }
         // The configuration row lives as long as the process: a new start writes its own.
         self.daemon = None;
+        self.draining = false;
         Ok(())
     }
 
@@ -275,10 +285,40 @@ impl State {
 
     /// Write the fact to the journal, then apply it.
     pub fn commit(&mut self, fact: Fact) -> io::Result<()> {
-        let mut line = serde_json::to_vec(&fact).map_err(io::Error::other)?;
+        self.append(&fact)?;
+        self.applied(&fact)
+    }
+
+    /// Write the fact to the journal, ask `accept` while the state still lacks it and apply the fact
+    /// when `accept` says yes. When it says no the line is taken out of the journal again and nothing
+    /// changed. `accept` runs under the caller's hold of the lock; it is how the daemon hands an
+    /// answer to a run only after the answer is on the journal, and takes it back when the run cannot
+    /// take it. The answer is `false` when `accept` refused.
+    pub fn commit_if(&mut self, fact: Fact, accept: impl FnOnce() -> bool) -> io::Result<bool> {
+        let before = self.append(&fact)?;
+        if !accept() {
+            self.journal.set_len(before)?;
+            return Ok(false);
+        }
+        self.applied(&fact)?;
+        Ok(true)
+    }
+
+    /// The fact as one line at the end of the journal; the length the journal had before it. A line
+    /// that was not written whole is taken out again.
+    fn append(&mut self, fact: &Fact) -> io::Result<u64> {
+        let mut line = serde_json::to_vec(fact).map_err(io::Error::other)?;
         line.push(b'\n');
-        self.journal.write_all(&line)?;
-        self.apply(&fact).map_err(invalid)?;
+        let before = self.journal.metadata()?.len();
+        if let Err(e) = self.journal.write_all(&line) {
+            let _ = self.journal.set_len(before);
+            return Err(e);
+        }
+        Ok(before)
+    }
+
+    fn applied(&mut self, fact: &Fact) -> io::Result<()> {
+        self.apply(fact).map_err(invalid)?;
         // After the change and inside the caller's hold of the lock: whoever sees the new version and
         // then reads the state finds the change.
         self.changes.send_modify(|version| *version += 1);
@@ -357,6 +397,8 @@ impl State {
                 self.events_of_run.entry(event.run_id.clone()).or_default().push(self.events.len());
                 self.events.push(event.clone());
             }
+            Fact::DaemonDraining { .. } => self.draining = true,
+            Fact::DaemonDrained { .. } => {}
         }
         Ok(())
     }
@@ -382,6 +424,16 @@ impl State {
 
     pub fn daemon(&self) -> Option<&DaemonRow> {
         self.daemon.as_ref()
+    }
+
+    /// Whether this process got its stop signal and refuses a submit.
+    pub fn draining(&self) -> bool {
+        self.draining
+    }
+
+    /// The ids of the runs that are not terminal, oldest first.
+    pub fn live_run_ids(&self) -> Vec<String> {
+        self.runs.iter().filter(|r| r.state.is_live()).map(|r| r.run_id.clone()).collect()
     }
 
     pub fn session(&self, id: &str) -> Option<&Session> {

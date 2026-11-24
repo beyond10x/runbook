@@ -3,9 +3,12 @@
 //! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
 pub mod calls;
+pub mod copy;
 mod decision;
 mod gate;
+mod hide;
 pub mod layout;
+pub mod pin;
 pub mod refusal;
 mod tail;
 
@@ -16,6 +19,8 @@ use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Ru
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
+use hide::{Hide, HidingSink};
+use pin::Pin;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -26,6 +31,9 @@ use tail::LogTail;
 
 /// The directory of a run's tree store, inside the run's own directory.
 pub const STORE_DIR: &str = "tree";
+
+/// The kind of the event that names the copy of the runbook a run took at its submit.
+pub const PINNED_EVENT: &str = "runbook.pinned";
 
 const POLL: Duration = Duration::from_millis(20);
 
@@ -125,7 +133,8 @@ impl Engine {
     /// is no engine without them.
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Engine { home, state_dir, levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        Engine { home: absolute(home), state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
     }
 
     pub fn levels(&self) -> &[Confinement] {
@@ -170,11 +179,20 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let resolved = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
+        let in_home = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
+        // The run takes its runbook now: it reads the copy in its own directory until it ends.
+        let (resolved, pin) = if resume {
+            let pin = Pin::load(&request.state_dir).map_err(failure)?;
+            (in_home, pin)
+        } else {
+            let (pin, copied) = Pin::take(&self.home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            (copied, Some(pin))
+        };
+        let pinned = pin.as_ref();
         let idea = if resume || request.intake.is_empty() {
             None
         } else {
@@ -214,6 +232,9 @@ impl Engine {
             sink.started();
         } else {
             sink.started();
+            if let Some(p) = pinned {
+                sink.record(PINNED_EVENT, p.record());
+            }
             tail.sync_all().map_err(failure)?;
         }
 
@@ -241,7 +262,7 @@ impl Engine {
                     std::thread::sleep(POLL);
                 }
             });
-            let result = self.steps(request, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate);
+            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate);
             done.store(true, Ordering::SeqCst);
             result
         });
@@ -270,6 +291,7 @@ impl Engine {
     fn steps(
         &self,
         request: &StartRequest,
+        pinned: Option<&Pin>,
         store: &Path,
         catalog: &loom_protocols::ProtocolCatalog,
         runner: Arc<dyn b10x_loom_tree::TestRunner>,
@@ -284,6 +306,9 @@ impl Engine {
         // The programs of the steps start through the gate's runner, which reserves the budget of each
         // one that names a per-call budget; the answers of a wait use the runner as it is.
         let settings = calls::run_settings(gate.runner(runner.clone()), request.confinement, Some(1));
+        // The digest of the run's copy is read before each round, as it is for a run that takes all the
+        // steps of a round in one call: a round is the steps between two waits, not each step.
+        let mut new_round = true;
         loop {
             if gate.wall_over() {
                 wall_hit.store(true, Ordering::SeqCst);
@@ -294,6 +319,9 @@ impl Engine {
             }
             if let Some((cap, detail)) = gate.admit().map_err(failure)? {
                 return Ok(Finish::Outcome(gate.reached(cap, &detail, sink)));
+            }
+            if std::mem::take(&mut new_round) {
+                check_copy(pinned)?;
             }
             let ran = {
                 let mut observer = tail.observer();
@@ -315,6 +343,7 @@ impl Engine {
             }
             match ran.stop {
                 TreeStop::Terminal => {
+                    check_copy(pinned)?;
                     let status = calls::status(store, catalog).map_err(failure)?;
                     let outcome = status.cases.iter().find(|c| c.case == status.root).and_then(|c| c.outcome.clone()).or(ran.detail);
                     return outcome.map(Finish::Outcome).ok_or_else(|| failure("the root case ended with no outcome"));
@@ -335,9 +364,10 @@ impl Engine {
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran.decisions, request, store, catalog, &runner, sink, local, slot, tail)? {
+                    if !self.round(&ran.decisions, pinned, store, catalog, &runner, sink, local, slot, tail)? {
                         return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
                     }
+                    new_round = true;
                 }
             }
         }
@@ -349,7 +379,7 @@ impl Engine {
     fn round(
         &self,
         decisions: &[b10x_loom_tree::model::NextDecision],
-        _request: &StartRequest,
+        pinned: Option<&Pin>,
         store: &Path,
         catalog: &loom_protocols::ProtocolCatalog,
         runner: &Arc<dyn b10x_loom_tree::TestRunner>,
@@ -389,6 +419,8 @@ impl Engine {
             let result = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
                 Ok(())
             } else {
+                // An answer is a library call that reads the bindings and may run a program of them.
+                check_copy(pinned)?;
                 parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal, runner))
             };
             tail.sync_all().map_err(failure)?;
@@ -419,6 +451,11 @@ impl Engine {
         sink.resumed();
         Ok(true)
     }
+}
+
+/// The run's copy of the runbook is what it was at the submit, or the run ends with the refusal.
+fn check_copy(pinned: Option<&Pin>) -> Result<(), RuntimeFailure> {
+    pinned.map_or(Ok(()), |p| p.check()).map_err(failure)
 }
 
 fn next_answer(slot: &Slot, cancel: &AtomicBool) -> Option<Answered> {
@@ -465,7 +502,10 @@ impl Runtime for Engine {
         gate::read_usage(&self.state_dir.join("runs").join(run_id))
     }
 
-    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+    fn start(&self, mut request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        // Loom takes only an absolute store: the run's directory is made absolute here, once, before
+        // any path is built from it.
+        request.state_dir = std::path::absolute(&request.state_dir).map_err(|_| RuntimeFailure { reason: "the run's directory cannot be made absolute: the daemon has no current directory".into() })?;
         let slot = Arc::new(Slot::default());
         {
             let mut runs = lock(&self.runs);
@@ -475,7 +515,10 @@ impl Runtime for Engine {
             runs.insert(request.run_id.clone(), slot.clone());
         }
         let _registered = Registered { engine: self, run_id: request.run_id.clone() };
-        self.drive(&request, sink, cancel, &slot)
+        // Everything that leaves the engine toward a client, a failure and what the run reports, goes
+        // through one `Hide`: no path of the run's directory, the state directory or the home.
+        let hide = Hide::new(&[&request.state_dir.join(pin::COPY_DIR), &request.state_dir, &request.workspace_dir, &self.state_dir, &self.home]);
+        self.drive(&request, &HidingSink { inner: sink, hide: &hide }, cancel, &slot).map_err(|f| RuntimeFailure { reason: hide.text(&f.reason) })
     }
 
     fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {

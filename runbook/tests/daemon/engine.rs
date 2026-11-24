@@ -5,6 +5,7 @@
 
 use super::state::scratch;
 use runbook::commands::{AnswerDecision, CancelRun, Config, Daemon, SubmitRun};
+use runbook::engine::copy::digest;
 use runbook::engine::{Engine, StoreState};
 use runbook::runtime::{Confinement, Recovery, Runtime};
 use serde_json::Value;
@@ -445,4 +446,237 @@ fn only_the_programs_of_the_runbook_run_and_nothing_is_written_beside_the_state_
     }
     assert_eq!(listing(&rig.home), home_before, "the runbook directory was written into");
     assert!(rig.store(&run).starts_with(rig.dir.join("state")));
+}
+
+fn replace_in(home: &Path, file: &str, from: &str, to: &str) {
+    let path = home.join(file);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{file} lacks {from:?}");
+    std::fs::write(path, text.replace(from, to)).unwrap();
+}
+
+/// Revision 2 of the fixture runbook: both protocols, both bindings, and a writer that writes another text.
+fn revise(home: &Path) {
+    replace_in(home, "protocol/engine-demo.protocol.yaml", "revision: 1", "revision: 2");
+    replace_in(home, "protocol/engine-draft.protocol.yaml", "revision: 1", "revision: 2");
+    replace_in(home, "bindings/engine-demo.yaml", "protocol: engine-demo@1", "protocol: engine-demo@2");
+    replace_in(home, "bindings/engine-draft.yaml", "protocol: engine-draft@1", "protocol: engine-draft@2");
+    replace_in(home, "bindings/tools/draft-write.sh", "echo draft >>", "echo draft-two >>");
+}
+
+impl Rig {
+    /// Reject the draft the review `first` waits on, so the writer runs again, then approve the second draft and settle.
+    fn finish_after_a_rejection(&self, run: &str, first: &str) {
+        self.answer(run, first, r#"{"result":"rejected","reasons":"once more"}"#, "reviewer");
+        let mut next = None;
+        until("a second review request", 40, || {
+            let state = self.state_of(run);
+            assert!(!matches!(state.as_str(), "Cancelled" | "FailedToStart"), "the run is {state}: {}", self.row(run));
+            next = self.d().open_decisions_of_run(run).into_iter().find(|d| d["request_id"] != first);
+            next.is_some()
+        });
+        let next = next.unwrap();
+        let question = next["question"].as_str().unwrap_or_default();
+        assert!(!question.contains("The earlier answer was refused"), "the answer was refused by Loom: {question}");
+        self.answer(run, next["request_id"].as_str().unwrap(), "performed", "reviewer");
+        self.settle(run, &[]);
+    }
+
+    fn draft(&self, run: &str) -> String {
+        std::fs::read_to_string(self.workspace(run).join("draft.txt")).unwrap_or_default()
+    }
+}
+
+/// A run that waits at its review while `damage` is done to the runbook home ends on the revision it was submitted with.
+fn survives(tag: &str, damage: impl Fn(&Path)) {
+    let rig = Rig::new(tag, &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    damage(&rig.home);
+    rig.finish_after_a_rejection(&run, &first);
+    let row = rig.row(&run);
+    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("delivered")), "{row}");
+    assert_eq!(rig.draft(&run), "draft\ndraft\n");
+}
+
+#[test]
+fn a_revision_of_the_runbook_home_during_a_run_changes_nothing_for_that_run() {
+    survives("engine-pin-revised", revise);
+}
+
+#[test]
+fn bindings_that_do_not_parse_in_the_runbook_home_change_nothing_for_a_run_in_flight() {
+    survives("engine-pin-garbled", |home| {
+        for file in ["bindings/engine-demo.yaml", "bindings/engine-draft.yaml", "protocol/engine-demo.protocol.yaml", "protocol/engine-draft.protocol.yaml"] {
+            std::fs::write(home.join(file), ": : [\n").unwrap();
+        }
+    });
+}
+
+#[test]
+fn a_runbook_home_removed_during_a_run_changes_nothing_for_that_run() {
+    survives("engine-pin-removed", |home| {
+        std::fs::remove_dir_all(home.join("bindings")).unwrap();
+        std::fs::remove_dir_all(home.join("protocol")).unwrap();
+    });
+}
+
+impl Rig {
+    fn state_root(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    /// The run's own directory: its store, its copy of the runbook.
+    fn run_dir(&self, run: &str) -> PathBuf {
+        self.state_root().join("runs").join(run)
+    }
+
+    fn copy_of(&self, run: &str) -> PathBuf {
+        self.run_dir(run).join("runbook")
+    }
+
+    fn submit_version(&self, version: &str) -> runbook::commands::Outcome {
+        self.d().submit_run(SubmitRun { runbook_id: RUNBOOK.into(), runbook_version: Some(version.into()), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap()
+    }
+
+    fn event_of(&self, run: &str, kind: &str) -> Value {
+        let events = self.d().events_after(run, 0);
+        let found: Vec<&Value> = events.iter().filter(|e| e["kind"] == kind).collect();
+        assert_eq!(found.len(), 1, "one {kind} event: {events:?}");
+        found[0]["record"].clone()
+    }
+}
+
+#[test]
+fn a_second_submit_takes_the_new_revision_and_each_record_names_its_revision_and_digest() {
+    let rig = Rig::new("engine-pin-second", &[Confinement::Local]);
+    let digest_one = digest(&rig.home.join("bindings")).unwrap();
+    let one = rig.submit();
+    let review = rig.wait_review(&one);
+    revise(&rig.home);
+    let digest_two = digest(&rig.home.join("bindings")).unwrap();
+    assert_ne!(digest_one, digest_two);
+    let stale = rig.submit_version("1");
+    assert!(stale.is_refusal() && stale.name == "no-runbook", "{stale:?}");
+    let accepted = rig.submit_version("2");
+    assert_eq!(accepted.name, "submitted", "{accepted:?}");
+    let two = accepted.run_id.unwrap();
+    rig.settle(&two, &["performed"]);
+    assert_eq!(rig.row(&two)["outcome"], "delivered");
+    assert_eq!(rig.draft(&two), "draft-two\n");
+    rig.finish_after_a_rejection(&one, &review);
+    assert_eq!(rig.row(&one)["outcome"], "delivered");
+    assert_eq!(rig.draft(&one), "draft\ndraft\n");
+    let (pin_one, pin_two) = (rig.event_of(&one, "runbook.pinned"), rig.event_of(&two, "runbook.pinned"));
+    assert_eq!((pin_one["protocol"].as_str(), pin_one["revision"].as_i64(), pin_one["bindings_sha256"].as_str()), (Some("engine-demo"), Some(1), Some(digest_one.as_str())), "{pin_one}");
+    assert_eq!((pin_two["protocol"].as_str(), pin_two["revision"].as_i64(), pin_two["bindings_sha256"].as_str()), (Some("engine-demo"), Some(2), Some(digest_two.as_str())), "{pin_two}");
+    // The copy of a run is the runbook as it was at its submit.
+    assert_eq!(digest(&rig.copy_of(&one).join("bindings")).unwrap(), digest_one);
+    assert_eq!(digest(&rig.copy_of(&two).join("bindings")).unwrap(), digest_two);
+}
+
+/// A run whose copy of the runbook is changed while it waits ends with a named refusal and runs
+/// nothing of the changed copy: the writer would run again after the rejection and leave `marker.txt`.
+fn copy_changed(tag: &str, damage: impl Fn(&Path)) {
+    let rig = Rig::new(tag, &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    damage(&rig.copy_of(&run));
+    rig.answer(&run, &first, r#"{"result":"rejected","reasons":"once more"}"#, "reviewer");
+    rig.wait_state(&run, "Ended");
+    assert_eq!(rig.row(&run)["outcome"], "runtime-failure");
+    let failed = rig.event_of(&run, "runbook.runtime-failed");
+    assert!(failed["reason"].as_str().is_some_and(|r| r.starts_with("RunbookCopyChanged")), "{failed}");
+    assert!(!rig.workspace(&run).join("marker.txt").exists(), "a changed file was run");
+    assert_eq!(rig.draft(&run), "draft\n", "a step ran after the copy changed");
+}
+
+#[test]
+fn a_program_of_the_copy_that_is_edited_during_the_run_is_never_run() {
+    copy_changed("engine-pin-edited-program", |copy| std::fs::write(copy.join("bindings/tools/draft-write.sh"), "#!/bin/sh\necho x > marker.txt\n").unwrap());
+}
+
+#[test]
+fn a_file_added_to_the_copy_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-added", |copy| std::fs::write(copy.join("bindings/tools/extra.sh"), "#!/bin/sh\necho x > marker.txt\n").unwrap());
+}
+
+#[test]
+fn a_file_removed_from_the_copy_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-removed-from-copy", |copy| std::fs::remove_file(copy.join("bindings/tools/draft-check.sh")).unwrap());
+}
+
+#[test]
+fn bindings_of_the_copy_that_are_edited_during_the_run_are_never_read() {
+    copy_changed("engine-pin-edited-bindings", |copy| replace_in(copy, "bindings/engine-draft.yaml", "protocol: engine-draft@1", "protocol: engine-draft@9"));
+}
+
+#[test]
+fn a_protocol_of_the_copy_that_is_edited_during_the_run_ends_the_run() {
+    copy_changed("engine-pin-edited-protocol", |copy| replace_in(copy, "protocol/engine-demo.protocol.yaml", "revision: 1", "revision: 7"));
+}
+
+#[test]
+fn a_link_out_of_the_runbook_home_is_refused_before_the_run_holds_anything_of_the_runbook() {
+    for (tag, make_link) in [("file", true), ("directory", false)] {
+        let rig = Rig::new(&format!("engine-pin-link-{tag}"), &[Confinement::Local]);
+        let outside = rig.dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "not for a run\n").unwrap();
+        let (target, name) = if make_link { (outside.join("secret.txt"), "leak.sh") } else { (outside.clone(), "leak") };
+        std::os::unix::fs::symlink(target, rig.home.join("bindings/tools").join(name)).unwrap();
+        let run = rig.submit();
+        rig.wait_state(&run, "FailedToStart");
+        let failure = rig.row(&run)["failure"].as_str().unwrap().to_string();
+        assert!(failure.contains("leaves the runbook home"), "{failure}");
+        assert!(!rig.copy_of(&run).exists(), "the run's directory holds a copy");
+        assert!(!rig.run_dir(&run).join("runbook-pin.json").exists());
+        assert!(!rig.store(&run).exists(), "a store was made");
+        assert!(!rig.workspace(&run).join("draft.txt").exists());
+    }
+}
+
+#[test]
+fn a_link_inside_the_runbook_home_is_copied_as_the_file_it_names() {
+    let rig = Rig::new("engine-pin-link-inside", &[Confinement::Local]);
+    std::os::unix::fs::symlink("draft-write.sh", rig.home.join("bindings/tools/draft-again.sh")).unwrap();
+    let run = rig.submit();
+    rig.settle(&run, &["performed"]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    let meta = std::fs::symlink_metadata(rig.copy_of(&run).join("bindings/tools/draft-again.sh")).unwrap();
+    assert!(meta.is_file() && !meta.file_type().is_symlink());
+}
+
+#[test]
+fn a_submit_names_a_runbook_by_name_and_version_and_never_by_a_path() {
+    let rig = Rig::new("engine-pin-by-name", &[Confinement::Local]);
+    let runs = |rig: &Rig| std::fs::read_dir(rig.state_root().join("runs")).map(|d| d.count()).unwrap_or(0);
+    let before = runs(&rig);
+    let home = rig.home.to_string_lossy().into_owned();
+    for id in ["../elsewhere/engine-demo","bindings/engine-demo", &format!("{home}/bindings/engine-demo"), "/etc/hostname", ".hidden", ""] {
+        let o = rig.d().submit_run(SubmitRun { runbook_id: id.into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
+        assert!(o.is_refusal() && o.name == "no-runbook", "{id:?}: {o:?}");
+    }
+    let o = rig.submit_version("../x");
+    assert!(o.is_refusal() && o.name == "no-runbook", "{o:?}");
+    assert_eq!(runs(&rig), before, "a refused submit made a run directory");
+}
+
+#[test]
+fn the_copy_lies_outside_the_work_directory_and_no_record_names_its_path() {
+    let rig = Rig::new("engine-pin-not-served", &[Confinement::Local]);
+    let run = rig.submit();
+    rig.settle(&run, &["performed"]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    let copy = rig.copy_of(&run);
+    assert!(copy.join("bindings/engine-demo.yaml").is_file());
+    assert!(!copy.starts_with(rig.workspace(&run)) && !copy.starts_with(rig.state_root().join("workspaces")));
+    let product = listing(&rig.workspace(&run));
+    assert!(product.iter().all(|f| !f.starts_with("bindings/") && !f.starts_with("protocol/") && !f.starts_with("runbook/") && !f.contains("draft-write.sh")), "{product:?}");
+    let state = rig.state_root().to_string_lossy().into_owned();
+    let own: Vec<Value> = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"].as_str().unwrap().starts_with("runbook.")).collect();
+    assert!(own.iter().any(|e| e["kind"] == "runbook.pinned"));
+    for e in own {
+        assert!(!e.to_string().contains(&state), "an event of the daemon names a path of the state directory: {e}");
+    }
 }
