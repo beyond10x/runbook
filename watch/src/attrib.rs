@@ -27,6 +27,29 @@ pub const REQ_SLACK_MS: i64 = 50;
 /// the result, unless a later call has started.
 pub const RES_SLACK_MS: i64 = 250;
 
+/// How many bytes one read of a file of a call record takes: 64 MiB. A file that holds more is not read.
+pub const RECORD_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// Opens a file of a call record for reading as a regular file: no link is followed at its last component, a pipe is not
+/// waited for (`O_NONBLOCK`), and anything that is not a regular file (a pipe, a device, a directory) is `None`. The programs
+/// of a run write the run directory too, so a name in it may hold any of these.
+fn open_regular(p: &Path) -> Option<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(p).ok()?;
+    f.metadata().ok()?.is_file().then_some(f)
+}
+
+/// The text of a file of a call record: a regular file, at most [`RECORD_LIMIT`] bytes read from the one descriptor that
+/// was checked, whatever size the file has at that moment; `None` when it is not one, holds more, or is not UTF-8.
+pub fn read_record(p: &Path) -> Option<String> {
+    let mut bytes = Vec::new();
+    open_regular(p)?.take(RECORD_LIMIT + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > RECORD_LIMIT {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
 /// Reads the complete lines appended to a file since the last read.
 pub struct Tail {
     path: PathBuf,
@@ -39,7 +62,7 @@ impl Tail {
         Tail { path, offset: 0, partial: Vec::new() }
     }
     pub fn lines(&mut self) -> Vec<String> {
-        let Ok(mut f) = fs::File::open(&self.path) else { return Vec::new() };
+        let Some(mut f) = open_regular(&self.path) else { return Vec::new() };
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         if len < self.offset {
             self.offset = 0;
@@ -49,7 +72,7 @@ impl Tail {
             return Vec::new();
         }
         let mut buf = Vec::new();
-        let n = f.read_to_end(&mut buf).unwrap_or(0);
+        let n = (&mut f).take(RECORD_LIMIT).read_to_end(&mut buf).unwrap_or(0);
         self.offset += n as u64;
         self.partial.extend_from_slice(&buf[..n]);
         let Some(last_nl) = self.partial.iter().rposition(|&b| b == b'\n') else { return Vec::new() };
@@ -242,7 +265,7 @@ impl Attributor {
     /// A call record's `status.json` was written: a call that is no longer `running` is closed.
     pub fn status_update(&mut self, rel: &str, ord: u64) {
         self.record(rel, ord, false);
-        let state = fs::read_to_string(self.run.join(rel).join("status.json")).ok()
+        let state = read_record(&self.run.join(rel).join("status.json"))
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v["state"].as_str().map(String::from));
         if let (Some(s), Some(r)) = (state, self.records.get_mut(rel)) {
@@ -300,7 +323,7 @@ impl Attributor {
     fn calls_case(&self, rel: &str) -> Option<String> {
         let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
         for f in [self.run.join("llm-calls.jsonl"), self.run.join(parent).join("calls.jsonl")] {
-            let Ok(text) = fs::read_to_string(&f) else { continue };
+            let Some(text) = read_record(&f) else { continue };
             for l in text.lines().rev() {
                 let Ok(v) = serde_json::from_str::<Value>(l) else { continue };
                 if v["record"].as_str().is_some_and(|r| last(r) == last(rel)) {
@@ -313,7 +336,7 @@ impl Attributor {
 
     /// The case an agent call's `request.json` names (`case`, written by `sdc-node`).
     fn request_case(&self, rel: &str) -> Option<String> {
-        let t = fs::read_to_string(self.run.join(rel).join("request.json")).ok()?;
+        let t = read_record(&self.run.join(rel).join("request.json"))?;
         let v: Value = serde_json::from_str(&t).ok()?;
         v["case"].as_str().filter(|c| !c.is_empty()).map(String::from)
     }
@@ -331,8 +354,8 @@ impl Attributor {
         let mut guessed = false;
         let mut action_override = None;
         if decider {
-            if let Ok(v) = fs::read_to_string(self.run.join(rel).join("decide-request.json"))
-                .map_err(|_| ()).and_then(|t| serde_json::from_str::<Value>(&t).map_err(|_| ())) {
+            if let Some(v) = read_record(&self.run.join(rel).join("decide-request.json"))
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
                 case = v["case_dir"].as_str().map(|d| last(d.trim_end_matches('/')).to_string());
                 action_override = v["action"].as_str().map(String::from);
             }

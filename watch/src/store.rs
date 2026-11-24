@@ -71,17 +71,28 @@ pub fn is_binary(b: &[u8]) -> bool {
 /// `tmp` is removed (`unlink` follows nothing and opens nothing) and the open is tried once more; a name that cannot be
 /// removed (a directory) is an error. The mode is the one `fs::write` makes (0o666 less the umask).
 fn write_new(tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let open = || fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(tmp);
-    let mut file = match open() {
+    match write_new_once(tmp, bytes) {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             fs::remove_file(tmp)?;
-            open()?
+            write_new_once(tmp, bytes)
         }
-        other => other?,
-    };
-    file.write_all(bytes)?;
-    file.flush()
+        other => other,
+    }
+}
+
+/// How many temporary names the store of one blob tries before it gives up.
+const NAMES_TRIED: usize = 16;
+
+/// [`write_new`] without the removal: a name that is taken is an `AlreadyExists` error and is left as it is. A file that
+/// this call made and could not fill is removed again.
+fn write_new_once(tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(tmp)?;
+    let written = file.write_all(bytes).and_then(|()| file.flush());
+    if written.is_err() {
+        let _ = fs::remove_file(tmp);
+    }
+    written
 }
 
 /// Content-addressed: `<dir>/<sha256>`, written once, through a temp file and a rename.
@@ -95,9 +106,23 @@ impl Blobs {
         if p.exists() {
             return;
         }
-        let tmp = self.dir.join(format!(".{sha}.{}", std::process::id()));
-        if write_new(&tmp, bytes).is_ok() && fs::rename(&tmp, &p).is_err() {
-            let _ = fs::remove_file(&tmp);
+        // A name a program of the run took is not used and is not removed: the next of `NAMES_TRIED` names is tried, as the
+        // runner's writer does, so a program that keeps taking one name does not keep the blob from being stored.
+        for attempt in 0..NAMES_TRIED {
+            let tmp = match attempt {
+                0 => self.dir.join(format!(".{sha}.{}", std::process::id())),
+                n => self.dir.join(format!(".{sha}.{}.{n}", std::process::id())),
+            };
+            match write_new_once(&tmp, bytes) {
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Ok(()) => {
+                    if fs::rename(&tmp, &p).is_err() {
+                        let _ = fs::remove_file(&tmp);
+                    }
+                }
+                Err(_) => {}
+            }
+            return;
         }
     }
     pub fn get(&self, sha: &str) -> Option<Vec<u8>> {

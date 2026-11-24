@@ -503,14 +503,15 @@ fn mkfifo(path: &Path) {
 }
 
 #[test]
-fn a_blob_whose_temporary_name_holds_a_link_a_program_put_there_is_stored_and_the_link_is_replaced() {
+fn a_blob_whose_temporary_name_holds_a_link_a_program_put_there_is_stored_and_the_link_is_left_as_it_is() {
     let outside = base().join(format!("outside-stored-{}.txt", std::process::id()));
     fs::write(&outside, "keep\n").unwrap();
     let (r, sha) = run_with_the_name_of_a_blob_taken("blob-link-stored", &|tmp| std::os::unix::fs::symlink(&outside, tmp).unwrap());
     assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
     assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
     let left: Vec<String> = fs::read_dir(r.dir.join("fs/blobs")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('.')).collect();
-    assert!(left.is_empty(), "temporary names left in the blob store: {left:?}");
+    assert_eq!(left.len(), 1, "the name a program took is the only temporary name left in the blob store: {left:?}");
+    assert!(fs::symlink_metadata(r.dir.join("fs/blobs").join(&left[0])).unwrap().file_type().is_symlink(), "the name a program took was removed or replaced");
 }
 
 #[test]
@@ -529,9 +530,11 @@ fn a_blob_whose_temporary_name_holds_a_second_name_of_a_file_outside_is_stored_a
 }
 
 #[test]
-fn a_blob_whose_temporary_name_holds_a_directory_is_not_stored_and_the_watcher_ends_in_order() {
+fn a_blob_whose_temporary_name_holds_a_directory_is_stored_and_the_directory_is_left_as_it_is() {
     let (r, sha) = run_with_the_name_of_a_blob_taken("blob-directory", &|tmp| fs::create_dir(tmp).unwrap());
-    assert!(!r.dir.join("fs/blobs").join(&sha).exists(), "a blob was stored through a directory at its temporary name");
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    let taken = fs::read_dir(r.dir.join("fs/blobs")).unwrap().map(|e| e.unwrap()).filter(|e| e.file_name().to_string_lossy().starts_with('.')).collect::<Vec<_>>();
+    assert!(taken.len() == 1 && taken[0].path().is_dir(), "the directory at the temporary name was removed or replaced");
 }
 
 #[test]
