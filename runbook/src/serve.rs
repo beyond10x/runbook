@@ -208,6 +208,18 @@ async fn stop_after_drain(daemon: Daemon, bound: Option<Duration>, mut signals: 
     daemon.orphan_live_runs();
 }
 
+/// How the stop ended: the runs it left orphaned, and whether the stop future itself failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StopEnd {
+    pub orphaned: usize,
+    pub failed: bool,
+}
+
+/// Run `stop` (it gives the number of runs it orphaned). Not yet guarded: a panic in it goes on.
+pub async fn guarded_stop(_daemon: &Daemon, stop: impl std::future::Future<Output = usize> + Send + 'static) -> StopEnd {
+    StopEnd { orphaned: stop.await, failed: false }
+}
+
 /// Run the daemon until SIGINT or SIGTERM and then the end of its drain. Exit 1 when the start is refused.
 pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
     let prepared = match prepare(&args, &Env::from_process(), presets) {
