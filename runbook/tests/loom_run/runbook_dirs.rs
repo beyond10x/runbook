@@ -288,6 +288,7 @@ fn the_daemons_start_refuses_two_directories_with_one_name_before_it_writes_its_
         principal: Some("person:test".to_owned()),
         ui: false,
         mcp: false,
+        drain_seconds: None,
     };
     let refused = match runbook::serve::prepare(&args, &runbook::serve::Env::default(), &[]) {
         Ok(_) => panic!("the daemon's start took a set with one name in two directories"),
