@@ -55,9 +55,9 @@ pub struct Setup {
     pub effort: Option<String>,
 }
 
-const VALUED: [&str; 12] = [
+const VALUED: [&str; 13] = [
     "--model", "--max-turns", "--max-budget-usd", "--operations", "--instructions", "--adapter", "--principal",
-    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--effort", "--replay-plan",
+    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--gateway-file", "--effort", "--replay-plan",
 ];
 
 /// Reads standard input and `rest` (the arguments after the action name) as the Loom branch of the
@@ -125,7 +125,19 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     if work.join(".stub").is_dir() {
         stub_directory(node, &here, &work)?;
     }
-    if let Some(v) = given("--claude-credentials") {
+    if let Some(file) = given(sdc_tools::gateway::OPTION) {
+        // A gateway instead of a login: the file is checked here, so a run with a broken one ends before a
+        // model is called, and its path (never its content) goes to the adapter. A login path in the
+        // caller's environment is not handed on beside it.
+        if given("--claude-credentials").is_some() {
+            return Err(die(format!("llm-node: {node} could not run: {} and --claude-credentials are two ways to the model; give one", sdc_tools::gateway::OPTION), 64));
+        }
+        if let Err(why) = sdc_tools::gateway::read(Path::new(&file)) {
+            return Err(die(format!("llm-node: {node} could not run: {}: {why}", sdc_tools::gateway::OPTION), 64));
+        }
+        std::env::set_var(sdc_tools::gateway::FILE_VARIABLE, file);
+        std::env::remove_var("SDC_CLAUDE_CREDENTIALS");
+    } else if let Some(v) = given("--claude-credentials") {
         std::env::set_var("SDC_CLAUDE_CREDENTIALS", v);
     }
 

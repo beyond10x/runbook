@@ -28,6 +28,7 @@ pub mod decide;
 pub mod decider;
 pub mod dry;
 pub mod events;
+pub mod gateway;
 pub mod goals;
 pub mod here;
 pub mod host;
