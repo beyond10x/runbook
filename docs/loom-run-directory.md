@@ -227,7 +227,7 @@ Contract: `driver/src/run_metrics.rs` `load` and `load_case` (the table of unit 
 | `.../bindings.json` | `<a>.manual`, `<a>.copy` | binding `executor.kind` `person` is `manual`, `copy` is `copy` |
 | `.../evidence/<id>.json` | `kind`, `result` | `tree-status.json` `cases[].evidence[]` (`evidence_id`, `kind`, `result`, `subject`, `subject_revision`, `producer`, `action`); absent until a status exists |
 | `.../work/findings.yaml` | the file | a copy of `work/findings.yaml` of the workspace |
-| `llm-calls.jsonl` | one line per costed step call | `CostedCall` of source `Step`: `record` is the line the model tool wrote (`work/.sdc/llm/calls.jsonl`: `action`, `case`, `started`, `model`, `effort`, `duration_ms`, `usage`, ...) cleaned; `cost_usd` is the booked cost (`cost_micro_usd / 1e6`) |
+| `llm-calls.jsonl` | one line per costed step call | `CostedCall` of source `Step`: `record` is the line the model tool wrote (`work/.sdc/llm/calls.jsonl`: `action`, `case`, `started`, `model`, `effort`, `duration_ms`, `usage`, ...) cleaned; `cost_usd` is the booked cost (`cost_micro_usd / 1e6`); a call of unknown cost (`cost_unknown` true) in a run that names no spend cap books nothing and its `cost_usd` is `null` |
 | `decisions.jsonl` | one line per answered decision | `DecisionAnswered`: `time`, `case`, `action`, `capability`, `kind`, `revision`, `subject` from the decision; `class` and `type` `approval` (`close` for a `Close`); `decision` `approve` or `reject`; `principal`; `cost_usd`; `model_calls`; `model` is the decider's model name when `model_calls` > 0 and absent (`null`) for a rule's answer, taken from `settings.decider.model`, else the last `CostedCall` of source `Decider` (`record.model`), else the word `unknown` |
 | `status.json` | `state`, `outcome`, `delivered` | at `Ended` when the tree ended: `closed`, the tree's outcome, and `delivered` for the outcomes `operating`, `fixed` and `delivered` (the driver's rule, with the name `story:root-outcome-delivered` gives the root) |
 | `run-stopped.json` | `at`, `by`, `cause`, `case`, `reason` | `CapReached` or an `Ended` that is not `ended`; `by` is `rule:loom-run`; `cause` is `spend_cap`, `llm_calls_spent`, `wall_time_spent`, `signal`, `decider_cannot_decide`, `stuck`, `ended_without_outcome` or `error`, or, when the outcome is `refused` (exit 12), the reason's name in snake case, one of 29 (`tree_stopped`, `person_program_failed`, `bindings_refused`, ...; the list is in `docs/loom-run.md`), or `program_signalled` or `program_error` (the same `cause` is in `outcome.json`); `case` the case of the last new run log line, else the root; `reason` the cap's detail, cleaned, at most 600 characters |
@@ -319,7 +319,7 @@ The writer is built on the interface as it is. Four members it needs from the lo
 and until they are the cells in the table above are absent:
 
 - `RunStarted.settings` carries `loom.{sha256, confinement, cap_micro_usd}`, `max_llm_calls`,
-  `max_wall_seconds`, `case` and `root_protocol`. Without them `check --runs-dir` refuses the run.
+  `max_wall_seconds`, `case` and `root_protocol`; `loom.cap_micro_usd` and `max_llm_calls` are `null` when the run names no cap. Without them `check --runs-dir` refuses the run.
 - `protocols/*.protocol.yaml` of `--protocols` are copied into the run directory. Without them there is
   no node kind, and `looping_factor`, `first_pass_yield`, `rework_cost_usd` and the Loops table are
   not computed.

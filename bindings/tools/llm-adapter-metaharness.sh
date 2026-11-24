@@ -6,7 +6,7 @@
 #   llm-adapter-<name>.sh <request.json>
 #
 # request: {model, effort (optional), prompt_file, cwd, operations: [metaharness neutral ops], max_turns,
-# max_budget_usd, record_dir, node, attempt}. The adapter runs the session with cwd = request.cwd,
+# max_budget_usd (optional: with none the session has no money cap), record_dir, node, attempt}. The adapter runs the session with cwd = request.cwd,
 # writes everything it observed under record_dir (argv.json, events.jsonl, transcripts/) and
 # prints one response JSON on stdout: {adapter, model, exit, duration_ms, cost_usd, num_turns,
 # usage, tool_calls, observed_models, is_error}. Its exit is the session's.
@@ -48,9 +48,12 @@ digest=$(jq -cjS . "$rec/frame.body.json" | sha256sum | cut -d' ' -f1)
 jq -S --arg d "$digest" '. + {format: "metaharness.frame/1", digest: $d}' "$rec/frame.body.json" > "$rec/frame.json"
 rm -f "$rec/frame.body.json"
 
+# A money budget is optional: `--max-budget-usd` is passed only when the request names `max_budget_usd`.
+budget=()
+[[ -n $(r '.max_budget_usd // ""') ]] && budget=(--max-budget-usd "$(r .max_budget_usd)")
 argv=("${METAHARNESS:-metaharness}" run claude --frame "$rec/frame.json" --decisions frame
   --cwd "$(r .cwd)" --scratch-cwd --model "$(r .model)" --max-turns "$(r .max_turns)"
-  --max-budget-usd "$(r .max_budget_usd)" --retain-dir "$rec/transcripts")
+  "${budget[@]}" --retain-dir "$rec/transcripts")
 [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
 home_env=()
 if [[ -n ${SDC_LLM_ENDPOINT:-} ]]; then

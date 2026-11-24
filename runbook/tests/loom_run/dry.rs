@@ -100,6 +100,26 @@ fn a_dry_run_prints_every_command_runs_no_model_and_spends_nothing() {
 }
 
 #[test]
+fn a_dry_run_needs_none_of_the_three_money_options() {
+    let w = World::new("dry-bare");
+    approval_tree(&w);
+    w.fake.hook("tree_run", "1", DRY_CALL_HOOK);
+    settings_without_login(&w, &json!({}));
+    let mut a = dry_args(&w, "r1");
+    for flag in ["--spend-ledger", "--cap-micro-usd", "--max-llm-calls"] {
+        let i = a.iter().position(|x| x == flag).unwrap();
+        a.drain(i..i + 2);
+    }
+    let o = w.run(&a);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let outcome = w.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["spent_micro_usd"].as_u64()), (Some("ended"), Some(0)), "{outcome}");
+    assert_eq!(outcome["llm_calls"], 1, "the dry call is counted and costs nothing: {outcome}");
+    assert!(!w.ledger().exists(), "no ledger is opened");
+    assert!(w.run_dir("r1").join("dry-commands.txt").is_file());
+}
+
+#[test]
 fn the_person_s_decision_is_approved_by_the_rule_decider_and_the_run_says_it_is_a_stand_in() {
     let w = World::new("dry-person");
     approval_tree(&w);
@@ -168,7 +188,7 @@ fn the_adapter_in_the_settings_is_refused_with_the_flag_and_dry_is_refused_witho
 fn the_required_options_stay_required_with_dry() {
     let w = World::new("dry-required");
     settings_without_login(&w, &json!({}));
-    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
+    for flag in ["--max-wall-seconds", "--confinement"] {
         let mut a = dry_args(&w, "r1");
         let i = a.iter().position(|x| x == flag).unwrap();
         a.drain(i..i + 2);

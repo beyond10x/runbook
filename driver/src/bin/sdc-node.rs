@@ -12,6 +12,8 @@
 //!          [--stub <argv...>]
 //! ```
 //!
+//! `--max-budget-usd` is optional: with none the request of the adapter names no money budget.
+//!
 //! The working directory is the case's workspace; standard input is one JSON object (empty is
 //! `{}`); `LOOM_CASE` names the case, `LOOM_RETRY_FEEDBACK` a `loom.retry-feedback/1` document on a
 //! retry. The program builds the prompt from the node's declared inputs, copies those into the

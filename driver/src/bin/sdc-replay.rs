@@ -19,6 +19,9 @@
 //!   sdc-replay pack <run> <dir> [--source-tree <commit>]   a recording that can be committed
 //!   sdc-replay index <run or recording>   the recorded calls with their keys
 //!
+//! `--live-cap` has no default: with none named the live calls of `--on-divergence live` have no limit; a
+//! cap that is named stops at it (a spent cap diverges), and one that cannot be read starts no live call.
+//!
 //! Key of a call: case, node or decision, arrival and try (and the review's attempt). A work call's
 //! arrival is counted as the driver counts it for `max_runs` (a `revised` event no agent action of
 //! the case wrote), its try is the node's runs since that arrival, plus one. A decider call's
@@ -71,8 +74,8 @@ enum Cmd {
         on_divergence: String,
         #[arg(long, default_value = "metaharness")]
         live_adapter: String,
-        #[arg(long, default_value_t = 5)]
-        live_cap: u64,
+        #[arg(long, allow_hyphen_values = true)]
+        live_cap: Option<String>,
         #[arg(long)]
         inject: Vec<String>,
         #[arg(long = "set")]
@@ -900,7 +903,7 @@ fn prepare(
     source_tree: Option<String>,
     policy: &str,
     live_adapter: &str,
-    live_cap: u64,
+    live_cap: Option<u64>,
     inject: &[String],
     sets: &[String],
     take_recorded: &str,
@@ -1155,7 +1158,39 @@ fn plan_refusal(plan: &Value, plan_path: &Path) -> Option<String> {
     (plan["conditions"].get("unstick").is_some() || plan.get("unstick").is_some()).then(|| unstick_refusal(&format!("the plan {}", plan_path.display())))
 }
 
+/// Whether the plan's `live` object names `cap` twice (a reader that keeps the last would take the larger).
+fn live_names_cap_twice(raw: &str) -> bool {
+    struct Keys(Vec<String>);
+    impl<'de> serde::Deserialize<'de> for Keys {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Keys, D::Error> {
+            struct V;
+            impl<'de> serde::de::Visitor<'de> for V {
+                type Value = Keys;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("an object")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<Keys, A::Error> {
+                    let mut keys = vec![];
+                    while let Some((k, _)) = a.next_entry::<String, serde::de::IgnoredAny>()? {
+                        keys.push(k);
+                    }
+                    Ok(Keys(keys))
+                }
+            }
+            d.deserialize_map(V)
+        }
+    }
+    #[derive(serde::Deserialize)]
+    struct Top {
+        live: Option<Keys>,
+    }
+    serde_json::from_str::<Top>(raw).ok().and_then(|t| t.live).is_some_and(|k| k.0.iter().filter(|x| *x == "cap").count() > 1)
+}
+
 fn ctx_at(plan_path: &Path) -> R<Ctx> {
+    if fs::read_to_string(plan_path).is_ok_and(|raw| live_names_cap_twice(&raw)) {
+        return Err(format!("sdc-replay: the plan {} names live.cap twice (a duplicate member): it cannot be read", plan_path.display()));
+    }
     let plan = read_json(plan_path)?;
     if let Some(refusal) = plan_refusal(&plan, plan_path) {
         return Err(refusal);
@@ -1321,8 +1356,17 @@ fn adapter(req_path: &Path) -> R<i32> {
         None => difference.push(format!("the source made no call at {}", key_str(&key))),
     }
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
-    // Fails closed: a cap that cannot be read is no cap to spend, so no live call starts.
-    let live_cap = c.plan["live"]["cap"].as_u64();
+    // No cap named (a null `live.cap`, or none) is no limit on live calls. A cap that is named and cannot
+    // be read (text, negative, fractional) fails closed: it is no cap to spend, so no live call starts.
+    // A plan whose `live` member is missing or is no object was not written by `prepare`: it is refused
+    // the same way, never read as "no cap named".
+    let live_cap: Result<Option<u64>, ()> = match &c.plan["live"] {
+        Value::Object(live) => match live.get("cap") {
+            None | Some(Value::Null) => Ok(None),
+            Some(named) => named.as_u64().map(Some).ok_or(()),
+        },
+        _ => Err(()),
+    };
     let mut diverged: Option<String> = None;
     // Held from the count of the live calls to the append of the started line of this one.
     let mut live_lock: Option<fs::File> = None;
@@ -1336,7 +1380,12 @@ fn adapter(req_path: &Path) -> R<i32> {
                 None => diverged = Some("nothing to reuse: the source has no call of this node or decision in this case".into()),
             },
             "live" => match live_cap {
-                Some(cap) => {
+                Ok(None) => {
+                    // No limit: nothing is counted; the lock is still held to the append of the started line.
+                    live_lock = Some(lock_calls(&c.out)?);
+                    mode = "live";
+                }
+                Ok(Some(cap)) => {
                     let lock = lock_calls(&c.out)?;
                     // Fails closed: a line that cannot be read counts as one started live call.
                     let (log, unreadable) = parse_log(&fs::read(c.out.join("replay/calls.jsonl")).map_err(|e| format!("replay/calls.jsonl: {e}"))?);
@@ -1347,7 +1396,7 @@ fn adapter(req_path: &Path) -> R<i32> {
                         diverged = Some(format!("the live call cap is spent ({cap} live calls, --live-cap)"));
                     }
                 }
-                None => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
+                Err(()) => diverged = Some("the live call cap is not readable in the plan (live.cap): no live call starts".to_owned()),
             },
             _ => diverged = Some(String::new()),
         }
@@ -1860,10 +1909,13 @@ fn main() -> ExitCode {
     }
     let cli = Cli::parse();
     let r: R<(Value, u8)> = match &cli.cmd {
-        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded, plan_only } => prepare(
-            source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, *live_cap, inject, set, take_recorded, !plan_only,
-        )
-        .map(|v| (v, 0)),
+        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded, plan_only } => {
+            // The cap is read before anything is written: a value that is named and cannot be read is refused by name.
+            live_cap.as_deref().map(|c| sdc_tools::named::whole("--live-cap", c)).transpose().and_then(|cap| {
+                prepare(source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, cap, inject, set, take_recorded, !plan_only)
+            })
+            .map(|v| (v, 0))
+        }
         Cmd::Env { out } => read_json(&out.join("replay/env.json")).map(|v| (v, 0)),
         Cmd::Settings { out } => settings(out).map(|v| (v, 0)),
         Cmd::Program { action, plan, argv } => {

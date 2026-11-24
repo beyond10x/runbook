@@ -283,7 +283,7 @@ impl Gate {
                 ledger.commit(first, run, what, booked)?;
                 rest.iter().try_for_each(|r| ledger.release(r))
             }
-            None => ledger.commit(&Reservation { id: String::new(), micro_usd: 0 }, run, what, booked),
+            None => ledger.commit(&Reservation { id: String::new(), micro_usd: 0, left: u64::MAX }, run, what, booked),
         }
     }
 

@@ -47,8 +47,9 @@ const MEMBER_KEYS: [&str; 7] = ["login_file", "autonomy", "decider", "adapter", 
 /// runbooks are loaded from. The floor of the daemon has no key in any file.
 const NESTED_REFUSED_KEYS: [&str; 7] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks"];
 
-/// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement.
-pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\ncap_micro_usd = 5000000\nmax_llm_calls = 200\n";
+/// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
+/// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
+pub const STARTER: &str = "runs_dir = \"runs\"\nconfinement = \"substrate\"\nmax_wall_seconds = 3600\n";
 
 /// Where the file is named: the two options every command takes.
 #[derive(Args, Clone, Debug, Default)]
@@ -77,13 +78,13 @@ pub struct ValueOptions {
     /// A run settings file (TOML, `docs/loom-run-settings.md`); its members win over the file's.
     #[arg(long, value_name = "FILE")]
     pub settings: Option<PathBuf>,
-    /// The spend ledger shared by every run that counts against the same cap. Default: in the directory of the runs (`spend_ledger`).
+    /// Record the spend in this ledger file, shared by every run that names it (`spend_ledger`); without it none is opened.
     #[arg(long, value_name = "FILE")]
     pub spend_ledger: Option<PathBuf>,
-    /// The spend cap in micro USD over all runs that share the ledger (`cap_micro_usd`).
+    /// Stop the run when this many micro USD are spent (over all runs that share the ledger, or over this run alone without one); 0 spends nothing (`cap_micro_usd`). Without it, no spend limit.
     #[arg(long, value_name = "N")]
     pub cap_micro_usd: Option<u64>,
-    /// The most model calls of this run (`max_llm_calls`).
+    /// Stop the run after this many model calls (steps and decisions together); 0 allows none (`max_llm_calls`). Without it, no limit.
     #[arg(long, value_name = "N")]
     pub max_llm_calls: Option<u64>,
     /// The most wall seconds of this run. No default (`max_wall_seconds`).
@@ -717,7 +718,8 @@ pub struct Values {
     /// `None`: the name is generated when the run starts.
     pub run: Item<String>,
     pub runs_dir: (PathBuf, Origin),
-    pub spend_ledger: (PathBuf, Origin),
+    /// `None`: no ledger is opened (a cap that is stated is counted in the run itself).
+    pub spend_ledger: Item<PathBuf>,
     pub confinement: Item<Confinement>,
     pub cap_micro_usd: Item<u64>,
     pub max_llm_calls: Item<u64>,
@@ -744,8 +746,7 @@ pub fn resolve(options: &ValueOptions, file: Option<&File>, cwd: &Path) -> Value
         Some(dir) => (dir.join("runs"), Origin::BuiltIn("runs/ beside the file")),
         None => (cwd.join("runs"), Origin::BuiltIn("runs/ in the working directory")),
     });
-    let spend_ledger = pick(options.spend_ledger.clone(), "--spend-ledger", file.and_then(|f| f.spend_ledger.clone()), path)
-        .unwrap_or_else(|| (runs_dir.0.join("spend-ledger.json"), Origin::BuiltIn("in the directory of the runs")));
+    let spend_ledger = pick(options.spend_ledger.clone(), "--spend-ledger", file.and_then(|f| f.spend_ledger.clone()), path);
     Values {
         file: path.map(Path::to_path_buf),
         run: options.run.clone().map(|r| (r, Origin::Option("--run"))),
@@ -832,15 +833,15 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
         None => "run = generated when the run starts  (built-in: unique, printed)".to_owned(),
     });
     out.push(format!("runs_dir = {}  ({})", shown(&Value::from(values.runs_dir.0.display().to_string())), values.runs_dir.1.text()));
-    out.push(format!("spend_ledger = {}  ({})", shown(&Value::from(values.spend_ledger.0.display().to_string())), values.spend_ledger.1.text()));
+    out.push(item("spend_ledger", "--spend-ledger", "no ledger is opened without it", values.spend_ledger.as_ref().map(|(p, o)| (shown(&Value::from(p.display().to_string())), o))));
     out.push(match (&values.file, values.runbooks.is_empty()) {
         (Some(file), false) => format!("runbooks = {}  (file {})", shown(&Value::from(values.runbooks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>())), file.display()),
         _ => "runbooks = []  (built-in: the built-in set only; `runbooks` in runbook.toml adds directories before it)".to_owned(),
     });
     out.push(item("confinement", "--confinement", "no built-in default, a run is refused without it", values.confinement.as_ref().map(|(c, o)| (shown(&Value::from(c.as_arg())), o))));
     out.push(item("max_wall_seconds", "--max-wall-seconds", "no built-in default, a run is refused without it", values.max_wall_seconds.as_ref().map(|(n, o)| (n.to_string(), o))));
-    out.push(item("cap_micro_usd", "--cap-micro-usd", "a run is refused without it", values.cap_micro_usd.as_ref().map(|(n, o)| (n.to_string(), o))));
-    out.push(item("max_llm_calls", "--max-llm-calls", "a run is refused without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
+    out.push(item("cap_micro_usd", "--cap-micro-usd", "no spend limit without it", values.cap_micro_usd.as_ref().map(|(n, o)| (n.to_string(), o))));
+    out.push(item("max_llm_calls", "--max-llm-calls", "no limit on model calls without it", values.max_llm_calls.as_ref().map(|(n, o)| (n.to_string(), o))));
     if let Some(members) = merged.as_object() {
         for (key, v) in members {
             leaves(segment(key), v, &settings_origin(key), &mut out);
@@ -1062,7 +1063,8 @@ mod tests {
     fn the_starter_is_read() {
         let found = Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: STARTER.to_owned(), nested: false };
         let f = parse(&found).unwrap();
-        assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), Some(5_000_000), Some(200)));
+        assert_eq!((f.confinement, f.max_wall_seconds, f.cap_micro_usd, f.max_llm_calls), (Some(Confinement::Substrate), Some(3600), None, None));
+        assert_eq!(f.spend_ledger, None, "the starter names no ledger");
         assert_eq!(f.runs_dir, Some(PathBuf::from("/x/runs")));
     }
 }

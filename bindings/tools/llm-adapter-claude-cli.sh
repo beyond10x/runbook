@@ -44,8 +44,11 @@ if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
 fi
 tools=$(jq -r '[.operations[] | {"file.read": "Read", "file.write": "Write", "file.edit": "Edit",
   "dir.list": "Glob", "search": "Grep", "shell": "Bash"}[.] // empty] | join(",")' <<< "$req")
+# A money budget is optional: `--max-budget-usd` goes to the CLI only when the request names `max_budget_usd`.
+budget=()
+[[ -n $(r '.max_budget_usd // ""') ]] && budget=(--max-budget-usd "$(r .max_budget_usd)")
 argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
-  --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
+  --max-turns "$(r .max_turns)" "${budget[@]}"
   --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
   --tools "$tools" --setting-sources "" --strict-mcp-config --disable-slash-commands
   --permission-mode acceptEdits --output-format stream-json --verbose --no-session-persistence)
@@ -58,7 +61,7 @@ argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
 stdin=/dev/null
 extra_env=()
 if [[ $(r '.implement_mode // ""') == request ]]; then
-  argv=("${CLAUDE:-claude}" -p --model "$(r .model)" --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
+  argv=("${CLAUDE:-claude}" -p --model "$(r .model)" --max-turns "$(r .max_turns)" "${budget[@]}"
     --tools "" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill" --setting-sources "" --strict-mcp-config
     --disable-slash-commands --output-format stream-json --verbose --no-session-persistence)
   [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")

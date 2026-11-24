@@ -3,9 +3,11 @@
 //! process (no `--loom`, `library.rs`); the loop reaches either through the trait of `host.rs`.
 //!
 //! The runner loops one step at a time (`tree run --max-steps 1`), asks a [`decide::Decider`] for
-//! every person or authority decision Loom gives, keeps the spend of the model calls in a ledger
-//! shared between runs, and writes a run directory. Files by owner (so that three units can work at
-//! once):
+//! every person or authority decision Loom gives, counts the model calls and their spend, and
+//! writes a run directory. The money options (`--spend-ledger`, `--cap-micro-usd`,
+//! `--max-llm-calls`) are each optional: none named is no limit and no ledger; a cap that is named
+//! stops the run when it is reached, a ledger that is named records what every run sharing it
+//! spent. Files by owner (so that three units can work at once):
 //!
 //! - this unit (R1): `mod.rs`, `settings.rs`, `ledger.rs`, `child.rs`, `cost.rs`, `budget.rs`,
 //!   `events.rs`, `decide.rs`, `run_files.rs`, `run_loop.rs`, `host.rs`, `child_host.rs`,
@@ -32,6 +34,7 @@ pub mod host;
 pub mod in_flight;
 pub use runbook::ledger;
 pub mod library;
+pub mod model_node;
 pub mod ports;
 pub mod private;
 pub use runbook::record_write;
@@ -95,12 +98,15 @@ pub struct Args {
     pub settings: Option<PathBuf>,
     /// The run settings members of `runbook.toml` (`config.rs`): the defaults under `settings`.
     pub defaults: serde_json::Map<String, serde_json::Value>,
-    /// The spend ledger shared by every run that counts against the same cap.
-    pub spend_ledger: PathBuf,
-    /// The spend cap in micro USD over all runs that share the ledger.
-    pub cap_micro_usd: u64,
-    /// The most model calls of this run (steps and decisions together).
-    pub max_llm_calls: u64,
+    /// The spend ledger shared by every run that counts against the same cap. `None`: no ledger is
+    /// opened; a cap that is named is then counted in the run itself.
+    pub spend_ledger: Option<PathBuf>,
+    /// The spend cap in micro USD over all runs that share the ledger. `None`: no spend cap. A
+    /// named 0 means spend nothing.
+    pub cap_micro_usd: Option<u64>,
+    /// The most model calls of this run (steps and decisions together). `None`: no limit. A named
+    /// 0 means no call.
+    pub max_llm_calls: Option<u64>,
     /// The most wall seconds of this run.
     pub max_wall_seconds: u64,
     /// The options of the six ports of the old driver's launcher (`ports.rs`).

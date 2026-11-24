@@ -137,6 +137,7 @@
 - No run is started by hand: `sdc-experiment run <id>` starts them, on the record's commit, with the
   record's settings (the operator, 2026-11-21, same words). Stop one with `sdc-experiment stop`.
 - CI classifies the changed files in one place, the step "Classify the changed files" of `.github/workflows/pages.yml` (planning, docs-site or code; a planning-only change builds and tests nothing); a change to that path list changes `task check:ci-paths` in the same commit.
+- `runbook run` has no money limit built in (the operator: "runbook should not have any limitations in terms of money cap - there is basically no technical limitation at all"). `--spend-ledger`, `--cap-micro-usd` and `--max-llm-calls` are each optional for every run and every confinement; none named means no limit, no refusal and no ledger. A cap a user names stops the run (exit 4, exit 6). Add no option, default, level rule or refusal that requires or implies a cap (`docs/loom-run.md`, "The money options").
 - The rustc version is pinned in `rust-toolchain.toml`, and the pages workflow's `toolchain:` repeats it; change both in one commit. The step "Check the rustc pin" of `.github/workflows/pages.yml` fails when the workflow's `toolchain:` value differs from the channel in `rust-toolchain.toml` (it reads both as text; inside the repository rustup runs the pinned channel whatever the workflow installs).
 
 ## Commits

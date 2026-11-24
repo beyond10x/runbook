@@ -8,6 +8,7 @@ pub mod conform;
 pub mod conformance;
 #[path = "instructions.rs"]
 pub mod instructions;
+pub mod named;
 pub mod reply;
 #[path = "run_metrics.rs"]
 #[allow(missing_docs, dead_code)]
