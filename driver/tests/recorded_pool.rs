@@ -117,6 +117,41 @@ fn the_digest_follows_the_tree_and_the_command_and_leaves_the_target_directory_o
     assert_ne!(run(&["cargo", "test", "--offline"]), first, "a changed file");
 }
 
+/// The git repository a bug-fix check tree carries (docs/bugfix.md, "The trees a check runs in are
+/// git trees") is not the tree: its index and objects change with every copy, so it is left out of
+/// the digest, and out of the copy record mode runs the command in.
+#[test]
+fn the_git_repository_of_a_check_tree_is_left_out_of_the_digest_and_the_recording_copy() {
+    let t0 = std::time::Instant::now();
+    let d = scratch("git-tree");
+    let t = tree(&d);
+    let p = pool(&d, false);
+    let run = || missed(&slot(&d, &[&p], &t, &["cargo", "test", "--offline"], None));
+    let first = run();
+    fs::create_dir_all(t.join(".git/objects")).unwrap();
+    fs::write(t.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(t.join(".git/index"), "an index of this copy\n").unwrap();
+    assert_eq!(run(), first, "a .git at the top of the tree is not in the digest");
+    fs::write(t.join(".git/index"), "an index of another copy\n").unwrap();
+    assert_eq!(run(), first, "nor its bytes");
+
+    let rec = pool(&scratch("git-tree-record"), true);
+    let real = d.join("real");
+    fs::create_dir_all(&real).unwrap();
+    let seen = d.join("seen-entries");
+    // Shell builtins only: the PATH holds the two pools.
+    let probe = format!("#!/bin/sh\nfor f in .git Cargo.toml src/lib.rs; do [ -e \"$f\" ] && echo \"$f\"; done > '{}'\nexit 0\n", seen.display());
+    fs::write(real.join("slot"), probe).unwrap();
+    fs::set_permissions(real.join("slot"), fs::Permissions::from_mode(0o755)).unwrap();
+    let o = slot(&d, &[&rec, &real], &t, &["cargo", "test", "--offline"], None);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
+    assert_eq!(fs::read_to_string(&seen).unwrap(), "Cargo.toml\nsrc/lib.rs\n", "the copy record mode runs in has no .git");
+    let recs: Vec<PathBuf> = fs::read_dir(d.join("recordings")).unwrap().flatten().map(|e| e.path()).collect();
+    assert_eq!(recs.len(), 1, "{recs:?}");
+    assert_eq!(recs[0].file_stem().unwrap().to_string_lossy(), first, "recorded under the digest of the tree without its .git");
+    eprintln!("recorded-pool git-tree: {:.2} s", t0.elapsed().as_secs_f64());
+}
+
 /// The build pool behind the stand-in in record mode: prints where it ran and the pool's own lines,
 /// writes its HOME into `seen-home` beside the tree's parent, exits 101.
 const REAL_SLOT: &str = r#"#!/bin/sh

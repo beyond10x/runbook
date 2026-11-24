@@ -8,8 +8,8 @@
 //!
 //! The command's answer is a recording, `<recordings>/<digest>.json` (format `sdc.recorded-pool/1`:
 //! `argv`, `exit`, `stdout`, `stderr`), where the digest is the sha256 of the command's argv and of
-//! the tree it runs in (the working directory: every file's path, kind and bytes; `target/` and the
-//! CARGO_TARGET_DIR inside it left out). A recording prints its stdout and stderr, with `{dir}` read
+//! the tree it runs in (the working directory: every file's path, kind and bytes; `target/`, `.git`
+//! and the CARGO_TARGET_DIR inside it left out). A recording prints its stdout and stderr, with `{dir}` read
 //! as the working directory and `{target}` as CARGO_TARGET_DIR, and exits with its exit. A command
 //! with no recording prints one line that starts `error:` and names the digest, and exits 127 (a
 //! program error, never a test result). `slot status` and `slot cancel` print nothing: no job waits.
@@ -186,9 +186,10 @@ fn digest(cmd: &[String], dir: &Path, skip: Option<&Path>) -> R<String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Whether `p` is left out of the tree `top`: its `target/`, and `skip`.
+/// Whether `p` is left out of the tree `top`: its `target/`, its `.git` (the repository a bug-fix
+/// check tree carries, docs/bugfix.md: its index and objects differ with every copy), and `skip`.
 fn left_out(top: &Path, p: &Path, skip: Option<&Path>) -> bool {
-    p == top.join("target") || skip.is_some_and(|s| s == p)
+    p == top.join("target") || p == top.join(".git") || skip.is_some_and(|s| s == p)
 }
 
 /// The paths of the files (and links) below `d`, relative to `top`, as bytes.

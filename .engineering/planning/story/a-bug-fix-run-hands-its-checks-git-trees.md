@@ -14,12 +14,18 @@ scope:
 - confidence: cited
   path: docs/bugfix.md
 - confidence: cited
+  path: docs/cycles-suite.md
+- confidence: cited
   path: driver/src/bin/sdc-bugfix.rs
+- confidence: cited
+  path: driver/src/bin/sdc-recorded-pool.rs
 - confidence: cited
   path: driver/tests/bugfix_git_trees.rs
 - confidence: cited
   path: driver/tests/main.rs
-revision: 4
+- confidence: cited
+  path: driver/tests/recorded_pool.rs
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-24T16:26:55Z", actor: "human:operator", revision: 3, executor: "agent:runbook", correlation: "consumer-order-2026-11-24-checks-get-git-trees"}
 - {from: "proposed", to: "active", at: "2026-11-24T16:26:55Z", actor: "human:operator", revision: 4, executor: "agent:runbook", correlation: "consumer-order-2026-11-24-checks-get-git-trees"}
@@ -51,6 +57,10 @@ Each tree a bug-fix run hands to a check command is a git tree: when the run cop
   `repro/`), a digest of an artifact or a copy back.
 - A `.slot/` directory a check command writes stays in the copy it was written in and out of the diff,
   as before; with a git tree, the pool's client writes it into `.git/info/exclude` itself.
+- Every reader that takes a digest of or copies a tree a check runs in leaves the `.git` out. All
+  but one did already (`sdc-bugfix`'s own diff and copy, the parity listing, the decider's inputs, the
+  conformance and review readers, the file watcher); the cycles suite's recorded pool did not, and
+  its index and objects differ with every copy, so it is changed in this story.
 
 ## Acceptance
 
@@ -71,7 +81,11 @@ Each tree a bug-fix run hands to a check command is a git tree: when the run cop
    changed code file.
 5. A `.slot/` directory a check command writes (and adds to `.git/info/exclude`) is not in `impl/` or
    `mainline/` afterwards and is not in the copy of the next step.
-6. Each case runs under 5 s.
+6. The cycles suite's recorded pool (`sdc-recorded-pool`, the stand-in pool that answers check
+   commands from recordings keyed by the digest of the tree they run in) gives a tree with a `.git`
+   at its top the same digest as the tree without it, also when the bytes in `.git` change, and its
+   record mode runs the command in a copy with no `.git`.
+7. Each case runs under 5 s.
 
 ## Origin
 
