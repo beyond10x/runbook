@@ -6,7 +6,7 @@
 use super::commands::{config, Fx};
 use super::http::Server;
 use super::stub::ask;
-use runbook::commands::{AnswerDecision, CancelRun, Daemon, Fault, Policy, SubmitRun};
+use runbook::commands::{client_label, AnswerDecision, CancelRun, Daemon, Fault, Policy, SubmitRun};
 use runbook::runtime::{AnswerFailure, Autonomy, Confinement, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use runbook::stub::{Script, Step, StubRuntime};
 use serde_json::{json, Value};
@@ -255,6 +255,72 @@ fn a_reserved_prefix_is_refused_in_every_spelling_of_a_client_label() {
     let escaped: AnswerDecision = serde_json::from_str(r#"{"run_id":"r","request_id":"q","answer":"A","answered_by":"rule:approve"}"#).unwrap();
     assert_eq!(escaped.answered_by, "rule:approve");
     assert!(taken.is_empty(), "a client label that reads as a rule's or a decider's was recorded under the daemon's principal; the exact `rule:` and `decider:` are refused, and the ones that were taken: {taken:?}");
+}
+
+/// Spellings that read as a reserved name or hold a character outside printable ASCII, each with the text `MARK` after the prefix.
+fn refused_labels() -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    for prefix in ["rule:", "decider:", "router:"] {
+        let mut title = prefix.to_owned();
+        title[..1].make_ascii_uppercase();
+        let alternating: String = prefix.chars().enumerate().map(|(i, c)| if i % 2 == 0 { c.to_ascii_uppercase() } else { c }).collect();
+        for spelling in [prefix.to_owned(), prefix.to_ascii_uppercase(), title, alternating] {
+            for pad in ["", " ", "\t", "\n", "\r\n", "\u{c}", "   \t ", " \n\t\r\u{c}"] {
+                labels.push(format!("{pad}{spelling}MARK{pad}"));
+            }
+            labels.push(format!("{spelling} MARK"));
+            labels.push(spelling);
+        }
+    }
+    for odd in [
+        "\u{b}rule:MARK", "\u{a0}rule:MARK", "\u{85}rule:MARK", "\u{2028}rule:MARK", "\u{2003}rule:MARK", "\u{3000}rule:MARK", "\u{feff}rule:MARK",
+        "\u{200b}rule:MARK", "\u{200d}rule:MARK", "\u{2060}rule:MARK", "\u{ad}rule:MARK", "\u{202e}rule:MARK", "\u{e0072}rule:MARK", "ru\u{200b}le:MARK",
+        "rule:\u{200b}MARK", "r\u{0}ule:MARK", "\u{0}rule:MARK", "rule:\u{0}MARK", "\u{7f}rule:MARK", "rule:\u{1b}[31mMARK", "\u{ff52}ule:MARK",
+        "\u{0440}ule:MARK", "rule\u{ff1a}MARK", "de\u{0441}ider:MARK", "rou\u{0442}er:MARK", "ca\u{e9}MARK", "\u{1f600}MARK", "\u{a0}operatorMARK", "operatorMARK\u{3000}",
+    ] {
+        labels.push(odd.to_owned());
+    }
+    labels
+}
+
+#[test]
+fn a_client_label_that_reads_as_a_rule_a_decider_or_a_router_is_refused_without_printing_a_byte_of_it() {
+    let mut taken = Vec::new();
+    let mut echoed = Vec::new();
+    for label in refused_labels() {
+        match client_label("answered_by", &label) {
+            Ok(kept) => taken.push((label.escape_unicode().to_string(), kept)),
+            Err(why) if why.contains("MARK") => echoed.push(why),
+            Err(_) => {}
+        }
+    }
+    assert!(taken.is_empty(), "labels that read as a reserved name or hold a character outside printable ASCII were kept: {taken:?}");
+    assert!(echoed.is_empty(), "a refusal printed bytes of the label: {echoed:?}");
+}
+
+#[test]
+fn a_client_label_is_trimmed_bounded_and_otherwise_kept_as_typed() {
+    for (typed, kept) in [("operator", "operator"), ("  operator\t", "operator"), ("\n\u{c}a b\r", "a b"), ("rules:x", "rules:x"), ("rule", "rule"), ("router", "router"), ("decide:x", "decide:x"), ("x rule:y", "x rule:y"), ("a-client_1.2", "a-client_1.2")] {
+        assert_eq!(client_label("answered_by", typed), Ok(kept.to_owned()), "{typed:?}");
+    }
+    assert!(client_label("answered_by", &"a".repeat(200)).is_ok());
+    assert!(client_label("answered_by", &"a".repeat(201)).is_err());
+    assert!(client_label("answered_by", &format!("{}rule:x", " ".repeat(150))).is_err(), "padding does not hide the prefix");
+    // the same text as a JSON escape arrives decoded before the one function sees it
+    for text in [r#"{"run_id":"r","request_id":"q","answer":"A","answered_by":"RULE:x"}"#, r#"{"run_id":"r","request_id":"q","answer":"A","answered_by":" rule:x"}"#, r#"{"run_id":"r","request_id":"q","answer":"A","answered_by":"\tDecider:"}"#] {
+        let input: AnswerDecision = serde_json::from_str(text).unwrap();
+        assert!(client_label("answered_by", &input.answered_by).is_err(), "{:?}", input.answered_by);
+    }
+}
+
+#[test]
+fn the_mcp_document_names_every_prefix_a_client_label_may_not_start_with() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let text = std::fs::read_to_string(root.join("docs/mcp.md")).unwrap();
+    let line = text.lines().find(|l| l.contains("an `answered_by` that starts with")).expect("the sentence about the answered_by the tool refuses is gone");
+    for prefix in ["`rule:`", "`decider:`", "`router:`"] {
+        assert!(line.contains(prefix), "docs/mcp.md: the sentence on the `answered_by` the tool refuses does not name {prefix}, which `client_label` refuses");
+    }
 }
 
 #[test]

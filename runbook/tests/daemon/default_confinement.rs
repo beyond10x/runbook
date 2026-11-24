@@ -45,7 +45,18 @@ fn serve(tag: &str, args: &[&str], file: Option<&str>) -> (Command, PathBuf) {
 }
 
 pub(super) fn live(tag: &str, args: &[&str], file: Option<&str>) -> Live {
+    live_env(tag, args, file, &[])
+}
+
+/// `live` with the daemon's own environment changed: a variable set to a value, or removed when the value is none.
+pub(super) fn live_env(tag: &str, args: &[&str], file: Option<&str>, env: &[(&str, Option<&str>)]) -> Live {
     let (mut cmd, dir) = serve(tag, args, file);
+    for (name, value) in env {
+        match value {
+            Some(value) => cmd.env(name, value),
+            None => cmd.env_remove(name),
+        };
+    }
     let mut child = cmd.spawn().unwrap();
     let out = child.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -202,5 +213,18 @@ fn the_default_never_lowers_a_named_level_and_the_floor_holds_on_every_path() {
     let plain = d.submit_run(SubmitRun { runbook_id: "hold".into(), intake: "x".into(), ..SubmitRun::default() }).unwrap().run_id.unwrap();
     assert_eq!(d.run_detail(&plain)[0]["confinement"], "linux", "the default is the one this daemon was started with");
     d.stop();
+}
+
+#[test]
+fn the_policy_comment_and_the_documents_say_what_the_code_does_about_a_missing_default() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let commands = std::fs::read_to_string(root.join("runbook/src/commands.rs")).unwrap();
+    assert!(!commands.contains("none: linux."), "runbook/src/commands.rs: the comment of `Policy::default_confinement` says that a daemon without a default takes linux");
+    for doc in ["docs/daemon-api.md", "docs/mcp.md", "docs/engine.md", "README.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        for stale in ["else `linux`", "at `linux` when the daemon has none", "`built-in`"] {
+            assert!(!text.contains(stale), "{doc} still says {stale}");
+        }
+    }
 }
 

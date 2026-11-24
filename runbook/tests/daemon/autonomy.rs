@@ -5,7 +5,7 @@
 //! reviewer's step (a person), and a close with two outcomes. The daemon is the binary, on a loopback port,
 //! with the Loom runtime and a rule decider (`[deciders.rule]`) that approves.
 
-use super::default_confinement::{live, post, rows, Live};
+use super::default_confinement::{live, live_env, post, rows, Live};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -364,6 +364,124 @@ fn the_login_link_of_a_run_is_in_its_private_directory_and_is_removed_when_the_r
     assert!(std::fs::symlink_metadata(&link).is_err(), "the link is still there after the run ended");
     assert!(!link.parent().unwrap().exists(), "the private directory is still there after the run ended");
     assert!(Path::new(&login).is_file(), "the login file itself was removed");
+}
+
+/// A home, a stand-in adapter and a stand-in login for the model kind, and the runtime directory a daemon may be given;
+/// `file` is the daemon's `runbook.toml`.
+struct ModelHome {
+    home: PathBuf,
+    login: PathBuf,
+    xdg: PathBuf,
+    file: String,
+}
+
+fn model_home(tag: &str) -> ModelHome {
+    use std::os::unix::fs::PermissionsExt;
+    let base = super::state::scratch(tag);
+    let home = base.join("home");
+    copy_tree(&fixture(), &home);
+    copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("instructions/decider"), &home.join("instructions/decider"));
+    let adapter = base.join("adapter.sh");
+    write_exe(&adapter, "#!/bin/sh\nd=$(dirname \"$1\")\nenv > \"$d/env.txt\"\nexit 1\n");
+    let login = base.join("login-dir/credentials.json");
+    std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+    std::fs::write(&login, "{}").unwrap();
+    let xdg = base.join("xdg");
+    std::fs::create_dir_all(&xdg).unwrap();
+    std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let file = format!("login_file = \"{}\"\n[deciders.model]\nmodel = \"a-model\"\nadapter = \"{}\"\nwithout_claims = true\ntimeout_seconds = 20\n", login.display(), adapter.display());
+    ModelHome { home, login, xdg, file }
+}
+
+/// A daemon over `m` that is given the runtime directory of `m`, or none.
+fn serve_model(tag: &str, m: &ModelHome, with_runtime_dir: bool, extra_file: &str) -> Live {
+    let xdg = m.xdg.to_str().unwrap();
+    let env = [("XDG_RUNTIME_DIR", with_runtime_dir.then_some(xdg))];
+    let all = ["--runtime", "loom", "--runbook-home", m.home.to_str().unwrap(), "--min-confinement", "local"];
+    live_env(tag, &all,Some(&format!("{}{extra_file}", m.file)), &env)
+}
+
+/// The link the adapter of `run` was given, once it ran.
+fn link_the_adapter_was_given(l: &Live, run: &str) -> PathBuf {
+    let limit = Instant::now() + Duration::from_secs(30);
+    let found = loop {
+        if let Some(path) = find_named(&l.dir.join("state"), "env.txt") {
+            break path;
+        }
+        assert!(Instant::now() < limit, "the stand-in adapter was never started: {}", row(l, run));
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let text = std::fs::read_to_string(found).unwrap();
+    let (_, link) = text.lines().filter_map(|l| l.split_once('=')).find(|(k, _)| *k == "SDC_CLAUDE_CREDENTIALS").expect("the adapter was given no login");
+    PathBuf::from(link)
+}
+
+fn entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+fn cancel(l: &Live, run: &str) {
+    let r = super::http::send(l.addr, "POST", "/daemon/commands/cancel-run", &[("Content-Type", "application/json")], Some(json!({"run_id": run}).to_string().as_bytes()));
+    assert!(r.status < 300, "cancel-run: {}", r.status);
+}
+
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let limit = Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(Instant::now() < limit, "gave up waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn after_a_kill_what_stays_is_one_link_in_a_0700_directory_and_a_later_run_neither_meets_it_nor_is_refused() {
+    let m = model_home("autonomy-kill");
+    let mut first = serve_model("autonomy-kill-a", &m, true, "");
+    let run = run_of(&submit(&first, json!({"autonomy": "A5", "decider": "model"})).1);
+    let stale = link_the_adapter_was_given(&first, &run);
+    let pid = first.child.id();
+    first.child.kill().unwrap();
+    first.child.wait().unwrap();
+    let dir = stale.parent().unwrap().to_path_buf();
+    assert!(dir.is_dir(), "a killed daemon leaves its run's private directory (the documented residue)");
+    assert_eq!(entries(&dir), ["login"], "what a kill leaves is the one link and nothing else");
+    assert_eq!((mode(&dir), mode(&m.xdg.join("runbook"))), (0o700, 0o700), "the private directory and its parent are 0700");
+    assert!(dir.file_name().unwrap().to_string_lossy().starts_with(&format!("daemon-{pid}-")), "the name carries the daemon's process: {dir:?}");
+    // a later daemon over the same runtime directory and login
+    let later = serve_model("autonomy-kill-b", &m, true, "");
+    let run2 = run_of(&submit(&later, json!({"autonomy": "A5", "decider": "model"})).1);
+    let link2 = link_the_adapter_was_given(&later, &run2);
+    assert_ne!(link2.parent(), Some(dir.as_path()), "a later run was given the link a killed daemon left");
+    cancel(&later, &run2);
+    until_state(&later, &run2, &["Cancelled"]);
+    wait_until("the later run's directory to go", || !link2.parent().unwrap().exists());
+    assert_eq!(entries(&m.xdg.join("runbook")), [dir.file_name().unwrap().to_string_lossy().into_owned()], "only the killed daemon's directory is left");
+    assert!(m.login.is_file(), "the login file itself was removed");
+}
+
+#[test]
+fn a_model_run_with_no_runtime_directory_fails_to_start_by_name_and_a_rule_run_does_not_need_one() {
+    let m = model_home("autonomy-no-runtime-dir");
+    let l = serve_model("autonomy-no-runtime-dir-a", &m, false, "");
+    let run = run_of(&submit(&l, json!({"autonomy": "A5", "decider": "model"})).1);
+    let end = until_state(&l, &run, &["FailedToStart", "Ended", "Cancelled", "WaitingOnDecision"]);
+    assert_eq!(end["state"], "FailedToStart", "{end}");
+    let why = end["failure"].as_str().unwrap_or("");
+    assert!(why.contains("XDG_RUNTIME_DIR"), "the refusal names what is missing: {why}");
+    assert!(!why.contains(&m.login.display().to_string()), "the refusal names the login: {why}");
+    drop(l);
+    let l = serve_model("autonomy-no-runtime-dir-b", &m, false, RULE);
+    let run = run_of(&submit(&l, json!({"autonomy": "A5", "decider": "rule"})).1);
+    let end = until_state(&l, &run, &["Ended", "FailedToStart", "Cancelled"]);
+    assert_eq!(end["state"], "Ended", "a rule needs no link, whatever login the file names: {end}");
 }
 
 #[test]
