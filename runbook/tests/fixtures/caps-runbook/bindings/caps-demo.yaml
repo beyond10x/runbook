@@ -14,7 +14,7 @@ actions:
         subject: idea
         producer: model-step
         from: exit
-        results: {"0": written, "*": failed}
+        results: {"0": written, timeout: failed, "*": failed}
   - action: note.check
     executor:
       kind: program
@@ -24,7 +24,7 @@ actions:
         subject: note
         producer: model-step
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: note.publish
     executor:
       kind: program
@@ -34,4 +34,4 @@ actions:
         subject: note
         producer: publish
         from: exit
-        results: {"0": published, "*": failed}
+        results: {"0": published, timeout: failed, "*": failed}

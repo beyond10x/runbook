@@ -21,7 +21,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
   - action: spec.open
     executor:
       kind: open

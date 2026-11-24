@@ -516,8 +516,9 @@ fn the_bug_fix_bindings_name_the_wait_bound_and_a_limit_that_covers_it() {
         }
         let need = 1200 + jobs * 600 + 600;
         assert_eq!(j[action]["timeout_s"].as_u64(), Some(need), "{action} JSON");
-        // Loom refuses a timeout over 3600 s (`TimeoutOutOfRange`, D531): the YAML file holds the cap.
-        assert_eq!(ya["timeout_seconds"].as_u64(), Some(need.min(3600)), "{action} YAML");
+        // Loom 0.61.0 loads a program's timeout up to 14400 s (`MAX_PROGRAM_TIMEOUT_SECONDS`; past it
+        // `TimeoutOutOfRange`): the YAML file names the limit the step needs, as the JSON does.
+        assert_eq!(ya["timeout_seconds"].as_u64(), Some(need.min(14400)), "{action} YAML");
     }
 }
 

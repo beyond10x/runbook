@@ -19,6 +19,7 @@
     "producer": "ess",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   },

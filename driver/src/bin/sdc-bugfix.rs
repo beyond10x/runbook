@@ -1404,12 +1404,57 @@ fn tree_diff(a: &Path, b: &Path, except: &str) -> R<Vec<String>> {
     Ok(all.into_iter().filter(|f| fs::read(a.join(f)).ok() != fs::read(b.join(f)).ok()).collect())
 }
 
-/// `from` copied to .sdc/bugfix/<name>, the directory a command runs in.
+/// `from` copied to .sdc/bugfix/<name>, the directory a command runs in, made a git tree.
 fn copy_to(from: &Path, name: &str) -> R<PathBuf> {
     let tree = Path::new(".sdc/bugfix").join(name);
     reset_dir(&tree)?;
     copy_tree(from, &tree)?;
+    git_tree(&tree)?;
     fs::canonicalize(&tree).map_err(|e| e.to_string())
+}
+
+/// The identity and instant of the one commit of a check tree: fixed, so its id depends on the
+/// copied files only.
+const TREE_GIT_IDENTITY: [&str; 4] = ["-c", "user.name=runbook", "-c", "user.email=runbook@localhost"];
+const TREE_GIT_DATE: &str = "2000-01-01T00:00:00+0000";
+
+/// `tree` made a git repository with one commit of its files (docs/bugfix.md, "The trees a check
+/// runs in"): the build pool's remote mode needs one. No remote, no history; maintenance off and no
+/// hook in its own configuration. Nothing of the host's git configuration is read: no global or
+/// system file, and no `GIT_*` variable of the environment reaches the git calls.
+fn git_tree(tree: &Path) -> R<()> {
+    let git = |args: &[&str]| -> R<()> {
+        let mut c = Command::new("git");
+        for (k, _) in std::env::vars_os().filter(|(k, _)| k.to_string_lossy().starts_with("GIT_")) {
+            c.env_remove(k);
+        }
+        let o = c
+            .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+            .args(args)
+            .current_dir(tree)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_DATE", TREE_GIT_DATE)
+            .env("GIT_COMMITTER_DATE", TREE_GIT_DATE)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("git is not on PATH: a check runs in a git tree (docs/bugfix.md): {e}"))?;
+        if o.status.success() {
+            Ok(())
+        } else {
+            Err(format!("git {} in {}: {}", args.join(" "), tree.display(), String::from_utf8_lossy(&o.stderr).trim()))
+        }
+    };
+    git(&["init", "-q"])?;
+    for (k, v) in [("maintenance.auto", "false"), ("gc.auto", "0"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", "--local", k, v])?;
+    }
+    // Every copied file, also one a .gitignore of the tree names.
+    git(&["add", "--all", "--force", "."])?;
+    let mut commit = TREE_GIT_IDENTITY.to_vec();
+    commit.extend(["commit", "-q", "--no-verify", "--allow-empty", "-m", "the code tree as copied for a check"]);
+    git(&commit)
 }
 
 fn copy_of_impl() -> R<PathBuf> {

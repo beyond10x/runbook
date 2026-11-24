@@ -35,7 +35,8 @@
         "program": "sdc-tool.sh ess-gate",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         }
       },
       "name": "spec.gate",

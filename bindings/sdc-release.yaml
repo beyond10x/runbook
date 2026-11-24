@@ -16,7 +16,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
   - action: release.build
     executor:
       kind: program
@@ -39,7 +39,7 @@ actions:
         subject: release
         producer: ess
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
         upstream: [spec]
   - action: release.publish
     executor:
@@ -62,4 +62,4 @@ actions:
         subject: release
         producer: runbook.monitor
         from: exit
-        results: {"0": healthy, "*": unhealthy}
+        results: {"0": healthy, timeout: unhealthy, "*": unhealthy}

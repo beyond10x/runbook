@@ -20,7 +20,7 @@ actions:
         subject: draft
         producer: draft-check
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: draft.review
     executor:
       kind: person

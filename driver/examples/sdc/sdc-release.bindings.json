@@ -13,6 +13,7 @@
     "producer": "ess",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   },
@@ -45,6 +46,7 @@
     "producer": "ess",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   },
@@ -70,6 +72,7 @@
     "producer": "runbook.monitor",
     "results": {
       "0": "healthy",
+      "timeout": "unhealthy",
       "*": "unhealthy"
     }
   }
