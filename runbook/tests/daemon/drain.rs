@@ -153,11 +153,24 @@ impl Serve {
     }
 
     /// Answer what the run asks until it is over: the person step with `performed`, every other decision with `approve`.
-    fn settle(&self, run: &str) -> Value {
+    /// The outcome the journal holds for the run, once it ended. The daemon exits when its last run ends,
+    /// so the end is read from the journal and not from a view.
+    fn outcome_of(&self, run: &str) -> Option<String> {
+        self.facts("run_ended").into_iter().find(|f| f["run_id"] == run).map(|f| f["outcome"].as_str().unwrap().to_string())
+    }
+
+    fn serving(&self) -> bool {
+        std::net::TcpStream::connect(self.addr).is_ok()
+    }
+
+    fn settle(&self, run: &str) -> String {
         let mut answered = std::collections::BTreeSet::new();
         until(&format!("run {run} to be over"), 50, || {
-            if self.state_of(run) == "Ended" {
+            if self.outcome_of(run).is_some() {
                 return true;
+            }
+            if !self.serving() {
+                return false;
             }
             for d in self.rows("open-decisions", &format!("run_id={run}")) {
                 let id = d["request_id"].as_str().unwrap().to_string();
@@ -171,7 +184,7 @@ impl Serve {
             }
             false
         });
-        self.rows("run", &format!("run_id={run}"))[0].clone()
+        self.outcome_of(run).unwrap()
     }
 
     fn mcp_submit(&self) -> Value {
@@ -213,8 +226,7 @@ fn a_stop_during_a_live_run_lets_it_end_with_its_outcome_and_refuses_a_submit_me
     assert_eq!(s.rows("runs", "").len(), 1, "the refused submits made no run");
 
     // Decisions are taken during the drain; the run ends with its own outcome.
-    let row = s.settle(&run);
-    assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("delivered")), "{row}");
+    assert_eq!(s.settle(&run), "delivered");
     let (code, took) = s.exit_within(Duration::from_secs(15));
     assert_eq!(code, Some(0), "{}", s.stderr());
     println!("exit {took:?} after the run ended; whole case {:?}", t.elapsed());

@@ -83,6 +83,21 @@ async fn method_not_allowed() -> Response {
     refusal(StatusCode::METHOD_NOT_ALLOWED, "method not allowed", "commands are POST, views are GET")
 }
 
+/// The header every answer carries while the daemon drains: the count of live runs it waits for. The
+/// views and commands are the specification's, so a read says "draining" here and not in a row.
+pub const DRAINING_HEADER: &str = "x-runbook-draining";
+
+async fn drain_header(State(daemon): State<Daemon>, request: Request, next: middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    let live = daemon.read(|s| s.draining().then(|| s.live_run_ids().len()));
+    if let Some(live) = live {
+        if let Ok(v) = HeaderValue::from_str(&live.to_string()) {
+            response.headers_mut().insert(DRAINING_HEADER, v);
+        }
+    }
+    response
+}
+
 /// The router of the daemon. With a token, the one middleware that checks it wraps every route, the
 /// fallback included.
 pub fn router(daemon: Daemon, token: Option<&str>) -> Router {
@@ -99,6 +114,7 @@ pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closin
 /// endpoint). One middleware (`auth::guard`) wraps all of them, the fallback included. `listen` is
 /// the address the listener is bound to; with it the guard checks `Host` on a loopback listener.
 pub fn router_full(daemon: Daemon, token: Option<&str>, streams: Streams, closing: watch::Receiver<bool>, ui: bool, extra: Option<Router>, listen: Option<SocketAddr>) -> Router {
+    let drain_daemon = daemon.clone();
     let app = App { daemon, streams, closing };
     let mut router = Router::new();
     for name in routes::COMMANDS {
@@ -130,6 +146,7 @@ pub fn router_full(daemon: Daemon, token: Option<&str>, streams: Streams, closin
     if ui {
         router = router.merge(Router::new().route("/ui/login", post(crate::ui_embed::login)).with_state(auth.clone()));
     }
+    let router = router.layer(middleware::from_fn_with_state(drain_daemon, drain_header));
     let router = router.layer(middleware::from_fn_with_state(auth, auth::guard));
     if ui {
         return router.layer(middleware::from_fn(crate::ui_embed::login_form));
