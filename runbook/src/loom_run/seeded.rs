@@ -34,9 +34,14 @@ pub const MAX_FILES: usize = 20_000;
 /// It also stops at this many entries of any kind (a directory of a million links costs no more).
 const MAX_ENTRIES: usize = 200_000;
 
+/// The bounds [`write`] lists with: [`MAX_FILES`] files and [`MAX_ENTRIES`] entries of any kind.
+const fn default_bounds() -> (usize, usize) {
+    (MAX_FILES, MAX_ENTRIES)
+}
+
 /// Lists `workspace` and writes the record into `run_dir`.
 pub fn write(run_dir: &Path, workspace: &Path, at_secs: u64) -> Result<(), String> {
-    write_with(run_dir, workspace, at_secs, MAX_FILES)
+    write_with(run_dir, workspace, at_secs, default_bounds().0)
 }
 
 struct Listing {
@@ -155,7 +160,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// [`write`] with the bound on files given.
 pub fn write_with(run_dir: &Path, workspace: &Path, at_secs: u64, max_files: usize) -> Result<(), String> {
-    write_limited(run_dir, workspace, at_secs, max_files, MAX_ENTRIES)
+    write_limited(run_dir, workspace, at_secs, max_files, default_bounds().1)
 }
 
 /// [`write`] with both bounds given: files, and entries of any kind.
@@ -465,27 +470,24 @@ mod tests {
         assert!(!all.contains("outside.txt") && !all.contains("OUTSIDE-CONTENT") && !all.contains(run.to_str().unwrap()), "{all}");
     }
 
-    /// `write` reaches the walk's bound of entries through `write_with` and `write_limited`; the case above runs `write_limited` with
-    /// a bound of 5, so only a walk of more than the default (200 000, docs/loom-run-directory.md) holds the wiring of the constant.
-    /// The links are made by eight threads, each in a directory of its own.
+    /// `write` and `write_with` take their bounds from `default_bounds` and nowhere else, and the walk stops one entry past the
+    /// bound of entries it is given (`a_directory_past_the_entry_bound_says_it_is_not_complete`, with a bound of 5). So the
+    /// default walk stops at the numbers docs/loom-run-directory.md names without a tree of 200 001 entries: building one cost
+    /// 7 s on a runner with four cores. A tree of four links is complete under the default bounds and not complete under a
+    /// bound of three entries.
     #[test]
     fn the_default_walk_stops_at_the_documented_number_of_entries_and_says_it_is_not_complete() {
+        assert_eq!(default_bounds(), (20_000, 200_000), "the numbers docs/loom-run-directory.md names");
+        assert_eq!(default_bounds(), (MAX_FILES, MAX_ENTRIES));
         let run = scratch("entries-default");
         let work = run.join("work");
-        let per = MAX_ENTRIES / 8 + 1;
-        std::thread::scope(|s| {
-            for t in 0..8 {
-                let dir = work.join(format!("d{t}"));
-                s.spawn(move || {
-                    fs::create_dir_all(&dir).unwrap();
-                    for i in 0..per {
-                        std::os::unix::fs::symlink("x", dir.join(format!("l{i}"))).unwrap();
-                    }
-                });
-            }
-        });
-        assert_eq!((MAX_ENTRIES, MAX_FILES), (200_000, 20_000), "the numbers docs/loom-run-directory.md names");
+        fs::create_dir_all(work.join("d")).unwrap();
+        for i in 0..4 {
+            std::os::unix::fs::symlink("x", work.join("d").join(format!("l{i}"))).unwrap();
+        }
         write(&run, &work, 1).unwrap();
+        assert_eq!(record(&run)["complete"], true, "a tree under the default bounds is complete: {}", record(&run));
+        write_limited(&run, &work, 1, default_bounds().0, 3).unwrap();
         assert_eq!(record(&run)["complete"], false, "{}", record(&run));
     }
 

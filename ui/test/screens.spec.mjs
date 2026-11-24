@@ -1,11 +1,12 @@
 // Screenshots of each view, saved under screenshots/<project>-<name>.png, over the committed fixture
-// (test/recorded/trial-todo-1-slim, played into test/fixtures/runs/screens-<project> by
+// (test/recorded/trial-todo-1-slim, played into ui/target/fixture-runs/screens-<project> by
 // test/fixture-run.mjs and served by a server of this file on a port the kernel gives). The tour of the
 // real recorded runs, with the billing cases the fixture does not have, is screens-runs.spec.mjs (slow lane).
 import {test, expect} from '@playwright/test';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {settled} from './settled.mjs';
 
@@ -13,7 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 let base, srv;
 test.beforeAll(async ({}, info) => {
-  const run = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), `screens-${info.project.name}`);
+  const run = path.join(FIXTURE_DIR, `screens-${info.project.name}`);
   const r = spawnSync(process.execPath, ['test/fixture-run.mjs', 'person', run], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`fixture person: ${r.stderr}`);
   srv = await startServer([path.join(run, 'store')]);

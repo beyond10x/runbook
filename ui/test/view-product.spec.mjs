@@ -8,12 +8,13 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {checkView} from '../web/view.js';
 import {EXAMPLE_VIEW} from './loom-run-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'view-product');
+const root = path.join(FIXTURE_DIR, 'view-product');
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'file and process checks run once'));
 
 test('the view check knows product: a relative path passes; the other types and the paths that must not be served are refused by name', () => {

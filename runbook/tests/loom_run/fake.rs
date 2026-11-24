@@ -16,34 +16,42 @@ use sha2::{Digest, Sha256};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+/// The script forks as little as it can: it runs once per Loom call of every case of `runbook run`, so
+/// each command substitution or helper process here is paid hundreds of times per test run. Counters
+/// and answer files are read with `read`, the answer is picked into a variable, and only `env`, `sed`
+/// (an answer with stdout) and `cat` (an answer with stderr) start a process.
 const SCRIPT: &str = r#"#!/bin/sh
 D='@DIR@'
-mkdir -p "$D/calls" "$D/seq"
-n=$(cat "$D/calls/count" 2>/dev/null || echo 0)
+[ -d "$D/seq" ] || mkdir -p "$D/calls" "$D/seq"
+n=0; [ -f "$D/calls/count" ] && read -r n < "$D/calls/count"
 n=$((n + 1))
 echo "$n" > "$D/calls/count"
 printf '%s\n' "$@" > "$D/calls/$n.argv"
 env > "$D/calls/$n.env"
 sub="$1_$2"
-k=$(cat "$D/seq/$sub" 2>/dev/null || echo 0)
+k=0; [ -f "$D/seq/$sub" ] && read -r k < "$D/seq/$sub"
 k=$((k + 1))
 echo "$k" > "$D/seq/$sub"
-pick() {
-  if [ -e "$D/script/$sub.$k.$1" ]; then echo "$D/script/$sub.$k.$1"
-  elif [ -e "$D/script/$sub.default.$1" ]; then echo "$D/script/$sub.default.$1"
+fake_pick() {
+  if [ -e "$D/script/$sub.$k.$1" ]; then fake_picked="$D/script/$sub.$k.$1"
+  elif [ -e "$D/script/$sub.default.$1" ]; then fake_picked="$D/script/$sub.default.$1"
+  else fake_picked=""
   fi
 }
-if [ -z "$(pick out)$(pick err)$(pick exit)$(pick sh)" ]; then
+fake_any=""
+for fake_kind in out err exit sh; do fake_pick "$fake_kind"; fake_any="$fake_any$fake_picked"; done
+if [ -z "$fake_any" ]; then
   echo "fake b10x-loom: no answer scripted for $sub call $k" >&2
   exit 99
 fi
 store=""; bindings=""; prev=""
 for a in "$@"; do [ "$prev" = --store ] && store=$a; [ "$prev" = --bindings ] && bindings=$a; prev=$a; done
-hook=$(pick sh)
+fake_pick sh; hook=$fake_picked
 [ -n "$hook" ] && . "$hook"
-f=$(pick out); [ -n "$f" ] && sed "s|@STORE@|$store|g" "$f"
-f=$(pick err); [ -n "$f" ] && cat "$f" >&2
-f=$(pick exit); [ -n "$f" ] && exit "$(cat "$f")"
+fake_pick out; f=$fake_picked; [ -n "$f" ] && sed "s|@STORE@|$store|g" "$f"
+fake_pick err; f=$fake_picked; [ -n "$f" ] && cat "$f" >&2
+fake_pick exit; f=$fake_picked
+if [ -n "$f" ]; then fake_code=""; read -r fake_code < "$f"; exit "$fake_code"; fi
 exit 0
 "#;
 

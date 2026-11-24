@@ -1,12 +1,19 @@
 // An artifact of a case is parsed from the text that was read through the checked open, never from a second open by name:
-// an artifact that flips between an own file and a link to a file outside the run while amendStall is called for 8 s is
-// never counted from the file outside the run. In-process, invented text.
+// an artifact that flips between an own file and a link to a file outside the run while amendStall reads it is never
+// counted from the file outside the run. In-process, invented text.
+// What the first case proves, and how: the flip of a child process (remove the file, then make it a link out of the run or
+// copy the own file back, in turn) is made here right before each call amendStall makes to the file system or to `yq`,
+// from every point of that cycle, and before every pair of such calls (interleave.mjs), with the read cache empty and,
+// for one flip, filled by a read of the own file; every window between two calls is tried, the one between the check and
+// the open and the one between the read and the parse among them. Where the child process hit those windows by chance for
+// 8 s, each is hit here on purpose in every run; and a case where the read reached the outside file must be among them.
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import {amendStall} from '../decisions.mjs';
-import {registerRun} from '../runfiles.mjs';
+import {registerRun, cacheClear} from '../runfiles.mjs';
+import {places, before, sets} from './interleave.mjs';
 import {useSdcView} from './sdc-view.mjs';
 import {fixtureRoot} from './security-products-lib.mjs';
 useSdcView();
@@ -15,7 +22,7 @@ const root = fixtureRoot('yq-race');
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
 test.afterAll(() => fs.rmSync(root, {recursive: true, force: true}));
 
-test('an artifact swapped for a link out of the run after its check is not parsed (bounded: 8 s)', async () => {
+test('an artifact swapped for a link out of the run after its check is not parsed, at every call of the reader', async () => {
   test.setTimeout(30000);
   fs.rmSync(root, {recursive: true, force: true});
   const run = path.join(root, 'run');
@@ -25,23 +32,46 @@ test('an artifact swapped for a link out of the run after its check is not parse
   const file = path.join(dir, 'work', 'findings.yaml'), own = path.join(root, 'own.yaml'), outside = path.join(root, 'outside.yaml');
   fs.writeFileSync(own, 'findings:\n- id: f1\n  status: resolved\n');
   fs.writeFileSync(outside, 'findings:\n- id: f1\n  status: needs_person\n- id: f2\n  status: needs_person\n');
-  fs.copyFileSync(own, file);
-  const flip = path.join(root, 'flip.mjs');
-  fs.writeFileSync(flip, `import fs from 'node:fs';
-const [f, own, outside, ms] = process.argv.slice(2);
-const end = Date.now() + Number(ms);
-let i = 0;
-while (Date.now() < end) { try { fs.rmSync(f, {force: true}); if (i++ % 2) fs.symlinkSync(outside, f); else fs.copyFileSync(own, f); } catch {} }
-`);
   const bindings = {$artifacts: {findings: 'findings.yaml'}, 'amend.upstream': {argv: ['x']}};
   const events = [{seq: 0, event: 'opened'}, {seq: 1, event: 'awaiting_person', next: [{action: 'amend.upstream', command: 'a', decides: 'd'}]}];
   const c = {id: 'IDEA-1.todo.plan', rel: 'IDEA-1.todo.plan', dir, bindings, events};
-  const child = spawn('node', [flip, file, own, outside, '10000'], {stdio: 'ignore'});
-  let calls = 0, fromOutside = 0;
-  const end = Date.now() + 8000;
-  while (Date.now() < end) { const r = amendStall(c, run); calls++; if (r?.needsPerson === 2) fromOutside++; }
-  child.kill();
-  expect(calls).toBeGreaterThan(0);
+  // the cycle of the flip: the own file, gone, a link out of the run, gone, the own file again
+  const CYCLE = ['own', 'gone', 'link', 'gone'];
+  let at = 0;
+  const put = (i) => {
+    at = i % CYCLE.length;
+    fs.rmSync(file, {force: true});
+    if (CYCLE[at] === 'own') fs.copyFileSync(own, file);
+    if (CYCLE[at] === 'link') fs.symlinkSync(outside, file);
+  };
+  const flip = () => put(at + 1);
+  const read = () => amendStall(c, run);
+  put(0);
+  cacheClear();
+  const plain = places(read);
+  expect(plain.value?.needsPerson, 'the own file, untouched').toBe(0);
+  expect(plain.names, 'the reader checks, opens and parses').toEqual(expect.arrayContaining(['realpathSync.native', 'openSync', 'execFileSync']));
+  put(2);
+  expect(read()?.needsPerson, 'the link out of the run, untouched: no record of it is counted').toBe(0);
+  const n = plain.names.length + 2;
+  let tried = 0, fromOutside = 0, outsideOpened = 0;
+  for (let start = 0; start < CYCLE.length; start++) {
+    for (const set of sets(n, 2)) {
+      for (const warm of set.size === 1 ? [false, true] : [false]) {
+        put(0);
+        cacheClear();
+        if (warm) read();
+        put(start);
+        let linkOpened = false;
+        const r = before(set, flip, read, (name) => { if (name === 'openSync' && CYCLE[at] === 'link') linkOpened = true; });
+        tried++;
+        if (linkOpened) outsideOpened++;
+        if (r?.needsPerson === 2) fromOutside++;
+      }
+    }
+  }
+  console.log(`yq race: ${tried} interleavings of ${n} places from ${CYCLE.length} points of the flip, ${outsideOpened} that opened while the link out of the run was in place, counted from outside: ${fromOutside}`);
+  expect(outsideOpened, 'interleavings that open the artifact while it is the link out of the run were tried').toBeGreaterThan(0);
   expect(fromOutside).toBe(0);
 });
 

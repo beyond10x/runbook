@@ -7,10 +7,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'reads-only-the-run');
+const root = path.join(FIXTURE_DIR, 'reads-only-the-run');
 const HASH = 'a'.repeat(64);
 const HASH2 = 'b'.repeat(64);
 const HASH3 = 'c'.repeat(64);

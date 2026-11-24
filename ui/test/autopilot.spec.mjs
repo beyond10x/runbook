@@ -1,7 +1,7 @@
 // "It should never say person if there isn't a person" (the operator, 2026-11-21). A run in autopilot
 // (run-settings.jsonl: autonomy A5, stand_in true; every principal decider:haiku) and a legacy run whose
 // records say "human" without an id, played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
-// test/fixtures/runs)/principals, served by a server of its own (test/serve.mjs: a port the kernel gives)
+// ui/target/fixture-runs)/principals, served by a server of its own (test/serve.mjs: a port the kernel gives)
 // over the runs directory. Screenshots: screenshots/{1600x1000,1366x768}-autopilot.png, -human.png.
 import {test, expect} from '@playwright/test';
 import {spawnSync} from 'node:child_process';
@@ -9,13 +9,14 @@ import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
-const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'principals');
+const runs = path.join(FIXTURE_DIR, 'principals');
 let base;
 const GATING = [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}];
 const procs = [];

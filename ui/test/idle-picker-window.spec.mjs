@@ -22,6 +22,9 @@ const others = [];
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, one viewport'));
 test.afterAll(() => { srv?.kill(); for (const s of others) s.kill(); for (const s of streams) s.destroy(); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// every server here runs a round each 100 ms (--round-ms) where it runs one each 700 ms: the cases count rounds, and the one
+// window (after a page left, before the change) is two and a half rounds as before, in a seventh of the time
+const ROUND = '100';
 const runDir = (i) => path.join(root, 'runs', `r${i}`);
 const get = async (p) => (await fetch(base + p)).json();
 const stopRun = (i, reason) => fs.writeFileSync(path.join(runDir(i), 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: iso(30), by: 'tester', reason, verdict_at_stop: 'waiting', case: 'CASE-1'}));
@@ -52,7 +55,7 @@ test.beforeAll(async ({}, info) => {
     const ev = path.join(d, 'store', 'CASE-1', 'events.jsonl');
     fs.writeFileSync(ev, fs.readFileSync(ev, 'utf8').trim().split('\n').filter((l) => !l.includes('"terminated"')).join('\n') + '\n');
   }
-  ({url: base, proc: srv} = await startServer(['--count-reads', '--no-view', '--runs', path.join(root, 'runs')]));
+  ({url: base, proc: srv} = await startServer(['--count-reads', '--round-ms', ROUND, '--no-view', '--runs', path.join(root, 'runs')]));
 });
 
 test('a run that stops between the page\'s last list of runs and the first round of its stream is announced to the page', async () => {
@@ -113,7 +116,7 @@ test('when one of two pages leaves, the other still hears of its run', async () 
   const a = watch(0), b = watch(1);
   for (let t = Date.now(); Date.now() - t < 10000 && !(a.seen.length && b.seen.length); ) await sleep(50);
   a.close();
-  await sleep(1500);
+  await sleep(250);
   const had = b.seen.filter((e) => e.event === 'change').length;
   fs.appendFileSync(path.join(runDir(1), 'store', 'CASE-1', 'events.jsonl'), JSON.stringify({event: 'note', seq: 900, at: iso(70), source: 'loom-runlog'}) + '\n');
   for (let t = Date.now(); Date.now() - t < 8000 && b.seen.filter((e) => e.event === 'change').length <= had; ) await sleep(50);
@@ -141,7 +144,7 @@ async function ownServer(name, count) {
   }
   const seamFile = path.join(root, `${name}.seam.json`);
   const env = {...process.env, NODE_OPTIONS: `--require ${path.join(here, 'idle-list-seam.cjs')}`, IDLE_SEAM_FILE: seamFile};
-  const s = await startServer(['--count-reads', '--no-view', '--runs', runs], {env});
+  const s = await startServer(['--count-reads', '--round-ms', ROUND, '--no-view', '--runs', runs], {env});
   others.push(s.proc);
   const pid = await s.proc.started;
   const json = async (p) => { for (let t = 0; ; t++) { try { return await (await fetch(s.url + p, {headers: {connection: 'close'}, signal: AbortSignal.timeout(20000)})).json(); } catch (e) { if (t >= 3) throw e; await sleep(100); } } };

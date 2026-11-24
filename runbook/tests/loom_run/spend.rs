@@ -1,7 +1,7 @@
 //! What the spend ledger does with a call that crosses its budget and with a reservation that a
 //! killed run left behind (`docs/loom-run.md`, "What the spend cap does not promise").
 
-use super::core::{code, spent, stderr, World};
+use super::core::{code, spent, stderr, World, RECORD_DIR};
 use super::fake::tree_run_json;
 use serde_json::{json, Value};
 use std::process::{Command, Stdio};
@@ -10,9 +10,8 @@ use std::process::{Command, Stdio};
 /// model CLI ends a turn above its `--max-budget-usd`.
 fn call_costing(cost: &str) -> String {
     format!(
-        "w=work/.sdc/llm; mkdir -p \"$w\"\n\
-i=$(( $(find \"$w\" -mindepth 1 -maxdepth 1 -type d | wc -l) + 1 ))\n\
-d=$(printf '%03d-node.write' $i); mkdir -p \"$w/$d\"\n\
+        "w=work/.sdc/llm; [ -d \"$w\" ] || mkdir -p \"$w\"\n\
+{RECORD_DIR}\
 printf '{{\"action\":\"node.write\",\"record\":\"%s/%s\",\"cost_usd\":{cost}}}\\n' \"$PWD/$w\" \"$d\" >> \"$w/calls.jsonl\"\n"
     )
 }

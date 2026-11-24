@@ -1,5 +1,5 @@
 // Stub, fixture and dry runs are never listed beside real runs without a label (server.mjs programOf).
-// Four runs played by test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/
+// Four runs played by test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default ui/target/fixture-runs)/
 // programs, then told apart by what they say about their program: two real (run-settings.jsonl adapter
 // metaharness; an older one with llm-calls.jsonl naming a model and no settings), two stub (adapter
 // llm-adapter-fixture.sh; dry llm-calls.jsonl lines only). Served by a server of its own over the
@@ -12,6 +12,7 @@ import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {phone} from '../ux/adapter.mjs';
@@ -19,7 +20,7 @@ import {horizontalOverflow, smallTargets, smallText} from '../ux/core/phone.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'programs');
+const runs = path.join(FIXTURE_DIR, 'programs');
 let base;
 const NOTE = "stub run: canned content, not a model's work";
 const HEAD = 'Stub and fixture runs (no model calls)';

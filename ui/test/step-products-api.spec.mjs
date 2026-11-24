@@ -9,12 +9,13 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeProductsRun, viewWith, ROOT, OUTPUT, TOKEN_TEXT, SECRET_TEXT} from './products-fixture.mjs';
 import {readRegular} from '../runfiles.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'step-products-api');
+const root = path.join(FIXTURE_DIR, 'step-products-api');
 const servers = {};
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own servers, one viewport'));

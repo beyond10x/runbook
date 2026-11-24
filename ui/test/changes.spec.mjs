@@ -7,6 +7,7 @@ import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 
@@ -19,7 +20,7 @@ let base;
 test.beforeAll(async ({}, info) => {
   needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'changes.spec.mjs (fixture source)', test);
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'changes.spec.mjs', test);
-  const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
+  const dir = path.join(FIXTURE_DIR, info.project.name);
   fs.mkdirSync(dir, {recursive: true});
   const run = (args) => { const p = spawnChild('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   await new Promise((r) => run(['test/fixture-run.mjs', 'changes', path.join(dir, 'changes')]).on('exit', r));
