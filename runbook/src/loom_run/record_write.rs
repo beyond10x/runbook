@@ -4,9 +4,19 @@
 //! The run directory is written by the programs of a run too (`--confinement local`), so no name in it is trusted: a
 //! program can leave a link, a pipe, a directory or a second name of a file outside the run at any name the runner will
 //! write, make or read. Every record the runner writes into the run directory after its first program started goes
-//! through this file, every directory it makes there is made by [`make_dir_in`], and every name there that it reads is
-//! read by [`read_regular`], [`read_regular_text`], [`read_regular_prefix`] or [`read_regular_within`]; nothing else of
-//! the runner opens such a name.
+//! through this file, every directory it makes there is made by [`make_dir_in`], and every file there that it reads is
+//! read by [`read_regular`], [`read_regular_text`], [`read_regular_prefix`], [`read_regular_within`] or through a held
+//! directory ([`Held::read`], [`Held::read_text`], [`Held::copy_to`]). The bindings copy is held for every read and
+//! write after the first program started ([`Held::open`], listed by [`Held::names`]), so a link at its name ends the
+//! run.
+//!
+//! Outside this file, and named here so that the sentence above stays true: the runner lists the call directories of
+//! the run by path (`cost.rs`, `dry.rs`, `decider/approval.rs` `record_dirs`, `run_dir.rs`), which reads names, not
+//! files; it reads the bindings copy (`bindings_copy.rs`, `answers.rs` `Answers::load`) and copies its protocols and
+//! the idea before the first program starts; the inputs of a decider call are copied by `decider/inputs.rs` before the
+//! program of that call starts; and Loom's case store of the run (`store/`) is read by the in-process engine
+//! (`runbook::engine`) with Loom's own readers. The watcher (`watch/`) is its own program and holds its output
+//! directory and its reads itself (`docs/loom-run-directory.md`).
 //!
 //! A directory the runner keeps writing to while a program runs (the directory of a decider call, which stays in use
 //! while the adapter runs) is held: [`Held`] keeps the open descriptor [`make_dir_in`] returned, and every record,
