@@ -3,8 +3,9 @@
 //! "`[gateway]`"). The one Rust reader of the format; the shell programs of the bindings read it with
 //! `bindings/tools/gateway.sh`.
 //!
-//! The file is two lines: `base_url=<address>` and `token=<token>`. No error and no `Debug` output of
-//! this module holds the token, a part of it or the path of a file it was read from.
+//! The file is two lines, `base_url=<address>` and `token=<token>`, or the first line alone for a gateway
+//! without ingress auth (no token). No error and no `Debug` output of this module holds the token, a part of
+//! it or the path of a file it was read from.
 
 use std::io::Read;
 use std::path::Path;
@@ -23,17 +24,18 @@ pub const ADDRESS_LIMIT: usize = 2048;
 /// prints, so a token short enough to be a common string is refused.
 pub const TOKEN_MINIMUM: usize = 8;
 
-/// An address and a token. The token is private to the value: it is read through [`Gateway::token`]
-/// and is never in `Debug`.
+/// An address and a token, or an address alone (a gateway without ingress auth). The token is private to the
+/// value: it is read through [`Gateway::token`] and is never in `Debug`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Gateway {
     base_url: String,
-    token: String,
+    token: Option<String>,
 }
 
 impl std::fmt::Debug for Gateway {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Gateway").field("base_url", &self.base_url).field("token", &"<named>").finish()
+        let token = if self.token.is_some() { "<named>" } else { "<none>" };
+        f.debug_struct("Gateway").field("base_url", &self.base_url).field("token", &token).finish()
     }
 }
 
@@ -99,9 +101,16 @@ pub fn check_token(token: &str) -> Result<(), &'static str> {
 impl Gateway {
     /// A gateway of `base_url` and `token`, both checked. An error names the member, never its value.
     pub fn new(base_url: &str, token: &str) -> Result<Gateway, String> {
-        check_base_url(base_url).map_err(|why| format!("gateway.base_url: {why}"))?;
+        let mut gateway = Gateway::without_token(base_url)?;
         check_token(token).map_err(|why| format!("gateway.token: {why}"))?;
-        Ok(Gateway { base_url: base_url.to_owned(), token: token.to_owned() })
+        gateway.token = Some(token.to_owned());
+        Ok(gateway)
+    }
+
+    /// A gateway of `base_url` without ingress auth: no token. An error names the member, never its value.
+    pub fn without_token(base_url: &str) -> Result<Gateway, String> {
+        check_base_url(base_url).map_err(|why| format!("gateway.base_url: {why}"))?;
+        Ok(Gateway { base_url: base_url.to_owned(), token: None })
     }
 
     /// The address.
@@ -109,28 +118,40 @@ impl Gateway {
         &self.base_url
     }
 
-    /// The token.
-    pub fn token(&self) -> &str {
-        &self.token
+    /// The token; none for a gateway without ingress auth.
+    pub fn token(&self) -> Option<&str> {
+        self.token.as_deref()
     }
 
-    /// The text of the gateway file.
+    /// The text of the gateway file: the address line, and the token line when there is a token.
     pub fn render(&self) -> String {
-        format!("base_url={}\ntoken={}\n", self.base_url, self.token)
+        match &self.token {
+            Some(token) => format!("base_url={}\ntoken={token}\n", self.base_url),
+            None => format!("base_url={}\n", self.base_url),
+        }
     }
 }
 
-/// The gateway of the text of a gateway file: exactly the two lines, in that order. An error never
-/// holds a part of the text.
+/// The gateway of the text of a gateway file: the two lines in that order, or the address line alone (an
+/// end of line after the last line allowed). An error never holds a part of the text.
 pub fn parse(text: &str) -> Result<Gateway, String> {
-    let not = || "the gateway file is not a gateway file (two lines: base_url=, token=)".to_owned();
+    let not = || "the gateway file is not a gateway file (two lines: base_url=, token=; or base_url= alone)".to_owned();
     let mut lines = text.split('\n');
     let base = lines.next().and_then(|l| l.strip_prefix("base_url=")).ok_or_else(not)?;
-    let token = lines.next().and_then(|l| l.strip_prefix("token=")).ok_or_else(not)?;
-    if !matches!(lines.next(), None | Some("")) || lines.next().is_some() {
+    let token = match lines.next() {
+        // the address alone, with or without an end of line
+        None => None,
+        Some("") if lines.next().is_none() => None,
+        Some(line) => Some(line.strip_prefix("token=").ok_or_else(not)?),
+    };
+    if token.is_some() && (!matches!(lines.next(), None | Some("")) || lines.next().is_some()) {
         return Err(not());
     }
-    Gateway::new(base, token).map_err(|_| not())
+    match token {
+        Some(token) => Gateway::new(base, token),
+        None => Gateway::without_token(base),
+    }
+    .map_err(|_| not())
 }
 
 /// The gateway of the file at `path`. An error says that the file could not be read or is not a gateway
@@ -163,7 +184,18 @@ mod tests {
         let g = Gateway::new("http://127.0.0.1:8080", TOKEN).unwrap();
         assert_eq!(g.render(), format!("base_url=http://127.0.0.1:8080\ntoken={TOKEN}\n"));
         assert_eq!(parse(&g.render()).unwrap(), g);
-        assert_eq!((g.base_url(), g.token()), ("http://127.0.0.1:8080", TOKEN));
+        assert_eq!((g.base_url(), g.token()), ("http://127.0.0.1:8080", Some(TOKEN)));
+    }
+
+    #[test]
+    fn a_gateway_without_a_token_renders_to_the_address_line_and_parses_back() {
+        let g = Gateway::without_token("http://127.0.0.1:8080").unwrap();
+        assert_eq!(g.render(), "base_url=http://127.0.0.1:8080\n");
+        assert_eq!(g.token(), None);
+        assert_eq!(parse(&g.render()).unwrap(), g);
+        assert_eq!(parse("base_url=http://127.0.0.1:8080").unwrap(), g, "no end of line at the end");
+        assert!(format!("{g:?}").contains("<none>"));
+        assert!(Gateway::without_token("ftp://h").unwrap_err().contains("gateway.base_url"));
     }
 
     #[test]
@@ -202,7 +234,7 @@ mod tests {
         assert!(e.contains("token") && !e.contains(TOKEN) && !e.contains("more"), "{e}");
         let e = Gateway::new("http://user:hunter2@h", TOKEN).unwrap_err();
         assert!(e.contains("base_url") && !e.contains("hunter2"), "{e}");
-        for text in ["", "base_url=http://h\n", "token=x\n", &format!("token={TOKEN}\nbase_url=http://h\n"), &format!("base_url=http://h\ntoken={TOKEN}\nextra=1\n"), "base_url=http://h\ntoken=\n"] {
+        for text in ["", "base_url=http://h\n\n", "token=x\n", &format!("token={TOKEN}\nbase_url=http://h\n"), &format!("base_url=http://h\ntoken={TOKEN}\nextra=1\n"), "base_url=http://h\ntoken=\n"] {
             let e = parse(text).unwrap_err();
             assert!(!e.contains(TOKEN), "{text:?}: {e}");
         }
@@ -216,7 +248,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gateway");
         std::fs::write(&path, Gateway::new("http://127.0.0.1:8080", TOKEN).unwrap().render()).unwrap();
-        assert_eq!(read(&path).unwrap().token(), TOKEN);
+        assert_eq!(read(&path).unwrap().token(), Some(TOKEN));
         let e = read(&dir.join("absent-file-name")).unwrap_err();
         assert!(!e.contains("absent-file-name"), "{e}");
         std::fs::write(&path, "garbage\n").unwrap();

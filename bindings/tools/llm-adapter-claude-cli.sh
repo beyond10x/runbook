@@ -16,7 +16,9 @@
 # home with no login; no other ANTHROPIC_* or CLAUDE_CODE_* variable of the caller and not the two SDC_ variables
 # that name the file and a login are in its environment (the adapter's own CLAUDE_CODE_ settings below stay).
 # What `claude` prints to its two streams goes through a filter that replaces every occurrence of the token by
-# `<gateway token>` before `events.jsonl` and `stderr.txt` are written. A file that cannot be read ends the
+# `<gateway token>` before `events.jsonl` and `stderr.txt` are written. A gateway file that names no token (a
+# gateway without ingress auth) gives ANTHROPIC_AUTH_TOKEN the fixed placeholder `runbook-gateway-no-token`, no
+# credential, and its output is not filtered. A file that cannot be read ends the
 # call with exit 127 before `claude` starts, naming the variable and no value. `claude` and what it starts get
 # no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5 are closed for the start).
 # A call
@@ -44,6 +46,11 @@ if [[ -n ${SDC_GATEWAY_FILE:-} ]]; then
   # The two values are shell variables of this script and no process but the one `claude` start gets them: a
   # caller that exported either name does not make the filter and the other programs inherit the token.
   export -n SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN
+  # A gateway without ingress auth names no token. `claude` still gets an auth token, this fixed placeholder, so
+  # that it does not stop for a missing login; it is no credential and no secret, so its output is not filtered.
+  gateway_token=$SDC_GATEWAY_TOKEN
+  export -n gateway_token
+  [[ -n $gateway_token ]] || gateway_token=runbook-gateway-no-token
   priv=$(dirname -- "$SDC_GATEWAY_FILE")
   [[ -d $priv && -O $priv && $(stat -c %a "$priv") == 700 ]] && scratch=$priv
 elif [[ -z ${ANTHROPIC_API_KEY:-} && -n ${SDC_CLAUDE_CREDENTIALS:-} ]]; then
@@ -108,6 +115,7 @@ start=$(date +%s%3N)
 # the environment holds now, but the two, is removed from it (`env -u`; the adapter's own settings follow on the
 # same line), and the variables that name the gateway file and a login path stay out of `claude`'s environment.
 unset_names=()
+filtered=''
 if [[ -n ${SDC_GATEWAY_FILE:-} ]]; then
   while IFS= read -r -d '' kv; do
     case ${kv%%=*} in
@@ -115,6 +123,9 @@ if [[ -n ${SDC_GATEWAY_FILE:-} ]]; then
       ANTHROPIC_* | CLAUDE_CODE_*) unset_names+=(-u "${kv%%=*}") ;;
     esac
   done < <(env -0)
+fi
+if [[ -n ${SDC_GATEWAY_FILE:-} && -n ${SDC_GATEWAY_TOKEN:-} ]]; then
+  filtered=1
   # Each of the two streams of `claude` goes through a filter before it is a file: every occurrence of the token, and
   # of its form inside JSON text, is replaced by `<gateway token>`. The token reaches the filter on a descriptor
   # (`jq --rawfile`), never in an argv or an environment variable.
@@ -130,12 +141,12 @@ else
   exec 4> "$rec/events.jsonl" 5> "$rec/stderr.txt"
 fi
 (cd "$(r .cwd)" && { [[ -z ${SDC_GATEWAY_FILE:-} ]] || {
-    export ANTHROPIC_BASE_URL=$SDC_GATEWAY_BASE_URL ANTHROPIC_AUTH_TOKEN=$SDC_GATEWAY_TOKEN
-    unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS
+    export ANTHROPIC_BASE_URL=$SDC_GATEWAY_BASE_URL ANTHROPIC_AUTH_TOKEN=$gateway_token
+    unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS gateway_token
   }; } && env -u CLAUDE_CODE_EFFORT_LEVEL "${unset_names[@]}" "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" >&4 2>&5 4>&- 5>&-)
 code=$?
 exec 4>&- 5>&-
-if [[ -n ${SDC_GATEWAY_FILE:-} ]] && ! { wait "$filter_events" && wait "$filter_stderr"; }; then
+if [[ -n $filtered ]] && ! { wait "$filter_events" && wait "$filter_stderr"; }; then
   rm -f "$rec/events.jsonl" "$rec/stderr.txt"
   echo "llm-adapter-claude-cli.sh: the filter that takes the gateway token out of the output of claude failed; the output of the call is not kept" >&2
   exit 127

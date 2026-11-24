@@ -307,10 +307,11 @@ fn guard_the_shell_reader_takes_two_lines_and_refuses_a_missing_file_a_directory
     assert!(good("base_url=http://127.0.0.1:8080\ntoken=tok-12345\n"));
     assert!(good("base_url=https://h/v1\ntoken=tok-12345"), "no end of line at the end");
     assert!(good("base_url=http://h\ntoken=tok-1234\n"), "a token of 8 bytes");
+    assert!(good("base_url=http://h\n"), "the address alone: a gateway without a token");
+    assert!(!good("base_url=http://h\n\n"), "the address and a blank line");
     for (what, text) in [
         ("a third line", "base_url=http://h\ntoken=tok-12345\nextra=1\n"),
         ("a blank third line", "base_url=http://h\ntoken=tok-12345\n\n"),
-        ("one line", "base_url=http://h\n"),
         ("the lines swapped", "token=tok-12345\nbase_url=http://h\n"),
         ("no scheme", "base_url=h:80\ntoken=tok-12345\n"),
         ("another scheme", "base_url=ftp://h\ntoken=tok-12345\n"),

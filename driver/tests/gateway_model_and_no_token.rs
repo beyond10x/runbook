@@ -1,6 +1,8 @@
-//! The gateway as a gateway that routes by model name takes it (`docs/loom-run-settings.md`, "`[gateway]`"):
-//! the model a node names reaches `claude` as `--model` under a gateway. Nothing here calls a model: `claude`
-//! is a stand-in in POSIX sh that writes what it was given into a log directory beside the case's roots.
+//! The gateway as a gateway that routes by model name and may have no ingress auth takes it
+//! (`docs/loom-run-settings.md`, "`[gateway]`"): the model a node names reaches `claude` as `--model` under a
+//! gateway, and a gateway file that names no token gives `claude` the address and a fixed placeholder as its auth
+//! token, and no login. Nothing here calls a model: `claude` is a stand-in in POSIX sh that writes what it was
+//! given into a log directory beside the case's roots.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -9,6 +11,9 @@ use std::process::{Command, Stdio};
 
 const TOKEN: &str = "gw-token-0e5b7d21c4a9";
 const BASE: &str = "http://127.0.0.1:8080";
+/// What the adapter gives `claude` as its auth token under a gateway that names no token: a fixed text of the
+/// adapter, no credential (`docs/loom-run-settings.md`, "`[gateway]`").
+const PLACEHOLDER: &str = "runbook-gateway-no-token";
 
 fn tools() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bindings/tools")
@@ -55,8 +60,10 @@ log='{log}'
 {{
   echo "base=${{ANTHROPIC_BASE_URL-unset}}"
   if [ "${{ANTHROPIC_AUTH_TOKEN-}}" = '{TOKEN}' ]; then echo token=gateway
+  elif [ "${{ANTHROPIC_AUTH_TOKEN-}}" = '{PLACEHOLDER}' ]; then echo token=placeholder
   elif [ -n "${{ANTHROPIC_AUTH_TOKEN+x}}" ]; then echo "token=other"
   else echo token=unset; fi
+  env | grep -q '{PLACEHOLDER}' && echo placeholder_anywhere=yes || echo placeholder_anywhere=no
   [ -n "${{ANTHROPIC_API_KEY+x}}" ] && echo api_key=set || echo api_key=unset
   [ -e "$CLAUDE_CONFIG_DIR/.credentials.json" ] && echo login=present || echo login=absent
 }} > "$log/claude-env"
@@ -113,4 +120,69 @@ fn a_node_under_a_gateway_hands_claude_the_model_it_names() {
     assert_eq!(model_of(&case.logged("claude-argv")).as_deref(), Some("qwen"));
     let env = case.logged("claude-env");
     assert!(env.contains(&format!("base={BASE}\n")) && env.contains("token=gateway\n"), "{env}");
+}
+
+fn listing(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_gateway_file_without_a_token_gives_claude_the_address_and_the_placeholder_and_no_login() {
+    let case = Case::new("no-token");
+    let file = case.gateway_file(&format!("base_url={BASE}\n"));
+    let (code, stderr) = case.node("qwen", &file);
+    assert_eq!(code, Some(0), "{stderr}");
+    let env = case.logged("claude-env");
+    assert!(env.contains(&format!("base={BASE}\n")), "{env}");
+    assert!(env.contains("token=placeholder\n"), "{env}");
+    assert!(env.contains("api_key=unset\n") && env.contains("login=absent\n"), "{env}");
+    // no login file was linked, copied or required: the node had none, and the private directory holds the file alone
+    assert_eq!(listing(&case.base.join("private")), ["gateway"]);
+    assert_eq!(model_of(&case.logged("claude-argv")).as_deref(), Some("qwen"));
+}
+
+#[test]
+fn a_gateway_file_with_a_token_gives_claude_the_token_and_never_the_placeholder() {
+    let case = Case::new("token");
+    let file = case.gateway_file(&format!("base_url={BASE}\ntoken={TOKEN}\n"));
+    let (code, stderr) = case.node("qwen", &file);
+    assert_eq!(code, Some(0), "{stderr}");
+    let env = case.logged("claude-env");
+    assert!(env.contains("token=gateway\n") && env.contains("placeholder_anywhere=no\n"), "{env}");
+}
+
+/// What the shell reader takes from `file`: `Some(token)` (`<none>` for no token), `None` when it refuses.
+fn shell_read(file: &Path) -> Option<String> {
+    let o = Command::new("bash")
+        .args(["-c", r#"source "$1" && sdc_gateway_read "$2" && printf '%s|%s' "$SDC_GATEWAY_BASE_URL" "${SDC_GATEWAY_TOKEN:-<none>}""#, "reader"])
+        .arg(tools().join("gateway.sh"))
+        .arg(file)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    o.status.success().then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+#[test]
+fn both_readers_take_a_gateway_file_of_the_address_alone_and_still_refuse_an_empty_or_blank_token_line() {
+    let case = Case::new("readers");
+    let file = case.base.join("work/gateway");
+    for text in [format!("base_url={BASE}\n"), format!("base_url={BASE}")] {
+        fs::write(&file, &text).unwrap();
+        let rust = sdc_tools::gateway::read(&file).unwrap_or_else(|e| panic!("{text:?}: {e}"));
+        assert_eq!(rust.render(), format!("base_url={BASE}\n"), "the gateway of {text:?} has a token");
+        assert_eq!(shell_read(&file).as_deref(), Some(format!("{BASE}|<none>").as_str()), "{text:?}");
+    }
+    fs::write(&file, format!("base_url={BASE}\ntoken={TOKEN}\n")).unwrap();
+    assert_eq!(sdc_tools::gateway::read(&file).unwrap().render(), format!("base_url={BASE}\ntoken={TOKEN}\n"));
+    assert_eq!(shell_read(&file).as_deref(), Some(format!("{BASE}|{TOKEN}").as_str()));
+    for text in [format!("base_url={BASE}\ntoken=\n"), format!("base_url={BASE}\n\n"), format!("base_url={BASE}\n\ntoken={TOKEN}\n")] {
+        fs::write(&file, &text).unwrap();
+        assert!(sdc_tools::gateway::read(&file).is_err(), "the Rust reader took {text:?}");
+        assert_eq!(shell_read(&file), None, "the shell reader took {text:?}");
+    }
 }

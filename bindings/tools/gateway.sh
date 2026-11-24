@@ -2,10 +2,11 @@
 # The one reader of a gateway file in shell (docs/loom-run-settings.md, "[gateway]"); the Rust reader is
 # sdc_tools::gateway::read. Sourced by the adapters, never run.
 #
-# The file is two lines, `base_url=<address>` and `token=<token>`, written by `runbook run` into its private
-# directory. `sdc_gateway_read <file>` sets the shell variables SDC_GATEWAY_BASE_URL and SDC_GATEWAY_TOKEN
-# (not exported: the caller hands them to the one process that needs them) and returns 0, or says that the
-# file cannot be read or is no gateway file and returns 1. It prints neither the path nor a part of the content.
+# The file is two lines, `base_url=<address>` and `token=<token>`, or the first line alone for a gateway without
+# ingress auth, written by `runbook run` into its private directory. `sdc_gateway_read <file>` sets the shell
+# variables SDC_GATEWAY_BASE_URL and SDC_GATEWAY_TOKEN (empty when the file names no token; not exported: the
+# caller hands them to the one process that needs them) and returns 0, or says that the file cannot be read or
+# is no gateway file and returns 1. It prints neither the path nor a part of the content.
 # It takes the files the Rust reader takes and no other: the same checks of the address and the token, in the
 # C locale so that a length is in bytes and a character is a byte.
 sdc_gateway_address_ok() {
@@ -36,7 +37,7 @@ sdc_gateway_address_ok() {
 }
 
 sdc_gateway_read() {
-  local LC_ALL=C file=${1:-} line base='' token='' n=0
+  local LC_ALL=C file=${1:-} line base='' token='' n=0 second=''
   SDC_GATEWAY_BASE_URL=''
   SDC_GATEWAY_TOKEN=''
   if [[ -z $file || ! -f $file || ! -r $file ]]; then
@@ -49,11 +50,13 @@ sdc_gateway_read() {
     n=$((n + 1))
     case $n in
       1) [[ $line == base_url=?* ]] && base=${line#base_url=} ;;
-      2) [[ $line == token=?* ]] && token=${line#token=} ;;
+      2) second=1; [[ $line == token=?* ]] && token=${line#token=} ;;
       *) n=99 ;;
     esac
   done < "$file"
-  if [[ $n -ne 2 || -z $base || -z $token ]] || ! sdc_gateway_address_ok "$base" || [[ $token == *[^[:graph:]]* || ${#token} -lt 8 || ${#token} -gt 8192 ]]; then
+  # The address line alone (n is 1) is a gateway without a token; a second line must be a good token line.
+  if [[ -z $base || ( $n -ne 1 && $n -ne 2 ) || ( -n $second && -z $token ) ]] || ! sdc_gateway_address_ok "$base" ||
+     [[ -n $token && ( $token == *[^[:graph:]]* || ${#token} -lt 8 || ${#token} -gt 8192 ) ]]; then
     echo "gateway.sh: the gateway file is not a gateway file" >&2
     return 1
   fi

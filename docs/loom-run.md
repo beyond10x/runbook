@@ -427,7 +427,8 @@ the directory, as the section above says.
 A settings file that names `[gateway]` (`docs/loom-run-settings.md`, "`[gateway]`") gives the model programs
 an address and a token and no login: with it no login file is named, linked, copied or required, and a
 file that names both is refused. The runner writes one file, `gateway` (mode 0600, two lines
-`base_url=` and `token=`), into the same private directory (mode 0700, same removal on a normal end, an
+`base_url=` and `token=`, or the first alone for a gateway without ingress auth, whose `claude` gets the fixed
+placeholder `runbook-gateway-no-token` as its auth token, no credential), into the same private directory (mode 0700, same removal on a normal end, an
 error, SIGTERM, SIGINT and a SIGHUP that the caller did not ignore), and writes `--gateway-file <that file>` into the argv of every model node of
 the copy, where a login would have `--claude-credentials <link>`. As with the link, the file and its directory are
 made only in a run that has a model node, after the opening decided, and the checks (the runtime directory, a

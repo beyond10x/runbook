@@ -509,6 +509,12 @@ fn the_two_readers_agree_on_every_form_of_a_gateway_file() {
         ("an address of 20,000 bytes", gw(&big_base, t8)),
         ("an address with only a port", gw("http://:80", t8)),
         ("an address with no host and a path", gw("http:///p", t8)),
+        ("the address alone", b"base_url=http://h\n".to_vec()),
+        ("the address alone without an end of line", b"base_url=http://h".to_vec()),
+        ("the address and a blank line", b"base_url=http://h\n\n".to_vec()),
+        ("the address and an empty token line", b"base_url=http://h\ntoken=\n".to_vec()),
+        ("the address alone with a carriage return", b"base_url=http://h\r\n".to_vec()),
+        ("a bad address alone", b"base_url=ftp://h\n".to_vec()),
     ];
     assert!(forms.len() >= 30);
     let mut differ = Vec::new();

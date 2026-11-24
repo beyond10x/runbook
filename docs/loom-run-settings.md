@@ -161,7 +161,7 @@ its members in another order).
 
 ## `[gateway]`
 
-An address and a token that every model program of the run reaches its model through, instead of the login
+An address and a token (none for a gateway without ingress auth) that every model program of the run reaches its model through, instead of the login
 file. It is the other way to give a run its model access: a settings file names a gateway or a `login_file`,
 never both. There is no default address and no default token.
 
@@ -177,11 +177,12 @@ token = "placeholder"
 | `token` | text | the token itself: one line of visible text, 8 to 8192 bytes (the adapter replaces every occurrence of the token in what a model program prints, so a shorter token is refused) |
 | `token_file` | absolute path | a file whose content is the token: one line, an end of line after it allowed, not empty. It is read once, before the run directory exists. It is opened without blocking and without following a link in the last component of the path (a link in a directory of the path is followed): a link as the last component, a FIFO, a socket, a device and a directory are refused |
 
-Exactly one of `token` and `token_file`. A token in a settings file lies where the file lies: use
+At most one of `token` and `token_file`. A gateway without ingress auth needs no token: name neither (below,
+"No token"). A token in a settings file lies where the file lies: use
 `token_file` and keep that file readable by its owner alone.
 
 A `runbook.toml` can carry the table as a default (`docs/loom-run.md`, "Where a value comes from") with
-`base_url` and `token_file` only: `gateway.token` there is refused by name, as the file holds no token, and a
+`base_url` and, for a gateway that takes a token, `token_file`: `gateway.token` there is refused by name, as the file holds no token, and a
 relative `token_file` is relative to the file. A `gateway` of the `--settings` file replaces the file's table as
 a whole. A `runbook.toml` that a program of a run finds by the walk has no `gateway` key.
 
@@ -190,7 +191,7 @@ member, as `gateway.base_url`, and never a value, a part of a value or the path 
 
 - the table without `base_url`, or a `base_url` that is not `http://` or `https://` with a host, or longer than
   2048 bytes
-- both `token` and `token_file`, or neither
+- both `token` and `token_file`
 - a `token_file` that is not absolute, not a readable file (a link as the last component, a FIFO, a socket, a
   device and a directory are none), empty, or more than one line
 - a `token` that is empty, shorter than 8 bytes or not one line of visible text (also as the content of a
@@ -235,6 +236,16 @@ What a run does with it:
    runner or an adapter writes into the run directory and not in the copy. The filter of item 3 covers what
    `claude` prints to its two streams and the files made from it; a file that `claude` writes by its own tools
    is not covered. `settings.json` and the `RunStarted` event say `"gateway": "named"`.
+
+No token. A gateway without ingress auth needs no token: the table names `base_url` alone, the gateway file
+holds the address line alone, and the adapter starts `claude` with `ANTHROPIC_BASE_URL` and
+`ANTHROPIC_AUTH_TOKEN=runbook-gateway-no-token`. That value is a fixed text of the adapter, not a credential
+and not a secret: `claude` refuses to start without any credential, and the gateway ignores it. It is no token
+of the user, so the output of `claude` is not filtered for it. Everything else holds as with a token: no login
+file is linked, copied or required, no other `ANTHROPIC_*` or `CLAUDE_CODE_*` variable of the caller reaches
+`claude`, and a table that names both `token` and `token_file` is refused. A gateway that names a token gives
+`claude` that token and never the placeholder. The cases are in `driver/tests/gateway_model_and_no_token.rs`
+and `runbook/tests/loom_run/gateway.rs` (`a_gateway_without_a_token_reaches_claude_with_the_address_and_the_placeholder_and_no_login`).
 
 Where a gateway works:
 

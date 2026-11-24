@@ -65,6 +65,7 @@ log='{log}'
 {{
   echo "base=${{ANTHROPIC_BASE_URL-unset}}"
   if [ "${{ANTHROPIC_AUTH_TOKEN-}}" = '{TOKEN}' ]; then echo token=gateway
+  elif [ "${{ANTHROPIC_AUTH_TOKEN-}}" = 'runbook-gateway-no-token' ]; then echo token=placeholder
   elif [ -n "${{ANTHROPIC_AUTH_TOKEN-}}" ]; then echo token=other
   else echo token=unset; fi
   [ -n "${{ANTHROPIC_API_KEY+x}}" ] && echo api_key=set || echo api_key=unset
@@ -266,9 +267,33 @@ fn a_gateway_table_without_a_base_url_is_refused_by_name() {
 }
 
 #[test]
-fn a_gateway_with_both_a_token_and_a_token_file_or_neither_is_refused_by_name() {
+fn a_gateway_with_both_a_token_and_a_token_file_is_refused_by_name() {
     refused("gateway-both", json!({"gateway": {"base_url": BASE, "token": TOKEN, "token_file": "/absolute/token-file"}}), &["gateway.token", "gateway.token_file"], &["/absolute/token-file"]);
-    refused("gateway-neither", json!({"gateway": {"base_url": BASE}}), &["gateway.token", "gateway.token_file"], &[]);
+}
+
+#[test]
+fn a_gateway_without_a_token_reaches_claude_with_the_address_and_the_placeholder_and_no_login() {
+    // a gateway without ingress auth: neither `token` nor `token_file`
+    let w = chain_world("gateway-no-token");
+    settings(&w, json!({"gateway": {"base_url": BASE}}));
+    let p = private_dir(&w, "r1").display().to_string();
+    let hook = format!(
+        "ls -A \"{p}\" > \"$D/private-ls\"\ncat \"{p}/gateway\" > \"$D/file-text\"\n\
+         gw=$(grep -A1 -e '--gateway-file' bindings/sdc.yaml | tail -1 | sed \"s/^ *- //; s/['\\\"]//g\")\n\
+         env -i PATH=\"$PATH\" LOOM_CASE=root sdc-node node.write --gateway-file \"$gw\"\n"
+    );
+    w.fake.hook("tree_run", "1", &hook);
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(seen(&w, "private-ls"), "gateway", "the private directory holds the gateway file alone, no login");
+    assert_eq!(seen(&w, "file-text"), format!("base_url={BASE}"), "the file holds the address and no token line");
+    let env = std::fs::read_to_string(log(&w, "claude-env")).expect("claude was not started");
+    assert_eq!(value(&env, "base"), BASE);
+    assert_eq!(value(&env, "token"), "placeholder", "{env}");
+    assert_eq!((value(&env, "api_key").as_str(), value(&env, "login").as_str()), ("unset", "absent"));
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/settings.json")).unwrap()).unwrap();
+    assert_eq!(recorded["gateway"], "named");
+    assert!(!private_dir(&w, "r1").exists(), "the private directory is left");
 }
 
 #[test]

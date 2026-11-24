@@ -1,5 +1,5 @@
-//! The `[gateway]` setting (`docs/loom-run-settings.md`, "`[gateway]`"): an address and a token for the
-//! model programs of a run, instead of a login file.
+//! The `[gateway]` setting (`docs/loom-run-settings.md`, "`[gateway]`"): an address and a token (none for a gateway
+//! without ingress auth) for the model programs of a run, instead of a login file.
 //!
 //! Two steps. [`check_shape`] runs in `settings::normalise` and reads nothing: the table, its members, the
 //! address, an inline token and the form of a `token_file` (the path, not the file), and that no login file
@@ -29,7 +29,7 @@ pub fn check_shape(settings: &Value) -> Result<(), String> {
         return Ok(());
     };
     let Some(table) = table.as_object() else {
-        return Err("gateway: a table with base_url and one of token and token_file".to_owned());
+        return Err("gateway: a table with base_url and at most one of token and token_file".to_owned());
     };
     let old_spelling = settings.get("loom").and_then(|loom| loom.get(super::settings::LOGIN_KEY));
     if settings.get(super::settings::LOGIN_KEY).is_some() || old_spelling.is_some() {
@@ -44,8 +44,9 @@ pub fn check_shape(settings: &Value) -> Result<(), String> {
         Some(_) => return Err("gateway.base_url: text".to_owned()),
     }
     match (table.get("token"), table.get("token_file")) {
-        (Some(_), Some(_)) => Err("gateway.token and gateway.token_file: exactly one is required (both given)".to_owned()),
-        (None, None) => Err("gateway.token and gateway.token_file: exactly one is required (neither given)".to_owned()),
+        (Some(_), Some(_)) => Err("gateway.token and gateway.token_file: at most one (both given)".to_owned()),
+        // a gateway without ingress auth: no token
+        (None, None) => Ok(()),
         (Some(Value::String(token)), None) => gateway::check_token(token).map_err(|why| format!("gateway.token: {why}")),
         (Some(_), None) => Err("gateway.token: text".to_owned()),
         (None, Some(Value::String(path))) if Path::new(path).is_absolute() => Ok(()),
@@ -106,12 +107,12 @@ pub fn take(args: &Args, mut settings: Value) -> Result<(Value, Option<Gateway>)
         return Err("gateway and decider.adapter: the adapter metaharness (the model decider's default) cannot take a gateway; name decider.adapter = \"claude-cli\"".to_owned());
     }
     let base = table["base_url"].as_str().unwrap_or_default();
-    let token = match (table.get("token").and_then(Value::as_str), table.get("token_file").and_then(Value::as_str)) {
-        (Some(token), _) => token.to_owned(),
-        (None, Some(path)) => token_of_file(path)?,
-        (None, None) => return Err("gateway.token and gateway.token_file: exactly one is required (neither given)".to_owned()),
+    let gateway = match (table.get("token").and_then(Value::as_str), table.get("token_file").and_then(Value::as_str)) {
+        (Some(token), _) => Gateway::new(base, token)?,
+        (None, Some(path)) => Gateway::new(base, &token_of_file(path)?)?,
+        (None, None) => Gateway::without_token(base)?,
     };
-    Ok((settings, Some(Gateway::new(base, &token)?)))
+    Ok((settings, Some(gateway)))
 }
 
 #[cfg(test)]
@@ -154,13 +155,13 @@ mod tests {
     fn the_shape_is_checked_with_nothing_read_and_no_refusal_holds_a_value() {
         assert_eq!(check_shape(&json!({})), Ok(()));
         assert_eq!(check_shape(&json!({"gateway": table()})), Ok(()));
+        assert_eq!(check_shape(&json!({"gateway": {"base_url": "http://h"}})), Ok(()), "a gateway without ingress auth names no token");
         assert_eq!(check_shape(&json!({"gateway": {"base_url": "https://gw.example.test/v1", "token_file": "/nonexistent/holder"}})), Ok(()));
         let bad = [
             (json!({"gateway": "http://127.0.0.1:8080"}), "gateway"),
             (json!({"gateway": {"token": TOKEN}}), "gateway.base_url"),
             (json!({"gateway": {"base_url": "ftp://h", "token": TOKEN}}), "gateway.base_url"),
             (json!({"gateway": {"base_url": 5, "token": TOKEN}}), "gateway.base_url"),
-            (json!({"gateway": {"base_url": "http://h"}}), "gateway.token_file"),
             (json!({"gateway": {"base_url": "http://h", "token": TOKEN, "token_file": "/x"}}), "gateway.token_file"),
             (json!({"gateway": {"base_url": "http://h", "token_file": "relative"}}), "gateway.token_file"),
             (json!({"gateway": {"base_url": "http://h", "token": " "}}), "gateway.token"),
@@ -182,7 +183,7 @@ mod tests {
         assert_eq!(given["gateway"]["base_url"], "http://127.0.0.1:8080");
         let given = crate::loom_run::settings::normalise(&given, &args(Confinement::Local, false)).unwrap();
         let (taken, gateway) = take(&args(Confinement::Local, false), given).unwrap();
-        assert_eq!(gateway.unwrap().token(), "placeholder");
+        assert_eq!(gateway.unwrap().token(), Some("placeholder"));
         assert_eq!(crate::loom_run::settings::redacted(&taken)["gateway"], "named");
         let table = json!({"gateway": table()});
         assert_eq!(crate::loom_run::settings::redacted(&table)["gateway"], "named", "a table that was not taken is redacted too");
@@ -201,9 +202,18 @@ mod tests {
         let (settings, gateway) = take(&args(Confinement::Local, false), json!({"gateway": table(), "autonomy": "A5"})).unwrap();
         assert_eq!(settings, json!({"gateway": "named", "autonomy": "A5"}));
         let gateway = gateway.unwrap();
-        assert_eq!((gateway.base_url(), gateway.token()), ("http://127.0.0.1:8080", TOKEN));
+        assert_eq!((gateway.base_url(), gateway.token()), ("http://127.0.0.1:8080", Some(TOKEN)));
         let (settings, none) = take(&args(Confinement::Local, false), json!({"autonomy": "A5"})).unwrap();
         assert!((settings, none.is_none()) == (json!({"autonomy": "A5"}), true));
+    }
+
+    #[test]
+    fn a_gateway_without_a_token_is_taken_with_its_address_alone_and_both_forms_together_are_still_refused() {
+        let (settings, gateway) = take(&args(Confinement::Local, false), json!({"gateway": {"base_url": "http://127.0.0.1:8080"}})).unwrap();
+        assert_eq!(settings["gateway"], "named");
+        assert_eq!(gateway.expect("a gateway without a token is a gateway").render(), "base_url=http://127.0.0.1:8080\n");
+        let both = check_shape(&json!({"gateway": {"base_url": "http://h", "token": TOKEN, "token_file": "/secret-place"}})).unwrap_err();
+        assert!(both.contains("gateway.token") && both.contains("gateway.token_file") && !both.contains(TOKEN) && !both.contains("secret-place"), "{both}");
     }
 
     #[test]
@@ -240,11 +250,11 @@ mod tests {
         };
         let table = |path: &str| json!({"gateway": {"base_url": "http://127.0.0.1:1", "token_file": path}});
         let ok = write("ok", &format!("{TOKEN}\n"));
-        assert_eq!(take(&args(Confinement::Local, false), table(&ok)).unwrap().1.unwrap().token(), TOKEN);
+        assert_eq!(take(&args(Confinement::Local, false), table(&ok)).unwrap().1.unwrap().token(), Some(TOKEN));
         let crlf = write("crlf", &format!("{TOKEN}\r\n"));
-        assert_eq!(take(&args(Confinement::Local, false), table(&crlf)).unwrap().1.unwrap().token(), TOKEN);
+        assert_eq!(take(&args(Confinement::Local, false), table(&crlf)).unwrap().1.unwrap().token(), Some(TOKEN));
         let bare = write("bare", TOKEN);
-        assert_eq!(take(&args(Confinement::Local, false), table(&bare)).unwrap().1.unwrap().token(), TOKEN);
+        assert_eq!(take(&args(Confinement::Local, false), table(&bare)).unwrap().1.unwrap().token(), Some(TOKEN));
         for (name, text, word) in [("empty", "", "empty"), ("blank", "\n  \n", "empty"), ("two", "first-secret\nsecond-secret\n", "one line"), ("inner", "a b\n", "visible")] {
             let path = write(name, text);
             let e = take(&args(Confinement::Local, false), table(&path)).unwrap_err();
