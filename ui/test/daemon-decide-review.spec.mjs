@@ -35,7 +35,7 @@ const post = (s, name, body) => fetch(`${s.base}/daemon/commands/${name}`, {meth
 const rows = (s, view, q = '') => fetch(`${s.base}/daemon/views/${view}${q}`, {headers: headers(s)}).then((r) => r.json()).then((j) => j.rows);
 
 async function waiting(s, intake) {
-  const r = await post(s, 'submit-run', {runbook_id: 'stub-decision', intake});
+  const r = await post(s, 'submit-run', {runbook_id: 'stub-decision', intake, confinement: 'linux'});
   const id = r.published[0].payload.run_id;
   await expect.poll(async () => (await rows(s, 'open-decisions', `?run_id=${id}`)).length, {timeout: 15000}).toBe(2);
   return id;

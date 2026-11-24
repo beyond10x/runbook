@@ -100,7 +100,7 @@ effort = "low"
 | `run` | text | none | `normalise` | when present, equal to `--run` |
 | `loom_sha256` | text | none | `normalise` | when present, equal to `--loom-sha256`; refused when Loom is a library (no `--loom`) |
 | `in_process` | `true` | none | `normalise` | `true` only when Loom is a library (no `--loom`); `false` and any other value are refused |
-| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level |
+| `confinement` | text | none | `normalise` | when present, equal to `--confinement`. The option has no default and a file never sets or lowers the level. `runbook serve` reads the same key as its default level for a submit that names none (`--default-confinement` wins; `docs/daemon-api.md`) |
 | `cap_micro_usd` | whole number | none | `normalise` | when present, equal to `--cap-micro-usd` |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists; its content is never a setting. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; text, a float and a date are refused |
@@ -213,3 +213,18 @@ sha256 of the fake binary, and runs it to the end; neither test builds the other
 quote, a backslash and a letter outside ASCII has its own fixture,
 `runbook/tests/fixtures/loom-run-settings-odd-path.toml`, which the writer's test compares byte for byte
 and the runner's reader reads back to the same path.
+
+## `[deciders.<kind>]` of the daemon
+
+`runbook serve` reads one more table of `runbook.toml`, `[deciders.<kind>]`, for the runs of the daemon that take
+an autonomy level and a decider kind (`docs/engine.md`, "Autonomy and a decider"). `runbook run` does not read it: it has
+the one `decider` of its settings. A kind is `rule` or `model`; the table holds the members of `[decider]` without
+`kind`. A table the decider's reader refuses, a kind the daemon does not take and a `kind` member that is not the
+table's own name end `runbook serve` with exit 2, naming the table and no value.
+
+| Where | Meaning |
+|---|---|
+| `runbook serve --autonomy A0..A5` | the level of a submit that names none; none given: such a run has no level and every decision of it waits for a client; needs `--decider`, or the daemon does not start |
+| `runbook serve --decider <kind>` | the kind of a submit that names none; a kind that is not configured and the daemon does not start |
+| `submit_run` `autonomy`, `decider` | the run's own level and kind; they win over the daemon's; an unknown level, a kind that is not configured and a level with no kind are refused (400) before anything is written |
+| `login_file`, `cap_micro_usd`, `max_llm_calls` | read for the model decider of a run only; none is required, and a rule needs none |

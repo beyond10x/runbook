@@ -307,13 +307,14 @@ fn a_start_built_by_hand_below_the_floor_is_refused_and_writes_nothing() {
     // the refused start did not take its key: the same key at the floor starts the one run
     let r = s.submit(&json!({"runbook_id": "known-book", "intake": "an invented intake", "confinement": "linux", "idempotency_key": "floor-known-book"}).to_string());
     assert_eq!((r.status, r.json()["outcome"].clone()), (202, json!("submitted")), "{}", r.text());
-    // and a start that names no level is never below the floor
+    // and a start that names no level is not taken at the floor: this daemon states no default, so it is refused by the name `confinement`
     let r = s.submit(&json!({"runbook_id": "known-book", "intake": "an invented intake"}).to_string());
-    assert_eq!(r.status, 202, "{}", r.text());
+    assert_eq!(r.status, 400, "{}", r.text());
+    assert!(r.text().contains("confinement"), "{}", r.text());
     let r = s.submit(&json!({"runbook_id": "known-book", "intake": "an invented intake", "confinement": null}).to_string());
-    assert_eq!(r.status, 202, "{}", r.text());
+    assert_eq!(r.status, 400, "{}", r.text());
     let runs = s.rows("/daemon/views/runs");
-    assert_eq!(runs.len(), 3, "{runs:?}");
+    assert_eq!(runs.len(), 1, "{runs:?}");
     assert!(runs.iter().all(|r| r["confinement"] == json!("linux")), "{runs:?}");
 }
 

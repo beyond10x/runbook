@@ -1,0 +1,48 @@
+format: protocol/1
+protocol:
+  id: autonomy-demo
+  revision: 1
+  description: >-
+    The runbook of the autonomy tests: a writer program writes notes and a check reads them, a staging program needs the capability notes.stage (an approval), a reviewer approves the staged notes (a person step), and the case closes through one of two outcomes (a close decision).
+artifacts:
+  idea: {}
+  notes: {}
+evidence_kinds:
+  notes_check: {}
+  notes_stage: {}
+  notes_review: {}
+claims:
+  notes.valid:
+    true_when:
+      evidence: {kind: notes_check, subject: notes, result: valid}
+  notes.staged:
+    true_when:
+      evidence: {kind: notes_stage, subject: notes, result: staged}
+  notes.approved:
+    true_when:
+      evidence: {kind: notes_review, subject: notes, result: approved}
+actions:
+  notes.write:
+    effect: write
+    precondition: {claim: notes.valid, is: false}
+  notes.check:
+    effect: read
+    may_produce:
+      - evidence: notes_check
+  notes.stage:
+    effect: write
+    precondition: {claim: notes.valid}
+    requires:
+      - capability: notes.stage
+    may_produce:
+      - evidence: notes_stage
+  notes.review:
+    effect: write
+    precondition: {claim: notes.staged}
+    may_produce:
+      - evidence: notes_review
+outcomes:
+  operating:
+    requires: {claim: notes.approved}
+  shelved:
+    requires: {claim: notes.approved}

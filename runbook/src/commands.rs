@@ -7,7 +7,7 @@
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
 use crate::clock::{parse_instant, Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest, StartTarget, Started};
+use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest, StartTarget, Started, Terms};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -61,6 +61,96 @@ pub struct Config {
     /// Who the daemon acts as (`check_principal`): fixed for the life of the process, and the only
     /// principal the runtime is ever given.
     pub principal: String,
+}
+
+/// What the operator sets besides `Config`: what a submit that names less gets. Nothing here is
+/// read from a request, and the floor is never read as a default.
+#[derive(Clone, Debug, Default)]
+pub struct Policy {
+    /// The level of a submit that names none (`--default-confinement`, else `confinement` of
+    /// `runbook.toml`); none: a submit that names no level is refused.
+    pub default_confinement: Option<Confinement>,
+    /// The autonomy level of a submit that names none; none: every decision of such a run waits for a client.
+    pub autonomy: Option<Autonomy>,
+    /// The decider kind of a submit that names none.
+    pub decider: Option<String>,
+    /// The decider kinds the operator configured, sorted: the only names a run may take. The runtime
+    /// that answers for them is the engine's; none configured: no run takes a level or a kind.
+    pub kinds: Vec<String>,
+}
+
+/// The configured kinds as a sentence part.
+fn listed(kinds: &[String]) -> String {
+    if kinds.is_empty() {
+        "none".to_owned()
+    } else {
+        kinds.join(", ")
+    }
+}
+
+/// A name a client typed, short and on one line, for a refusal.
+fn shown(text: &str) -> String {
+    text.chars().take(64).map(|c| if c.is_control() { '?' } else { c }).collect()
+}
+
+/// The refusal of a level or a kind a daemon cannot give: a kind that is not one the operator
+/// configured, or a level with no kind to take it. Names the kinds that are configured and no others.
+/// It runs before anything of the run is written, and at the start of the daemon for its own defaults.
+pub fn check_terms(terms: &Terms, kinds: &[String]) -> Result<(), String> {
+    if let Some(kind) = &terms.decider {
+        if !kinds.contains(kind) {
+            return Err(format!("the decider kind {}: not configured; the configured kinds are {}", shown(kind), listed(kinds)));
+        }
+    }
+    if let (Some(level), None) = (terms.autonomy, &terms.decider) {
+        return Err(format!(
+            "the autonomy level {} needs a decider kind to take the decisions it leaves to one: name one in `decider`, or start the daemon with a default; the configured kinds are {}",
+            level.as_str(),
+            listed(kinds)
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `text` is a name a rule or a decider answers under: `rule:<name>` or `decider:<kind>`.
+fn decider_label(text: &str) -> bool {
+    let rest = text.strip_prefix("rule:").or_else(|| text.strip_prefix("decider:"));
+    rest.is_some_and(|r| !r.is_empty()) && long_enough(text) && !text.chars().any(char::is_control)
+}
+
+/// The label a client's answer is recorded under. The one function that reads it: the text is
+/// trimmed of ASCII whitespace, and what is left is ASCII with no control character (a label with
+/// any other character is refused, so no look-alike of a reserved prefix reaches the record), at
+/// most `MAX_LABEL_CHARS` long, and does not start with `rule:`, `decider:` or `router:` in any
+/// case: those are the daemon's own names for an answer of a rule, a decider or a router. A
+/// refusal names the field and the rule and prints no byte of the label.
+pub fn client_label(field: &str, text: &str) -> Result<String, String> {
+    if !long_enough(text) {
+        return Err(format!("{field} is longer than {MAX_LABEL_CHARS} characters"));
+    }
+    let label = text.trim_matches(|c: char| c.is_ascii_whitespace());
+    if !label.bytes().all(|b| b.is_ascii_graphic() || b == b' ') {
+        return Err(format!("{field}: a label is printable ASCII; this one holds a character that is not (or a control character) and is refused"));
+    }
+    let lower = label.to_ascii_lowercase();
+    if ["rule:", "decider:", "router:"].iter().any(|p| lower.starts_with(p)) {
+        return Err(format!("{field}: the names that start with `rule:`, `decider:` or `router:` are the daemon's own for an answer of a rule, a decider or a router; a client's answer takes another label"));
+    }
+    Ok(label.to_owned())
+}
+
+/// The refusal of a default level below the floor, naming both values. The daemon does not start
+/// with one: a default that every submit it applies to would refuse is a configuration that
+/// disagrees with itself.
+pub fn check_default_confinement(floor: Confinement, default: Confinement) -> Result<(), String> {
+    if default.at_least(floor) {
+        return Ok(());
+    }
+    Err(format!(
+        "the default confinement {} is below the floor {}: --default-confinement (or `confinement` of runbook.toml) and --min-confinement disagree; raise the default or lower the floor",
+        default.as_str(),
+        floor.as_str()
+    ))
 }
 
 /// A request the daemon cannot take at all (no outcome of the specification), or a failure of its own.
@@ -314,9 +404,15 @@ pub struct SubmitRun {
     pub context_path: Option<String>,
     #[serde(default, deserialize_with = "settings_of_strings")]
     pub settings: BTreeMap<String, String>,
-    /// Absent means `linux`.
+    /// Absent: the daemon's default level; a daemon with none refuses the submit by name.
     #[serde(default)]
     pub confinement: Option<Confinement>,
+    /// Absent: the daemon's default level, else none and every decision waits for a client.
+    #[serde(default)]
+    pub autonomy: Option<Autonomy>,
+    /// Absent: the daemon's default kind. A kind name among those the operator configured.
+    #[serde(default)]
+    pub decider: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -351,6 +447,7 @@ struct Step {
 
 struct Inner {
     cfg: Config,
+    policy: Policy,
     daemon_id: String,
     state: Mutex<State>,
     runtime: Arc<dyn Runtime>,
@@ -385,7 +482,22 @@ impl Daemon {
     /// process (`clock::SetClock`); `runbook serve` calls `start`, and no option, environment variable
     /// or request reaches this.
     pub fn start_with_clock(cfg: Config, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, Policy::default(), runtime, clock)
+    }
+
+    /// `start` with the operator's policy.
+    pub fn start_with(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>) -> io::Result<Daemon> {
+        Daemon::start_full(cfg, policy, runtime, Arc::new(SystemClock))
+    }
+
+    /// Everything `start` takes. A default level below the floor is refused before the state directory is opened.
+    pub fn start_full(cfg: Config, policy: Policy, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
         check_principal(&cfg.principal).map_err(io::Error::other)?;
+        if let Some(default) = policy.default_confinement {
+            check_default_confinement(cfg.confinement_floor, default).map_err(io::Error::other)?;
+        }
+        let defaults = Terms { autonomy: policy.autonomy, decider: policy.decider.clone() };
+        check_terms(&defaults, &policy.kinds).map_err(|e| io::Error::other(format!("the daemon's default decider: {e}")))?;
         let mut roots = Vec::new();
         for r in &cfg.context_roots {
             let canon = std::fs::canonicalize(r).map_err(|e| io::Error::new(e.kind(), format!("context root {}: {e}", r.display())))?;
@@ -401,6 +513,7 @@ impl Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
                 cfg,
+                policy,
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
@@ -590,8 +703,15 @@ impl Daemon {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
         draining_fault(&self.st())?;
+        // The level and the kind of the run: the submit's, else the daemon's. Refused before anything is written.
+        let terms = Terms { autonomy: input.autonomy.or(self.inner.policy.autonomy), decider: input.decider.clone().or_else(|| self.inner.policy.decider.clone()) };
+        check_terms(&terms, &self.inner.policy.kinds).map_err(Fault::Invalid)?;
         let run_id = uuid::Uuid::now_v7().to_string();
-        let confinement = input.confinement.unwrap_or(Confinement::Linux);
+        let (confinement, source) = match (input.confinement, self.inner.policy.default_confinement) {
+            (Some(named), _) => (named, ConfinementSource::Submit),
+            (None, Some(default)) => (default, ConfinementSource::DaemonDefault),
+            (None, None) => return Err(Fault::Invalid("confinement: name it in the submit, or start the daemon with --default-confinement or a `confinement` in runbook.toml".to_owned())),
+        };
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
         // The two facts the specification takes from the host.
         let runbook_known = self.runbook_known(&input.runbook_id, input.runbook_version.as_deref());
@@ -628,7 +748,7 @@ impl Daemon {
         if let Some((sid, None)) = &session {
             return refused("no-session", json!({"session_id": sid}));
         }
-        if confinement.rank() < floor.rank() {
+        if !confinement.at_least(floor) {
             return refused("below-floor", json!({"run_id": run_id, "confinement": confinement}));
         }
         if let Some((sid, Some(SessionState::Closed))) = &session {
@@ -657,6 +777,8 @@ impl Daemon {
             context_path: input.context_path.clone(),
             settings: settings.clone(),
             confinement,
+            confinement_source: Some(source),
+            terms: terms.clone(),
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
             submitted_at: st.now(),
@@ -668,7 +790,14 @@ impl Daemon {
         };
         st.commit(Fact::RunSubmitted(run))?;
         let payload = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement});
-        record_event_locked(&mut st, &run_id, "runbook.submitted", payload.clone())?;
+        let mut record = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement, "confinement_source": source.as_str()});
+        if let Some(level) = terms.autonomy {
+            record["autonomy"] = json!(level);
+        }
+        if let Some(kind) = &terms.decider {
+            record["decider"] = json!(kind);
+        }
+        record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         drop(st);
 
         let request = StartRequest {
@@ -679,6 +808,7 @@ impl Daemon {
             context_dir,
             settings,
             confinement,
+            terms,
             state_dir: run_dir,
             workspace_dir: workspace,
         };
@@ -712,9 +842,8 @@ impl Daemon {
     }
 
     pub fn answer_decision(&self, input: AnswerDecision) -> Reply {
-        if !long_enough(&input.answered_by) {
-            return Err(Fault::Invalid(format!("answered_by is longer than {MAX_LABEL_CHARS} characters")));
-        }
+        let mut input = input;
+        input.answered_by = client_label("answered_by", &input.answered_by).map_err(Fault::Invalid)?;
         let mut st = self.st();
         let (run_id, request_id) = (input.run_id.clone(), input.request_id.clone());
         let Some(request) = st.decision(&request_id) else {
@@ -1162,6 +1291,19 @@ impl EventSink for RunSink {
         let _ = request_decision_locked(&mut st, &self.run_id, request);
     }
 
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        if self.daemon.is_stopping() || !decider_label(by) || !decider_label(principal) {
+            return false;
+        }
+        let mut st = self.daemon.st();
+        match st.decision(request_id) {
+            Some(d) if d.run_id == self.run_id && d.state == DecisionState::Open => {}
+            _ => return false,
+        }
+        let now = st.now();
+        st.commit(Fact::DecisionAnswered { request_id: request_id.to_owned(), answer: answer.to_owned(), answered_by: by.to_owned(), principal: Some(principal.to_owned()), at: now }).is_ok()
+    }
+
     fn resumed(&self) {
         if !self.daemon.is_stopping() {
             let _ = self.daemon.resume_run(&self.run_id);
@@ -1320,6 +1462,13 @@ fn run_row(r: &Run) -> Value {
     put(&mut m, "runbook_version", &r.runbook_version);
     m.insert("state".into(), json!(r.state));
     m.insert("confinement".into(), json!(r.confinement));
+    if let Some(source) = r.confinement_source {
+        m.insert("confinement_source".into(), json!(source));
+    }
+    if let Some(level) = r.terms.autonomy {
+        m.insert("autonomy".into(), json!(level));
+    }
+    put(&mut m, "decider", &r.terms.decider);
     put(&mut m, "session_id", &r.session_id);
     m.insert("submitted_at".into(), json!(r.submitted_at));
     put(&mut m, "started_at", &r.started_at);

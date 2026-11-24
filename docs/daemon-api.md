@@ -22,9 +22,24 @@ runtime.
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 
-Confinement levels, weakest first: `local` (not confined), `linux`. The default of a submit is
-`linux`, the daemon's default floor is `linux`; `local` must be asked for by name and is refused
-under a `linux` floor.
+Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
+`confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
+`confinement` of `runbook.toml`). The daemon has no built-in default: a daemon with none refuses a
+submit that names no level, `400` and by name, and writes nothing. The run's row and its first
+event (`runbook.submitted`) carry `confinement_source`: `submit` or `daemon-default`. The daemon's
+default floor is `linux`; `local` must be asked for by name or stated as the daemon's default, and
+is refused under a `linux` floor. The floor is never read as a default.
+
+A submit may also carry `autonomy` (`A0` to `A5`) and `decider` (a kind name among those the operator
+configured in `runbook.toml`); what it leaves out comes from `--autonomy` and `--decider`. A run with a
+level and a kind has its decisions answered by that decider where the level gives them to it, and the
+rest stay open for `answer-decision` (`docs/engine.md`, "Autonomy and a decider"). The run's row, the
+view `run` and the `runbook.submitted` event carry `autonomy` and `decider`; a kind that is not
+configured, an unknown level and a level with no kind are refused `400` before anything is written. An
+answer of a rule or a decider is recorded as `rule:<name>` or `decider:<kind>` in `answered_by` and
+`principal`. A client label is trimmed of ASCII whitespace and refused `400` when it holds a
+non-ASCII or a control character, or starts, in any case, with `rule:`, `decider:` or `router:`
+(the refusal prints no byte of it).
 
 ## Client commands
 
@@ -217,7 +232,8 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ```
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
-              [--token-file FILE] [--ui] [--mcp] [--drain-seconds SECONDS]
+              [--default-confinement local|linux] [--autonomy A0..A5] [--decider KIND] [--token-file FILE] [--ui] [--mcp]
+              [--drain-seconds SECONDS]
               [--runtime loom --runbook-home DIR
                --max-wall-seconds N --max-llm-calls N --cap-micro-usd N
                [--max-wall-seconds-ceiling N] [--max-llm-calls-ceiling N] [--cap-micro-usd-ceiling N]]
@@ -240,6 +256,9 @@ then (see "Event streams").
 | `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
+| `--default-confinement` | the `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` is `linux`), else none | The level of a submit that names none. The option wins over the file. It is never the floor: a default below `--min-confinement` stops the daemon at start, exit 1, with a message that names the two values and nothing else of the file. With none, a submit without a level is refused `400` by name and writes nothing. |
+| `--autonomy` | none | The autonomy level (`A0` to `A5`) of a submit that names none. With none, such a run has no level and every decision of it waits for a client. It needs `--decider`, or the daemon does not start (exit 1). |
+| `--decider` | none | The decider kind of a submit that names none: a kind of `[deciders.<kind>]` in `runbook.toml` (`rule`, `model`). A name that is not configured stops the daemon at start. Both need `--runtime loom`: the stub has no decider. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
 | `--max-wall-seconds`, `--max-llm-calls`, `--cap-micro-usd` | none, each required with `--runtime loom` | The caps of a run that names none (see "Caps of a run"). A daemon started without one refuses to start, exit 1, naming each missing option, before anything is bound or written. There is no binary default. A value is a whole number of 1 or more. The stub takes none. |
@@ -540,9 +559,10 @@ Without `--ui`, `GET /` is `404`.
   started a run: look in the list of runs). The levels offered start at the daemon's floor
   (`confinement_floor` of `GET /daemon/views/configuration`) and none is selected: the person picks the
   level, Start stays disabled until then, and the form says what the floor is. The form presets no level; the
-  command does: a `submit-run` without the member `confinement` runs at `linux` (the specification says so in
-  the summary of `sdc.daemon.ConfinementLevel`, `ess/domains/daemon.yaml`: "The default of a submit is linux
-  (the handler fills it)", and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`). A level
+  command does: a `submit-run` without the member `confinement` runs at the daemon's default level, else at
+  `linux` (the specification says so in the summary of `sdc.daemon.ConfinementLevel`,
+  `ess/domains/daemon.yaml`, and the handler fills it in `submit_run_for`, `runbook/src/commands.rs`; the page
+  sends no level it was not given, so the one it picked is the one that runs). A level
   the person picked while the form was still reading the floor and the list stays picked when the floor just
   read still offers it, and is dropped (Start disabled) when it is below that floor; a level below the floor is not sent (the daemon refuses it anyway:
   `below-floor`). The page checks the level against the floor it read when the form opened; when the daemon

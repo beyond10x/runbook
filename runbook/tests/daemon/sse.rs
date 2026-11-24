@@ -620,7 +620,7 @@ fn sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s() {
     let line = rx.recv_timeout(Duration::from_secs(10)).expect("no first line within 10 s");
     let addr: SocketAddr = line.trim().strip_prefix("runbook: listening on http://").unwrap().parse().unwrap();
     // One run, so that the streams have events, and three streams: one of each view, none of them ended.
-    let body = json!({"runbook_id": "sdc", "intake": "hello"}).to_string();
+    let body = json!({"runbook_id": "sdc", "intake": "hello", "confinement": "linux"}).to_string();
     let r = super::http::send(addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
     assert_eq!(r.status, 202, "{}", r.text());
     let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_string();

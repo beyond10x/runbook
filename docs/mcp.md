@@ -41,7 +41,7 @@ progress, resources, prompts. The server sends no request and no notification of
 
 | Tool | Calls | Input |
 |---|---|---|
-| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `session_id`, `idempotency_key` |
+| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `autonomy`, `decider`, `session_id`, `idempotency_key` |
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id`; the row has `step_in_flight` (`action`, `case_id`, `started_at`, `seconds`) while a program of the run runs (`docs/daemon-api.md`, "The step in flight") |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
@@ -53,7 +53,7 @@ Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
 the `Input` schema of its command with the members the HTTP handler fills removed (`run_id`,
 `daemon_id`, `runbook_known`, `context_inside_roots` of a submit, and `at` of all) and with the
-members the daemon defaults (`settings`, `confinement`) not required; a view tool's schema is built
+members the daemon defaults (`settings`, `confinement`) not required (a `submit_run` with no `autonomy` and no `decider` takes the daemon's defaults of `runbook serve --autonomy` and `--decider`, else none, and every decision of the run waits for `answer_decision`; the level and the kind are `autonomy` and `decider` of `read_run`; a kind the operator did not configure is refused as `400` `bad request` before anything is written, naming the configured kinds; an `answered_by` that starts with `rule:`, `decider:` or `router:` (in any case, after ASCII whitespace is trimmed) is refused too, as is one with a non-ASCII or control character, because those names are the daemon's for the answers of a rule, a decider or a router; a `submit_run` without `confinement` runs at the daemon's default level, and a daemon with none refuses it `400` by name and writes nothing; the level and where it came from are `confinement` and `confinement_source` of `read_run`); a view tool's schema is built
 from the query parameters of its view. Every `$ref` is inlined. The one member typed here is
 `after_sequence` of `read_events`, which has no parameter in the view: the view pages by `position`;
 a run's own `sequence` (from 1) is the filter the tool puts on the rows of that view.
