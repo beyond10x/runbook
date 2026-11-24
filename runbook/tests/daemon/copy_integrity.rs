@@ -1774,7 +1774,7 @@ struct HookedSink<'a> {
 }
 
 impl EventSink for HookedSink<'_> {
-    fn steps(&self) -> Option<std::sync::Arc<dyn runbook::runtime::StartTarget>> {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
         self.inner.steps()
     }
     fn started(&self) {
@@ -1847,7 +1847,7 @@ struct AnsweringSink<'a> {
 }
 
 impl EventSink for AnsweringSink<'_> {
-    fn steps(&self) -> Option<std::sync::Arc<dyn runbook::runtime::StartTarget>> {
+    fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
         self.inner.steps()
     }
     fn started(&self) {
@@ -2472,7 +2472,7 @@ mod journal_before_hand_over {
         let dir = fresh("kill");
         let exe = std::env::current_exe().unwrap();
         let name = "daemon::copy_integrity::journal_before_hand_over::a_kill_between_the_journal_line_and_the_hand_over_leaves_the_answer_on_the_journal_once";
-        let status = std::process::Command::new(exe).args(["--exact", name, "--nocapture", "--test-threads=1"]).env(KILL_DIR, &dir).status().unwrap();
+        let status = std::process::Command::new(exe).args(["--exact", name, "--nocapture", "--test-threads=1"]).env(KILL_DIR, &dir).env("RUNBOOK_NO_CONFIG", "1").status().unwrap();
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(status.signal(), Some(libc::SIGKILL), "the child was not killed at the hand-over: {status:?}");
         let run = std::fs::read_to_string(dir.join("run-id")).unwrap();
@@ -2655,6 +2655,7 @@ mod relative_state_directory {
             runbook_dir: None,
             runtime: "loom".into(),
             runbook_home: Some(PathBuf::from("rel-home-dir")),
+            runbooks: vec![],
             min_confinement: "local".into(),
             token_file: None,
             principal: Some(super::super::PRINCIPAL.into()),

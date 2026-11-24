@@ -48,7 +48,7 @@ fn an_installed_run_started_without_path_gives_its_programs_no_working_directory
     let run = |tag: &str, program: PathBuf| -> (String, String, String) {
         let w = world(tag);
         fs::write(w.join("bindings/tools/note-write.sh"), writer).unwrap();
-        let with = |cwd: &Path, args: &[&str]| Command::new(&program).args(args).env_clear().env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap();
+        let with = |cwd: &Path, args: &[&str]| Command::new(&program).args(args).env_clear().env("HOME", cwd).env("RUNBOOK_NO_CONFIG", "1").current_dir(cwd).stdin(Stdio::null()).output().unwrap();
         run_example(&with, &w);
         let read = |n: &str| fs::read_to_string(w.join("runs/r1/work").join(n)).unwrap_or_default().trim_end().to_owned();
         (read("path.txt"), read("planted.txt"), read("ls.txt"))

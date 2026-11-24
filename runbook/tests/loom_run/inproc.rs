@@ -112,6 +112,7 @@ impl Rig {
             .env("RUNBOOK_MARKER_VARIABLE", "marker-value-8842")
             .env("ANTHROPIC_API_KEY", "sk-fake-token-5517")
             .stdin(Stdio::null());
+        crate::isolate(&mut c);
         c
     }
 
@@ -214,7 +215,8 @@ fn a_binary_without_its_digest_or_a_digest_without_its_binary_is_refused_and_wri
 #[test]
 fn the_options_of_a_run_in_process_that_are_required_are_named_when_missing_and_detach_only_options_are_refused() {
     let rig = Rig::new("required");
-    for flag in ["--run", "--runs-dir", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
+    // `--run`, `--runs-dir`, `--settings` and `--spend-ledger` have defaults now (`config_file.rs`)
+    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
         let o = rig.run(&without(&rig.args("r1", 1_000_000), flag, true));
         assert_eq!(code(&o), 64, "{flag}: {}", stderr(&o));
         assert!(stderr(&o).contains(flag), "{flag} is not named: {}", stderr(&o));
@@ -1044,7 +1046,7 @@ fn guard_a_runner_whose_file_name_holds_a_closing_parenthesis_records_its_own_st
         std::fs::copy(BIN, &odd).unwrap();
     }
     let mut command = Command::new(&odd);
-    command.args(rig.args("r1", 1_000_000)).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.args(rig.args("r1", 1_000_000)).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut child = command.spawn().unwrap();
     let pid = child.id();
     let limit = Instant::now() + Duration::from_secs(40);

@@ -745,6 +745,7 @@ fn probe(tag: &str, level: &str) -> Probe {
         .args(["--intake", &a("idea.yaml"), "--confinement", level, "--settings", &a("settings.toml"), "--spend-ledger", &a("ledger.json")])
         .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
         .env_clear()
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .output()

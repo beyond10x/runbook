@@ -89,8 +89,11 @@ pub struct Args {
     pub intake: String,
     /// The confinement of every bound program.
     pub confinement: Confinement,
-    /// The run settings (TOML, `docs/loom-run-settings.md`): models, budgets, the decider, the login file's path.
-    pub settings: PathBuf,
+    /// The run settings file (TOML, `docs/loom-run-settings.md`) the caller named, if any: its
+    /// members win over `defaults`.
+    pub settings: Option<PathBuf>,
+    /// The run settings members of `runbook.toml` (`config.rs`): the defaults under `settings`.
+    pub defaults: serde_json::Map<String, serde_json::Value>,
     /// The spend ledger shared by every run that counts against the same cap.
     pub spend_ledger: PathBuf,
     /// The spend cap in micro USD over all runs that share the ledger.
@@ -101,6 +104,9 @@ pub struct Args {
     pub max_wall_seconds: u64,
     /// The options of the six ports of the old driver's launcher (`ports.rs`).
     pub ports: ports::Ports,
+    /// The `runbook.toml` the values were taken from, by name and origin (never the path): the member
+    /// `config` of the run's start record. `None`: no file, or a file that stated nothing.
+    pub config: Option<String>,
 }
 
 /// How the run reaches Loom, from the options: one of the two ways.

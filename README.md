@@ -107,9 +107,25 @@ The dry run uses an idea text you give it (`--intake`) and stub executors that w
 artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`:
 
 ```console
-runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.toml> \
-  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+runbook init
+runbook run sdc --intake idea.txt --dry
 ```
+
+`runbook init` writes this `runbook.toml` (mode 600, no comment) into the working directory; the
+binary finds it there and in every directory below it:
+
+```toml runbook.toml
+runs_dir = "runs"
+confinement = "substrate"
+max_wall_seconds = 3600
+cap_micro_usd = 5000000
+max_llm_calls = 200
+```
+
+`runbook config` prints every value of a run and the file or option it comes from. The run's name is
+generated and printed; any option of `runbook run` still wins over the file. A `runbooks = ["dir", ...]`
+list in the file adds directories runbooks are loaded from, before the built-in set; `runbook list` prints
+each runbook's name, version and directory.
 
 From a checkout without installing, build `runbook` and the programs it runs once, in the repository root, and
 start `runbook/target/debug/runbook` in place of `runbook`, with `driver/target/debug` and `watch/target/debug`
@@ -129,7 +145,7 @@ directories on `PATH` the dry run above ends after 6 steps with no stub call, wi
 installed one does. The installed prefix needs nothing on `PATH` beside `<dir>/bin`: `runbook` puts
 `<dir>/libexec/runbook` in front of the `PATH` of the programs it starts.
 
-The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+The options and the file's keys are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 

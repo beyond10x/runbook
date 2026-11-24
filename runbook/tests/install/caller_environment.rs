@@ -41,6 +41,7 @@ fn cdpath_a_start_file_globignore_posixly_correct_and_the_locale_change_nothing_
             .envs(posix.then_some(("POSIXLY_CORRECT", "1")))
             .env("LC_ALL", "de_DE.UTF-8")
             .env("LANG", "de_DE.UTF-8")
+            .env("RUNBOOK_NO_CONFIG", "1")
             .stdin(Stdio::null())
             .output()
             .unwrap();

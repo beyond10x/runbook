@@ -299,6 +299,7 @@ impl Daemon {
         let mut cmd = Command::new(BIN);
         cmd.arg("serve").args(["--principal", super::PRINCIPAL]).args(args).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env_remove("RUNBOOK_TOKEN").env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::isolate(&mut cmd);
         if let Some(t) = token {
             cmd.env("RUNBOOK_TOKEN", t);
         }

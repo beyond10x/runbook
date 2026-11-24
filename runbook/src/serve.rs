@@ -38,6 +38,9 @@ pub struct ServeArgs {
     /// `bindings/`. Default: the asset root (`RUNBOOK_HOME`, an install, or the checkout).
     #[arg(long, value_name = "DIR")]
     pub runbook_home: Option<PathBuf>,
+    /// The runbook directories of `runbook.toml` (`runbooks`), looked up before the runbook home. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub runbooks: Vec<PathBuf>,
     /// The weakest confinement level the daemon takes for a run.
     #[arg(long, value_name = "LEVEL", default_value = "linux", value_parser = ["local", "linux"])]
     pub min_confinement: String,
@@ -154,7 +157,9 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if !home.join("protocol").is_dir() || !home.join("bindings").is_dir() {
             return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
         }
-        (Arc::new(Engine::new(home, state.clone(), cap_policy(args)?)), None)
+        let caps = cap_policy(args)?;
+        crate::runbooks::load(&args.runbooks, Some(&home))?;
+        (Arc::new(Engine::new(home, state.clone(), caps).with_runbook_dirs(args.runbooks.clone())), None)
     } else {
         let stub = StubRuntime::new();
         for name in presets {

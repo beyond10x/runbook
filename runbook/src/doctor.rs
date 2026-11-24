@@ -15,14 +15,19 @@ pub enum Scope {
     Sdc,
     Bugfix,
     Ui,
+    /// A runbook of a configured directory: what every runbook needs is required, what one of the
+    /// two built-in runbooks needs more is optional.
+    Other,
 }
 
 impl Scope {
-    pub fn runbook(id: &str) -> Option<Scope> {
+    /// The scope of a startable runbook by name: the two built-in runbooks have their own table
+    /// entries (the programs their bindings run), any other runbook the common ones.
+    pub fn runbook(id: &str) -> Scope {
         match id {
-            "sdc" => Some(Scope::Sdc),
-            "sdc-bugfix" => Some(Scope::Bugfix),
-            _ => None,
+            "sdc" => Scope::Sdc,
+            "sdc-bugfix" => Scope::Bugfix,
+            _ => Scope::Other,
         }
     }
 }
@@ -143,12 +148,22 @@ impl Report {
     }
 }
 
-pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&str, Scope)>) -> Report {
+/// `directory`: the runbook directory the check is about when it is not the built-in set; its parts
+/// are what the layout lines ask for, and the helpers are still looked up as for the built-in set.
+pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&str, Scope)>, directory: Option<Assets>) -> Report {
+    let other = matches!(only, Some((_, Scope::Other)));
     let scopes: Vec<Scope> = match only {
+        Some((_, Scope::Other)) => vec![S, B],
         Some((_, s)) => vec![s],
         None => vec![S, B, U],
     };
-    let assets = l.locate().ok();
+    let located = l.locate();
+    let found_assets = located.as_ref().ok().cloned();
+    let assets = directory.or_else(|| found_assets.clone());
+    let layout: Vec<&Part> = match assets.as_ref().map(|a| a.source) {
+        Some(crate::assets::Source::Configured) => LAYOUT.iter().filter(|p| crate::assets::DIRECTORY_PARTS.contains(&p.name)).collect(),
+        _ => LAYOUT.iter().collect(),
+    };
     // A binary of an installed prefix reports that prefix's install line whether or not its assets can be read:
     // an install that stopped has no protocol/ and must not look like a checkout's doctor.
     let own_prefix = match l.home {
@@ -164,16 +179,16 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
         if levels.is_empty() {
             continue;
         }
-        let required = levels.contains(&Req);
-        let (found, detail, path) = probe(spec, l, var, assets.as_ref());
+        let required = if other { levels.len() == scopes.len() && levels.iter().all(|v| *v == Req) } else { levels.contains(&Req) };
+        let (found, detail, path) = match (&spec.kind, &assets, &located) {
+            (Kind::Assets, Some(a), _) => (true, format!("{} ({})", a.root.display(), a.source.as_str()), Some(a.root.clone())),
+            (Kind::Assets, None, Err(e)) => missing(e),
+            _ => probe(spec, l, var, found_assets.as_ref()),
+        };
         checks.push(Check { name: spec.name, found, required, detail, path, by: spec.by, hint: spec.hint });
         if matches!(spec.kind, Kind::Assets) {
             checks.extend(own_prefix.as_ref().and_then(install_check));
-            checks.extend(
-                LAYOUT
-                    .iter()
-                    .map(|part| layout_check(part, assets.as_ref())),
-            );
+            checks.extend(layout.iter().map(|part| layout_check(part, assets.as_ref())));
         }
     }
     Report { scope: only.map(|(id, _)| id.to_string()), assets, checks }
@@ -581,7 +596,7 @@ mod tests {
             path: None,
             ceiling: Some(t.path().to_path_buf()),
         };
-        let r = run(&l, &|_| None, None);
+        let r = run(&l, &|_| None, None, None);
         assert!(!r.ok(), "the doctor of a stopped install fails");
         assert!(r.assets.is_none(), "{:?}", r.assets);
         let install = r.checks.iter().find(|c| c.name == "install").unwrap();
@@ -600,7 +615,7 @@ mod tests {
             assets.detail
         );
         std::fs::remove_file(t.path().join("prefix/share/runbook/INSTALLING")).unwrap();
-        let r = run(&l, &|_| None, None);
+        let r = run(&l, &|_| None, None, None);
         let install = r.checks.iter().find(|c| c.name == "install").unwrap();
         assert!(
             !install.found && install.detail.contains("VERSION"),

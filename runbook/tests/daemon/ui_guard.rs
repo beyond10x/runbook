@@ -336,7 +336,7 @@ fn run_build(fx: &Fx, script: &std::path::Path, name: &str) -> (bool, String) {
     std::fs::create_dir_all(&out_dir).unwrap();
     // the script also reads the Loom commit from the lock file next to the manifest
     std::fs::copy(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock"), manifest.join("Cargo.lock")).unwrap();
-    let r = Command::new(script).env("CARGO_MANIFEST_DIR", &manifest).env("OUT_DIR", &out_dir).output().unwrap();
+    let r = Command::new(script).env("RUNBOOK_NO_CONFIG", "1").env("CARGO_MANIFEST_DIR", &manifest).env("OUT_DIR", &out_dir).output().unwrap();
     (r.status.success(), String::from_utf8_lossy(&r.stderr).into_owned())
 }
 

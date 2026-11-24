@@ -94,7 +94,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 pub struct Engine {
-    home: PathBuf,
+    /// The directories a runbook name is looked up in, in order: the configured ones, then the home.
+    homes: Vec<PathBuf>,
     state_dir: PathBuf,
     levels: Vec<Confinement>,
     caps: CapPolicy,
@@ -135,7 +136,16 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { home: absolute(home), state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+    }
+
+    /// The runbook directories of `runbook.toml` (`runbooks.rs`), looked up before the home, in
+    /// the order given, each made absolute like the home. The set was accepted by `runbooks::load`
+    /// when the daemon started.
+    pub fn with_runbook_dirs(mut self, dirs: Vec<PathBuf>) -> Engine {
+        let home = self.homes.pop().into_iter().collect::<Vec<_>>();
+        self.homes = dirs.into_iter().map(|p| std::path::absolute(&p).unwrap_or(p)).chain(home).collect();
+        self
     }
 
     pub fn levels(&self) -> &[Confinement] {
@@ -180,7 +190,8 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let in_home = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
+        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
+        let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
@@ -190,7 +201,7 @@ impl Engine {
             let pin = Pin::load(&request.state_dir).map_err(failure)?;
             (in_home, pin)
         } else {
-            let (pin, copied) = Pin::take(&self.home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
@@ -550,11 +561,11 @@ impl Runtime for Engine {
     }
 
     fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
-        layout::resolve(&self.home, runbook, version).is_ok()
+        layout::resolve_in(&self.homes, runbook, version).is_ok()
     }
 
     fn runbooks(&self) -> Vec<RunbookInfo> {
-        layout::list(&self.home)
+        layout::list_in(&self.homes)
     }
 
     fn kind(&self) -> &'static str {
@@ -566,7 +577,7 @@ impl Runtime for Engine {
     }
 
     fn check_runbook(&self, runbook: &str, version: Option<&str>) -> Result<(), String> {
-        let resolved = layout::resolve(&self.home, runbook, version)?;
+        let resolved = layout::resolve_in(&self.homes, runbook, version)?;
         crate::budget::reserve_for_unnamed(&resolved.bindings).map(|_| ())
     }
 
@@ -592,7 +603,10 @@ impl Runtime for Engine {
         let _registered = Registered { engine: self, run_id: request.run_id.clone() };
         // Everything that leaves the engine toward a client, a failure and what the run reports, goes
         // through one `Hide`: no path of the run's directory, the state directory or the home.
-        let hide = Hide::new(&[&request.state_dir.join(pin::COPY_DIR), &request.state_dir, &request.workspace_dir, &self.state_dir, &self.home]);
+        let copy_dir = request.state_dir.join(pin::COPY_DIR);
+        let mut hidden: Vec<&Path> = vec![&copy_dir, &request.state_dir, &request.workspace_dir, &self.state_dir];
+        hidden.extend(self.homes.iter().map(PathBuf::as_path));
+        let hide = Hide::new(&hidden);
         self.drive(&request, &HidingSink { inner: sink, hide: &hide }, cancel, &slot).map_err(|f| RuntimeFailure { reason: hide.text(&f.reason) })
     }
 
