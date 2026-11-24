@@ -478,3 +478,81 @@ fn a_link_a_program_put_at_the_temporary_name_of_the_snapshot_is_not_written_thr
     let after = fs::read_to_string(&outside).unwrap();
     assert_eq!(after, "keep\n", "the snapshot was written into a file outside the run, through a link at its temporary name ({:?})", out.status);
 }
+
+const BLOB_TEXT: &str = "content a program of the run wrote\n";
+
+/// A run whose watcher found the temporary name of the blob of `BLOB_TEXT` taken (`plant` takes it) when a file holding that text
+/// was written; the watcher is stopped, and the run and the sha256 of the text are returned.
+fn run_with_the_name_of_a_blob_taken(tag: &str, plant: &dyn Fn(&Path)) -> (Run, String) {
+    let mut r = Run::new(tag);
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let probe = r.dir.join("probe.txt");
+    fs::write(&probe, BLOB_TEXT).unwrap();
+    let sum = Command::new("sha256sum").arg(&probe).output().unwrap();
+    let sha = String::from_utf8(sum.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+    plant(&r.dir.join("fs/blobs").join(format!(".{sha}.{pid}")));
+    fs::write(r.work().join("a.txt"), BLOB_TEXT).unwrap();
+    r.pause();
+    let _ = r.stop();
+    (r, sha)
+}
+
+fn mkfifo(path: &Path) {
+    assert!(Command::new("mkfifo").arg(path).status().unwrap().success());
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_link_a_program_put_there_is_stored_and_the_link_is_replaced() {
+    let outside = base().join(format!("outside-stored-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-link-stored", &|tmp| std::os::unix::fs::symlink(&outside, tmp).unwrap());
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+    let left: Vec<String> = fs::read_dir(r.dir.join("fs/blobs")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('.')).collect();
+    assert!(left.is_empty(), "temporary names left in the blob store: {left:?}");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_named_pipe_a_program_put_there_is_stored_and_the_watcher_goes_on() {
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-pipe-stored", &mkfifo);
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_second_name_of_a_file_outside_is_stored_and_that_file_is_not_written() {
+    let outside = base().join(format!("outside-second-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-second-name", &|tmp| fs::hard_link(&outside, tmp).unwrap());
+    assert_eq!(fs::read_to_string(r.dir.join("fs/blobs").join(&sha)).unwrap(), BLOB_TEXT, "the blob was not stored");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n");
+}
+
+#[test]
+fn a_blob_whose_temporary_name_holds_a_directory_is_not_stored_and_the_watcher_ends_in_order() {
+    let (r, sha) = run_with_the_name_of_a_blob_taken("blob-directory", &|tmp| fs::create_dir(tmp).unwrap());
+    assert!(!r.dir.join("fs/blobs").join(&sha).exists(), "a blob was stored through a directory at its temporary name");
+}
+
+#[test]
+fn a_snapshot_whose_temporary_name_holds_a_link_or_a_named_pipe_a_program_put_there_is_written() {
+    for (tag, plant) in [("snapshot-link-written", false), ("snapshot-pipe-written", true)] {
+        let r = Run::new(tag);
+        fs::write(r.work().join("a.txt"), "a\n").unwrap();
+        fs::create_dir_all(r.dir.join("fs")).unwrap();
+        let outside = base().join(format!("outside-{tag}-{}.txt", std::process::id()));
+        fs::write(&outside, "keep\n").unwrap();
+        let tmp = r.dir.join("fs/.snapshot.json.tmp");
+        if plant {
+            mkfifo(&tmp);
+        } else {
+            std::os::unix::fs::symlink(&outside, &tmp).unwrap();
+        }
+        let out = Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("scan").arg(&r.dir).output().unwrap();
+        assert!(out.status.success(), "{tag}: {:?}", out.status);
+        let snap: Value = serde_json::from_slice(&fs::read(r.dir.join("fs/snapshot.json")).unwrap()).unwrap();
+        assert_eq!(snap["format"], "sdc.fs-snapshot/1", "{tag}");
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "keep\n", "{tag}");
+        assert!(!tmp.exists(), "{tag}: the temporary name was left");
+    }
+}

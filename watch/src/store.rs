@@ -65,6 +65,25 @@ pub fn is_binary(b: &[u8]) -> bool {
     b[..b.len().min(8192)].contains(&0) || std::str::from_utf8(b).is_err()
 }
 
+/// Writes `bytes` to a file that is new at `tmp`: the open is `O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK`, so nothing at
+/// the name is followed, opened or written through, and no pipe is waited for. The programs of a run write the run
+/// directory too, so a name the watcher expects to be free may hold a link, a pipe or a file of a program: what lies at
+/// `tmp` is removed (`unlink` follows nothing and opens nothing) and the open is tried once more; a name that cannot be
+/// removed (a directory) is an error. The mode is the one `fs::write` makes (0o666 less the umask).
+fn write_new(tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let open = || fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(tmp);
+    let mut file = match open() {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            fs::remove_file(tmp)?;
+            open()?
+        }
+        other => other?,
+    };
+    file.write_all(bytes)?;
+    file.flush()
+}
+
 /// Content-addressed: `<dir>/<sha256>`, written once, through a temp file and a rename.
 pub struct Blobs {
     pub dir: PathBuf,
@@ -77,7 +96,7 @@ impl Blobs {
             return;
         }
         let tmp = self.dir.join(format!(".{sha}.{}", std::process::id()));
-        if fs::write(&tmp, bytes).is_ok() && fs::rename(&tmp, &p).is_err() {
+        if write_new(&tmp, bytes).is_ok() && fs::rename(&tmp, &p).is_err() {
             let _ = fs::remove_file(&tmp);
         }
     }
@@ -209,7 +228,7 @@ pub fn write_snapshot(out: &Path, run: &Path, shadow: &HashMap<PathBuf, Known>, 
     let v = json!({"format": "sdc.fs-snapshot/1", "at": crate::timefmt::fmt_ms(crate::timefmt::now_ms()),
         "seq": seq, "files": files});
     let tmp = out.join(".snapshot.json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&v).unwrap_or_default())?;
+    write_new(&tmp, &serde_json::to_vec_pretty(&v).unwrap_or_default())?;
     fs::rename(&tmp, out.join("snapshot.json"))
 }
 
