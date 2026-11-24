@@ -159,7 +159,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             let announcing: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(Announcing::new(runner, run_dir.clone(), run_dir.join("bindings")));
             Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announcing, cancel))
         }
-        (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
+        (Identity::Library { .. }, None) => return Err("the library was not prepared".into()),
     };
     let mut runner = Runner {
         args,
