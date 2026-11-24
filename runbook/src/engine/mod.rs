@@ -448,11 +448,6 @@ impl Engine {
             booked.map_err(failure)?;
             // A program the answer would have started over what the run has left was not started.
             if let Some(end) = Self::stop_of(gate, waited.cancel, slot, sink) {
-                // The run leaves the wait: with every request answered it is running again; what is
-                // still open the daemon withdraws as the run ends.
-                if unanswered.is_empty() {
-                    sink.resumed();
-                }
                 return end.map(RoundEnd::Ended);
             }
             match result {

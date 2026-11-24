@@ -291,8 +291,10 @@ unbound in money:
   budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing after the option),
   naming the action and the bindings file. A run checks the same on its own copy before it opens.
 - A program a person's answer starts (a person action whose binding names an `argv`) reserves the
-  same way before it starts and is booked after; when its reservation is short it does not start and
-  the run ends at the spend cap.
+  same way before it starts and is booked after, also when the run ends right after it (a wall cap
+  spent while it ran); when its reservation is short it does not start and the run ends at the spend
+  cap. A run that reaches a cap while it takes the last answer of a wait ends like one that reached
+  it while it waited.
 
 After a step or such an answer the cost records are booked at their cost; a failed call with no
 cost is booked at the largest reservation it held (nothing when it held none), and a record that

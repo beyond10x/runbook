@@ -1037,19 +1037,10 @@ impl Daemon {
             // A refusal below means the run is Cancelled already (a report after a cancel).
             match result {
                 Ok(Finish::Outcome(outcome)) => {
-                    // A run stopped while it waited on a decision (a cap): what it asked is withdrawn.
-                    let open: Vec<String> = {
-                        let st = self.st();
-                        if st.run(&run_id).map(|r| r.state) == Some(RunState::WaitingOnDecision) { st.open_decisions_of(&run_id).iter().map(|d| d.request_id.clone()).collect() } else { Vec::new() }
-                    };
-                    if !open.is_empty() {
-                        let mut st = self.st();
-                        for request_id in open {
-                            let _ = withdraw_decision_locked(&mut st, &request_id);
-                        }
-                        drop(st);
-                        let _ = self.resume_run(&run_id);
-                    }
+                    // A run stopped while it waited on decisions (a cap, also one reached while the
+                    // last answer was taken, with nothing left open): what it asked is withdrawn and
+                    // it ends from Running.
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, &outcome);
                 }
                 // CancelRun moved the run already.
