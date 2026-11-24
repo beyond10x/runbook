@@ -135,10 +135,13 @@ The `sequence` of an event is only its place within its run.
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
-`runbook.run-orphaned`, `runbook.answer-undeliverable` (an answer the runtime could not take up) and
+`runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up) and
 `runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
-run event from a command, so no row of the interpreted target stands for them.
+run event from a command, so no row of the interpreted target stands for them. The runtime
+`--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,
+`revision`, `bindings_sha256`, `copy_sha256`: the runbook the run copied at its submit,
+`docs/engine.md`, "The run's copy of the runbook"); the specification does not declare it.
 
 ### Event streams
 
@@ -168,8 +171,9 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 - Where it ends. The stream of a run ends (the daemon closes it) when the run is `Ended`,
   `Cancelled` or `FailedToStart` and its last event has been sent. The stream of a session ends when
   the session is closed, every run of the session is terminal and the last event has been sent. The
-  stream of the daemon ends at shutdown only. On SIGINT or SIGTERM every open stream is closed and
-  the daemon exits within 2 s, also when a client does not read. A client that gets the end of a
+  stream of the daemon ends at shutdown only. When a stop ends (SIGINT or SIGTERM and no live run, or the
+  end of the drain: see "Stopping the daemon") every open stream is closed and the daemon exits within
+  2 s, also when a client does not read; during a drain the streams stay open. A client that gets the end of a
   stream before it expected one reconnects with `Last-Event-ID`.
 - Keep-alive. A comment line, `: keep-alive`, is sent every 15 s on a stream that has nothing else to
   send, so that a proxy does not close it; a client ignores it.
@@ -186,7 +190,7 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 ```
 runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DIR]
               [--context-root DIR]... [--runbook-dir DIR] [--min-confinement local|linux]
-              [--token-file FILE] [--ui] [--mcp]
+              [--token-file FILE] [--ui] [--mcp] [--drain-seconds SECONDS]
 ```
 
 The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
@@ -194,8 +198,9 @@ stub a run is scripted, it records one note and ends, and nothing is executed. O
 requests at once (the question is the run's intake, the options are A and B), waits until both are
 answered, records `stub.answered` and ends `approved`; it is how a client or the web page is tried
 against a run in `WaitingOnDecision`. The daemon says so on standard error when it starts. It prints
-`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM;
-open event streams are closed then (see "Event streams").
+`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM
+and then until its live runs have ended (see "Stopping the daemon"); open event streams are closed
+then (see "Event streams").
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -207,6 +212,7 @@ open event streams are closed then (see "Event streams").
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--token-file` | none | File that holds the bearer token. |
 | `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
+| `--drain-seconds` | none: no bound | The most seconds a drain takes after the first SIGINT or SIGTERM. When they have passed with a run still live, the daemon stops at once as on a second signal (see "Stopping the daemon"). |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
 `Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
@@ -223,11 +229,83 @@ Limits. A body over 6 MiB + 64 KiB is refused `413` before it is read whole (the
 1,048,576 bytes; JSON writes a control character as six). Answers outside the specification have the
 body `{"refused": <what>, "message": <why>}`: `400` for a body or query the daemon cannot read, `401`,
 `403` and `415` (see "Requests from a browser"), `404` for an unknown route, `405` for the wrong
-method, `413`. None of `401`, `403` and `415` is in the specification (`ess/domains/daemon.yaml`,
-the generated OpenAPI): they are the security floor of the realization and are written here only. The
+method, `413`, and `503` for a submit while the daemon drains (see "Stopping the daemon"; the body
+has `live_runs` too). None of `401`, `403`, `415` and `503` is in the specification (`ess/domains/daemon.yaml`,
+the generated OpenAPI): the first three are the security floor of the realization, the fourth is the
+daemon's own stop, and they are written here only. The
 `403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
 authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
 `message`, never an `actor`.
+
+## Stopping the daemon
+
+A run lives on a thread of the daemon's process. A daemon that exits ends the runs it holds: the
+runtime has no run of them at the next start and they end as `orphaned` (see "State directory"). So
+the daemon does not exit on its first stop signal while a run is live; it drains.
+
+- The first SIGTERM or SIGINT begins the drain. A submit is refused `503` with the body
+  `{"refused": "draining", "message": ..., "live_runs": <n>}` (the MCP tool `submit_run` gives the
+  same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
+  event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
+  asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
+  (`Submitted`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
+  inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
+  `configuration` has no member for it.
+- The journal records `daemon.draining` with the ids of the live runs, and when the last of them
+  has ended, `daemon.drained`. The daemon then closes its streams and exits 0. With no live run at the
+  first signal both lines are written and it exits at once.
+- A run that waits on a decision keeps the drain open until the decision is answered or the run is
+  cancelled: a drain waits as long as its runs do.
+- A second SIGTERM or SIGINT, or `--drain-seconds <n>` seconds after the first (`n` is any number
+  from 0 to 18446744073709551615; a value too large to be a point in time is no bound), ends the daemon at
+  once. It exits 75 when at least one run was live and is orphaned, and 0 when none was left (the last
+  run ended in the same moment). Each live run then ends as `orphaned` in that moment, with its decision requests
+  withdrawn and one `runbook.run-orphaned` event whose `reason` is `the daemon was stopped while the
+  run was live` (the reason after a start is `the daemon started again and the runtime holds no live
+  run of this id`). `daemon.drained` is not written. A run in `Submitted` at that moment is
+  `FailedToStart` at the next start, as after a kill.
+- SIGKILL, a crash and a power cut give no drain: the runs end as `orphaned` at the next start, with
+  the reason of a start.
+- A stop that fails inside the daemon (a panic of the task that waits for the drain) ends the live runs
+  as `orphaned` with the reason of a stop and exits 1, or 75 when it orphaned a run. A write to standard
+  error that fails (a pipe whose reader is gone) is ignored and does not end the drain.
+
+The exit codes of `runbook serve`: 0 the daemon stopped and no run was left live; 1 the start was refused
+or the server failed; 75 the stop left at least one run orphaned (a task that stops the daemon reads this
+as "a run was lost"); 2 and 64 usage errors of the command line.
+
+A person or a task stops the daemon so that no run is lost by sending SIGTERM and waiting for the
+process to exit, for example `kill -TERM <pid>` and then waiting on that process id. A restart that
+installs a new runbook is: stop and wait, install, start. Waiting is the point: a new daemon cannot
+open the state directory while the old one holds `daemon.lock`.
+
+Under systemd the unit must not cut the drain short. systemd.service(5), `TimeoutStopSec=` (the
+text of systemd 261 as the host's `man 5 systemd.service` prints it): "Second, it configures the time to
+wait for the service itself to stop. If it does not terminate in the specified time, it will be forcibly
+terminated by SIGKILL (see KillMode= in systemd.kill(5)). Takes a unit-less value in seconds, or a time
+span value such as "5min 20s". Pass "infinity" to disable the timeout logic. Defaults to
+DefaultTimeoutStopSec= from the manager configuration file (see systemd-system.conf(5))." On a host where
+`systemctl show -p DefaultTimeoutStopUSec` prints `DefaultTimeoutStopUSec=1min 30s` that default is 90
+seconds, shorter than a step of a run, so a unit that keeps it sends SIGKILL in the middle of the drain.
+And systemd.kill(5), `KillMode=`: "If set to control-group, all remaining processes in the control group
+of this unit will be killed on unit stop (for services: after the stop command is executed, as configured
+with ExecStop=). If set to mixed, the SIGTERM signal (see below) is sent to the main process while the
+subsequent SIGKILL signal (see below) is sent to all remaining processes of the unit's control group."
+`control-group` is the default, and it would also end the programs a run's step has started. So the unit
+has
+
+```
+[Service]
+KillMode=mixed
+TimeoutStopSec=infinity
+```
+
+`TimeoutStopSec=infinity` waits for as long as the longest run; a value longer than the longest step of
+the longest run does the same with an end. To bound the drain inside the daemon instead, give
+`--drain-seconds <n>` in `ExecStart` and a `TimeoutStopSec=` of more than `n` seconds: the daemon ends
+the drain at `n` itself, and its live runs end as `orphaned` with the reason of a stop. `systemctl stop`
+and `systemctl restart` of such a unit return when the drain has ended.
 
 ## Requests from a browser
 
@@ -257,7 +335,7 @@ State directory:
 | Path | Holds |
 |---|---|
 | `daemon.lock` | Held while a daemon runs on the directory; a second daemon exits 1 with "in use by another daemon". |
-| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. |
+| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. A drain adds two lines of its own: `daemon.draining` (the ids of the live runs) and `daemon.drained` (see "Stopping the daemon"). |
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
@@ -268,7 +346,9 @@ command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (t
 `outcome` of the `run` view), its Open decision requests are withdrawn in the same step, as a cancel
 does, the event `RunOrphaned` is published and the run's event stream gets one event of kind
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
-nothing. The stub runtime always answers `gone`.
+nothing. The stub runtime always answers `gone`. A daemon that was stopped by its signal has no such
+run unless its drain was cut off: it ended them itself, as `orphaned`, with the reason `the daemon was
+stopped while the run was live` (see "Stopping the daemon").
 
 ## The web UI
 

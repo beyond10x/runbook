@@ -9,6 +9,10 @@ fn committed() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bindings")
 }
 
+fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
+    copy_dirs(&[(src, dst)], Links::Keep)
+}
+
 fn yaml_files(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
     files.sort();
