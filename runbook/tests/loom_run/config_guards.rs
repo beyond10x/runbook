@@ -678,23 +678,26 @@ fn a_daemon_started_below_a_file_of_the_walk_names_the_file_it_took_its_director
     let (tx, rx) = mpsc::channel::<String>();
     let out_pipe = child.stdout.take().unwrap();
     let err_pipe = child.stderr.take().unwrap();
-    let tx2 = tx.clone();
     std::thread::spawn(move || BufReader::new(out_pipe).lines().map_while(Result::ok).for_each(|l| drop(tx.send(l))));
-    std::thread::spawn(move || BufReader::new(err_pipe).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(l))));
-    let mut lines = Vec::new();
+    let errors = std::thread::spawn(move || BufReader::new(err_pipe).lines().map_while(Result::ok).collect::<Vec<String>>());
+    let mut out = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while let Ok(l) = rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
         let listening = l.contains("listening");
-        lines.push(l);
+        out.push(l);
         if listening {
             break;
         }
     }
     let _ = child.kill();
     let _ = child.wait();
-    let listening = lines.iter().position(|l| l.contains("listening")).unwrap_or_else(|| panic!("the daemon did not start: {lines:?}"));
+    // One pipe keeps its order: the line about the file comes before the line the daemon writes on
+    // standard error just before it prints that it listens.
+    let lines = errors.join().unwrap();
+    assert!(out.iter().any(|l| l.contains("listening")), "the daemon did not start: {out:?} {lines:?}");
     let said = lines.iter().position(|l| l.contains(&file.display().to_string())).unwrap_or_else(|| panic!("the daemon took its runbook directories from a file it found by itself and does not say which one: {lines:?}"));
-    assert!(said < listening, "the daemon names its file after it listens: {lines:?}");
+    let starts = lines.iter().position(|l| l.contains("this daemon runs")).unwrap_or_else(|| panic!("the daemon wrote no line about its runtime: {lines:?}"));
+    assert!(said < starts, "the daemon names its file after it starts: {lines:?}");
     assert_eq!(lines[said], format!("runbook serve: values from runbook.toml {} (found in the working directory or a parent)", file.display()));
 }
 
