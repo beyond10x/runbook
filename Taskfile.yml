@@ -31,11 +31,11 @@ tasks:
 
   test:ui:
     dir: ui
-    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes into a pipe of its own that cat drains: node turns the pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest)."
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes its output and its errors into a pipe of its own that cat drains: node turns a pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest)."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
-      - set -o pipefail; slot npx playwright test --workers=4 | cat
+      - set -o pipefail; slot npx playwright test --workers=4 2>&1 | cat
       - ../scripts/check-tree-links.sh
 
   test:loom-real:
