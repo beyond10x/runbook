@@ -779,11 +779,11 @@ mod tests {
 
     #[test]
     fn the_token_forms_and_the_plain_texts() {
-        let yes: Vec<String> = [["sk-", "ant-api03-x"], ["gh", "p_x"], ["-----BEGIN ", "PRIVATE KEY-----"], ["AK", "IAABCDEFGHIJKLMNOP"], ["ey", "Ja.eyJb.c"], ["Bear", "er abc"], ["s", "k-aaaaaaaaaaaaaaaaaaaaaaaa"]].iter().map(|p| p.concat()).collect();
+        let yes: Vec<String> = [["sk-", "ant-api03-x"], ["gh", "p_x"], ["-----BEGIN ", "PRIVATE KEY-----"], ["AK", "IAABCDEFGHIJKLMNOP"], ["ey", "Ja.eyJb.c"], ["Bear", "er abc"], ["Authorization: Bear", "er abc"], ["curl -H 'x: BEAR", "ER abc'"], ["s", "k-aaaaaaaaaaaaaaaaaaaaaaaa"]].iter().map(|p| p.concat()).collect();
         for yes in &yes {
             assert!(token_form(yes), "{yes}");
         }
-        for no in ["claude-sonnet-5-5", "/srv/x/.claude/login.json", "runs", "A5", "substrate", "sk-short", "ask-ant"] {
+        for no in ["claude-sonnet-5-5", "/srv/x/.claude/login.json", "runs", "A5", "substrate", "sk-short", "ask-ant", "bearer", "bearers abc", "a bear of tea"] {
             assert!(!token_form(no), "{no}");
         }
     }

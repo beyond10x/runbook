@@ -7,7 +7,7 @@
 use super::config_file::Rig;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
 
 const FOUR: &str = "confinement = \"local\"\nmax_wall_seconds = 120\ncap_micro_usd = 1000000\nmax_llm_calls = 100\n";
 
@@ -92,6 +92,14 @@ fn one_dry_run_names_its_file_and_keeps_its_environment_its_autonomy_and_its_log
     assert_eq!(v["autonomy"], "A2", "{written}");
     let note = v["config"].as_str().unwrap_or_else(|| panic!("the start record of the run does not name the file it took values from:\n{written}"));
     assert!(note.contains("runbook.toml") && note.contains("working directory") && !note.contains(&rig.root.display().to_string()), "{note}");
+    // the two other files that carry the settings of the run hold the same member, without the path
+    let json_lines = |name: &str| -> Vec<serde_json::Value> { std::fs::read_to_string(rig.p(&format!("runs/envrun/{name}"))).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect() };
+    let record = json_lines("run-settings.jsonl");
+    let started = json_lines("events.jsonl").iter().map(ToString::to_string).find(|e| e.contains("run_started") && e.contains("\"config\""));
+    for (name, held) in [("run-settings.jsonl", record.first().and_then(|l| l["config"].as_str()).map(str::to_owned)), ("run_started event", started)] {
+        let held = held.unwrap_or_else(|| panic!("{name} does not hold the member config"));
+        assert!(held.contains("runbook.toml") && !held.contains(&rig.root.display().to_string()), "{name} holds the path of the file: {held}");
+    }
     // the login path is in no file of the run and no line of its output
     // (not the dumps the bound program itself wrote: `runbook config` prints a login path as a path, by design)
     let mut text = String::new();
@@ -236,8 +244,11 @@ fn a_directory_that_changes_after_the_daemon_started_never_shadows_a_built_in_na
     put("books/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 9\n");
     put("books/bindings/alpha.yaml", "format: loom.bindings/1\n");
     assert!(runbook::runbooks::load(&[rig.p("books")], Some(&rig.p("home"))).is_err(), "`list` refuses this set");
+    // the name is in two directories now: the view lists none of the two (a submit of the name is refused),
+    // and in particular not the configured directory's revision
     let rows: Vec<(String, Option<String>)> = engine.runbooks().into_iter().map(|r| (r.name, r.version)).collect();
-    assert_eq!(rows, [("alpha".to_string(), Some("3".to_string()))], "the daemon's lookup let a directory shadow the built-in name: {rows:?}");
+    assert!(rows.is_empty(), "the daemon's view lists a name that two directories hold, or lets a directory shadow the built-in name: {rows:?}");
+    assert!(!engine.knows_runbook("alpha", None), "the daemon accepts a submit of a name that two directories hold");
 }
 
 #[test]
@@ -350,7 +361,6 @@ fn mkfifo(path: &Path) {
 /// The output of the command, or a panic when it does not end in 20 seconds (a read of a pipe that
 /// nobody writes into).
 fn ends(mut c: std::process::Command) -> Output {
-    use std::process::Stdio;
     let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let pid = child.id();
     let started = std::time::Instant::now();
@@ -399,3 +409,431 @@ fn a_named_pipe_is_no_file_and_no_runbook_directory_entry() {
     assert!(err(&o).contains("null.yaml") && err(&o).contains("link"), "{}", err(&o));
 }
 
+
+// ---- the walk: trees a model writes into, and what a start says about the file it took ----
+
+/// An invented body that no real token has.
+const BODY: &str = "ZZinventedbodyZZ0123456789";
+
+/// A run directory as `runbook run` writes it: `events.jsonl`, `work/`, `bindings/`.
+fn run_dir(rig: &Rig, rel: &str) {
+    std::fs::create_dir_all(rig.p(&format!("{rel}/work/repo"))).unwrap();
+    std::fs::create_dir_all(rig.p(&format!("{rel}/bindings"))).unwrap();
+    rig.put(&format!("{rel}/events.jsonl"), "");
+}
+
+fn have_bwrap() -> bool {
+    Command::new("bwrap").arg("--version").stdout(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// `runbook <args>` with the work directory of the run bound at `/mnt` and started there: the same directory
+/// under a second path, with none of the run's files above it (what confinement `substrate` does at
+/// `/workspace`).
+fn bound_at_mnt(rig: &Rig, work: &str, args: &[&str]) -> Output {
+    Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--bind"])
+        .arg(rig.p(work))
+        .args(["/mnt", "--chdir", "/mnt", super::core::BIN])
+        .args(args)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", rig.p("home"))
+        .env("XDG_CONFIG_HOME", rig.p("xdg"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_work_directory_bound_at_another_path_reads_its_own_file_by_the_keys_of_any_file_and_the_floor_stays() {
+    // docs/loom-run.md: under a confinement that binds the work directory at another path (`substrate`, at
+    // `/workspace`) the run directory is not above the working directory: a `runbook` started there reads the
+    // work tree's own `runbook.toml` as a file of the walk. `/mnt` stands in for `/workspace`. Its keys are
+    // checked like any file's: it has no key for a floor or a level, and a key that would lower one is refused
+    // by name, with no value printed.
+    if !have_bwrap() {
+        eprintln!("no bwrap on this host: the case does not run");
+        return;
+    }
+    let rig = Rig::new("bound-work");
+    run_dir(&rig, "runs/r1");
+    rig.put("runs/r1/work/runbook.toml", "max_wall_seconds = 1\n");
+    let o = bound_at_mnt(&rig, "runs/r1/work", &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains("/mnt/runbook.toml") && first_line(&o).contains("found in the working directory or a parent"), "{}", first_line(&o));
+    assert!(out(&o).lines().any(|l| l.starts_with("max_wall_seconds = 1 ")), "{}", out(&o));
+    for lowering in ["min_confinement = \"local\"\n", "[serve]\nmin_confinement = \"local\"\n", "floor = \"local\"\n"] {
+        rig.put("runs/r1/work/runbook.toml", lowering);
+        let o = bound_at_mnt(&rig, "runs/r1/work", &["config"]);
+        assert_eq!(code(&o), 2, "{lowering}: {}{}", out(&o), err(&o));
+        assert!(err(&o).contains("/mnt/runbook.toml") && err(&o).contains("not a key of runbook.toml"), "{lowering}: {}", err(&o));
+        assert!(!err(&o).contains("\"local\"") && !out(&o).contains("local"), "{lowering}: a value of the file was printed: {}{}", out(&o), err(&o));
+    }
+}
+
+#[test]
+fn a_link_into_a_run_tree_is_no_way_around_the_skip() {
+    let rig = Rig::new("link-into-run");
+    run_dir(&rig, "runs/r1");
+    let planted = rig.put("runs/r1/work/repo/runbook.toml", "max_wall_seconds = 4242424\n");
+    std::os::unix::fs::symlink(rig.p("runs/r1/work/repo"), rig.p("view")).unwrap();
+    let o = rig.run(&rig.p("view"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains("none found"), "a link into a run's tree made its file a source: {}", first_line(&o));
+    // the skipped file is named by path and reason; nothing of its content is printed
+    assert!(out(&o).lines().any(|l| l.contains(&planted.display().to_string()) && l.contains("not read")), "{}", out(&o));
+    assert!(!out(&o).contains("4242424") && !err(&o).contains("4242424"), "a value of a skipped file was printed");
+}
+
+#[test]
+fn the_users_file_inside_a_run_tree_is_not_read() {
+    let rig = Rig::new("userdir-in-run");
+    run_dir(&rig, "runs/r1");
+    let planted = rig.put("runs/r1/work/cfg/runbook/runbook.toml", "max_wall_seconds = 1\n");
+    let mut c = rig.command(&rig.root, &["config"]);
+    c.env("XDG_CONFIG_HOME", rig.p("runs/r1/work/cfg"));
+    let o = c.output().unwrap();
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(!first_line(&o).contains(&planted.display().to_string()), "the user's file inside a run's tree was read: {}", first_line(&o));
+}
+
+#[test]
+fn a_run_names_the_file_for_each_way_it_was_found_and_names_none_that_took_no_value() {
+    let rig = Rig::new("run-says");
+    rig.fixture();
+    let says = |o: &Output| err(o).lines().find(|l| l.contains("values from runbook.toml")).map(str::to_owned);
+    let idea = rig.put("idea.txt", "an idea\n").display().to_string();
+    let args = ["run", "engine-demo", "--intake", idea.as_str(), "--dry"];
+    // the four ways; the run is refused for the confinement the file does not state, after it said where its values come from
+    let named = rig.put("named.toml", "max_wall_seconds = 90\n");
+    let user = rig.put("xdg/runbook/runbook.toml", "max_wall_seconds = 90\n");
+    let walked = rig.put("sub/runbook.toml", "max_wall_seconds = 90\n");
+    let mut by_option = rig.command(&rig.root, &args);
+    by_option.args(["--config", &named.display().to_string()]);
+    let mut by_variable = rig.command(&rig.root, &args);
+    by_variable.env("RUNBOOK_CONFIG", &named);
+    let mut by_user_dir = rig.command(&rig.root, &args);
+    let mut by_walk = rig.command(&rig.p("sub"), &args);
+    for (c, file, via) in [(&mut by_option, &named, "--config"), (&mut by_variable, &named, "RUNBOOK_CONFIG"), (&mut by_user_dir, &user, "found in the user's configuration directory"), (&mut by_walk, &walked, "found in the working directory or a parent")] {
+        let o = c.output().unwrap();
+        assert_eq!(code(&o), 64, "{via}: {}", err(&o));
+        let line = says(&o).unwrap_or_else(|| panic!("{via}: the run does not name its file: {}", err(&o)));
+        assert_eq!(line, format!("runbook run: values from runbook.toml {} ({via})", file.display()));
+        assert_eq!(err(&o).lines().next(), Some(line.as_str()), "{via}: the file is not the first thing the run says");
+        assert!(!err(&o).contains("= 90"), "a value of the file was printed: {}", err(&o));
+    }
+    // a file that states no key took no value, and with no file nothing is said
+    rig.put("sub/runbook.toml", "runbooks = []\n");
+    let o = rig.run(&rig.p("sub"), &args);
+    assert!(says(&o).is_none(), "a file that stated nothing is named: {}", err(&o));
+    std::fs::remove_file(rig.p("sub/runbook.toml")).unwrap();
+    std::fs::remove_file(rig.p("xdg/runbook/runbook.toml")).unwrap();
+    let o = rig.run(&rig.p("sub"), &args);
+    assert!(says(&o).is_none(), "{}", err(&o));
+}
+
+#[test]
+fn a_file_in_a_directory_others_can_write_passes_as_the_documents_say() {
+    let rig = Rig::new("dirmode");
+    let file = rig.put("open/runbook.toml", "max_wall_seconds = 90\n");
+    std::fs::set_permissions(rig.p("open"), std::fs::Permissions::from_mode(0o777)).unwrap();
+    let o = rig.run(&rig.p("open"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains(&file.display().to_string()), "{}", first_line(&o));
+    std::fs::set_permissions(rig.p("open"), std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn a_file_that_states_only_a_settings_member_is_named_by_a_run() {
+    let rig = Rig::new("member-only");
+    rig.fixture();
+    let idea = rig.put("idea.txt", "an idea\n").display().to_string();
+    let file = rig.put("runbook.toml", "autonomy = \"A5\"\n");
+    let o = rig.run(&rig.root, &["run", "engine-demo", "--intake", idea.as_str(), "--dry"]);
+    assert!(err(&o).contains(&format!("values from runbook.toml {}", file.display())), "a file that took the autonomy of a run is not named: {}", err(&o));
+}
+
+// ---- guards for the shape of the skip: what a model can build inside its own tree ----
+
+#[test]
+fn a_lookalike_run_directory_inside_a_run_hides_nothing_above_it() {
+    let rig = Rig::new("nest-run");
+    run_dir(&rig, "runs/r1");
+    run_dir(&rig, "runs/r1/work/repo/fake");
+    let planted = rig.put("runs/r1/work/runbook.toml", "max_wall_seconds = 4242424\n");
+    let o = rig.run(&rig.p("runs/r1/work/repo/fake"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains("none found"), "a run directory a model built inside its work tree made the file above it a source: {}", first_line(&o));
+    assert!(!first_line(&o).contains(&planted.display().to_string()), "{}", first_line(&o));
+}
+
+#[test]
+fn a_lookalike_state_directory_inside_a_workspace_hides_nothing_above_it() {
+    let rig = Rig::new("nest-state");
+    for state in ["st", "st/workspaces/w1/repo/fake"] {
+        rig.put(&format!("{state}/daemon.lock"), "");
+        rig.put(&format!("{state}/journal.jsonl"), "");
+    }
+    std::fs::create_dir_all(rig.p("st/workspaces/w1/repo/fake/workspaces/a")).unwrap();
+    let planted = rig.put("st/workspaces/w1/repo/runbook.toml", "max_wall_seconds = 4242424\n");
+    let o = rig.run(&rig.p("st/workspaces/w1/repo/fake/workspaces/a"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains("none found"), "a state directory a model built inside its workspace made the file above it a source: {}", first_line(&o));
+    assert!(!first_line(&o).contains(&planted.display().to_string()), "{}", first_line(&o));
+}
+
+#[test]
+fn the_workspaces_and_runs_directories_of_the_daemon_are_no_source_either() {
+    let rig = Rig::new("state-top");
+    rig.put("st/daemon.lock", "");
+    rig.put("st/journal.jsonl", "");
+    for kind in ["workspaces", "runs"] {
+        std::fs::create_dir_all(rig.p(&format!("st/{kind}/w1"))).unwrap();
+        let planted = rig.put(&format!("st/{kind}/runbook.toml"), "max_wall_seconds = 4242424\n");
+        let o = rig.run(&rig.p(&format!("st/{kind}/w1")), &["config"]);
+        assert_eq!(code(&o), 0, "{kind}: {}", err(&o));
+        assert!(!first_line(&o).contains(&planted.display().to_string()), "the {kind} directory of the daemon was a source: {}", first_line(&o));
+    }
+}
+
+#[test]
+fn a_directory_with_only_a_lock_file_is_no_state_directory_of_the_daemon() {
+    let rig = Rig::new("state-half");
+    rig.put("st/daemon.lock", "");
+    std::fs::create_dir_all(rig.p("st/workspaces/w1")).unwrap();
+    let planted = rig.put("st/workspaces/w1/runbook.toml", "max_wall_seconds = 90\n");
+    let o = rig.run(&rig.p("st/workspaces/w1"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains(&planted.display().to_string()), "a directory that is not the state directory of the daemon was skipped: {}", first_line(&o));
+}
+
+#[test]
+fn the_skipped_file_says_which_rule_skipped_it() {
+    let rig = Rig::new("says-why");
+    run_dir(&rig, "runs/r1");
+    let planted = rig.put("runs/runbook.toml", "max_wall_seconds = 4242424\n");
+    let o = rig.run(&rig.p("runs/r1/work"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    let line = out(&o).lines().find(|l| l.contains(&planted.display().to_string())).map(str::to_owned).unwrap_or_default();
+    assert!(line.contains("the directory of runs that holds the run directory it is in"), "the reason of the skip is not the one that holds: {line:?}");
+}
+
+#[test]
+fn a_directory_of_runs_is_known_by_any_of_its_entries_and_not_by_the_first_one_alone() {
+    // the directory of runs the walk is started in holds a run directory among many other entries
+    let rig = Rig::new("runs-many");
+    rig.put("runbook.toml", "max_wall_seconds = 90\n");
+    for i in 0..300 {
+        std::fs::create_dir_all(rig.p(&format!("runs/d{i:03}"))).unwrap();
+    }
+    run_dir(&rig, "runs/r-real");
+    let planted = rig.put("runs/runbook.toml", "max_wall_seconds = 1\n");
+    let o = rig.run(&rig.p("runs"), &["config"]);
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(!first_line(&o).contains(&planted.display().to_string()), "the file in a directory of runs with many entries was read: {}", first_line(&o));
+    assert!(out(&o).lines().any(|l| l.contains(&planted.display().to_string()) && l.contains("not read")), "{}", out(&o));
+}
+
+#[test]
+fn a_file_named_by_the_variable_leaves_no_file_of_the_walk_listed_as_skipped() {
+    let rig = Rig::new("variable-no-skips");
+    run_dir(&rig, "runs/r1");
+    let planted = rig.put("runs/r1/work/runbook.toml", "max_wall_seconds = 4242424\n");
+    let named = rig.put("named.toml", "max_wall_seconds = 90\n");
+    let cwd = rig.p("runs/r1/work");
+    // without the variable the walk lists the file it did not read
+    let o = rig.run(&cwd, &["config"]);
+    assert!(out(&o).lines().any(|l| l.contains("skipped") && l.contains(&planted.display().to_string())), "{}", out(&o));
+    // with it the walk does not run: nothing is listed
+    let mut c = rig.command(&cwd, &["config"]);
+    c.env("RUNBOOK_CONFIG", &named);
+    let o = c.output().unwrap();
+    assert_eq!(code(&o), 0, "{}", err(&o));
+    assert!(first_line(&o).contains(&named.display().to_string()) && first_line(&o).contains("RUNBOOK_CONFIG"), "{}", first_line(&o));
+    assert!(!out(&o).contains("skipped"), "a file of the walk is listed although the variable named the file: {}", out(&o));
+}
+
+// ---- the daemon: what it says about its file, the view and the submit ----
+
+fn with_books(rig: &Rig) -> PathBuf {
+    rig.fixture();
+    let dir = rig.p("books/a");
+    std::fs::create_dir_all(dir.join("protocol")).unwrap();
+    std::fs::create_dir_all(dir.join("bindings")).unwrap();
+    std::fs::write(dir.join("protocol/example.protocol.yaml"), "protocol:\n  id: example\n  revision: 1\n").unwrap();
+    std::fs::write(dir.join("bindings/example.yaml"), "format: loom.bindings/1\n").unwrap();
+    rig.put("runbook.toml", &format!("runbooks = [\"{}\"]\n", dir.display()));
+    dir
+}
+
+#[test]
+fn a_daemon_started_below_a_file_of_the_walk_names_the_file_it_took_its_directories_from() {
+    use std::io::{BufRead, BufReader};
+    use std::sync::mpsc;
+    let rig = Rig::new("serve-says");
+    with_books(&rig);
+    let file = rig.p("runbook.toml");
+    let mut c = rig.command(&rig.root, &["serve", "--runtime", "loom", "--principal", "person:test", "--listen", "127.0.0.1:0", "--state-dir", &rig.p("state").display().to_string(), "--min-confinement", "local"]);
+    let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let (tx, rx) = mpsc::channel::<String>();
+    let out_pipe = child.stdout.take().unwrap();
+    let err_pipe = child.stderr.take().unwrap();
+    let tx2 = tx.clone();
+    std::thread::spawn(move || BufReader::new(out_pipe).lines().map_while(Result::ok).for_each(|l| drop(tx.send(l))));
+    std::thread::spawn(move || BufReader::new(err_pipe).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(l))));
+    let mut lines = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while let Ok(l) = rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+        let listening = l.contains("listening");
+        lines.push(l);
+        if listening {
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let listening = lines.iter().position(|l| l.contains("listening")).unwrap_or_else(|| panic!("the daemon did not start: {lines:?}"));
+    let said = lines.iter().position(|l| l.contains(&file.display().to_string())).unwrap_or_else(|| panic!("the daemon took its runbook directories from a file it found by itself and does not say which one: {lines:?}"));
+    assert!(said < listening, "the daemon names its file after it listens: {lines:?}");
+    assert_eq!(lines[said], format!("runbook serve: values from runbook.toml {} (found in the working directory or a parent)", file.display()));
+}
+
+#[test]
+fn the_view_lists_no_runbook_the_same_daemon_refuses_to_start() {
+    // runtime.rs:130-133: the runbooks of `runbooks()` are each a name `knows_runbook` accepts, and
+    // docs/loom-run.md says the view no longer lists a name two directories hold
+    use runbook::runtime::Runtime;
+    let rig = Rig::new("view-two-homes");
+    let put = |rel: &str, text: &str| {
+        let path = rig.p(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    put("home/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 3\n");
+    put("home/bindings/alpha.yaml", "format: loom.bindings/1\n");
+    put("home/protocol/beta.protocol.yaml", "format: protocol/1\nprotocol:\n  id: beta\n  revision: 2\n");
+    put("home/bindings/beta.yaml", "format: loom.bindings/1\n");
+    std::fs::create_dir_all(rig.p("books/protocol")).unwrap();
+    std::fs::create_dir_all(rig.p("books/bindings")).unwrap();
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books")]);
+    put("books/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 9\n");
+    put("books/bindings/alpha.yaml", "format: loom.bindings/1\n");
+    put("books/protocol/gamma.protocol.yaml", "format: protocol/1\nprotocol:\n  id: gamma\n  revision: 1\n");
+    put("books/bindings/gamma.yaml", "format: loom.bindings/1\n");
+    let listed: Vec<(String, Option<String>)> = engine.runbooks().into_iter().map(|r| (r.name, r.version)).collect();
+    let refused: Vec<&(String, Option<String>)> = listed.iter().filter(|(n, _)| !engine.knows_runbook(n, None)).collect();
+    assert!(refused.is_empty(), "the view lists {refused:?}, and a submit of it is refused (docs/loom-run.md says the view no longer lists it)");
+    // the names the daemon accepts are all listed, each once, with the revision it would start
+    let mut names: Vec<(String, Option<String>)> = listed;
+    names.sort();
+    assert_eq!(names, [("beta".to_string(), Some("2".to_string())), ("gamma".to_string(), Some("1".to_string()))]);
+}
+
+#[test]
+fn one_directory_named_under_two_paths_is_one_home_for_the_daemon() {
+    use runbook::runtime::Runtime;
+    let rig = Rig::new("one-home-two-paths");
+    let put = |rel: &str, text: &str| {
+        let path = rig.p(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    put("home/protocol/alpha.protocol.yaml", "format: protocol/1\nprotocol:\n  id: alpha\n  revision: 3\n");
+    put("home/bindings/alpha.yaml", "format: loom.bindings/1\n");
+    put("books/protocol/gamma.protocol.yaml", "format: protocol/1\nprotocol:\n  id: gamma\n  revision: 1\n");
+    put("books/bindings/gamma.yaml", "format: loom.bindings/1\n");
+    std::os::unix::fs::symlink(rig.p("books"), rig.p("books-again")).unwrap();
+    let homes = vec![rig.p("books"), rig.p("books-again"), rig.p("home")];
+    assert_eq!(runbook::runbooks::locate(&homes, "gamma"), Ok(Some(rig.p("books"))), "one directory under two paths was counted as two homes");
+    let engine = runbook::engine::Engine::new(rig.p("home"), rig.p("state")).with_runbook_dirs(vec![rig.p("books"), rig.p("books-again")]);
+    assert!(engine.knows_runbook("gamma", None), "a name of a directory that is listed twice is refused");
+    let mut names: Vec<String> = engine.runbooks().into_iter().map(|r| r.name).collect();
+    names.sort();
+    assert_eq!(names, ["alpha", "gamma"]);
+}
+
+// ---- what `runbook config` prints: a token in any shape a member of the settings has ----
+
+fn config_of(rig: &Rig, settings_text: &str) -> String {
+    let settings = rig.put("settings-shape.toml", settings_text);
+    let o = rig.run(&rig.root, &["config", "--settings", &settings.display().to_string()]);
+    format!("{}{}", out(&o), err(&o))
+}
+
+#[test]
+fn config_prints_no_body_of_a_token_in_any_shape_a_settings_member_has() {
+    let aws = ["AKIA", "ZZINVENTEDBODY01"].concat();
+    let google = ["AIza", "ZZinventedbodyZZ0123456789abcdefghi"].concat();
+    assert_eq!(google.len(), 39, "the invented key must have the length of the form");
+    let shapes: Vec<(&str, String)> = vec![
+        ("a vendor prefix in a table member", format!("[models]\nx = \"{}\"\n", ["ghp", "_", BODY].concat())),
+        ("a web token", format!("autonomy = \"{}\"\n", ["eyJ", BODY, ".", BODY, ".", BODY].concat())),
+        ("a token in an array", format!("review = [\"a\", \"{}\"]\n", ["xoxb", "-1-", BODY].concat())),
+        ("a private key block", format!("[decider]\nkind = \"{}\"\n", ["-----BEGIN", " PRIVATE KEY-----\\n", BODY, "\\n-----END PRIVATE KEY-----"].concat())),
+        ("a token as a table key", format!("[{}]\nx = 1\n", ["sk-", "ant-api03-", BODY].concat())),
+        ("a token as a key of a member table", format!("[models]\n{} = 1\n", ["gh", "p_", BODY].concat())),
+        ("a token as a table inside a member table", format!("[models.{}]\nmodel = \"m\"\n", ["gh", "p_", BODY].concat())),
+        ("a token as a key two tables down", format!("[models.writer.{}]\nx = 1\n", ["gh", "p_", BODY].concat())),
+        ("a token after other words", format!("adapter = \"curl -H x {}\"\n", ["gh", "p_", BODY].concat())),
+        ("a token after a slash", format!("adapter = \"/usr/bin/{}\"\n", ["gl", "pat-", BODY].concat())),
+        ("a token after a colon", format!("adapter = \"x:{}\"\n", ["gh", "p_", BODY].concat())),
+        ("an aws key", format!("adapter = \"{aws}\"\n")),
+        ("a google key", format!("adapter = \"{google}\"\n")),
+        ("a generic key", format!("adapter = \"{}\"\n", ["sk", "-", BODY].concat())),
+        ("a bearer value", format!("adapter = \"{}\"\n", ["Bear", "er ", BODY].concat())),
+        ("a bearer value after other words", format!("adapter = \"Authorization: {}\"\n", ["Bear", "er ", BODY].concat())),
+        ("a bearer value in capitals after a quote", format!("adapter = \"curl -H 'Authorization: {}'\"\n", ["BEAR", "ER ", BODY].concat())),
+    ];
+    let mut leaked = Vec::new();
+    for (name, text) in &shapes {
+        let rig = Rig::new("shapes");
+        let shown = config_of(&rig, text);
+        if shown.contains(BODY) || shown.contains(&aws) || shown.contains(&google) {
+            leaked.push(format!("{name}: {}", shown.lines().find(|l| l.contains(BODY) || l.contains(&aws) || l.contains(&google)).unwrap_or("")));
+        }
+    }
+    assert!(leaked.is_empty(), "runbook config printed a token in a shape of a settings member: {leaked:#?}");
+}
+
+#[test]
+fn config_hides_a_bearer_value_that_follows_other_words() {
+    let rig = Rig::new("bearer");
+    let shown = config_of(&rig, &format!("adapter = \"Authorization: {}\"\n", ["Bear", "er ", BODY].concat()));
+    assert!(!shown.contains(BODY), "a bearer value after other words reached the output of `runbook config`: {shown}");
+    // the key and its origin stay, the value is the fixed word
+    assert!(shown.lines().any(|l| l.starts_with("adapter = ") && l.contains("<a key or token>")), "{shown}");
+}
+
+#[test]
+fn config_hides_a_token_after_a_slash_a_colon_and_in_an_array() {
+    let shapes: Vec<(&str, String)> = vec![
+        ("a token in an array", format!("review = [\"a\", \"{}\"]\n", ["xoxb", "-1-", BODY].concat())),
+        ("a token after a slash", format!("adapter = \"/usr/bin/{}\"\n", ["gl", "pat-", BODY].concat())),
+        ("a token after a colon", format!("adapter = \"x:{}\"\n", ["gh", "p_", BODY].concat())),
+        ("a token after other words", format!("adapter = \"curl -H x {}\"\n", ["gh", "p_", BODY].concat())),
+        ("a bearer value", format!("adapter = \"{}\"\n", ["Bear", "er ", BODY].concat())),
+    ];
+    let mut leaked = Vec::new();
+    for (name, text) in &shapes {
+        let rig = Rig::new("shapes-ok");
+        let shown = config_of(&rig, text);
+        if shown.contains(BODY) {
+            leaked.push((*name).to_owned());
+        }
+    }
+    assert!(leaked.is_empty(), "runbook config printed the body of a token in: {leaked:?}");
+}
+
+#[test]
+fn config_refuses_a_settings_file_that_is_not_toml_without_a_part_of_a_value() {
+    let rig = Rig::new("nottoml");
+    for text in [
+        format!("adapter = {}\n", ["sk", "-ant-api03-", BODY].concat()),
+        format!("adapter = \"{}\n", ["gh", "p_", BODY].concat()),
+        format!("{} = \n", ["gh", "p_", BODY].concat()),
+        format!("[models\nx = \"{}\"\n", ["sk", "-ant-api03-", BODY].concat()),
+    ] {
+        let shown = config_of(&rig, &text);
+        assert!(!shown.contains(BODY), "a refusal of a settings file that is not TOML printed a part of a value: {shown}");
+    }
+}

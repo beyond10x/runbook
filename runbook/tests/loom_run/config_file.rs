@@ -561,6 +561,37 @@ fn the_harness_reads_no_runbook_toml_of_the_host_and_no_start_of_the_binary_skip
     assert!(unguarded.is_empty(), "starts of the binary that read a file of the host: {unguarded:?}");
 }
 
+#[test]
+fn every_start_of_the_binary_in_the_install_cases_names_the_empty_configuration() {
+    // the install cases start the binary from a working directory below the target directory, with their own
+    // environment: without a file or `RUNBOOK_NO_CONFIG` named the walk goes up to the host's directories
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/install");
+    let mut unguarded = Vec::new();
+    let mut starts = 0;
+    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (at, _) in text.match_indices("Command::new(") {
+            let head: String = text[at..].chars().take(60).collect();
+            let runbook = ["bin/runbook", "(BIN)", "(&program)", "(program)", "(\"runbook\")"].iter().any(|m| head.contains(m));
+            if !runbook {
+                continue;
+            }
+            let end = ["output()", ".status()", ".spawn()"].iter().filter_map(|m| text[at..].find(m)).min().map_or(text.len(), |n| at + n);
+            let statement = &text[at..end];
+            starts += 1;
+            if !["isolate(", "RUNBOOK_CONFIG", "--no-config", "RUNBOOK_NO_CONFIG"].iter().any(|m| statement.contains(m)) {
+                unguarded.push(format!("{}:{}", path.file_name().unwrap().to_string_lossy(), text[..at].matches('\n').count() + 1));
+            }
+        }
+    }
+    assert!(starts >= 4, "the scan found only {starts} starts of the binary");
+    assert!(unguarded.is_empty(), "starts of the binary in the install cases that read a runbook.toml of the host's directories: {unguarded:?}");
+}
+
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap().flatten() {
         let path = entry.path();
