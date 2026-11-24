@@ -1774,6 +1774,9 @@ struct HookedSink<'a> {
 }
 
 impl EventSink for HookedSink<'_> {
+    fn steps(&self) -> Option<std::sync::Arc<dyn runbook::runtime::StartTarget>> {
+        self.inner.steps()
+    }
     fn started(&self) {
         self.inner.started()
     }
@@ -1844,6 +1847,9 @@ struct AnsweringSink<'a> {
 }
 
 impl EventSink for AnsweringSink<'_> {
+    fn steps(&self) -> Option<std::sync::Arc<dyn runbook::runtime::StartTarget>> {
+        self.inner.steps()
+    }
     fn started(&self) {
         self.inner.started()
     }

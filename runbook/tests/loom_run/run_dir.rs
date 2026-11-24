@@ -230,7 +230,7 @@ impl World {
         self.ev(T0 + 131, Event::TreeStored { status_exit: 0, verify_exit: 0 });
         self.ev(
             T0 + 131,
-            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), cause: None, loom_exit: None, stderr_tail: None, exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3 },
+            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), cause: None, loom_exit: None, stderr_tail: None, exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3, recorded_micro_usd: 0, recorded_llm_calls: 0 },
         );
     }
 }
@@ -639,7 +639,7 @@ fn a_run_stopped_by_the_spend_cap_is_finished_not_closed_and_not_delivered() {
     w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
     w.ev(
         T0 + 96,
-        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 },
+        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2, recorded_micro_usd: 0, recorded_llm_calls: 0 },
     );
     let m = read_run(&w.dir).unwrap();
     assert_eq!((m.finished, m.closed, m.delivered, m.clean), (true, false, false, false));
@@ -669,7 +669,7 @@ fn a_hold_and_a_reopen_in_a_run_log_are_read_without_a_change_to_what_the_run_sh
         let status = status_doc(&w.dir);
         put(&w.dir.join("tree-status.json"), &status.to_string());
         w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
-        w.ev(T0 + 96, Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 });
+        w.ev(T0 + 96, Event::Ended { outcome: "stopped: spend cap".into(), reason: None, cause: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2, recorded_micro_usd: 0, recorded_llm_calls: 0 });
     };
     let mut plain = World::new("no-hold", &settings());
     plain.first_steps();
@@ -700,7 +700,7 @@ fn a_run_ended_on_a_refusal_of_loom_names_the_refusal_as_its_cause() {
         w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
         w.ev(
             T0 + 96,
-            Event::Ended { outcome: "refused".into(), reason: Some(format!("Loom refused tree run: {name}")), cause: Some(cause.into()), loom_exit: None, stderr_tail: None, exit_code: 12, steps: 5, spent_micro_usd: 0, llm_calls: 2 },
+            Event::Ended { outcome: "refused".into(), reason: Some(format!("Loom refused tree run: {name}")), cause: Some(cause.into()), loom_exit: None, stderr_tail: None, exit_code: 12, steps: 5, spent_micro_usd: 0, llm_calls: 2, recorded_micro_usd: 0, recorded_llm_calls: 0 },
         );
         let m = read_run(&w.dir).unwrap();
         assert_eq!((m.finished, m.closed, m.delivered), (true, false, false), "{name}");

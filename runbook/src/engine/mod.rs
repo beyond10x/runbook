@@ -2,6 +2,7 @@
 //! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom` or
 //! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
+pub mod announce;
 pub mod calls;
 pub mod copy;
 mod decision;
@@ -169,6 +170,12 @@ impl Engine {
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
+        // Every program the runner starts is told to the sink before it starts: the daemon records the step in
+        // flight. The actions are read from the bindings the run reads, those of its own copy.
+        let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
+            (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
+            _ => runner,
+        };
         let idea = if resume || request.intake.is_empty() {
             None
         } else {
@@ -242,9 +249,12 @@ impl Engine {
                 }
                 TreeStop::Cancelled => return Ok(Finish::Cancelled),
                 TreeStop::Stuck => {
-                    return Err(failure(match refusal::program_signalled(&store) {
-                        Some(signalled) => format!("the tree is stuck at case {}: {signalled}", ran.case),
-                        None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                    return Err(failure(match refusal::program_refused(&store) {
+                        Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
+                        None => match refusal::stuck_on(&store) {
+                            Some(lead) => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person ({lead})", ran.case),
+                            None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                        },
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {

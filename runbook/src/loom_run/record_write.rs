@@ -8,7 +8,8 @@
 //! read by [`read_regular`], [`read_regular_text`], [`read_regular_prefix`], [`read_regular_within`] or through a held
 //! directory ([`Held::read`], [`Held::read_text`], [`Held::copy_to`]). The bindings copy is held for every read and
 //! write after the first program started ([`Held::open`], listed by [`Held::names`]), so a link at its name ends the
-//! run.
+//! run; the bound actions are read from it by `runbook::engine::announce` (the library, shared with the daemon) through
+//! its own descriptor of the directory, opened the same way, as regular files with one name.
 //!
 //! Outside this file, and named here so that the sentence above stays true: the runner lists the call directories of
 //! the run by path (`cost.rs`, `dry.rs`, `decider/approval.rs` `record_dirs`, `run_dir.rs`), which reads names, not

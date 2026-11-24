@@ -67,8 +67,9 @@ pub enum Event {
     CapReached { cap: Cap, detail: String },
     /// `tree status` and `tree verify` were stored (exit codes of both).
     TreeStored { status_exit: i32, verify_exit: i32 },
-    /// The run ended: `outcome` is the outcome label, `exit_code` the runner's exit code.
-    Ended { outcome: String, reason: Option<String>, cause: Option<String>, loom_exit: Option<i32>, stderr_tail: Option<String>, exit_code: u8, steps: u64, spent_micro_usd: u64, llm_calls: u64 },
+    /// The run ended: `outcome` is the outcome label, `exit_code` the runner's exit code. `spent_micro_usd` and
+    /// `llm_calls` count what the run started; `recorded_micro_usd` and `recorded_llm_calls` what a re-drive took from its recording.
+    Ended { outcome: String, reason: Option<String>, cause: Option<String>, loom_exit: Option<i32>, stderr_tail: Option<String>, exit_code: u8, steps: u64, spent_micro_usd: u64, llm_calls: u64, recorded_micro_usd: u64, recorded_llm_calls: u64 },
 }
 
 /// Receives the events of a run in order. An error fails the run closed (outcome `error`).

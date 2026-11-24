@@ -43,7 +43,7 @@ progress, resources, prompts. The server sends no request and no notification of
 |---|---|---|
 | `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `session_id`, `idempotency_key` |
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
-| `read_run` | view `run` | `run_id` |
+| `read_run` | view `run` | `run_id`; the row has `step_in_flight` (`action`, `case_id`, `started_at`, `seconds`) while a program of the run runs (`docs/daemon-api.md`, "The step in flight") |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
 | `read_open_decisions` | view `open-decisions` | `run_id`; the rows carry `request_id`, `run_id`, `case_id`, `action`, `capability`, `question`, `options`, `opened_at` |
 | `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it) |

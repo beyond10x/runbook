@@ -75,8 +75,39 @@ pub struct DecisionRequest {
     pub options: Vec<Value>,
 }
 
+/// A program of a run that is about to start (or has ended): what the runtime knows of it before
+/// the program runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Started {
+    /// Counts the programs of one run, from 1: a start and its end carry the same number.
+    pub serial: u64,
+    /// `program` for the program of an action, `check` for its `handoff_when` check.
+    pub role: &'static str,
+    /// The case the program runs for (Loom's `LOOM_CASE` of the child), when the child has one.
+    pub case: Option<String>,
+    /// The action the bindings bind to the program, when exactly one does.
+    pub action: Option<String>,
+    /// The nth start of this action in this case, for the program of an action.
+    pub try_number: Option<u64>,
+}
+
+/// Where the runtime tells that a bound program is about to start and that it ended, on the thread
+/// that starts the program.
+pub trait StartTarget: Send + Sync {
+    /// Called before the program starts.
+    fn started(&self, start: &Started);
+    /// Called after the program ended, however it ended.
+    fn ended(&self, _start: &Started) {}
+}
+
 /// What the runtime reports while a run goes. Called on the run's thread, from inside `start`.
 pub trait EventSink: Send + Sync {
+    /// Where the runtime tells the start and the end of each bound program; none when the sink
+    /// takes no such report (the stub runs no program).
+    fn steps(&self) -> Option<std::sync::Arc<dyn StartTarget>> {
+        None
+    }
+
     /// The runtime took the run up.
     fn started(&self);
     /// One run-log line: its kind and the record, unchanged.

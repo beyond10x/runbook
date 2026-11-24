@@ -67,6 +67,10 @@
       "description": "Why the run failed to start; absent in every other state.",
       "type": "string"
     },
+    "step_in_flight": {
+      "$ref": "#/$defs/sdc.daemon.StepInFlight",
+      "description": "The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none."
+    },
     "state": {
       "$ref": "#/$defs/sdc.daemon.Run.State"
     }
@@ -84,7 +88,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:00aeab3d735ad25b777e0d5a25a77da508cf36a34ee438a7a3a69ced9e3631c0",
+    "contract_digest": "slice-sha256/2:cbf9e89323b040eccda54b5078151ac0b716336b1bdd66a3c618616b52183c43",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -176,6 +180,37 @@
       "x-ess-name": "sdc.daemon.SessionId",
       "x-ess-kind": "newtype",
       "type": "string"
+    },
+    "sdc.daemon.StepInFlight": {
+      "title": "StepInFlight",
+      "description": "The step of a run whose program is running now: the action the bindings bind to the program, the case it runs for and when it started, the start the event `runbook.action-started` recorded. `seconds` is the time since `started_at` by the daemon's clock, read when the view is read.",
+      "x-ess-name": "sdc.daemon.StepInFlight",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The action whose program (or `handoff_when` check) runs; absent when no single action of the runbook's bindings binds the program.",
+          "type": "string"
+        },
+        "case_id": {
+          "description": "The case the program runs for; absent when the runtime names none.",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "The `at` of the event `runbook.action-started` of this step.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "seconds": {
+          "description": "Whole seconds from started_at to the moment the view is read, 0 or more.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "started_at",
+        "seconds"
+      ],
+      "additionalProperties": false
     }
   }
 }

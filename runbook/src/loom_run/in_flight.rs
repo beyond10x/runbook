@@ -10,22 +10,19 @@
 //! it open, which is what a reader reads as "the runner is gone".
 //!
 //! The library gives one point before a bound program starts: the `run_child` of the runner every
-//! program starts through. [`Announcing`] wraps that runner and writes the event there, before the
-//! program starts. Loom's `tree run` writes no `ActionStarted` line in the pinned commit and hands
-//! its observer lines only after they are written, so the action is not named by Loom at that
-//! point: `case` is Loom's own `LOOM_CASE` of the child, `action` is the action of the bindings
-//! copy whose argv (or `handoff_when`) is the child's program and arguments, and `try` is counted
-//! by this runner. See `docs/loom-run-directory.md`.
+//! program starts through. The wrapper that uses it, `runbook::engine::announce::Announcing`, is
+//! the daemon's too; [`announcing`] gives it the target that writes the event into the run
+//! directory, before the program starts. See `docs/loom-run-directory.md`.
 
 use crate::loom_run::events::{Event, StartSource};
-use crate::loom_run::record_write::{append, write_atomic, Held};
+use crate::loom_run::record_write::{append, write_atomic};
 use crate::loom_run::run_files::event_json;
-use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, TestExecution, TestRunner};
-use b10x_loom_intake_slice::executor::TestCommand;
+use b10x_loom_intake_slice::confinement::TestRunner;
+use runbook::engine::announce::Announcing;
+use runbook::runtime::{StartTarget, Started};
 use serde_json::json;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The file of the runner's record, in the run directory.
 pub const RUNNER_FILE: &str = "runner.json";
@@ -80,88 +77,6 @@ impl Drop for RunnerRecord {
     }
 }
 
-/// One action of the bindings copy that runs a program: its argv and, when it has one, the argv of
-/// its `handoff_when` check.
-struct Bound {
-    action: String,
-    argv: Vec<String>,
-    check: Vec<String>,
-}
-
-fn words(v: Option<&serde_yaml::Value>) -> Vec<String> {
-    v.and_then(serde_yaml::Value::as_sequence).map(|s| s.iter().filter_map(|w| w.as_str().map(str::to_owned)).collect()).unwrap_or_default()
-}
-
-/// The actions of the bindings copy in `dir` that run a program.
-fn bound_actions(dir: &Path) -> Vec<Bound> {
-    let Ok(held) = Held::open(dir) else { return Vec::new() };
-    let mut found = Vec::new();
-    for name in held.names().unwrap_or_default().into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")) {
-        let Ok(text) = held.read_text(&name) else { continue };
-        let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else { continue };
-        let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
-        for entry in actions {
-            let Some(action) = entry.get("action").and_then(serde_yaml::Value::as_str) else { continue };
-            let argv = words(entry.get("executor").filter(|e| e.get("kind").and_then(serde_yaml::Value::as_str) == Some("program")).and_then(|e| e.get("argv")));
-            let check = words(entry.get("handoff_when"));
-            if !argv.is_empty() || !check.is_empty() {
-                found.push(Bound { action: action.to_owned(), argv, check });
-            }
-        }
-    }
-    found
-}
-
-/// Whether `child` runs `argv`: the program is argv's first word (as written, or resolved below the
-/// bindings copy) and the arguments are the rest.
-fn runs(child: &ChildCommand, argv: &[String]) -> bool {
-    let Some((program, args)) = argv.split_first() else { return false };
-    (child.program() == program || Path::new(child.program()).ends_with(program)) && child.args() == args
-}
-
-/// The action the bindings copy binds to `child`'s program and arguments, when exactly one does.
-fn action_of(bound: &[Bound], child: &ChildCommand, check: bool) -> Option<String> {
-    let mut hits: Vec<&str> = bound.iter().filter(|b| runs(child, if check { &b.check } else { &b.argv })).map(|b| b.action.as_str()).collect();
-    hits.dedup();
-    match hits.as_slice() {
-        [one] => Some((*one).to_owned()),
-        _ => None,
-    }
-}
-
-struct Notice {
-    run_dir: PathBuf,
-    bindings_dir: PathBuf,
-    bound: Mutex<Option<Arc<Vec<Bound>>>>,
-    tries: Mutex<HashMap<(String, String), u64>>,
-}
-
-impl Notice {
-    fn bound(&self) -> Arc<Vec<Bound>> {
-        let mut slot = self.bound.lock().unwrap_or_else(|e| e.into_inner());
-        Arc::clone(slot.get_or_insert_with(|| Arc::new(bound_actions(&self.bindings_dir))))
-    }
-
-    /// Writes the event of the program `child` that is about to start. Best effort: a file that
-    /// cannot be written leaves the run going, it is a record for a reader and not a step of the run.
-    fn announce(&self, child: &ChildCommand) {
-        let check = child.read_only_workspace();
-        let case = child.environment().set.get("LOOM_CASE").cloned();
-        let action = action_of(&self.bound(), child, check);
-        let try_number = match (&case, &action, check) {
-            (Some(case), Some(action), false) => {
-                let mut tries = self.tries.lock().unwrap_or_else(|e| e.into_inner());
-                let n = tries.entry((case.clone(), action.clone())).or_insert(0);
-                *n += 1;
-                Some(*n)
-            }
-            _ => None,
-        };
-        let event = Event::ActionStarted { source: StartSource::ProgramStart, role: Some(if check { "check" } else { "program" }), case, action, try_number };
-        append_event(&self.run_dir, system_secs(), &event);
-    }
-}
-
 /// Appends one event as one line of `events.jsonl`, in one write, to a regular file with one name only.
 ///
 /// The programs of a run can write the run directory (`--confinement local`), so what lies at `events.jsonl` is checked,
@@ -174,45 +89,22 @@ pub fn append_event(run_dir: &Path, at: u64, event: &Event) {
     let _ = append(&run_dir.join("events.jsonl"), line.as_bytes(), false);
 }
 
-/// The runner every bound program starts through, with the event of its start written before it
-/// starts. Every other call goes to the runner it wraps unchanged.
-pub struct Announcing {
-    inner: Arc<dyn TestRunner>,
-    notice: Notice,
+/// The target of `runbook run`: the event of a program that starts goes into `events.jsonl` of the run directory.
+struct RunDirTarget {
+    run_dir: PathBuf,
 }
 
-impl Announcing {
-    /// Wraps `inner`: events go into `run_dir/events.jsonl`, actions are read from the bindings copy in `bindings_dir`.
-    pub fn new(inner: Arc<dyn TestRunner>, run_dir: PathBuf, bindings_dir: PathBuf) -> Announcing {
-        Announcing { inner, notice: Notice { run_dir, bindings_dir, bound: Mutex::new(None), tries: Mutex::new(HashMap::new()) } }
+impl StartTarget for RunDirTarget {
+    fn started(&self, start: &Started) {
+        let event = Event::ActionStarted { source: StartSource::ProgramStart, role: Some(start.role), case: start.case.clone(), action: start.action.clone(), try_number: start.try_number };
+        append_event(&self.run_dir, system_secs(), &event);
     }
 }
 
-impl TestRunner for Announcing {
-    fn run(&self, command: &TestCommand, root: &Path) -> Result<TestExecution, ConfinementError> {
-        self.inner.run(command, root)
-    }
-
-    fn backend(&self) -> Backend {
-        self.inner.backend()
-    }
-
-    fn label(&self) -> String {
-        self.inner.label()
-    }
-
-    fn local_reason(&self) -> Option<&str> {
-        self.inner.local_reason()
-    }
-
-    fn run_child(&self, child: &ChildCommand) -> Result<TestExecution, ConfinementError> {
-        self.notice.announce(child);
-        self.inner.run_child(child)
-    }
-
-    fn preflight_child(&self, root: &Path) -> Result<(), ConfinementError> {
-        self.inner.preflight_child(root)
-    }
+/// Wraps `inner` so that the event of every bound program is written into `run_dir/events.jsonl` before the program
+/// starts; actions are read from the bindings copy in `bindings_dir`.
+pub fn announcing(inner: Arc<dyn TestRunner>, run_dir: PathBuf, bindings_dir: PathBuf) -> Announcing {
+    Announcing::to(inner, Arc::new(RunDirTarget { run_dir }), bindings_dir)
 }
 
 #[cfg(test)]
@@ -247,25 +139,6 @@ mod tests {
         record.close(150);
         drop(record);
         assert_eq!(read(&d)["closed_at"], 150);
-    }
-
-    fn child(program: &str, args: &[&str]) -> ChildCommand {
-        ChildCommand::new(program, args.iter().map(|a| (*a).to_owned()), Path::new("."))
-    }
-
-    fn bound(action: &str, argv: &[&str], check: &[&str]) -> Bound {
-        Bound { action: action.to_owned(), argv: argv.iter().map(|a| (*a).to_owned()).collect(), check: check.iter().map(|a| (*a).to_owned()).collect() }
-    }
-
-    #[test]
-    fn an_action_is_named_only_when_exactly_one_binding_runs_the_child() {
-        let table = [bound("a.one", &["tools/x.sh", "--one"], &[]), bound("a.two", &["tools/x.sh", "--two"], &["tools/x.sh", "wait"]), bound("a.three", &["tools/x.sh", "--two"], &[])];
-        assert_eq!(action_of(&table, &child("/bindings/tools/x.sh", &["--one"]), false).as_deref(), Some("a.one"));
-        assert_eq!(action_of(&table, &child("tools/x.sh", &["--one"]), false).as_deref(), Some("a.one"));
-        assert_eq!(action_of(&table, &child("tools/x.sh", &["--two"]), false), None, "two actions run it: no guess");
-        assert_eq!(action_of(&table, &child("tools/x.sh", &["wait"]), true).as_deref(), Some("a.two"));
-        assert_eq!(action_of(&table, &child("tools/x.sh", &["wait"]), false), None, "a check is not a program of an action");
-        assert_eq!(action_of(&table, &child("tools/other.sh", &[]), false), None);
     }
 
     #[test]
@@ -319,17 +192,5 @@ mod tests {
     fn the_start_event_has_the_form_of_its_neighbours() {
         let event = Event::ActionStarted { source: StartSource::ProgramStart, role: Some("program"), case: Some("C-1".into()), action: Some("a.one".into()), try_number: Some(2) };
         assert_eq!(event_json(1_700_000_000, &event), json!({"at": 1_700_000_000u64, "event": "action_started", "source": "program_start", "role": "program", "case": "C-1", "action": "a.one", "try": 2}));
-    }
-
-    #[test]
-    fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_bound_actions() {
-        let d = dir("bound-link");
-        let outside = dir("bound-outside");
-        let text = "actions:\n- action: a.one\n  executor:\n    kind: program\n    argv: [prog, one]\n";
-        std::fs::write(outside.join("steps.yaml"), text).unwrap();
-        std::os::unix::fs::symlink(outside.join("steps.yaml"), d.join("b.yaml")).unwrap();
-        assert!(bound_actions(&d).is_empty(), "a file outside the run was read through a link at a bindings file");
-        std::fs::write(d.join("c.yaml"), text).unwrap();
-        assert_eq!(bound_actions(&d).len(), 1);
     }
 }
