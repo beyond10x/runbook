@@ -1794,3 +1794,52 @@ fn the_structured_output_of_a_call_is_copied_into_the_directory_the_runner_made_
     let moved = w.run.join("decider/001-context.approve.moved");
     assert_eq!(std::fs::read_to_string(moved.join("cwd/out/decision.json")).unwrap(), format!("{APPROVE}\n"), "the structured output was not copied into the directory the runner made");
 }
+
+#[test]
+fn a_link_a_program_put_at_the_bindings_directory_is_not_limited_through() {
+    let dir = Dir::new("bindings-directory-link");
+    let run = dir.dir("run");
+    let bindings = dir.dir("run/bindings");
+    let outside = dir.dir("outside");
+    let text = "format: loom.bindings/1\nactions:\n  - action: a\n    executor:\n      kind: program\n      argv: [sdc-node, a, --max-budget-usd, \"2\"]\n";
+    std::fs::write(outside.join("sdc.yaml"), text).unwrap();
+    std::fs::rename(&bindings, run.join("bindings.moved")).unwrap();
+    std::os::unix::fs::symlink(&outside, &bindings).unwrap();
+    let _ = crate::loom_run::budget::limit_call_budgets(&bindings, 300_000);
+    assert_eq!(std::fs::read_to_string(outside.join("sdc.yaml")).unwrap(), text, "a file outside the run was rewritten through a link at the bindings directory");
+    assert_eq!(names_in(&outside), vec!["sdc.yaml".to_owned()], "a file was made outside the run through a link at the bindings directory");
+}
+
+#[test]
+fn a_read_and_a_copy_through_a_held_directory_refuse_a_link_at_the_name() {
+    let dir = Dir::new("held-link");
+    let run = dir.dir("run");
+    let outside = dir.dir("outside");
+    std::fs::write(outside.join("secret.txt"), "outside\n").unwrap();
+    std::os::unix::fs::symlink(outside.join("secret.txt"), run.join("record.json")).unwrap();
+    let held = Held::make(dir.path(), &run).unwrap();
+    let to = Held::make(dir.path(), &dir.dir("to")).unwrap();
+    assert!(held.read("record.json").is_err(), "a link at the name of a record was read through the held directory");
+    assert!(held.copy_to("record.json", &to, "copy.json").is_err(), "a link at the name of a record was copied through the held directory");
+    assert!(!dir.path().join("to/copy.json").exists());
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_divergence_record_does_not_hold_the_runner() {
+    let dir = Dir::new("divergence-pipe");
+    let run = dir.dir("run");
+    dir.dir("run/replay");
+    let fifo = run.join("replay/diverged.json");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let probe = run.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(crate::loom_run::replay::stopped(&probe).is_none());
+    });
+    let got = rx.recv_timeout(std::time::Duration::from_secs(10));
+    if got.is_err() {
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    assert!(got.is_ok(), "the runner waited for a writer of a pipe a program put at replay/diverged.json");
+}

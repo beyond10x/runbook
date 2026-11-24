@@ -486,6 +486,19 @@ mod tests {
     }
 
     #[test]
+    fn one_read_of_a_log_takes_at_most_the_limit_of_a_record() {
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("sdc-watch-tail-bound-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("events.jsonl");
+        fs::File::create(&path).unwrap().set_len(3 * RECORD_LIMIT).unwrap();
+        let mut tail = Tail::new(path);
+        let _ = tail.lines();
+        let offset = tail.offset;
+        let _ = fs::remove_dir_all(&dir);
+        assert!(offset <= RECORD_LIMIT, "one read of a log took {offset} bytes, more than the limit of a record ({RECORD_LIMIT})");
+    }
+
+    #[test]
     fn tool_window_prefers_latest_and_naming() {
         let mut s = Stream { tail: Some(Tail::new(PathBuf::from("/nonexistent"))), ..Default::default() };
         let t = |seq, input: &str, req, res| Tool { seq, call_id: format!("c{seq}"), name: "Write".into(),
