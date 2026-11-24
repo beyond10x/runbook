@@ -4,8 +4,11 @@
 
 pub mod arbiter;
 pub mod calls;
+pub mod copy;
 mod decision;
+mod hide;
 pub mod layout;
+pub mod pin;
 pub mod refusal;
 pub mod shape;
 mod tail;
@@ -17,6 +20,8 @@ use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
+use hide::{Hide, HidingSink};
+use pin::Pin;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -27,6 +32,9 @@ use tail::LogTail;
 
 /// The directory of a run's tree store, inside the run's own directory.
 pub const STORE_DIR: &str = "tree";
+
+/// The kind of the event that names the copy of the runbook a run took at its submit.
+pub const PINNED_EVENT: &str = "runbook.pinned";
 
 const POLL: Duration = Duration::from_millis(20);
 
@@ -109,7 +117,8 @@ impl Engine {
     /// An engine that offers exactly these levels.
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement]) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Engine { homes: vec![home], state_dir, levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None }
+        let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None }
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
@@ -123,7 +132,8 @@ impl Engine {
     /// the order given. The set was accepted by `runbooks::load` when the daemon started.
     pub fn with_runbook_dirs(mut self, dirs: Vec<PathBuf>) -> Engine {
         let home = self.homes.pop().into_iter().collect::<Vec<_>>();
-        self.homes = dirs.into_iter().chain(home).collect();
+        let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        self.homes = dirs.into_iter().map(absolute).chain(home).collect();
         self
     }
 
@@ -168,11 +178,22 @@ impl Engine {
                 self.levels.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", ")
             )));
         }
-        let resolved = layout::resolve_in(&self.homes, &request.runbook, request.version.as_deref()).map_err(failure)?;
+        let in_home = layout::resolve_in(&self.homes, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
+        // The run takes its runbook now: it reads the copy in its own directory until it ends. The copy is
+        // made from the first directory of the engine that holds the runbook.
+        let (resolved, pin) = if resume {
+            let pin = Pin::load(&request.state_dir).map_err(failure)?;
+            (in_home, pin)
+        } else {
+            let home = crate::runbooks::locate(&self.homes, &request.runbook).or_else(|| self.homes.last().cloned()).ok_or_else(|| failure("no runbook home"))?;
+            let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            (copied, Some(pin))
+        };
+        let pinned = pin.as_ref();
         // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
         // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
         let terms = &request.terms;
@@ -230,11 +251,15 @@ impl Engine {
             sink.started();
         } else {
             sink.started();
+            if let Some(p) = pinned {
+                sink.record(PINNED_EVENT, p.record());
+            }
             tail.sync_all().map_err(failure)?;
         }
 
         let settings = calls::run_settings(runner, request.confinement, None);
         loop {
+            check_copy(pinned)?;
             let ran = {
                 let mut observer = tail.observer();
                 calls::run(&store, &catalog, &settings, Some(&mut observer), Some(cancel))
@@ -246,6 +271,7 @@ impl Engine {
             }
             match ran.stop {
                 TreeStop::Terminal => {
+                    check_copy(pinned)?;
                     let status = calls::status(&store, &catalog).map_err(failure)?;
                     let outcome = status.cases.iter().find(|c| c.case == status.root).and_then(|c| c.outcome.clone()).or(ran.detail);
                     return outcome.map(Finish::Outcome).ok_or_else(|| failure("the root case ended with no outcome"));
@@ -259,13 +285,16 @@ impl Engine {
                 }
                 TreeStop::Cancelled => return Ok(Finish::Cancelled),
                 TreeStop::Stuck => {
-                    return Err(failure(match refusal::program_signalled(&store) {
-                        Some(signalled) => format!("the tree is stuck at case {}: {signalled}", ran.case),
-                        None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                    return Err(failure(match refusal::program_refused(&store) {
+                        Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
+                        None => match refusal::stuck_on(&store) {
+                            Some(lead) => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person ({lead})", ran.case),
+                            None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                        },
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran, &store, &catalog, &settings.runner, sink, cancel, slot, &mut tail, &mut judge)? {
+                    if !self.round(&ran, pinned, &store, &catalog, &settings.runner, sink, cancel, slot, &mut tail, &mut judge)? {
                         return Ok(Finish::Cancelled);
                     }
                 }
@@ -280,6 +309,7 @@ impl Engine {
     fn round(
         &self,
         ran: &calls::Ran,
+        pinned: Option<&Pin>,
         store: &Path,
         catalog: &loom_protocols::ProtocolCatalog,
         runner: &Arc<dyn b10x_loom_tree::TestRunner>,
@@ -292,6 +322,7 @@ impl Engine {
         let mut wait = Wait {
             round: self.rounds.fetch_add(1, Ordering::SeqCst),
             epoch: self.epoch,
+            pinned,
             store,
             catalog,
             runner,
@@ -362,6 +393,7 @@ impl Engine {
 struct Wait<'a> {
     round: u64,
     epoch: u128,
+    pinned: Option<&'a Pin>,
     store: &'a Path,
     catalog: &'a loom_protocols::ProtocolCatalog,
     runner: &'a Arc<dyn b10x_loom_tree::TestRunner>,
@@ -391,6 +423,8 @@ impl Wait<'_> {
         let result = if d.kind == DecisionKind::Close && self.closed.contains(&d.case) {
             Ok(())
         } else {
+            // An answer is a library call that reads the bindings and may run a program of them.
+            check_copy(self.pinned)?;
             parse_answer(answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner))
         };
         tail.sync_all().map_err(failure)?;
@@ -415,6 +449,11 @@ impl Wait<'_> {
         }
         Ok(())
     }
+}
+
+/// The run's copy of the runbook is what it was at the submit, or the run ends with the refusal.
+fn check_copy(pinned: Option<&Pin>) -> Result<(), RuntimeFailure> {
+    pinned.map_or(Ok(()), |p| p.check()).map_err(failure)
 }
 
 fn next_answer(slot: &Slot, cancel: &AtomicBool) -> Option<Answered> {
@@ -450,7 +489,10 @@ impl Runtime for Engine {
         "loom"
     }
 
-    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+    fn start(&self, mut request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        // Loom takes only an absolute store: the run's directory is made absolute here, once, before
+        // any path is built from it.
+        request.state_dir = std::path::absolute(&request.state_dir).map_err(|_| RuntimeFailure { reason: "the run's directory cannot be made absolute: the daemon has no current directory".into() })?;
         let slot = Arc::new(Slot::default());
         {
             let mut runs = lock(&self.runs);
@@ -460,7 +502,13 @@ impl Runtime for Engine {
             runs.insert(request.run_id.clone(), slot.clone());
         }
         let _registered = Registered { engine: self, run_id: request.run_id.clone() };
-        self.drive(&request, sink, cancel, &slot)
+        // Everything that leaves the engine toward a client, a failure and what the run reports, goes
+        // through one `Hide`: no path of the run's directory, the state directory or the home.
+        let copy_dir = request.state_dir.join(pin::COPY_DIR);
+        let mut hidden: Vec<&Path> = vec![&copy_dir, &request.state_dir, &request.workspace_dir, &self.state_dir];
+        hidden.extend(self.homes.iter().map(PathBuf::as_path));
+        let hide = Hide::new(&hidden);
+        self.drive(&request, &HidingSink { inner: sink, hide: &hide }, cancel, &slot).map_err(|f| RuntimeFailure { reason: hide.text(&f.reason) })
     }
 
     fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {

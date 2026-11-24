@@ -229,7 +229,7 @@ child".
    |---|---|---|
    | 0 | terminal | ends: outcome `ended` |
    | 3 | waits for a decision | asks the decider for each entry of `decisions[]`, runs the printed command, loops |
-   | 4 | stuck | ends: outcome `stuck` (runner exit 3) |
+   | 4 | stuck | ends: outcome `stuck` (runner exit 3, `reason` the lead of the refusal the tree is stuck on, `<Reason>: action <name>`, null when no action was refused); outcome `refused` (runner exit 12, cause `program_signalled` or `program_error`) when the tree is stuck on an action of a bound program that was ended by a signal or by an exit `exits.error` lists (below) |
    | 5 | the step budget of one step is spent | loops (that is every normal step) |
    | anything else | not known | ends: outcome `error` with the exit code and the tail of standard error |
 
@@ -390,7 +390,7 @@ What each path does:
 - A child `b10x-loom` (`--loom`) that refuses prints `b10x-loom: tree refused: <Reason>: ...`. The runner reads that line after `tree open`, `tree run`, the printed command of an answer and the handoff, so the same cause and exit 12 arise with `--loom`, with the child's exit code and the tail of its standard error in `outcome.json`. A child that exits non-zero with no such line is a failed call: exit 1 `error`, no cause.
 - A refusal that is no reason of a tree call (a failure of the runner's own files, a document that does not parse) stays exit 1 `error`.
 
-The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a_tree`, `store_not_empty`, `workspace_unusable`, `bindings_refused`, `agent_not_run_yet`, `unknown_protocol`, `invalid_revision`, `invalid_instant`, `case_not_in_tree`, `case_terminated`, `outcome_not_legitimate`, `not_a_person_action`, `confinement_refused`, `store_unreadable`, `log_refused`, `stored_protocol_changed`, `duplicate_protocol`, `protocol_refused`, `protocol_link_leaves_directory`, `protocol_not_in_directory`, `no_protocol_files`, `unknown_status_format`, `handoff_check_failed`, `person_program_failed`, `tree_stopped`, `tree_already_stopped`, `tree_not_stopped` and `stop_unusable`; a test (`runbook/tests/loom_run/pages.rs`) holds this page to the list of `runbook/src/engine/refusal.rs`. The one cause that is no reason is `program_signalled` (below). `ProgramSignalled` (a program ended by a signal; exit 137 gives it) is not a reason of a tree call: Loom writes it into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled`, with Loom's text as the reason, instead of `stuck` (exit 3). A signalled program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on.
+The 29 causes, one per reason of `TreeRefusalReason`, are `store_in_use`, `not_a_tree`, `store_not_empty`, `workspace_unusable`, `bindings_refused`, `agent_not_run_yet`, `unknown_protocol`, `invalid_revision`, `invalid_instant`, `case_not_in_tree`, `case_terminated`, `outcome_not_legitimate`, `not_a_person_action`, `confinement_refused`, `store_unreadable`, `log_refused`, `stored_protocol_changed`, `duplicate_protocol`, `protocol_refused`, `protocol_link_leaves_directory`, `protocol_not_in_directory`, `no_protocol_files`, `unknown_status_format`, `handoff_check_failed`, `person_program_failed`, `tree_stopped`, `tree_already_stopped`, `tree_not_stopped` and `stop_unusable`; a test (`runbook/tests/loom_run/pages.rs`) holds this page to the list of `runbook/src/engine/refusal.rs`. The two causes that are no reason are `program_signalled` and `program_error` (below). `ProgramSignalled` (a program ended by a signal; exit 137 gives it) and `ProgramError` (a program that ended with an exit the binding's `exits.error` lists) are not reasons of a tree call: Loom writes each into the `refusal` of an `ActionFinished` line (no `exit`), the action stays undone, and a program that nothing else makes up for leaves the tree `Stuck` (`tree run` exit 4). When the last line of a case's log before the stop is such an `ActionFinished`, the run ends `refused`, exit 12, cause `program_signalled` or `program_error`, with Loom's text as the reason (it names the action and, for `ProgramError`, the exit status), instead of `stuck` (exit 3). A refused program whose action is taken again, or whose artifact the other steps make up for, changes nothing: the run goes on. The other refusals of a bound program that Loom writes the same way (`ResultNotInTable`, `ReportUnreadable`, `ArgumentsUnreadable`, `RunsSpent`, `CaseOfAnotherProtocol`, `ArtifactUnreadable`, `Cancelled`) are not in the table of `PROGRAM_REFUSALS` (`runbook/src/engine/refusal.rs`): a tree they leave without a move still ends `stuck`. The daemon's engine (`runbook serve`) ends such a run as `runtime-failure` for every failure, and keeps the engine's reason in the `runbook.runtime-failed` event: for a stuck tree that reason names the refusal text of the table (`the tree is stuck at case <case>: ProgramError: action <action>: ...`), and says that no action is useful only when there is none.
 
 The run log has two new kinds, `StopRecorded` (the principal and the reason of a hold) and `StopLifted` (the principal and the `seq` of the hold it lifts). The run directory's reader (`run_dir.rs`), the daemon's tail (`engine/tail.rs`, through Loom's reader) and the driver tools (`sdc-replay`) take both without error, each with a test. The run directory's projection (`events.jsonl`) skips both kinds, so they are not events of a run; the inspector reads that projected `events.jsonl` (never the run log `runlog-case-*.jsonl`) and so never meets them.
 
@@ -444,8 +444,14 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
 line of the case's run log (no `exit`), as it does `ProgramSignalled`, so `runbook/src/engine/refusal.rs`
 has no cause for it. The action stays undone, and when nothing else is due the tree is `Stuck`
 (`tree run` exit 4). `runbook run` ends such a run `stuck`, exit 3, cause `stuck`, and `outcome.reason`
-is null: the text is in the run log of the case only. Unlike `program_signalled` it never ends
-`refused`, exit 12. Two texts (Loom `d8944d49`), each held by a test with `sh` programs
+(and the `reason` of `run-stopped.json`) is the lead of the refusal, `RunsSpent: action <name>`: its
+reason word and its action, never the rest of Loom's text, which may hold a path or a value of the run
+(that text is in the run log of the case). The same holds for every refusal of a bound program that is
+no signal and no listed error exit (`ResultNotInTable`, `ReportUnreadable`, ...): no run ends `stuck` with
+`reason: null` when a refusal stopped its tree, and a tree with no move and no refusal ends `stuck` with
+`reason: null`. The daemon's engine ends the same runs `runtime-failure`, and its reason ends with the
+lead in brackets. Unlike `program_signalled` it never ends
+`refused`, exit 12 (`ProgramError` and `ProgramSignalled` are the two that do). Two texts (Loom `d8944d49`), each held by a test with `sh` programs
 (`runbook/tests/loom_run/inproc.rs`):
 
 | Text | When | Test |
@@ -586,9 +592,37 @@ refusals (`runbook/tests/loom_run/flags.rs`), the settings and the reading of `d
 (unit tests in `runbook/src/loom_run/replay.rs`), the clean recording, the indexer on the
 committed recording and the plan-only settings (`replay.rs` of the tests), each under 0.1 s.
 
+#### A re-drive spends nothing it did not start
+
+A reply the adapter takes from the recording (the `adapter` of its cost line in
+`.sdc/llm/calls.jsonl` is `recorded` or `reused`) costs what the recording says, and that is not money
+this run spent. `outcome.json` and the `ended` event keep two pairs of numbers: `spent_micro_usd` and
+`llm_calls` count what the run started, `recorded_micro_usd` and `recorded_llm_calls` what it took
+from the recording (both are 0 in a run without `--recorded`). A recorded call counts against neither
+the spend cap nor the model-call cap and is not in the spend ledger; the `costed_call` event and
+`llm-calls.jsonl` still carry the cost the recording gives it.
+
+- A re-drive that cannot start a live call (a policy other than `--on-divergence live`, or
+  `--live-cap 0`) spends nothing at all: it opens no ledger, reserves nothing and books nothing, so a
+  ledger already at its cap does not stop it and the ledger file is byte-equal after the run. Every
+  cost of its steps and of its decider is a recorded cost.
+- A re-drive that may go live reserves and books as a run does, but only for the calls the adapter
+  started live (`adapter` `live`); the recorded ones are named in the recorded pair. The decider's
+  cost is booked as spent there, because the decider's reply does not say how it was taken.
+- The adapter's `adapter` word decides what a call was, never the policy: `recorded` and `reused` are
+  recorded calls, anything else is a call the run started. A reused call that failed and has no cost is
+  a recorded call at cost 0, never booked as spent. A re-drive that cannot start a live call and holds
+  a line that says `live` (or any other word) ends as `error`, with a reason that names the call's
+  action and the adapter's word; nothing of it is booked as recorded or as spent.
+
+Tests: `runbook/tests/loom_run/replay_spend.rs`, with a stand-in `sdc-replay` and the fake
+`b10x-loom` (no recording, no model call).
+
 ### Fail closed
 
-The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers
+The run ends as `error` (exit 1) when: the ledger is unreadable or invalid (not for a re-drive that
+cannot go live: a re-drive that cannot go live opens no ledger, so an unreadable ledger does not end it),
+a call of a re-drive that cannot go live says it was started live, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
 a model step has no cost record, `tree status` is refused, or an event sink fails.
 
@@ -625,8 +659,11 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
                   events.jsonl     one object per event: {"at": seconds, "event": "...", ...}
                   outcome.json     runbook.loom-run-outcome/1: outcome, reason, loom_exit_code,
                                    stderr_tail, exit_code, steps, spent_micro_usd, llm_calls,
+                                   recorded_micro_usd, recorded_llm_calls (what a --recorded
+                                   re-drive took from the recording; spent_micro_usd and
+                                   llm_calls count only what the run started),
                                    cause (only when outcome is refused: the reason's name in
-                                   snake case, or program_signalled)
+                                   snake case, program_signalled or program_error)
                   tree-status.json, tree-verify.json
                   protocols/ bindings/ work/ store/ home/
 ```

@@ -28,3 +28,5 @@ mod default_confinement;
 mod default_level;
 mod autonomy;
 mod autonomy_guards;
+mod drain;
+mod copy_integrity;

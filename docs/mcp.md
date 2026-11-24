@@ -74,6 +74,10 @@ route gives it: a `cancel_run` of an unknown run is `404` (`NoSuchRun`), a secon
 This is a tool execution error in the sense of the specification, in the result and not a JSON-RPC
 error: a model that reads it can correct itself.
 
+A `submit_run` while the daemon drains after a stop signal is `isError` true with `503` and the body
+`{"refused": "draining", "message": ..., "live_runs": <n>}` of the route, and no run is made
+(`docs/daemon-api.md`, "Stopping the daemon").
+
 Two tools are stricter than their route. `read_run` and `read_events` of a run id the daemon does not
 know answer `404` with `{"refused": "no such run", ...}`, where the views answer `200` with no row.
 

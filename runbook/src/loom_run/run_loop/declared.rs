@@ -68,11 +68,9 @@ impl Runner<'_> {
                 self.emit(Event::AnswerRecorded { line: line.clone() })?;
             }
             if asked.result.is_err() && asked.cost_micro_usd == 0 && asked.model_calls == 0 {
-                self.ledger().release(&reservation)?;
+                self.release(&reservation)?;
             } else {
-                self.ledger().commit(&reservation, &self.args.run, "decider", asked.cost_micro_usd)?;
-                self.spent += asked.cost_micro_usd;
-                self.llm_calls += asked.model_calls;
+                self.book_decider(&reservation, asked.cost_micro_usd, asked.model_calls)?;
                 let model = asked.lines.iter().rev().find_map(|l| l.get("model").and_then(Value::as_str).map(str::to_owned));
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: asked.cost_micro_usd, record: serde_json::json!({"model_calls": asked.model_calls, "model": model}) })?;
             }

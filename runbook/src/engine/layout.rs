@@ -79,10 +79,12 @@ pub fn list(home: &Path) -> Vec<RunbookInfo> {
         .collect()
 }
 
-/// The path, in the workspace, the root bindings place the artifact `idea` at.
+/// The path, in the workspace, the root bindings place the artifact `idea` at. A failure names the
+/// file as `bindings/<file>`, never the path it was read at.
 pub fn idea_path(bindings: &Path) -> Result<Option<String>, String> {
-    let text = std::fs::read_to_string(bindings).map_err(|e| format!("{}: {e}", bindings.display()))?;
-    let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", bindings.display()))?;
+    let named = format!("bindings/{}", bindings.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()));
+    let text = std::fs::read_to_string(bindings).map_err(|e| format!("{named}: {e}"))?;
+    let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{named}: {e}"))?;
     Ok(doc["artifacts"]["idea"].as_str().map(str::to_string))
 }
 
