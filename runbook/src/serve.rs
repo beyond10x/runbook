@@ -1,6 +1,7 @@
 //! `runbook serve`: the daemon in the foreground.
 
 use crate::api::{self, auth};
+use crate::caps::{CapPolicy, Caps};
 use crate::commands::{check_principal, Config, Daemon};
 use crate::engine::Engine;
 use crate::runtime::{Confinement, Runtime};
@@ -52,6 +53,30 @@ pub struct ServeArgs {
     /// Also serve MCP over streamable HTTP at /mcp, behind the same token check.
     #[arg(long)]
     pub mcp: bool,
+    /// The most wall seconds of a run, when its submit names none. Required with `--runtime loom`; no default.
+    #[arg(long, value_name = "SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
+    pub max_wall_seconds: Option<u64>,
+    /// The most model calls of a run, when its submit names none. Required with `--runtime loom`; no default.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub max_llm_calls: Option<u64>,
+    /// The most spend, micro USD, of the runs of one runbook together, when a submit names none. Required with `--runtime loom`; no default.
+    #[arg(long, value_name = "MICRO_USD", value_parser = clap::value_parser!(u64).range(1..))]
+    pub cap_micro_usd: Option<u64>,
+    /// The most a submit may name as `max_wall_seconds`. Default: `--max-wall-seconds`.
+    #[arg(long, value_name = "SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
+    pub max_wall_seconds_ceiling: Option<u64>,
+    /// The most a submit may name as `max_llm_calls`. Default: `--max-llm-calls`.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub max_llm_calls_ceiling: Option<u64>,
+    /// The most a submit may name as `cap_micro_usd`. Default: `--cap-micro-usd`.
+    #[arg(long, value_name = "MICRO_USD", value_parser = clap::value_parser!(u64).range(1..))]
+    pub cap_micro_usd_ceiling: Option<u64>,
+}
+
+/// The caps policy of the daemon, from its options. Skeleton: not read yet.
+pub fn cap_policy(_args: &ServeArgs) -> Result<CapPolicy, String> {
+    let unbounded = Caps { max_wall_seconds: u64::MAX, max_llm_calls: u64::MAX, cap_micro_usd: u64::MAX };
+    CapPolicy::fixed(unbounded)
 }
 
 /// What `serve` reads from the process environment.
@@ -111,7 +136,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if !home.join("protocol").is_dir() || !home.join("bindings").is_dir() {
             return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
         }
-        (Arc::new(Engine::new(home, state.clone())), None)
+        (Arc::new(Engine::new(home, state.clone(), cap_policy(args)?)), None)
     } else {
         let stub = StubRuntime::new();
         for name in presets {

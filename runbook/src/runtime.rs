@@ -5,6 +5,7 @@
 //! between steps. The daemon runs each run on its own plain thread. Loom replaces the stub of
 //! `stub.rs` by implementing this trait; the daemon, its commands and its API do not change.
 
+use crate::caps::{Caps, Usage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -144,4 +145,16 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// Ask the run to stop (the daemon has also set the run's cancel flag).
     fn cancel(&self, run_id: &str);
+
+    /// The caps a run submitted with these `settings` has, or why they are refused (a cap over the
+    /// runtime's ceiling). `None`: this runtime runs nothing that a cap bounds (the stub). Asked at
+    /// submit, before anything is written.
+    fn resolve_caps(&self, _settings: &BTreeMap<String, String>) -> Result<Option<Caps>, String> {
+        Ok(None)
+    }
+
+    /// What the run has used so far, when the runtime counts it.
+    fn usage(&self, _run_id: &str) -> Option<Usage> {
+        None
+    }
 }

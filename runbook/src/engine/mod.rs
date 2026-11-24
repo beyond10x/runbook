@@ -10,6 +10,7 @@ mod tail;
 
 pub use decision::Parsed;
 
+use crate::caps::CapPolicy;
 use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
@@ -67,6 +68,7 @@ pub struct Engine {
     home: PathBuf,
     state_dir: PathBuf,
     levels: Vec<Confinement>,
+    caps: CapPolicy,
     runs: Mutex<HashMap<String, Arc<Slot>>>,
     rounds: AtomicU64,
     epoch: u128,
@@ -95,14 +97,15 @@ impl Engine {
     /// An engine for the runbooks under `home` (a directory with `protocol/` and `bindings/`),
     /// keeping each run's store under that run's directory below `state_dir`. It offers the levels
     /// this host can give: `local`, and `linux` where the process is in a delegated cgroup.
-    pub fn new(home: PathBuf, state_dir: PathBuf) -> Engine {
-        Engine::with_levels(home, state_dir, &calls::host_levels())
+    pub fn new(home: PathBuf, state_dir: PathBuf, caps: CapPolicy) -> Engine {
+        Engine::with_levels(home, state_dir, &calls::host_levels(), caps)
     }
 
-    /// An engine that offers exactly these levels.
-    pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement]) -> Engine {
+    /// An engine that offers exactly these levels. Every run it starts has the caps of `caps`: there
+    /// is no engine without them.
+    pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Engine { home, state_dir, levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        Engine { home, state_dir, levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
     }
 
     pub fn levels(&self) -> &[Confinement] {
