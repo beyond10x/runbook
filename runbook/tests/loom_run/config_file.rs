@@ -561,36 +561,9 @@ fn the_harness_reads_no_runbook_toml_of_the_host_and_no_start_of_the_binary_skip
     assert_eq!(code(&o), 0, "{}", err(&o));
     assert!(first_line(&o).contains("empty-config") && first_line(&o).contains("RUNBOOK_CONFIG"), "{}", first_line(&o));
     assert!(row(&o, "max_wall_seconds").contains("not stated") && row(&o, "confinement").contains("not stated"), "{}", out(&o));
-    // every start of the binary in the sources of the tests names the empty file when it can read one
-    let mut files = Vec::new();
-    sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
-    let skip = ["\"parity\"", "\"canon\"", "\"mcp\"", "\"runs\"", "\"test\"", "\"--version\"", "\"frobnicate\"", "\"help\"", "arg(later)", "\"decide\""];
-    let need = ["\"run\"", "\"list\"", "\"check\"", "\"doctor\"", "\"serve\"", "\"config\"", "\"init\"", ".args(args", ".args(&args", "args(self.args"];
-    let mut unguarded = Vec::new();
-    let mut starts = 0;
-    for file in files {
-        if file.ends_with("loom_run/config_file.rs") || file.ends_with("loom_run/runbook_dirs.rs") {
-            continue;
-        }
-        let text = std::fs::read_to_string(&file).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        for (i, l) in lines.iter().enumerate() {
-            if !(l.contains("Command::new(BIN)") || l.contains("Command::new(super::core::BIN)")) {
-                continue;
-            }
-            let end = (i + 1..lines.len().min(i + 14)).find(|j| lines[*j].contains("Command::new(")).unwrap_or(lines.len().min(i + 14));
-            let window = lines[i..end].join("\n");
-            let guarded = ["isolate(", "RUNBOOK_CONFIG", "--no-config"].iter().any(|m| window.contains(m));
-            if skip.iter().any(|s| window.contains(s)) || !need.iter().any(|n| window.contains(n)) {
-                continue;
-            }
-            starts += 1;
-            if !guarded {
-                unguarded.push(format!("{}:{}", file.display(), i + 1));
-            }
-        }
-    }
-    assert!(starts >= 15, "the scan found only {starts} starts of the binary");
+    // every start of the binary in the sources of the tests names the empty file when it can read one: the one scan
+    let (starts, unguarded) = super::config_guards::unguarded_starts();
+    assert!(starts >= 8, "the scan found only {starts} starts of the binary");
     assert!(unguarded.is_empty(), "starts of the binary that read a file of the host: {unguarded:?}");
 }
 
@@ -623,19 +596,6 @@ fn every_start_of_the_binary_in_the_install_cases_names_the_empty_configuration(
     }
     assert!(starts >= 4, "the scan found only {starts} starts of the binary");
     assert!(unguarded.is_empty(), "starts of the binary in the install cases that read a runbook.toml of the host's directories: {unguarded:?}");
-}
-
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|n| n != "fixtures") {
-                sources(&path, out);
-            }
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
 }
 
 // ---- the docs ----

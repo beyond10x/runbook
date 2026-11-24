@@ -93,7 +93,7 @@ impl Serve {
             .arg(dir.join("state"))
             .args(extra);
         let err = if closed_stderr { Stdio::piped() } else { Stdio::from(std::fs::File::create(dir.join("stderr.log")).unwrap()) };
-        cmd.env_remove("RUNBOOK_TOKEN").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(err);
+        cmd.env_remove("RUNBOOK_TOKEN").env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(err);
         let mut child = cmd.spawn().unwrap();
         let err_reader = child.stderr.take();
         let out = child.stdout.take().unwrap();
@@ -372,7 +372,7 @@ fn a_drain_bound_ends_a_drain_that_does_not_finish_and_the_run_is_orphaned_as_st
 
 #[test]
 fn the_serve_option_names_the_bound_in_seconds() {
-    let out = Command::new(BIN).args(["serve", "--help"]).output().unwrap();
+    let out = Command::new(BIN).args(["serve", "--help"]).env("RUNBOOK_NO_CONFIG", "1").output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("--drain-seconds <SECONDS>"), "{text}");
 }

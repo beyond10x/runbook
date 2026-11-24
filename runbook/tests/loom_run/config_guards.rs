@@ -1073,11 +1073,9 @@ fn test_sources(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() {
-    // `serve`, `run`, `list`, `check`, `doctor` and `config` read a `runbook.toml` of the working directory's
-    // parents and of the user's directories; a case that starts one of them without naming the empty file reads
-    // what the host has
+/// The count of the starts of a program that no string literal names, and the `file:line` of those that name no
+/// empty configuration, over every source file of the tests.
+pub(super) fn unguarded_starts() -> (usize, Vec<String>) {
     let mut files = Vec::new();
     test_sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
     let mut unguarded = Vec::new();
@@ -1089,6 +1087,15 @@ fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() 
         starts += scan.starts;
         unguarded.extend(scan.unguarded.iter().map(|line| format!("{name}:{line}")));
     }
+    (starts, unguarded)
+}
+
+#[test]
+fn every_start_of_the_binary_in_every_case_file_names_the_empty_configuration() {
+    // `serve`, `run`, `list`, `check`, `doctor` and `config` read a `runbook.toml` of the working directory's
+    // parents and of the user's directories; a case that starts one of them without naming the empty file reads
+    // what the host has
+    let (starts, unguarded) = unguarded_starts();
     assert!(starts >= 8, "the scan found only {starts} starts of the binary");
     assert!(unguarded.is_empty(), "starts of the binary in the cases that name no empty configuration and read what the host has: {unguarded:?}");
 }
