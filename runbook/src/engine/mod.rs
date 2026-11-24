@@ -110,7 +110,8 @@ impl Engine {
     /// An engine that offers exactly these levels.
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement]) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Engine { home, state_dir, levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        Engine { home: absolute(home), state_dir: absolute(state_dir), levels: levels.to_vec(), runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
     }
 
     pub fn levels(&self) -> &[Confinement] {
@@ -373,7 +374,10 @@ impl Runtime for Engine {
         "loom"
     }
 
-    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+    fn start(&self, mut request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        // Loom takes only an absolute store: the run's directory is made absolute here, once, before
+        // any path is built from it.
+        request.state_dir = std::path::absolute(&request.state_dir).map_err(|_| RuntimeFailure { reason: "the run's directory cannot be made absolute: the daemon has no current directory".into() })?;
         let slot = Arc::new(Slot::default());
         {
             let mut runs = lock(&self.runs);

@@ -322,7 +322,8 @@ impl Daemon {
             }
             roots.push(canon);
         }
-        let cfg = Config { context_roots: roots, ..cfg };
+        let state_dir = std::path::absolute(&cfg.state_dir).map_err(|_| io::Error::other("the state directory cannot be made absolute: the daemon has no current directory"))?;
+        let cfg = Config { context_roots: roots, state_dir, ..cfg };
         let state = State::open_with_clock(&cfg.state_dir, clock)?;
         let d = Daemon {
             inner: Arc::new(Inner {
