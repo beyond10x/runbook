@@ -20,7 +20,7 @@ pub fn conformance_not_built(_ports: &Ports) -> Result<(), Refusal> {
 
 /// Where the observation finds its parts, from the options of the run and the asset root.
 /// `budget_micro_usd` is the most its node sessions may spend (the reservation) when a spend cap is named.
-fn setup_of(args: &Args, run_dir: &Path, budget_micro_usd: Option<u64>) -> Setup {
+fn setup_of(args: &Args, run_dir: &Path, budget_micro_usd: Option<u64>, gateway_file: Option<&Path>) -> Setup {
     let lookup = crate::assets::Lookup::from_process();
     let assets = lookup.locate().ok();
     let instructions = assets.as_ref().map(|a| a.root.clone()).or_else(|| args.bindings.parent().map(Path::to_path_buf));
@@ -30,6 +30,7 @@ fn setup_of(args: &Args, run_dir: &Path, budget_micro_usd: Option<u64>) -> Setup
         tools: Some(args.bindings.join("tools")),
         instructions,
         adapter: lookup.helper("sdc-conform-adapter", assets.as_ref()),
+        gateway_file: gateway_file.map(Path::to_path_buf),
         budget_usd: budget_micro_usd.map(|micro| micro as f64 / 1e6),
     }
 }
@@ -74,7 +75,9 @@ fn spent_of(doc: &serde_json::Value) -> Spent {
 /// prints says what was written or why nothing was; a failure is the line or `oracle.json`'s
 /// `unknown` with its cause, never a change of the run's outcome (so a run that closed ends with
 /// the exit it had, also when the observation is not started for a spend cap that has nothing left).
-pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, gate: &mut dyn Gate) {
+/// `gateway_file` is the run's gateway file (`private.rs`), which the observation's model adapter is
+/// given while it still exists.
+pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, gate: &mut dyn Gate, gateway_file: Option<&Path>) {
     if args.ports.conformance != Conformance::Observe {
         return;
     }
@@ -96,7 +99,7 @@ pub fn after_close(args: &Args, run_dir: &Path, outcome: &Outcome, gate: &mut dy
             return;
         }
     };
-    let setup = setup_of(args, run_dir, budget);
+    let setup = setup_of(args, run_dir, budget, gateway_file);
     let pin = Path::new("driver/ess-pin.json");
     let seen = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| conform::observe(run_dir, None, tables, pin, &setup)));
     match seen {

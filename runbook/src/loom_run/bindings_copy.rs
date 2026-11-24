@@ -17,10 +17,11 @@ use serde_yaml::{Mapping, Value as Yaml};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// The top-level keys of the settings that `materialise` knows. `login_file` is R1's; `autonomy`
+/// The top-level keys of the settings that `materialise` knows. `login_file` is R1's, `gateway` is
+/// `gateway.rs`'s (by now the text `named`: the table is read once, before the copy); `autonomy`
 /// and `decider` are read by the decider as well; `max_llm_calls` and `max_wall_seconds` belong to
 /// the runner's caps and are accepted and ignored here.
-pub const SETTINGS_KEYS: [&str; 10] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review", "max_llm_calls", "max_wall_seconds", "replay"];
+pub const SETTINGS_KEYS: [&str; 11] = ["login_file", "gateway", "autonomy", "decider", "adapter", "models", "efforts", "review", "max_llm_calls", "max_wall_seconds", "replay"];
 /// The roles whose model, turns and budget a run sets (`bindings/tools/node-classes.json`).
 pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
@@ -58,6 +59,8 @@ struct Plan {
     roles: BTreeMap<String, RoleSet>,
     adapter: Option<String>,
     login: Option<PathBuf>,
+    /// The gateway file of the run's private directory, written as `--gateway-file` into each model node.
+    gateway: Option<String>,
     replay: Option<crate::loom_run::replay::BindingPlan>,
 }
 
@@ -180,7 +183,10 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
         Some(_) => return Err("login_file: a path".to_owned()),
     };
     let replay = crate::loom_run::replay::binding_plan(settings)?;
-    Ok(Plan { principal, routed: None, roles, adapter, login, replay })
+    if login.is_some() && top.contains_key(crate::loom_run::gateway::KEY) {
+        return Err("gateway and login_file: a run has one or the other, never both".to_owned());
+    }
+    Ok(Plan { principal, routed: None, roles, adapter, login, gateway: None, replay })
 }
 
 /// Copies the bindings directory `src` into `dst` (which does not exist yet) and applies
@@ -196,7 +202,18 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
 /// nodes holds, and the settings must come with one. An unknown key in `settings` is refused by
 /// name before anything is written. The login file's path is in no error and no return value.
 pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value, login_link: Option<&Path>) -> Result<PathBuf, String> {
+    materialise_with(src, dst, root_protocol_name, settings, login_link, None)
+}
+
+/// [`materialise`] with the gateway file of the run (`private.rs`): when it is given, `--gateway-file <file>`
+/// is written into every model node, where a login has `--claude-credentials <link>`. A login link and a
+/// gateway file together are refused. The file's path is in the copy; the token is not (it is only in the file).
+pub fn materialise_with(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value, login_link: Option<&Path>, gateway_file: Option<&Path>) -> Result<PathBuf, String> {
     let mut plan = read_plan(settings)?;
+    if login_link.is_some() && gateway_file.is_some() {
+        return Err("gateway and login_file: a run has one or the other, never both".to_owned());
+    }
+    plan.gateway = gateway_file.map(|f| f.display().to_string());
     if let Some((level, principal)) = decider::step_principal(settings)?.filter(|(level, _)| level != decider::AUTONOMY_DECIDES) {
         plan.routed = src.parent().and_then(|root| decider::Routing::load(root).ok()).map(|routing| (level, principal, routing));
     }
@@ -443,6 +460,9 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
             }
             if let Some(login) = login {
                 changed |= set_option(argv, "--claude-credentials", login);
+            }
+            if let Some(gateway) = &plan.gateway {
+                changed |= set_option(argv, crate::loom_run::gateway::OPTION, gateway);
             }
         }
     }

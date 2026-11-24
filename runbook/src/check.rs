@@ -334,6 +334,9 @@ fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Opt
         if let Some(defect) = budget_defect(a) {
             r.add("bindings", &file, format!("{action}: {defect}"), "write the budget as docs/loom-bindings.md (\"The budget\") says: Loom refuses it at load");
         }
+        if let Some(defect) = timeout_defect(a) {
+            r.add("bindings", &file, format!("{action}: timeout_seconds: {defect}"), "write timeout_seconds as docs/loom-bindings.md (\"Timeouts\") says: Loom refuses it at load (TimeoutOutOfRange)");
+        }
         let yaml_names = match argv_instructions(&argv) {
             None => None,
             Some(Ok(m)) => Some(Value::Object(m)),
@@ -415,6 +418,25 @@ fn budget_defect(a: &Value) -> Option<String> {
     let kind = a.pointer("/executor/kind").and_then(Value::as_str).filter(|k| !matches!(*k, "program" | "person"))?;
     let named: String = kind.chars().take(1).flat_map(char::to_uppercase).chain(kind.chars().skip(1)).collect();
     ["rework_limit", "rework_on", "runs_per"].into_iter().find(|m| member(m).is_some()).map(|m| format!("budget.{m} belongs to the Program and Person executors, not {named}"))
+}
+
+/// The range Loom loads an action's whole-number `timeout_seconds` in, in Loom's words when it is outside
+/// (`TimeoutOutOfRange`, Loom 0.61.0, story:bound-program-timeout-above-an-hour): 1 to
+/// `MAX_PROGRAM_TIMEOUT_SECONDS` (14400) on a `program` executor, 1 to `MAX_TIMEOUT_SECONDS` (3600) on any
+/// other. A value that is no whole number is Loom's decoder's to refuse, not this check's.
+fn timeout_defect(a: &Value) -> Option<String> {
+    use b10x_loom_bindings::{MAX_PROGRAM_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS};
+    let seconds = a.get("timeout_seconds")?.as_i64()?;
+    let program = a.pointer("/executor/kind").and_then(Value::as_str) == Some("program");
+    let most = if program { MAX_PROGRAM_TIMEOUT_SECONDS } else { MAX_TIMEOUT_SECONDS };
+    if (MIN_TIMEOUT_SECONDS..=most).contains(&seconds) {
+        return None;
+    }
+    Some(if program {
+        format!("{seconds} is not from {MIN_TIMEOUT_SECONDS} to {most}, the range of a program executor")
+    } else {
+        format!("{seconds} is not from {MIN_TIMEOUT_SECONDS} to {most}; only a program executor may name up to {MAX_PROGRAM_TIMEOUT_SECONDS}")
+    })
 }
 
 /// The structure of `budget.rework_on`: a map of kinds to lists of strings, none empty, and itself
@@ -860,6 +882,30 @@ mod tests {
             let found = budget_findings(PROGRAM, &format!("    budget: {budget}\n{retry}"));
             assert_eq!(found.len(), 1, "{what}: {found:?}");
             assert!(found[0].starts_with("bindings/x.yaml: a.write: ") && found[0].contains(member) && found[0].contains(words), "{what}: {found:?}");
+        }
+    }
+
+    /// Loom 0.61.0 (story:bound-program-timeout-above-an-hour): `timeout_seconds` is from 1 to 14400
+    /// on a `program` executor and from 1 to 3600 on any other; the check passes what Loom loads, a
+    /// `program` at 14400 with a `handoff_when` check too, and names the rest in Loom's words.
+    #[test]
+    fn a_timeout_loom_loads_passes_and_one_past_the_range_of_its_executor_is_named_in_looms_words() {
+        let person = "{kind: person, principal: person:owner}";
+        for (executor, rest) in [
+            (PROGRAM, "    timeout_seconds: 1\n"),
+            (PROGRAM, "    timeout_seconds: 3601\n"),
+            (PROGRAM, "    timeout_seconds: 14400\n    handoff: Write it by hand.\n    handoff_when: [tools/hold.sh]\n"),
+            (person, "    timeout_seconds: 3600\n"),
+        ] {
+            assert_eq!(budget_findings(executor, rest), Vec::<String>::new(), "{executor} {rest}");
+        }
+        for (executor, rest, words) in [
+            (PROGRAM, "    timeout_seconds: 14401\n", "timeout_seconds: 14401 is not from 1 to 14400, the range of a program executor"),
+            (PROGRAM, "    timeout_seconds: 0\n", "timeout_seconds: 0 is not from 1 to 14400, the range of a program executor"),
+            (person, "    timeout_seconds: 3601\n", "timeout_seconds: 3601 is not from 1 to 3600; only a program executor may name up to 14400"),
+            ("{kind: agent, adapter: claude-code, model: m}", "    timeout_seconds: 14400\n", "timeout_seconds: 14400 is not from 1 to 3600; only a program executor may name up to 14400"),
+        ] {
+            assert_eq!(budget_findings(executor, rest), [format!("bindings/x.yaml: a.write: {words}")], "{executor} {rest}");
         }
     }
 

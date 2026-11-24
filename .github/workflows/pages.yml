@@ -117,6 +117,9 @@ jobs:
       - name: Install the pinned ess the driver tests run
         if: steps.changes.outputs.class == 'code'
         run: cargo run --locked --quiet --manifest-path driver/Cargo.toml --bin sdc-conform -- ess-install
+      - name: Install the pinned aep the driver tests run
+        if: steps.changes.outputs.class == 'code'
+        run: cargo run --locked --quiet --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install
       - name: Test the driver crate with the local gate's task
         if: steps.changes.outputs.class == 'code'
         timeout-minutes: 15

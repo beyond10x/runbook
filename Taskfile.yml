@@ -159,7 +159,7 @@ tasks:
   test:driver:
     silent: true
     dir: driver
-    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml, after a step that installs the pinned ess with `sdc-conform ess-install`) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment does not apply to it). DRIVER_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), as RUNBOOK_TEST_FORGE does for runbook/: 78 to 87 s on 2 CPUs of the build node (docs/forge-gate.md). Other work on those CPUs slows the run: it prints the load average before and after. Like test:runbook it puts the trap `ess` of scripts/host-tool-traps first on the PATH of its tests: the forge has no `ess` on PATH. Needs cargo-nextest, the pinned ess and, for DRIVER_TEST_FORGE, taskset."
+    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml, after steps that install the pinned ess with `sdc-conform ess-install` and the pinned aep with `sdc-conform aep-install`) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment does not apply to it). DRIVER_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), as RUNBOOK_TEST_FORGE does for runbook/: 78 to 87 s on 2 CPUs of the build node (docs/forge-gate.md). Other work on those CPUs slows the run: it prints the load average before and after. Like test:runbook it puts the traps `ess` and `aep` of scripts/host-tool-traps first on the PATH of its tests: the forge has neither on PATH. Ahead of them it puts the directory of the pinned aep (driver/aep-pin.json, `sdc-conform aep-path`), the planning store the programs under test call; without it the step stops with the install command. Needs cargo-nextest, the pinned ess, the pinned aep and, for DRIVER_TEST_FORGE, taskset."
     vars:
       FORGE_CPUS: 2
     cmds:
@@ -170,6 +170,12 @@ tasks:
         log=target/nextest-driver.log
         code=0
         trap_dir=$(cd ../scripts/host-tool-traps && pwd)
+        if ! aep_bin=$(cargo run --locked --quiet --bin sdc-conform -- aep-path); then
+          echo "the driver tests run the pinned aep of driver/aep-pin.json, never the aep on PATH: install it with \`cargo run --locked --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install\`"
+          exit 1
+        fi
+        aep_dir=$(dirname "$aep_bin")
+        echo "aep of the tests: $aep_bin (driver/aep-pin.json)"
         profile=default
         limit=""
         if [ -n "${CI:-}" ]; then
@@ -180,7 +186,7 @@ tasks:
         fi
         if [ "$profile" = forge ]; then unset NEXTEST_TEST_THREADS; fi
         echo "nextest profile $profile${limit:+, held to {{.FORGE_CPUS}} CPUs by $limit}; test threads ${NEXTEST_TEST_THREADS:-of the profile}; load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
-        PATH="$trap_dir:$PATH" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
+        PATH="$aep_dir:$trap_dir:$PATH" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
         cat "$log"
         echo "load average after the run: $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
         echo "ten slowest tests:"

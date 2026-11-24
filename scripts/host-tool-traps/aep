@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "a test of runbook/ or driver/ started the host's aep: the driver tests run the pinned aep of driver/aep-pin.json (sdc-conform aep-install), a runbook test brings its own stand-in" >&2
+exit 127

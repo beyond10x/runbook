@@ -18,7 +18,7 @@ actions:
         subject: spec
         producer: nc-author
         from: exit
-        results: {"0": ok, "*": failed}
+        results: {"0": ok, timeout: failed, "*": failed}
   - action: spec.check
     executor:
       kind: program
@@ -29,7 +29,7 @@ actions:
         subject: spec
         producer: nc-check
         from: exit
-        results: {"0": ok, "*": refused}
+        results: {"0": ok, timeout: refused, "*": refused}
   - action: amend.upstream
     executor:
       kind: program
@@ -42,4 +42,4 @@ actions:
         subject: spec
         producer: nc-amend
         from: exit
-        results: {"0": ok, "*": refused}
+        results: {"0": ok, timeout: refused, "*": refused}

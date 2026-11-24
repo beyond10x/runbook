@@ -3,7 +3,9 @@
 //! building each file as a binary of its own.
 
 mod retry_feedback_copy;
+mod aep_pin;
 mod answers;
+mod bugfix_git_trees;
 mod bugfix_languages;
 mod bugfix_prompt;
 mod check_bindings_budget;
@@ -22,6 +24,11 @@ mod capture_stream;
 mod ess_pin_guard;
 mod experiment_loom;
 mod finding_kpis;
+mod gateway;
+mod gateway_hardening;
+mod gateway_descriptors_bound_and_kinds;
+mod gateway_readers_and_filter;
+mod gateway_model_and_no_token;
 mod impl_gate;
 mod not_called_writes;
 mod plugin;

@@ -13,4 +13,4 @@ actions:
         subject: bug
         producer: seed-check
         from: exit
-        results: {"0": found, "*": missing}
+        results: {"0": found, timeout: missing, "*": missing}

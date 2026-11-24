@@ -11,7 +11,8 @@
         "program": "sdc-tool.sh check-dissection",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "dissection.check",
@@ -39,7 +40,8 @@
         "program": "sdc-tool.sh check-idea",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "idea.check",
@@ -81,6 +83,10 @@
           "3": {
             "questions_settled": "needs_scope_answer",
             "questions_shape": "valid"
+          },
+          "timeout": {
+            "questions_settled": "open",
+            "questions_shape": "invalid"
           }
         }
       },
@@ -120,7 +126,8 @@
         "results": {
           "*": "invalid",
           "0": "valid",
-          "5": "finding"
+          "5": "finding",
+          "timeout": "invalid"
         }
       },
       "name": "requirements.check",
@@ -1180,8 +1187,8 @@
   },
   "source": {
     "path": "protocol/sdc-intake.protocol.yaml",
-    "tag": "0.10.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.10.0/protocol/sdc-intake.protocol.yaml"
+    "tag": "0.11.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.11.0/protocol/sdc-intake.protocol.yaml"
   },
   "stem": "sdc-intake",
   "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3).",

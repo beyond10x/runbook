@@ -33,7 +33,7 @@ actions:
         subject: dissection
         producer: sdc-bugfix
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: test.reproduce
     executor:
       kind: program
@@ -60,7 +60,7 @@ actions:
         subject: repro
         producer: sdc-bugfix
         from: exit
-        results: {"0": red, "*": not_red}
+        results: {"0": red, timeout: not_red, "*": not_red}
         upstream: [change]
   - action: change.fix
     executor:
@@ -90,7 +90,7 @@ actions:
         subject: change
         producer: sdc-bugfix
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
         upstream: [repro]
   - action: story.update
     executor:
@@ -109,10 +109,10 @@ actions:
       kind: program
       argv: [tools/sdc-tool.sh, bugfix, gate-run, --action, gate.run, --pool-wait, "1200"]
     exits: {error: [69, 70, 75, 126, 127]}
-    timeout_seconds: 3600
+    timeout_seconds: 4200
     evidence:
       - kind: gate_run
         subject: change
         producer: sdc-bugfix
         from: exit
-        results: {"0": passed, "*": failed}
+        results: {"0": passed, timeout: failed, "*": failed}
