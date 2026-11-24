@@ -66,6 +66,9 @@ impl Pin {
         let borrowed: Vec<(&Path, &Path)> = jobs.iter().map(|(from, to)| (from.as_path(), to.as_path())).collect();
         let made = copy_dirs(&borrowed, Links::Within(&root)).and_then(|()| {
             let resolved = layout::resolve(&copy, name, version)?;
+            // Loom reads the copy and refuses a member it does not know: the members `max_budget_usd`
+            // leave the copy's files and are kept beside them, inside the digest.
+            crate::budget::seal(&resolved.bindings)?;
             let pin = Pin {
                 bindings_sha256: digest(&copy.join("bindings"))?,
                 copy_sha256: digest(&copy)?,

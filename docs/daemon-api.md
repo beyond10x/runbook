@@ -310,13 +310,27 @@ unbound in money:
   own arguments, the largest when it names it more than once) reserves that budget. The arguments come
   from the bindings the run reads (the root's bindings file and the children it names) and nowhere
   else.
-- A program that names none may call a model all the same: it reserves the largest per-call budget
-  the runbook's own bindings name, root and children. A step near the cap whose program makes no
-  model call may therefore be stopped; a program that names `--max-budget-usd 0` reserves nothing.
-- A runbook with a program that names no budget and no budget in any of its bindings is refused at
-  submit as an invalid request (`400`), naming the reason and the action; no run is made. So is a
-  budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing after the option),
-  naming the action and the bindings file. A run checks the same on its own copy before it opens.
+- A binding states the per-call budget of its programs without the argv, for a program that does not
+  take the option (`docs/loom-bindings.md`, "The per-call budget of a program"): the member
+  `max_budget_usd: <number>` of a program action (an action with `executor.argv` or `arguments_from`),
+  and the same member at the top of a bindings file for every program action of that file that names
+  none itself; it does not reach a child file an `open` action names (each file names its own). It is
+  never passed to the program; `0` says the program calls no model and reserves nothing. The order:
+  the argv's budget, then the action's member, then the file's member, then the largest budget below.
+- A program whose budget none of these names may call a model all the same: it reserves the largest
+  per-call budget the runbook's own bindings name (in an argv or as a member), root and children. A
+  step near the cap whose program makes no model call may therefore be stopped; a program that names
+  `--max-budget-usd 0` or `max_budget_usd: 0` reserves nothing.
+- A runbook with a program whose budget no source names and no budget in any of its bindings is
+  refused at submit as an invalid request (`400`), naming the reason and the action; no run is made. A
+  runbook whose every program has a budget from one of the sources needs no budget elsewhere. Refused
+  the same way: a budget that is no number of USD of 0 or more (`abc`, `-1`, `NaN`, `inf`, nothing
+  after the option; for a member also text such as `"0.3"`, `null`, `true`, a list), naming the action
+  and the bindings file, or the bindings file for its own member; an action whose argv and member name
+  two different budgets, naming the action; a member on an action that runs no program. A run checks
+  the same on its own copy before it opens; the copy's files hold no member (Loom refuses a member it
+  does not know) and the members are kept beside them in `bindings/.call-budgets.json`, inside the
+  copy's digest.
 - A program a person's answer starts (a person action whose binding names an `argv`) reserves the
   same way before it starts and is booked after, also when the run ends right after it (a wall cap
   spent while it ran); when its reservation is short it does not start and the run ends at the spend
