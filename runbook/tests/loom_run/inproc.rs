@@ -553,6 +553,25 @@ fn a_bound_program_ended_by_a_signal_ends_the_run_with_the_signal_as_the_cause_n
     assert_eq!(stopped["cause"], "program_signalled", "{stopped}");
 }
 
+/// The writer listed an exit in `exits.error` and the program ended with it: Loom refuses the step
+/// `ProgramError`, records nothing and leaves the tree without a move. The run says so: `refused`,
+/// exit 12, cause `program_error`, Loom's text (the action and the exit) as the reason.
+#[test]
+fn a_bound_program_refused_by_its_exits_error_list_ends_the_run_refused_naming_the_action_and_its_exit() {
+    let rig = Rig::new("program-error");
+    writer_binding(&rig, "    exits: {error: [69]}\n");
+    rig.writer("#!/bin/sh\nexit 69\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 12, "a tree left without a move by a refused action is a refusal, not exit 3: {}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str(), outcome["exit_code"].as_u64()), (Some("refused"), Some("program_error"), Some(12)), "{outcome}");
+    let reason = outcome["reason"].as_str().unwrap();
+    assert!(reason.starts_with("ProgramError: action draft.write: ") && reason.contains("exit status 69"), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stopped["cause"], "program_error", "{stopped}");
+    assert!(stopped["reason"].as_str().unwrap().contains("draft.write"), "{stopped}");
+}
+
 // ---- the program of a person's action: its environment, and who may take it ----
 
 #[test]

@@ -92,6 +92,12 @@ impl Rig {
     /// (`tools/draft-hold.sh`: sleeps the seconds of `pause.txt`, exits 1), so a check runs before
     /// the writer's step.
     fn build(tag: &str, levels: &[Confinement], hold: bool) -> Rig {
+        Rig::build_with(tag, levels, hold, false)
+    }
+
+    /// `refuse`: the writer's binding lists the exit 69 in `exits.error` and the writer ends with
+    /// it, so Loom refuses the step `ProgramError` and the tree is left without a move.
+    fn build_with(tag: &str, levels: &[Confinement], hold: bool, refuse: bool) -> Rig {
         let dir = scratch(tag);
         let home = dir.join("home");
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
@@ -104,6 +110,12 @@ impl Rig {
             let writer = "      argv: [tools/draft-write.sh]\n";
             assert!(text.contains(writer));
             text = text.replace(writer, &format!("{writer}    handoff: Write the draft by hand.\n    handoff_when: [tools/draft-hold.sh]\n"));
+        }
+        if refuse {
+            let writer = "      argv: [tools/draft-write.sh]\n";
+            assert!(text.contains(writer));
+            text = text.replace(writer, &format!("{writer}    exits: {{error: [69]}}\n"));
+            std::fs::write(home.join("bindings/tools/draft-write.sh"), "#!/bin/sh\nexit 69\n").unwrap();
         }
         std::fs::write(&binding, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
@@ -339,6 +351,20 @@ fn a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_
     assert!(stopped, "no Stopped line says Cancelled with next [draft.write]");
     assert!(started.is_empty(), "the writer started after the cancel: {started:?}");
     assert!(!rig.workspace(&run).join("draft.txt").exists(), "the writer wrote a draft");
+}
+
+#[test]
+fn a_run_left_without_a_move_by_a_refused_action_says_which_action_and_exit() {
+    // The daemon ends a run the engine could not go on with as `runtime-failure` and keeps the
+    // engine's reason in `runbook.runtime-failed`: the reason names Loom's refusal of the action
+    // (`ProgramError`, its exit), not only that the tree is stuck.
+    let rig = Rig::build_with("engine-program-error", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    until("the run to end", 40, || rig.state_of(&run) == "Ended");
+    assert_eq!(rig.row(&run)["outcome"], "runtime-failure");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
+    assert!(reason.contains("ProgramError: action draft.write: ") && reason.contains("exit status 69"), "{reason}");
 }
 
 #[test]
