@@ -442,3 +442,18 @@ fn the_files_of_a_requester_call_replace_a_link_a_program_left_at_their_names() 
     assert!(!dangling.exists(), "a copy of work/goals.yaml was written through a link that points at nothing");
     assert!(std::fs::symlink_metadata(rec.join("cwd/in/goals.yaml")).unwrap().is_file());
 }
+
+#[test]
+fn a_link_a_program_put_at_a_file_the_requester_copies_is_not_read_through() {
+    let w = world("requester-source-link");
+    let outside = w.run.parent().unwrap().join("outside-secret.txt");
+    std::fs::write(&outside, "secret-outside-text\n").unwrap();
+    std::fs::remove_file(w.work.join("goals.yaml")).unwrap();
+    std::os::unix::fs::symlink(&outside, w.work.join("goals.yaml")).unwrap();
+    let _ = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    let mut found = String::new();
+    for rec in records(&w) {
+        found.push_str(&std::fs::read_to_string(rec.join("cwd/in/goals.yaml")).unwrap_or_default());
+    }
+    assert!(!found.contains("secret-outside-text"), "the text of a file outside the run was copied into the input of the model through a link at work/goals.yaml");
+}

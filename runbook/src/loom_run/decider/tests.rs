@@ -1362,3 +1362,111 @@ fn the_structured_output_of_a_call_is_copied_past_a_link_a_program_left_at_the_d
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep\n", "the structured output was copied through a link at the decision file");
     assert!(std::fs::symlink_metadata(rec.join("cwd/out/decision.json")).unwrap().is_file(), "the decision file is not a regular file");
 }
+
+// --- the directories of the decider are made without following a link, and what the decider reads is read as a regular file ---
+
+/// An empty directory outside the run that must stay empty.
+fn empty_directory_outside(w: &World, name: &str) -> PathBuf {
+    let dir = w.run.parent().unwrap().join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_link_a_program_put_at_the_decider_directory_is_not_written_through() {
+    let w = world("decider-dir-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-decider");
+    std::os::unix::fs::symlink(&out, w.run.join("decider")).unwrap();
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider made these in a directory outside the run, through a link at decider/");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_decider_cases_directory_is_not_written_through() {
+    let w = world("decider-cases-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-cases");
+    std::os::unix::fs::symlink(&out, w.run.join("decider-cases")).unwrap();
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider made these in a directory outside the run, through a link at decider-cases/");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_inputs_directory_of_a_call_is_not_written_through() {
+    let w = world("inputs-dir-link", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-inputs");
+    let rec = w.run.join("decider/002-context.approve");
+    std::fs::create_dir_all(rec.join("cwd")).unwrap();
+    std::os::unix::fs::symlink(&out, rec.join("cwd/in")).unwrap();
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the decider made these in a directory outside the run, through a link at cwd/in");
+}
+
+#[test]
+fn a_directory_input_is_not_copied_through_a_link_a_program_left_at_its_name() {
+    let w = world("input-copy-dir-link", "#!/bin/sh\n");
+    let from = w.work.join("d");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::write(from.join("a.txt"), "a\n").unwrap();
+    std::fs::set_permissions(&from, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let out = empty_directory_outside(&w, "out-copy");
+    std::fs::write(out.join("keep.txt"), "keep\n").unwrap();
+    std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let cwd = w.run.join("decider/001-x/cwd");
+    std::fs::create_dir_all(cwd.join("in")).unwrap();
+    std::os::unix::fs::symlink(&out, cwd.join("in/d")).unwrap();
+    let _ = super::inputs::Inputs::default().add(&w.work, &cwd, "d");
+    assert_eq!(names_in(&out), vec!["keep.txt".to_owned()], "the copy of a directory made files in a directory outside the run, through a link at its name");
+    assert_eq!(std::fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o700, "the copy of a directory changed the permissions of a directory outside the run");
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_the_structured_output_does_not_hold_the_call() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let w = world("structured-fifo", &valid("0.012345"));
+        std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+        let rec = w.run.join("decider/002-context.approve");
+        std::fs::create_dir_all(&rec).unwrap();
+        assert!(Command::new("mkfifo").arg(rec.join("structured-output.json")).status().unwrap().success());
+        let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+        let _ = tx.send(());
+    });
+    assert!(rx.recv_timeout(Duration::from_secs(10)).is_ok(), "the call did not end within 10 s: the decider reads structured-output.json by its path and waits there for a writer of the pipe that a program put in its place");
+}
+
+#[test]
+fn a_copy_whose_source_is_a_named_pipe_does_not_wait_for_a_writer() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let w = world("copy-source-fifo", "#!/bin/sh\n");
+        let from = w.work.join("from.txt");
+        assert!(Command::new("mkfifo").arg(&from).status().unwrap().success());
+        let answer = crate::loom_run::record_write::copy_atomic(&from, &w.work.join("to.txt"));
+        let _ = tx.send(answer.is_err());
+    });
+    let answer = rx.recv_timeout(Duration::from_secs(5)).expect("the copy did not end within 5 s: it opens its source by the path and waits there for a writer of the pipe");
+    assert!(answer, "a pipe was copied as a file");
+}
+
+#[test]
+fn a_reply_file_whose_every_temporary_name_a_program_took_is_an_error_of_the_call_not_a_silent_skip() {
+    let w = world("reply-names-taken", &valid("0.012345"));
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let rec = w.run.join("decider/002-context.approve");
+    std::fs::create_dir_all(&rec).unwrap();
+    for n in 0..400 {
+        std::fs::create_dir(rec.join(format!(".reply.json.{}.{n}.tmp", std::process::id()))).unwrap();
+    }
+    let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert!(!rec.join("reply.json").exists(), "the case plants no name the writer can use for reply.json");
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "the call was answered although the record of its reply could not be written: {verdict:?}");
+}

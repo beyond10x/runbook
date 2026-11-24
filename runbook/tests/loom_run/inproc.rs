@@ -1093,3 +1093,73 @@ fn the_reasons_of_a_rejection_replace_a_link_a_program_left_at_their_file() {
     assert!(std::fs::symlink_metadata(&reasons).unwrap().is_file(), "{} is not a regular file", reasons.display());
     assert!(std::fs::read_to_string(&reasons).unwrap().contains("the draft needs a title line"));
 }
+
+// ---- the directories of the run are made without following a link, and what the runner reads is read as a regular file ----
+
+/// An empty directory outside the run that must stay empty.
+fn empty_directory_outside(rig: &Rig) -> PathBuf {
+    let dir = rig.root.join("outdir");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+/// Runs the writer `plant` and checks that the run ends within `RECORD_AFTER_PLANT_SECS` and that nothing was made in the
+/// empty directory outside the run.
+fn directory_link_leaves_outside_empty(tag: &str, plant: &str) {
+    let rig = Rig::new(tag);
+    let out = empty_directory_outside(&rig);
+    planting_writer(&rig, &plant.replace("OUTDIR", &out.display().to_string()));
+    let (mut child, o, e) = spawn_to_files(&rig, tag);
+    let status = ended_after_plant_within(&rig, &mut child, RECORD_AFTER_PLANT_SECS);
+    let text = format!("{}{}", std::fs::read_to_string(&o).unwrap_or_default(), std::fs::read_to_string(&e).unwrap_or_default());
+    assert!(status.is_some(), "{tag}: the run did not end within {RECORD_AFTER_PLANT_SECS} s of the plant ({text})");
+    assert_eq!(names_in(&out), Vec::<String>::new(), "{tag}: the runner made these files in a directory outside the run, through a link a program put at a directory of the run ({status:?}: {text})");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_loom_directory_is_not_written_through() {
+    directory_link_leaves_outside_empty("loom-link", "rm -rf ../loom\nln -s 'OUTDIR' ../loom");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_store_directory_of_the_root_case_is_not_written_through() {
+    directory_link_leaves_outside_empty("store-root-link", "rm -rf ../store/ROOT-1\nln -s 'OUTDIR' ../store/ROOT-1");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_directory_of_the_reasons_is_not_written_through() {
+    let rig = Rig::new("reasons-dir-link");
+    rig.answers(&[json!({"approve": false, "reasons": "the draft needs a title line", "cost_micro_usd": 0}), approve()], 0);
+    let out = empty_directory_outside(&rig);
+    planting_writer(&rig, &format!("[ -L .sdc ] || ln -s '{}' .sdc", out.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(names_in(&out), Vec::<String>::new(), "the reasons of a rejection were written into a directory outside the run, through a link a program put at .sdc ({}: {})", code(&o), stderr(&o));
+}
+
+#[test]
+fn a_named_pipe_a_program_put_at_findings_yaml_does_not_hold_the_end_of_the_run() {
+    let rig = Rig::new("findings-fifo");
+    planting_writer(&rig, "mkfifo findings.yaml");
+    let (mut child, o, e) = spawn_to_files(&rig, "findings");
+    let status = ended_after_plant_within(&rig, &mut child, RECORD_AFTER_PLANT_SECS);
+    let text = format!("{}{}", std::fs::read_to_string(&o).unwrap_or_default(), std::fs::read_to_string(&e).unwrap_or_default());
+    assert!(status.is_some(), "the run did not end within {RECORD_AFTER_PLANT_SECS} s of the plant: the copy of work/findings.yaml into the store reads a pipe that a program put there and waits for a writer ({text})");
+}
+
+#[test]
+fn a_link_a_program_put_at_findings_yaml_is_not_copied_into_the_store() {
+    let rig = Rig::new("findings-link");
+    let outside = rig.root.join("outside-findings.txt");
+    std::fs::write(&outside, "secret-outside-text\n").unwrap();
+    planting_writer(&rig, &format!("ln -s '{}' findings.yaml", outside.display()));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    let copy = rig.run_dir("r1").join("store/ROOT-1/work/findings.yaml");
+    let text = std::fs::read_to_string(&copy).unwrap_or_default();
+    assert!(!text.contains("secret-outside-text"), "the text of a file outside the run was copied into the store of the run through a link at work/findings.yaml ({}: {})", code(&o), stderr(&o));
+}

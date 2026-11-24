@@ -4,7 +4,7 @@
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawn} from 'node:child_process';
+import {spawn, execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {readText} from '../runfiles.mjs';
 import {startServer} from './serve.mjs';
@@ -199,6 +199,96 @@ test('guard: a file that is longer than its limit at the time of the read is ans
     fs.fstatSync = realStat;
     fs.readSync = realRead;
   }
+});
+
+// runs `body` with every byte `fs.readSync` returns counted, and `fs.fstatSync` answering `size` when it is given
+const counting = (size, body) => {
+  const realStat = fs.fstatSync, realRead = fs.readSync;
+  const seen = {taken: 0};
+  if (size != null) fs.fstatSync = (...args) => { const st = realStat(...args); return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {size}); };
+  fs.readSync = (...args) => { const n = realRead(...args); seen.taken += n; return n; };
+  try { return body(seen); } finally { fs.fstatSync = realStat; fs.readSync = realRead; }
+};
+
+test('guard: a file of exactly its limit is read, a file of one byte more is not, and neither takes more than the limit plus one byte', () => {
+  const dir = path.join(root, 'edge');
+  fs.mkdirSync(dir, {recursive: true});
+  for (const limit of [1, 2, 1000, 1048576, 1048577]) {
+    for (const [extra, expected] of [[0, true], [1, false]]) {
+      const file = path.join(dir, `f-${limit}-${extra}.txt`);
+      fs.writeFileSync(file, 'x'.repeat(limit + extra));
+      counting(null, (seen) => {
+        const t = readText(file, dir, limit);
+        expect(t != null, `limit ${limit} with ${extra} byte more`).toBe(expected);
+        if (t != null) expect(t.length).toBe(limit);
+        expect(seen.taken, `bytes taken, limit ${limit} with ${extra} byte more`).toBeLessThanOrEqual(limit + 1);
+      });
+    }
+  }
+});
+
+test('guard: an empty file is read as empty and a limit of zero reads no byte of a file that holds one', () => {
+  const dir = path.join(root, 'empty');
+  fs.mkdirSync(dir, {recursive: true});
+  fs.writeFileSync(path.join(dir, 'empty.txt'), '');
+  fs.writeFileSync(path.join(dir, 'one.txt'), 'x');
+  expect(readText(path.join(dir, 'empty.txt'), dir, 10)).toBe('');
+  expect(readText(path.join(dir, 'empty.txt'), dir, 0)).toBe('');
+  counting(null, (seen) => {
+    expect(readText(path.join(dir, 'one.txt'), dir, 0)).toBeNull();
+    expect(seen.taken).toBeLessThanOrEqual(1);
+  });
+});
+
+test('guard: a character of three bytes that a chunk of the read ends inside is not torn', () => {
+  const dir = path.join(root, 'torn');
+  fs.mkdirSync(dir, {recursive: true});
+  const text = '€'.repeat(700000);
+  const file = path.join(dir, 'f.txt');
+  fs.writeFileSync(file, text);
+  // the size of the check is small, so the first chunk is 101 bytes (33 characters and two bytes of the 34th) and the rest are 1 MiB
+  counting(100, () => { expect(readText(file, dir, 4 * 1048576)).toBe(text); });
+});
+
+test('guard: a file that keeps growing while it is read is taken for at most the limit plus one byte per read', async () => {
+  const dir = path.join(root, 'growing');
+  fs.mkdirSync(dir, {recursive: true});
+  const file = path.join(dir, 'f.txt');
+  fs.writeFileSync(file, 'x'.repeat(100));
+  const limit = 5000;
+  const grower = spawn(process.execPath, ['-e', `const fs = require('node:fs'); const fd = fs.openSync(${JSON.stringify(file)}, 'a'); console.log('ready'); const chunk = Buffer.alloc(65536, 120); const end = Date.now() + 15000; while (Date.now() < end) fs.writeSync(fd, chunk);`], {stdio: ['ignore', 'pipe', 'ignore']});
+  try {
+    await new Promise((resolve) => grower.stdout.once('data', resolve));
+    let over = 0, most = 0;
+    for (let i = 0; i < 300; i++) {
+      counting(null, (seen) => {
+        const t = readText(file, dir, limit);
+        if (t != null && t.length > limit) over++;
+        most = Math.max(most, seen.taken);
+      });
+    }
+    expect({over}, 'reads that answered more than the limit').toEqual({over: 0});
+    expect(most, 'the most bytes one read took').toBeLessThanOrEqual(limit + 1);
+  } finally {
+    grower.kill();
+  }
+});
+
+test('guard: a named pipe and a link to a device inside the run are refused without a read and without waiting', () => {
+  const dir = path.join(root, 'kinds');
+  fs.mkdirSync(dir, {recursive: true});
+  const stamp = `${process.pid}-${Date.now()}`;
+  const fifo = path.join(dir, `p-${stamp}`);
+  execFileSync('mkfifo', [fifo]);
+  const dev = path.join(dir, `zero-${stamp}`);
+  fs.symlinkSync('/dev/zero', dev);
+  counting(null, (seen) => {
+    const t0 = Date.now();
+    expect(readText(fifo, dir, 1000)).toBeNull();
+    expect(readText(dev, dir, 1000)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(seen.taken).toBe(0);
+  });
 });
 
 test('guard: readStat takes a pid only as a number whose text is digits', () => {

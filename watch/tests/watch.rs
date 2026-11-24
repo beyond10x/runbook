@@ -443,3 +443,38 @@ fn scan_writes_a_snapshot_and_no_record() {
     assert_eq!(files, vec![("llm/001-q.w/cwd".into(), "in/i.yaml".into()), ("store/C/work".into(), "a.txt".into())]);
     assert!(!r.dir.join("fs/changes.jsonl").exists());
 }
+
+// ---- the temporary files of the watcher are made as new files that follow no link ----
+
+#[test]
+fn a_link_a_program_put_at_the_temporary_name_of_a_blob_is_not_written_through() {
+    let mut r = Run::new("blob-link");
+    r.start();
+    let pid = fs::read_to_string(r.dir.join("fs/sdc-watch.pid")).unwrap().trim().to_string();
+    let content = "content a program of the run wrote\n";
+    let probe = r.dir.join("probe.txt");
+    fs::write(&probe, content).unwrap();
+    let sum = Command::new("sha256sum").arg(&probe).output().unwrap();
+    let sha = String::from_utf8(sum.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+    let outside = r.dir.parent().unwrap().join(format!("outside-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs/blobs").join(format!(".{sha}.{pid}"))).unwrap();
+    fs::write(r.work().join("a.txt"), content).unwrap();
+    r.pause();
+    let _ = r.stop();
+    let after = fs::read_to_string(&outside).unwrap();
+    assert_eq!(after, "keep\n", "the watcher wrote the content of a file of the run into a file outside the run, through a link a program put at the temporary name of its blob");
+}
+
+#[test]
+fn a_link_a_program_put_at_the_temporary_name_of_the_snapshot_is_not_written_through() {
+    let r = Run::new("snapshot-link");
+    fs::write(r.work().join("a.txt"), "a\n").unwrap();
+    fs::create_dir_all(r.dir.join("fs")).unwrap();
+    let outside = r.dir.parent().unwrap().join(format!("outside-snap-{}.txt", std::process::id()));
+    fs::write(&outside, "keep\n").unwrap();
+    std::os::unix::fs::symlink(&outside, r.dir.join("fs/.snapshot.json.tmp")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-watch")).arg("scan").arg(&r.dir).output().unwrap();
+    let after = fs::read_to_string(&outside).unwrap();
+    assert_eq!(after, "keep\n", "the snapshot was written into a file outside the run, through a link at its temporary name ({:?})", out.status);
+}
