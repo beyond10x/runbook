@@ -26,6 +26,8 @@ timeline:
       runbook_known: true
       context_inside_roots: true
       settings: {}
+      confinement: linux
+      confinement_source: daemon-default
       at: 2026-11-23T10:01:00Z
     outcome: submitted
 

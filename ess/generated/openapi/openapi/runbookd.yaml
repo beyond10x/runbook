@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:1b11ad0936432762bc24c71d9f3f65b300e947529f1319042b90d4d7e1d7a917
+# contract digest slice-sha256/2:8268a6dfea928e77fa368244879af5e3b0bebbcc171960b01149e0b1b9d1ab03
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:1b11ad0936432762bc24c71d9f3f65b300e947529f1319042b90d4d7e1d7a917
+    contract_digest: slice-sha256/2:8268a6dfea928e77fa368244879af5e3b0bebbcc171960b01149e0b1b9d1ab03
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -2331,7 +2331,7 @@ components:
       type: object
     sdc.daemon.SubmitRun.below-floor.Response:
       additionalProperties: false
-      description: 'The daemon''s floor is linux and the confinement is local: nothing was submitted. Taken when the `sdc.daemon.Daemon` that `input.daemon_id` names exists and its stored fields satisfy `confinement_floor == linux` and `confinement in [local]` holds of the input.'
+      description: 'The daemon''s floor is linux and the submit names the confinement local: nothing was submitted. A submit that names none takes the daemon''s default and is not below the floor. Taken when the `sdc.daemon.Daemon` that `input.daemon_id` names exists and its stored fields satisfy `confinement_floor == linux` and `(defined(confinement) and confinement in [local])` holds of the input.'
       properties:
         error:
           const: sdc.daemon.BelowConfinementFloor

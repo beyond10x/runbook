@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "80bbba6473dae155accbde45b39376f5ce0f366bfd8a9224f2914092a28921b9",
-    "contract_digest": "e46c9ece46c379c46156ad5cf4db004bedae093694e634369983bc2c1e163fd2",
+    "spec_digest": "77a4b866b87a5baf86299823ac0ffe3f0d125b3fb5cac3f62d877a41c95b679a",
+    "contract_digest": "b45bb73b7052729c8f65cccd668ee8fdacf41f841c6c136a609f5eb65ab2a30f",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -10042,6 +10042,14 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-23T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "confinement_source": {
+              "kind": "literal",
+              "value": "daemon-default"
             },
             "context_inside_roots": {
               "kind": "literal",
