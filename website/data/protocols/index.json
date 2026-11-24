@@ -672,12 +672,38 @@
     }
   ],
   "release": {
-    "date": "2026-11-23",
-    "notes": "docs/releases/0.9.2.md",
-    "tag": "0.9.2",
-    "version": "0.9.2"
+    "date": "2026-11-24",
+    "notes": "docs/releases/0.9.3.md",
+    "tag": "0.9.3",
+    "version": "0.9.3"
   },
   "releases": [
+    {
+      "date": "2026-11-24",
+      "limits": [
+        "**No binary asset.** A user builds from a checkout with `scripts/install.sh --prefix <dir>`; the script is the source of an asset that does not exist yet (`docs/releasing.md`, \"The binary\").",
+        "**The install script builds on the machine it runs on and installs from the checkout it lies in.** It copies only files git tracks and refuses a checkout whose git cannot be asked. Two installs at once into one prefix are not held apart; an install from an archive lacks the links and dot files of a git checkout; a release install after a branch was moved from another work tree is refused until an input of the build changes; a checkout with the reftable format cannot be installed. `scripts/install.sh --help` has each.",
+        "**No evaluation run was made on this code.** The records of `experiments/` ran on earlier code; this release claims no measured change over 0.9.2. The fifth Loom evaluation record, `parity-loom-strong-5`, is registered and planned: it has no run yet.",
+        "**The rework allowance is not observed in a full run.** The cycle entries that show it, `decider-rework-spent`, `rework-fresh-allowance` and `implement-percause`, stay `pending`: alone, nine runs ended on Loom's 60 s bound before `change.implement` ran, at a host load of 45 to 112, so no run has shown the numbering of the stub at work (`docs/cycles-suite.md`). `rework_limit: 2` follows Loom's rules; no run has told 2 from 3.",
+        "**The bindings check follows Loom's decoder for the forms it names.** Five forms (`merge_budget_limit`, `merge_budget_zero`, `merge_budget_unrelated`, `merge_in_action`, `complex_key`) were measured to be refused by Loom at the pin; no other form is claimed refused as Loom refuses it, and the 1 MiB text bound of Loom's reader is not checked (`CHANGELOG.md`).",
+        "**The slow lane `task test:loom-in-process` still names the child binary of Loom `70b0e6e0`** and compares a library of `d8944d49` with it (`docs/loom-run.md`).",
+        "**Only `runbook run` writes `runner.json`** (`runbook/src/loom_run/run_loop.rs`). A run of the daemon's stub runtime, in which nothing is executed, and a run directory an older `runbook` wrote have none, and the inspector shows them as it showed them before: \"live state unknown\" for a directory with `settings.json`, no end record and no `runner.json`.",
+        "**The line of the step in flight is not shown.** Loom pipes a bound program's output into its own process and returns the last bytes when the program ends; the only file that grows while a step runs is under `work/.sdc/llm/`, a dot-directory the inspector never serves (`docs/loom-run-directory.md`).",
+        "**`runner.json` and the start lines are what files of the run directory claim.** Under `--confinement local` a bound program can write the run directory, so the inspector's answer is a reading of those files, shown as text, and nothing decides on it.",
+        "**Money caps are as in 0.8.0.** `runbook run` takes `--cap-micro-usd`, `--max-llm-calls` and `--max-wall-seconds` as required options (`docs/loom-run.md`); a file never sets or lowers the confinement level, and a cap in the settings file must equal the option.",
+        "**A run started from the daemon's page or over MCP has no wall-time bound of its own.** The engine starts a run with no `max_wall_seconds` (`runbook/src/engine/calls.rs`, `run_settings`); a run ends by its outcome or by `cancel-run`. Its products are read on disk under the daemon's state directory (`runs/<run_id>/` and `workspaces/<run_id>/`, `docs/daemon-api.md`): no tool or route serves them yet.",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime, in which nothing is executed, unless `--runtime loom` is given (`docs/engine.md`).",
+        "**The cycles that run `change.review` and the request entries are not observed as `expected` here.** `docs/cycles-suite.md` says that no entry changed from expected to another state is not observed on the host where they were run; it needs one run of the suite at a load where a cycle ends inside Loom's 60 s bound, and that run has not been made.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** A figure in these notes is a count read from the tree or from a command named above. The measurements of the inspector's idle work in `CHANGELOG.md` and `ui/README.md` were made on the build host and are in no record of `experiments/`.",
+        "**The inspector is read-only and has no route to the daemon** (`ui/README.md`).",
+        "**`--confinement local` is unconfined** (`docs/loom-run.md`): a bound program can write the whole run directory.",
+        "`task check:ess-suite:slow`, the slow lane `task test:cycles-loom`, `task test:install` and `task docs:test` were not run for this release."
+      ],
+      "notes": "docs/releases/0.9.3.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.9.3/docs/releases/0.9.3.md",
+      "summary": "A patch release of 0.9.2. The crate `runbook` links Loom `d8944d49`, in which a rejection gives an action a new allowance of runs, and the story runbook uses it for `change.implement`. `runbook check` and `scripts/check-bindings.sh` refuse by name what Loom refuses in a `budget`. The inspector does no work while no page looks at it. Nothing is marked breaking. A source release at tag `0.9.3`; nothing is published to crates.io, there is no binary asset and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.9.2.md` for the release this one follows.",
+      "version": "0.9.3"
+    },
     {
       "date": "2026-11-23",
       "limits": [
@@ -1000,7 +1026,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "08736ab5861b0093e6cbc6786bc049bc5c9affcbedfd543a73f48eaf6faa240e"
+      "sha256": "ca2dd06b676ed04fa4acfd767d3d13bb4f3a09e7b818c1edcbef1c403ac66556"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -1081,6 +1107,10 @@
     {
       "path": "docs/releases/0.9.2.md",
       "sha256": "eafe3177547ec19b03e7fc2334e39309bc68c4edc1cb1836807c7fe3e17b0a0a"
+    },
+    {
+      "path": "docs/releases/0.9.3.md",
+      "sha256": "19a132c71b0057c89690a3bed13b6ef593c025b5ea4cbf113b20c02d32eb2479"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
