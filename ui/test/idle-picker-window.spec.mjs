@@ -1,27 +1,34 @@
 // The run picker's list against the stream of a page. A page holds the list /api/sources gave it (the header button and the
 // picker show a run's state from it) and reads it again only when the stream sends `sources`. A run that changes state after
 // the page's list and before the stream's first round must still reach the page, and with no page connected nothing runs.
+// The cases from "a list older than a minute" on start a server of their own, with a seam (idle-list-seam.cjs: a clock that
+// moves on by 61 s on a signal, and the length of the longest list of states the server stored for a source), and hold the
+// guards of the list states: a list older than a minute is no news, the store is bounded, lists of a new state do not push an
+// older one out, a new page does not move the baseline of the pages that were there, a second stop is a new state.
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, iso} from './loom-run-fixture.mjs';
 import {fixtureRoot} from './security-products-lib.mjs';
 
+const here = path.dirname(fileURLToPath(import.meta.url));
 const root = fixtureRoot('idle-picker-window');
 let srv, base;
 const streams = [];
+const others = [];
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, one viewport'));
-test.afterAll(() => { srv?.kill(); for (const s of streams) s.destroy(); });
+test.afterAll(() => { srv?.kill(); for (const s of others) s.kill(); for (const s of streams) s.destroy(); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const runDir = (i) => path.join(root, 'runs', `r${i}`);
 const get = async (p) => (await fetch(base + p)).json();
 const stopRun = (i, reason) => fs.writeFileSync(path.join(runDir(i), 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: iso(30), by: 'tester', reason, verdict_at_stop: 'waiting', case: 'CASE-1'}));
-function watch(source) {
+function watch(source, b = base) {
   const seen = [];
   let buf = '';
-  const req = http.get(`${base}/events?source=${source}`, (res) => {
+  const req = http.get(`${b}/events?source=${source}`, (res) => {
     res.setEncoding('utf8');
     res.on('data', (d) => {
       buf += d;
@@ -112,4 +119,110 @@ test('when one of two pages leaves, the other still hears of its run', async () 
   for (let t = Date.now(); Date.now() - t < 8000 && b.seen.filter((e) => e.event === 'change').length <= had; ) await sleep(50);
   expect(b.seen.filter((e) => e.event === 'change').length > had, 'the page that stayed hears of a change of its run').toBe(true);
   b.close();
+});
+
+// ---- the list states, on a server of each case's own ----------------------------------------------------------------------
+const until = async (what, fn, ms = 20000) => {
+  const end = Date.now() + ms;
+  for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`gave up waiting for ${what}`); await sleep(25); }
+};
+const stopIn = (dir, reason, n = 0) => fs.writeFileSync(path.join(dir, 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: iso(30 + n), by: 'tester', reason, verdict_at_stop: 'waiting', case: 'CASE-1'}));
+const sources = (p) => p.seen.filter((e) => e.event === 'sources').length;
+// `count` runs not ended, under --runs, a server with the seam, and what a case asks of it
+async function ownServer(name, count) {
+  const runs = path.join(root, name);
+  const dirs = [];
+  for (let i = 0; i < count; i++) {
+    const d = writeLoomRun(path.join(runs, `r${i}`));
+    fs.rmSync(path.join(d, 'status.json')); fs.rmSync(path.join(d, 'outcome.json'));
+    const ev = path.join(d, 'store', 'CASE-1', 'events.jsonl');
+    fs.writeFileSync(ev, fs.readFileSync(ev, 'utf8').trim().split('\n').filter((l) => !l.includes('"terminated"')).join('\n') + '\n');
+    dirs.push(d);
+  }
+  const seamFile = path.join(root, `${name}.seam.json`);
+  const env = {...process.env, NODE_OPTIONS: `--require ${path.join(here, 'idle-list-seam.cjs')}`, IDLE_SEAM_FILE: seamFile};
+  const s = await startServer(['--count-reads', '--no-view', '--runs', runs], {env});
+  others.push(s.proc);
+  const pid = await s.proc.started;
+  const json = async (p) => { for (let t = 0; ; t++) { try { return await (await fetch(s.url + p, {headers: {connection: 'close'}, signal: AbortSignal.timeout(20000)})).json(); } catch (e) { if (t >= 3) throw e; await sleep(100); } } };
+  let answered = 0;
+  const longest = async () => {
+    answered++;
+    process.kill(pid, 'SIGUSR2');
+    return (await until('the seam answers', () => { try { const a = JSON.parse(fs.readFileSync(seamFile, 'utf8')); return a.answers === answered ? a : null; } catch { return null; } })).longest;
+  };
+  return {url: s.url, pid, dirs, list: () => json('/api/sources'), clock: () => json('/api/clock'), rounds: async () => (await json('/api/reads')).rounds, longest};
+}
+
+test('a list older than a minute is no reason to announce a state to a page that opens its stream', async () => {
+  test.setTimeout(60000);
+  const s = await ownServer('window', 2);
+  expect((await s.list()).map((x) => x.run.state)).toEqual(['unknown', 'unknown']);
+  // a page on a list a moment old is told of the stop
+  stopIn(s.dirs[0], 'young');
+  const young = watch(0, s.url);
+  await until('sources for a page on a list a moment old', () => sources(young) > 0, 10000);
+  young.close();
+  // the clock of the server moves on by 61 s: the list of run 1 is older than the window
+  stopIn(s.dirs[1], 'old');
+  const t0 = Date.now();
+  process.kill(s.pid, 'SIGHUP');
+  await until('the clock of the server is past the minute', async () => (await s.clock()).now >= t0 + 60000, 10000);
+  const old = watch(1, s.url);
+  await until('hello', () => old.seen.some((e) => e.event === 'hello'));
+  const r0 = await s.rounds();
+  await until('two rounds', async () => (await s.rounds()) >= r0 + 2, 20000);
+  expect(sources(old), 'a list older than a minute is announced as stale').toBe(0);
+  old.close();
+});
+
+test('the lists a source was served with are stored at most eight at a time, however many lists come', async () => {
+  test.setTimeout(60000);
+  const s = await ownServer('store', 1);
+  for (let i = 0; i < 12; i++) {
+    stopIn(s.dirs[0], `state ${i}${' '.repeat(i)}`, i);
+    await s.list();
+  }
+  expect(await s.longest(), 'the longest list of states the server stored for the source, after 12 lists with 12 states').toBe(8);
+});
+
+test('a page on a list that was current before the run stopped is told, after any number of lists of the new state', async () => {
+  test.setTimeout(60000);
+  const s = await ownServer('many', 1);
+  expect((await s.list()).map((x) => x.run.state)).toEqual(['unknown']);
+  stopIn(s.dirs[0], 'stopped after the first list');
+  for (let i = 0; i < 12; i++) await s.list();
+  const page = watch(0, s.url);
+  await until('sources for a page that may hold the first list', () => sources(page) > 0, 10000)
+    .catch(() => { throw new Error('the page that may hold the list from before the stop was not told: twelve lists of the new state pushed the first one out'); });
+  page.close();
+});
+
+test('a run that stopped just before another page connected is still announced to the page that was there', async () => {
+  test.setTimeout(60000);
+  const N = 8;
+  const s = await ownServer('base', N);
+  const old = Array.from({length: N}, (_, i) => watch(i, s.url));
+  for (const p of old) await until('hello', () => p.seen.some((e) => e.event === 'hello'));
+  const r0 = await s.rounds();
+  await until('a round with the pages there', async () => (await s.rounds()) >= r0 + 2, 20000);
+  const fresh = [];
+  for (let i = 0; i < N; i++) { stopIn(s.dirs[i], 'just before', i); fresh.push(watch(i, s.url)); }
+  await until('every page that was there is told', () => old.every((p) => sources(p) > 0), 15000)
+    .catch(() => { throw new Error(`pages that were never told that their run stopped: ${old.map((p, i) => (sources(p) ? null : i)).filter((i) => i != null).join(',')}`); });
+  for (const p of [...old, ...fresh]) p.close();
+});
+
+test('a stop note rewritten with other content moves the picker row of a stopped run, and the page is told again', async () => {
+  test.setTimeout(60000);
+  const s = await ownServer('restop', 1);
+  const page = watch(0, s.url);
+  await until('hello', () => page.seen.some((e) => e.event === 'hello'));
+  stopIn(s.dirs[0], 'first');
+  await until('sources for the stop', () => sources(page) >= 1, 10000);
+  const before = sources(page);
+  stopIn(s.dirs[0], 'a second and longer reason for the same stop', 5);
+  await until('sources for the second note', () => sources(page) > before, 10000)
+    .catch(() => { throw new Error('a stop note rewritten with other content was not announced to the page'); });
+  page.close();
 });
