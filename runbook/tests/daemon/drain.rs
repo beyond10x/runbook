@@ -85,6 +85,7 @@ impl Serve {
     fn launch_with(dir: PathBuf, extra: &[&str], closed_stderr: bool) -> Serve {
         let mut cmd = Command::new(BIN);
         cmd.args(["serve", "--principal", super::PRINCIPAL, "--runtime", "loom", "--min-confinement", "local", "--mcp", "--listen", "127.0.0.1:0"])
+            .args(["--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"])
             .arg("--runbook-home")
             .arg(dir.join("home"))
             .arg("--context-root")

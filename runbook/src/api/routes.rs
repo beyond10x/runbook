@@ -42,7 +42,7 @@ pub fn view_path(name: &str) -> String {
 }
 
 fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T, Fault> {
-    serde_json::from_slice(body).map_err(|e| Fault::Invalid(format!("the body is not a valid input of the command: {e}")))
+    serde_json::from_slice(body).map_err(|e| Fault::Invalid(format!("the body is not a valid input of the command: {}", crate::commands::out_of_range_member(body, &e).unwrap_or_else(|| e.to_string()))))
 }
 
 /// What a route answers before it is an HTTP response: the status, the JSON body and the `Location`

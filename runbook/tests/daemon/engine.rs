@@ -123,7 +123,7 @@ impl Rig {
         }
         std::fs::write(&binding, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
-        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels));
+        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels, super::policy()));
         let mut rig = Rig { dir, home, levels: levels.to_vec(), engine, d: None };
         rig.d = Some(Daemon::start(rig.config(), rig.engine.clone()).unwrap());
         rig
@@ -140,7 +140,7 @@ impl Rig {
     /// Drop the daemon and its engine and start both again on the same directory.
     fn restart(&mut self) {
         self.d.take().unwrap().stop();
-        self.engine = Arc::new(Engine::with_levels(self.home.clone(), self.dir.join("state"), &self.levels));
+        self.engine = Arc::new(Engine::with_levels(self.home.clone(), self.dir.join("state"), &self.levels, super::policy()));
         self.d = Some(Daemon::start(self.config(), self.engine.clone()).unwrap());
     }
 
