@@ -20,6 +20,7 @@ use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
 use crate::loom_run::{Args, Outcome, Way};
+use runbook::engine::shape::{self, Unshaped};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -624,108 +625,30 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// The results a person action declares, from the bindings copy: the keys of `results` that
-    /// every `from: effect` entry of the action lists. `None`: the copy names no such action.
-    fn declared_results(&self, action: &str) -> Result<Option<Vec<String>>, Halt> {
-        let mut declared: Option<Vec<String>> = None;
-        let held = Held::open(&self.bindings_dir)?;
-        for name in held.names()?.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")) {
-            let file = self.bindings_dir.join(&name);
-            let text = held.read_text(&name)?;
-            let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-            let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
-            for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {
-                if entry.get("executor").and_then(|e| e.get("kind")).and_then(serde_yaml::Value::as_str) != Some("person") {
-                    continue;
-                }
-                let evidence = entry.get("evidence").and_then(serde_yaml::Value::as_sequence).cloned().unwrap_or_default();
-                for item in evidence.iter().filter(|i| i.get("from").and_then(serde_yaml::Value::as_str) == Some("effect")) {
-                    let keys: Vec<String> = item
-                        .get("results")
-                        .and_then(serde_yaml::Value::as_mapping)
-                        .map(|m| m.keys().filter_map(|k| k.as_str().map(str::to_owned)).collect())
-                        .unwrap_or_default();
-                    declared = Some(match declared {
-                        None => keys,
-                        Some(have) => have.into_iter().filter(|k| keys.contains(k)).collect(),
-                    });
-                }
-                declared.get_or_insert_with(Vec::new);
-            }
-        }
-        Ok(declared)
-    }
-
     /// Names the result of a person action (`result`) where the action declares results:
     /// `performed` for an approval, `rejected` and a reasons file for a rejection (returned). A
     /// result the action does not declare ends the run before Loom is called. A decision with no
     /// action (an approval of a capability) takes no result; its rejection is a denial (`deny`).
     fn person_answer(&mut self, answer: &mut Answer<'_>, reasons: Option<&str>) -> Result<Option<PathBuf>, Halt> {
-        let decision = answer.decision;
-        let approve = answer.approve;
-        let action = decision.get("action").and_then(Value::as_str).filter(|a| !a.is_empty());
-        let Some(action) = action.filter(|_| answer.kind == "ApproveAction") else {
-            answer.deny = !approve;
-            return Ok(None);
+        let shaped = match shape::person_result(&self.bindings_dir, answer.decision, answer.kind, answer.approve, answer.principal, reasons) {
+            Ok(shaped) => shaped,
+            // A rejection nothing can record: no rework path. The run is stopped, with the step, the case and
+            // what the rejection said, and nothing is sent to Loom.
+            Err(Unshaped::Rejected(reason)) => return Err(Halt::Done(Outcome::StoppedRejected { reason })),
+            Err(Unshaped::Failed(why)) => return Err(Halt::Failed(why)),
         };
-        let declared = self.declared_results(action)?.unwrap_or_default();
-        let result = if approve { "performed" } else { "rejected" };
-        if !declared.iter().any(|k| k == result) {
-            if approve && declared.is_empty() {
-                return Ok(None);
-            }
-            let listed = if declared.is_empty() { "none".to_owned() } else { declared.join(", ") };
-            if !approve {
-                // A rejection nothing can record: no rework path. The run is stopped, with the step,
-                // the case and what the rejection said, and nothing is sent to Loom.
-                let case = decision.get("case").and_then(Value::as_str).unwrap_or("");
-                let who = answer.principal.unwrap_or("the decider");
-                let subject = decision.get("subject").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("it");
-                let revision = decision.get("revision").and_then(Value::as_str).unwrap_or("");
-                let said = reasons.map(|r| r.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "no reasons given".to_owned());
-                let said: String = said.chars().take(400).collect();
-                return Err(Halt::Done(Outcome::StoppedRejected {
-                    reason: format!(
-                        "{action} in {case}: {who} rejected {subject} {revision} ({said}); rejected_without_rework_path: the bindings declare the results {listed} for the action, so nothing records a rejection and no step reworks the rejected revision; it waits on a protocol path for a rejected revision"
-                    ),
-                }));
-            }
-            return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
-        }
-        answer.result = Some(result);
-        if approve && !reasons.is_some_and(|r| !r.trim().is_empty()) {
-            return Ok(None);
-        }
-        Ok(Some(self.write_reasons(action, reasons)?))
+        answer.result = shaped.result;
+        answer.deny = shaped.deny;
+        let Some(said) = shaped.reasons else { return Ok(None) };
+        let action = answer.decision.get("action").and_then(Value::as_str).unwrap_or("");
+        Ok(Some(self.write_reasons(action, Some(&said))?))
     }
 
     /// Writes the reasons of a rejection into the workspace (Loom reads a regular file below it,
     /// at most 60 lines and 65536 bytes) and returns its path. The text has the login file's path,
     /// the run directory and the home directory taken out.
     fn write_reasons(&mut self, action: &str, reasons: Option<&str>) -> Result<PathBuf, Halt> {
-        let mut text = reasons.unwrap_or("").to_owned();
-        if let Some(login) = self.settings.get(settings::LOGIN_KEY).and_then(Value::as_str).filter(|l| !l.is_empty()) {
-            text = text.replace(login, "<login file>");
-        }
-        text = text.replace(&self.run_dir.display().to_string(), "<run>");
-        if let Some(home) = std::env::var("HOME").ok().filter(|h| h.len() > 1) {
-            text = text.replace(&home, "~");
-        }
-        let mut kept: Vec<&str> = text.lines().take(60).collect();
-        while kept.last().is_some_and(|l| l.trim().is_empty()) {
-            kept.pop();
-        }
-        let mut text = kept.join("\n");
-        if text.len() > 65_000 {
-            let mut end = 65_000;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-        }
-        if text.trim().is_empty() {
-            text = "The decider rejected this and gave no reasons.".to_owned();
-        }
+        let text = shape::clean_reasons(reasons, self.settings.get(settings::LOGIN_KEY).and_then(Value::as_str), &self.run_dir, std::env::var("HOME").ok().as_deref());
         self.reasons_written += 1;
         let safe: String = action.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
         let dir = self.workspace.join(".sdc").join("reasons");

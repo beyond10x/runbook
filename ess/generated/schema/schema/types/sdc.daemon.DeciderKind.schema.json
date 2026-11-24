@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DeciderKind.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DeciderKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:03a7a877dec7c7ac0f5dc9a4292b5f0715af38d5d0d35280e78afad0e2e0f80c",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DeciderKind": {
+      "title": "DeciderKind",
+      "description": "The name of a decider kind the operator configured (a table [deciders.<kind>] of runbook.toml): rule or model. A run names a kind, never a program or a path; a kind that is not configured is refused at the submit before anything is written.",
+      "x-ess-name": "sdc.daemon.DeciderKind",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "x-ess-invariants": [
+        "value.count >= 1",
+        "value.count <= 63"
+      ]
+    }
+  }
+}

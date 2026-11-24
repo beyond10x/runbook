@@ -33,6 +33,7 @@ export const WIDE_ONLY = {
   'child.spec.mjs': 'process guard, no page',
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
+  'daemon-level-and-kind.spec.mjs': 'level and kind as text',
   'daemon-start.spec.mjs': 'start form against own daemons',
   'daemon-ui.spec.mjs': 'daemon serves, page lists runs',
   'decisions-reads-the-run.spec.mjs': 'pure reader refuses other runs',

@@ -2,9 +2,10 @@
 
 use crate::api::{self, auth};
 use crate::caps::{CapPolicy, Caps};
-use crate::commands::{check_principal, Config, Daemon};
+use crate::commands::{check_default_confinement, check_principal, check_terms, Config, Daemon, Policy};
+use crate::engine::arbiter::Arbiter;
 use crate::engine::Engine;
-use crate::runtime::{Confinement, Runtime};
+use crate::runtime::{Autonomy, Confinement, Runtime, Terms};
 use crate::stub::StubRuntime;
 use clap::Args;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -44,6 +45,25 @@ pub struct ServeArgs {
     /// The weakest confinement level the daemon takes for a run.
     #[arg(long, value_name = "LEVEL", default_value = "linux", value_parser = ["local", "linux"])]
     pub min_confinement: String,
+    /// The level of a submit that names none; never below the floor, or the daemon does not start. Else the
+    /// `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` the level `linux`). With neither, a submit that names no level is refused by name.
+    #[arg(long, value_name = "LEVEL", value_parser = ["local", "linux"])]
+    pub default_confinement: Option<String>,
+    /// The `confinement` of `runbook.toml`, as a level. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub file_confinement: Option<Confinement>,
+    /// The autonomy level of a submit that names none: what the decider of the run takes over from a person.
+    /// None given: a submit that names none has no level and every decision of its run waits for a client.
+    /// It needs a decider kind (`--decider`), or the daemon does not start.
+    #[arg(long, value_name = "LEVEL", value_parser = ["A0", "A1", "A2", "A3", "A4", "A5"])]
+    pub autonomy: Option<String>,
+    /// The decider kind of a submit that names none: one of the kinds `[deciders.<kind>]` of `runbook.toml`
+    /// configures (`rule`, `model`); a name that is not one of them and the daemon does not start.
+    #[arg(long, value_name = "KIND")]
+    pub decider: Option<String>,
+    /// The deciders `runbook.toml` configures (`[deciders.<kind>]`). Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub arbiter: Option<Arc<dyn Arbiter>>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -150,6 +170,17 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         .ok_or_else(|| format!("--listen {}: no address", args.listen))?;
     auth::check_listen(&addr, token.as_deref())?;
     let floor = Confinement::parse(&args.min_confinement).ok_or_else(|| format!("--min-confinement {}: not a level", args.min_confinement))?;
+    let default_confinement = match (&args.default_confinement, args.file_confinement) {
+        (Some(level), _) => Some(Confinement::parse(level).ok_or_else(|| format!("--default-confinement {level}: not a level"))?),
+        (None, file) => file,
+    };
+    if let Some(default) = default_confinement {
+        check_default_confinement(floor, default)?;
+    }
+    // The deciders exist for the engine only: the stub runtime has none, so with it no level and no kind is configured.
+    let kinds = if args.runtime == "loom" { args.arbiter.as_ref().map(|a| a.kinds()).unwrap_or_default() } else { Vec::new() };
+    let autonomy = args.autonomy.as_deref().map(|a| Autonomy::parse(a).ok_or_else(|| format!("--autonomy {a}: not a level"))).transpose()?;
+    check_terms(&Terms { autonomy, decider: args.decider.clone() }, &kinds).map_err(|e| format!("the default decider of the daemon (--autonomy, --decider): {e}"))?;
     let state = std::path::absolute(state_dir(args, env)?).map_err(|_| "the state directory cannot be made absolute: the daemon has no current directory".to_string())?;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
@@ -159,7 +190,11 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         }
         let caps = cap_policy(args)?;
         crate::runbooks::load(&args.runbooks, Some(&home))?;
-        (Arc::new(Engine::new(home, state.clone(), caps).with_runbook_dirs(args.runbooks.clone())), None)
+        let mut engine = Engine::new(home, state.clone(), caps).with_runbook_dirs(args.runbooks.clone());
+        if let Some(arbiter) = &args.arbiter {
+            engine = engine.with_arbiter(arbiter.clone());
+        }
+        (Arc::new(engine), None)
     } else {
         let stub = StubRuntime::new();
         for name in presets {
@@ -169,7 +204,8 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let daemon = Daemon::start(cfg, runtime).map_err(|e| format!("state directory: {e}"))?;
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds };
+    let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon })
 }
 

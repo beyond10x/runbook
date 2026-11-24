@@ -3,6 +3,7 @@
 //! `canon` process; the bound programs of the bindings are started by Loom's runner, as always.
 
 pub mod announce;
+pub mod arbiter;
 pub mod calls;
 pub mod copy;
 mod decision;
@@ -11,17 +12,20 @@ mod hide;
 pub mod layout;
 pub mod pin;
 pub mod refusal;
+pub mod shape;
 mod tail;
 
 pub use decision::Parsed;
 
 use crate::caps::{CapPolicy, Caps, Usage};
-use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, Autonomy, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
 use hide::{Hide, HidingSink};
 use pin::Pin;
+use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -102,6 +106,8 @@ pub struct Engine {
     runs: Mutex<HashMap<String, Arc<Slot>>>,
     rounds: AtomicU64,
     epoch: u128,
+    /// The deciders the operator configured; none: no run takes a level or a kind.
+    arbiter: Option<Arc<dyn Arbiter>>,
 }
 
 struct Registered<'a> {
@@ -136,7 +142,14 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None }
+    }
+
+    /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
+    /// (`arbiter.rs`). Without one, a run that asks for a kind is refused when it starts.
+    pub fn with_arbiter(mut self, arbiter: Arc<dyn Arbiter>) -> Engine {
+        self.arbiter = Some(arbiter);
+        self
     }
 
     /// The runbook directories of `runbook.toml` (`runbooks.rs`), looked up before the home, in
@@ -216,6 +229,24 @@ impl Engine {
             (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
             _ => runner,
         };
+        // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
+        // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
+        let terms = &request.terms;
+        let mut judge: Option<Box<dyn RunArbiter>> = None;
+        let mut tree_bindings = resolved.bindings.clone();
+        if let (Some(level), Some(kind)) = (terms.autonomy, terms.decider.as_deref()) {
+            if level != Autonomy::A0 {
+                let arbiter = self.arbiter.as_ref().ok_or_else(|| failure(format!("the run asks for the decider kind {kind} and this engine has no decider configured")))?;
+                if !arbiter.kinds().iter().any(|k| k == kind) {
+                    return Err(failure(format!("the decider kind {kind} is not configured in this engine")));
+                }
+                let opened = arbiter
+                    .open(&ArbiterOpening { run_dir: &request.state_dir, workspace: &workspace, bindings: &resolved.bindings, terms, resume })
+                    .map_err(failure)?;
+                tree_bindings = opened.bindings;
+                judge = Some(opened.judge);
+            }
+        }
         let idea = if resume || request.intake.is_empty() {
             None
         } else {
@@ -233,7 +264,7 @@ impl Engine {
                 workspace: &workspace,
                 protocols: &resolved.protocol_dir,
                 root: calls::Root::Protocol { id: &resolved.protocol_id, revision: resolved.revision },
-                bindings: &resolved.bindings,
+                bindings: &tree_bindings,
                 case: &request.run_id,
             };
             calls::open(&opening, || {
@@ -285,7 +316,7 @@ impl Engine {
                     std::thread::sleep(POLL);
                 }
             });
-            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate);
+            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge);
             done.store(true, Ordering::SeqCst);
             result
         });
@@ -325,6 +356,7 @@ impl Engine {
         slot: &Slot,
         tail: &mut LogTail<'_>,
         gate: &mut Gate,
+        judge: &mut Option<Box<dyn RunArbiter>>,
     ) -> Result<Finish, RuntimeFailure> {
         // The programs of the steps and those the answers of a wait start go through the gate's runner,
         // which reserves the budget of each before it starts; each is booked after.
@@ -390,7 +422,7 @@ impl Engine {
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
                     let waited = Waited { local, cancel, slot };
-                    match self.round(&ran.decisions, pinned, store, catalog, &reserving, sink, &waited, tail, gate)? {
+                    match self.round(&ran, pinned, store, catalog, &reserving, sink, &waited, tail, gate, judge)? {
                         RoundEnd::Resumed => new_round = true,
                         RoundEnd::Halted => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                         RoundEnd::Ended(end) => return Ok(end),
@@ -411,12 +443,14 @@ impl Engine {
         })
     }
 
-    /// One wait: a request per decision, then the answers, each a library call. A program an answer
-    /// starts goes through `runner`, the gate's: reserved before it starts, booked after.
+    /// One wait: a request per decision, then the answers, each a library call. The run's judge, when it
+    /// has one, answers first what its level gives to the decider; the rest waits for a client. A program
+    /// an answer starts, a judge's or a client's, goes through `runner`, the gate's: reserved before it
+    /// starts, booked after.
     #[allow(clippy::too_many_arguments)]
     fn round(
         &self,
-        decisions: &[b10x_loom_tree::model::NextDecision],
+        ran: &calls::Ran,
         pinned: Option<&Pin>,
         store: &Path,
         catalog: &loom_protocols::ProtocolCatalog,
@@ -425,69 +459,74 @@ impl Engine {
         waited: &Waited<'_>,
         tail: &mut LogTail<'_>,
         gate: &mut Gate,
+        judge: &mut Option<Box<dyn RunArbiter>>,
     ) -> Result<RoundEnd, RuntimeFailure> {
         let (cancel, slot) = (waited.local, waited.slot);
-        let round = self.rounds.fetch_add(1, Ordering::SeqCst);
-        let mut asked: HashMap<String, Planned> = HashMap::new();
-        let mut unanswered: BTreeSet<String> = BTreeSet::new();
-        let mut replaced = 0usize;
-        let mut stuck = false;
-        for (n, d) in decisions.iter().enumerate() {
-            let planned = plan(format!("d{:x}-{round}-{n}", self.epoch), d, None);
-            stuck |= planned.unanswerable.is_some();
-            let id = planned.request.request_id.clone();
-            lock(&slot.state).open.insert(id.clone());
-            unanswered.insert(id.clone());
-            sink.decision_requested(planned.request.clone());
-            asked.insert(id, planned);
+        let mut wait = Wait {
+            round: self.rounds.fetch_add(1, Ordering::SeqCst),
+            epoch: self.epoch,
+            pinned,
+            store,
+            catalog,
+            runner,
+            sink,
+            slot,
+            daemon_cancel: waited.cancel,
+            asked: HashMap::new(),
+            unanswered: BTreeSet::new(),
+            closed: BTreeSet::new(),
+            replaced: 0,
+        };
+        let plans: Vec<Planned> = ran.decisions.iter().enumerate().map(|(n, d)| plan(format!("d{:x}-{}-{n}", self.epoch, wait.round), d, None)).collect();
+        let stuck = plans.iter().any(|p| p.unanswerable.is_some());
+        match judge.as_mut() {
+            // What the level gives to the decider: judged in the order Loom printed the decisions, each
+            // request raised just before it is judged, so that a close of a case that an earlier
+            // answer of this wait already closed is never raised (as `runbook run` does not ask it:
+            // docs/loom-run-decisions.md). A judgement that is not an answer, and an answer the
+            // daemon does not take into its record, leave the request open.
+            Some(judge) if !stuck => {
+                let printed = ran.document.get("decisions").and_then(Value::as_array);
+                for (n, planned) in plans.into_iter().enumerate() {
+                    if cancel.load(Ordering::SeqCst) {
+                        return Ok(RoundEnd::Halted);
+                    }
+                    if planned.decision.kind == DecisionKind::Close && wait.closed.contains(&planned.decision.case) {
+                        continue;
+                    }
+                    let id = planned.request.request_id.clone();
+                    wait.raise(planned.clone());
+                    let Some(printed) = printed.and_then(|p| p.get(n)) else { continue };
+                    let Judgement::Answer { answer, by, principal } = judge.judge(printed) else { continue };
+                    if !sink.decision_answered(&id, &answer, &by, &principal) {
+                        continue;
+                    }
+                    lock(&slot.state).open.remove(&id);
+                    wait.unanswered.remove(&id);
+                    if let Some(end) = wait.settle(tail, gate, &planned, &id, &answer, &principal)? {
+                        return Ok(RoundEnd::Ended(end));
+                    }
+                }
+            }
+            _ => {
+                for planned in plans {
+                    wait.raise(planned);
+                }
+            }
         }
-        // Closing a case through one outcome settles the others of that case.
-        let mut closed: BTreeSet<String> = BTreeSet::new();
-        while !unanswered.is_empty() {
+        while !wait.unanswered.is_empty() {
             let Some(answered) = next_answer(slot, cancel) else { return Ok(RoundEnd::Halted) };
             lock(&slot.state).open.remove(&answered.request_id);
-            unanswered.remove(&answered.request_id);
-            let Some(planned) = asked.get(&answered.request_id).cloned() else { continue };
+            wait.unanswered.remove(&answered.request_id);
+            let Some(planned) = wait.asked.get(&answered.request_id).cloned() else { continue };
             if stuck || planned.unanswerable.is_some() {
                 // Nothing can be done with it; the run waits for a cancel.
-                unanswered.insert(answered.request_id.clone());
+                wait.unanswered.insert(answered.request_id.clone());
                 lock(&slot.state).open.insert(answered.request_id);
                 continue;
             }
-            let d = &planned.decision;
-            let (result, booked) = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
-                (Ok(()), Ok(()))
-            } else {
-                // An answer is a library call that reads the bindings and may run a program of them.
-                check_copy(pinned)?;
-                let applied = parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal, runner));
-                (applied, gate.book(sink))
-            };
-            tail.sync_all().map_err(failure)?;
-            if let Some(f) = tail.failure.take() {
-                return Err(failure(f));
-            }
-            booked.map_err(failure)?;
-            // A program the answer would have started over what the run has left was not started.
-            if let Some(end) = Self::stop_of(gate, waited.cancel, slot, sink) {
-                return end.map(RoundEnd::Ended);
-            }
-            match result {
-                Ok(()) => {
-                    if d.kind == DecisionKind::Close && !closed.contains(&d.case) && parse_answer(&answered.answer).is_ok_and(|p| !p.deny) {
-                        closed.insert(d.case.clone());
-                    }
-                }
-                Err(why) => {
-                    // The daemon holds the answer as given; the engine asks again, with the refusal.
-                    replaced += 1;
-                    let again = plan(format!("d{:x}-{round}-{}r{replaced}", self.epoch, answered.request_id.rsplit('-').next().unwrap_or("0")), d, Some(&why));
-                    let id = again.request.request_id.clone();
-                    lock(&slot.state).open.insert(id.clone());
-                    unanswered.insert(id.clone());
-                    sink.decision_requested(again.request.clone());
-                    asked.insert(id, again);
-                }
+            if let Some(end) = wait.settle(tail, gate, &planned, &answered.request_id, &answered.answer, &answered.principal)? {
+                return Ok(RoundEnd::Ended(end));
             }
         }
         if cancel.load(Ordering::SeqCst) {
@@ -495,6 +534,78 @@ impl Engine {
         }
         sink.resumed();
         Ok(RoundEnd::Resumed)
+    }
+}
+
+/// What one wait holds while its requests are answered.
+struct Wait<'a> {
+    round: u64,
+    epoch: u128,
+    pinned: Option<&'a Pin>,
+    store: &'a Path,
+    catalog: &'a loom_protocols::ProtocolCatalog,
+    /// The gate's runner: a program an answer starts is reserved before it starts.
+    runner: &'a Arc<dyn b10x_loom_tree::TestRunner>,
+    sink: &'a dyn EventSink,
+    slot: &'a Slot,
+    /// The daemon's cancel, which wins over a spend stop.
+    daemon_cancel: &'a AtomicBool,
+    asked: HashMap<String, Planned>,
+    unanswered: BTreeSet<String>,
+    /// Closing a case through one outcome settles the others of that case.
+    closed: BTreeSet<String>,
+    replaced: usize,
+}
+
+impl Wait<'_> {
+    /// The run stops on one decision: its request is open, announced and waits for an answer.
+    fn raise(&mut self, planned: Planned) {
+        let id = planned.request.request_id.clone();
+        lock(&self.slot.state).open.insert(id.clone());
+        self.unanswered.insert(id.clone());
+        self.sink.decision_requested(planned.request.clone());
+        self.asked.insert(id, planned);
+    }
+
+    /// An answer, from a client or from the run's judge, is one library call, booked against the caps after
+    /// it. The daemon holds the answer as given; a call Loom refuses is asked again as a new request that
+    /// quotes the refusal. `Some` when the run ends here: a program the answer would have started over what
+    /// the run has left was not started.
+    fn settle(&mut self, tail: &mut LogTail<'_>, gate: &mut Gate, planned: &Planned, request_id: &str, answer: &str, principal: &str) -> Result<Option<Finish>, RuntimeFailure> {
+        let d = &planned.decision;
+        let (result, booked) = if d.kind == DecisionKind::Close && self.closed.contains(&d.case) {
+            (Ok(()), Ok(()))
+        } else {
+            // An answer is a library call that reads the bindings and may run a program of them.
+            check_copy(self.pinned)?;
+            let applied = parse_answer(answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
+            (applied, gate.book(self.sink))
+        };
+        tail.sync_all().map_err(failure)?;
+        if let Some(f) = tail.failure.take() {
+            return Err(failure(f));
+        }
+        booked.map_err(failure)?;
+        if let Some(end) = Engine::stop_of(gate, self.daemon_cancel, self.slot, self.sink) {
+            return end.map(Some);
+        }
+        match result {
+            Ok(()) => {
+                if d.kind == DecisionKind::Close && !self.closed.contains(&d.case) && parse_answer(answer).is_ok_and(|p| !p.deny) {
+                    self.closed.insert(d.case.clone());
+                }
+            }
+            Err(why) => {
+                self.replaced += 1;
+                let again = plan(format!("d{:x}-{}-{}r{}", self.epoch, self.round, request_id.rsplit('-').next().unwrap_or("0"), self.replaced), d, Some(&why));
+                let id = again.request.request_id.clone();
+                lock(&self.slot.state).open.insert(id.clone());
+                self.unanswered.insert(id.clone());
+                self.sink.decision_requested(again.request.clone());
+                self.asked.insert(id, again);
+            }
+        }
+        Ok(None)
     }
 }
 

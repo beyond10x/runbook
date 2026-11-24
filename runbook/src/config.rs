@@ -35,7 +35,7 @@ pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 3] = ["runs_dir", "spend_ledger", "runbooks"];
+const OWN_KEYS: [&str; 4] = ["runs_dir", "spend_ledger", "runbooks", "deciders"];
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
@@ -375,6 +375,10 @@ pub struct File {
     pub max_wall_seconds: Option<u64>,
     /// The runbook directories the file names, in its order, each made absolute against the file.
     pub runbooks: Vec<PathBuf>,
+    /// `[deciders.<kind>]`: the deciders `runbook serve` offers its runs, one table per kind. `runbook run`
+    /// does not read them (it has the one `decider` of its settings); the daemon's arbiter refuses a table
+    /// it cannot take, by name, when it starts.
+    pub deciders: Map<String, Value>,
     /// The run settings members, in file order, as `loom_run/settings.rs` reads them.
     pub members: Map<String, Value>,
 }
@@ -663,8 +667,13 @@ fn read_text(found: &Found) -> Result<File, String> {
         }
     }
     let runbooks = runbook_dirs(&mut top, &dir).map_err(fail)?;
+    let deciders = match top.shift_remove("deciders") {
+        None => Map::new(),
+        Some(Value::Object(kinds)) if kinds.values().all(Value::is_object) => kinds,
+        Some(_) => return Err(fail("deciders: a table of tables, one per decider kind ([deciders.rule])".to_owned())),
+    };
     check_members(&top).map_err(fail)?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, members: top })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The

@@ -204,6 +204,22 @@ fn main() -> ExitCode {
             if let Some(said) = file.as_ref().and_then(config::File::said) {
                 eprintln!("runbook serve: {said}");
             }
+            // The level of a submit that names none and the deciders the daemon offers come from the same file.
+            args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+            if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
+                let limits = loom_run::arbiter::Limits {
+                    login_file: f.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
+                    cap_micro_usd: f.cap_micro_usd,
+                    max_llm_calls: f.max_llm_calls,
+                };
+                match loom_run::arbiter::DaemonArbiter::new(f.deciders.clone(), limits) {
+                    Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
+                    Err(e) => {
+                        eprintln!("runbook serve: {}", config::printable(&e));
+                        return ExitCode::from(loom_run::EXIT_REFUSED);
+                    }
+                }
+            }
             let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {

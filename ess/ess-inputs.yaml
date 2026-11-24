@@ -18,6 +18,7 @@ scenarios:
   - scenarios/decision-option-not-offered-in-a-weak-recommendation.yaml
   - scenarios/daemon-submit-and-run-to-an-outcome.yaml
   - scenarios/daemon-submit-below-the-floor-is-refused.yaml
+  - scenarios/daemon-a-submit-without-a-level-takes-the-daemons-default.yaml
   - scenarios/daemon-decision-is-answered-and-the-run-resumes.yaml
   - scenarios/daemon-answer-to-an-answered-request-is-refused.yaml
   - scenarios/daemon-cancel-a-run.yaml

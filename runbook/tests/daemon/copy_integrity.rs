@@ -1790,6 +1790,9 @@ impl EventSink for HookedSink<'_> {
     fn decision_requested(&self, request: DecisionRequest) {
         self.inner.decision_requested(request)
     }
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        self.inner.decision_answered(request_id, answer, by, principal)
+    }
     fn resumed(&self) {
         self.inner.resumed()
     }
@@ -1868,6 +1871,9 @@ impl EventSink for AnsweringSink<'_> {
     }
     fn decision_requested(&self, request: DecisionRequest) {
         self.inner.decision_requested(request)
+    }
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        self.inner.decision_answered(request_id, answer, by, principal)
     }
     fn resumed(&self) {
         self.inner.resumed()
@@ -2554,9 +2560,15 @@ mod relative_state_directory {
     struct Quiet;
 
     impl EventSink for Quiet {
+        fn steps(&self) -> Option<Arc<dyn runbook::runtime::StartTarget>> {
+            None
+        }
         fn started(&self) {}
         fn record(&self, _kind: &str, _record: Value) {}
         fn decision_requested(&self, _request: DecisionRequest) {}
+        fn decision_answered(&self, _request_id: &str, _answer: &str, _by: &str, _principal: &str) -> bool {
+            false
+        }
         fn resumed(&self) {}
     }
 
@@ -2639,6 +2651,7 @@ mod relative_state_directory {
             confinement: Confinement::Local,
             state_dir: run_dir,
             workspace_dir: PathBuf::from("rel-state-dir/workspaces/r1"),
+            terms: Default::default(),
         };
         let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).expect_err("the start did not fail").reason;
         assert!(reason.contains("tree"), "the start did not fail at the store as the case says: {reason}");
@@ -2657,6 +2670,11 @@ mod relative_state_directory {
             runbook_home: Some(PathBuf::from("rel-home-dir")),
             runbooks: vec![],
             min_confinement: "local".into(),
+            default_confinement: None,
+            file_confinement: None,
+            autonomy: None,
+            decider: None,
+            arbiter: None,
             token_file: None,
             principal: Some(super::super::PRINCIPAL.into()),
             ui: false,

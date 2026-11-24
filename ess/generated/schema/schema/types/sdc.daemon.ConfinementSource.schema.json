@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ConfinementSource.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ConfinementSource",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e1487e6c93c78920921b8b70d68f7e8ed77385e469e5c6283088d50edbb8be82",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementSource": {
+      "title": "ConfinementSource",
+      "description": "Where a run's level came from: submit (the client named it) or daemon-default (the client named none and the daemon's default level applied). There is no third source: a daemon with no default refuses a submit that names none.",
+      "x-ess-name": "sdc.daemon.ConfinementSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "submit",
+        "daemon-default"
+      ]
+    }
+  }
+}

@@ -129,7 +129,7 @@ fn every_runbook_the_view_lists_is_one_a_submit_accepts() {
     let rows = s.rows();
     assert_eq!(rows.len(), 2, "{rows:?}");
     for r in rows {
-        let body = json!({"runbook_id": r["runbook_id"], "intake": "text"}).to_string();
+        let body = json!({"runbook_id": r["runbook_id"], "intake": "text", "confinement": "linux"}).to_string();
         let got = send(s.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(body.as_bytes()));
         assert_ne!(got.json()["outcome"], json!("no-runbook"), "{r}: {}", got.text());
     }

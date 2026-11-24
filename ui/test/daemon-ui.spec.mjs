@@ -45,7 +45,7 @@ test.beforeAll(async ({}, info) => {
   proc.removeAllListeners('exit');
   for (const [i, session] of ['alpha', 'beta'].entries()) {
     await post('open-session', {session_id: session, client: `spec-${session}`});
-    const r = await post('submit-run', {runbook_id: 'sdc', intake: `intake of the ${session} run`, session_id: session});
+    const r = await post('submit-run', {runbook_id: 'sdc', intake: `intake of the ${session} run`, session_id: session, confinement: 'linux'});
     runs.push({session, id: r.published[0].payload.run_id, i});
   }
   await expect.poll(async () => (await rows('runs')).filter((r) => r.state === 'Ended').length, {timeout: 15000}).toBe(2);
@@ -103,7 +103,7 @@ test('a run that is submitted while the page is open appears in the list and its
   await page.goto(`${base}/`);
   await expect(page.locator('#live')).toHaveClass(/\bon\b/);
   const before = (await rows('runs')).length;
-  const r = await post('submit-run', {runbook_id: 'sdc', intake: 'a run that comes later', session_id: 'alpha'});
+  const r = await post('submit-run', {runbook_id: 'sdc', intake: 'a run that comes later', session_id: 'alpha', confinement: 'linux'});
   const id = r.published[0].payload.run_id;
   await page.click('#runpick');
   await expect(page.locator('#pk-list [role=option]')).toHaveCount(before + 1);

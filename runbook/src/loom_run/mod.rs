@@ -14,6 +14,7 @@
 //! - R3 (run directory writer): `run_dir.rs`.
 
 pub mod answers;
+pub mod arbiter;
 pub mod bindings_copy;
 pub use runbook::budget;
 pub mod bugfix;

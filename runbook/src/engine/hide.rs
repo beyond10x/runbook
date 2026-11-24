@@ -137,6 +137,10 @@ impl EventSink for HidingSink<'_> {
         })
     }
 
+    fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+        self.inner.decision_answered(request_id, &self.hide.text(answer), by, principal)
+    }
+
     fn resumed(&self) {
         self.inner.resumed()
     }
@@ -165,6 +169,7 @@ mod tests {
     struct Catch {
         records: std::sync::Mutex<Vec<(String, Value)>>,
         requests: std::sync::Mutex<Vec<DecisionRequest>>,
+        answers: std::sync::Mutex<Vec<(String, String, String, String)>>,
     }
 
     #[derive(Default)]
@@ -185,6 +190,9 @@ mod tests {
         fn started(&self) {}
         fn record(&self, _kind: &str, _record: Value) {}
         fn decision_requested(&self, _request: DecisionRequest) {}
+        fn decision_answered(&self, _request_id: &str, _answer: &str, _by: &str, _principal: &str) -> bool {
+            false
+        }
         fn resumed(&self) {}
     }
 
@@ -200,12 +208,19 @@ mod tests {
     }
 
     impl EventSink for Catch {
+        fn steps(&self) -> Option<std::sync::Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
         fn started(&self) {}
         fn record(&self, kind: &str, record: Value) {
             self.records.lock().unwrap().push((kind.to_string(), record));
         }
         fn decision_requested(&self, request: DecisionRequest) {
             self.requests.lock().unwrap().push(request);
+        }
+        fn decision_answered(&self, request_id: &str, answer: &str, by: &str, principal: &str) -> bool {
+            self.answers.lock().unwrap().push((request_id.to_owned(), answer.to_owned(), by.to_owned(), principal.to_owned()));
+            true
         }
         fn resumed(&self) {}
     }
@@ -229,6 +244,18 @@ mod tests {
         assert_eq!(requests[0].question, "is out right");
         assert_eq!(requests[0].options, vec![serde_json::json!({"answer": "approve", "label": "keep bindings/a"}), serde_json::json!(".")]);
         assert_eq!((requests[0].request_id.as_str(), requests[0].action.as_str()), ("q1", "act"));
+    }
+
+    #[test]
+    fn an_answer_of_the_runs_judge_reaches_the_sink_and_its_verdict_comes_back_with_no_path_in_the_text() {
+        let hide = Hide::new(&[&PathBuf::from("/s/runs/r1"), &PathBuf::from("/h/home")]);
+        let catch = Catch::default();
+        let sink = HidingSink { inner: &catch, hide: &hide };
+        let taken = sink.decision_answered("q1", "{\"result\": \"rejected\", \"reasons\": \"see /s/runs/r1/out\"}", "rule:approve", "rule:approve");
+        assert!(taken, "the sink took the answer and the hiding sink said it did not: the judge's answers would all stay open");
+        let answers = catch.answers.lock().unwrap();
+        assert_eq!(answers.len(), 1, "{answers:?}");
+        assert_eq!(answers[0], ("q1".to_owned(), "{\"result\": \"rejected\", \"reasons\": \"see out\"}".to_owned(), "rule:approve".to_owned(), "rule:approve".to_owned()));
     }
 
     #[test]
