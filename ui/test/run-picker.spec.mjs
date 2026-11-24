@@ -12,7 +12,8 @@
 // the operator tile (805x1270) and the phone (390x844 as a phone).
 // Screenshots: screenshots/{1600x1000,805x1270,390x844}-run-picker.png.
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -57,10 +58,9 @@ test.beforeAll(async ({}, info) => {
   needRun(fixtureSource('person'), 'run-picker.spec.mjs (fixture source)', test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
+  await playFixtures(Object.keys(RUNS).map((name) => ['person', path.join(runs, name)]));
   for (const [name, r] of Object.entries(RUNS)) {
     const dir = path.join(runs, name);
-    const p = spawnSync('node', ['test/fixture-run.mjs', 'person', dir], {cwd: ui, encoding: 'utf8'});
-    if (p.status !== 0) throw new Error(`fixture ${name}: ${p.stderr}`);
     for (const f of ['run-settings.jsonl', 'llm-calls.jsonl', 'decisions.jsonl', 'status.json', 'run-stopped.json']) fs.rmSync(path.join(dir, f), {force: true});
     for (const [f, text] of Object.entries(r.files)) fs.writeFileSync(path.join(dir, f), text);
     const t = new Date(Date.now() - r.ago * 60000);

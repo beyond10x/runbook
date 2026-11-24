@@ -8,7 +8,7 @@ use crate::yaml;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// The binding's `llm` object as the script builds it (SDC_LLM_NODE), in jq's key order.
@@ -48,9 +48,9 @@ pub struct Setup {
     pub case: String,
     /// The feedback records file, when the run has feedback.
     pub feedback: Option<PathBuf>,
-    /// The outermost directory the start made in the workspace (the copy of a retry's feedback
-    /// document); a not-called exit removes it, since that exit writes nothing.
-    pub made: Option<PathBuf>,
+    /// The copy of a retry's feedback document, not yet written: the start writes it after it knows
+    /// the node is called (`write_copy`), since a not-called exit writes nothing.
+    pub copy: Option<PendingCopy>,
     /// The reasoning effort the caller names (`--effort`); the class default applies without it.
     pub effort: Option<String>,
 }
@@ -130,13 +130,13 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     }
 
     let mut feedback = env_set("SDC_FEEDBACK").map(PathBuf::from);
-    let mut made = None;
+    let mut copy = None;
     if let Some(doc) = env_set("LOOM_RETRY_FEEDBACK") {
-        let (copy, dir) = retry_feedback(node, &work, Path::new(&doc))?;
-        feedback = copy.or(feedback);
-        made = dir;
+        let (target, pending) = retry_feedback(node, &work, Path::new(&doc))?;
+        feedback = target.or(feedback);
+        copy = Some(pending);
     }
-    Ok(Setup { here, root, args, cfg, case, feedback, made, effort: given("--effort") })
+    Ok(Setup { here, root, args, cfg, case, feedback, copy, effort: given("--effort") })
 }
 
 /// `--effort` is one of the levels `node-classes.json` lists (`efforts`): both model CLIs ignore an
@@ -276,29 +276,43 @@ fn is_blob(v: &Ov) -> Option<&str> {
     }
 }
 
-/// The retry records of a `loom.retry-feedback/1` document as the driver's feedback file: kind,
-/// result, subject and the log, here the tail Loom keeps of the cited blob, written beside the
-/// document's copy under `.sdc/loom-feedback/`. The second value is the outermost directory this
-/// call made (`Setup::made`), or none when they all existed.
-fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Option<PathBuf>)> {
+/// A retry's feedback document, read and not yet copied into the workspace.
+pub struct PendingCopy {
+    parsed: Ov,
+    name: String,
+}
+
+/// Reads a `loom.retry-feedback/1` document and names where the driver's feedback file will be
+/// (`write_copy`); the first value is that path when the document has records. Nothing is written.
+fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, PendingCopy)> {
     let parsed = fs::read_to_string(doc).ok().and_then(|t| Ov::parse(&t).ok());
     let Some(parsed) = parsed.filter(|d| d.str_of("format") == Some("loom.retry-feedback/1")) else {
         return Err(die(format!("llm-node: {node} could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document"), 126));
     };
-    let dir = work.join(".sdc/loom-feedback").join(sha16(doc));
-    // "Was there before" is asked of the path itself, not of what a link points at: a dangling link is there.
-    let made = [&dir, &work.join(".sdc/loom-feedback"), &work.join(".sdc")].into_iter().rfind(|d| d.symlink_metadata().is_err()).cloned();
+    let name = sha16(doc);
+    let target = parsed.get("records").map(|_| work.join(".sdc/loom-feedback").join(&name).join("feedback.json"));
+    Ok((target, PendingCopy { parsed, name }))
+}
+
+/// The retry records as the driver's feedback file: kind, result, subject and the log, here the
+/// tail Loom keeps of the cited blob, written beside the document's copy under
+/// `.sdc/loom-feedback/`. This is the start's first write under `.sdc`, so it runs once the node is
+/// known to be called, and the guard on a link at `.sdc` ends a start that would write through it.
+pub fn write_copy(work: &Path, copy: PendingCopy) -> R<()> {
+    let PendingCopy { parsed, name } = copy;
+    crate::rework::check_sdc_dirs(work, &name)?;
+    let dir = work.join(".sdc/loom-feedback").join(&name);
     let _ = fs::create_dir_all(&dir);
     let logs: Vec<&Ov> = parsed.get("logs").map(Ov::items).unwrap_or_default();
     let blobs: Vec<&str> = logs.iter().filter_map(|l| l.get("blob_sha256").and_then(is_blob)).collect();
     for b in &blobs {
         let tail = logs.iter().find(|l| l.get("blob_sha256").and_then(is_blob) == Some(b)).and_then(|l| l.get("tail"));
-        let _ = fs::write(dir.join(b), tail.map(Ov::raw).unwrap_or_else(|| "null".to_string()));
+        let _ = write_new(&dir.join(b), &tail.map(Ov::raw).unwrap_or_else(|| "null".to_string()));
     }
     let target = dir.join("feedback.json");
     let Some(records) = parsed.get("records") else {
-        let _ = fs::write(&target, "");
-        return Ok((None, made));
+        let _ = write_new(&target, "");
+        return Ok(());
     };
     let one = |r: &Ov| {
         let get = |k: &str| r.get(k).cloned().unwrap_or(Ov::Null);
@@ -319,6 +333,15 @@ fn retry_feedback(node: &str, work: &Path, doc: &Path) -> R<(Option<PathBuf>, Op
     let out = Ov::Arr(records.items().into_iter().map(one).collect());
     let mut text = serde_json::to_string_pretty(&out).map_err(|_| Exit(126))?;
     text.push('\n');
-    let _ = fs::write(&target, text);
-    Ok((Some(target), made))
+    let _ = write_new(&target, &text);
+    Ok(())
+}
+
+/// Writes `text` to a file that is new at `path`: what is there (an older copy, or a link, which is
+/// removed and never followed) goes first, and `create_new` refuses a link put there since.
+fn write_new(path: &Path, text: &str) -> std::io::Result<()> {
+    if fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_dir()) {
+        fs::remove_file(path)?;
+    }
+    fs::OpenOptions::new().write(true).create_new(true).open(path)?.write_all(text.as_bytes())
 }

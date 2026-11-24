@@ -12,7 +12,8 @@
 //   golf     no experiment: Unassigned
 //   hotel    a stub run
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -95,10 +96,9 @@ test.beforeAll(async ({}, info) => {
   fs.mkdirSync(runs, {recursive: true});
   fs.mkdirSync(records, {recursive: true});
   for (const [f, text] of Object.entries(RECORDS)) fs.writeFileSync(path.join(records, f), text);
+  await playFixtures(Object.keys(RUNS).map((name) => ['person', path.join(runs, name)]));
   for (const [name, r] of Object.entries(RUNS)) {
     const dir = path.join(runs, name);
-    const p = spawnSync('node', ['test/fixture-run.mjs', 'person', dir], {cwd: ui, encoding: 'utf8'});
-    if (p.status !== 0) throw new Error(`fixture ${name}: ${p.stderr}`);
     for (const f of ['run-settings.jsonl', 'llm-calls.jsonl', 'decisions.jsonl', 'status.json', 'run-stopped.json']) fs.rmSync(path.join(dir, f), {force: true});
     fs.writeFileSync(path.join(dir, 'run-settings.jsonl'), r.stub ? settings.replace('metaharness', '/x/llm-adapter-fixture.sh') : settings);
     for (const [f, text] of Object.entries(r.files)) fs.writeFileSync(path.join(dir, f), text);
