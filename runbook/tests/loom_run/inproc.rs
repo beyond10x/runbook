@@ -372,13 +372,19 @@ fn the_spend_cap_ends_the_run_as_it_does_under_the_child() {
 #[test]
 fn only_the_programs_of_the_runbook_run_and_never_a_loom_canon_or_driver_process() {
     let rig = Rig::new("tree");
-    rig.writer("#!/bin/sh\nsleep 3\necho draft >> draft.txt\n");
+    // the writer stays live until the sample has seen it (its `sleep`), then the run goes on; the sample covers the whole run
+    rig.writer("#!/bin/sh\nwhile [ ! -f go.txt ]; do sleep 0.05; done\necho draft >> draft.txt\n");
     let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     let pid = child.id();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let limit = Instant::now() + Duration::from_secs(50);
+    let mut released = false;
     let status = loop {
         seen.extend(descendants(pid));
+        if !released && seen.contains("sleep") {
+            std::fs::write(rig.work("r1").join("go.txt"), "").unwrap();
+            released = true;
+        }
         if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
@@ -1107,6 +1113,43 @@ fn plant_names(outside: &Path, from: u32, to: u32) -> String {
     )
 }
 
+/// sh for a program that hands the plant of [`plant_names`] to the case: it writes its parent's pid to `ppid.txt` and waits
+/// until the case wrote `plant-done` ([`plant_names_from_the_case`]).
+const PLANT_BY_THE_CASE: &str = "echo $PPID > ppid.txt\nwhile [ ! -f plant-done ]; do sleep 0.02; done\n";
+
+/// The entries of [`plant_names`] for the counters `from` to `to`, made by this case while the program of `child` waits
+/// ([`PLANT_BY_THE_CASE`]): the same four kinds at the same names, one system call each instead of one process each.
+fn plant_names_from_the_case(rig: &Rig, child: &mut std::process::Child, outside: &Path, from: u32, to: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    let work = rig.work("r1");
+    let limit = Instant::now() + Duration::from_secs(45);
+    let ppid: u32 = loop {
+        if let Some(pid) = std::fs::read_to_string(work.join("ppid.txt")).ok().filter(|t| t.ends_with('\n')).and_then(|t| t.trim().parse().ok()) {
+            break pid;
+        }
+        assert!(child.try_wait().unwrap().is_none(), "the run ended before its program wrote ppid.txt");
+        assert!(Instant::now() < limit, "the program wrote no ppid.txt in 45 s");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let dir = rig.run_dir("r1");
+    for n in from..=to {
+        for leaf in ["runner.json", "outcome.json", "tree-status.json", "tree-verify.json"] {
+            let t = dir.join(format!(".{leaf}.{ppid}.{n}.tmp"));
+            match n % 4 {
+                0 => std::fs::create_dir(&t).unwrap(),
+                1 => {
+                    let c = std::ffi::CString::new(t.as_os_str().as_bytes()).unwrap();
+                    // SAFETY: `c` is a NUL-terminated path that outlives the call.
+                    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0, "mkfifo {}: {}", t.display(), std::io::Error::last_os_error());
+                }
+                2 => std::os::unix::fs::symlink(outside, &t).unwrap(),
+                _ => std::fs::hard_link(outside, &t).unwrap(),
+            }
+        }
+    }
+    std::fs::write(work.join("plant-done"), "").unwrap();
+}
+
 fn spawn_to_files(rig: &Rig, tag: &str) -> (std::process::Child, PathBuf, PathBuf) {
     let out = rig.root.join(format!("{tag}-stdout.txt"));
     let err = rig.root.join(format!("{tag}-stderr.txt"));
@@ -1140,12 +1183,16 @@ fn a_run_whose_next_temporary_names_a_program_took_still_writes_its_records() {
     }
 }
 
+/// The names 0 to 400 of each of the four records are taken, the same entries the program planted with `plant_names`. The
+/// case makes them while the program waits ([`plant_names_from_the_case`]): 1604 entries made by one process each cost the
+/// case seconds on a runner with few cores.
 #[test]
 fn a_run_whose_every_temporary_name_a_program_took_ends_with_an_error_that_names_nothing_outside_the_run() {
     let rig = Rig::new("temp-names-all-taken");
     let outside = outside(&rig);
-    planting_writer(&rig, &plant_names(&outside, 0, 400));
+    planting_writer(&rig, PLANT_BY_THE_CASE);
     let (mut child, out, err) = spawn_to_files(&rig, "all-taken");
+    plant_names_from_the_case(&rig, &mut child, &outside, 0, 400);
     let status = ended_after_plant(&rig, &mut child);
     let text = format!("{}{}", std::fs::read_to_string(&out).unwrap_or_default(), std::fs::read_to_string(&err).unwrap_or_default());
     assert!(status.is_some(), "the run did not end within {AFTER_PLANT_SECS} s of the plant: the writer of a record does not stop at its bound ({text})");

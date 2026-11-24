@@ -4,6 +4,9 @@ experimental = ["setup-scripts"]
 slow-timeout = { period = "30s", terminate-after = 2 }
 fail-fast = false
 
+[profile.forge]
+test-threads = 4
+
 [scripts.setup.replay-runs]
 command = "sh tests/replay-runs.sh"
 slow-timeout = { period = "60s", terminate-after = 5 }

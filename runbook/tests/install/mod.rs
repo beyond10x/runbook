@@ -566,6 +566,11 @@ pub(crate) fn git_in(dir: &Path, args: &[&str]) -> String {
             "commit.gpgsign=false",
             "-c",
             "init.defaultBranch=main",
+            // a commit starts no detached maintenance: its lock file in `.git/objects` came and went under a listing of the tree
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
         ])
         .args(args)
         .current_dir(dir)
