@@ -22,7 +22,7 @@ import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web
 import {installClock, readGate} from './vclock.mjs';
 import {runnerLiveness} from './runnerlive.mjs';
 import {recordNotRead} from './runnerlive.mjs';
-import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, readRegular, statOf, exists, statSig, listDir, readCount, within, servedUnder} from './runfiles.mjs';
 import {fileAnswer, listFiles, productOf, outputOf, limitDepth, inDirectory} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
@@ -44,8 +44,11 @@ const expDirs = [];
 // checkout is loaded. A run is shown with the first view that covers its protocols; --no-view loads none.
 const viewFiles = [];
 let noView = false;
+// --count-reads (test option): counts the reads of run files and the rounds, and answers them at GET /api/reads; without it the route is not there
+let countReads = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
+  else if (args[i] === '--count-reads') countReads = readCount.on = true;
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
@@ -155,9 +158,10 @@ const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-set
 // The view of one run: the first loaded view that covers the protocols of its cases (web/view.js viewCovers).
 // A run whose protocols no loaded view covers has none: it renders with the generic parts only and the page
 // says which view is missing (`missing`, `protocols`). No view is a default for another runbook's run.
+// the view of a run depends on its cases (their protocols), so it is made again when a case changed, not when another file of the run did
 const viewCache = new Map();
 function viewOf(src) {
-  const sig = `${src.version}:${src.cases.size}`;
+  const sig = `${src.caseVersion || 0}:${src.cases.size}`;
   const hit = viewCache.get(src.index);
   if (hit && hit.sig === sig) return hit;
   const protocols = [...new Set([...src.cases.values()].map((e) => protocolOf(e.dir)).filter(Boolean))].sort();
@@ -358,7 +362,7 @@ function runSummary(s) {
 // of the run (every step of the leg shares it), so the wall clock of a step comes from here:
 // the mtime of events.jsonl when the server saw a line appear. On first sight only the last line
 // is dated (the file's mtime is when that line was appended); earlier ones stay undated.
-function observe(src, dir) {
+function observe(src, dir, gap = false) {
   let mtime;
   const eventsStat = statOf(path.join(dir, 'events.jsonl'));
   if (!eventsStat) return;
@@ -368,7 +372,8 @@ function observe(src, dir) {
   if (prev && evs.length < prev.n) prev = null; // the file was replaced: date it as on first sight
   const t = prev ? prev.t : {};
   if (!prev) { if (evs.length) t[evs[evs.length - 1].seq] = Math.round(mtime); }
-  else for (const e of evs.slice(prev.n)) if (t[e.seq] == null) t[e.seq] = Math.round(mtime);
+  // after a gap in which nothing looked at the run only the last new line is dated, as on first sight: the mtime is when that one was appended
+  else for (const e of gap ? evs.slice(prev.n).slice(-1) : evs.slice(prev.n)) if (t[e.seq] == null) t[e.seq] = Math.round(mtime);
   src.times.set(dir, {n: evs.length, t});
 }
 
@@ -406,21 +411,27 @@ function runDirOf(src) {
   return p;
 }
 
-function scan(src) {
+// a run nobody looked at for longer than this is dated as on first sight (observe)
+const LOOK_GAP_MS = 5000;
+// `light`: only the cases (what the run picker's row needs), not the run's files and live records
+function scan(src, light = false) {
   const dirs = rootsOf(src).flatMap((r) => walk(r, null, 0, []));
   const changed = [];
   const seen = new Set();
+  const gap = !CLOCK && src.scannedAt != null && Date.now() - src.scannedAt > LOOK_GAP_MS;
+  src.scannedAt = Date.now();
   for (const {dir, parent, depth} of dirs) {
     seen.add(dir);
     const sig = caseSig(dir);
     const prev = src.cases.get(dir);
     if (!prev || prev.sig !== sig) {
-      observe(src, dir);
+      observe(src, dir, gap);
       src.cases.set(dir, {dir, parent, depth, sig, data: null});
       changed.push(dir);
     }
   }
   for (const dir of Array.from(src.cases.keys())) if (!seen.has(dir)) { src.cases.delete(dir); src.times.delete(dir); changed.push(dir); }
+  if (light) { if (changed.length) { src.version++; src.caseVersion = (src.caseVersion || 0) + 1; } return {changed, runChanged: false, liveChanged: false}; }
   const runDir = runDirOf(src);
   const runSig = ['run.log', 'console.txt', 'llm-calls.jsonl', 'decisions.jsonl', 'ui-actions.jsonl', 'run-stopped.json', 'run-settings.jsonl'].map((f) => statSig(path.join(runDir, f))).join('|') + listDir(runDir).join(',');
   const runChanged = runSig !== src.runSig;
@@ -428,6 +439,7 @@ function scan(src) {
   const liveSig = liveSignature(src, runDir);
   const liveChanged = liveSig !== src.liveSig;
   src.liveSig = liveSig;
+  if (changed.length) src.caseVersion = (src.caseVersion || 0) + 1;
   if (changed.length || runChanged) src.version++;
   return {changed, runChanged, liveChanged};
 }
@@ -823,7 +835,9 @@ function ctx(src) {
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, parts: c.parts, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
 
 // ---- HTTP ------------------------------------------------------------------------------------
-const clients = new Set();
+// the event streams of the pages, each with the source its page shows (/events?source=N)
+const clients = new Map();
+const watchedBy = (index) => { for (const c of clients.values()) if (c.source === index) return true; return false; };
 // Every path leaves the server relative to the repository (sdc/), its workspace (../) or ~, never
 // as an absolute home path: what the page shows and what a screenshot or a saved page keeps.
 const HOME = process.env.HOME || '/nonexistent';
@@ -837,27 +851,69 @@ const givenDirs = () => [...new Set([...runsDirs.map((d) => path.join(d, 'x')), 
 const givenRel = (s, d) => s.split(d + '/').join(path.basename(d) + '/');
 const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
-function push(name, data) {
+// a `change` goes to the pages that show its source; `sources` (no source) to every page
+function push(name, data, source = null) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
-  for (const res of clients) res.write(msg);
+  for (const [res, c] of clients) if (source == null || c.source === source) tell(res, msg);
+}
+// A page that is further behind than this many bytes of unsent output is not reading: its stream is ended (the page opens
+// it again), so the memory held for a page is bounded and the rounds stop when it was the last one.
+const MAX_PENDING = 1048576;
+function tell(res, msg) {
+  if (res.writableLength > MAX_PENDING) { clients.delete(res); res.destroy(); stopRounds(); return; }
+  res.write(msg);
 }
 
-let sourcesSig = '';
-function tick() {
-  discover();
-  for (const src of sources) guardRun(src, () => inView(src, () => {
-    const existed = src.exists;
-    src.exists = fs.existsSync(src.path);
-    const {changed, runChanged, liveChanged} = scan(src);
-    if (changed.length || runChanged || liveChanged || existed !== src.exists) {
-      push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
-    }
-  }));
-  // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
-  // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => guardRun(s, () => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`), `${s.path}:unreadable`)).join('|');
-  if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
+// One source brought up to date: what a round does for each run a page shows, and what a request does for the run
+// it asks about when no round has (a run nobody watches is read on request, not on a timer).
+function roundOf(src, light = false) {
+  const existed = src.exists;
+  src.exists = fs.existsSync(src.path);
+  const {changed, runChanged, liveChanged} = scan(src, light);
+  if (changed.length || runChanged || liveChanged || existed !== src.exists) {
+    push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0}, src.index);
+  }
 }
+const refresh = (src, light = false) => { if (!CLOCK) guardRun(src, () => inView(src, () => roundOf(src, light))); };
+
+// A round runs only while a page is connected (the timer is started by the first stream and stopped by the last) and
+// reads only the sources a page shows. With SDC_CLOCK_DIR set (the clock of the ux loop) every source is read on each step
+// of the clock, as before.
+// look for runs that appeared under --runs and tell the pages
+const findRuns = () => { if (discover().length) push('sources', {count: sources.length}); };
+let rounds = 0;
+// what the run picker's row of a run shows of its state, as one string: a store that came, a run that started, closed or was stopped
+const stateSigOf = (src) => guardRun(src, () => inView(src, () => `${src.path}:${fs.existsSync(src.path)}:${statSig(path.join(runDirOf(src), 'run-stopped.json'))}:${runSummary(src).state}`), `${src.path}:unreadable`);
+const stateSigs = new Map();
+// The states the lists served by /api/sources carried in the last LISTED_WINDOW_MS, by source. A page opens its stream within
+// seconds of its list; when the run's state now is not one of those a list carried (the run changed between the list and the
+// stream), the page is sent `sources` once at the stream's start, so that the list it holds is read again.
+const LISTED_WINDOW_MS = 60000;
+const listed = new Map();
+function noteListed(src, sig) {
+  const now = Date.now();
+  const kept = (listed.get(src.index) || []).filter((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig);
+  kept.push({sig, at: now});
+  listed.set(src.index, kept.slice(-8));
+}
+const listStale = (src, sig) => { const now = Date.now(); return (listed.get(src.index) || []).some((e) => now - e.at < LISTED_WINDOW_MS && e.sig !== sig); };
+function tick() {
+  rounds++;
+  findRuns();
+  let stateChanged = false;
+  for (const src of sources) {
+    if (!CLOCK && !watchedBy(src.index)) continue;
+    guardRun(src, () => inView(src, () => roundOf(src)));
+    // the list the run picker shows is announced for the runs a page shows; the picker reads the list again when it opens
+    const sig = stateSigOf(src);
+    if (stateSigs.has(src.index) && stateSigs.get(src.index) !== sig) stateChanged = true;
+    stateSigs.set(src.index, sig);
+  }
+  if (stateChanged) push('sources', {count: sources.length});
+}
+let roundTimer = null;
+const startRounds = () => { if (!CLOCK && !roundTimer) roundTimer = setInterval(tick, 700); };
+const stopRounds = () => { if (roundTimer && !clients.size) { clearInterval(roundTimer); roundTimer = null; } };
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};
 const send = (res, code, body, type = 'application/json; charset=utf-8') => {
@@ -888,6 +944,8 @@ function addressedToThisServer(req) {
   return !!o && o[1].toLowerCase() === host.toLowerCase();
 }
 
+// routes that read no run of their own: /api/sources brings each run up to date itself
+const NO_REFRESH = new Set(['/api/sources', '/api/clock', '/api/meta', '/api/reads']);
 // The one guard of every request: a value a request carries (the request line, a header, a query) that makes
 // the code throw ends in an answer, never in the end of the process.
 const server = http.createServer((req, res) => {
@@ -895,7 +953,12 @@ const server = http.createServer((req, res) => {
     if (!addressedToThisServer(req)) return send(res, 421, {error: 'this request is not for this server'});
     let url;
     try { url = new URL(req.url, 'http://x'); } catch { return send(res, 400, {error: 'bad request'}); }
-    const src = sources[Number(url.searchParams.get('source') || 0)];
+    const want = Number(url.searchParams.get('source') || 0);
+    // a run that appeared since the last round is found when a request names it
+    if (!sources[want]) findRuns();
+    const src = sources[want];
+    // the run a request names is brought up to date before the request is answered under its view (a route that reads no run is left out)
+    if (src && url.pathname.startsWith('/api/') && !NO_REFRESH.has(url.pathname)) refresh(src);
     inView(src, () => handle(req, res, url));
   } catch (e) {
     console.error(`sdc-ui: ${req.method} request failed: ${e?.stack || e}`);
@@ -912,13 +975,25 @@ function handle(req, res, url) {
   if (p === '/events') {
     res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive'});
     res.write(`event: hello\ndata: ${JSON.stringify({versions: sources.map((s) => s.version)})}\n\n`);
-    clients.add(res);
-    req.on('close', () => clients.delete(res));
+    const shown = Number(url.searchParams.get('source') || 0);
+    clients.set(res, {source: shown});
+    if (src) {
+      const sig = stateSigOf(src);
+      if (listStale(src, sig)) res.write(`event: sources\ndata: ${JSON.stringify({count: sources.length})}\n\n`);
+      if (!stateSigs.has(shown)) stateSigs.set(shown, sig);
+    }
+    startRounds();
+    req.on('close', () => { clients.delete(res); stopRounds(); });
     return;
   }
-  if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
+  if (p === '/api/sources') { findRuns(); return send(res, 200, sources.map((s) => { refresh(s, true); noteListed(s, stateSigOf(s)); return sourceRow(s); })); }
   if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
+  if (countReads && p === '/api/reads') {
+    const byRun = {};
+    for (const [dir, n] of readCount.byRun) { const name = sources.find((s) => within(dir, runDirOf(s)))?.name ?? 'other'; byRun[name] = (byRun[name] || 0) + n; }
+    return send(res, 200, {rounds, total: readCount.total, byRun});
+  }
   if (p === '/api/view') return send(res, 200, src ? viewOf(src).view : null);
   if (p === '/api/view-info') return send(res, 200, src ? viewInfo(src) : null);
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
@@ -962,15 +1037,13 @@ function handle(req, res, url) {
     return send(res, r.state === 'ok' ? 200 : 404, r.state === 'ok' ? r.bytes.toString('utf8') : 'not found', 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);
-  const abs = path.join(here, 'web', file);
-  if (!abs.startsWith(path.join(here, 'web')) || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
+  const abs = servedUnder(path.join(here, 'web'), file);
+  if (!abs || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
   return send(res, 200, fs.readFileSync(abs), MIME[path.extname(abs)] || 'application/octet-stream');
 }
 
-tick();
-if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
-else setInterval(tick, 700);
-setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
+if (CLOCK) { tick(); setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25); }
+setInterval(() => { for (const res of clients.keys()) tell(res, ': ping\n\n'); }, 15000);
 // --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
 server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {

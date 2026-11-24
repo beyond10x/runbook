@@ -201,3 +201,33 @@ fn a_link_at_sdc_to_a_directory_outside_keeps_what_was_in_it() {
     assert!(outside.is_dir());
     assert!(fs::symlink_metadata(work.join(".sdc")).unwrap().file_type().is_symlink(), "the link to .sdc is still a link");
 }
+
+/// Name, kind, size and modification time of every path below `dir`, links not followed.
+fn stat_tree(base: &Path, dir: &Path, out: &mut Vec<(String, bool, u64, std::time::SystemTime)>) {
+    let mut paths: Vec<PathBuf> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    paths.sort();
+    for p in paths {
+        let m = fs::symlink_metadata(&p).unwrap();
+        out.push((p.strip_prefix(base).unwrap().display().to_string(), m.is_dir(), m.len(), m.modified().unwrap()));
+        if m.is_dir() {
+            stat_tree(base, &p, out);
+        }
+    }
+}
+
+#[test]
+fn a_not_called_start_with_a_link_at_sdc_writes_nothing_through_it() {
+    let (root, work) = rig("link-out-stat");
+    let outside = root.join("outside");
+    fs::create_dir_all(outside.join("loom-feedback/keep")).unwrap();
+    fs::write(outside.join("precious"), "keep").unwrap();
+    fs::write(outside.join("loom-feedback/keep/marker"), "mine").unwrap();
+    std::os::unix::fs::symlink(&outside, work.join(".sdc")).unwrap();
+    let mut before = Vec::new();
+    stat_tree(&outside, &outside, &mut before);
+    assert_eq!(run(&root, &work, true), Some(79), "a start that is not called writes nothing, so the link at .sdc does not end it");
+    let mut after = Vec::new();
+    stat_tree(&outside, &outside, &mut after);
+    assert_eq!(after, before, "the directory the link names: file list, kinds, sizes and times are as they were");
+    assert!(fs::symlink_metadata(work.join(".sdc")).unwrap().file_type().is_symlink());
+}

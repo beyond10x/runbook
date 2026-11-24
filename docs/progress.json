@@ -5812,6 +5812,63 @@
     },
     {
       "hypothesis": null,
+      "id": "parity-loom-strong-5",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through `runbook run` in process on the Loom library the runbook crate links (commit d8944d49, Loom 0.59.0, an ancestor of Loom tag 0.60.0), with no `b10x-loom` child binary and no `loom.bin`; record 4 linked Loom 70b0e6e0, record 3 went through `runbook loom-run` and the child binary of Loom 5af3f9c2, the driver runs of release-0.1.2 through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either, nor were the runs of records 3 and 4."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick (docs/loom-run-directory.md), a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider runs inside `runbook run` (runbook/src/loom_run/decider/); bindings/tools/decider.sh is not in the tree any more and no runner starts it, while the driver runs used it; the adapter is claude-cli as in all earlier runtimes. The answers file bindings/tools/answers.yaml and sdc-answers are used as in records 3 and 4 (scope.answer, amend.upstream); amend.upstream has handoff_when (bindings/tools/sdc-tool.sh findings-wait) as in record 4. Who decides is read once from tools/autonomy-levels.json and the decision classes before the first action of the run."
+        },
+        {
+          "key": "effort",
+          "note": "the record format carries no effort to the runner (efforts.* is refused for a loom variant), so the class defaults of bindings/tools/node-classes.json apply to every node and to the decider; the driver runs of release-0.1.2 set their efforts through SDC_LLM_EFFORT variables."
+        },
+        {
+          "key": "canon",
+          "note": "Canon is linked into the runbook binary (b10x-canon 0.11.0, commit e81f970d, runbook/Cargo.toml and runbook/Cargo.lock) and no run needs a canon binary on the login's PATH; the runs of record 3 and release-0.1.2 used the canon binary on the login's PATH, which no record pinned."
+        },
+        {
+          "key": "tree",
+          "note": "the tree is main at d828dddb, the merge of the Loom pin d8944d49; it holds the deletion of the old driver runtime, the Loom pins db2726ff and c9b4c177 and the bindings that state their exits; record 4 ran on 9be5098 (the head of line 2), record 3 on e7dfa4b58 and the driver runs of release-0.1.2 on 72a3eef."
+        },
+        {
+          "key": "ess",
+          "note": "driver/ess-pin.json pins ess 0.98.0 (commit eb2bdd51) and bindings/tools/sdc-tool.sh runs that release; record 4 ran 0.97.4, the driver runs of release-0.1.2 and the runs of record 3 ran 0.96.0."
+        },
+        {
+          "key": "rework",
+          "note": "change.implement of bindings/sdc-story.yaml gives the writer three more runs after a rejection by the review or the merge approval (budget.runs_per rejection, rework_limit 2) and a not-called exit counts no run; record 4 ran without that allowance, so the counts of runs of an action are not held equal to it."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: On main at d828dddb the runner is one binary on Loom (`runbook run`, in process, decider in process, model steps through `sdc-node`), linking Loom d8944d49 with the rework allowance (`budget.runs_per: rejection`, `rework_limit`, `rework_on` on `change.implement` of the story runbook). The three runs of the to-do idea in the strong setting get past the three stops of `parity-loom-strong-4` (run 1: `spec.author` out of runs in `IDEA-1.todo.spec` after not-called exits were counted; run 2: stuck in `IDEA-1.intake` after `requirements.check` exited 5; run 3: `change.implement` out of runs in `IDEA-1.list.sync` after `change.review` exited 1) and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in `story:parity-run-on-loom`. What counts against it: a run that stops at one of those three places, a run that stops for a person at a decision the routing table gives to a rule or the decider at A5, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. This record follows parity-loom-strong-4, which stays as the evidence of its three stops and is not edited.",
+      "tree": "d828ddd",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "release-0.3.0",
       "kind": "prospective",
       "known_confounds": [
@@ -6408,6 +6465,10 @@
     {
       "path": "experiments/parity-loom-strong-4/runs/parity-loom-strong-4.strong.3.json",
       "sha256": "8aa8f1850494461878e40b3858abf50fe7607879e060c848b2b85f50fe356240"
+    },
+    {
+      "path": "experiments/parity-loom-strong-5.yaml",
+      "sha256": "4753a584b730fc20eaa7ae339be9f783ec560536f7b996e7f105e2cb98458881"
     },
     {
       "path": "experiments/parity-loom-strong.yaml",
