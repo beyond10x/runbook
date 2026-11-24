@@ -2,7 +2,7 @@
   "name": "runbook",
   "displayName": "Runbook",
   "description": "Skills for building, recording and hardening a runbook: a protocol-driven workflow whose next step a program decides from recorded facts.",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "author": {
     "name": "Beyond10x"
   },
