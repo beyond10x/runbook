@@ -124,6 +124,10 @@
 .sdc-flow__rowlabel { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--b10x-color-muted); }
 .sdc-flow__row .sdc-flow__seq { margin-top: 0.55rem; }
 .sdc-flow__row .sdc-flow__box.has-children { background: var(--b10x-color-surface); border-width: 2px; }
+@media (min-width: 901px) {
+  .sdc-flow__seq--actions { flex-wrap: wrap; gap: 0.75rem 0; }
+  .sdc-flow__seq--actions > .sdc-flow__step { flex: 1 1 15rem; }
+}
 .sdc-flow__arrow { flex: none; align-self: center; padding: 0 0.35rem; color: var(--b10x-color-heading); font-size: 1.25rem; font-weight: 700; }
 .sdc-flow__box--step ul { list-style: none; padding: 0; margin: 0.4rem 0 0; display: grid; gap: 0.35rem; }
 .sdc-flow__box--step li { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; font-size: 0.86rem; }
