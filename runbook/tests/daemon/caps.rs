@@ -7,7 +7,7 @@ use super::http::send;
 use super::state::scratch;
 use runbook::api::routes;
 use runbook::caps::{CapPolicy, Caps};
-use runbook::commands::{Config, Daemon, Fault, SubmitRun};
+use runbook::commands::{AnswerDecision, Config, Daemon, Fault, SubmitRun};
 use runbook::engine::Engine;
 use runbook::runtime::Confinement;
 use serde_json::{json, Value};
@@ -71,6 +71,10 @@ impl Rig {
         std::fs::write(home.join("protocol/caps-other.protocol.yaml"), other).unwrap();
         let bindings = std::fs::read_to_string(home.join("bindings/caps-demo.yaml")).unwrap().replace("caps-demo@1", "caps-other@1");
         std::fs::write(home.join("bindings/caps-other.yaml"), bindings).unwrap();
+        // the person step of the engine runbook is answered as the daemon's principal
+        let draft = home.join("bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&draft).unwrap().replace("principal: reviewer", &format!("principal: {}", super::PRINCIPAL));
+        std::fs::write(&draft, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
         tweak(&home);
         let engine = Arc::new(Engine::with_levels(home, dir.join("state"), &[Confinement::Local], policy));
@@ -137,6 +141,43 @@ impl Rig {
     fn kinds(&self, run: &str) -> Vec<String> {
         self.d.events_after(run, 0).iter().map(|e| e["kind"].as_str().unwrap().to_string()).collect()
     }
+
+    /// Answers every decision the run asks until it is over: a review with `review`, any other
+    /// decision `approve`.
+    fn settle(&self, run: &str, review: &str) -> Value {
+        let mut answered = std::collections::BTreeSet::new();
+        until(&format!("run {run} to be over"), 40, || {
+            if matches!(self.row(run)["state"].as_str(), Some("Ended" | "Cancelled" | "FailedToStart")) {
+                return true;
+            }
+            for d in self.d.open_decisions_of_run(run) {
+                let id = d["request_id"].as_str().unwrap().to_string();
+                if !answered.insert(id.clone()) {
+                    continue;
+                }
+                let is_review = d["options"].as_array().unwrap().iter().any(|o| o["answer"].as_str().is_some_and(|a| a.contains("result")));
+                let (answer, who) = if is_review { (review, "reviewer") } else { ("approve", "owner") };
+                let _ = self.d.answer_decision(AnswerDecision { run_id: run.into(), request_id: id, answer: answer.into(), answered_by: who.into() });
+            }
+            false
+        });
+        self.row(run)
+    }
+
+    /// The cost the records of the run's programs add up to, micro USD.
+    fn booked_in_records(&self, run: &str) -> u64 {
+        let file = self.dir.join("state/workspaces").join(run).join(".sdc/llm/calls.jsonl");
+        let usd: f64 = std::fs::read_to_string(file).unwrap_or_default().lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| v["cost_usd"].as_f64()).sum();
+        (usd * 1_000_000.0).round() as u64
+    }
+}
+
+/// Changes `from` to `to` in a file of the home; the change must take.
+fn replace_in(home: &Path, file: &str, from: &str, to: &str) {
+    let path = home.join(file);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{file} holds no {from:?}");
+    std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
 }
 
 impl Drop for Rig {
@@ -353,6 +394,11 @@ fn per_run(micro: u64) -> CapPolicy {
     CapPolicy::fixed(caps(120, 100, micro)).unwrap()
 }
 
+/// A spend cap of `micro` by default that a submit may raise up to `ceiling`.
+fn per_run_up_to(micro: u64, ceiling: u64) -> CapPolicy {
+    CapPolicy::new(caps(120, 100, micro), caps(120, 100, ceiling)).unwrap()
+}
+
 fn outcome_of(row: &Value) -> String {
     row["outcome"].as_str().unwrap_or("-").to_string()
 }
@@ -379,23 +425,31 @@ fn three_runs_at_once_each_under_its_own_cap_all_finish() {
 }
 
 #[test]
-fn a_run_that_spent_less_than_its_cap_is_not_stopped_at_a_step_that_makes_no_model_call() {
-    // two calls book 0.4 USD under a cap of 0.5 USD; the publish step calls no model, names no budget and costs nothing
-    let rig = Rig::new("caps-publish", per_run(500_000));
+fn a_step_whose_program_names_no_budget_reserves_the_largest_budget_of_its_runbook() {
+    // The publish program names no budget: it reserves the largest its runbook names (0.3 USD), as a
+    // program that may call a model. Two calls book 0.4 USD; under a cap of 0.5 USD 0.1 is left and the
+    // publish does not start; under 0.7 USD 0.3 is left and it does.
+    let rig = Rig::new("caps-publish", per_run_up_to(500_000, 1_000_000));
     let run = rig.submit(RUNBOOK, None, &[]);
     let row = rig.wait_ended(&run);
-    assert_eq!(row["outcome"], "finished", "the run spent {:?} of 500000 and was stopped at the step that costs nothing: {row}", setting(&row, "spent_micro_usd"));
+    assert_eq!(row["outcome"], "stopped: spend cap", "a program that names no budget started with 0.1 USD left, under the 0.3 USD its runbook names: {row}");
+    assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("400000"), Some("2")), "{row}");
+    let roomy = rig.submit(RUNBOOK, None, &[("cap_micro_usd", "700000")]);
+    let row = rig.wait_ended(&roomy);
+    assert_eq!(row["outcome"], "finished", "{row}");
 }
 
 #[test]
 fn a_step_reserves_the_budget_of_its_own_action() {
     // write names 0.3 USD, check names 0.1 USD; each books 0.2. Under a cap of 0.45 USD the check is
-    // held to 0.25 USD left: its own 0.1 fits, the largest of the bindings (0.3) would not.
+    // held to 0.25 USD left: its own 0.1 fits, the largest of the bindings (0.3) would not. The publish
+    // names its own budget of 0, so it reserves nothing.
     let rig = Rig::tweaked("caps-own-action", per_run(450_000), |home| {
         let path = home.join("bindings/caps-demo.yaml");
         let text = std::fs::read_to_string(&path).unwrap().replace("check, --max-budget-usd, \"0.3\"", "check, --max-budget-usd, \"0.1\"");
         assert!(text.contains("\"0.1\""));
         std::fs::write(&path, text).unwrap();
+        replace_in(home, "bindings/caps-demo.yaml", "argv: [tools/publish.sh]", "argv: [tools/publish.sh, --max-budget-usd, \"0\"]");
     });
     let run = rig.submit(RUNBOOK, None, &[]);
     let row = rig.wait_ended(&run);
@@ -416,18 +470,131 @@ fn a_step_reserves_the_per_call_budget_of_its_own_runbook_and_not_of_another_run
 }
 
 #[test]
-fn a_run_whose_bindings_name_no_per_call_budget_is_stopped_when_its_spend_reaches_the_cap() {
-    // each of the two calls books 0.2 USD; the cap is 0.4 USD; nothing is reserved, so only the spend check holds the publish step
+fn a_runbook_whose_programs_name_no_per_call_budget_is_refused_at_submit_naming_the_reason() {
+    // No binding of the runbook, root or child, names a per-call budget: a program that calls a model
+    // would run unbound in money, so the submit is refused and no run is made.
     let rig = Rig::tweaked("caps-no-budget", per_run(400_000), |home| {
         let path = home.join("bindings/caps-demo.yaml");
         let text = std::fs::read_to_string(&path).unwrap().replace(", --max-budget-usd, \"0.3\"", "");
         assert!(!text.contains("max-budget-usd"));
         std::fs::write(&path, text).unwrap();
     });
+    match rig.try_submit(RUNBOOK, None, &[]) {
+        Err(Fault::Invalid(why)) => {
+            assert!(why.contains("--max-budget-usd") && why.contains("note.write"), "the refusal names neither the budget nor a program that names none: {why}");
+            assert!(!why.contains("/home") && !why.contains(rig.dir.to_str().unwrap()), "{why}");
+        }
+        other => panic!("a runbook that names no per-call budget was taken: {other:?}"),
+    }
+    assert!(rig.d.runs().is_empty(), "a refused submit made a run: {:?}", rig.d.runs());
+}
+
+#[test]
+fn an_action_whose_argv_names_no_budget_does_not_take_the_run_past_its_cap() {
+    // write names 0.3 USD and books 0.2; check names none, calls a model all the same and books 0.2.
+    // The run's cap is 0.35 USD: 0.15 is left for check, and a call that may cost what the runbook's
+    // largest budget names (0.3) does not fit. The money of a run is never unbound.
+    let rig = Rig::tweaked("caps-nobudget-action", per_run(350_000), |home| {
+        replace_in(home, "bindings/caps-demo.yaml", "check, --max-budget-usd, \"0.3\"", "check");
+    });
     let run = rig.submit(RUNBOOK, None, &[]);
     let row = rig.wait_ended(&run);
-    assert_eq!(row["outcome"], "stopped: spend cap", "the spend had reached the cap and the next step started: {row}");
-    assert_eq!(setting(&row, "spent_micro_usd"), Some("400000"), "{row}");
+    let spent: u64 = setting(&row, "spent_micro_usd").unwrap().parse().unwrap();
+    assert!(spent <= 350_000, "the run spent {spent} of its cap 350000 micro USD: {row}");
+    assert_eq!(row["outcome"], "stopped: spend cap", "{row}");
+}
+
+#[test]
+fn a_budget_written_with_an_equals_sign_is_reserved() {
+    // `--max-budget-usd=0.3` is a budget of 0.3 USD to the tool; the run's cap is 0.25 USD, so no call may start
+    let rig = Rig::tweaked("caps-equals", per_run(250_000), |home| {
+        let path = home.join("bindings/caps-demo.yaml");
+        let text = std::fs::read_to_string(&path).unwrap().replace(", --max-budget-usd, \"0.3\"", ", --max-budget-usd=0.3");
+        assert!(text.contains("--max-budget-usd=0.3"));
+        std::fs::write(&path, text).unwrap();
+    });
+    let run = rig.submit(RUNBOOK, None, &[]);
+    let row = rig.wait_ended(&run);
+    let spent: u64 = setting(&row, "spent_micro_usd").unwrap().parse().unwrap();
+    assert!(spent <= 250_000, "the run spent {spent} of its cap 250000 micro USD with a call whose budget (0.3 USD) is over the cap: {row}");
+    assert!(rig.calls_made(&run).is_empty(), "{:?}", rig.calls_made(&run));
+}
+
+#[test]
+fn a_budget_that_is_no_number_of_usd_of_zero_or_more_is_refused_at_submit_naming_the_action() {
+    let rig = Rig::new("caps-bad-budget", per_run(1_000_000));
+    let mut report = Vec::new();
+    for (n, bad) in ["\"abc\"", "\"-1\"", "\"NaN\"", "\"inf\"", "\"\"", "\"1e999\""].iter().map(|v| format!(", --max-budget-usd, {v}")).chain([", --max-budget-usd=abc".to_string(), ", --max-budget-usd=-0.5".to_string(), ", --max-budget-usd".to_string()]).enumerate() {
+        let name = format!("bad{n}");
+        let protocol = std::fs::read_to_string(rig.dir.join("home/protocol/caps-demo.protocol.yaml")).unwrap().replace("id: caps-demo", &format!("id: {name}"));
+        std::fs::write(rig.dir.join(format!("home/protocol/{name}.protocol.yaml")), protocol).unwrap();
+        let bindings = std::fs::read_to_string(rig.dir.join("home/bindings/caps-demo.yaml")).unwrap().replace("caps-demo@1", &format!("{name}@1")).replacen("check, --max-budget-usd, \"0.3\"", &format!("check{bad}"), 1);
+        std::fs::write(rig.dir.join(format!("home/bindings/{name}.yaml")), bindings).unwrap();
+        match rig.try_submit(&name, None, &[]) {
+            Err(Fault::Invalid(why)) if why.contains("note.check") && !why.contains(rig.dir.to_str().unwrap()) => {}
+            other => report.push(format!("{bad}: {other:?}")),
+        }
+    }
+    assert!(report.is_empty(), "a budget that is no number of USD was not refused naming the action:\n{}", report.join("\n"));
+    assert!(rig.d.runs().is_empty(), "a refused submit made a run: {:?}", rig.d.runs());
+}
+
+#[test]
+fn a_program_that_names_its_budget_twice_reserves_the_larger() {
+    // write names 0.1 and then 0.3; the run's cap is 0.25 USD: the program may cost 0.3, so it does not start
+    let rig = Rig::tweaked("caps-budget-twice", per_run(250_000), |home| {
+        replace_in(home, "bindings/caps-demo.yaml", "write, --max-budget-usd, \"0.3\"", "write, --max-budget-usd, \"0.1\", --max-budget-usd, \"0.3\"");
+    });
+    let run = rig.submit(RUNBOOK, None, &[]);
+    let row = rig.wait_ended(&run);
+    assert_eq!(row["outcome"], "stopped: spend cap", "{row}");
+    assert_eq!(setting(&row, "spent_micro_usd"), Some("0"), "{row}");
+    assert!(rig.calls_made(&run).is_empty(), "a program that may cost 0.3 USD started under a cap of 0.25: {:?}", rig.calls_made(&run));
+}
+
+// ---- a program an answer starts ----
+
+/// The review of the engine runbook's draft becomes a person action whose binding names a program
+/// that books 0.2 USD and names a budget of 0.3; the writer names its own budget of 0.
+fn reviewed_by_a_program(home: &Path) {
+    replace_in(home, "bindings/engine-draft.yaml", "argv: [tools/draft-write.sh]", "argv: [tools/draft-write.sh, --max-budget-usd, \"0\"]");
+    replace_in(home, "bindings/engine-draft.yaml", "      kind: person\n", "      kind: person\n      argv: [tools/model-step.sh, review, --max-budget-usd, \"0.3\"]\n");
+}
+
+#[test]
+fn a_program_an_answer_starts_reserves_its_budget_and_is_booked() {
+    // The answer `performed` to the review starts its program. Under a cap of 0.1 USD the program's
+    // budget (0.3) does not fit: it does not start and the run ends at the spend cap. Under 1 USD it
+    // starts, and its 0.2 USD is booked to the run.
+    let rig = Rig::tweaked("caps-answer-program", per_run_up_to(100_000, 1_000_000), reviewed_by_a_program);
+    let run = rig.submit("engine-demo", None, &[]);
+    let row = rig.settle(&run, "performed");
+    assert_eq!(rig.booked_in_records(&run), 0, "a program the answer started cost money under a cap of 100000 micro USD: {row}");
+    assert_eq!(row["outcome"], "stopped: spend cap", "{row}");
+    let roomy = rig.submit("engine-demo", None, &[("cap_micro_usd", "1000000")]);
+    let row = rig.settle(&roomy, "performed");
+    assert_eq!(rig.booked_in_records(&roomy), 200_000, "{row}");
+    assert_eq!((setting(&row, "spent_micro_usd"), setting(&row, "used_llm_calls")), (Some("200000"), Some("1")), "the program the answer started was not booked: {row}");
+}
+
+#[test]
+fn a_program_an_answer_starts_that_changes_the_next_rounds_program_ends_the_run_before_that_round() {
+    // The review's program rewrites the writer in the run's copy; the answer `rejected` sends the case
+    // back to the writer, in the next round. The copy is checked at the top of that round: the run ends
+    // `RunbookCopyChanged` and the rewritten writer never runs.
+    let rig = Rig::tweaked("caps-answer-rewrites", per_run(1_000_000), |home| {
+        let script = "#!/bin/sh\ndir=\"$(dirname \"$0\")\"\nprintf '#!/bin/sh\\necho rewritten > marker.txt\\necho draft >> draft.txt\\n' > \"$dir/draft-write.sh\"\n";
+        std::fs::write(home.join("bindings/tools/rewrite-writer.sh"), script).unwrap();
+        std::fs::set_permissions(home.join("bindings/tools/rewrite-writer.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        replace_in(home, "bindings/engine-draft.yaml", "      kind: person\n", "      kind: person\n      argv: [tools/rewrite-writer.sh, --max-budget-usd, \"0\"]\n");
+    });
+    let run = rig.submit("engine-demo", None, &[]);
+    let row = rig.settle(&run, "rejected");
+    assert_eq!(row["outcome"], "runtime-failure", "{row}");
+    let failed: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").collect();
+    assert!(failed.first().and_then(|f| f["record"]["reason"].as_str()).is_some_and(|r| r.starts_with("RunbookCopyChanged")), "{failed:?}");
+    let marker = rig.dir.join("state/workspaces").join(&run).join("marker.txt");
+    assert!(!marker.exists(), "the next round ran the writer the answer's program had rewritten: {row}");
 }
 
 #[test]
@@ -532,6 +699,61 @@ fn a_stopped_daemon_releases_the_reservation_of_its_running_step() {
     assert_eq!(rig.ledger(RUNBOOK)["reserved"], json!({}), "{}", rig.ledger(RUNBOOK));
 }
 
+/// `runbook serve` on `dir`'s state directory: the address it listens on, or `None` when it did not start.
+fn serve_maybe(dir: &Path) -> (std::process::Child, Option<std::net::SocketAddr>) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_runbook"))
+        .args(["serve", "--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0", "--runtime", "loom", "--min-confinement", "local"])
+        .args(["--max-wall-seconds", "600", "--max-llm-calls", "50", "--cap-micro-usd", "800000"])
+        .arg("--runbook-home")
+        .arg(fixture())
+        .arg("--state-dir")
+        .arg(dir.join("state"))
+        .arg("--context-root")
+        .arg(dir.join("ctx"))
+        .env_remove("RUNBOOK_TOKEN")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    out.read_line(&mut line).unwrap();
+    let addr = line.trim().rsplit("http://").next().and_then(|a| a.parse().ok());
+    std::mem::forget(out);
+    (child, addr)
+}
+
+#[test]
+fn a_second_daemon_on_one_state_directory_does_not_start() {
+    // one state directory holds one ledger per runbook: two daemons on it would each hold runs against it
+    let dir = scratch("caps-two-daemons");
+    std::fs::create_dir_all(dir.join("ctx")).unwrap();
+    let (mut first, addr) = serve_maybe(&dir);
+    assert!(addr.is_some());
+    let (mut second, addr2) = serve_maybe(&dir);
+    let second_started = addr2.is_some();
+    let _ = second.kill();
+    let _ = second.wait();
+    let _ = first.kill();
+    let _ = first.wait();
+    assert!(!second_started, "two daemons hold one state directory (and so one ledger)");
+}
+
+#[test]
+fn a_run_cannot_hold_more_than_the_ledger_reserved_for_it_when_a_reservation_is_released_midway() {
+    use runbook::ledger::Ledger;
+    let dir = scratch("caps-ledger-ids");
+    let l = Ledger::open(&dir.join("l.json")).unwrap();
+    let a = l.reserve_for_run("run-a", 1000, 100).unwrap();
+    let _b = l.reserve_for_run("run-a", 1000, 200).unwrap();
+    l.commit(&a, "run-a", "x", 0).unwrap();
+    let _c = l.reserve_for_run("run-a", 1000, 300).unwrap();
+    // run-a holds b (200) and c (300): 500 held, 500 left of its 1000
+    let left = l.reserve_for_run("run-a", 1000, 1000).unwrap();
+    assert_eq!(left.micro_usd, 500, "a later reservation replaced an earlier one of the same run");
+}
+
 // ---- the wall cap against a program that ignores SIGTERM ----
 
 fn pid_alive(pid: i32) -> bool {
@@ -630,6 +852,25 @@ fn a_submit_with_a_cap_of_the_wrong_json_type_is_refused_naming_the_cap_over_htt
     }
     assert!(rig.d.runs().is_empty());
     rt.shutdown_background();
+}
+
+#[test]
+fn a_cap_sent_as_a_huge_or_exponent_json_number_is_refused_naming_the_cap() {
+    let (rig, rt, addr) = http_rig("caps-numbers");
+    let mut report = Vec::new();
+    for key in ["max_wall_seconds", "max_llm_calls", "cap_micro_usd"] {
+        for number in ["1e999", "-1e999", "18446744073709551616", "-1", "1E2", "0.5"] {
+            let body = format!(r#"{{"runbook_id":"caps-demo","intake":"x","confinement":"local","settings":{{"{key}":{number}}}}}"#);
+            let r = send(addr, "POST", &routes::command_path("submit-run"), &[("Content-Type", "application/json")], Some(body.as_bytes()));
+            let text = r.text();
+            if r.status != 400 || !text.contains(key) || text.contains("/home") || text.contains("state/") {
+                report.push(format!("{key}={number}: {} {text}", r.status));
+            }
+        }
+    }
+    assert!(rig.d.runs().is_empty(), "{:?}", rig.d.runs());
+    rt.shutdown_background();
+    assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
 #[test]
