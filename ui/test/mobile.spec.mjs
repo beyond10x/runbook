@@ -1,7 +1,7 @@
 // The phone findings of round R-03 (ux/findings/UXF-016 to UXF-026), one test each, at the gating phone
 // size 390x844 (decision D-006). Self-contained: one server of its own (test/serve.mjs:
 // a port the kernel gives) over runs played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
-// test/fixtures/runs)/mobile-runs: person (waiting on a person, writable), stopped (stopped on purpose,
+// ui/target/fixture-runs)/mobile-runs: person (waiting on a person, writable), stopped (stopped on purpose,
 // a failed waiting KPI) and decider (a decider deciding, with file changes). They play from the
 // committed slim copy when runs/ is absent, so the suite runs on a fresh checkout.
 // Screenshots: screenshots/390x844-mobile-*.png.
@@ -11,6 +11,7 @@ import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {settled} from './settled.mjs';
@@ -20,7 +21,7 @@ import {axeViolations, truncatedWithoutValue} from '../ux/core/contract.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
-const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'mobile-runs');
+const runs = path.join(FIXTURE_DIR, 'mobile-runs');
 let base;
 const PHONE = {width: 390, height: 844};
 const TARGETS = 'button, a[href], select, input:not([type=hidden]), textarea, summary, [role=button], [role=tab], label.switch, [data-goto], [data-case], [data-feed], [data-seq], [data-tab], #graph [data-id]';

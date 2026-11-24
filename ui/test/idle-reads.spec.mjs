@@ -15,13 +15,17 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, iso} from './loom-run-fixture.mjs';
 import {registerRun, readText, readJson} from '../runfiles.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'idle-reads');
+const root = path.join(FIXTURE_DIR, 'idle-reads');
 const RUNS = 50;
+// the server counts its rounds on a clock of 100 ms (--round-ms) where it runs one each 700 ms: every window below is the same
+// number of rounds as before (3.5 rounds with no page, a round and a half for a counter that stands), in a seventh of the time
+const ROUND = 100;
 const name = (i) => `run-${String(i).padStart(3, '0')}`;
 const runDir = (i) => path.join(root, 'runs', name(i));
 const eventsOf = (i) => path.join(runDir(i), 'store', 'CASE-1', 'events.jsonl');
@@ -36,7 +40,7 @@ test.beforeAll(async ({}, info) => {
   test.setTimeout(60000);
   fs.rmSync(root, {recursive: true, force: true});
   for (let i = 0; i < RUNS; i++) writeLoomRun(runDir(i));
-  ({url: base, proc: srv} = await startServer(['--count-reads', '--runs', path.join(root, 'runs')]));
+  ({url: base, proc: srv} = await startServer(['--count-reads', '--round-ms', String(ROUND), '--runs', path.join(root, 'runs')]));
 });
 
 const reads = async () => (await fetch(`${base}/api/reads`)).json();
@@ -75,7 +79,7 @@ function watch(source) {
 test('with no page connected no round runs and no run file is read (50 runs, 3 rounds of a page that is not there)', async () => {
   const a = await reads();
   expect(Object.keys(a)).toEqual(['rounds', 'total', 'byRun']);
-  await new Promise((r) => setTimeout(r, 2400));
+  await new Promise((r) => setTimeout(r, 350));
   const b = await reads();
   expect(b.rounds).toBe(0);
   expect(b.total).toBe(a.total);
@@ -121,7 +125,7 @@ test('with one page on one run the rounds read that run only, none in a round wh
   fs.appendFileSync(eventsOf(2), JSON.stringify({event: 'note', seq: 99, at: iso(70), source: 'loom-runlog'}) + '\n');
   fs.appendFileSync(eventsOf(9), JSON.stringify({event: 'note', seq: 99, at: iso(70), source: 'loom-runlog'}) + '\n');
   const change = await until('the change of the shown run', () => page.seen.find((e) => e.event === 'change' && e.data.source === 2 && e.data.cases.includes('CASE-1')));
-  expect(change.at - wrote, 'the change reaches the page within 5 s (a round is 700 ms)').toBeLessThan(5000);
+  expect(change.at - wrote, 'the change reaches the page within 5 s (a round is 100 ms here)').toBeLessThan(5000);
   expect(change.data.cases).toEqual(['CASE-1']);
   const during = await reads();
   expect(Object.keys(delta(before, during))).toEqual([name(2)]);
@@ -134,7 +138,7 @@ test('with one page on one run the rounds read that run only, none in a round wh
   expect(r0).toBeGreaterThanOrEqual(1);
   // the page leaves: the rounds stop
   page.close();
-  await until('the round counter to stand still', async () => { const x = await reads(); await new Promise((r) => setTimeout(r, 1000)); return (await reads()).rounds === x.rounds; });
+  await until('the round counter to stand still', async () => { const x = await reads(); await new Promise((r) => setTimeout(r, 150)); return (await reads()).rounds === x.rounds; });
 });
 
 test('a run that appears under --runs is announced to the page without a read of it', async () => {

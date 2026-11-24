@@ -20,8 +20,8 @@ const gateSpecs = specs.filter((f) => !slowFiles.includes(f));
 const text = (f) => fs.readFileSync(path.join(here, f), 'utf8');
 const textOf = (names) => Object.fromEntries(names.map((f) => [f, text(f)]));
 const maybeText = (f) => (fs.statSync(path.join(here, f), {throwIfNoEntry: false})?.isFile() ? text(f) : undefined);
-// The files of test/ and its subdirectories, but not the two directories of data: fixtures/ (git-ignored; other specs of the
-// same step remove and create run directories in it) and recorded/ (committed data).
+// The files of test/ and its subdirectories, but not the two directories of data: fixtures/ (git-ignored scratch of this file; the
+// other specs write their run directories under target/fixture-runs, fixture-dir.mjs) and recorded/ (committed data).
 const DATA_DIRS = ['fixtures', 'recorded'];
 const testFiles = (dir = here, rel = '') => fs.readdirSync(dir, {withFileTypes: true}).flatMap((e) => (e.isDirectory() ? (rel === '' && DATA_DIRS.includes(e.name) ? [] : testFiles(path.join(dir, e.name), `${rel}${e.name}/`)) : [rel + e.name]));
 // The files a spec of the gate imports, in test/ and in ux/, by their own walk of the imports.
@@ -540,4 +540,15 @@ test('no file under test/ names a listening port: servers take one from the kern
     for (const m of t.matchAll(/--port['"],\s*(?:String\()?['"]?(\d+)|SDC_UI_[A-Z]+_PORT|\bport\s*(?:=|\|\|)\s*\d{4}|127\.0\.0\.1:\d{4}/g)) if (m[1] !== '0') bad.push(`${f}: ${m[0]}`);
   }
   expect(bad).toEqual([]);
+});
+
+// A line of a file that starts an argv with 'serve' and does not spread SERVE_CAPS (child.mjs), as file:line.
+const uncapped = (files) => Object.entries(files).flatMap(([f, t]) => t.split('\n').map((l, i) => [i + 1, l])
+  .filter(([, l]) => /\[\s*['"]serve['"]/.test(l) && !l.includes('...SERVE_CAPS')).map(([n]) => `${f}:${n}`));
+test('every runbook serve a file of test/ starts is given the caps: its argv spreads SERVE_CAPS of child.mjs', () => {
+  expect(uncapped({'a.mjs': "spawnChild(bin, ['serve', '--ui', ...SERVE_CAPS], {})"})).toEqual([]);
+  expect(uncapped({'a.mjs': "x\nspawnChild(bin, [ \"serve\", '--ui'], {})"})).toEqual(['a.mjs:2']);
+  const files = Object.fromEntries(fs.readdirSync(here).filter((x) => x.endsWith('.mjs') && x !== 'budget.spec.mjs').map((f) => [f, text(f)]));
+  expect(Object.values(files).filter((t) => /\[\s*['"]serve['"]/.test(t)).length, 'files that start a daemon').toBeGreaterThan(0);
+  expect(uncapped(files), 'argv of a serve without the caps').toEqual([]);
 });

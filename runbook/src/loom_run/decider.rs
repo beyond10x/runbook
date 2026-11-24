@@ -47,12 +47,11 @@ const MODEL_KEYS: [&str; 15] = [
 const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
 const APPROVAL_KINDS: [&str; 3] = ["ApproveAction", "Approve", "Close"];
-/// Driver default of `SDC_MAX_DECIDER_CALLS`.
-const DEFAULT_MAX_CALLS: u64 = 20;
 /// Driver default of `SDC_DECIDER_RETRIES`.
 const DEFAULT_RETRIES: u64 = 2;
-/// Driver default of `SDC_DECIDER_MAX_BUDGET_USD` (0.25), micro USD.
-const DEFAULT_MAX_CALL_MICRO_USD: u64 = 250_000;
+/// What a decider limit is when the settings name none: no limit (`decider.max_calls`,
+/// `decider.max_budget_usd` hold as named).
+const NO_LIMIT: u64 = u64::MAX;
 const DEFAULT_TIMEOUT_SECONDS: u64 = 900;
 const OUTPUT_CAP: u64 = 1 << 20;
 
@@ -206,7 +205,7 @@ impl NativeDecider {
             if decider.get("max_calls").is_some() && decider.get("max_decider_calls").is_some() {
                 return Err("decider: max_calls and max_decider_calls name the same limit; give one".to_owned());
             }
-            let max_calls = number_key(decider, "max_calls", 1)?.or(number_key(decider, "max_decider_calls", 1)?).unwrap_or(DEFAULT_MAX_CALLS);
+            let max_calls = number_key(decider, "max_calls", 1)?.or(number_key(decider, "max_decider_calls", 1)?).unwrap_or(NO_LIMIT);
             let escalate = match decider.get("escalate") {
                 None => false,
                 Some(Value::String(s)) if s == "stop" => false,
@@ -225,7 +224,7 @@ impl NativeDecider {
                 }
             }
             let max_call = match decider.get("max_budget_usd") {
-                None => DEFAULT_MAX_CALL_MICRO_USD,
+                None => NO_LIMIT,
                 Some(v) => match v.as_f64() {
                     Some(usd) if usd.is_finite() && usd > 0.0 => (usd * 1_000_000.0).round() as u64,
                     _ => return Err("decider.max_budget_usd: a number above 0".to_owned()),
@@ -558,6 +557,11 @@ impl Decider for NativeDecider {
             Mode::Rule { .. } => 0,
             Mode::Model { .. } => self.max_call_micro_usd,
         }
+    }
+
+    /// A rule is answered inside the runner; a model decider starts its adapter program.
+    fn may_call_model(&self) -> bool {
+        matches!(self.mode, Mode::Model { .. })
     }
 
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict {

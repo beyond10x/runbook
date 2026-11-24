@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! sdc-free-agent run --run-dir <dir> --idea <text> --prompt <file> --example-spec <dir> --model <id>
-//!                    --effort <level> --max-usd <usd> --max-wall-s <s> --max-turns <n>
+//!                    --effort <level> [--max-usd <usd>] --max-wall-s <s> --max-turns <n>
 //!                    [--claude <bin>] [--ess <bin>] [--toolchain <dir>] [--credentials <file>] [--print]
 //! sdc-free-agent measure <run dir>
 //! sdc-free-agent job --run-dir <dir> --rw <dir>... --cwd <dir> -- <cargo arguments>   (run by slot)
@@ -46,7 +46,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value as J};
 use sha2::{Digest, Sha256};
 
-const USAGE: &str = "usage: sdc-free-agent run --run-dir <dir> --idea <text> --prompt <file> --example-spec <dir> --model <id> --effort <level> --max-usd <usd> --max-wall-s <s> --max-turns <n> [--claude <bin>] [--ess <bin>] [--toolchain <dir>] [--credentials <file>] [--print]
+const USAGE: &str = "usage: sdc-free-agent run --run-dir <dir> --idea <text> --prompt <file> --example-spec <dir> --model <id> --effort <level> [--max-usd <usd>] --max-wall-s <s> --max-turns <n> [--claude <bin>] [--ess <bin>] [--toolchain <dir>] [--credentials <file>] [--print]
        sdc-free-agent measure <run dir>
        sdc-free-agent job --run-dir <dir> --rw <dir>... --cwd <dir> -- <cargo arguments>";
 
@@ -491,7 +491,10 @@ fn parse_run(args: &[String]) -> Result<RunArgs, String> {
             "--example-spec" => a.example = Some(PathBuf::from(v()?)),
             "--model" => a.model = Some(v()?),
             "--effort" => a.effort = Some(v()?),
-            "--max-usd" => a.max_usd = Some(v()?.parse().map_err(|_| "--max-usd needs a number")?),
+            "--max-usd" => {
+                let n: f64 = v()?.parse().ok().filter(|n: &f64| n.is_finite() && *n >= 0.0).ok_or("--max-usd needs a number")?;
+                a.max_usd = Some(n.abs());
+            }
             "--max-wall-s" => a.max_wall = Some(v()?.parse().map_err(|_| "--max-wall-s needs seconds")?),
             "--max-turns" => a.max_turns = Some(v()?.parse().map_err(|_| "--max-turns needs a number")?),
             "--claude" => a.claude = Some(PathBuf::from(v()?)),
@@ -505,13 +508,17 @@ fn parse_run(args: &[String]) -> Result<RunArgs, String> {
     Ok(a)
 }
 
-fn claude_argv(prompt: &str, model: &str, effort: &str, max_usd: f64, max_turns: u64) -> Vec<String> {
+fn claude_argv(prompt: &str, model: &str, effort: &str, max_usd: Option<f64>, max_turns: u64) -> Vec<String> {
     let mut v: Vec<String> = vec!["/opt/sdc/bin/claude".into(), "-p".into(), prompt.into(), "--model".into(), model.into(),
-        "--max-turns".into(), max_turns.to_string(), "--max-budget-usd".into(), format!("{max_usd}"),
+        "--max-turns".into(), max_turns.to_string(),
         "--allowedTools".into(), TOOLS.into(), "--disallowedTools".into(), DISALLOWED.into(), "--tools".into(), TOOLS.into(),
         "--setting-sources".into(), String::new(), "--strict-mcp-config".into(), "--disable-slash-commands".into(),
         "--permission-mode".into(), "acceptEdits".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(),
         "--include-partial-messages".into(), "--no-session-persistence".into()];
+    // A money budget is optional: the CLI is given `--max-budget-usd` only when one is named.
+    if let Some(usd) = max_usd {
+        v.splice(7..7, ["--max-budget-usd".to_string(), format!("{usd}")]);
+    }
     if !effort.is_empty() {
         v.extend(["--effort".into(), effort.into()]);
     }
@@ -540,7 +547,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let idea = need(&a.idea, "--idea")?;
     let model = need(&a.model, "--model")?;
     let effort = need(&a.effort, "--effort")?;
-    let max_usd = a.max_usd.ok_or("run needs --max-usd")?;
+    let max_usd = a.max_usd;
     let max_wall = a.max_wall.ok_or("run needs --max-wall-s")?;
     let max_turns = a.max_turns.ok_or("run needs --max-turns")?;
     let prompt_path = a.prompt.clone().ok_or("run needs --prompt")?;
@@ -646,7 +653,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let cost = result["total_cost_usd"].as_f64();
     let capped = if walled.load(Ordering::SeqCst) {
         Some("wall")
-    } else if subtype.contains("budget") || cost.is_some_and(|c| c >= max_usd) {
+    } else if subtype.contains("budget") || max_usd.is_some_and(|m| cost.is_some_and(|c| c >= m)) {
         Some("usd")
     } else {
         None

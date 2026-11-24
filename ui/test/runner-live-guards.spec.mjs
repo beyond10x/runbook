@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawn, execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {readText} from '../runfiles.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, EXAMPLE_VIEW} from './loom-run-fixture.mjs';
@@ -14,7 +15,7 @@ import * as Live from '../runnerlive.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'runner-live-guards');
+const root = path.join(FIXTURE_DIR, 'runner-live-guards');
 const runs = path.join(root, 'runs');
 let srv, base, sources;
 const me = {pid: process.pid, start_ticks: startTicks(process.pid)};

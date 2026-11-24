@@ -8,14 +8,18 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeWrittenRun, change} from './written-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'written-reader');
+// each case makes its own run and server, so the cases run spread over the workers; each worker writes under a directory of
+// its own, which its beforeAll empties
+const root = path.join(FIXTURE_DIR, 'written-reader', `worker-${process.env.TEST_PARALLEL_INDEX ?? '0'}`);
 const SECRET = 'OUTSIDE-THE-RUN-SECRET-91c7';
 const servers = {};
 
+test.describe.configure({mode: 'parallel'});
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own servers, one viewport'));
 test.afterAll(() => Object.values(servers).forEach((s) => s.proc.kill()));
 test.beforeAll(() => { fs.rmSync(root, {recursive: true, force: true}); fs.mkdirSync(root, {recursive: true}); });

@@ -16,6 +16,7 @@ import {spawn, spawnSync, execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {writeSecondRunbook, SECOND, SECOND_VIEW, ASKS} from './second-runbook.mjs';
 import {startServer} from './serve.mjs';
 import {setView, getView, checkView, fileKindOf, phaseItems} from '../web/view.js';
@@ -26,7 +27,7 @@ import {registerRun} from '../runfiles.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'view');
+const root = path.join(FIXTURE_DIR, 'view');
 const servers = [];
 const port = {};
 let hasYq = true;

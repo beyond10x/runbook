@@ -5,7 +5,7 @@
 // reviewer's step waits for a person. A run submitted with no level shows neither.
 // The binary: SDC_RUNBOOK_BIN, else runbook/target/debug/runbook (`task test:ui` builds it first).
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
+import {spawnChild, SERVE_CAPS} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,7 +22,7 @@ const rows = (view, q = '') => fetch(`${base}/daemon/views/${view}${q}`).then((r
 
 function start() {
   return new Promise((resolve, reject) => {
-    const args = ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, 'state'), '--runtime', 'loom', '--runbook-home', home, '--min-confinement', 'local'];
+    const args = ['serve', ...SERVE_CAPS, '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, 'state'), '--runtime', 'loom', '--runbook-home', home, '--min-confinement', 'local'];
     proc = spawnChild(bin, args, {cwd: path.join(dir, 'empty'), env: {...process.env, HOME: dir, RUNBOOK_TOKEN: '', RUNBOOK_CONFIG: path.join(dir, 'runbook.toml')}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);

@@ -118,8 +118,6 @@ binary finds it there and in every directory below it:
 runs_dir = "runs"
 confinement = "substrate"
 max_wall_seconds = 3600
-cap_micro_usd = 5000000
-max_llm_calls = 200
 ```
 
 `runbook config` prints every value of a run and the file or option it comes from. The run's name is

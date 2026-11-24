@@ -33,6 +33,36 @@ fn owned_directory(path: &Path, what: &str) -> Result<(), String> {
 }
 
 impl PrivateDir {
+    /// What [`PrivateDir::create`] would refuse, without making anything, and the path the link
+    /// would have (`None` when no login file is named). A run without a model node makes no link:
+    /// the runner checks here before anything is written and calls `create` only in a run that
+    /// has a model node, after the opening decided.
+    pub fn check(run: &str, login: Option<&Path>) -> Result<Option<PathBuf>, String> {
+        let Some(login) = login else {
+            return Ok(None);
+        };
+        if !login.is_absolute() || !login.is_file() {
+            return Err("login_file: not an absolute path of a file that exists".to_owned());
+        }
+        let base = match std::env::var_os("XDG_RUNTIME_DIR") {
+            Some(v) if !v.is_empty() => PathBuf::from(v),
+            _ => return Err("a login file is named and XDG_RUNTIME_DIR is not set: the link to it lives in $XDG_RUNTIME_DIR/runbook/<run>/, not in the run directory".to_owned()),
+        };
+        if !base.is_absolute() {
+            return Err("XDG_RUNTIME_DIR is not an absolute path".to_owned());
+        }
+        owned_directory(&base, "XDG_RUNTIME_DIR")?;
+        let parent = base.join("runbook");
+        if std::fs::symlink_metadata(&parent).is_ok() {
+            owned_directory(&parent, "the runtime directory")?;
+        }
+        let dir = parent.join(run);
+        if std::fs::symlink_metadata(&dir).is_ok() {
+            return Err(format!("{}: exists (left by a run that was killed? remove it when no run of this name is on)", dir.display()));
+        }
+        Ok(Some(dir.join("login")))
+    }
+
     /// Makes the private directory of `run` when `login` is given, with the link in it; returns
     /// `None` when no login file is named (nothing is made, `XDG_RUNTIME_DIR` is not needed).
     /// Refused, with nothing made, when `XDG_RUNTIME_DIR` is unset, not absolute, not a directory

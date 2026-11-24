@@ -580,3 +580,48 @@ fn the_levels_the_copy_accepts_are_the_levels_node_classes_json_lists() {
     }
     assert_eq!(EFFORTS.to_vec(), listed);
 }
+
+#[test]
+fn the_committed_bindings_hold_a_model_node_and_a_copy_of_them_still_does() {
+    let why = model_node_in(&committed()).expect("the committed bindings name sdc-node");
+    assert!(why.contains(MODEL_TOOL), "{why}");
+    let (_dir, dst, copy) = make("model-node-in-copy", &json!({}));
+    copy.unwrap();
+    assert!(model_node_in(&dst).is_some());
+}
+
+#[test]
+fn model_node_in_counts_what_names_the_tool_and_what_it_cannot_read_and_nothing_else() {
+    let write = |tag: &str, text: &str| {
+        let dir = Dir::new(tag);
+        std::fs::write(dir.path().join("x.yaml"), text).unwrap();
+        dir
+    };
+    let program = |argv: &str| format!("actions:\n  - action: a.b\n    executor: {{kind: program, argv: {argv}}}\n");
+    for (what, text) in [
+        ("tool as first word", program("[sdc-node, x]")),
+        ("tool by path", program("[/opt/bin/sdc-node, x]")),
+        ("tool in a shell word", program("[sh, -c, 'sdc-node x']")),
+        ("argv not a list", program("sdc-node")),
+        ("argv with a number", program("[tools/t.sh, 7]")),
+        ("empty argv", program("[]")),
+        ("unknown kind", "actions:\n  - action: a.b\n    executor: {kind: agent}\n".to_owned()),
+        ("no executor", "actions:\n  - action: a.b\n".to_owned()),
+        ("actions not a list", "actions: {a: b}\n".to_owned()),
+        ("not yaml", "a: [unclosed\n".to_owned()),
+    ] {
+        let dir = write("model-node-in-yes", &text);
+        assert!(model_node_in(dir.path()).is_some(), "{what}");
+    }
+    for (what, text) in [
+        ("tool script", program("[tools/sdc-tool.sh, check-idea]")),
+        ("echo", program("[sh, -c, 'echo hi']")),
+        ("person", "actions:\n  - action: a.b\n    executor: {kind: person, principal: person:owner}\n".to_owned()),
+        ("no actions", "format: loom.bindings/1\n".to_owned()),
+    ] {
+        let dir = write("model-node-in-no", &text);
+        assert_eq!(model_node_in(dir.path()), None, "{what}");
+    }
+    let dir = Dir::new("model-node-in-unreadable");
+    assert!(model_node_in(&dir.path().join("absent")).is_some(), "a directory that cannot be read counts");
+}

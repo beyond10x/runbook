@@ -122,7 +122,7 @@ fn syntax_errors() -> Vec<(&'static str, String)> {
 }
 
 /// Runs `part` for `0..parts` on a thread each and returns what they return. A row of these matrices costs
-/// one process start of `runbook run` (about 30 ms, 2 s for a row of 8 MiB); the rows
+/// one process start of `runbook run` (about 30 ms, more for a giant line); the rows
 /// share nothing, so each part has a `World` of its own and the parts run beside each other.
 fn in_parallel<R: Send>(parts: usize, part: impl Fn(usize) -> R + Sync) -> Vec<R> {
     std::thread::scope(|scope| {
@@ -351,28 +351,32 @@ fn a_toml_file_that_has_a_byte_order_mark_is_read_or_refused_and_never_panics() 
     eprintln!("PROBE bom: exit {} {}", code(&o), all.chars().take(200).collect::<String>());
 }
 
+/// The length of a giant line. The refusal stays under 1 KiB of text whatever the length, so a line a thousand times longer
+/// than that bound shows it; lines of 8 MiB cost the case 7 s on a runner with four cores.
+const GIANT: usize = 1 << 20;
+
 #[test]
 fn a_whole_file_of_one_giant_line_is_refused_in_bounded_text_and_time() {
     let started = std::time::Instant::now();
     let rows = [
-        ("a key of 8 MiB", format!("{} = 1\n", "k".repeat(8 << 20))),
-        ("a quoted key of 8 MiB with a bad value", format!("\"{}\" = oops\n", "k".repeat(8 << 20))),
-        ("a table name of 8 MiB, unclosed", format!("[{}\n", "t".repeat(8 << 20))),
-        ("a value of 8 MiB, bare", format!("a = {}\n", "v".repeat(8 << 20))),
-        ("an array of a million items, unclosed", format!("a = [{}\n", "1,".repeat(1 << 20))),
+        ("a key of 1 MiB", format!("{} = 1\n", "k".repeat(GIANT))),
+        ("a quoted key of 1 MiB with a bad value", format!("\"{}\" = oops\n", "k".repeat(GIANT))),
+        ("a table name of 1 MiB, unclosed", format!("[{}\n", "t".repeat(GIANT))),
+        ("a value of 1 MiB, bare", format!("a = {}\n", "v".repeat(GIANT))),
+        ("an array of 128 Ki items, unclosed", format!("a = [{}\n", "1,".repeat(GIANT / 8))),
     ];
     in_parallel(rows.len(), |i| giant_row(rows[i].0, &rows[i].1));
     assert!(started.elapsed().as_secs() < 30, "{:?}", started.elapsed());
 }
 
-/// One row of the giant-line case, in a `World` of its own: a row costs about 2 s (8 MiB written, read and parsed).
+/// One row of the giant-line case, in a `World` of its own (a line of [`GIANT`] bytes written, read and parsed).
 fn giant_row(what: &str, text: &str) {
     let w = World::new(&tag("giant"));
     let o = run_bytes(&w, text.as_bytes());
     assert_before_anything(&w, &o, what);
-    assert!(stderr(&o).len() < 1024 || what.contains("key of 8 MiB"), "{what}: {} bytes", stderr(&o).len());
+    assert!(stderr(&o).len() < 1024 || what.contains("key of 1 MiB"), "{what}: {} bytes", stderr(&o).len());
     let all = all_output(&o);
-    assert!(!all.contains("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk") || what == "a key of 8 MiB", "{what}: the key is on the output");
+    assert!(!all.contains("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk") || what == "a key of 1 MiB", "{what}: the key is on the output");
     assert!(!all.contains("vvvvvvvvvvvvvvvvvvvvvvvv") && !all.contains("tttttttttttttttttttttttt"), "{what}: text of the file is on the output");
 }
 

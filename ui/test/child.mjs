@@ -12,6 +12,11 @@ import {fileURLToPath} from 'node:url';
 
 const guard = path.join(path.dirname(fileURLToPath(import.meta.url)), 'guard.mjs');
 
+// The caps every `runbook serve` a test starts is given: `--runtime loom` refuses to start without all three (a daemon
+// run is never unbound), the stub runtime takes them and runs nothing. budget.spec.mjs holds that every argv of a
+// `serve` under test/ spreads them.
+export const SERVE_CAPS = ['--max-wall-seconds', '600', '--max-llm-calls', '10', '--cap-micro-usd', '1000000'];
+
 export function spawnChild(command, args = [], {endWithParent = true, stdio = 'ignore', ...options} = {}) {
   if (!endWithParent) {
     const proc = spawn(command, args, {stdio, ...options});

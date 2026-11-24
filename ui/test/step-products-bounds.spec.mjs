@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
 import {writeProductsRun, ROOT, OUTPUT_DIGEST, SECRET_TEXT} from './products-fixture.mjs';
@@ -20,7 +21,7 @@ import {ask, put, sourceIndex, fileUrl} from './security-products-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'step-products-bounds');
+const root = path.join(FIXTURE_DIR, 'step-products-bounds');
 const runs = path.join(root, 'runs');
 const hex = (s) => Buffer.from(s).toString('hex');
 const MIB = 1024 * 1024;
