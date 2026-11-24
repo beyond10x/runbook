@@ -659,6 +659,11 @@ fn observed_world_with_ess(tag: &str, ess_extra: &str) -> World {
 
 /// Runs r1 with `--conformance observe`, a stand-in adapter `adapter_body` (a program that is given `request.json`), one table slot.
 fn observe_with_adapter(w: &World, cap: Option<u64>, adapter_body: &str, more: &[&str]) -> std::process::Output {
+    observe_with_adapter_env(w, cap, adapter_body, more, &[])
+}
+
+/// As [`observe_with_adapter`], with `env` set on the run (what the operator names in the environment).
+fn observe_with_adapter_env(w: &World, cap: Option<u64>, adapter_body: &str, more: &[&str], env: &[(&str, &str)]) -> std::process::Output {
     let adapter = w.root.join("conform-adapter.sh");
     exe(&adapter, &format!("#!/bin/sh\necho called >> {}/adapter-calls.txt\n{adapter_body}\n", w.root.display()));
     let mut a = w.args("r1", cap.unwrap_or(0));
@@ -671,6 +676,9 @@ fn observe_with_adapter(w: &World, cap: Option<u64>, adapter_body: &str, more: &
     a.extend(["--conformance".to_owned(), "observe".to_owned()]);
     let mut c = w.command(&a);
     c.env("SDC_CONFORMANCE_ADAPTER", &adapter).env("SDC_CONFORMANCE_TABLES", "1").env("SDC_LLM_EFFORT_CONFORMANCE", "low");
+    for (name, value) in env {
+        c.env(name, value);
+    }
     c.output().unwrap()
 }
 
@@ -839,14 +847,27 @@ fn the_sessions_of_an_observation_are_given_the_reservation_as_their_one_budget(
     assert_eq!(doc["conformance"]["cost_unknown_sessions"].as_u64(), Some(0), "{doc}");
 }
 
-/// With no cap named nothing bounds the sessions but their own limit: the observation starts as it did.
+/// With no cap named nothing bounds the sessions but their own limit, the one the environment names
+/// (`SDC_CONFORMANCE_MAX_BUDGET_USD`): the observation starts as it did.
 #[test]
 fn with_no_cap_named_the_sessions_of_the_observation_keep_their_own_limit() {
     let w = observed_world_with_ess("obs-budget-nocap", "");
-    let o = observe_with_adapter(&w, None, &budget_keeping_adapter(&w), &[]);
+    let o = observe_with_adapter_env(&w, None, &budget_keeping_adapter(&w), &[], &[("SDC_CONFORMANCE_MAX_BUDGET_USD", "2")]);
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(limits_given(&w), vec![2.0, 2.0, 2.0], "{}", stderr(&o));
     assert!(event_lines(&w, "conformance_booked").is_empty(), "an observation without a cap booked something");
+}
+
+/// With no cap named and no budget named in the environment the request of a session names no money budget
+/// (the story `caps-are-optional`).
+#[test]
+fn with_no_cap_and_no_budget_named_the_request_of_a_session_names_no_budget() {
+    let w = observed_world_with_ess("obs-budget-none", "");
+    let body = "grep -c max_budget_usd \"$1\" >> BUDGETS; exit 1".replace("BUDGETS", &format!("{}/named.txt", w.root.display()));
+    let o = observe_with_adapter(&w, None, &body, &[]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let named = std::fs::read_to_string(w.root.join("named.txt")).unwrap_or_default();
+    assert!(!named.is_empty() && named.lines().all(|l| l == "0"), "a request named a money budget with none named: {named:?} {}", stderr(&o));
 }
 
 /// A program that spends past the budget it was given is outside the bound, and the ledger still never holds more than
