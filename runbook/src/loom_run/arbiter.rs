@@ -260,6 +260,65 @@ mod tests {
         configured
     }
 
+    fn fixture_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/autonomy-runbook")
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    /// The table in `file` with every `person` of the `close` class given to `decider`.
+    fn close_to_the_decider(file: &Path) {
+        let text = std::fs::read_to_string(file).unwrap();
+        assert!(text.contains("\"close\": \"person\""), "the fixture's table no longer gives the close to a person");
+        std::fs::write(file, text.replace("\"close\": \"person\"", "\"close\": \"decider\"")).unwrap();
+    }
+
+    /// A run opened at A3 with the rule `approve` over a copy of the fixture whose table is rewritten by
+    /// `before` first; the judge, the run's directory.
+    fn opened_at_a3(dir: &crate::assets::testdir::Dir, name: &str, before: impl Fn(&Path)) -> (Box<dyn RunArbiter>, PathBuf) {
+        let root = dir.dir(&format!("{name}-root"));
+        copy_tree(&fixture_root(), &root);
+        before(&root.join("tools/autonomy-levels.json"));
+        let run_dir = dir.dir(&format!("{name}-run"));
+        let terms = runbook::runtime::Terms { autonomy: Some(runbook::runtime::Autonomy::A3), decider: Some("rule".to_owned()) };
+        let arbiter = DaemonArbiter::new(configured("rule", json!({"verdict": "approve"})), Limits::default()).unwrap();
+        let opened = arbiter
+            .open(&Opening { run_dir: &run_dir, workspace: &run_dir.join("w"), bindings: &root.join("bindings/autonomy-demo.yaml"), terms: &terms, resume: false })
+            .unwrap_or_else(|e| panic!("{e}"));
+        (opened.judge, run_dir)
+    }
+
+    fn close_of_a_case() -> Value {
+        json!({"case": "c1", "kind": "Close", "outcome": "kept", "decides": "close case c1 through kept",
+            "command": ["b10x-loom", "tree", "close", "--store", "/nonexistent", "--case", "c1", "--outcome", "kept"]})
+    }
+
+    /// What the code does: the judge of a run reads the table it opened with (`open` pins it). A table
+    /// rewritten in the run's directory afterwards, which a bound program can do, changes who decides
+    /// nothing; the close stays a person's at A3. The control: the same rewrite made before the run opens
+    /// is the table it opens with, and the decider takes the close.
+    #[test]
+    fn a_table_rewritten_after_the_run_opened_is_not_read_by_its_judge_and_one_rewritten_before_is() {
+        let dir = crate::assets::testdir::Dir::new("arbiter-pinned");
+        let (mut after, run) = opened_at_a3(&dir, "after", |_| {});
+        close_to_the_decider(&run.join("tools/autonomy-levels.json"));
+        let second = after.judge(&close_of_a_case());
+        assert!(matches!(&second, Judgement::Open(why) if why.contains("autonomy A3 gives the class close")), "a table rewritten after the run opened was read: {second:?}");
+        let (mut before, _) = opened_at_a3(&dir, "before", close_to_the_decider);
+        let control = before.judge(&close_of_a_case());
+        assert!(matches!(&control, Judgement::Answer { by, .. } if by == "rule:approve"), "the control did not answer, so the case proves nothing: {control:?}");
+    }
+
     #[test]
     fn a_kind_a_daemon_does_not_take_and_a_table_the_decider_refuses_are_refused_by_name() {
         let refused = |kind: &str, table: Value| DaemonArbiter::new(configured(kind, table), Limits::default()).err().unwrap();

@@ -572,6 +572,54 @@ fn a_table_that_is_missing_or_unusable_is_a_person_s_at_every_level_for_every_cl
     assert_eq!(record_dirs(&w.run.join("decider")), 0, "no model call without a table");
 }
 
+/// What the code does with a class the table has no row for: the table's loader refuses a table that lacks
+/// a class of the classes file at a level (the whole table is a person's, see above), and a decision whose
+/// class the classes file does not have at all (an action no class lists falls back to the class `approval`,
+/// which the classes file does not hold) is reserved for a person with the class named, at every level
+/// below A5, and no model is called for it.
+#[test]
+fn a_decision_of_a_class_the_table_has_no_row_for_is_reserved_for_a_person_and_no_model_is_called() {
+    let w = world("r2-class-without-a-row", &valid("0.1"));
+    let table = Routing::load(&w.run).unwrap();
+    assert_eq!(table.holder("A3", "approval"), None, "the classes file has a class `approval`: the case needs another unlisted action");
+    let mut s = settings(&w, json!({}));
+    let mut decision = approve_action(&w);
+    decision["action"] = json!("nothing.lists.this");
+    for level in ["A1", "A2", "A3", "A4"] {
+        s["autonomy"] = json!(level);
+        let why = reason(ask(&w, &s, &decision, 250_000));
+        assert!(why.starts_with(&format!("reserved for a person: autonomy {level} has no holder for the class approval")), "{level}: {why}");
+    }
+    assert_eq!(record_dirs(&w.run.join("decider")), 0, "a model was called for a class nobody holds");
+}
+
+/// The run reads the table it opened with: `pin_routing` reads both files once, and a rewrite of the file in
+/// the run directory (a bound program can write there) changes neither who decides nor whether the table is
+/// usable; the run does not end for it either.
+#[test]
+fn a_table_rewritten_after_the_run_opened_changes_nothing_the_run_reads_the_one_it_opened_with() {
+    let w = world("r2-table-pinned", &valid("0.1"));
+    let mut s = settings(&w, json!({}));
+    s["autonomy"] = json!("A3");
+    let file = w.run.join(routing::LEVELS_FILE);
+    let good = std::fs::read_to_string(&file).unwrap();
+    let mut release = approve_action(&w);
+    release["action"] = json!("release.publish");
+    let context = approve_action(&w);
+    // each rewrite is made after the pin and before the first decision is asked: a decider that read the
+    // file at its first decision would read the rewrite
+    for rewritten in [good.replace("\"person\"", "\"decider\""), good.replace("\"decider\"", "\"person\""), "{".to_owned()] {
+        std::fs::write(&file, &good).unwrap();
+        let decider = from_settings(&s).unwrap();
+        decider.pin_routing(&w.run);
+        std::fs::write(&file, rewritten).unwrap();
+        let held = reason(ask_with(decider.as_ref(), &w, &release, 250_000, &env_with_path()));
+        assert!(held.starts_with("reserved for a person: autonomy A3 gives the class release"), "a table rewritten after the run opened was read: {held}");
+        let taken = matches!(ask_with(decider.as_ref(), &w, &context, 250_000, &env_with_path()), Verdict::Answer { .. });
+        assert!(taken, "the table the run opened with gives the context to the decider at A3; the rewrite took it away");
+    }
+}
+
 #[test]
 fn the_table_loads_and_gives_every_level_every_class_of_the_decision_classes_file() {
     let r = Routing::load(&repository_root()).unwrap();
