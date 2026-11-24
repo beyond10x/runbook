@@ -365,23 +365,28 @@ fn doctor_cmd(source: &config::Source, for_runbook: Option<String>, json: bool) 
         None => None,
         Some(id) => {
             let world = match catalog::open(source).and_then(catalog::World::need_some) {
-                Ok(w) => w,
+                Ok(w) => Some(w),
+                // a built-in name needs no catalog: the report names what is wrong with the install itself
+                Err(_) if !matches!(doctor::Scope::runbook(id), doctor::Scope::Other) => None,
                 Err((code, e)) => {
                     eprintln!("runbook doctor: {e}");
                     return ExitCode::from(code);
                 }
             };
-            match runbook::runbooks::find(&world.entries, id).filter(|e| e.startable) {
-                Some(e) => {
-                    if !e.built_in {
-                        directory = Some(assets::Assets { root: e.dir.clone(), source: assets::Source::Configured });
+            match world {
+                None => Some((id.as_str(), doctor::Scope::runbook(id))),
+                Some(world) => match runbook::runbooks::find(&world.entries, id).filter(|e| e.startable) {
+                    Some(e) => {
+                        if !e.built_in {
+                            directory = Some(assets::Assets { root: e.dir.clone(), source: assets::Source::Configured });
+                        }
+                        Some((id.as_str(), doctor::Scope::runbook(id)))
                     }
-                    Some((id.as_str(), doctor::Scope::runbook(id)))
-                }
-                None => {
-                    eprintln!("runbook doctor: unknown runbook '{id}'; startable runbooks: {}", world.startable().join(", "));
-                    return ExitCode::from(USAGE_ERROR);
-                }
+                    None => {
+                        eprintln!("runbook doctor: unknown runbook '{id}'; startable runbooks: {}", world.startable().join(", "));
+                        return ExitCode::from(USAGE_ERROR);
+                    }
+                },
             }
         }
     };

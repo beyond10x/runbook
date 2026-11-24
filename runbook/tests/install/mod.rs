@@ -244,7 +244,7 @@ fn with_toolchain(cmd: &mut Command) -> &mut Command {
 /// `runbook <args>` from `cwd` with `PATH` = `<prefix>/bin` and the system directories, no `RUNBOOK_HOME`.
 pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
     let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
-    with_toolchain(Command::new("runbook").args(args).env_clear()).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
+    with_toolchain(crate::isolate(Command::new("runbook").args(args).env_clear())).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
 
 /// The same command with the build of the checkout.
