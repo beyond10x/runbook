@@ -138,7 +138,10 @@ itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's f
 `runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up) and
 `runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
-run event from a command, so no row of the interpreted target stands for them.
+run event from a command, so no row of the interpreted target stands for them. The runtime
+`--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,
+`revision`, `bindings_sha256`, `copy_sha256`: the runbook the run copied at its submit,
+`docs/engine.md`, "The run's copy of the runbook"); the specification does not declare it.
 
 ### Event streams
 

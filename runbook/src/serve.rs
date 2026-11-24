@@ -111,9 +111,10 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         .ok_or_else(|| format!("--listen {}: no address", args.listen))?;
     auth::check_listen(&addr, token.as_deref())?;
     let floor = Confinement::parse(&args.min_confinement).ok_or_else(|| format!("--min-confinement {}: not a level", args.min_confinement))?;
-    let state = state_dir(args, env)?;
+    let state = std::path::absolute(state_dir(args, env)?).map_err(|_| "the state directory cannot be made absolute: the daemon has no current directory".to_string())?;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
+        let home = std::path::absolute(home).map_err(|_| "the runbook home cannot be made absolute: the daemon has no current directory".to_string())?;
         if !home.join("protocol").is_dir() || !home.join("bindings").is_dir() {
             return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
         }

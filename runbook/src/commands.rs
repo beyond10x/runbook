@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -328,7 +329,8 @@ impl Daemon {
             }
             roots.push(canon);
         }
-        let cfg = Config { context_roots: roots, ..cfg };
+        let state_dir = std::path::absolute(&cfg.state_dir).map_err(|_| io::Error::other("the state directory cannot be made absolute: the daemon has no current directory"))?;
+        let cfg = Config { context_roots: roots, state_dir, ..cfg };
         let state = State::open_with_clock(&cfg.state_dir, clock)?;
         let d = Daemon {
             inner: Arc::new(Inner {
@@ -568,7 +570,8 @@ impl Daemon {
         }
 
         let (run_dir, workspace) = (st.run_dir(&run_id), st.workspace_dir(&run_id));
-        std::fs::create_dir_all(&run_dir)?;
+        // The run's directory holds its copy of the runbook and its store: private to the daemon's user.
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&run_dir)?;
         std::fs::create_dir_all(&workspace)?;
         let run = Run {
             run_id: run_id.clone(),
@@ -656,26 +659,37 @@ impl Daemon {
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
         }
-        let now = st.now();
         let principal = self.inner.cfg.principal.clone();
-        st.commit(Fact::DecisionAnswered {
-            request_id: request_id.clone(),
-            answer: input.answer.clone(),
-            answered_by: input.answered_by.clone(),
-            principal: Some(principal.clone()),
-            at: now,
-        })?;
+        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
+        // The answer is on the journal before the run is handed it (a journal that cannot take the line
+        // is an error to the client and the run has not seen the answer), and the state takes it only
+        // after the run took it, all under the lock: a runtime that has failed while its run's thread has
+        // not reported yet (the run is on its way to `runtime-failure`) answers `UnknownRun`, and then
+        // the line is taken out of the journal again and the answer is refused, not recorded as given.
+        let now = st.now();
+        let mut delivered = Ok(());
+        let recorded = st.commit_if(
+            Fact::DecisionAnswered {
+                request_id: request_id.clone(),
+                answer: input.answer.clone(),
+                answered_by: input.answered_by.clone(),
+                principal: Some(principal.clone()),
+                at: now,
+            },
+            || {
+                delivered = self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal);
+                !(matches!(delivered, Err(AnswerFailure::UnknownRun)) && lock(&self.inner.cancels).contains_key(&run_id))
+            },
+        )?;
+        if !recorded {
+            return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id})));
+        }
+        if delivered.is_err() {
+            // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
+            let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
+        }
         drop(st);
         let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by, "principal": principal});
-        // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
-        match self.inner.runtime.answer(&run_id, &request_id, &input.answer, &principal) {
-            Ok(()) => {}
-            Err(AnswerFailure::UnknownRun) | Err(AnswerFailure::Refused(_)) => {
-                // The answer stands; the runtime cannot take it (its run is gone). Say so in the run's record.
-                let mut st = self.st();
-                let _ = record_event_locked(&mut st, &run_id, "runbook.answer-undeliverable", json!({"request_id": request_id}));
-            }
-        }
         Ok(done("answer-decision", "answered", vec![("DecisionAnswered", published)]))
     }
 
@@ -924,6 +938,21 @@ impl Daemon {
         threads.push(handle);
     }
 
+    /// A run the runtime failed on while it waited on decisions can only end from Running: its open
+    /// requests are withdrawn (as a cancel does) and the run is Running again.
+    fn leave_wait(&self, run_id: &str) {
+        let mut st = self.st();
+        if st.run(run_id).map(|r| r.state) != Some(RunState::WaitingOnDecision) {
+            return;
+        }
+        let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
+        for request_id in open {
+            let _ = withdraw_decision_locked(&mut st, &request_id);
+        }
+        drop(st);
+        let _ = self.resume_run(run_id);
+    }
+
     fn run_thread(&self, request: StartRequest, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
         if let (Some(from), false) = (&request.context_dir, cancel.load(Ordering::SeqCst)) {
@@ -947,6 +976,7 @@ impl Daemon {
                 Ok(Finish::Cancelled) => {}
                 Err(f) if sink.started.load(Ordering::SeqCst) => {
                     let _ = self.record_run_event(&run_id, "runbook.runtime-failed", json!({"reason": f.reason}));
+                    self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, "runtime-failure");
                 }
                 Err(f) => {

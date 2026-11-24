@@ -285,10 +285,40 @@ impl State {
 
     /// Write the fact to the journal, then apply it.
     pub fn commit(&mut self, fact: Fact) -> io::Result<()> {
-        let mut line = serde_json::to_vec(&fact).map_err(io::Error::other)?;
+        self.append(&fact)?;
+        self.applied(&fact)
+    }
+
+    /// Write the fact to the journal, ask `accept` while the state still lacks it and apply the fact
+    /// when `accept` says yes. When it says no the line is taken out of the journal again and nothing
+    /// changed. `accept` runs under the caller's hold of the lock; it is how the daemon hands an
+    /// answer to a run only after the answer is on the journal, and takes it back when the run cannot
+    /// take it. The answer is `false` when `accept` refused.
+    pub fn commit_if(&mut self, fact: Fact, accept: impl FnOnce() -> bool) -> io::Result<bool> {
+        let before = self.append(&fact)?;
+        if !accept() {
+            self.journal.set_len(before)?;
+            return Ok(false);
+        }
+        self.applied(&fact)?;
+        Ok(true)
+    }
+
+    /// The fact as one line at the end of the journal; the length the journal had before it. A line
+    /// that was not written whole is taken out again.
+    fn append(&mut self, fact: &Fact) -> io::Result<u64> {
+        let mut line = serde_json::to_vec(fact).map_err(io::Error::other)?;
         line.push(b'\n');
-        self.journal.write_all(&line)?;
-        self.apply(&fact).map_err(invalid)?;
+        let before = self.journal.metadata()?.len();
+        if let Err(e) = self.journal.write_all(&line) {
+            let _ = self.journal.set_len(before);
+            return Err(e);
+        }
+        Ok(before)
+    }
+
+    fn applied(&mut self, fact: &Fact) -> io::Result<()> {
+        self.apply(fact).map_err(invalid)?;
         // After the change and inside the caller's hold of the lock: whoever sees the new version and
         // then reads the state finds the change.
         self.changes.send_modify(|version| *version += 1);
