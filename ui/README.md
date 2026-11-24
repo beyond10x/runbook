@@ -39,20 +39,52 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
   run picker without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
   first and are not listed twice.
+- When the server reads: only for a page that looks, or for a request. With no page connected it does
+  nothing (no timer runs, no run file is read; measured: 50 runs, under 1 % of a core). A page opens
+  `/events?source=<index>` for the run it shows, and while that stream is open a round every 700 ms
+  reads that run only (the stream is opened again when the page shows another run), and a file whose
+  size, modification time, inode and status-change time are those of its last read is answered from memory
+  (the memory held is at most 16 MiB, the entries and their overhead counted, a text with a character above
+  U+00FF at two bytes per character; the least recently used entry goes first; an entry whose file is gone,
+  refused or changed leaves when it is seen; every call still passes the run-path check first). Another run
+  is read when a request names it (`/api/sources` reads each run once, then only what changed), so the run
+  picker is as old as its last opening, except that a page that opens its stream within a minute of a list
+  that showed another state of its run is sent `sources` at once and reads the list again. A line that is
+  written to a run nobody looked at for 5 s is dated by the file's time, as on first sight. A run that
+  appears under `--runs` is announced to every page. A page that is more than 1 MiB of output behind (it
+  does not read) is dropped: its stream is ended and the page opens it again. With the environment variable
+  `SDC_CLOCK_DIR` set (the clock of the ux loop; the server has no option for it) every run is read on each
+  step of the clock, as before. `--count-reads` (a test option) counts the rounds and the reads of run
+  files by run at `GET /api/reads`; without it the route does not exist.
 - A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
   at the stop; the run picker and the case tree mark it; its open decisions show greyed in the
   drawer; the inspector takes none of them.
-- Whether a run is live: `runbook run` writes `settings.json` when it starts and `run-stopped.json`
-  or a `status.json` with state `closed` when it ends, and no pid or lock record, so nothing in a
-  run directory tells a live run from one that was killed. The server reads those files only and
-  never looks a process up. An ended run is stopped or closed (above). A run directory with
-  `settings.json` and no end record is "live state unknown": the Now band and the run picker say
-  so, and every clock stands at the last event, including the waiting time. A case store an older
-  runtime left (no `settings.json`) is history: reported "not live", and a step it started and
-  never finished is shown as "Not live", not running. `/api/live` carries this as `liveness`
-  (`ended`, `unknown` or `history`).
+- Whether a run is live: `runbook run` writes `settings.json` when it starts, `run-stopped.json` or a
+  `status.json` with state `closed` when it ends, and `runner.json` (its pid, the start time the kernel gave it,
+  and `closed_at`) with an `action_started` line in `events.jsonl` for each action that starts
+  (`docs/loom-run-directory.md`, "The runner and the step in flight"). An ended run is stopped or closed (above).
+  A run with `runner.json` is one of three, by `ui/runnerlive.mjs`: **running** (the runner lives and an action
+  started after its last step ended: the band says "<action> running since <time>, <n> min", the minutes
+  ticking), **between steps** (the runner lives and no action is in flight: "Between steps"; a case whose last
+  Loom event is `step_budget_spent` is not "Stopped" then, that event ends every `tree run --max-steps 1`) or
+  **not live** (the record is closed, or no process of that pid has that start time, or the process has ended and its
+  parent has not yet collected it, state `Z` or `X`: "Not live: last started <action>", and a step it started is not
+  shown running; the clocks stand at the last event). The server asks the kernel one thing, whether
+  `/proc/<pid>/stat` field 22 equals `start_ticks` (and field 3 is no `Z` or `X`): it reads that file, sends no
+  signal and needs no permission beyond the read of `/proc`; a read that fails for another reason than "no such
+  process" makes the run unknown, with that reason in `liveness.why` of `/api/live` (the page says "live state unknown" and shows no reason). The run files are read through the checked open as
+  every other. `runner.json` and the start lines are what files of the run directory claim: under `--confinement
+  local` a program of the run can write them, so they are read as text and a claim, nothing acts on them, a
+  `runner.json` over 4 KiB, or one that is not a regular file, has more than one name or is not a record, is not read (unknown; `liveness.why` says which), and the `action`, `case` and `source` of a start line are cut to 256
+  characters. A run directory with `settings.json`, no end record and no `runner.json` (an older runner)
+  is "live state unknown", as before: the Now band and the run picker say so and every clock stands at the last
+  event, including the waiting time. A case store an older runtime left (no `settings.json`) is history:
+  reported "not live", and a step it started and never finished is shown as "Not live", not running.
+  `/api/live` carries this as `liveness` (`ended`, `running`, `between`, `not_live`, `unknown` or `history`;
+  with `runner` {pid, started_at, closed_at} and `step` {action, case, try, at, source, role}
+  for `running`, `between` and `not_live`).
 - `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
   holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
   "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
@@ -366,10 +398,10 @@ Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `t
 ## Where "now" comes from
 
 - In flight: a case's `action_started` without a later `action_finished`.
-- Whether the run is live: see "Whether a run is live" above. The runner writes no pid and no lock,
-  so the Now band never says a run is live. A run directory of the runner with no end record says
-  "live state unknown"; a case store of an older runtime says "not live", and a step it started and
-  never finished shows as "Not live", not running.
+- Whether the run is live: see "Whether a run is live" above. A run with the runner's record says
+  running, between steps or not live; a run directory of an older runner with no end record says "live
+  state unknown"; a case store of an older runtime says "not live", and a step it started and never
+  finished shows as "Not live", not running.
 - Since when: `observed.jsonl` beside each `events.jsonl` (`sdc.observed/1`: index, event, action,
   observed_at, pid), matched by line index to the events (and by `event` when the line has it);
   the card says "driver observed_at". Without it, the server's clock of each event line (the mtime
@@ -413,8 +445,12 @@ a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each 
 and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
 `meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
+Each spec of the test step is in one list of `test/lanes.mjs`: `WIDE_ONLY` (runs at 1600x1000 only, with the reason in five words) or `BOTH` (runs at 1600x1000 and 1280x800; today `screens`). The Playwright config reads the list: the laptop project ignores the wide-only files, so a spec that does not need a second size costs no skipped entry. `test/budget.spec.mjs` fails for a spec in no list or in two, for a reason of no word or over five words, for a `BOTH` file that skips on the project name, and for a wide-only spec whose code matches the `SIZE` pattern (`viewport:`, `setViewportSize`, `viewportSize`, `boundingBox`, `getBoundingClientRect`, `scrollWidth`, `innerWidth`, `toHaveScreenshot`, `screenshot(`, `isVisible`, `toBeVisible`, `toBeHidden`, `isHidden`, `toBeInViewport`, `scrollIntoViewIfNeeded`, `matchMedia`) without an entry (with its reason) in `SIZE_EXCEPTIONS`. A spec waits for an event: `settled(page)` (`test/settled.mjs`) returns when fonts are loaded and the finite animations have ended; `fixture-run.mjs` stops at the file it gets as its fourth argument until a test writes it (a shell variable holds nothing). A sleep is a `waitForTimeout` (a call, with a space before the bracket, as a bracket member or as a reference), a `setTimeout` that a `new Promise` with an arrow function waits for, or a window `Date.now() + <number>`; it is counted per call site in the gate's specs and in every file they import by `from '<path>'` or `import('<path>')` with a relative path (`./`, `../`, `ux/` too; an `import '<path>'` without bindings is not followed). Any other spelling is not found, among them a `function` callback of a promise, `timers/promises`, `Atomics.wait`, an alias of `setTimeout`, `setInterval` or a window whose time is no number, and it does not count a `waitForFunction` or `expect.poll` timeout or interval, a timer that ends a child or a request or the number of times a loop runs a call. A sleep is made only where `FIXED_WAITS` in `test/lanes.mjs` names the file, the count and the sum of the literal milliseconds, and `budget.spec.mjs` fails any other count or sum. A sleep whose time is the argument of a helper (`later(250)`) needs the entry to say `variable` with a reason, the `helper` and the `largest` number its call sites in the file pass: a call site over it or with no number fails. A window needs `window` with a reason; an entry may carry a `why`; each reason is five words at most. The helper check does not find a second sleep helper in a file, a helper that another file calls, a call written `later.call(null, 60000)` or `later?.(60000)` and an alias (`const l = later`): no file of the gate has one of these forms, and a new one needs a reviewer's eye. The fixture player `test/fixture-run.mjs`, which the specs spawn and do not import, holds 12 `sleep(<ms> / speed)` call sites and one lag timer, `after(1500 / speed, lag)` at line 281, that no entry lists and the check does not read (a case counts the `sleep(` sites). The Playwright config takes a file as a test only as `test/<name>.spec.mjs`, directly under `test/` (`SPEC_FORM` in `test/lanes.mjs` starts at that directory and is matched on the absolute path, so a spec below a subdirectory, also one below a directory that is itself named `test`, is no test; the cases "the config does not take a spec below a nested directory named test" and "the stray check tells a spec below a nested directory named test" hold it), and `budget.spec.mjs` fails a file anywhere below `test/` that Playwright's own default match (`*.spec.*`, `*.test.*`, also in a subdirectory) would take and that form does not; it reads the files of `test/` and its subdirectories except `fixtures/` (git-ignored, written by other specs of the same step) and `recorded/` (committed data). A beforeAll that needs several fixture runs or servers starts them at once (`playFixtures` in `test/fixtures.mjs`, `Promise.all` over `startServer`).
+
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
-`stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
+`stall-model.spec.mjs` test the derivations without a browser; `runner-live-model.spec.mjs` does it for the three
+states of a run with the runner's record, and `runner-live.spec.mjs` serves hand-made live runs (`runner-fixture.mjs`) and holds the
+server's answer and the page's three texts at the wide size. `test/read-only.spec.mjs` proves the
 inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
 an option of the removed acts exits 2, and a Decisions drawer shows the line on where a decision is
 answered and no control that acts; its last test holds the mode: the page says "watch", has no

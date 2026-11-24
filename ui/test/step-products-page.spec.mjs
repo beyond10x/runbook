@@ -6,7 +6,7 @@
 // an SDC run (test/fixture-run.mjs, scenario person). A value the run did not record says "not recorded by this
 // run", never an empty field. Screenshots: SDC_UI_SHOTS, else ui/screenshots (git-ignored).
 import {test, expect} from '@playwright/test';
-import {spawnSync} from 'node:child_process';
+import {playFixture} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -32,15 +32,18 @@ test.beforeAll(async ({}, info) => {
   writeProductsRun(path.join(runs, 'viewed'), {product: 'view'});
   writeProductsRun(path.join(root, 'runs2', 'unwritten'), {product: 'missing'});
   writeProductsRun(path.join(root, 'runs3', 'newest'), {product: 'newest'});
-  const r = spawnSync('node', ['test/fixture-run.mjs', 'person', path.join(runs, 'sdc')], {cwd: ui, encoding: 'utf8'});
-  if (r.status !== 0) throw new Error(`fixture person: ${r.stderr}`);
   const view = path.join(root, 'example.view.json');
   fs.writeFileSync(view, JSON.stringify(viewWith('work/example/example.md')));
   const view2 = path.join(root, 'example-unwritten.view.json');
   fs.writeFileSync(view2, JSON.stringify(viewWith('work/example/not-written.md')));
-  ({url: base, proc: srv} = await startServer(['--view', view, '--view', path.resolve(ui, '../views/sdc.view.json'), '--runs', runs]));
-  ({url: base2, proc: srv2} = await startServer(['--view', view2, '--runs', path.join(root, 'runs2')]));
-  ({url: base3, proc: srv3} = await startServer(['--no-view', '--runs', path.join(root, 'runs3')]));
+  const [first, second, third] = await Promise.all([
+    playFixture('person', path.join(runs, 'sdc')).then(() => startServer(['--view', view, '--view', path.resolve(ui, '../views/sdc.view.json'), '--runs', runs])),
+    startServer(['--view', view2, '--runs', path.join(root, 'runs2')]),
+    startServer(['--no-view', '--runs', path.join(root, 'runs3')]),
+  ]);
+  ({url: base, proc: srv} = first);
+  ({url: base2, proc: srv2} = second);
+  ({url: base3, proc: srv3} = third);
 });
 
 const open = async (page, name, at = () => base) => {

@@ -28,6 +28,7 @@ pub mod events;
 pub mod goals;
 pub mod here;
 pub mod host;
+pub mod in_flight;
 pub mod ledger;
 pub mod library;
 pub mod ports;

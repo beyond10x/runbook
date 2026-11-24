@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A run that is happening now, made from a recorded one, for watching and testing the live view.
 //
-//   node test/fixture-run.mjs <scenario> <target-run-dir> [speed]
+//   node test/fixture-run.mjs <scenario> <target-run-dir> [speed [hold-file]]
 //
 // What it writes is canned: its run-settings.jsonl and llm-calls.jsonl lines name fixture-run.mjs as
 // the adapter, so the server lists the run as a stub run (server.mjs programOf).
@@ -34,6 +34,9 @@
 // (sdc.observed/1), `case` in the call's request.json and a `status.json` (sdc.call-status/1).
 // `person` is written without them, as an older runtime did.
 // speed: 1 plays gaps between events as recorded, capped at 2.5 s (default 1).
+// hold (the fourth argument, a file): a call is held after its last event, response.json still empty, until that file exists, so a
+// test that looks at a call in flight waits for the page and then releases it, where a slow speed made the window by the clock.
+// Only the argument holds: a variable of the shell that runs the tests changes nothing (fixture-hold.spec.mjs).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -51,7 +54,7 @@ const utimes = fs.utimesSync;
 const stamped = new Map();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const [scenario, targetArg, speedArg] = process.argv.slice(2);
+const [scenario, targetArg, speedArg, holdArg] = process.argv.slice(2);
 // the recorded run when it is there (runs/ is git-ignored); else, for the scenarios that need only the
 // cases intake and direction, its committed slim copy (need-run.mjs fixtureSource)
 const SRC = fixtureSource(scenario);
@@ -257,6 +260,7 @@ async function playRecord(kind, name, {caseId, action, onTool} = {}) {
     fs.appendFileSync(path.join(to, 'events.jsonl'), rel(l) + '\n');
     if (e.event === 'tool.requested' && onTool) await onTool(e, `${kind}/${name}`);
   }
+  if (holdArg) while (!fs.existsSync(holdArg)) await realSleep(20);
   await sleep(600 / speed);
   fs.writeFileSync(path.join(to, 'response.json'), rel(fs.readFileSync(path.join(from, 'response.json'), 'utf8')));
   status('finished', {finished_at: iso(Date.now()), exit: 0});

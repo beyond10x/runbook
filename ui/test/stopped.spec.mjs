@@ -7,7 +7,8 @@
 //   late     appears while the page is open
 // Screenshots at both gating viewports: screenshots/{1600x1000,1366x768}-stopped*.png, -held.png.
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {playFixture, playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -21,7 +22,6 @@ const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtur
 const runs = path.join(root, 'runs');
 let base;
 const GATING = [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}];
-const fixture = (scenario, name) => { const r = spawnSync('node', ['test/fixture-run.mjs', scenario, path.join(runs, name)], {cwd: ui, encoding: 'utf8'}); if (r.status !== 0) throw new Error(`fixture ${scenario}: ${r.stderr}`); };
 let srv, sources;
 const src = (name) => sources.find((s) => s.path.endsWith(`/${name}/store`)).index;
 
@@ -35,9 +35,7 @@ test.beforeAll(async ({}, info) => {
   needRun(fixtureSource('stopped'), 'stopped.spec.mjs (fixture source)', test);
   fs.rmSync(root, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
-  fixture('person', 'person');
-  fixture('stopped', 'stopped');
-  fixture('person', 'held');
+  await playFixtures([['person', path.join(runs, 'person')], ['stopped', path.join(runs, 'stopped')], ['person', path.join(runs, 'held')]]);
   fs.copyFileSync(path.join(runs, 'stopped', 'run-settings.jsonl'), path.join(runs, 'held', 'run-settings.jsonl'));
   ({url: base, proc: srv} = await startServer([path.join(runs, 'person', 'store'), '--runs', runs]));
   sources = await (await fetch(base + '/api/sources')).json();
@@ -161,7 +159,7 @@ test('--runs: a run that appears later joins the run picker without a restart', 
   await expect(rows).toHaveCount(sources.length);
   // a run still being built aside (*.part) is not listed, before or after it is moved into place
   fs.mkdirSync(path.join(runs, 'aside.part', 'store'), {recursive: true});
-  fixture('person', 'late');
+  await playFixture('person', path.join(runs, 'late'));
   await expect(rows).toHaveCount(sources.length + 1, {timeout: 15000});
   await expect(page.locator('#pk-list [role=option]', {hasText: '.part'})).toHaveCount(0);
   // a fixture run: listed with the stub and fixture runs, labelled

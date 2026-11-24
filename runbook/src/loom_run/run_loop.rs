@@ -9,7 +9,8 @@ use crate::loom_run::child_host::ChildHost;
 use crate::loom_run::cost::CostReader;
 use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider;
-use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
+use crate::loom_run::events::{Cap, CostSource, Event, EventSink, StartSource};
+use crate::loom_run::in_flight::{Announcing, RunnerRecord};
 use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Opening};
 use crate::loom_run::ledger::{Ledger, Reservation};
 use crate::loom_run::library::{self, LibraryHost};
@@ -104,6 +105,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let private = PrivateDir::create(&args.run, login.as_deref())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
+    // the runner's record: open from here, closed on every way out of this function (its Drop), and at the end below
+    let mut record = RunnerRecord::create(&run_dir, clock.now_secs())?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
     let redacted = crate::loom_run::dry::mark(args.ports.dry, redacted);
     super::replay::prepare(args, &run_dir)?;
@@ -117,7 +120,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             let loom = args.loom.clone().ok_or("--loom is not given")?;
             Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
         }
-        (Identity::Library { .. }, Some((level, runner))) => Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, runner, cancel)),
+        (Identity::Library { .. }, Some((level, runner))) => {
+            let announcing: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(Announcing::new(runner, run_dir.clone(), run_dir.join("bindings")));
+            Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announcing, cancel))
+        }
         (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
     };
     let mut runner = Runner {
@@ -160,6 +166,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     };
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
+    record.close(clock.now_secs());
     super::replay::seal(args, &run_dir);
     crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
     Ok(outcome)
@@ -350,6 +357,9 @@ impl Runner<'_> {
         let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
         let reservation = self.reserve(want)?;
         budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+        if !self.host.announces_starts() {
+            self.emit(Event::ActionStarted { source: StartSource::StepCall, role: None, case: None, action: None, try_number: None })?;
+        }
         let result = match handoff {
             None => self.host.step(),
             Some(answer) => self.host.handoff(answer),

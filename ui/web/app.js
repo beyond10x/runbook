@@ -5,7 +5,7 @@ import {setView} from './view.js';
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS, protocolRevisionOf, claimsRecorded, CLAIMS_NOT_RECORDED} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
-import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
+import {nowState, nowSay, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
@@ -196,6 +196,7 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
+  if (stream && !daemon) connect(); // the stream names the run on screen
   showProduct({kind: 'list'});
   await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
@@ -443,6 +444,16 @@ function tickClocks() {
   const now = serverNow();
   for (const el of document.querySelectorAll('[data-since]')) { const v = fmtDur(now - Number(el.dataset.since)); if (el.textContent !== v) el.textContent = v; }
   for (const el of document.querySelectorAll('[data-ago]')) { const v = fmtAgo(now - Number(el.dataset.ago)); if (el.textContent !== v) el.textContent = v; }
+  // the band's head says how many minutes the action in flight has run: it is text, set as text
+  const ns = S.nowState;
+  if (ns?.proc && ns.mode === 'running') {
+    ns.now = now;
+    const head = nowSay(ns).head;
+    const h = document.querySelector('#now .now-st');
+    if (h && h.textContent !== head) h.textContent = head;
+    const b = document.querySelector('#nowbar .nb-state');
+    if (b?.lastChild && b.lastChild.textContent !== head) b.lastChild.textContent = head;
+  }
   // the run picker's rows tick on the clock of now, not on a stopped run's frozen one
   for (const el of document.querySelectorAll('[data-run-since]')) { const v = fmtDur(runNow() - Number(el.dataset.runSince)); if (el.textContent !== v) el.textContent = v; }
   for (const el of document.querySelectorAll('[data-run-ago]')) { const v = fmtAgo(runNow() - Number(el.dataset.runAgo)); if (el.textContent !== v) el.textContent = v; }
@@ -625,8 +636,10 @@ window.__sdcSync = async () => {
   await drain();
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 };
+let stream = null;
 function connect() {
-  const es = openEvents();
+  stream?.close();
+  const es = stream = openEvents(S.src);
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });
   es.addEventListener('change', (m) => {
     const d = JSON.parse(m.data);

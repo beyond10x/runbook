@@ -172,11 +172,15 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.9.1`; nothing is published to crates.io. The latest is 0.9.1 (2026-11-23).
+`0.9.2`; nothing is published to crates.io. The latest is 0.9.2 (2026-11-23).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.9.1 over 0.9.0 (nothing is unreleased): `scripts/install.sh --prefix <dir>` installs `runbook`,
+- New in 0.9.2 over 0.9.1 (nothing is unreleased): `runbook run` writes `runner.json` and one `action_started`
+  line when an action starts, the inspector shows the step in flight and tells a live runner from one that is
+  gone, and the Now band no longer says "Stopped: step budget spent" between two steps. Nothing is breaking. No
+  evaluation run was made on this code ([docs/releases/0.9.2.md](docs/releases/0.9.2.md)).
+- New in 0.9.1 over 0.9.0: `scripts/install.sh --prefix <dir>` installs `runbook`,
   the programs it starts and the files it reads from a checkout ([Try it](#try-it); there is no binary to
   download), `runbook --version` prints the version and the commit of the build, and an installed `runbook`
   puts `<prefix>/libexec/runbook` in front of the `PATH` of the programs it starts. Nothing is breaking. No
