@@ -587,17 +587,28 @@ fn a_copy_over_the_bound_of_bytes_is_refused_before_the_first_write_and_names_no
 
 #[test]
 fn a_copy_of_exactly_4096_entries_is_made_and_one_entry_more_is_refused() {
+    // What this case holds is a count, not a time: a copy of MAX_ENTRIES entries is made whole and a
+    // copy of one more is refused before its first write, naming no path. Every entry here is a
+    // directory or a regular file, so the copy has nothing to wait on, and it is called without the
+    // 5 s bound of `within`, whose subject (a copy never waits on an entry that blocks) the cases
+    // with a pipe or a socket hold; under that bound this case wrote and copied 8,000 files and
+    // missed it at a build node load of 60.
+    assert_eq!(MAX_ENTRIES, 4096);
     // `bindings/`, `bindings/tools/`, `demo.yaml` and `tools/run.sh` are 4 entries.
     let home = demo_home("entries");
     let tools = home.join("bindings/tools");
     for n in 0..4092 {
         std::fs::write(tools.join(format!("f{n:04}.txt")), "x\n").unwrap();
     }
-    let (copied, dst) = within(&home, "entries-at");
+    let copy = |tag: &str| {
+        let dst = fresh(&format!("{tag}-dst")).join("bindings");
+        (copy_dirs(&[(&home.join("bindings"), &dst)], Links::Within(&home)), dst)
+    };
+    let (copied, dst) = copy("entries-at");
     copied.unwrap();
     assert_eq!(count_files(&dst), 4094);
     std::fs::write(tools.join("one-more.txt"), "x\n").unwrap();
-    let (copied, dst) = within(&home, "entries-over");
+    let (copied, dst) = copy("entries-over");
     let reason = copied.expect_err("4097 entries were copied");
     assert!(!dst.exists(), "a refused copy wrote its destination");
     assert!(!reason.contains(home.to_str().unwrap()), "the refusal names a path: {reason}");

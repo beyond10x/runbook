@@ -712,14 +712,19 @@ fn recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconne
     let (last, took) = done.recv_timeout(Duration::from_secs(30)).expect("recording waited for a stream that does not read");
     recorder.join().unwrap();
     println!("recording {} events while a client reads nothing: {took:?}", BIG_EVENTS + SMALL_EVENTS);
-    // The client reads again: it receives events in order up to a point, then the server ends the stream.
+    // The client reads again: it receives the events after the first in order up to a point, then the
+    // server ends the stream with a comment that names that point. How many events come before the
+    // end is the scheduler's: a server whose stream read the state only after the recording was done
+    // found more than the bound waiting at once and sent none (on the forge after 20 ms of recording;
+    // here with the server's two workers held for 300 ms). The case holds that what came is every
+    // position from the first's next to the one the end names, none missing and none twice, and that
+    // the end came before the last event.
     let (events, comments) = stream.until_closed();
-    assert!(!events.is_empty());
-    let got = positions(&events);
-    assert!(got.windows(2).all(|w| w[1] == w[0] + 1), "no gap and no repeat before the end");
-    let cut = *got.last().unwrap();
+    let named: Vec<u64> = comments.iter().filter_map(|c| c.split_once("Last-Event-ID: ").and_then(|(_, n)| n.trim().parse().ok())).collect();
+    assert_eq!(named.len(), 1, "the end says once how to resume: {comments:?}");
+    let cut = named[0];
+    assert_eq!(positions(&events), (first + 1..=cut).collect::<Vec<_>>(), "the events before the end are not every position up to the one it names");
     assert!(cut < last, "the stream was ended with {} events behind", last - cut);
-    assert!(comments.iter().any(|c| c.contains("Last-Event-ID")), "the end says how to resume: {comments:?}");
     // It resumes by position and gets the rest, once.
     let header = cut.to_string();
     let mut again = s.open(&path("daemon-events", &format!("after_position={base}")), &[("Last-Event-ID", &header)]);

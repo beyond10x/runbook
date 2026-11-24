@@ -1684,6 +1684,7 @@ name = "sdc-tools"
 version = "0.10.0"
 dependencies = [
  "clap",
+ "libc",
  "regex",
  "serde",
  "serde_json",
