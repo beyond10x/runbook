@@ -10,6 +10,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:7430";
 
@@ -52,6 +53,11 @@ pub struct ServeArgs {
     /// Also serve MCP over streamable HTTP at /mcp, behind the same token check.
     #[arg(long)]
     pub mcp: bool,
+    /// The most seconds a drain takes. On SIGTERM or SIGINT the daemon refuses new runs and waits for the
+    /// live ones to end; a second signal, or this many seconds, ends it at once and the live runs end as
+    /// orphaned. Default: no bound.
+    #[arg(long, value_name = "SECONDS")]
+    pub drain_seconds: Option<u64>,
 }
 
 /// What `serve` reads from the process environment.
@@ -126,16 +132,128 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     Ok(Prepared { addr, token, daemon })
 }
 
-async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
-    let term = signal(SignalKind::terminate());
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = async { match term { Ok(mut t) => { t.recv().await; } Err(_) => std::future::pending().await } } => {}
+/// SIGTERM and SIGINT as one stream of stop signals. Both handlers are installed once, so a second signal
+/// is seen while the drain waits. A handler that cannot be installed never fires.
+struct StopSignals {
+    term: Option<tokio::signal::unix::Signal>,
+    int: Option<tokio::signal::unix::Signal>,
+}
+
+async fn received(s: &mut Option<tokio::signal::unix::Signal>) {
+    if let Some(s) = s {
+        if s.recv().await.is_some() {
+            return;
+        }
+    }
+    std::future::pending::<()>().await
+}
+
+impl StopSignals {
+    fn install() -> StopSignals {
+        use tokio::signal::unix::{signal, SignalKind};
+        StopSignals { term: signal(SignalKind::terminate()).ok(), int: signal(SignalKind::interrupt()).ok() }
+    }
+
+    async fn next(&mut self) {
+        tokio::select! {
+            () = received(&mut self.term) => {}
+            () = received(&mut self.int) => {}
+        }
     }
 }
 
-/// Run the daemon until SIGINT or SIGTERM. Exit 1 when the start is refused.
+/// A line on standard error that never fails the caller: standard error may be a closed pipe (a `| tee`
+/// that ended), and a write to it must not stop the drain.
+fn note(line: std::fmt::Arguments) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "{line}");
+}
+
+/// How the daemon stops. The first signal begins the drain (`Daemon::begin_drain`): a submit is refused,
+/// reads and decisions are served, and the live runs go on. The future ends, and with it the server, when no
+/// run is live (`daemon.drained`), or at once on a second signal or when `bound` has run out; then every
+/// live run ends as orphaned with the event that the daemon was stopped while it ran. It gives the number of
+/// runs it ended as orphaned.
+async fn stop_after_drain(daemon: Daemon, bound: Option<Duration>, mut signals: StopSignals) -> usize {
+    signals.next().await;
+    let live = match daemon.begin_drain() {
+        Ok(live) => live,
+        Err(e) => {
+            note(format_args!("runbook serve: the journal could not record the drain: {e:?}"));
+            return daemon.orphan_live_runs();
+        }
+    };
+    if !live.is_empty() {
+        note(format_args!("runbook: draining: {} live run(s) go on to their end and no new run is taken; a second signal stops at once", live.len()));
+    }
+    let mut changes = daemon.subscribe();
+    // A bound that overflows an instant is no bound.
+    let deadline = bound.and_then(|b| tokio::time::Instant::now().checked_add(b));
+    loop {
+        if daemon.live_runs().is_empty() {
+            if let Err(e) = daemon.finish_drain() {
+                note(format_args!("runbook serve: the journal could not record the end of the drain: {e:?}"));
+            }
+            return 0;
+        }
+        let bound_over = async {
+            match deadline {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = changes.changed() => {}
+            () = signals.next() => {
+                note(format_args!("runbook: stopped at once on a second signal: the live runs end as orphaned"));
+                break;
+            }
+            () = bound_over => {
+                note(format_args!("runbook: stopped at once: the drain bound ran out: the live runs end as orphaned"));
+                break;
+            }
+        }
+    }
+    daemon.orphan_live_runs()
+}
+
+/// How the stop ended: the runs it left orphaned, and whether the stop future itself failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StopEnd {
+    pub orphaned: usize,
+    pub failed: bool,
+}
+
+/// Run `stop` (it gives the number of runs it orphaned) on a task of its own. A panic in it is caught: every
+/// live run is ended as orphaned with the reason that the daemon was stopped while it ran, and the end says
+/// the stop failed. A stop that dies must not leave the process holding runs it will not wait for.
+pub async fn guarded_stop(daemon: &Daemon, stop: impl std::future::Future<Output = usize> + Send + 'static) -> StopEnd {
+    match tokio::spawn(stop).await {
+        Ok(orphaned) => StopEnd { orphaned, failed: false },
+        Err(e) => {
+            note(format_args!("runbook serve: the stop failed ({e}): the live runs end as orphaned"));
+            StopEnd { orphaned: daemon.orphan_live_runs(), failed: true }
+        }
+    }
+}
+
+/// The exit code of `runbook serve` when it was stopped while at least one run was live and each such run
+/// ended as orphaned (a second signal, `--drain-seconds`, or a stop that failed). 0 is a stop that left no
+/// run behind; 1 is a start that was refused or a server that failed; 64 and 2 are the usage errors.
+pub const EXIT_ORPHANED: u8 = 75;
+
+/// The code `serve` exits with, given how it ended.
+fn exit_code(served: &Result<(), String>, end: StopEnd) -> ExitCode {
+    match served {
+        Err(_) => ExitCode::from(1),
+        Ok(()) if end.orphaned > 0 => ExitCode::from(EXIT_ORPHANED),
+        Ok(()) if end.failed => ExitCode::from(1),
+        Ok(()) => ExitCode::SUCCESS,
+    }
+}
+
+/// Run the daemon until SIGINT or SIGTERM and then the end of its drain. Exit 1 when the start is refused,
+/// `EXIT_ORPHANED` when the stop left a live run orphaned, else 0.
 pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
     let prepared = match prepare(&args, &Env::from_process(), presets) {
         Ok(p) => p,
@@ -153,22 +271,40 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         }
     };
     let served = runtime.block_on(async {
+        // Before the address is announced: a signal from then on is a stop, never the default death.
+        let signals = StopSignals::install();
         let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| format!("cannot listen on {addr}: {e}"))?;
         let bound = listener.local_addr().map_err(|e| e.to_string())?;
         if args.runtime == "loom" {
-            eprintln!("runbook: this daemon runs the Loom runtime: runs execute through Loom in this process");
+            note(format_args!("runbook: this daemon runs the Loom runtime: runs execute through Loom in this process"));
         } else {
-            eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
+            note(format_args!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed"));
         }
         println!("runbook: listening on http://{bound}");
         let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
-        api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, shutdown_signal()).await.map_err(|e| e.to_string())
+        let end = Arc::new(std::sync::Mutex::new(StopEnd { orphaned: 0, failed: false }));
+        let stopping = {
+            let (daemon, end) = (daemon.clone(), end.clone());
+            let bound = args.drain_seconds.map(Duration::from_secs);
+            async move {
+                let how = guarded_stop(&daemon, stop_after_drain(daemon.clone(), bound, signals)).await;
+                *end.lock().unwrap_or_else(|p| p.into_inner()) = how;
+            }
+        };
+        let served = api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, stopping).await.map_err(|e| e.to_string());
+        let how = *end.lock().unwrap_or_else(|p| p.into_inner());
+        Ok::<_, String>((served, how))
     });
     daemon.stop();
     match served {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok((served, how)) => {
+            if let Err(e) = &served {
+                note(format_args!("runbook serve: {e}"));
+            }
+            exit_code(&served, how)
+        }
         Err(e) => {
-            eprintln!("runbook serve: {e}");
+            note(format_args!("runbook serve: {e}"));
             ExitCode::from(1)
         }
     }

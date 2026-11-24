@@ -25,6 +25,11 @@ pub const MAX_INTAKE_BYTES: usize = 1_048_576;
 /// The outcome of a run that ended because the runtime held no live run of it when the daemon started
 /// again: the cause, in the `outcome` of the run (`EndOrphanedRun` sets this literal).
 pub const ORPHANED: &str = "orphaned";
+/// The reason of `runbook.run-orphaned` when the runtime holds no run of the id at the next start.
+pub const ORPHANED_AT_START: &str = "the daemon started again and the runtime holds no live run of this id";
+/// The reason of `runbook.run-orphaned` when the daemon ends while the run lives (a second stop signal,
+/// or the drain bound): the run does not wait for the next start to be orphaned.
+pub const ORPHANED_AT_STOP: &str = "the daemon was stopped while the run was live";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
 
@@ -61,6 +66,8 @@ pub struct Config {
 pub enum Fault {
     Invalid(String),
     Internal(String),
+    /// The daemon got its stop signal and waits for `live_runs` runs to end: it takes no new run.
+    Draining { live_runs: usize },
 }
 
 impl From<io::Error> for Fault {
@@ -380,6 +387,56 @@ impl Daemon {
         }
     }
 
+    /// Whether the daemon got its stop signal and refuses a submit.
+    pub fn is_draining(&self) -> bool {
+        self.st().draining()
+    }
+
+    /// The ids of the runs that are not terminal.
+    pub fn live_runs(&self) -> Vec<String> {
+        self.st().live_run_ids()
+    }
+
+    /// A receiver whose value changes whenever the state does (`State::subscribe`).
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.st().subscribe()
+    }
+
+    /// Begin the drain on the stop signal: from now a submit is refused (`Fault::Draining`); the runs go
+    /// on, reads and decisions are served. The journal records `daemon.draining` with the ids of the live
+    /// runs, and they are returned. The refusal and the flag are decided under the one lock a submit takes,
+    /// so no run is submitted after the ids are read. A second call changes nothing and returns the live runs.
+    pub fn begin_drain(&self) -> Result<Vec<String>, Fault> {
+        let mut st = self.st();
+        let run_ids = st.live_run_ids();
+        if !st.draining() {
+            let at = st.now();
+            st.commit(Fact::DaemonDraining { run_ids: run_ids.clone(), at })?;
+        }
+        Ok(run_ids)
+    }
+
+    /// The drain ended because no run is live: the journal records `daemon.drained`.
+    pub fn finish_drain(&self) -> Result<(), Fault> {
+        let mut st = self.st();
+        let at = st.now();
+        st.commit(Fact::DaemonDrained { at })?;
+        Ok(())
+    }
+
+    /// The daemon ends now with runs still live (a second stop signal, or the drain bound): it stops
+    /// reporting for them, and each run that is `Running` or `WaitingOnDecision` ends as `orphaned` with an
+    /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn.
+    /// No thread is joined: `stop` does that. The number of runs that were live and are ended now.
+    pub fn orphan_live_runs(&self) -> usize {
+        self.inner.stopping.store(true, Ordering::SeqCst);
+        let live = self.live_runs();
+        for run_id in &live {
+            let _ = self.end_orphaned_run_because(run_id, ORPHANED_AT_STOP);
+        }
+        live.len()
+    }
+
     /// The runs the record holds as live when the daemon starts. Submitted: the specification has
     /// `fail_to_start` from Submitted, so it is FailedToStart. Running and WaitingOnDecision: the
     /// daemon asks the runtime (`Runtime::recover`); `Gone` is `EndOrphanedRun` (the run ends with the
@@ -400,8 +457,12 @@ impl Daemon {
     /// `EndOrphanedRun`, issued by the daemon itself (never by a client): the run ends with the outcome
     /// `orphaned`, then `WithdrawDecision` is issued for each of its Open requests, as a cancel does.
     pub fn end_orphaned_run(&self, run_id: &str) -> Reply {
+        self.end_orphaned_run_because(run_id, ORPHANED_AT_START)
+    }
+
+    fn end_orphaned_run_because(&self, run_id: &str, reason: &str) -> Reply {
         let mut st = self.st();
-        let out = end_orphaned_run_locked(&mut st, run_id)?;
+        let out = end_orphaned_run_locked(&mut st, run_id, reason)?;
         if !out.is_refusal() {
             let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
             for request_id in open {
@@ -462,6 +523,7 @@ impl Daemon {
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
+        draining_fault(&self.st())?;
         let run_id = uuid::Uuid::now_v7().to_string();
         let confinement = input.confinement.unwrap_or(Confinement::Linux);
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
@@ -481,6 +543,7 @@ impl Daemon {
         let context_dir = context.flatten();
 
         let mut st = self.st();
+        draining_fault(&st)?;
         let floor = match st.daemon() {
             Some(d) if d.daemon_id == daemon_id => d.confinement_floor,
             _ => return refused("no-daemon", json!({"daemon_id": daemon_id})),
@@ -968,6 +1031,15 @@ impl EventSink for RunSink {
 
 // ---- commands that run with the state already locked ----
 
+/// The refusal of a submit while the daemon drains: a fault of the daemon's own, no outcome of the
+/// specification, with the count of the runs it waits for.
+fn draining_fault(st: &State) -> Result<(), Fault> {
+    if st.draining() {
+        return Err(Fault::Draining { live_runs: st.live_run_ids().len() });
+    }
+    Ok(())
+}
+
 fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("fail-run-start", "no-run", json!({"run_id": run_id}))),
@@ -981,12 +1053,12 @@ fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     }
 }
 
-fn end_orphaned_run_locked(st: &mut State, run_id: &str) -> Reply {
+fn end_orphaned_run_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("end-orphaned-run", "no-run", json!({"run_id": run_id}))),
         Some(state @ (RunState::Running | RunState::WaitingOnDecision)) => {
             // The run's stream says so while the run is still live (a closed run takes no event).
-            let record = json!({"run_id": run_id, "state": state.as_str(), "reason": "the daemon started again and the runtime holds no live run of this id"});
+            let record = json!({"run_id": run_id, "state": state.as_str(), "reason": reason});
             record_event_locked(st, run_id, "runbook.run-orphaned", record)?;
             let now = st.now();
             st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: now })?;

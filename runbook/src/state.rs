@@ -158,6 +158,12 @@ pub enum Fact {
     },
     DecisionWithdrawn { request_id: String },
     EventRecorded(RunEvent),
+    /// The daemon got its stop signal and no longer takes a submit: the ids of the runs it waits for.
+    #[serde(rename = "daemon.draining")]
+    DaemonDraining { run_ids: Vec<String>, at: String },
+    /// The last live run ended while the daemon drained.
+    #[serde(rename = "daemon.drained")]
+    DaemonDrained { at: String },
 }
 
 /// All of the state, for comparing two states.
@@ -175,6 +181,8 @@ pub struct State {
     journal: File,
     _lock: File,
     daemon: Option<DaemonRow>,
+    /// Set by `daemon.draining`; like the configuration row it lives as long as the process.
+    draining: bool,
     sessions: Vec<Session>,
     session_index: HashMap<String, usize>,
     runs: Vec<Run>,
@@ -222,6 +230,7 @@ impl State {
             journal,
             _lock: lock,
             daemon: None,
+            draining: false,
             sessions: vec![],
             session_index: HashMap::new(),
             runs: vec![],
@@ -252,6 +261,7 @@ impl State {
         }
         // The configuration row lives as long as the process: a new start writes its own.
         self.daemon = None;
+        self.draining = false;
         Ok(())
     }
 
@@ -387,6 +397,8 @@ impl State {
                 self.events_of_run.entry(event.run_id.clone()).or_default().push(self.events.len());
                 self.events.push(event.clone());
             }
+            Fact::DaemonDraining { .. } => self.draining = true,
+            Fact::DaemonDrained { .. } => {}
         }
         Ok(())
     }
@@ -412,6 +424,16 @@ impl State {
 
     pub fn daemon(&self) -> Option<&DaemonRow> {
         self.daemon.as_ref()
+    }
+
+    /// Whether this process got its stop signal and refuses a submit.
+    pub fn draining(&self) -> bool {
+        self.draining
+    }
+
+    /// The ids of the runs that are not terminal, oldest first.
+    pub fn live_run_ids(&self) -> Vec<String> {
+        self.runs.iter().filter(|r| r.state.is_live()).map(|r| r.run_id.clone()).collect()
     }
 
     pub fn session(&self, id: &str) -> Option<&Session> {

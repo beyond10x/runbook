@@ -2654,6 +2654,7 @@ mod relative_state_directory {
             principal: Some(super::super::PRINCIPAL.into()),
             ui: false,
             mcp: false,
+            drain_seconds: None,
         };
         let prepared = runbook::serve::prepare(&args, &runbook::serve::Env::default(), &[]).unwrap();
         let d = prepared.daemon;

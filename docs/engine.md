@@ -172,7 +172,9 @@ cancelled` and no exit, the action's program never starts, and the run ends `Can
 `a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_later_step`.
 
 `recover` is always `Gone`: a run lives on one thread of one process, so a restarted daemon has no
-run, whatever the store holds. The daemon then ends it as `orphaned`. The store stays on disk;
+run, whatever the store holds. The daemon then ends it as `orphaned`. A stop signal does not lead
+there: the daemon drains first and exits when its runs have ended (`docs/daemon-api.md`, "Stopping the
+daemon"); only a second signal, the drain bound, a kill or a crash orphans a live run. The store stays on disk;
 `Engine::store_state(run)` tells `Absent`, `Idle`, `StaleHolder` or `Held` (Loom's lock is a `flock`,
 so a dead holder lets go by itself; `tree/src/lock.rs:82`). Resuming an orphaned run from its store
 is not built.
