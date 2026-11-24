@@ -1418,7 +1418,8 @@ fn a_link_a_program_put_at_the_inputs_directory_of_a_call_is_not_written_through
     let rec = w.run.join("decider/002-context.approve");
     std::fs::create_dir_all(rec.join("cwd")).unwrap();
     std::os::unix::fs::symlink(&out, rec.join("cwd/in")).unwrap();
-    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    let why = reason(ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000));
+    assert!(why.contains("decider call directory") && why.contains("not a directory"), "the call did not end at the directory of its inputs: {why}");
     assert_eq!(names_in(&out), Vec::<String>::new(), "the decider made these in a directory outside the run, through a link at cwd/in");
 }
 
