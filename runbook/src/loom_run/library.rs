@@ -86,7 +86,7 @@ impl<'a> LibraryHost<'a> {
         let mut files: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
         files.sort();
         for file in files {
-            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let text = crate::loom_run::record_write::read_regular_text(&file)?;
             let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
             let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
             for entry in actions.iter().filter(|a| a.get("action").and_then(serde_yaml::Value::as_str) == Some(action)) {

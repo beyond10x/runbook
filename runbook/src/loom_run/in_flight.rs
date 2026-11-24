@@ -18,7 +18,7 @@
 //! by this runner. See `docs/loom-run-directory.md`.
 
 use crate::loom_run::events::{Event, StartSource};
-use crate::loom_run::record_write::{append, write_atomic};
+use crate::loom_run::record_write::{append, read_regular_text, write_atomic};
 use crate::loom_run::run_files::event_json;
 use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, TestExecution, TestRunner};
 use b10x_loom_intake_slice::executor::TestCommand;
@@ -98,7 +98,7 @@ fn bound_actions(dir: &Path) -> Vec<Bound> {
     files.sort();
     let mut found = Vec::new();
     for file in files {
-        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let Ok(text) = read_regular_text(&file) else { continue };
         let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(&text) else { continue };
         let Some(actions) = doc.get("actions").and_then(serde_yaml::Value::as_sequence) else { continue };
         for entry in actions {
