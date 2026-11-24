@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Fixed
+- The cycles suite (`task test:cycles-loom`) builds nothing. Every cycle that reached `tests.run` or a bug-fix check ended `ProgramError ... exit status 127`: Loom gives a bound program `PATH` and `LOOM_*` only, the `slot` an agent's PATH now finds first reads `HOME` to find the pool, and a cycle's work directory under `$XDG_RUNTIME_DIR` is one the build node does not sync. The `slot` first on the PATH of the suite's programs is now `sdc-recorded-pool` (`driver/src/bin/sdc-recorded-pool.rs`), which answers each build and test command from a recording in `cycles/recorded/`, keyed by the sha256 of the command and of the tree it runs in; a command with no recording is a program error whose line names the digest, and the slow lane `task test:cycles-record` records it through the pool from a copy of the tree under `target/` (`docs/cycles-suite.md`, "Recorded build and test results"; tests in `driver/tests/recorded_pool.rs`). `runbook doctor` names `sdc-recorded-pool` as an optional helper (`runbook/src/doctor.rs`).
+- A bug-fix check whose pool job exits 127 or 126 (the command was not found or could not run) is a program error of the step, exit 127 or 126 with a line that names the command, and no verdict: `repro-run` read it as `not red`, so the case ended `not_reproduced` (`driver/tests/bugfix_languages.rs`).
+
 ## [0.10.0] - 2026-11-24
 
 Two entries are marked breaking: the daemon has no built-in confinement, and `runbook run` has no money limit built in.
