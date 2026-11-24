@@ -2638,4 +2638,32 @@ mod relative_state_directory {
         assert!(reason.contains("tree"), "the start did not fail at the store as the case says: {reason}");
         assert!(!reason.contains("rel-state-dir") && !reason.contains(dir.to_str().unwrap()), "a path of the state directory is in the reason: {reason}");
     }
+
+    #[test]
+    fn a_run_under_a_state_directory_and_a_home_given_as_relative_paths_starts_and_waits_on_its_first_decision() {
+        let dir = workdir("serve");
+        let args = runbook::serve::ServeArgs {
+            listen: "127.0.0.1:0".into(),
+            state_dir: Some(PathBuf::from("rel-state-dir")),
+            context_root: vec![],
+            runbook_dir: None,
+            runtime: "loom".into(),
+            runbook_home: Some(PathBuf::from("rel-home-dir")),
+            min_confinement: "local".into(),
+            token_file: None,
+            principal: Some(super::super::PRINCIPAL.into()),
+            ui: false,
+            mcp: false,
+        };
+        let prepared = runbook::serve::prepare(&args, &runbook::serve::Env::default(), &[]).unwrap();
+        let d = prepared.daemon;
+        let run = d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+        let state = until_waiting_or_over(&d, &run);
+        let row = d.run_detail(&run)[0].clone();
+        let open = d.open_decisions_of_run(&run);
+        d.stop();
+        assert_eq!(state, "WaitingOnDecision", "the run did not wait on a decision: {row}");
+        assert!(!open.is_empty(), "the run waits on no decision");
+        assert!(dir.join("rel-state-dir/runs").join(&run).join("tree").is_dir(), "the run's store is not below the state directory as given");
+    }
 }
