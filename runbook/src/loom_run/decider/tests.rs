@@ -1455,6 +1455,20 @@ fn a_file_input_is_not_copied_into_a_directory_below_a_link_a_program_left_at_th
 }
 
 #[test]
+fn an_ir_file_that_is_a_link_is_not_an_ir_of_the_case_for_the_checks() {
+    let w = world("checks-ir-link", "#!/bin/sh\n");
+    let out = empty_directory_outside(&w, "out-checks");
+    std::fs::write(out.join("ir.json"), "{\"outcomes\":{}}\n").unwrap();
+    let linked = w.run.join("case-linked");
+    let bare = w.run.join("case-bare");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::fs::create_dir_all(&bare).unwrap();
+    std::os::unix::fs::symlink(out.join("ir.json"), linked.join("ir.json")).unwrap();
+    let req = json!({"type": "approval", "action": "merge.approve"});
+    assert_eq!(super::inputs::checks(&req, &linked), super::inputs::checks(&req, &bare), "the checks were taken from a file outside the run, through a link at ir.json");
+}
+
+#[test]
 fn a_named_pipe_a_program_put_at_the_structured_output_does_not_hold_the_call() {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
