@@ -79,6 +79,11 @@ pub fn read_content(p: &Path) -> Result<Option<Content>, Unread> {
 /// [`read_content`] with the bound `limit` in place of [`CONTENT_LIMIT`] and `stop` in place of the stop flag.
 fn read_content_with(p: &Path, limit: u64, stop: &dyn Fn() -> bool) -> Result<Option<Content>, Unread> {
     let Some(file) = crate::attrib::open_regular(p) else { return Ok(None) };
+    content_of(file, limit, stop)
+}
+
+/// The content of the open regular file `file`: at most `limit` plus one bytes are read from it.
+fn content_of(file: fs::File, limit: u64, stop: &dyn Fn() -> bool) -> Result<Option<Content>, Unread> {
     let mut from = file.take(limit + 1);
     let mut h = Sha256::new();
     let mut kept = Some(Vec::new());
@@ -461,6 +466,21 @@ mod tests {
         h.update((limit + 2).to_be_bytes());
         assert_eq!(two.sha, hex(&h.finalize()), "the hash is that of the first bytes followed by the length");
         assert_eq!(CONTENT_LIMIT, 64 * 1024 * 1024, "the bound of a read of a file of the run is 64 MiB");
+    }
+
+    #[test]
+    fn a_file_of_the_run_is_read_for_at_most_its_bound_plus_one_byte() {
+        use std::io::Seek;
+        let d = scratch("read-bound");
+        let limit = 2 * MAX_DIFF_BYTES;
+        sparse(&d.join("long"), 3 * limit);
+        let file = fs::File::open(d.join("long")).unwrap();
+        let mut shared = file.try_clone().unwrap();
+        let content = content_of(file, limit, &|| false);
+        let read = shared.stream_position().unwrap();
+        let _ = fs::remove_dir_all(&d);
+        assert!(content.unwrap().unwrap().too_large);
+        assert!(read <= limit + 1, "{read} bytes were read of a file of the run, more than its bound plus one ({})", limit + 1);
     }
 
     #[test]
