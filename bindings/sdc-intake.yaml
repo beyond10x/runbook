@@ -19,7 +19,7 @@ actions:
         subject: idea
         producer: sdc-check
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: idea.dissect
     executor:
       kind: program
@@ -39,7 +39,7 @@ actions:
         subject: dissection
         producer: sdc-check
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
         upstream: [idea]
   - action: questions.write
     executor:
@@ -75,13 +75,13 @@ actions:
         subject: questions
         producer: sdc-check
         from: exit
-        results: {"0": valid, "1": valid, "3": valid, "*": invalid}
+        results: {"0": valid, "1": valid, "3": valid, timeout: invalid, "*": invalid}
         upstream: [dissection]
       - kind: questions_settled
         subject: questions
         producer: sdc-check
         from: exit
-        results: {"0": settled, "1": open, "3": needs_scope_answer, "*": open}
+        results: {"0": settled, "1": open, "3": needs_scope_answer, timeout: open, "*": open}
         upstream: [dissection]
   - action: requirements.normalise
     executor:
@@ -102,7 +102,7 @@ actions:
         subject: requirements
         producer: sdc-check
         from: exit
-        results: {"0": valid, "5": finding, "*": invalid}
+        results: {"0": valid, "5": finding, timeout: invalid, "*": invalid}
         upstream: [questions]
   - action: amend.upstream
     executor:

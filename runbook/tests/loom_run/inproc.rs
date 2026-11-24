@@ -1,4 +1,4 @@
-//! `runbook run` in process: the run loop over Loom as a library, on the small `sh` fixture
+//! `runbook run` in process: filter(|t| t.starts_with(lead))he run loop over Loom as a library, on the small `sh` fixture
 //! runbook of the engine tests (`tests/fixtures/engine-runbook`: a root case that opens a drafting
 //! case; the drafting case has a writer program and one person step, the review). No `b10x-loom`
 //! binary, no model call: every approval is scripted and the bound programs are POSIX sh.
@@ -581,6 +581,83 @@ fn a_bound_program_refused_by_its_exits_error_list_ends_the_run_refused_naming_t
     assert!(stopped["reason"].as_str().unwrap().contains("draft.write"), "{stopped}");
 }
 
+// ---- a program step of more than an hour (Loom 0.61.0, story:bound-program-timeout-above-an-hour) ----
+
+/// A `program` binding may name `timeout_seconds` up to 14400: the run opens, the writer runs with
+/// `LOOM_TIMEOUT_SECONDS=14400`, and the run is delivered. Its `handoff_when` check keeps the hour:
+/// it runs under 3600 s, and `LOOM_TIMEOUT_SECONDS` says so to the check.
+#[test]
+fn a_program_binding_of_four_hours_runs_and_its_handoff_check_keeps_the_hour() {
+    let rig = Rig::new("timeout-four-hours");
+    let seen = rig.root.join("handoff-timeout.txt");
+    writer_binding(&rig, "    timeout_seconds: 14400\n    handoff: Write the draft by hand.\n    handoff_when: [tools/draft-hold.sh]\n");
+    std::fs::write(rig.root.join("fx/bindings/tools/draft-hold.sh"), format!("#!/bin/sh\nprintf '%s\\n' \"$LOOM_TIMEOUT_SECONDS\" >> '{}'\nexit 1\n", seen.display())).unwrap();
+    rig.writer("#!/bin/sh\nprintf '%s\\n' \"$LOOM_TIMEOUT_SECONDS\" > writer-timeout.txt\necho draft >> draft.txt\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(rig.outcome("r1")["reason"], "delivered");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("writer-timeout.txt")).unwrap(), "14400\n", "the writer runs under its own 14400 s");
+    let checks = std::fs::read_to_string(&seen).unwrap_or_else(|e| panic!("the handoff check did not run: {e}"));
+    assert!(!checks.is_empty() && checks.lines().all(|l| l == "3600"), "the handoff check runs under at most 3600 s: {checks:?}");
+}
+
+/// Past Loom's range the opening is refused, in Loom's words: a `program` binding at 14401, and any
+/// other executor (here the person step) above 3600. No program runs.
+#[test]
+fn a_timeout_past_the_range_of_its_executor_is_refused_at_the_opening_in_looms_words() {
+    for (tag, edit, words) in [
+        ("timeout-program-14401", ("      argv: [tools/draft-write.sh]\n", "      argv: [tools/draft-write.sh]\n    timeout_seconds: 14401\n"), "timeout_seconds: 14401 is not from 1 to 14400, the range of a program executor"),
+        ("timeout-person-3601", ("      principal: reviewer\n", "      principal: reviewer\n    timeout_seconds: 3601\n"), "timeout_seconds: 3601 is not from 1 to 3600; only a program executor may name up to 14400"),
+    ] {
+        let rig = Rig::new(tag);
+        let file = rig.root.join("fx/bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(edit.0), "{tag}: the fixture changed: {text}");
+        std::fs::write(&file, text.replacen(edit.0, edit.1, 1)).unwrap();
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        assert_eq!(code(&o), 12, "{tag}: {}", stderr(&o));
+        let outcome = rig.outcome("r1");
+        assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{tag}: {outcome}");
+        let reason = outcome["reason"].as_str().unwrap_or_default();
+        assert!(reason.contains("TimeoutOutOfRange") && reason.contains(words), "{tag}: {outcome}");
+        assert!(!rig.work("r1").join("draft.txt").exists(), "{tag}: a program ran after the opening was refused");
+    }
+}
+
+/// Loom 0.61.0 (story:wildcard-result-row-does-not-match-timeout): a run killed at its timeout matches
+/// only a `timeout` row of its table, never `*`. The fixture's check names `timeout: invalid` beside
+/// `"*": invalid`: its first run, killed at 1 s, records `invalid`, the writer runs again and the run is
+/// delivered. The same table without the `timeout` row ends the run `stuck` on `ResultNotInTable`.
+#[test]
+fn a_check_killed_at_its_timeout_records_its_timeout_row_and_without_one_the_run_ends_stuck() {
+    let anchor = "results: {\"0\": valid, timeout: invalid, \"*\": invalid}";
+    for (tag, table) in [("timeout-row", anchor), ("timeout-no-row", "results: {\"0\": valid, \"*\": invalid}")] {
+        let rig = Rig::new(tag);
+        let marker = rig.root.join("check-runs.txt");
+        let file = rig.root.join("fx/bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(anchor), "{tag}: the fixture changed: {text}");
+        let bound = text.replacen(anchor, &format!("{table}\n    timeout_seconds: 1"), 1);
+        std::fs::write(&file, bound).unwrap();
+        let m = marker.display();
+        std::fs::write(rig.root.join("fx/bindings/tools/draft-check.sh"), format!("#!/bin/sh\nprintf 'run\\n' >> '{m}'\n[ \"$(wc -l < '{m}')\" -gt 1 ] || sleep 5\n[ -s draft.txt ]\n")).unwrap();
+        let started = Instant::now();
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        assert!(started.elapsed() < Duration::from_secs(30), "{tag}: slow: {:?}", started.elapsed());
+        let outcome = rig.outcome("r1");
+        if table == anchor {
+            assert_eq!(code(&o), 0, "{tag}: {}", stderr(&o));
+            assert_eq!(outcome["reason"], "delivered", "{tag}: {outcome}");
+            assert_eq!(std::fs::read_to_string(&marker).unwrap(), "run\nrun\n", "{tag}: the killed check recorded invalid, so the writer and the check ran again");
+        } else {
+            assert_eq!((outcome["outcome"].as_str(), code(&o)), (Some("stuck"), 3), "{tag}: {outcome}");
+            assert_eq!(outcome["reason"], "ResultNotInTable: action draft.check", "{tag}: {outcome}");
+            let refusals = refusals_named(&rig, "r1", "ResultNotInTable:");
+            assert!(refusals.iter().any(|t| t.contains("killed at its timeout_seconds (1 s)") && t.contains("does not match a timeout")), "{tag}: Loom's text names the timeout: {refusals:?}");
+        }
+    }
+}
+
 // ---- the program of a person's action: its environment, and who may take it ----
 
 #[test]
@@ -673,6 +750,11 @@ fn reject(reasons: &str) -> Value {
 
 /// The `refusal` of every `ActionFinished` line of the run's logs that names `RunsSpent`.
 fn runs_spent_refusals(rig: &Rig, name: &str) -> Vec<String> {
+    refusals_named(rig, name, "RunsSpent:")
+}
+
+/// The `refusal` of every line of the run's case logs that starts with `lead`.
+fn refusals_named(rig: &Rig, name: &str, lead: &str) -> Vec<String> {
     let store = rig.run_dir(name).join("store");
     let mut found = Vec::new();
     for entry in std::fs::read_dir(&store).unwrap().flatten() {
@@ -682,7 +764,7 @@ fn runs_spent_refusals(rig: &Rig, name: &str) -> Vec<String> {
         }
         for line in std::fs::read_to_string(entry.path()).unwrap().lines() {
             let line: Value = serde_json::from_str(line).unwrap();
-            if let Some(text) = line["refusal"].as_str().filter(|t| t.starts_with("RunsSpent:")) {
+            if let Some(text) = line["refusal"].as_str().filter(|t| t.starts_with(lead)) {
                 found.push(text.to_owned());
             }
         }
@@ -1471,7 +1553,7 @@ fn a_refusal_that_is_not_a_program_error_is_not_dropped_with_a_null_reason() {
     let rig = Rig::new("fix1-table");
     let file = rig.root.join("fx/bindings/engine-draft.yaml");
     let text = std::fs::read_to_string(&file).unwrap();
-    let anchor = "results: {\"0\": valid, \"*\": invalid}";
+    let anchor = "results: {\"0\": valid, timeout: invalid, \"*\": invalid}";
     assert!(text.contains(anchor), "{text}");
     std::fs::write(&file, text.replace(anchor, "results: {\"0\": valid}")).unwrap();
     std::fs::write(rig.root.join("fx/bindings/tools/draft-check.sh"), "#!/bin/sh\nexit 124\n").unwrap();

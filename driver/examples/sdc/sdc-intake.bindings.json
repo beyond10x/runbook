@@ -17,6 +17,7 @@
     "producer": "sdc-check",
     "results": {
       "0": "valid",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },
@@ -56,6 +57,7 @@
     "producer": "sdc-check",
     "results": {
       "0": "valid",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },
@@ -139,6 +141,10 @@
         "questions_shape": "valid",
         "questions_settled": "needs_scope_answer"
       },
+      "timeout": {
+        "questions_shape": "invalid",
+        "questions_settled": "open"
+      },
       "*": {
         "questions_shape": "invalid",
         "questions_settled": "open"
@@ -182,6 +188,7 @@
     "results": {
       "0": "valid",
       "5": "finding",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },

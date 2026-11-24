@@ -25,7 +25,8 @@ fail=0
 # no name, has an executor that is present and no mapping (null too), an executor.argv that is no list,
 # evidence that is no list of mappings, a results member that is no mapping, or a result key of an entry read
 # from the exit that is no exit code (0 to 255, written without sign, zero or final newline: \A and \z, since
-# `$` matches before a final newline). loop_problem adds what the per-protocol loop reads: an argv element or
+# `$` matches before a final newline), `*` or `timeout` (the row of a run killed at its timeout, which `*` does
+# not match from Loom 0.61.0 on). loop_problem adds what the per-protocol loop reads: an argv element or
 # arguments_from that is no list of strings, a budget that is no mapping. badaction($f) and loop_badaction($f)
 # are the line of each, naming the file and the action.
 jq_shapes='
@@ -38,7 +39,7 @@ jq_shapes='
     else (.evidence // []) as $ev
     | if ([$ev[] | select(type != "object")] | length) > 0 then "an evidence entry is not a mapping"
       elif ([$ev[] | select(typed(.results; "object") | not)] | length) > 0 then "results of an evidence entry is not a mapping"
-      elif ([$ev[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and (exitcode | not))] | length) > 0 then "a result key of an evidence entry read from the exit is no exit code"
+      elif ([$ev[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and . != "timeout" and (exitcode | not))] | length) > 0 then "a result key of an evidence entry read from the exit is no exit code"
       else null end end;
   def problem:
     if type != "object" then "an entry of actions is not a mapping"
@@ -128,7 +129,7 @@ exit_findings=$(cd -- "$sdc" && {
   | (($a.exits != null and ($a.exits | type) != "object") or ($nolist | length) > 0) as $malformed
   | (($ex.error // []) | if type == "array" then sort else [] end) as $err
   | (($ex.not_called // []) | if type == "array" then sort else [] end) as $nc
-  | ([($a.evidence // [])[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*") | tonumber]) as $keys
+  | ([($a.evidence // [])[] | select(.from == "exit") | (.results // {}) | keys[] | select(. != "*" and . != "timeout") | tonumber]) as $keys
   | if ($program | not) then
       (if $a.exits != null then "\($f) \($a.action): exits on an executor that is not a program" else empty end)
     else

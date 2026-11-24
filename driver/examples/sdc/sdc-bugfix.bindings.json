@@ -46,6 +46,7 @@
     "producer": "sdc-bugfix",
     "results": {
       "0": "valid",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },
@@ -94,6 +95,7 @@
     "producer": "sdc-bugfix",
     "results": {
       "0": "red",
+      "timeout": "not_red",
       "*": "not_red"
     }
   },
@@ -149,6 +151,7 @@
     "producer": "sdc-bugfix",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   },
@@ -180,6 +183,7 @@
     "producer": "sdc-bugfix",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   }
