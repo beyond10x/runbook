@@ -233,4 +233,23 @@ mod tests {
     fn the_pinned_commit_is_forty_hex_digits() {
         assert!(COMMIT.len() == 40 && COMMIT.chars().all(|c| c.is_ascii_hexdigit()), "{COMMIT}");
     }
+
+    #[test]
+    fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_principal_of_an_action() {
+        let dir = crate::assets::testdir::Dir::new("library-principal-link");
+        let (level, runner) = prepare(Confinement::Local).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut host = LibraryHost::new(dir.path().join("store"), dir.path().join("work"), level, runner, &cancel);
+        host.bindings_dir = dir.dir("bindings");
+        let outside = dir.dir("outside");
+        let text = "actions:\n- action: a.one\n  executor:\n    kind: person\n    principal: person:owner\n";
+        std::fs::write(outside.join("steps.yaml"), text).unwrap();
+        std::os::unix::fs::symlink(outside.join("steps.yaml"), host.bindings_dir.join("b.yaml")).unwrap();
+        let decision = serde_json::json!({"action": "a.one"});
+        let got = host.bound_principal(&decision);
+        assert!(got.is_err(), "the principal was taken from a file outside the run, through a link at a bindings file: {got:?}");
+        std::fs::remove_file(host.bindings_dir.join("b.yaml")).unwrap();
+        std::fs::write(host.bindings_dir.join("b.yaml"), text).unwrap();
+        assert_eq!(host.bound_principal(&decision), Ok("person:owner".to_owned()));
+    }
 }

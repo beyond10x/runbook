@@ -321,4 +321,16 @@ mod tests {
         let event = Event::ActionStarted { source: StartSource::ProgramStart, role: Some("program"), case: Some("C-1".into()), action: Some("a.one".into()), try_number: Some(2) };
         assert_eq!(event_json(1_700_000_000, &event), json!({"at": 1_700_000_000u64, "event": "action_started", "source": "program_start", "role": "program", "case": "C-1", "action": "a.one", "try": 2}));
     }
+
+    #[test]
+    fn a_link_a_program_put_at_a_bindings_file_is_not_read_for_the_bound_actions() {
+        let d = dir("bound-link");
+        let outside = dir("bound-outside");
+        let text = "actions:\n- action: a.one\n  executor:\n    kind: program\n    argv: [prog, one]\n";
+        std::fs::write(outside.join("steps.yaml"), text).unwrap();
+        std::os::unix::fs::symlink(outside.join("steps.yaml"), d.join("b.yaml")).unwrap();
+        assert!(bound_actions(&d).is_empty(), "a file outside the run was read through a link at a bindings file");
+        std::fs::write(d.join("c.yaml"), text).unwrap();
+        assert_eq!(bound_actions(&d).len(), 1);
+    }
 }

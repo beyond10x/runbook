@@ -187,3 +187,32 @@ impl CostReader {
         Ok(cost)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::testdir::Dir;
+
+    #[test]
+    fn the_stderr_line_of_a_call_is_the_first_line_of_its_file_in_full() {
+        let dir = Dir::new("stderr-line");
+        let call = dir.dir("call");
+        std::fs::write(call.join("adapter-stderr.txt"), "\n  the model said no, at length  \nsecond\n").unwrap();
+        assert_eq!(stderr_line(&call, None), "the model said no, at length");
+        let home = format!("{}/home", call.display());
+        std::fs::write(call.join("adapter-stderr.txt"), format!("failed in {home}/x\n")).unwrap();
+        assert_eq!(stderr_line(&call, Some(&home)), "failed in ~/x");
+    }
+
+    #[test]
+    fn the_stderr_line_of_a_call_is_not_read_through_a_link_and_the_next_file_is_tried() {
+        let dir = Dir::new("stderr-link");
+        let call = dir.dir("call");
+        let outside = dir.dir("outside");
+        std::fs::write(outside.join("said.txt"), "text of a file outside the run\n").unwrap();
+        std::os::unix::fs::symlink(outside.join("said.txt"), call.join("adapter-stderr.txt")).unwrap();
+        assert_eq!(stderr_line(&call, None), "(no stderr)");
+        std::fs::write(call.join("stderr.txt"), "the plain file\n").unwrap();
+        assert_eq!(stderr_line(&call, None), "the plain file");
+    }
+}
