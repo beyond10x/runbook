@@ -4,13 +4,16 @@
 //! `rejected`.
 
 use super::state::scratch;
+use runbook::clock::SetClock;
 use runbook::commands::{AnswerDecision, CancelRun, Config, Daemon, SubmitRun};
 use runbook::engine::{Engine, StoreState};
-use runbook::runtime::{Confinement, Recovery, Runtime};
-use serde_json::Value;
-use std::collections::BTreeSet;
+use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest, StartTarget, Started};
+use serde_json::{json, Value};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const RUNBOOK: &str = "engine-demo";
@@ -549,4 +552,339 @@ fn after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event() {
     assert!(row.get("step_in_flight").is_none(), "an orphaned run shows a step: {row}");
     let actions: Vec<String> = rig.started(&run).iter().map(|e| e["record"]["action"].as_str().unwrap().to_string()).collect();
     assert_eq!(actions, ["draft.check", "draft.write"], "the journal keeps the start events of the check that failed and of the writer");
+}
+
+// ---- the step in flight, with a runtime the test drives step by step ----
+
+type Act = Box<dyn FnOnce(&Arc<dyn StartTarget>, &dyn EventSink) -> Option<Result<Finish, RuntimeFailure>> + Send>;
+type Call = (Act, mpsc::Sender<()>);
+type Lane = (mpsc::Sender<Call>, Option<mpsc::Receiver<Call>>);
+
+#[derive(Default)]
+struct Gated {
+    chans: Mutex<HashMap<String, Lane>>,
+}
+
+impl Gated {
+    fn tx(&self, run: &str) -> mpsc::Sender<Call> {
+        let mut m = self.chans.lock().unwrap();
+        m.entry(run.to_string()).or_insert_with(|| {
+            let (tx, rx) = mpsc::channel();
+            (tx, Some(rx))
+        })
+        .0
+        .clone()
+    }
+
+    fn rx(&self, run: &str) -> mpsc::Receiver<Call> {
+        self.tx(run);
+        self.chans.lock().unwrap().get_mut(run).unwrap().1.take().expect("one start per run")
+    }
+
+    /// Runs `act` on the run's own thread and returns when it has run.
+    fn on_thread(&self, run: &str, act: impl FnOnce(&Arc<dyn StartTarget>, &dyn EventSink) -> Option<Result<Finish, RuntimeFailure>> + Send + 'static) {
+        let (ack, wait) = mpsc::channel();
+        self.tx(run).send((Box::new(act), ack)).unwrap();
+        wait.recv_timeout(Duration::from_secs(20)).expect("the run's thread did not take the call");
+    }
+}
+
+impl Runtime for Gated {
+    fn recover(&self, _run_id: &str) -> Recovery {
+        Recovery::Gone
+    }
+
+    fn knows_runbook(&self, runbook: &str, _version: Option<&str>) -> bool {
+        runbook == "gated"
+    }
+
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        vec![RunbookInfo { name: "gated".into(), version: None }]
+    }
+
+    fn kind(&self) -> &'static str {
+        "loom"
+    }
+
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, _cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+        let rx = self.rx(&request.run_id);
+        sink.started();
+        let target = sink.steps().expect("the daemon's sink takes step reports");
+        loop {
+            let (act, ack) = rx.recv_timeout(Duration::from_secs(40)).map_err(|e| RuntimeFailure { reason: format!("no call: {e}") })?;
+            let done = act(&target, sink);
+            let _ = ack.send(());
+            if let Some(result) = done {
+                return result;
+            }
+        }
+    }
+
+    fn answer(&self, _run_id: &str, _request_id: &str, _answer: &str, _principal: &str) -> Result<(), AnswerFailure> {
+        Err(AnswerFailure::UnknownRun)
+    }
+
+    fn cancel(&self, _run_id: &str) {}
+}
+
+struct Gate {
+    rt: Arc<Gated>,
+    clock: Arc<SetClock>,
+    d: Daemon,
+    runs: Mutex<Vec<String>>,
+}
+
+const T0: &str = "2026-11-24T10:00:00Z";
+
+fn st(serial: u64, role: &'static str, case: Option<&str>, action: Option<&str>, try_number: Option<u64>) -> Started {
+    Started { serial, role, case: case.map(str::to_owned), action: action.map(str::to_owned), try_number }
+}
+
+impl Gate {
+    fn new(tag: &str) -> Gate {
+        let dir = scratch(tag);
+        std::fs::create_dir_all(dir.join("ctx")).unwrap();
+        let rt = Arc::new(Gated::default());
+        let clock = Arc::new(SetClock::at(T0).unwrap());
+        let cfg = Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() };
+        let d = Daemon::start_with_clock(cfg, rt.clone(), clock.clone()).unwrap();
+        Gate { rt, clock, d, runs: Mutex::new(Vec::new()) }
+    }
+
+    fn submit(&self) -> String {
+        let o = self.d.submit_run(SubmitRun { runbook_id: "gated".into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();
+        assert_eq!(o.name, "submitted", "{o:?}");
+        let run = o.run_id.unwrap();
+        self.runs.lock().unwrap().push(run.clone());
+        run
+    }
+
+    fn view(&self, run: &str) -> Value {
+        let query = HashMap::from([("run_id".to_string(), run.to_string())]);
+        let answer = runbook::api::routes::view_answer("run", &self.d, &query);
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        answer.body["rows"][0].clone()
+    }
+
+    fn started_events(&self, run: &str) -> Vec<Value> {
+        self.d.events_after(run, 0).into_iter().filter(|e| e["kind"] == STARTED).collect()
+    }
+
+    fn start(&self, run: &str, s: Started) {
+        self.rt.on_thread(run, move |t, _| {
+            t.started(&s);
+            None
+        });
+    }
+
+    fn end(&self, run: &str, s: Started) {
+        self.rt.on_thread(run, move |t, _| {
+            t.ended(&s);
+            None
+        });
+    }
+
+    fn finish(&self, run: &str) {
+        self.rt.on_thread(run, |_, _| Some(Ok(Finish::Outcome("done".into()))));
+    }
+}
+
+impl Drop for Gate {
+    fn drop(&mut self) {
+        for run in self.runs.lock().unwrap().iter() {
+            let (ack, _wait) = mpsc::channel();
+            let _ = self.rt.tx(run).send((Box::new(|_, _| Some(Ok(Finish::Outcome("done".into())))), ack));
+        }
+        self.d.stop();
+    }
+}
+
+#[test]
+fn the_seconds_of_a_step_are_whole_seconds_since_its_start_by_the_daemons_clock_and_never_negative() {
+    let g = Gate::new("gate-seconds");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    let step = g.view(&run)["step_in_flight"].clone();
+    assert_eq!((step["started_at"].as_str(), step["seconds"].as_u64()), (Some("2026-11-24T10:00:00.000Z"), Some(0)), "{step}");
+    assert!(g.clock.set("2026-11-24T10:00:07.900Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 7);
+    assert!(g.clock.set("2026-11-24T10:25:00Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 1500);
+    assert!(g.clock.set("2026-11-24T09:59:00Z"));
+    assert_eq!(g.view(&run)["step_in_flight"]["seconds"], 0, "a clock behind the start gives a negative count");
+}
+
+#[test]
+fn the_record_names_only_what_is_known_and_the_step_does_the_same() {
+    let g = Gate::new("gate-record");
+    let run = g.submit();
+    g.start(&run, st(1, "program", None, None, None));
+    let step = g.view(&run)["step_in_flight"].clone();
+    let mut keys: Vec<&str> = step.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["seconds", "started_at"], "{step}");
+    g.end(&run, st(1, "program", None, None, None));
+    g.start(&run, st(2, "check", Some("c9"), Some("a.nine"), Some(4)));
+    let events = g.started_events(&run);
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert_eq!(events[0]["record"], json!({"role": "program"}));
+    assert_eq!(events[1]["record"], json!({"case": "c9", "action": "a.nine", "role": "check", "try": 4}));
+    assert_eq!(events[1]["sequence"].as_u64().unwrap(), events[0]["sequence"].as_u64().unwrap() + 1);
+}
+
+#[test]
+fn the_start_is_in_the_journal_and_the_view_before_the_announcing_call_returns() {
+    let g = Gate::new("gate-sync");
+    let run = g.submit();
+    let seen: Arc<Mutex<Option<(usize, bool)>>> = Arc::new(Mutex::new(None));
+    let (d, r, s) = (g.d.clone(), run.clone(), seen.clone());
+    g.rt.on_thread(&run, move |t, _| {
+        t.started(&st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+        let n = d.events_after(&r, 0).iter().filter(|e| e["kind"] == STARTED).count();
+        let shown = d.run_detail(&r)[0].get("step_in_flight").is_some();
+        *s.lock().unwrap() = Some((n, shown));
+        None
+    });
+    assert_eq!(*seen.lock().unwrap(), Some((1, true)));
+}
+
+#[test]
+fn two_runs_at_once_each_show_their_own_step_and_one_ending_leaves_the_other() {
+    let g = Gate::new("gate-two");
+    let (a, b) = (g.submit(), g.submit());
+    g.start(&a, st(1, "program", Some("case-a"), Some("a.one"), Some(1)));
+    assert!(g.clock.set("2026-11-24T10:00:05Z"));
+    g.start(&b, st(1, "program", Some("case-b"), Some("a.two"), Some(1)));
+    assert!(g.clock.set("2026-11-24T10:00:08Z"));
+    let (va, vb) = (g.view(&a)["step_in_flight"].clone(), g.view(&b)["step_in_flight"].clone());
+    assert_eq!((va["case_id"].as_str(), va["action"].as_str(), va["seconds"].as_u64()), (Some("case-a"), Some("a.one"), Some(8)), "{va}");
+    assert_eq!((vb["case_id"].as_str(), vb["action"].as_str(), vb["seconds"].as_u64()), (Some("case-b"), Some("a.two"), Some(3)), "{vb}");
+    g.end(&a, st(1, "program", Some("case-a"), Some("a.one"), Some(1)));
+    assert!(g.view(&a).get("step_in_flight").is_none());
+    assert_eq!(g.view(&b)["step_in_flight"]["case_id"], "case-b");
+}
+
+#[test]
+fn a_cancel_clears_the_step_while_the_program_is_reported_running_and_no_start_is_recorded_after_it() {
+    let g = Gate::new("gate-cancel");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert!(g.view(&run).get("step_in_flight").is_some());
+    let o = g.d.cancel_run(CancelRun { run_id: run.clone() }).unwrap();
+    assert!(!o.is_refusal(), "{o:?}");
+    let row = g.view(&run);
+    assert_eq!(row["state"], "Cancelled");
+    assert!(row.get("step_in_flight").is_none(), "a cancelled run shows a step: {row}");
+    // the runtime still reports a program (a report after a cancel): nothing is recorded, nothing shows
+    g.start(&run, st(2, "program", Some("c1"), Some("a.two"), Some(1)));
+    assert_eq!(g.started_events(&run).len(), 1, "a start was recorded after the cancel");
+    assert!(g.view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn an_end_of_an_older_program_leaves_the_newer_step_and_a_run_that_ends_shows_none() {
+    let g = Gate::new("gate-serial");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    g.start(&run, st(2, "program", Some("c2"), Some("a.two"), Some(1)));
+    g.end(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert_eq!(g.view(&run)["step_in_flight"]["case_id"], "c2");
+    g.finish(&run);
+    until("the run to end", 10, || g.view(&run)["state"] == "Ended");
+    assert!(g.view(&run).get("step_in_flight").is_none());
+}
+
+#[test]
+fn a_run_that_waits_on_a_decision_shows_no_step() {
+    let g = Gate::new("gate-waiting");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    assert!(g.view(&run).get("step_in_flight").is_some());
+    g.rt.on_thread(&run, |_, sink| {
+        sink.decision_requested(DecisionRequest { request_id: "q1".into(), case_id: "c1".into(), action: "a.review".into(), capability: "person".into(), question: "ok?".into(), options: vec![] });
+        None
+    });
+    let row = g.view(&run);
+    assert_eq!(row["state"], "WaitingOnDecision", "{row}");
+    assert!(row.get("step_in_flight").is_none(), "a waiting run shows a step: {row}");
+}
+
+#[test]
+fn a_runtime_failure_while_a_program_runs_leaves_no_step() {
+    let g = Gate::new("gate-failure");
+    let run = g.submit();
+    g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
+    g.rt.on_thread(&run, |_, _| Some(Err(RuntimeFailure { reason: "boom".into() })));
+    until("the run to end", 10, || g.view(&run)["state"] == "Ended");
+    let row = g.view(&run);
+    assert_eq!(row["outcome"], "runtime-failure", "{row}");
+    assert!(row.get("step_in_flight").is_none());
+}
+
+// ---- the step in flight, real programs ----
+
+#[test]
+fn a_rejected_draft_gives_the_writer_a_second_start_with_try_two_and_the_event_stays_one_per_start() {
+    let rig = Rig::new("engine-flight-try", &[Confinement::Local]);
+    let run = rig.submit();
+    let first = rig.wait_review(&run);
+    rig.answer(&run, &first, r#"{"result":"rejected","reasons":"x"}"#, "reviewer");
+    until("a second review", 40, || rig.d().open_decisions_of_run(&run).iter().any(|d| d["request_id"].as_str() != Some(first.as_str())));
+    let events = rig.started(&run);
+    let tries = |action: &str| -> Vec<u64> { events.iter().filter(|e| e["record"]["action"] == action).map(|e| e["record"]["try"].as_u64().unwrap()).collect() };
+    assert_eq!(tries("draft.write"), [1, 2], "{events:?}");
+    let checks = tries("draft.check");
+    assert_eq!(checks, (1..=checks.len() as u64).collect::<Vec<_>>(), "{events:?}");
+    assert!(events.iter().all(|e| e["record"]["role"] == "program"));
+    // the second writer's start comes after the rejection's answer: the positions of the events grow
+    let positions: Vec<u64> = events.iter().map(|e| e["position"].as_u64().unwrap()).collect();
+    assert!(positions.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn two_engine_runs_at_once_each_show_the_step_of_their_own_case() {
+    let rig = Rig::new("engine-flight-two", &[Confinement::Local]);
+    let a = rig.submit_at(Confinement::Local, Some(rig.context(8)));
+    let ea = rig.wait_started(&a, "draft.write");
+    let b = rig.submit_at(Confinement::Local, Some(rig.context(8)));
+    let eb = rig.wait_started(&b, "draft.write");
+    let (va, vb) = (rig.run_view(&a)["step_in_flight"].clone(), rig.run_view(&b)["step_in_flight"].clone());
+    assert_eq!((va["started_at"].clone(), va["case_id"].clone()), (ea["at"].clone(), ea["record"]["case"].clone()), "{va}");
+    assert_eq!((vb["started_at"].clone(), vb["case_id"].clone()), (eb["at"].clone(), eb["record"]["case"].clone()), "{vb}");
+    assert_ne!(va["case_id"], vb["case_id"], "two runs show one case");
+    rig.cancel(&a);
+    rig.cancel(&b);
+    rig.wait_state(&a, "Cancelled");
+    rig.wait_state(&b, "Cancelled");
+    assert!(rig.run_view(&a).get("step_in_flight").is_none() && rig.run_view(&b).get("step_in_flight").is_none());
+}
+
+#[test]
+fn a_writer_that_cannot_start_is_recorded_once_and_leaves_no_step_when_the_run_goes_on() {
+    let rig = Rig::new("engine-flight-cannot-start", &[Confinement::Local]);
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let writer = rig.home.join("bindings/tools/draft-write.sh");
+        std::fs::set_permissions(&writer, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(1)));
+    until("the run to stop", 40, || matches!(rig.state_of(&run).as_str(), "Ended" | "WaitingOnDecision" | "Cancelled" | "FailedToStart"));
+    let writers: Vec<Value> = rig.started(&run).into_iter().filter(|e| e["record"]["action"] == "draft.write").collect();
+    assert_eq!(writers.len(), 1, "{writers:?}");
+    assert!(rig.run_view(&run).get("step_in_flight").is_none(), "{}", rig.run_view(&run));
+}
+
+#[test]
+fn a_cancel_while_the_writer_runs_leaves_one_start_event_of_it_and_no_step() {
+    let rig = Rig::new("engine-flight-cancel-writer", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(20)));
+    let event = rig.wait_started(&run, "draft.write");
+    assert_eq!(event["record"]["try"], 1);
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    until("the engine to let go of the run", 20, || rig.engine.store_state(&run) == runbook::engine::StoreState::Idle);
+    let writers = rig.started(&run).into_iter().filter(|e| e["record"]["action"] == "draft.write").count();
+    assert_eq!(writers, 1);
+    assert!(rig.run_view(&run).get("step_in_flight").is_none());
+    assert!(!rig.workspace(&run).join("draft.txt").exists());
 }

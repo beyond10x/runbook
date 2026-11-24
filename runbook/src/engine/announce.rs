@@ -169,4 +169,97 @@ mod tests {
         assert_eq!(action_of(&table, &child("tools/x.sh", &["wait"]), false), None, "a check is not a program of an action");
         assert_eq!(action_of(&table, &child("tools/other.sh", &[]), false), None);
     }
+
+    fn dir(tag: &str) -> PathBuf {
+        let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("announce-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn child_of_case(program: &str, args: &[&str], dir: &Path, case: &str) -> ChildCommand {
+        use b10x_loom_intake_slice::confinement::ExecEnvironment;
+        ChildCommand::new(program, args.iter().map(|a| (*a).to_owned()), dir).with_environment(ExecEnvironment { allow: Vec::new(), set: std::collections::BTreeMap::from([("LOOM_CASE".to_string(), case.to_string())]) })
+    }
+
+    /// Keeps what it is told, with whether `marker` exists at that moment.
+    #[derive(Default)]
+    struct Recorder {
+        log: Mutex<Vec<(&'static str, Started, bool)>>,
+        marker: Mutex<Option<PathBuf>>,
+    }
+
+    impl Recorder {
+        fn note(&self, what: &'static str, s: &Started) {
+            let there = self.marker.lock().unwrap().as_ref().is_some_and(|m| m.exists());
+            self.log.lock().unwrap().push((what, s.clone(), there));
+        }
+    }
+
+    impl StartTarget for Recorder {
+        fn started(&self, s: &Started) {
+            self.note("started", s);
+        }
+
+        fn ended(&self, s: &Started) {
+            self.note("ended", s);
+        }
+    }
+
+    #[test]
+    fn announcing_tells_the_start_before_and_the_end_after_the_program_counts_tries_per_case_and_no_try_for_a_check() {
+        let dir = dir("tries");
+        let bindings = dir.join("bindings");
+        let work = dir.join("work");
+        std::fs::create_dir_all(&bindings).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(bindings.join("b.yaml"), "format: loom.bindings/1\nactions:\n  - action: a.one\n    executor:\n      kind: program\n      argv: [sh, -c, \"echo x > ran.txt\"]\n    handoff_when: [sh, -c, \"test -f ran.txt\"]\n").unwrap();
+        let rec = Arc::new(Recorder::default());
+        *rec.marker.lock().unwrap() = Some(work.join("ran.txt"));
+        let wrapper = Announcing::to(crate::engine::calls::runner(crate::runtime::Confinement::Local).unwrap(), rec.clone(), bindings);
+        let program = |case: &str| child_of_case("sh", &["-c", "echo x > ran.txt"], &work, case);
+        wrapper.run_child(&program("c1")).unwrap();
+        wrapper.run_child(&program("c1")).unwrap();
+        wrapper.run_child(&child_of_case("sh", &["-c", "test -f ran.txt"], &work, "c1").with_read_only_workspace()).unwrap();
+        wrapper.run_child(&program("c2")).unwrap();
+        let log = rec.log.lock().unwrap().clone();
+        let shape: Vec<_> = log.iter().map(|(w, s, _)| (*w, s.serial, s.role, s.case.as_deref(), s.action.as_deref(), s.try_number)).collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("started", 1, "program", Some("c1"), Some("a.one"), Some(1)),
+                ("ended", 1, "program", Some("c1"), Some("a.one"), Some(1)),
+                ("started", 2, "program", Some("c1"), Some("a.one"), Some(2)),
+                ("ended", 2, "program", Some("c1"), Some("a.one"), Some(2)),
+                ("started", 3, "check", Some("c1"), Some("a.one"), None),
+                ("ended", 3, "check", Some("c1"), Some("a.one"), None),
+                ("started", 4, "program", Some("c2"), Some("a.one"), Some(1)),
+                ("ended", 4, "program", Some("c2"), Some("a.one"), Some(1)),
+            ]
+        );
+        // the first program wrote ran.txt: absent when its start was told, present when its end was
+        assert_eq!((log[0].2, log[1].2), (false, true), "the start was told after the program ran, or the end before it");
+    }
+
+    struct CannotStart;
+
+    impl TestRunner for CannotStart {
+        fn run(&self, _c: &TestCommand, _r: &Path) -> Result<TestExecution, ConfinementError> {
+            unreachable!()
+        }
+
+        fn backend(&self) -> Backend {
+            Backend::Substrate
+        }
+    }
+
+    #[test]
+    fn announcing_tells_the_end_of_a_program_that_could_not_start() {
+        let dir = dir("cannot-start");
+        let rec = Arc::new(Recorder::default());
+        let wrapper = Announcing::to(Arc::new(CannotStart), rec.clone(), dir.clone());
+        assert!(wrapper.run_child(&child_of_case("sh", &["-c", "true"], &dir, "c1")).is_err());
+        let log: Vec<(&str, u64)> = rec.log.lock().unwrap().iter().map(|(w, s, _)| (*w, s.serial)).collect();
+        assert_eq!(log, vec![("started", 1), ("ended", 1)]);
+    }
 }
