@@ -15,7 +15,6 @@ const runs = () => fetch(`${s.base}/daemon/views/runs`).then((r) => r.json()).th
 const added = async () => (await runs()).length - n0;
 const isStart = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/daemon/commands/submit-run';
 const floorRow = (floor) => ({json: {rows: [{daemon_id: 'd', confinement_floor: floor, principal: 'agent:x', started_at: '2026-01-01T00:00:00Z'}]}});
-const later = (ms) => new Promise((r) => setTimeout(r, ms));
 // a route held on a promise the test opens itself, where a fixed delay kept a window open
 const held = () => { let open; const wait = new Promise((r) => { open = r; }); return {wait, open}; };
 // the form has read the floor of the daemon (linux): only linux is offered from then on

@@ -6,12 +6,14 @@
 // committed slim copy when runs/ is absent, so the suite runs on a fresh checkout.
 // Screenshots: screenshots/390x844-mobile-*.png.
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {playFixtures} from './fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
 import {startServer} from './serve.mjs';
+import {settled} from './settled.mjs';
 import {horizontalOverflow, smallTargets, smallText, coveredControls, alwaysVisibleAcross, withinOneScroll, sheetProblems} from '../ux/core/phone.mjs';
 import {axeViolations, truncatedWithoutValue} from '../ux/core/contract.mjs';
 
@@ -40,10 +42,7 @@ test.beforeAll(async ({}, info) => {
   for (const s of Object.keys(SRC)) needRun(fixtureSource(s), `mobile.spec.mjs (fixture source of ${s})`, test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
-  for (const s of Object.keys(SRC)) {
-    const r = spawnSync('node', ['test/fixture-run.mjs', s, path.join(runs, s), '1000'], {cwd: ui, encoding: 'utf8'});
-    if (r.status !== 0) throw new Error(`fixture ${s}: ${r.stderr}`);
-  }
+  await playFixtures(Object.keys(SRC).map((s) => [s, path.join(runs, s), '1000']));
   ({url: base, proc: srv} = await startServer([...Object.keys(SRC).map((s) => path.join(runs, s, 'store'))]));
 });
 
@@ -51,7 +50,7 @@ async function open(page, s) {
   await page.goto(`${base}/?source=${SRC[s]}`);
   await expect(page.locator('#now .now-h')).toBeVisible({timeout: 20000});
   await expect(page.locator('#kpis .kt').first()).toBeVisible();
-  await page.waitForTimeout(300);
+  await settled(page);
 }
 const snap = (page, name) => page.screenshot({path: path.join(shots, `390x844-mobile-${name}.png`)});
 
@@ -99,7 +98,7 @@ test('UXF-019: the right panel is a full-screen sheet opened from Details, never
   await expect(details).toBeVisible();
   await details.click();
   await expect(page.locator('html.rp-open')).toHaveCount(1);
-  await page.waitForTimeout(300);
+  await settled(page);
   expect.soft(await sheetProblems(page, '#right', '#rpclose'), 'the panel is a full-screen sheet, Close in view').toEqual([]);
   await expect.soft(page.locator('#panel')).toBeVisible();
   await snap(page, 'panel');
@@ -112,7 +111,7 @@ test('UXF-020: the Decisions drawer and the change dialog are full-screen sheets
   await open(page, 'person');
   await page.locator('#now').getByRole('button', {name: 'Decide'}).click();
   await expect(page.locator('body.drawer-open')).toBeVisible();
-  await page.waitForTimeout(450);
+  await settled(page);
   expect.soft(await sheetProblems(page, '#drawer', '#drclose'), 'the drawer is a full-screen sheet').toEqual([]);
   await expect.soft(page.locator('#drawer #decide-at')).toBeInViewport({ratio: 1});
   expect.soft(await horizontalOverflow(page).then((o) => o.wide), 'nothing in the drawer runs past the screen').toEqual([]);
@@ -123,7 +122,7 @@ test('UXF-020: the Decisions drawer and the change dialog are full-screen sheets
   await row.scrollIntoViewIfNeeded();
   await row.click();
   await expect(page.locator('#diffdlg[open]')).toHaveCount(1);
-  await page.waitForTimeout(300);
+  await settled(page);
   expect.soft(await sheetProblems(page, '#diffdlg[open]', '[data-fsclose]'), 'the change dialog is a full-screen sheet').toEqual([]);
   await snap(page, 'dialog');
 });
@@ -156,11 +155,11 @@ test('UXF-022: every tap target is at least 44x44 CSS px, and axe finds no serio
   expect.soft(await smallTargets(page, TARGETS, 44), 'page').toEqual([]);
   expect.soft((await axeViolations(page)).filter((v) => v.id === 'target-size'), 'axe target-size').toEqual([]);
   await page.locator('#decbtn').click();
-  await page.waitForTimeout(450);
+  await settled(page);
   expect.soft(await smallTargets(page, TARGETS, 44), 'drawer open').toEqual([]);
   await page.locator('#drclose').click();
   await page.getByRole('button', {name: 'Details'}).click();
-  await page.waitForTimeout(300);
+  await settled(page);
   expect.soft(await smallTargets(page, TARGETS, 44), 'panel open').toEqual([]);
 });
 
