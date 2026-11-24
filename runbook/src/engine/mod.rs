@@ -244,7 +244,10 @@ impl Engine {
                 TreeStop::Stuck => {
                     return Err(failure(match refusal::program_refused(&store) {
                         Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
-                        None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                        None => match refusal::stuck_on(&store) {
+                            Some(lead) => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person ({lead})", ran.case),
+                            None => format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case),
+                        },
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {

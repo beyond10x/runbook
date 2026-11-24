@@ -126,7 +126,7 @@ child".
    |---|---|---|
    | 0 | terminal | ends: outcome `ended` |
    | 3 | waits for a decision | asks the decider for each entry of `decisions[]`, runs the printed command, loops |
-   | 4 | stuck | ends: outcome `stuck` (runner exit 3); outcome `refused` (runner exit 12, cause `program_signalled` or `program_error`) when the tree is stuck on a refused action of a bound program (below) |
+   | 4 | stuck | ends: outcome `stuck` (runner exit 3, `reason` the lead of the refusal the tree is stuck on, `<Reason>: action <name>`, null when no action was refused); outcome `refused` (runner exit 12, cause `program_signalled` or `program_error`) when the tree is stuck on an action of a bound program that was ended by a signal or by an exit `exits.error` lists (below) |
    | 5 | the step budget of one step is spent | loops (that is every normal step) |
    | anything else | not known | ends: outcome `error` with the exit code and the tail of standard error |
 
@@ -341,7 +341,13 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
 line of the case's run log (no `exit`), as it does `ProgramSignalled`, so `runbook/src/engine/refusal.rs`
 has no cause for it. The action stays undone, and when nothing else is due the tree is `Stuck`
 (`tree run` exit 4). `runbook run` ends such a run `stuck`, exit 3, cause `stuck`, and `outcome.reason`
-is null: the text is in the run log of the case only. Unlike `program_signalled` it never ends
+(and the `reason` of `run-stopped.json`) is the lead of the refusal, `RunsSpent: action <name>`: its
+reason word and its action, never the rest of Loom's text, which may hold a path or a value of the run
+(that text is in the run log of the case). The same holds for every refusal of a bound program that is
+no signal and no listed error exit (`ResultNotInTable`, `ReportUnreadable`, ...): no run ends `stuck` with
+`reason: null` when a refusal stopped its tree, and a tree with no move and no refusal ends `stuck` with
+`reason: null`. The daemon's engine ends the same runs `runtime-failure`, and its reason ends with the
+lead in brackets. Unlike `program_signalled` it never ends
 `refused`, exit 12 (`ProgramError` and `ProgramSignalled` are the two that do). Two texts (Loom `d8944d49`), each held by a test with `sh` programs
 (`runbook/tests/loom_run/inproc.rs`):
 
@@ -500,13 +506,20 @@ the spend cap nor the model-call cap and is not in the spend ledger; the `costed
 - A re-drive that may go live reserves and books as a run does, but only for the calls the adapter
   started live (`adapter` `live`); the recorded ones are named in the recorded pair. The decider's
   cost is booked as spent there, because the decider's reply does not say how it was taken.
+- The adapter's `adapter` word decides what a call was, never the policy: `recorded` and `reused` are
+  recorded calls, anything else is a call the run started. A reused call that failed and has no cost is
+  a recorded call at cost 0, never booked as spent. A re-drive that cannot start a live call and holds
+  a line that says `live` (or any other word) ends as `error`, with a reason that names the call's
+  action and the adapter's word; nothing of it is booked as recorded or as spent.
 
 Tests: `runbook/tests/loom_run/replay_spend.rs`, with a stand-in `sdc-replay` and the fake
 `b10x-loom` (no recording, no model call).
 
 ### Fail closed
 
-The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers
+The run ends as `error` (exit 1) when: the ledger is unreadable or invalid (not for a re-drive that
+cannot go live: a re-drive that cannot go live opens no ledger, so an unreadable ledger does not end it),
+a call of a re-drive that cannot go live says it was started live, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
 a model step has no cost record, `tree status` is refused, or an event sink fails.
 

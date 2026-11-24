@@ -1231,4 +1231,9 @@ fn a_refusal_that_is_not_a_program_error_is_not_dropped_with_a_null_reason() {
     let o = rig.run(&rig.args("r1", 1_000_000));
     let outcome = rig.outcome("r1");
     assert!(outcome["reason"].is_string(), "outcome {} exit {}: the refusal text is in the case log only: {outcome}", outcome["outcome"], code(&o));
+    let reason = outcome["reason"].as_str().unwrap();
+    assert!(reason.starts_with("ResultNotInTable: action ") && !reason.contains('/'), "the reason is the refusal's lead, no path: {reason}");
+    assert_eq!((outcome["outcome"].as_str(), code(&o)), (Some("stuck"), 3), "{outcome}");
+    let stopped: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("run-stopped.json")).unwrap()).unwrap();
+    assert!(stopped["reason"].as_str().is_some_and(|r| r.ends_with(reason)), "run-stopped.json says the same: {stopped}");
 }

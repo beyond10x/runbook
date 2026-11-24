@@ -96,6 +96,15 @@ fn the_loom_run_page_says_which_refusals_are_exit_12_and_which_stay_exit_1() {
     }
 }
 
+/// The page says what `reason` a `stuck` run carries: the refusal's lead when a refusal stopped the tree.
+#[test]
+fn the_loom_run_page_says_a_stuck_run_names_the_refusal_that_stopped_its_tree() {
+    let text = page("docs/loom-run.md");
+    for needed in ["no run ends `stuck` with\n`reason: null` when a refusal stopped its tree", "`RunsSpent: action <name>`", "a tree with no move and no refusal ends `stuck` with\n`reason: null`"] {
+        assert!(text.contains(needed), "docs/loom-run.md lacks: {needed}");
+    }
+}
+
 /// A refusal is read by the name it leads with: a text of another refusal that holds a program refusal's lead is none.
 #[test]
 fn a_refusal_text_is_read_by_its_leading_name_only() {

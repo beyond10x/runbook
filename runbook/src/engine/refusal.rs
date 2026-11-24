@@ -175,7 +175,17 @@ pub struct ProgramRefused {
 /// action is that one ends `Stuck`. Other kinds of line after it (`Evaluated`, another
 /// `ActionFinished`) mean the run went on.
 pub fn program_refused_in(log: &str) -> Option<ProgramRefused> {
-    let mut last: Option<ProgramRefused> = None;
+    let text = last_refusal_in(log)?;
+    PROGRAM_REFUSALS
+        .iter()
+        .find(|(lead, _)| text.starts_with(lead))
+        .map(|(_, cause)| ProgramRefused { cause, text })
+}
+
+/// The `refusal` of the last action of a case's run log, whatever it is, when nothing followed it but
+/// the stop (an `Evaluated` line after it means the run went on).
+pub fn last_refusal_in(log: &str) -> Option<String> {
+    let mut last: Option<String> = None;
     for line in log
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -185,15 +195,7 @@ pub fn program_refused_in(log: &str) -> Option<ProgramRefused> {
                 last = line
                     .get("refusal")
                     .and_then(Value::as_str)
-                    .and_then(|text| {
-                        PROGRAM_REFUSALS
-                            .iter()
-                            .find(|(lead, _)| text.starts_with(lead))
-                            .map(|(_, cause)| ProgramRefused {
-                                cause,
-                                text: text.to_owned(),
-                            })
-                    });
+                    .map(str::to_owned);
             }
             Some("Evaluated") => last = None,
             _ => {}
@@ -202,10 +204,22 @@ pub fn program_refused_in(log: &str) -> Option<ProgramRefused> {
     last
 }
 
-/// [`program_refused_in`] over every case's run log of the store.
-pub fn program_refused(store: &std::path::Path) -> Option<ProgramRefused> {
+/// The lead of a refusal text of a bound program: its reason word and its action, `<Reason>: action
+/// <name>`. Loom writes the rest of the text after a second colon and it may hold a path or a value
+/// of the run, so a reason that leaves the run names the lead only.
+pub fn lead_of(text: &str) -> String {
+    let mut parts = text.splitn(3, ':');
+    let reason = parts.next().unwrap_or_default().trim();
+    match parts.next() {
+        Some(action) => format!("{reason}: {}", action.trim()),
+        None => reason.to_owned(),
+    }
+}
+
+fn run_log_files(store: &std::path::Path) -> Vec<String> {
     let mut files: Vec<String> = std::fs::read_dir(store)
-        .ok()?
+        .into_iter()
+        .flatten()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
         .filter(|n| {
@@ -214,8 +228,23 @@ pub fn program_refused(store: &std::path::Path) -> Option<ProgramRefused> {
         .collect();
     files.sort();
     files
+}
+
+/// [`program_refused_in`] over every case's run log of the store.
+pub fn program_refused(store: &std::path::Path) -> Option<ProgramRefused> {
+    run_log_files(store)
         .iter()
         .find_map(|f| program_refused_in(&std::fs::read_to_string(store.join(f)).ok()?))
+}
+
+/// The lead ([`lead_of`]) of the refusal that stopped the tree: the first case's log whose last
+/// action was refused, a refusal of a bound program or any other (`ResultNotInTable`, `RunsSpent`,
+/// ...). `None` for a tree that has no move and no refusal.
+pub fn stuck_on(store: &std::path::Path) -> Option<String> {
+    run_log_files(store)
+        .iter()
+        .find_map(|f| last_refusal_in(&std::fs::read_to_string(store.join(f)).ok()?))
+        .map(|text| lead_of(&text))
 }
 
 /// A call into Loom's tree commands that was refused: the reason (typed) and Loom's text.
@@ -363,6 +392,29 @@ mod tests {
             );
             assert_eq!(refused(&[opened, &line, stop]), None, "{reason}");
         }
+    }
+
+    #[test]
+    fn a_tree_stuck_on_any_refusal_names_its_lead_and_one_stuck_on_none_names_nothing() {
+        let line = |refusal: &str| {
+            format!(r#"{{"seq":4,"kind":"ActionFinished","action":"a","refusal":"{refusal}"}}"#)
+        };
+        let stop = r#"{"seq":5,"kind":"Stopped","stop":"Stuck","next":[]}"#;
+        let evaluated = r#"{"seq":6,"kind":"Evaluated","case_revision":2}"#;
+        let last = |lines: &[&str]| last_refusal_in(&lines.join("\n"));
+        let table =
+            line("ResultNotInTable: action draft.check: exit 124 is in no result of /w/x");
+        assert_eq!(
+            last(&[&table, stop]).map(|t| lead_of(&t)),
+            Some("ResultNotInTable: action draft.check".to_owned())
+        );
+        assert_eq!(last(&[&table, evaluated, stop]), None);
+        assert_eq!(last(&[stop]), None);
+        assert_eq!(lead_of("RunsSpent"), "RunsSpent");
+        assert_eq!(
+            lead_of("ProgramError: action repro.run: t.sh ended exit status 69"),
+            "ProgramError: action repro.run"
+        );
     }
 
     #[test]
