@@ -16,7 +16,7 @@
 //! `status.json` with its exit). It costs nothing, books nothing and does not end the run; the
 //! run goes on with what Loom says of the step's exit.
 
-use crate::loom_run::record_write;
+use crate::record_write;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::Path;
@@ -191,7 +191,31 @@ impl CostReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets::testdir::Dir;
+    use std::path::PathBuf;
+
+    /// A scratch directory beside the test binary, made empty.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(tag: &str) -> Dir {
+            let d = std::env::current_exe().unwrap().parent().unwrap().join(format!("cost-unit-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Dir(d)
+        }
+
+        fn dir(&self, rel: &str) -> PathBuf {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(&p).unwrap();
+            p
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn the_stderr_line_of_a_call_is_the_first_line_of_its_file_in_full() {

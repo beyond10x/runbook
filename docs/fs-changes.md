@@ -91,6 +91,10 @@ is `step-window`, `tool-window` or `record`.
 
 ## What is attributed under each runner
 
+A file the seed wrote is a `create` of step 1, the same as a file the first step writes: the watcher starts before `work/` exists
+and no record marks the end of the seed, so what the run was seeded with is told from the record `seeded.json` and
+`seeded-files.jsonl` of the run directory by the hash of the content (`docs/loom-run-directory.md`), never by time.
+
 The kind of run directory is detected as `driver/src/run_kind.rs` does (or given with `--kind
 driver|loom`): `settings.json` in it marks a Loom run, `runbook run`'s.
 

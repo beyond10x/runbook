@@ -950,7 +950,7 @@ impl Real {
         let text = std::fs::read_to_string(&binding).unwrap().replace("principal: reviewer", &format!("principal: {}", super::PRINCIPAL));
         std::fs::write(&binding, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
-        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), &[Confinement::Local, Confinement::Linux]));
+        let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), &[Confinement::Local, Confinement::Linux], crate::daemon::policy()));
         let cfg = Config { state_dir: dir.join("state"), confinement_floor: floor, context_roots: vec![dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() };
         Real { dir, home, d: Daemon::start(cfg, wrap(engine)).unwrap() }
     }
@@ -2026,7 +2026,7 @@ mod names_of_paths {
             let text = std::fs::read_to_string(&binding).unwrap().replace("principal: reviewer", &format!("principal: {}", super::super::PRINCIPAL));
             std::fs::write(&binding, text).unwrap();
             let ctx = fresh(&format!("{tag}-ctx"));
-            let engine = Arc::new(Engine::with_levels(home_path.clone(), state_path.clone(), &[Confinement::Local, Confinement::Linux]));
+            let engine = Arc::new(Engine::with_levels(home_path.clone(), state_path.clone(), &[Confinement::Local, Confinement::Linux], crate::daemon::policy()));
             let cfg = Config { state_dir: state_path.clone(), confinement_floor: Confinement::Local, context_roots: vec![ctx.clone()], runbook_dir: None, principal: super::super::PRINCIPAL.into() };
             let token = dir.file_name().unwrap().to_string_lossy().into_owned();
             Rig { dir, home: home_path, state: state_path, ctx, d: Daemon::start(cfg, engine).unwrap(), token }
@@ -2261,7 +2261,7 @@ mod names_of_paths {
         std::fs::write(&outside, "x").unwrap();
         std::os::unix::fs::symlink(&outside, home.join("bindings/tools/leak.sh")).unwrap();
         std::env::set_current_dir(&dir).unwrap();
-        let engine = Arc::new(Engine::with_levels(PathBuf::from("home"), dir.join("state"), &[Confinement::Local, Confinement::Linux]));
+        let engine = Arc::new(Engine::with_levels(PathBuf::from("home"), dir.join("state"), &[Confinement::Local, Confinement::Linux], crate::daemon::policy()));
         let d = Daemon::start(config(&dir), engine).unwrap();
         let run = d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
         let limit = Instant::now() + Duration::from_secs(40);
@@ -2609,7 +2609,7 @@ mod relative_state_directory {
     #[test]
     fn an_ordinary_run_under_a_state_directory_given_as_a_relative_path_names_no_path() {
         workdir("ordinary");
-        let engine = Arc::new(Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local, Confinement::Linux]));
+        let engine = Arc::new(Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local, Confinement::Linux], crate::daemon::policy()));
         let cfg = Config { state_dir: PathBuf::from("rel-state-dir"), confinement_floor: Confinement::Local, context_roots: vec![], runbook_dir: None, principal: super::super::PRINCIPAL.into() };
         let d = Daemon::start(cfg, engine).unwrap();
         let run = d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
@@ -2625,7 +2625,7 @@ mod relative_state_directory {
     #[test]
     fn a_store_that_is_not_a_directory_names_no_path_under_a_relative_state_directory() {
         let dir = workdir("store");
-        let engine = Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local]);
+        let engine = Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local], crate::daemon::policy());
         let run_dir = PathBuf::from("rel-state-dir/runs/r1");
         std::fs::create_dir_all(&run_dir).unwrap();
         std::fs::write(run_dir.join("tree"), "not a directory").unwrap();
@@ -2660,6 +2660,12 @@ mod relative_state_directory {
             principal: Some(super::super::PRINCIPAL.into()),
             ui: false,
             mcp: false,
+            max_wall_seconds: Some(3600),
+            max_llm_calls: Some(10_000),
+            cap_micro_usd: Some(1_000_000_000),
+            max_wall_seconds_ceiling: None,
+            max_llm_calls_ceiling: None,
+            cap_micro_usd_ceiling: None,
             drain_seconds: None,
         };
         let prepared = runbook::serve::prepare(&args, &runbook::serve::Env::default(), &[]).unwrap();

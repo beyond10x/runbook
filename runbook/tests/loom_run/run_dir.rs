@@ -11,7 +11,7 @@
 #[path = "../../src/loom_run/events.rs"]
 mod events;
 #[allow(dead_code)]
-#[path = "../../src/loom_run/record_write.rs"]
+#[path = "../../src/record_write.rs"]
 mod record_write;
 #[allow(dead_code)]
 #[path = "../../src/loom_run/run_dir.rs"]

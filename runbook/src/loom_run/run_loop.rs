@@ -314,6 +314,7 @@ impl Runner<'_> {
         if let Some(goals) = &self.args.ports.goals {
             super::goals::copy(goals, &self.workspace)?;
         }
+        super::seeded::write(&self.run_dir, &self.workspace, self.clock.now_secs())?;
         let copies = self.run_dir.join("protocols");
         make_dir_in(&self.run_dir, &copies)?;
         for (_, file) in protocols {

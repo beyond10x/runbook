@@ -20,6 +20,8 @@ run, what a Loom run does not record, and which quality measures of
       loom/status.json   the status without absolute paths (written at the end)
       loom/verify.json   the verify result without absolute paths
       run-settings.jsonl llm-calls.jsonl decisions.jsonl rounds.jsonl   append-only records
+      seeded.json        what the run was seeded with: the top-level entries of work/ with a file count (written once, after the seed)
+      seeded-files.jsonl each seeded file: its path relative to work/ and the SHA-256 of its content
       run-stopped.json   the stop record, when the run did not close
       dry-commands.txt   the commands a --dry run printed, one per line (only with --dry)
       status.json        the close record, when the tree ended
@@ -44,7 +46,7 @@ content changed: `store/<root>/` (the driver's case store layout, made from Loom
 `work/findings.yaml`.
 
 One writer writes every record of the run directory once the first program of the run has started
-(`runbook/src/loom_run/record_write.rs`): a whole file is made as a new temporary file, under a dot name the runner
+(`runbook/src/record_write.rs`, in the library, so that the runner and the library code it calls hold one guard): a whole file is made as a new temporary file, under a dot name the runner
 chooses for that write (its process id and a counter), opened without following a link and without waiting for a reader,
 and replaces the record by a rename; a line is appended only to a regular file with one name, opened the same way. A
 program of the run can write this directory (`--confinement local`), so a name it took (a link, a pipe, a directory, a
@@ -60,7 +62,7 @@ The bindings copy (`bindings/`) is held the same way once the first program has 
 opens it without following a link at its name, lists it, reads its files and rewrites the call budget through that
 descriptor, and the answer steps, the principal and the results of an action are read through it too; the bound actions
 that the start of a program is announced with (`runbook::engine::announce`, for `runbook run` and the daemon) are read
-through a descriptor of the directory opened the same way, as regular files with one name of at most 64 MiB.
+through the same `Held` of the directory, as regular files with one name of at most 64 MiB.
 A link or a file at the name `bindings`, or a link at a bindings file, ends the run with an error that names the file
 inside the run, and nothing is written outside the run.
 
@@ -109,6 +111,22 @@ to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`
 name holds `login`, `credential`, `secret`, `password`, `api_key`, `authorization` or `bearer`, or is
 `token` or ends in `_token`, is written as `named` whatever it held. No file reads a login file, the
 environment of the runner or the `command` of a decision (it names the store path).
+
+## What the run was seeded with
+
+The runner lists `work/` once, right after the seed ends (the intake file, the bug-fix seed, the goals copy), and
+writes `seeded.json` (`runbook.seeded/1`: `at` in seconds since the Unix epoch, `complete`, `files`, and `entries`, one per
+top-level entry of `work/` with its `kind`, `dir`, `file`, `link` or `other`, and the number of regular files below it) and
+`seeded-files.jsonl` (one line per regular file: `{"path": <relative to work/>, "sha256": <hex>}`, sorted by path; the hash
+is the form of `after` in `fs/changes.jsonl`). Regular files only, links are not followed, an entry whose name starts with a
+dot is skipped. `complete: false` says the list is not the whole seed, and the runner writes it for five causes: the listing reached
+20 000 files; a directory of `work/` (or `work/` itself) could not be read, or an entry of it vanished while it was
+read; a regular file could not be read to hash it; a name in a directory is not UTF-8 text (that directory is not
+listed); the walk reached 200 000 entries of any kind (a directory of a million links costs no more). The file lists what
+the runner got to. The record holds no environment, no
+argument, no absolute path and no file content. A run that was given no seed still lists what the runner wrote itself (the
+intake as `work/idea.yaml`). The inspector reads the two files to tell an input from a product (`ui/README.md`, "What a
+step produced"); the writer is `runbook/src/loom_run/seeded.rs`.
 
 ## The runner and the step in flight
 

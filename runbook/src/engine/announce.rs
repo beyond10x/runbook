@@ -13,6 +13,7 @@
 //! `handoff_when`) is the child's program and arguments, and `try` is counted by this wrapper. See
 //! `docs/loom-run-directory.md`.
 
+use crate::record_write::Held;
 use crate::runtime::{StartTarget, Started};
 use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementError, TestExecution, TestRunner};
 use b10x_loom_intake_slice::executor::TestCommand;
@@ -33,45 +34,16 @@ fn words(v: Option<&serde_yaml::Value>) -> Vec<String> {
     v.and_then(serde_yaml::Value::as_sequence).map(|s| s.iter().filter_map(|w| w.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
 
-/// How many bytes of one bindings file are read: 64 MiB, the bound of a read of a name of a run.
-const BINDINGS_READ_LIMIT: u64 = 64 * 1024 * 1024;
-
 /// The texts of the `*.yaml` files of the bindings directory `dir`, in the order of their names, read as the names of a
-/// run are: the directory is opened once without following a link at its name and is listed and read through that
-/// descriptor, and each file is opened relative to it without following a link and without waiting for a writer, taken
-/// only when it is a regular file with one name, and read for at most [`BINDINGS_READ_LIMIT`] bytes. A link at the
-/// directory gives no file; a file that is not one of these is left out.
+/// run are, through the one guard of the run's records ([`Held`]): the directory is opened once without following a link
+/// at its name ([`Held::open`]) and is listed ([`Held::names`]) and read ([`Held::read_text`]) through that descriptor,
+/// each file without following a link and without waiting for a writer, only when it is a regular file with one name, for
+/// at most [`crate::record_write::READ_LIMIT`] bytes. A link at the directory gives no file; a file that is not one of
+/// these is left out.
 fn bindings_texts(dir: &Path) -> Vec<String> {
-    use std::io::Read;
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let Ok(held) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC).open(dir) else { return Vec::new() };
-    let listing = PathBuf::from(format!("/proc/self/fd/{}", held.as_raw_fd()));
-    let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(&listing).map(|e| e.filter_map(Result::ok).map(|e| e.file_name()).filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")).collect()).unwrap_or_default();
-    names.sort();
-    let mut texts = Vec::new();
-    for name in names {
-        let Ok(c_name) = std::ffi::CString::new(name.as_bytes()) else { continue };
-        // SAFETY: `held` is an open directory for the call and `c_name` a NUL-terminated name that outlives it.
-        let raw = unsafe { libc::openat(held.as_raw_fd(), c_name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
-        if raw < 0 {
-            continue;
-        }
-        // SAFETY: `raw` is a new descriptor that nothing else owns.
-        let file = unsafe { std::fs::File::from_raw_fd(raw) };
-        if !file.metadata().is_ok_and(|m| m.is_file() && m.nlink() == 1) {
-            continue;
-        }
-        let mut bytes = Vec::new();
-        if file.take(BINDINGS_READ_LIMIT + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > BINDINGS_READ_LIMIT {
-            continue;
-        }
-        if let Ok(text) = String::from_utf8(bytes) {
-            texts.push(text);
-        }
-    }
-    texts
+    let Ok(held) = Held::open(dir) else { return Vec::new() };
+    let names = held.names().unwrap_or_default();
+    names.into_iter().filter(|n| Path::new(n).extension().is_some_and(|x| x == "yaml")).filter_map(|n| held.read_text(&n).ok()).collect()
 }
 
 /// The actions of the bindings files in `dir` that run a program ([`bindings_texts`]).

@@ -467,7 +467,7 @@ fn a_runbook_home_with_odd_files_is_listed_by_name_and_revision_and_names_no_pat
     std::os::unix::fs::symlink(outside.join("far.protocol.yaml"), home.join("protocol/far.protocol.yaml")).unwrap();
     write(home.join("bindings/far.yaml"), "format: loom.bindings/1\n");
 
-    let engine = Arc::new(Engine::new(home, dir.join("state")));
+    let engine = Arc::new(Engine::new(home, dir.join("state"), super::policy()));
     let s = serve("home", engine, Confinement::Linux, None, Some(TOKEN), dir);
     let answer = s.authed("/daemon/views/runbooks");
     assert_eq!(answer.status, 200, "{}", answer.text());
