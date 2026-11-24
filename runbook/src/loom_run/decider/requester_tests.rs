@@ -502,3 +502,13 @@ fn an_input_of_the_requester_is_not_copied_below_a_link_a_program_put_at_a_direc
     let listed = std::fs::read_to_string(w.run.join("decider/002-vision.approve/prompt.md")).unwrap_or_default();
     assert!(!listed.contains("- in/aep/vision/product.md"), "{listed}");
 }
+
+#[test]
+fn a_link_a_program_put_at_the_outputs_directory_of_a_requester_call_ends_the_call_before_the_adapter_runs() {
+    let w = world("requester-out-link");
+    let out = requester_link(&w, "cwd/out", "out-requester-out");
+    let verdict = decide_with(&w, &settings(&w, json!({})), &approval(&w, "vision.approve", "vision"));
+    assert!(!matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    assert_eq!(names_of(&out), Vec::<String>::new(), "the adapter ran with a directory outside the run as its outputs directory, through a link at cwd/out");
+    assert!(!w.run.join("bindings/tools/n").exists(), "the adapter was started");
+}

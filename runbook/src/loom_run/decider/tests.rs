@@ -1780,3 +1780,17 @@ fn a_case_file_of_loom_that_is_a_link_names_no_artifact() {
     std::fs::write(store.join(&name), text).unwrap();
     assert_eq!(super::approval::case_artifacts(&decision, "IDEA-1.direction"), vec![("goals".to_owned(), "g1".to_owned())]);
 }
+
+#[test]
+fn the_structured_output_of_a_call_is_copied_into_the_directory_the_runner_made_when_the_call_directory_was_replaced() {
+    let w = world("structured-held", "#!/bin/sh\n");
+    std::fs::write(w.work.join("context.yaml"), "context: x\n").unwrap();
+    let out = empty_directory_outside(&w, "out-structured");
+    std::fs::create_dir_all(out.join("cwd/out")).unwrap();
+    let body = format!("#!/bin/sh\nd=$(dirname \"$1\")\nprintf '%s\\n' '{APPROVE}' > \"$d/structured-output.json\"\nmv \"$d\" \"$d.moved\"\nln -s '{}' \"$d\"\nprintf '%s\\n' '{}'\n", out.display(), response("0.1"));
+    write_exe(&w.adapter, &body);
+    let _ = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
+    assert_eq!(names_in(&out.join("cwd/out")), Vec::<String>::new(), "the structured output was copied through a link at the directory of the call that lay there when the call ended");
+    let moved = w.run.join("decider/001-context.approve.moved");
+    assert_eq!(std::fs::read_to_string(moved.join("cwd/out/decision.json")).unwrap(), format!("{APPROVE}\n"), "the structured output was not copied into the directory the runner made");
+}
