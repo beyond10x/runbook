@@ -15,6 +15,15 @@ pub enum CostSource {
     Decider,
 }
 
+/// Where the start of an action was seen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartSource {
+    /// The library: the runner every bound program starts through, just before the program starts.
+    ProgramStart,
+    /// The child: the runner started a `tree run` call; the program that call starts is not seen.
+    StepCall,
+}
+
 /// Which cap was reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cap {
@@ -55,6 +64,8 @@ pub enum Event {
     /// A step ended before it started any adapter: its call directory `call` is no model call, it
     /// costs nothing and its reservation is released. `exit` is the exit of its `status.json`.
     NoModelCall { call: String, exit: i64 },
+    /// A program of an action is about to start, or (under a child, which the runner cannot see into) a `tree run` call starts. `case`, `action`, `role` and `try_number` are `None` when the runner does not know them.
+    ActionStarted { source: StartSource, role: Option<&'static str>, case: Option<String>, action: Option<String>, try_number: Option<u64> },
     /// A cap stopped the run before the next call.
     CapReached { cap: Cap, detail: String },
     /// The conformance observation of a run that closed was not started for the spend cap (a

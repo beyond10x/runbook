@@ -96,6 +96,18 @@ tasks:
       - cargo build --locked --bin runbook
       - cargo nextest run --locked --color never --run-ignored only -E 'test(loom_run::bugfix::bugfix_from_ticket_)'
 
+  test:install:
+    desc: "Slow lane of runbook/, not part of `task check`: `scripts/install.sh --prefix runbook/target/install-slow` with the real `--release` build (runbook, the driver programs a run starts, sdc-watch), then the four `#[ignore]`d tests of runbook/tests/install/slow.rs: on that prefix `runbook list`, `runbook doctor` and one run with sh programs only, and on the prefix of the fast lane (the debug builds, `--from-built debug`, made first here) the acceptance run `runbook run sdc --dry --intake <file>` from an empty directory with `<prefix>/bin` and the system directories on PATH, which ends as the same run of the checkout build. No model call. A release build takes minutes at load: start it in the background and without the slot prefix (cargo takes a slot through the shim)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cargo build --locked --manifest-path watch/Cargo.toml
+      - cargo build --locked --manifest-path driver/Cargo.toml --bins
+      - cargo build --locked --manifest-path runbook/Cargo.toml --bins
+      - mkdir -p runbook/target/install-slow
+      - scripts/install.sh --prefix "$PWD/runbook/target/install-slow"
+      - cd runbook && RUNBOOK_INSTALLED_PREFIX="$PWD/target/install-slow" cargo test --locked --test cli install::slow -- --ignored
+
   test:driver:
     silent: true
     dir: driver
@@ -204,7 +216,7 @@ tasks:
       - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
-    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.4`); from the repository root the ess dispatcher does not switch to it."
+    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.98.0`); from the repository root the ess dispatcher does not switch to it."
     dir: ess
     cmds:
       - ess specify validate --path .
@@ -281,14 +293,14 @@ tasks:
 
   check:ess-suite:slow:
     dir: ess
-    desc: "Slow lane (ess 0.97.3 synthesizes it in about 27 s of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
+    desc: "Slow lane (ess 0.98.0 synthesizes it in under a minute of wall time; the 1,048 s of 0.97.1 and its failure to finish in 1,800 s were fixed in 0.97.3): synthesize the suite from the sources for real and compare it byte for byte with ess/generated/conformance/suite.json. Not part of task check; run it in the background when the specification, the scenarios or ess changed. The command names 30m with `slot --timeout`. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
       - task: ess-suite:pin
       - slot --timeout 30m ess verify conform synthesize --path . --scenarios . --target ir --out generated/conformance/suite.json --check
 
   ess-suite:record:
     dir: ess
-    desc: "Synthesize the conformance suite from the sources (about 27 s with ess 0.97.3, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
+    desc: "Synthesize the conformance suite from the sources (under a minute with ess 0.98.0, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both. It refuses first when the ess that runs in ess/ is not the pin (ess-suite:pin)."
     cmds:
       - task: ess-suite:pin
       - mkdir -p generated/conformance

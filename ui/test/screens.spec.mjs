@@ -7,6 +7,7 @@ import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {startServer} from './serve.mjs';
+import {settled} from './settled.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -39,7 +40,7 @@ for (const [name, url] of shots) {
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.goto(at(url).replace(/case=([^&]+)/, (m, c) => `case=${c === '.' ? 'IDEA-1' : 'IDEA-1/children/' + c.split('/').join('/children/')}`));
     await expect(page.locator('#tree .case').first()).toBeVisible();
-    await page.waitForTimeout(700);
+    await settled(page);
     await page.screenshot({path: path.join(dir, `${info.project.name}-${name}.png`)});
     expect(errors).toEqual([]);
   });
@@ -49,12 +50,12 @@ test('agent step card', async ({page}, info) => {
   await page.goto(at('/?source=TRIAL&case=IDEA-1/children/IDEA-1.intake&tab=security'));
   const card = page.locator('.agent').first();
   await card.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
+  await settled(page);
   await page.screenshot({path: path.join(dir, `${info.project.name}-trial-agent-step.png`)});
 });
 
 test('live source', async ({page}, info) => {
   await page.goto(at('/?source=TRIAL'));
-  await page.waitForTimeout(1500);
+  await settled(page);
   await page.screenshot({path: path.join(dir, `${info.project.name}-live.png`)});
 });

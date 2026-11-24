@@ -91,6 +91,54 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 300 | every `amend.upstream` (intake, direction, spec, plan, story) | `timeout_s` of the JSON |
 | 60 (default) | intake `idea.check`, `dissection.check`, `questions.check`, `requirements.check`; direction `context.check`, `roadmap.validate`; spec `spec.validate`, `spec.scan`, `spec.review`; plan `plan.validate`, `plan.scope`, `plan.status`; story `change.merge`; release `release.build`, `release.publish`, `release.observe`; bugfix `dissection.check`, `story.update` | checks over files and copies |
 
+## The budget
+
+`budget: {max_runs: 3}` bounds the runs of an action in a case: the run after the third is refused
+(`RunsSpent`). A run that ends in an exit of `exits` (the error and not-called classes) is not counted.
+Three more members say what a rejection does to that count (Loom `d8944d49`,
+`story:rework-allowance-after-a-rejection`). They are read on a program or a person's action only; on
+an `agent`, `open` or `copy` action Loom refuses them (`MemberNotForExecutor`).
+
+| Member | What a person writes | Default |
+|---|---|---|
+| `runs_per` | `case`: every run of the action in the case counts against `max_runs`. `rejection`: only the runs since the latest rejection count, so a rejection gives the action a new allowance of `max_runs` runs | `case` |
+| `rework_limit` | a whole number from 1: how many rejections the action answers. The run after more rejections than that is refused | 2 |
+| `rework_on` | a map of evidence kind to results, written as `retry_when` is: the records that are a rejection, and no others. Each kind and result has to be in `retry_when` of the same action | absent: every `retry_when` entry that another action's record matches is a rejection |
+
+A rejection is a record of the case that `rework_on` lists (or `retry_when`, when `rework_on` is
+absent) made by anyone: the decider (`decider:<kind>`), a rule (`rule:<name>`) or a person. A record
+that cites a run or an approval of the action itself is not one (an approval record of the person
+action opens no window). The window is the runs of the action since the latest rejection. A failed
+check or a refused coverage that sends the action back through `retry_when`, and is not in
+`rework_on`, stays inside the window: it opens none.
+
+Loom refuses at load (`InvalidBudget`, naming the member): a `runs_per` that is neither `case` nor
+`rejection`; a `rework_limit` that is not a whole number from 1; `rework_limit` or `rework_on` with
+no `runs_per: rejection`; `runs_per: rejection` where `retry_when` lists no result ("lists no result":
+no record could open an allowance); an empty `rework_on`; a `rework_on` kind with no result; a pair
+`rework_on` lists that `retry_when` does not list. `runbook check` and `scripts/check-bindings.sh`
+(`--budget <root>`) refuse the same, in Loom's words, before a run does.
+
+A refused run is `RunsSpent`, in one of two texts: "`<action>` was rejected `<k>` times in case
+`<c>`, the latest `<evidence id>` by `<producer>`; its budget.rework_limit is `<n>`" (the rework
+limit, tested first) and "`<action>` has run `<n>` times in case `<c>` since the rejection
+`<evidence id>` by `<producer>`, its budget.max_runs is `<m>`" (a full window; without `since` when
+no rejection was made). `runbook run` ends such a run as any stuck tree (`docs/loom-run.md`, "The
+runs of an action are spent").
+
+`change.implement` of `bindings/sdc-story.yaml` is bound with `max_runs: 3`, `runs_per: rejection`,
+`rework_limit: 2` and `rework_on: {code_review: [rejected], merge_approval: [rejected]}`: the review
+and the merge approval send the writer back and each gives it three more runs; a failed
+`conformance_run` and a refused coverage (`implementation_change: [coverage_refused]`) are in
+`retry_when` only, so they use the runs of the window; the third rejection ends the run (the writer
+runs once and after each of the first two rejections). The value 2 follows Loom's rules for the two
+entries of `cycles/tree-suite.yaml` that hold it (`decider-rework-spent`: three rejections, then exit 4;
+`rework-fresh-allowance`: two rejections, then four writer runs and exit 0): at 2 the third rejection is
+the last, at 3 a fourth run follows it. No run has told 2 from 3: both entries ended the same way at both
+(before the change of the stub) and, after it, on Loom's 60 s bound in every run, three runs each at
+a one-minute load of 45 to 75 among them, before `change.implement` ran (`docs/cycles-suite.md`). Both
+stay `pending`; nothing here says a run settles them.
+
 ## Written in the YAML, carried out by Loom later
 
 These constructs load today; Loom runs them once the story named lands (waves as in Runbook's
@@ -103,7 +151,7 @@ proposed order of Loom's open stories, 2026-11-21).
 - A `person`'s record produced by the approving principal, not the literal `person:owner`: `story:tree-run-command`, wave 2.
 - `budget.max_runs`, counted since the case's last arrival as the driver does (D24): `story:run-caps-per-arrival`, wave 6.
 
-`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`c9b4c177`) runs
+`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`d8944d49`) runs
 them. On a step with retry records it sets `LOOM_RETRY_FEEDBACK` on the bound program's child to the
 path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 (`crates/loom-bindings/src/retry.rs:14-17`, `:34`, `:36` of Loom).
@@ -136,13 +184,60 @@ that is not called while it stays due (`retry_when`) was taken again at once at 
 the due set after its not-called exit until the case is evaluated again for a reason other than its
 own moves, so it starts once per evaluation and the run goes on to the next useful action or to the
 handoff check; a not-called writer that moves an artifact, and a writer of evidence on that artifact,
-still alternate until the step or the cycle's time bound. The test of the state of run 1 of record
+still alternate until the step or the cycle's time bound (at `d8944d49` a set-aside action is idle in the due set, the second part of the fix; whether this alternation is gone is not observed here, the entries that show it were not run again). The test of the state of run 1 of record
 `parity-loom-strong-4` is `runbook/tests/test_suite/notcalled.rs`; see `spec-person-wait` and
 `cite-fault-sent-back` in `docs/cycles-suite.md`. The bindings that wait for the build pool (story `tests.run`, release
 `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) list `[69, 70, 75, 126, 127]`: 69 is
 no slot within `--pool-wait` (nothing ran), 70 the pool ended a started job at its run limit ("ran
 over its time"). The tool exits 69 and 70 in both modes; under Loom neither maps to `failed` any
 more.
+
+`scripts/check-bindings.sh --exits <root>` runs the exits check alone over `<root>/bindings/*.yaml`.
+The list of the five pool bindings is this repository's: it applies when `<root>/bindings/` holds one of
+the files it names (`sdc-story.yaml`, `sdc-release.yaml`, `sdc-bugfix.yaml`; a link of one of these names
+that points at nothing counts), and by nothing else; where the script lies does not count, another
+repository may hold a copy of it. A runbook of another repository that happens to hold a file with one of
+these names sees the five lines `bindings/<file>:<action>: a binding that waits for the build pool is not in
+bindings/` (`sdc-story.yaml:tests.run`, `sdc-release.yaml:acceptance.run`, `sdc-bugfix.yaml:repro.run`,
+`tests.run`, `gate.run`), pinned by the test
+`a_runbook_of_another_repository_with_a_file_named_sdc_story_yaml_gets_the_five_pool_lines`. For any other root,
+the runbook of another repository, the option asks nothing about the build pool and checks the root's own
+files by the binding itself: every `program` binding states `exits.error`: `[69, 70, 75, 126, 127]` when
+its argv holds `--pool-wait` as an element, else `[75, 126, 127]` or `[69, 70, 75, 126, 127]` (the tool
+exits 69 and 70 for the environment variable `SDC_POOL_WAIT` too, which wins over the flag); a model node (`sdc-node`) also states
+`exits.not_called: [79]`; no code is in both classes or a key of the action's `from: exit` result table,
+and `exits` is on no other executor. A binding that lacks it gets one named line
+(`bindings/<file> <action>: exits.error is [], want [75,126,127] or [69,70,75,126,127]`); the line a user adds to its program
+binding is `exits.error: [75, 126, 127]`. A root with no `bindings/*.yaml` is refused by one line that names
+the root. A file of no bytes (`the file is empty`), a link named `*.yaml` that points at nothing, a file
+that is no mapping with an `actions` list, an entry of `actions` that is no mapping or has no `action` name,
+an `executor` that is present and no mapping (`executor:` with no value too), an `executor.argv` that is no
+list, `evidence` that is no list of mappings, a `results` that is no mapping, and a result key read from
+the exit that is no exit code (plain digits for a number from 0 to 255: `+1`, `01`, `256` and `1` with a
+final newline are refused) are each refused by one line that names the file (and the action where there
+is one), exit 1; the other files are still checked. Of every member the script reads from a YAML bindings
+file, an absent or null value counts as absent and any other value must have the type the check needs: `false` is not an empty
+list. The full `scripts/check-bindings.sh` refuses the same shapes in the bindings file of a protocol under
+`FAIL <name>`, and there also an element of `executor.argv` or of `arguments_from` that is no string, an
+`arguments_from` that is no list and a `budget` that is no mapping; its registrations step reads a bindings
+file of any shape that `yq` can write as JSON without a message of `yq`, and fails the script when it
+cannot read a file. Every member the script reads from the YAML bindings file of a protocol, with each JSON
+type in it (null, false, true, a number, a string, an empty string, a list, an empty list, a mapping, an
+empty mapping; for text and keys also a final newline, a leading `+`, a leading zero, a number of 26
+digits), ends in exit 0 or 1 with a `FAIL` line that names the file, never in a raw message of `jq` or
+`yq`; the table is in `driver/tests/check_bindings_exits_value_table.rs`, one test per member. Outside
+that, and unchanged from before: YAML that `yq` cannot write as JSON (`.inf`, a key that is a list) ends
+the check with the message of `yq`, exit 1, with no `FAIL` line and no file named; a bindings file of more
+than one YAML document gives a raw message of `jq` in the full check; the JSON copies under
+`driver/examples/` and the protocol files that the registrations step reads are not checked for the type
+of their members, and a member of the wrong type there ends the check in a message of `jq` (exit 5). The
+backlog story `check-bindings-refuses-every-file-by-name` holds these; three ignored cases in
+`driver/tests/check_bindings_exits_unwritable_yaml_json_copies_and_protocol_ids.rs` measure them. Text that
+is no YAML ends the check with the message of `yq`, which names the file. A root given as a relative path
+may start with a dash. A copy of
+this repository's bindings elsewhere is this repository only while it holds one of the three named files.
+That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
+and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
 
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5 and 8, the exits of the check tools) and

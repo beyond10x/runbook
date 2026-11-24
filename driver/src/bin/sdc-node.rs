@@ -216,6 +216,9 @@ impl Ctx {
         if let Some(code) = self.wait_for_person()? {
             return Ok(Some(code));
         }
+        if let Some(copy) = self.set.copy.take() {
+            setup::write_copy(&self.work, copy)?;
+        }
         self.rejection = self.find_rejection();
 
         let classes = fs::read_to_string(self.set.here.join("node-classes.json")).ok().and_then(|t| Ov::parse(&t).ok());
@@ -259,11 +262,6 @@ fn run(argv: &[String]) -> R<i32> {
     let set = setup::setup(node, &argv[2..])?;
     let mut ctx = Ctx::new(node, set);
     if let Some(code) = ctx.before_call()? {
-        if code == util::NOT_CALLED {
-            if let Some(made) = &ctx.set.made {
-                let _ = fs::remove_dir_all(made);
-            }
-        }
         return Ok(code);
     }
     call::run(&ctx)

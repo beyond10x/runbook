@@ -42,7 +42,7 @@ use super::http::send;
 use runbook::api::{self, routes};
 use runbook::clock::{parse_instant, SetClock};
 use runbook::commands::{Config, Daemon, Outcome, SubmitRun};
-use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest as RtRequest, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
+use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest as RtRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
@@ -105,6 +105,14 @@ impl Runtime for Manual {
 
     fn knows_runbook(&self, runbook: &str, _version: Option<&str>) -> bool {
         self.known.lock().unwrap().contains(runbook)
+    }
+
+    fn runbooks(&self) -> Vec<RunbookInfo> {
+        self.known.lock().unwrap().iter().map(|name| RunbookInfo { name: name.clone(), version: None }).collect()
+    }
+
+    fn kind(&self) -> &'static str {
+        "stub"
     }
 
     fn start(&self, _request: StartRequest, _sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {

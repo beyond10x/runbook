@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: decision-blocker:runbook-declarations-without-a-format-member
 kind: decision-blocker
-status: open
+status: cleared
 title: Nobody has decided which file of a runbook states what neither its protocol nor its bindings can hold
 summary: 'Start inputs, a program before the open and after a close, the default root case id and the programs a runbook needs have no member in protocol/1 or loom.bindings/1; default: one file of the runbook beside its bindings.'
 tags:
@@ -11,7 +11,9 @@ relations:
 - blocks: story:run-inputs-declared-by-runbook
 - blocks: story:conformance-and-root-case-from-runbook
 - blocks: story:runner-source-names-no-runbook
-revision: 1
+revision: 2
+transitions:
+- {from: "open", to: "cleared", at: "2026-11-23T09:57:20Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
 ---
 ## Question
 

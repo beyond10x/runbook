@@ -860,7 +860,7 @@ impl EventSink for RunDirWriter {
                 self.last_decider_model = record["model"].as_str().filter(|m| !m.is_empty()).map(String::from);
                 Ok(())
             }
-            Event::NoModelCall { .. } | Event::ModelNodeDecided { .. } | Event::ObservationSkipped { .. } | Event::ObservationBooked { .. } => Ok(()),
+            Event::ActionStarted { .. } | Event::NoModelCall { .. } | Event::ModelNodeDecided { .. } | Event::ObservationSkipped { .. } | Event::ObservationBooked { .. } => Ok(()),
             Event::CapReached { cap, detail } => {
                 let cause = match cap {
                     Cap::Spend => "spend_cap",

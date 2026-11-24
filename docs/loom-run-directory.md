@@ -9,6 +9,7 @@ run, what a Loom run does not record, and which quality measures of
 ```
 <run>/settings.json      redacted settings (the loop)
       events.jsonl       the loop's events (the loop)
+      runner.json        the runner process: pid, start time, open or closed (see "The runner and the step in flight")
       outcome.json       how the run ended (the loop)
       tree-status.json   what `b10x-loom tree status` printed (the loop)
       tree-verify.json   what `tree verify` printed (the loop)
@@ -48,6 +49,81 @@ to it, a string that still holds an absolute path (`/home/`, `/Users/`, `/root/`
 name holds `login`, `credential`, `secret`, `password`, `api_key`, `authorization` or `bearer`, or is
 `token` or ends in `_token`, is written as `named` whatever it held. No file reads a login file, the
 environment of the runner or the `command` of a decision (it names the store path).
+
+## The runner and the step in flight
+
+Two records say what a run does while it runs. They give no program's output and no environment, argv or
+path outside the run directory.
+
+`runner.json` is written when the run directory is made, before the first step, and rewritten through a
+temporary file and a rename, so a reader never sees half of it. The temporary file is created as new, under a name the
+runner chooses for each write (a dot name that the inspector never lists), and what lies at `runner.json` is replaced by
+the rename: a pipe or a link that a program of the run left at a temporary name of the runner's, or put at `runner.json`,
+neither holds the runner nor receives the record. Every record the runner writes the same way (`outcome.json`,
+`tree-status.json`, `tree-verify.json`) holds the same:
+
+```json
+{"format": "runbook.runner/1", "pid": 48213, "start_ticks": 91827364, "started_at": 1795300000, "closed_at": null}
+```
+
+`pid` is the process of `runbook run`. `start_ticks` is the start time the kernel gave that process (field 22 of
+`/proc/<pid>/stat`, clock ticks since boot): a pid the kernel gives to another process later has another start time,
+so a reader compares both and never takes a recycled pid for the runner. `closed_at` (whole seconds) is null while
+the runner lives; the runner sets it when the run ends by any exit after the run directory exists (a closed tree, a
+refusal, a failed run, a signal it handles: SIGTERM and SIGINT). The file is kept, not removed. A runner killed by
+SIGKILL or lost with its machine cannot close it: its `closed_at` stays null, and what tells is the process: a pid that
+no process has, a process that has another start time, and a process that has ended and has not yet been collected by its
+parent (state `Z` or `X` in `/proc/<pid>/stat`: a runner killed by SIGKILL and not yet waited for) are not the runner.
+
+`events.jsonl` has one more line, `action_started`, written when an action starts and before it ends (one append,
+whole line):
+
+```json
+{"at": 1795300042, "event": "action_started", "source": "program_start", "role": "program", "case": "CASE-1", "action": "notes.write", "try": 2}
+```
+
+`at` is whole seconds, as in every line of the file. The runner appends the line only to a regular file with one name
+that it opens without following a link and without waiting for a reader, and never creates it. When `events.jsonl` is
+anything else (a pipe, a link, a file with a second name, or gone), the line is not written, the run goes on and the next
+program starts at its time; the inspector, which reads only a regular file with one name, then shows the run with no step
+(*between steps* while the runner lives). What is known and what is derived depends on `source`:
+
+| `source` | when | `role` | `case`, `action`, `try` |
+|---|---|---|---|
+| `program_start` | in-process Loom (no `--loom`): the runner's own confinement runner is called for a bound program, just before the program starts | `program`, or `check` for a read-only program (a handoff check) | derived by the runner, see below; each may be `null` |
+| `step_call` | a `b10x-loom` child (`--loom`): the runner starts `tree run --max-steps 1`, the unit it can see | `null` | all `null`: Loom's child names no action before it ends |
+
+The pinned Loom gives no event before a bound program starts: its run log writes `ActionFinished` when the action ends
+(`Loom logs no start`, below), and the one point before a program runs is the call of the confinement runner with the
+command about to start. The `program_start` line is written from that point and from what the runner knows, so three of
+its fields are derived, not read from Loom:
+
+- `case` is the `LOOM_CASE` variable of the command's environment (the case Loom runs it for); `null` when absent.
+- `action` is the action of the bindings copy of the run (`bindings/*.yaml`, `executor.kind: program`, or the
+  `handoff_when` check) whose `argv` the command runs (the program is argv[0] by name or by its path's end, and the
+  arguments are argv[1..]); `null` when no binding or more than one binding matches. It is a match by command line, not
+  Loom's own naming.
+- `try` is counted by the runner: the number of `program_start` events of the same case and action so far, this one
+  included, for a program that is not a check (a check does not count a try); `null` when case or action is `null`.
+
+There is no record of the last line of the step in flight. The pinned Loom reads a bound program's standard output and
+error in its own process through pipes, keeps the last bytes of each in memory and returns them when the program ends
+(`run_bounded` of `loom-intake-slice/src/executor.rs`); the confinement runner returns them the same way. The only file
+that grows while a step runs is the model tool's record under `work/.sdc/llm/<call>/` (`events.jsonl`), a dot-directory
+that the inspector never serves. The inspector therefore gives no last line: it would need a file under `work/`
+without a dot component that a bound program grows while it runs, or a streaming capture in Loom.
+
+The reader of the files (the inspector) says the run is *running* when `runner.json` is open, its pid has its start
+time, and the last of `action_started`, `step_made` and `ended` in `events.jsonl` is an `action_started`; *between
+steps* when it is open and alive and the last is not; *not live* when it is closed, or no process of that pid has that
+start time. A run directory without `runner.json` (an older runner) keeps the answer it had.
+
+`runner.json` and the `action_started` lines are what files of the run directory claim: under `--confinement local` a
+program of the run can write them, so the answer is a reading of those files and of `/proc/<pid>/stat`, shown as text,
+and nothing decides on it. A `runner.json` over 4 KiB (a record is about 150 bytes) is not read: the run is *unknown*.
+`start_ticks` of 0 or below is no start time: the run is *not live*. A read of `/proc/<pid>/stat` that fails for another
+reason than "no such process" makes the run *unknown*, with that reason, and never "not live". The `action`, `case` and
+`source` of a start line are cut to 256 characters in the answer and the band, at a character, never inside one.
 
 ## Where each member comes from
 
