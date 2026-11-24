@@ -267,6 +267,65 @@ mod tests {
         assert_eq!(v["actions"][0]["budget"], want, "{v:?}");
     }
 
+    /// Two program actions, `a` and `b`, whose argv name no budget; `top` stands at the top of the
+    /// file and `a_member`, `b_member` on the actions (each a line, or empty).
+    fn members_file(top: &str, a_member: &str, b_member: &str) -> String {
+        format!("format: loom.bindings/1\n{top}actions:\n  - action: a\n{a_member}    executor:\n      kind: program\n      argv: [tools/a.sh]\n  - action: b\n{b_member}    executor:\n      kind: program\n      argv: [tools/b.sh, --flag]\n")
+    }
+
+    #[test]
+    fn a_runbook_whose_programs_name_max_budget_usd_0_needs_no_budget_elsewhere() {
+        let d = dir("member-zero");
+        for (tag, text) in [("actions", members_file("", "    max_budget_usd: 0\n", "    max_budget_usd: 0\n")), ("file", members_file("max_budget_usd: 0\n", "", ""))] {
+            let root = d.join(format!("{tag}.yaml"));
+            std::fs::write(&root, text).unwrap();
+            assert_eq!(reserve_for_unnamed(&root), Ok(0), "{tag}");
+            assert_eq!(runbook_budgets(&root).unwrap().unnamed, None, "{tag}");
+        }
+        // One program with no budget from any source, and none anywhere: refused as before.
+        let root = d.join("one-short.yaml");
+        std::fs::write(&root, members_file("", "    max_budget_usd: 0\n", "")).unwrap();
+        assert_eq!(runbook_budgets(&root).unwrap().unnamed.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_member_that_disagrees_with_its_argv_or_is_no_number_of_usd_is_refused_naming_its_action_or_file() {
+        let d = dir("member-refused");
+        let disagree = BINDINGS.replace("  - action: b\n", "  - action: b\n    max_budget_usd: 0.4\n");
+        let agree = BINDINGS.replace("  - action: b\n", "  - action: b\n    max_budget_usd: 0.5\n");
+        std::fs::write(d.join("disagree.yaml"), disagree).unwrap();
+        std::fs::write(d.join("agree.yaml"), agree).unwrap();
+        let why = runbook_budgets(&d.join("disagree.yaml")).unwrap_err();
+        assert!(why.contains("the action b of bindings/disagree.yaml") && why.contains("max_budget_usd") && why.contains("0.5") && why.contains("0.4"), "{why}");
+        assert!(runbook_budgets(&d.join("agree.yaml")).is_ok());
+        for (n, bad) in ["abc", "-1", ".nan", "-.inf", "\"0.3\"", "~", "false", "{usd: 1}"].iter().enumerate() {
+            let on_action = d.join(format!("action{n}.yaml"));
+            std::fs::write(&on_action, members_file("", &format!("    max_budget_usd: {bad}\n"), "")).unwrap();
+            let why = runbook_budgets(&on_action).unwrap_err();
+            assert!(why.contains(&format!("the action a of bindings/action{n}.yaml names max_budget_usd")), "{bad}: {why}");
+            let on_file = d.join(format!("file{n}.yaml"));
+            std::fs::write(&on_file, members_file(&format!("max_budget_usd: {bad}\n"), "", "")).unwrap();
+            let why = runbook_budgets(&on_file).unwrap_err();
+            assert!(why.contains(&format!("the bindings file bindings/file{n}.yaml names max_budget_usd")), "{bad}: {why}");
+        }
+        // A member on an action that runs no program is the budget of nothing.
+        let open = d.join("open.yaml");
+        std::fs::write(&open, "format: loom.bindings/1\nactions:\n  - action: c.open\n    max_budget_usd: 0\n    executor: {kind: open, name: c, bindings: none.yaml}\n").unwrap();
+        assert!(runbook_budgets(&open).unwrap_err().contains("the action c.open of bindings/open.yaml names max_budget_usd and runs no program"));
+    }
+
+    #[test]
+    fn the_largest_budget_counts_the_members_and_limiting_leaves_a_member_as_written() {
+        let d = dir("member-largest");
+        let text = BINDINGS.replace("  - action: b\n", "  - action: b\n    max_budget_usd: 0.5\n").replace("format: loom.bindings/1\n", "format: loom.bindings/1\nmax_budget_usd: 2.5\n");
+        std::fs::write(d.join("sdc.yaml"), &text).unwrap();
+        assert_eq!(largest_call_budget(&d).unwrap(), Some(2_500_000));
+        limit_call_budgets(&d, 300_000).unwrap();
+        let v: Value = serde_yaml::from_str(&std::fs::read_to_string(d.join("sdc.yaml")).unwrap()).unwrap();
+        assert_eq!((v["max_budget_usd"].as_f64(), v["actions"][1]["max_budget_usd"].as_f64()), (Some(2.5), Some(0.5)), "{v:?}");
+        assert_eq!(largest_call_budget(&d).unwrap(), Some(2_500_000), "a member is reserved as written");
+    }
+
     #[test]
     fn nothing_is_written_when_no_budget_is_above_the_limit() {
         let d = dir("nochange");
