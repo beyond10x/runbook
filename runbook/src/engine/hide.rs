@@ -208,6 +208,34 @@ mod tests {
     }
 
     #[test]
+    fn a_linked_directory_and_one_given_with_a_slash_is_hidden_in_each_spelling() {
+        let base = std::env::current_exe().unwrap().parent().unwrap().join(format!("hide-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("runs")).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let given = PathBuf::from(format!("{}/", link.display()));
+        let hide = Hide::new(&[&given]);
+        let token = base.file_name().unwrap().to_str().unwrap().to_string();
+        let texts = [
+            format!("{}/runs/f", real.display()),
+            format!("{}/runs/f", link.display()),
+            format!("{}//runs/f", link.display()),
+            format!("{}/./runs/f", link.display()),
+            format!("{}/runs/../runs/f", link.display()),
+            format!("{}/", real.display()),
+            format!("in {}: no", real.display()),
+            format!("file://{}/runs/f", real.display()),
+            format!("{:?}", real.join("runs/f")),
+            format!("{:?}", link.join("runs/f").display().to_string()),
+        ];
+        let kept: Vec<String> = texts.iter().filter_map(|t| hide.text(t).contains(&token).then(|| format!("{t:?} -> {:?}", hide.text(t)))).collect();
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(kept.is_empty(), "{} texts keep the path:\n{}", kept.len(), kept.join("\n"));
+    }
+
+    #[test]
     fn a_directory_given_as_a_relative_word_rewrites_no_word_of_a_reason() {
         let hide = Hide::new(&[&PathBuf::from("home"), &PathBuf::from("state")]);
         assert_eq!(hide.text("a link that leaves the runbook home in the state of things"), "a link that leaves the runbook home in the state of things");

@@ -2527,3 +2527,115 @@ mod journal_before_hand_over {
         assert!(problems.is_empty(), "{} problems: {:?}", problems.len(), &problems[..problems.len().min(6)]);
     }
 }
+
+/// A state directory (and a runbook home) given as a relative path, as `runbook serve --state-dir rel`
+/// gives it: every path the engine passes to Loom is absolute, and nothing a client reads names a path.
+/// These cases change the process's directory to their own scratch directory (each runs in a process of
+/// its own under the test runner).
+mod relative_state_directory {
+    use super::super::state::scratch;
+    use runbook::commands::{Config, Daemon, SubmitRun};
+    use runbook::engine::Engine;
+    use runbook::runtime::{Confinement, DecisionRequest, EventSink, Runtime, StartRequest};
+    use serde_json::Value;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    const RUNBOOK: &str = "engine-demo";
+
+    struct Quiet;
+
+    impl EventSink for Quiet {
+        fn started(&self) {}
+        fn record(&self, _kind: &str, _record: Value) {}
+        fn decision_requested(&self, _request: DecisionRequest) {}
+        fn resumed(&self) {}
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    fn strings_of(value: &Value) -> Vec<String> {
+        match value {
+            Value::String(s) => vec![s.clone()],
+            Value::Array(items) => items.iter().flat_map(strings_of).collect(),
+            Value::Object(map) => map.iter().flat_map(|(k, v)| std::iter::once(k.clone()).chain(strings_of(v))).collect(),
+            _ => vec![],
+        }
+    }
+
+    /// A scratch directory holding the fixture runbook as `home`, which becomes the process's directory.
+    fn workdir(tag: &str) -> PathBuf {
+        let dir = std::fs::canonicalize(scratch(&format!("relative-state-{tag}"))).unwrap();
+        let home = dir.join("rel-home-dir");
+        copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
+        let binding = home.join("bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&binding).unwrap().replace("principal: reviewer", &format!("principal: {}", super::super::PRINCIPAL));
+        std::fs::write(&binding, text).unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        dir
+    }
+
+    fn until_waiting_or_over(d: &Daemon, run: &str) -> String {
+        let limit = Instant::now() + Duration::from_secs(40);
+        loop {
+            let state = d.run_detail(run)[0]["state"].as_str().unwrap().to_string();
+            if matches!(state.as_str(), "FailedToStart" | "Ended" | "Cancelled" | "WaitingOnDecision") {
+                return state;
+            }
+            assert!(Instant::now() < limit, "the run did not wait or end: {}", d.run_detail(run)[0]);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn an_ordinary_run_under_a_state_directory_given_as_a_relative_path_names_no_path() {
+        workdir("ordinary");
+        let engine = Arc::new(Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local, Confinement::Linux]));
+        let cfg = Config { state_dir: PathBuf::from("rel-state-dir"), confinement_floor: Confinement::Local, context_roots: vec![], runbook_dir: None, principal: super::super::PRINCIPAL.into() };
+        let d = Daemon::start(cfg, engine).unwrap();
+        let run = d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+        until_waiting_or_over(&d, &run);
+        let mut texts = strings_of(&d.run_detail(&run)[0]);
+        texts.extend(d.events_after(&run, 0).iter().flat_map(strings_of));
+        texts.extend(d.decisions_of_run(&run).iter().flat_map(strings_of));
+        d.stop();
+        let bad: Vec<String> = texts.iter().filter(|t| t.contains("rel-state-dir") || t.contains("rel-home-dir")).map(|t| t.chars().take(260).collect()).collect();
+        assert!(bad.is_empty(), "the directory as the operator gave it is in {} texts: {bad:?}", bad.len());
+    }
+
+    #[test]
+    fn a_store_that_is_not_a_directory_names_no_path_under_a_relative_state_directory() {
+        let dir = workdir("store");
+        let engine = Engine::with_levels(PathBuf::from("rel-home-dir"), PathBuf::from("rel-state-dir"), &[Confinement::Local]);
+        let run_dir = PathBuf::from("rel-state-dir/runs/r1");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::write(run_dir.join("tree"), "not a directory").unwrap();
+        let request = StartRequest {
+            run_id: "r1".into(),
+            runbook: RUNBOOK.into(),
+            version: None,
+            intake: String::new(),
+            context_dir: None,
+            settings: Default::default(),
+            confinement: Confinement::Local,
+            state_dir: run_dir,
+            workspace_dir: PathBuf::from("rel-state-dir/workspaces/r1"),
+        };
+        let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).err().expect("the start did not fail").reason;
+        assert!(reason.contains("tree"), "the start did not fail at the store as the case says: {reason}");
+        assert!(!reason.contains("rel-state-dir") && !reason.contains(dir.to_str().unwrap()), "a path of the state directory is in the reason: {reason}");
+    }
+}
