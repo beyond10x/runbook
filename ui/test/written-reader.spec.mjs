@@ -24,7 +24,7 @@ const make = async (name, opts, after = () => {}, env = process.env) => {
   const dir = path.join(root, name, 'run');
   writeWrittenRun(dir, opts);
   after(dir);
-  servers[name] = await startServer(['--no-view', '--runs', path.join(root, name)], {env});
+  servers[name] = await startServer(['--no-view', '--runs', path.join(root, name)], {env: typeof env === 'function' ? env(dir) : env});
   return dir;
 };
 const get = async (name, p) => {
@@ -72,6 +72,9 @@ test('a run whose record is whole has no note of a cut in the live feed', async 
   await make('livewhole', {written: []}, (d) => append(d, [change(900, 'a.txt', {text: 'a\n', step: 3})]));
   const live = await get('livewhole', '/api/live?source=0');
   expect(live.json.fs.recordsStopped ?? null).toBe(null);
+  const past = await get('livewhole', '/api/fschange?source=0&seq=999999');
+  expect(past.status, 'a change past the end of a whole record').toBe(404);
+  expect(past.json).toEqual({error: 'no such change'});
 });
 
 // ---- the bounds named by the environment -----------------------------------------------------------------------------------
@@ -202,24 +205,32 @@ test('a name of more link components than the bound is answered as a name the ch
   expect(p.json.files.map((f) => f.path)).toEqual([`work/${'l/'.repeat(max)}in.txt`]);
   expect(p.json.leftOut).toBe(1);
   expect(p.json.linkCut).toBe(1);
+  expect(p.json.cut, 'a name left out for its links is a cut answer').toBe('links');
+  expect(p.json.truncated).toBe(true);
   expect(p.json.gone).toBe(0);
   expect(p.json.maxLinks).toBe(max);
   const none = await hopsRun('hopsnone', () => 1, ['one']);
   expect(none.json.linkCut).toBe(0);
+  expect(none.json.cut).toBe(null);
+  expect(none.json.truncated).toBe(false);
   expect(none.json.files.map((f) => f.path)).toEqual(['work/l/one.txt']);
 });
 
-test('500 names of 500 link components each cost one answer a bounded time', async () => {
+test('500 names of 500 link components each resolve no more than the bound of link components in one answer, whatever the load', async () => {
   test.setTimeout(60000);
   const names = Array.from({length: 500}, (_, i) => `f${i}`);
   const first = await hopsRun('deeplinks', () => 500, names);
   const second = await products('deeplinks');
+  const max = first.json.maxLinks;
   expect(first.json.leftOut).toBe(500);
-  expect(second.ms).toBeLessThan(1500);
+  // the work of an answer is counted, not timed: each name resolves its first `max` link components and is left out at the next,
+  // so 500 names are 500 * max components, not 500 * 500, in the first answer and again in the second
+  expect(first.json.linksResolved, 'link components the first answer resolved').toBe(500 * max);
+  expect(second.json.linksResolved, 'link components the second answer resolved').toBe(500 * max);
   expect((await get('deeplinks', '/api/sources')).status).toBe(200);
 });
 
-test('500 names of 8 link components that are chains of 37 links each are all listed, in one answer of bounded time', async () => {
+test('500 names of 8 link components that are chains of 37 links each are all listed, and an answer resolves 8 components per name, whatever the load', async () => {
   test.setTimeout(60000);
   const names = Array.from({length: 500}, (_, i) => `f${i}`);
   await make('chains', {written: [], extra: []}, (d) => {
@@ -229,7 +240,11 @@ test('500 names of 8 link components that are chains of 37 links each are all li
   const first = await products('chains');
   const second = await products('chains');
   expect(first.json.files.length, JSON.stringify([first.json.leftOut, first.json.linkCut, first.json.gone])).toBe(500);
-  expect(Math.max(first.ms, second.ms), 'one answer').toBeLessThan(3000);
+  // the work is the components the answer resolved (each of them one resolution by the kernel, which follows at most 40 links);
+  // the links inside a component are the kernel's, not counted here
+  expect(first.json.maxLinks).toBe(8);
+  expect(first.json.linksResolved, 'link components the first answer resolved').toBe(500 * 8);
+  expect(second.json.linksResolved, 'link components the second answer resolved').toBe(500 * 8);
   expect((await get('chains', '/api/sources')).status).toBe(200);
 });
 
@@ -380,6 +395,23 @@ test('a stop that the growth of the file resolves is no longer reported', async 
   expect(second.json.files.map((f) => f.path)).toEqual(['work/p.txt']);
 });
 
+test('a record file that stopped on a line over the chunk and is replaced by a longer file of records is read again', async () => {
+  test.setTimeout(60000);
+  const dir = await make('stoplonger', {written: []}, (d) => {
+    put(path.join(d, 'work/p.txt'), 'p\n');
+    fs.writeFileSync(path.join(d, 'fs/changes.jsonl'), Buffer.alloc(33 << 20, 'x'));
+  });
+  const first = await products('stoplonger');
+  expect(first.json.basis).toBe('listing');
+  const file = path.join(dir, 'fs/changes.jsonl');
+  const stopped = fs.statSync(file).size;
+  fs.writeFileSync(file, rows([change(900, 'p.txt', {text: 'p\n', step: 3})]) + `${' '.repeat(1000)}\n`.repeat(35000));
+  expect(fs.statSync(file).size, 'the new file is longer than the one the reader stopped in').toBeGreaterThan(stopped);
+  const second = await products('stoplonger');
+  expect(second.json.basis).toBe('records');
+  expect(second.json.files.map((f) => f.path)).toEqual(['work/p.txt']);
+});
+
 test('attribution lines that name more changes than the server keeps for one run stop the reader and say so', async () => {
   test.setTimeout(60000);
   await make('latebound', {written: []}, (d) => {
@@ -400,6 +432,31 @@ test('attribution lines count in the bytes the server keeps for one run: more of
   expect(p.json.basis).toBe('records');
   expect(p.json.recordsStopped, JSON.stringify(p.json.recordsStopped)).toMatchObject({cause: 'bytes'});
   expect(p.json.truncated).toBe(true);
+});
+
+test('a late attribution line for a change that has one already replaces it and is not another change the server keeps', async () => {
+  test.setTimeout(60000);
+  // 201 records and 203 changes named by a late line, under a bound of 203: a replacement adds no change to what is kept
+  await make('latereplace-count', {written: []}, (d) => {
+    append(d, [...Array.from({length: 203}, (_, i) => late(i, `first.${i}`)), late(0, 'second.0')]);
+  }, {...process.env, SDC_UI_MAX_RECORDS: '203'});
+  const live = await get('latereplace-count', '/api/live?source=0');
+  expect(live.json.fs.recordsStopped, JSON.stringify(live.json.fs.recordsStopped)).toBe(null);
+  expect(live.json.fs.changes.find((c) => c.seq === 0).attribution.action, 'the replacement line is the one kept').toBe('second.0');
+});
+
+test('a last line that makes the bytes kept reach the bound exactly is held, one that passes it by a byte stops the reader', async () => {
+  test.setTimeout(60000);
+  const bytesOf = (d) => fs.readFileSync(path.join(d, 'fs/changes.jsonl'), 'utf8').split('\n').filter(Boolean).reduce((n, l) => n + Buffer.byteLength(l), 0);
+  for (const [tag, last] of [['record', change(5000, 'z.txt', {text: 'z\n', step: 9})], ['late', late(5, 'last.late')]]) {
+    for (const [delta, stops] of [[0, false], [-1, true]]) {
+      const name = `exact-${tag}-${stops ? 'less' : 'equal'}`;
+      await make(name, {written: []}, (d) => append(d, [last]), (d) => ({...process.env, SDC_UI_MAX_RECORD_BYTES: String(bytesOf(d) + delta)}));
+      const live = await get(name, '/api/live?source=0');
+      expect(live.json.fs.recordsStopped?.cause ?? null, `${tag} line last, bound ${delta} from the bytes of the lines`).toBe(stops ? 'bytes' : null);
+      expect(live.json.fs.changes.length, 'the records held').toBe(tag === 'record' && !stops ? 202 : 201);
+    }
+  }
 });
 
 test('a late attribution line that replaces one already kept counts its growth in the bytes bound: the answer holds no more than the bound or says it stopped', async () => {
@@ -482,6 +539,30 @@ test('the File changes tab of a run whose reader stopped before the first record
   await expect(page.locator('#panel .sect').first()).toContainText('File changes');
   const panel = await page.locator('#panel').innerText();
   expect(panel, 'the tab of a run whose list of changes was not read at all').toMatch(/not read|read to record 0/);
+});
+
+test('the Products tab redraws when only the count of names past the link bound changes', async ({page}) => {
+  test.setTimeout(60000);
+  const outside = path.join(root, 'redraw-outside');
+  fs.mkdirSync(outside, {recursive: true});
+  const dir = await make('pageredraw', {written: [], extra: []}, (d) => {
+    fs.symlinkSync(outside, path.join(d, 'work/l'));
+    append(d, [change(900, `${'l/'.repeat(30)}deep.txt`, {text: 'd\n', step: 3})]);
+  });
+  await page.setViewportSize({width: 1600, height: 1000});
+  await page.goto(`${servers.pageredraw.url}/?run=run`);
+  await expect(page.locator('#product')).toBeVisible({timeout: 20000});
+  await page.locator('#tabs button[data-tab=products]').click();
+  await expect(page.locator('#panel .prod-groups')).toBeVisible();
+  const before = await products('pageredraw');
+  expect([before.json.leftOut, before.json.linkCut], 'the name is left out behind a link that leaves the run, not for its links').toEqual([1, 0]);
+  await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(0);
+  // the same name, now past the link bound: leftOut stays 1 and no file changes, only linkCut moves
+  fs.unlinkSync(path.join(dir, 'work/l'));
+  fs.symlinkSync('.', path.join(dir, 'work/l'));
+  const after = await products('pageredraw');
+  expect([after.json.leftOut, after.json.linkCut]).toEqual([1, 1]);
+  await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(1, {timeout: 20000});
 });
 
 test('an action name that is markup and is cut inside it is shown as text, with the note', async ({page}) => {

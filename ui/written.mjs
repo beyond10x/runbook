@@ -170,9 +170,10 @@ export function writtenOf({runDir, roots, seeded, changes, rev = 0, finished, ar
   const total = products.length;
   const shownList = products.slice(0, MAX_LINES);
   let leftOut = 0, gone = 0, linkCut = 0;
+  const tally = {links: 0}; // the link components this answer resolved, over all names
   const files = [];
   for (const x of shownList) {
-    const info = describe(runDir, x.path, scope);
+    const info = describe(runDir, x.path, scope, tally);
     if (info === 'gone' && x.mark !== 'removed') { gone++; continue; }
     if (info === 'refused') { leftOut++; continue; }
     if (info === 'unresolved') { leftOut++; linkCut++; continue; }
@@ -192,7 +193,7 @@ export function writtenOf({runDir, roots, seeded, changes, rev = 0, finished, ar
   for (const x of open) if (!last || (x.step ?? -1) > (last.step ?? -1) || ((x.step ?? -1) === (last.step ?? -1) && (x.seq ?? -1) > (last.seq ?? -1))) last = x;
   const others = last ? open.filter((x) => x.step === last.step && x.path !== last.path).sort((a, b) => (b.seq ?? -1) - (a.seq ?? -1)).slice(0, 5).map((x) => ({path: x.path})) : [];
   return {
-    groups, files, total, shown: shownList.length, notShown: total - shownList.length, leftOut, gone, linkCut, maxLinks: MAX_LINKS, refusedRecords: f.refused, cutStrings: f.cutStrings, maxAction: MAX_ACTION,
+    groups, files, total, shown: shownList.length, notShown: total - shownList.length, leftOut, gone, linkCut, maxLinks: MAX_LINKS, linksResolved: tally.links, refusedRecords: f.refused, cutStrings: f.cutStrings, maxAction: MAX_ACTION,
     inputs: {trees: seeded.trees, files: seeded.count},
     last: last ? {path: last.path, step: last.step, others} : null, finished, isInput,
   };
@@ -204,7 +205,7 @@ export function writtenOf({runDir, roots, seeded, changes, rev = 0, finished, ar
 // The name is walked from the real path of the run, one component at a time, and nothing is looked at that lies outside the
 // run: a component that is a link is resolved by the run-path check before the next one is looked at, so a link that leaves
 // the run is `refused` whatever lies behind it and no answer says whether a file of the host is there.
-function describe(runDir, rel, scope) {
+function describe(runDir, rel, scope, tally) {
   if (hasDotPart(rel) || scope.runReal == null) return 'refused';
   let abs = scope.runReal, links = 0;
   for (const part of rel.split('/')) {
@@ -213,6 +214,7 @@ function describe(runDir, rel, scope) {
     try { st = fs.lstatSync(next); } catch { return 'gone'; }
     if (st.isSymbolicLink()) {
       if (++links > MAX_LINKS) return 'unresolved';
+      tally.links++;
       abs = runPath(next, runDir);
       if (abs == null) return 'refused';
     } else abs = next;
