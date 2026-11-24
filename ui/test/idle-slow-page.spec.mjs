@@ -2,11 +2,16 @@
 // held for a page is bounded and the rounds stop when it was the last one. The page here is a socket that asks for the stream
 // and never reads; every round announces a change of 314 cases whose paths are about 3 000 characters long (nested cases:
 // each level is a directory with a `children/` directory under it), about 1 MB, so the output outgrows the kernel's buffers
-// (about 3 MB for a client that never reads) within a few rounds. The case is bounded in time (30 rounds at most); the
-// server's pending output is bounded by the drop, not by the number of rounds.
+// (about 3 MB for a client that never reads) within a few rounds. The case is bounded (30 rounds at most); the server's
+// pending output is bounded by the drop, not by the number of rounds. After each write it waits for the next round to be
+// counted with the page still held, or for the page to be gone (GET /api/rounds); the drop is that state, and "the rounds
+// stop" is the timer of the rounds cleared and the counter unmoved after it, where the case waited 6 s of a counter that
+// stood still for each.
 // The cases after it hold the line of that bound with a seam (idle-pending-seam.cjs: a response that reports 2 MiB, or a number
 // of bytes the case names, of unsent output after a `change`, and a ping every 150 ms or none): a page at the bound or under it
 // is kept and served, one byte over it is ended by the next change pushed to it, and by the next ping when no change comes.
+// Those servers run a round each 100 ms (--round-ms) where it runs one each 700 ms: each change reaches the page in the next
+// round, and "no ping and no change" is still two rounds counted.
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -25,10 +30,11 @@ const others = [], streams = [];
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, one viewport'));
 test.afterAll(() => { srv?.kill(); for (const s of others) s.kill(); for (const s of streams) s.destroy(); fs.rmSync(root, {recursive: true, force: true}); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// a request on a connection that the loaded server closed a moment ago is made again
-const rounds = async () => {
+// the rounds counted, whether their timer runs and how many pages hold a stream (GET /api/rounds, behind --count-reads); a
+// request on a connection that the loaded server closed a moment ago is made again
+const state = async () => {
   for (let tries = 0; ; tries++) {
-    try { return (await (await fetch(`${base}/api/reads`, {headers: {connection: 'close'}})).json()).rounds; } catch (e) { if (tries >= 3) throw e; await sleep(100); }
+    try { return await (await fetch(`${base}/api/rounds`, {headers: {connection: 'close'}})).json(); } catch (e) { if (tries >= 3) throw e; await sleep(100); }
   }
 };
 const name = (tag, i) => `${tag}${String(i).padStart(3, '0')}${'n'.repeat(NAME - 4)}`;
@@ -50,23 +56,26 @@ test('a page that never reads is dropped: its stream is ended and the rounds sto
   await new Promise((r) => sock.once('connect', r));
   sock.pause();
   sock.write(`GET /events?source=0 HTTP/1.1\r\nHost: ${new URL(base).host}\r\n\r\n`);
-  let dropped = false, spent = 0;
+  let dropped = false, spent = 0, last = null;
   const t0 = Date.now();
+  await until('the stream of the page is held', async () => (await state()).pages === 1);
   for (let k = 1; k <= 30 && !dropped; k++) {
-    const r = await rounds();
+    const r = (await state()).rounds;
     for (const c of cases) fs.writeFileSync(path.join(c, 'case.json'), `{"n":${k}}`);
-    // a round after the write: the counter moves, or it stands still because the page was dropped and no page is left
-    let moved = false;
-    for (const end = Date.now() + 6000; !moved && Date.now() < end; ) { moved = (await rounds()) > r; if (!moved) await sleep(50); }
-    dropped = !moved;
+    // a round after the write: the counter moves and the page is still held, or the page was dropped (no page is left)
+    last = await until(`a round after write ${k}`, async () => { const s = await state(); return s.pages === 0 || s.rounds > r ? s : null; });
+    dropped = last.pages === 0;
     spent = k;
   }
   console.log(`slow page: dropped=${dropped} after ${spent} rounds of ${cases.length} changed cases, ${Date.now() - t0} ms`);
   expect(dropped, `a page that never reads was still served after ${spent} rounds (${cases.length} cases changed each)`).toBe(true);
+  // the rounds stop: the timer of the rounds is cleared with the last page, and the counter does not move after the drop
+  expect(last.running, 'the page was the last one: the timer of the rounds is cleared').toBe(false);
   // what the page held reaches it, and then its stream is over: the server ended it
   sock.resume();
   await Promise.race([closed, sleep(10000).then(() => { throw new Error('the dropped page\'s connection is still open 10 s after it was dropped'); })]);
   expect(sock.destroyed).toBe(true);
+  expect((await state()).rounds, 'no round ran after the drop').toBe(last.rounds);
 });
 
 // ---- the line of the bound, with the seam ---------------------------------------------------------------------------------
@@ -80,7 +89,7 @@ async function seamServer(tag, pending, ping) {
   const caseFile = path.join(store, 'CASE-1', 'case.json');
   put(caseFile, '{"n":0}');
   const env = {...process.env, NODE_OPTIONS: `--require ${path.join(here, 'idle-pending-seam.cjs')}`, IDLE_PENDING: String(pending), IDLE_PING: ping};
-  const s = await startServer(['--count-reads', '--no-view', store], {env});
+  const s = await startServer(['--count-reads', '--round-ms', '100', '--no-view', store], {env});
   others.push(s.proc);
   const rounds = async () => { for (let t = 0; ; t++) { try { return (await (await fetch(`${s.url}/api/reads`, {headers: {connection: 'close'}})).json()).rounds; } catch (e) { if (t >= 3) throw e; await sleep(100); } } };
   const page = {seen: [], closed: false};

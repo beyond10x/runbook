@@ -55,7 +55,9 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   does not read) is dropped: its stream is ended and the page opens it again. With the environment variable
   `SDC_CLOCK_DIR` set (the clock of the ux loop; the server has no option for it) every run is read on each
   step of the clock, as before. `--count-reads` (a test option) counts the rounds and the reads of run
-  files by run at `GET /api/reads`; without it the route does not exist.
+  files by run at `GET /api/reads`, and says at `GET /api/rounds` whether the timer of the rounds runs and
+  how many pages hold a stream; without it neither route exists. `--round-ms N` (a test option, 10 to 700)
+  sets the time from one round to the next, 700 ms without it.
 - A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands

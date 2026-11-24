@@ -6,6 +6,9 @@
 //   stopped  the same stop, the same settings, then stopped on purpose (run-stopped.json)
 //   late     appears while the page is open
 // Screenshots at both gating viewports: screenshots/{1600x1000,1366x768}-stopped*.png, -held.png.
+// "Every clock stands": the cases that say it run the page on the clock of the test (page.clock), read the clocks, move the
+// page's time on by 61 s with every timer of the page fired (a tick each second, a minute passed), and read them again;
+// where they waited 2.3 s of real time for one tick, they now see sixty-one of them in a moment.
 import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
 import {playFixture, playFixtures} from './fixtures.mjs';
@@ -43,6 +46,8 @@ test.beforeAll(async ({}, info) => {
 });
 
 test('a stopped run says who stopped it, when and why, what it waited on, and every clock stands at the stop', async ({page}) => {
+  // the page runs on a clock of the test: a minute and a second of its time pass in a moment, every timer of the page fired
+  await page.clock.install();
   const stop = JSON.parse(fs.readFileSync(path.join(runs, 'stopped', 'run-stopped.json'), 'utf8'));
   const clock = await page.evaluate((t) => new Date(t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}), Date.parse(stop.at));
   const s = src('stopped');
@@ -68,7 +73,7 @@ test('a stopped run says who stopped it, when and why, what it waited on, and ev
     await expect(page.locator('#kpis .k-time .k-stop .ks-d').first()).toHaveText(/^(18:59|19:00|19:01)$/);
     const [a, w] = [await kv.textContent(), await wait.textContent()];
     const ticking = await page.locator('[data-since]').evaluateAll((els) => els.map((e) => e.textContent));
-    await page.waitForTimeout(2300);
+    await page.clock.runFor(61000);
     expect(await kv.textContent()).toBe(a);
     expect(await wait.textContent()).toBe(w);
     expect(await page.locator('[data-since]').evaluateAll((els) => els.map((e) => e.textContent))).toEqual(ticking);
@@ -100,6 +105,7 @@ test('the open decision of a stopped run is shown greyed in the drawer and is no
 });
 
 test('waiting on a person while a decider holds the decisions is a failed KPI with its stops; a person-held run stays neutral', async ({page}) => {
+  await page.clock.install();
   for (const vp of GATING) {
     await page.setViewportSize(vp);
     // held: the settings record gives the decisions to the decider; the person stop is open
@@ -122,7 +128,7 @@ test('waiting on a person while a decider holds the decisions is a failed KPI wi
     await expect(page.locator('#now .now-sub')).toHaveText(/^not live, last activity [\d: APM]+$/);
     const clocks = () => page.locator('#now .tk, #kpis .kt.k-time').allTextContents();
     const before = await clocks();
-    await page.waitForTimeout(2100);
+    await page.clock.runFor(61000);
     expect(await clocks()).toEqual(before);
     await page.screenshot({path: path.join(shots, `${vp.name}-held.png`)});
     // the stop links to its event

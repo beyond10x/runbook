@@ -6,9 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const runDirs = new Set();
+// the lengths of the registered run directories: a directory above a path is looked up only at a length one has
+const runLengths = new Set();
 
 // a run directory the server was given or found; the owner of a path is the longest one it lies under
-export const registerRun = (dir) => { runDirs.add(path.resolve(dir)); };
+export const registerRun = (dir) => { const d = path.resolve(dir); runDirs.add(d); runLengths.add(d.length); };
 
 export const within = (child, root) => child === root || child.startsWith(root + path.sep);
 
@@ -17,12 +19,14 @@ export const within = (child, root) => child === root || child.startsWith(root +
 export const servedUnder = (root, rel) => { const abs = path.join(root, rel); return within(abs, root) ? abs : null; };
 
 // the longest registered run directory `abs` lies under: the first one met going up, so the cost does not
-// grow with the number of runs the server knows
+// grow with the number of runs the server knows. Going up moves from separator to separator in the one string, and a
+// directory is cut out and looked up only where a run directory of that length is registered: a path thousands of
+// characters deep (a case nested in cases) costs a scan of its characters, not a new string and its hash per level.
 function ownerOf(abs) {
-  for (let d = abs; ; d = path.dirname(d)) {
-    if (runDirs.has(d)) return d;
-    if (d === path.dirname(d)) return null;
+  for (let end = abs.length; end > 0; end = abs.lastIndexOf(path.sep, end - 1)) {
+    if (runLengths.has(end)) { const d = abs.slice(0, end); if (runDirs.has(d)) return d; }
   }
+  return runDirs.has(path.sep) ? path.sep : null;
 }
 
 // Test option of the server (--count-reads): the reads of run files by run, counted where a file's content is
