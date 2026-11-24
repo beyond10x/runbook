@@ -90,7 +90,7 @@ fn walk_limit(v: &mut Value, limit: u64) -> bool {
 pub fn largest_call_budget(dir: &Path) -> Result<Option<u64>, String> {
     let mut best = None;
     for file in yaml_files(dir)? {
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = crate::loom_run::record_write::read_regular_text(&file)?;
         let v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         walk_largest(&v, &mut best);
     }
@@ -100,7 +100,7 @@ pub fn largest_call_budget(dir: &Path) -> Result<Option<u64>, String> {
 /// Lowers every per-call budget in the bindings copy `dir` to at most `micro_usd`.
 pub fn limit_call_budgets(dir: &Path, micro_usd: u64) -> Result<(), String> {
     for file in yaml_files(dir)? {
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = crate::loom_run::record_write::read_regular_text(&file)?;
         let mut v: Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if walk_limit(&mut v, micro_usd) {
             let out = serde_yaml::to_string(&v).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -137,16 +137,16 @@ mod tests {
     }
 
     #[test]
-    fn limiting_replaces_a_link_at_a_bindings_file_and_writes_nothing_outside() {
+    fn limiting_refuses_a_link_at_a_bindings_file_and_writes_nothing_outside() {
         let d = dir("link");
         let outside = d.join("outside.yaml");
         std::fs::write(&outside, BINDINGS).unwrap();
         std::fs::create_dir(d.join("bindings")).unwrap();
         std::os::unix::fs::symlink(&outside, d.join("bindings/sdc.yaml")).unwrap();
-        limit_call_budgets(&d.join("bindings"), 300_000).unwrap();
+        let refused = limit_call_budgets(&d.join("bindings"), 300_000).unwrap_err();
+        assert!(refused.contains("sdc.yaml"), "{refused}");
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), BINDINGS, "the file the link points at was written");
-        assert!(std::fs::symlink_metadata(d.join("bindings/sdc.yaml")).unwrap().is_file());
-        assert_eq!(largest_call_budget(&d.join("bindings")).unwrap(), Some(300_000));
+        assert!(std::fs::symlink_metadata(d.join("bindings/sdc.yaml")).unwrap().file_type().is_symlink(), "the link was replaced by a file the run never read");
     }
 
     #[test]
