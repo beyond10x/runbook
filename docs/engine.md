@@ -109,6 +109,12 @@ it, with each control character read as a space (a failure is cleaned before it 
 out by its absolute form only, so a word of a reason that spells it stays (`engine::hide`,
 `daemon::copy_integrity::names_of_paths`).
 
+The daemon makes `--state-dir` and `--runbook-home` absolute once, at its start, before anything is built
+from them (the current directory joined, no link resolved): Loom takes only an absolute store, so every path
+the engine builds and passes to it is absolute. A directory that cannot be made absolute (the daemon has no
+current directory) refuses the start, and the refusal names no path
+(`daemon::copy_integrity::relative_state_directory`).
+
 The check is a read before a call, not a guard around each program. Inside one round a bound program at
 confinement `local` is unconfined: it can change the copy, and a later program of the same round runs
 the changed bytes. The next check ends the run, and the digest the run recorded is then not what ran in
