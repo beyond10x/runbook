@@ -146,12 +146,10 @@ pub fn router_full(daemon: Daemon, token: Option<&str>, streams: Streams, closin
     if ui {
         router = router.merge(Router::new().route("/ui/login", post(crate::ui_embed::login)).with_state(auth.clone()));
     }
-    let router = router.layer(middleware::from_fn_with_state(drain_daemon, drain_header));
     let router = router.layer(middleware::from_fn_with_state(auth, auth::guard));
-    if ui {
-        return router.layer(middleware::from_fn(crate::ui_embed::login_form));
-    }
-    router
+    let router = if ui { router.layer(middleware::from_fn(crate::ui_embed::login_form)) } else { router };
+    // Outermost, so that an answer of the guard (401, 403) or of the login form carries the header too.
+    router.layer(middleware::from_fn_with_state(drain_daemon, drain_header))
 }
 
 /// How streams behave: the interval of the keep-alive comment and the most events a live stream may

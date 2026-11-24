@@ -425,12 +425,14 @@ impl Daemon {
     /// The daemon ends now with runs still live (a second stop signal, or the drain bound): it stops
     /// reporting for them, and each run that is `Running` or `WaitingOnDecision` ends as `orphaned` with an
     /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn.
-    /// No thread is joined: `stop` does that.
-    pub fn orphan_live_runs(&self) {
+    /// No thread is joined: `stop` does that. The number of runs that were live and are ended now.
+    pub fn orphan_live_runs(&self) -> usize {
         self.inner.stopping.store(true, Ordering::SeqCst);
-        for run_id in self.live_runs() {
-            let _ = self.end_orphaned_run_because(&run_id, ORPHANED_AT_STOP);
+        let live = self.live_runs();
+        for run_id in &live {
+            let _ = self.end_orphaned_run_because(run_id, ORPHANED_AT_STOP);
         }
+        live.len()
     }
 
     /// The runs the record holds as live when the daemon starts. Submitted: the specification has
@@ -522,7 +524,7 @@ impl Daemon {
         draining_fault(&self.st())?;
         let run_id = uuid::Uuid::now_v7().to_string();
         let confinement = input.confinement.unwrap_or(Confinement::Linux);
-        let refused =|name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
+        let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("submit-run", name, payload)) };
         // The two facts the specification takes from the host.
         let runbook_known = self.runbook_known(&input.runbook_id, input.runbook_version.as_deref());
         let context = input.context_path.as_deref().map(|p| self.context_under_roots(p));

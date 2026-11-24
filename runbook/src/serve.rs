@@ -161,31 +161,39 @@ impl StopSignals {
     }
 }
 
+/// A line on standard error that never fails the caller: standard error may be a closed pipe (a `| tee`
+/// that ended), and a write to it must not stop the drain.
+fn note(line: std::fmt::Arguments) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "{line}");
+}
+
 /// How the daemon stops. The first signal begins the drain (`Daemon::begin_drain`): a submit is refused,
 /// reads and decisions are served, and the live runs go on. The future ends, and with it the server, when no
 /// run is live (`daemon.drained`), or at once on a second signal or when `bound` has run out; then every
-/// live run ends as orphaned with the event that the daemon was stopped while it ran.
-async fn stop_after_drain(daemon: Daemon, bound: Option<Duration>, mut signals: StopSignals) {
+/// live run ends as orphaned with the event that the daemon was stopped while it ran. It gives the number of
+/// runs it ended as orphaned.
+async fn stop_after_drain(daemon: Daemon, bound: Option<Duration>, mut signals: StopSignals) -> usize {
     signals.next().await;
     let live = match daemon.begin_drain() {
         Ok(live) => live,
         Err(e) => {
-            eprintln!("runbook serve: the journal could not record the drain: {e:?}");
-            daemon.orphan_live_runs();
-            return;
+            note(format_args!("runbook serve: the journal could not record the drain: {e:?}"));
+            return daemon.orphan_live_runs();
         }
     };
     if !live.is_empty() {
-        eprintln!("runbook: draining: {} live run(s) go on to their end and no new run is taken; a second signal stops at once", live.len());
+        note(format_args!("runbook: draining: {} live run(s) go on to their end and no new run is taken; a second signal stops at once", live.len()));
     }
     let mut changes = daemon.subscribe();
-    let deadline = bound.map(|b| tokio::time::Instant::now() + b);
+    // A bound that overflows an instant is no bound.
+    let deadline = bound.and_then(|b| tokio::time::Instant::now().checked_add(b));
     loop {
         if daemon.live_runs().is_empty() {
             if let Err(e) = daemon.finish_drain() {
-                eprintln!("runbook serve: the journal could not record the end of the drain: {e:?}");
+                note(format_args!("runbook serve: the journal could not record the end of the drain: {e:?}"));
             }
-            return;
+            return 0;
         }
         let bound_over = async {
             match deadline {
@@ -196,16 +204,16 @@ async fn stop_after_drain(daemon: Daemon, bound: Option<Duration>, mut signals: 
         tokio::select! {
             _ = changes.changed() => {}
             () = signals.next() => {
-                eprintln!("runbook: stopped at once on a second signal: the live runs end as orphaned");
+                note(format_args!("runbook: stopped at once on a second signal: the live runs end as orphaned"));
                 break;
             }
             () = bound_over => {
-                eprintln!("runbook: stopped at once: the drain bound ran out: the live runs end as orphaned");
+                note(format_args!("runbook: stopped at once: the drain bound ran out: the live runs end as orphaned"));
                 break;
             }
         }
     }
-    daemon.orphan_live_runs();
+    daemon.orphan_live_runs()
 }
 
 /// How the stop ended: the runs it left orphaned, and whether the stop future itself failed.
@@ -215,12 +223,36 @@ pub struct StopEnd {
     pub failed: bool,
 }
 
-/// Run `stop` (it gives the number of runs it orphaned). Not yet guarded: a panic in it goes on.
-pub async fn guarded_stop(_daemon: &Daemon, stop: impl std::future::Future<Output = usize> + Send + 'static) -> StopEnd {
-    StopEnd { orphaned: stop.await, failed: false }
+/// Run `stop` (it gives the number of runs it orphaned) on a task of its own. A panic in it is caught: every
+/// live run is ended as orphaned with the reason that the daemon was stopped while it ran, and the end says
+/// the stop failed. A stop that dies must not leave the process holding runs it will not wait for.
+pub async fn guarded_stop(daemon: &Daemon, stop: impl std::future::Future<Output = usize> + Send + 'static) -> StopEnd {
+    match tokio::spawn(stop).await {
+        Ok(orphaned) => StopEnd { orphaned, failed: false },
+        Err(e) => {
+            note(format_args!("runbook serve: the stop failed ({e}): the live runs end as orphaned"));
+            StopEnd { orphaned: daemon.orphan_live_runs(), failed: true }
+        }
+    }
 }
 
-/// Run the daemon until SIGINT or SIGTERM and then the end of its drain. Exit 1 when the start is refused.
+/// The exit code of `runbook serve` when it was stopped while at least one run was live and each such run
+/// ended as orphaned (a second signal, `--drain-seconds`, or a stop that failed). 0 is a stop that left no
+/// run behind; 1 is a start that was refused or a server that failed; 64 and 2 are the usage errors.
+pub const EXIT_ORPHANED: u8 = 75;
+
+/// The code `serve` exits with, given how it ended.
+fn exit_code(served: &Result<(), String>, end: StopEnd) -> ExitCode {
+    match served {
+        Err(_) => ExitCode::from(1),
+        Ok(()) if end.orphaned > 0 => ExitCode::from(EXIT_ORPHANED),
+        Ok(()) if end.failed => ExitCode::from(1),
+        Ok(()) => ExitCode::SUCCESS,
+    }
+}
+
+/// Run the daemon until SIGINT or SIGTERM and then the end of its drain. Exit 1 when the start is refused,
+/// `EXIT_ORPHANED` when the stop left a live run orphaned, else 0.
 pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
     let prepared = match prepare(&args, &Env::from_process(), presets) {
         Ok(p) => p,
@@ -243,20 +275,35 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| format!("cannot listen on {addr}: {e}"))?;
         let bound = listener.local_addr().map_err(|e| e.to_string())?;
         if args.runtime == "loom" {
-            eprintln!("runbook: this daemon runs the Loom runtime: runs execute through Loom in this process");
+            note(format_args!("runbook: this daemon runs the Loom runtime: runs execute through Loom in this process"));
         } else {
-            eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
+            note(format_args!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed"));
         }
         println!("runbook: listening on http://{bound}");
         let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
-        let stopping = stop_after_drain(daemon.clone(), args.drain_seconds.map(Duration::from_secs), signals);
-        api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, stopping).await.map_err(|e| e.to_string())
+        let end = Arc::new(std::sync::Mutex::new(StopEnd { orphaned: 0, failed: false }));
+        let stopping = {
+            let (daemon, end) = (daemon.clone(), end.clone());
+            let bound = args.drain_seconds.map(Duration::from_secs);
+            async move {
+                let how = guarded_stop(&daemon, stop_after_drain(daemon.clone(), bound, signals)).await;
+                *end.lock().unwrap_or_else(|p| p.into_inner()) = how;
+            }
+        };
+        let served = api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, stopping).await.map_err(|e| e.to_string());
+        let how = *end.lock().unwrap_or_else(|p| p.into_inner());
+        Ok::<_, String>((served, how))
     });
     daemon.stop();
     match served {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok((served, how)) => {
+            if let Err(e) = &served {
+                note(format_args!("runbook serve: {e}"));
+            }
+            exit_code(&served, how)
+        }
         Err(e) => {
-            eprintln!("runbook serve: {e}");
+            note(format_args!("runbook serve: {e}"));
             ExitCode::from(1)
         }
     }
