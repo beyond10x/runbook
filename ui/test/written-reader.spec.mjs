@@ -547,7 +547,9 @@ test('the Products tab redraws when only the count of names past the link bound 
   fs.mkdirSync(outside, {recursive: true});
   const dir = await make('pageredraw', {written: [], extra: []}, (d) => {
     fs.symlinkSync(outside, path.join(d, 'work/l'));
-    append(d, [change(900, `${'l/'.repeat(30)}deep.txt`, {text: 'd\n', step: 3})]);
+    put(path.join(d, 'work/ok.txt'), 'o\n');
+    // an action name cut at 256 characters makes the answer `cut: "strings"` before and after, so `cut` does not move with linkCut
+    append(d, [change(900, `${'l/'.repeat(30)}deep.txt`, {text: 'd\n', step: 3}), change(901, 'ok.txt', {text: 'o\n', step: 3, action: 'x'.repeat(300)})]);
   });
   await page.setViewportSize({width: 1600, height: 1000});
   await page.goto(`${servers.pageredraw.url}/?run=run`);
@@ -555,13 +557,13 @@ test('the Products tab redraws when only the count of names past the link bound 
   await page.locator('#tabs button[data-tab=products]').click();
   await expect(page.locator('#panel .prod-groups')).toBeVisible();
   const before = await products('pageredraw');
-  expect([before.json.leftOut, before.json.linkCut], 'the name is left out behind a link that leaves the run, not for its links').toEqual([1, 0]);
+  expect([before.json.leftOut, before.json.linkCut, before.json.cut], 'the name is left out behind a link that leaves the run, not for its links').toEqual([1, 0, 'strings']);
   await expect(page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/})).toHaveCount(0);
   // the same name, now past the link bound: leftOut stays 1 and no file changes, only linkCut moves
   fs.unlinkSync(path.join(dir, 'work/l'));
   fs.symlinkSync('.', path.join(dir, 'work/l'));
   const after = await products('pageredraw');
-  expect([after.json.leftOut, after.json.linkCut]).toEqual([1, 1]);
+  expect([after.json.leftOut, after.json.linkCut, after.json.cut, after.json.files.length]).toEqual([1, 1, 'strings', before.json.files.length]);
   // a change of the record file is what makes the page ask again (at most every 1.5 s); a late line changes no file of the list
   const notes = () => page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/}).count();
   await expect.poll(async () => { append(dir, [late(900, 'again')]); return notes(); }, {timeout: 20000, intervals: [1600]}).toBe(1);
