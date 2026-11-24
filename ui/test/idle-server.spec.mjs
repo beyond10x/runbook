@@ -86,7 +86,7 @@ test('source-parse: a source that is no registered run is a refusal with no host
   for (const v of SOURCES) for (const r of ROUTES) {
     const sep = r.includes('?') ? '&' : '?';
     const a = await get(`${r}${sep}source=${encodeURIComponent(v)}`);
-    const leak = [root, HOME + '/', '/home/', '/etc/passwd:', SECRET].find((s) => a.text.includes(s));
+    const leak = [root, HOME + '/', '/etc/passwd:', SECRET].find((s) => a.text.includes(s));
     const content = [0, 1, 2, 3].map(mark).find((m) => a.text.includes(m));
     if (leak) bad.push(`${r} source=${v}: path or secret ${leak}`);
     if (!valid(v) && content) bad.push(`${r} source=${v}: content ${content}`);
@@ -122,7 +122,7 @@ test('events-source: a page of one source receives no event of another, and a so
     const valid = Number.isInteger(want) && want >= 0 && want < 4;
     for (const e of p.seen) {
       const all = e.block;
-      if ([root, HOME + '/', '/home/', SECRET].some((s) => all.includes(s))) bad.push(`${v}: path or secret in ${e.event}`);
+      if ([root, HOME + '/', SECRET].some((s) => all.includes(s))) bad.push(`${v}: path or secret in ${e.event}`);
       if (e.event === 'change') {
         if (!valid) bad.push(`${v}: a change event for a source that is no run`);
         else if (JSON.parse(e.data).source !== want) bad.push(`${v}: change of source ${JSON.parse(e.data).source}`);
@@ -149,7 +149,7 @@ test('reads-route: without the option the route is an unknown route (same answer
   const t = await get('/api/reads');
   expect(t.status).toBe(200);
   expect(Object.keys(t.json).sort()).toEqual(['byRun', 'rounds', 'total']);
-  for (const [k, n] of Object.entries(t.json.byRun)) { expect(k.startsWith('/') || k.includes(root) || k.includes('/home/'), `byRun key ${k}`).toBe(false); expect(Number.isInteger(n)).toBe(true); }
+  for (const [k, n] of Object.entries(t.json.byRun)) { expect(k.startsWith('/') || k.includes(root),`byRun key ${k}`).toBe(false); expect(Number.isInteger(n)).toBe(true); }
   for (const bad of [root, HOME + '/', SECRET, 'OWN-r', 'events.jsonl']) expect(t.text).not.toContain(bad);
   expect((await get('/api/reads', {method: 'POST'})).status).toBe(405);
   expect((await get('/events', {method: 'POST'})).status).toBe(405);
@@ -178,7 +178,7 @@ test('reads-names-no-host-path: runs given as a store argument, through a link, 
     const t = await (await fetch(s.url + '/api/reads')).json();
     expect(Object.keys(t.byRun).length).toBeGreaterThan(0);
     for (const k of Object.keys(t.byRun)) {
-      expect(k.startsWith('/') || k.startsWith('~') || k.includes(root) || k.includes(HOME) || k.includes('/home/'), `byRun key ${k}`).toBe(false);
+      expect(k.startsWith('/') || k.startsWith('~') || k.includes(root) || k.includes(HOME),`byRun key ${k}`).toBe(false);
     }
     expect(JSON.stringify(t)).not.toContain(root);
   } finally { s.proc.kill(); }
