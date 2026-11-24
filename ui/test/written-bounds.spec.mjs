@@ -9,11 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeWrittenRun, change} from './written-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'written-bounds');
+const root = path.join(FIXTURE_DIR, 'written-bounds');
 const SECRET = 'OUTSIDE-THE-RUN-SECRET-b04d';
 const servers = {};
 

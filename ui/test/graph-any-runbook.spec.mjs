@@ -7,11 +7,12 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeLoomRun, EXAMPLE_VIEW, ACTIONS, ARTIFACTS} from './loom-run-fixture.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'graph-any-runbook');
+const root = path.join(FIXTURE_DIR, 'graph-any-runbook');
 let srv, base, sources;
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own server, one viewport'));

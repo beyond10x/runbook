@@ -13,7 +13,7 @@
 // token and the floor `local`), `refusing` (a runbook that goes away under the page) and `loom` (the Loom
 // runtime over the fixture runbook home of the engine tests, only listed from, never run).
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
+import {spawnChild, SERVE_CAPS} from './child.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -30,7 +30,7 @@ let dir;
 function start(name, args = [], env = {}) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state'), ...args], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawnChild(bin, ['serve', ...SERVE_CAPS, '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state'), ...args], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });

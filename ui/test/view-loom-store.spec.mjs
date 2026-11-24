@@ -7,10 +7,11 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'view-loom-store');
+const root = path.join(FIXTURE_DIR, 'view-loom-store');
 const PROTOCOL = 'example@1';
 const VIEW = {
   format: 'runbook.view/1',

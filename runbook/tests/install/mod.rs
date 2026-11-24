@@ -157,23 +157,6 @@ fn stat_line(p: &Path) -> String {
     format!("{} {} {ns}\n", p.display(), m.len())
 }
 
-fn stat_tree(dir: &Path, into: &mut String) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.file_name().is_some_and(|n| n == "node_modules" || n == "target" || n == "runs") {
-            continue;
-        }
-        if p.is_dir() {
-            stat_tree(&p, into);
-        } else if let Ok(m) = fs::symlink_metadata(&p) {
-            let ns = m.modified().map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()).unwrap_or(0);
-            into.push_str(&format!("{} {} {ns}\n", p.display(), m.len()));
-        }
-    }
-}
-
 /// The key of the shared prefix: the script, the built files it takes (path, size, time) and the asset sources.
 fn key() -> String {
     let mut h = Sha256::new();
@@ -182,12 +165,76 @@ fn key() -> String {
     for n in HELPERS {
         h.update(stat_line(&built("debug", n)));
     }
-    let mut tree = String::new();
-    for d in ["protocol", "scripts", "driver/examples/sdc", "bindings", "instructions", "views", "cycles", "tools", "ui"] {
-        stat_tree(&repo().join(d), &mut tree);
-    }
-    h.update(tree);
+    h.update(assets_digest(&repo()));
     h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// The directories whose files the script installs as assets.
+const ASSET_DIRS: [&str; 9] = ["protocol", "scripts", "driver/examples/sdc", "bindings", "instructions", "views", "cycles", "tools", "ui"];
+
+/// The asset sources of the checkout at `root`, as they enter the key: the files of `ASSET_DIRS` that git tracks (the
+/// script copies those and no other), each by its name and its bytes (a link by its target), read from the work tree as
+/// the script reads them.
+fn assets_digest(root: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let o = Command::new("git")
+        .args(["ls-files", "-z", "--"])
+        .args(ASSET_DIRS)
+        .current_dir(root)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .envs(NO_SYSTEM_GIT)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "git ls-files in {}: {}", root.display(), err(&o));
+    let mut h = Sha256::new();
+    for name in o.stdout.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        let p = root.join(std::ffi::OsStr::from_bytes(name));
+        h.update(name);
+        h.update([0]);
+        let body = match fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_symlink() => [b"link ".as_slice(), fs::read_link(&p).unwrap().as_os_str().as_bytes()].concat(),
+            Ok(m) if m.is_file() => [b"file ".as_slice(), &fs::read(&p).unwrap()].concat(),
+            _ => b"absent".to_vec(),
+        };
+        h.update((body.len() as u64).to_le_bytes());
+        h.update(&body);
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The key moves with what the script would copy and with nothing else, so no case removes the prefix another case is
+/// reading while the gate's other steps write beside the tests: a file under `ui/screenshots` (git-ignored, written by
+/// the UI step), an untracked file and a tracked file written again with the same bytes and a new time (the protocol
+/// checks write `protocol/compiled` on every run) leave it; a change of the bytes of a tracked file moves it.
+#[test]
+fn the_key_of_the_shared_prefix_moves_with_the_bytes_of_the_tracked_assets_only() {
+    let root = scratch("key-assets");
+    let git = |args: &[&str]| {
+        let o = Command::new("git").args(args).current_dir(&root).env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").envs(NO_SYSTEM_GIT).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", err(&o));
+    };
+    let put = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    git(&["init", "-q"]);
+    put(".gitignore", "ui/screenshots/\n");
+    put("ui/web/app.js", "app\n");
+    put("protocol/compiled/a.ir.json", "{}\n");
+    git(&["add", "-A"]);
+    let before = assets_digest(&root);
+    put("ui/screenshots/390x844-mobile.png", "png");
+    assert_eq!(assets_digest(&root), before, "a git-ignored file written under ui/");
+    put("ui/web/new.js", "new\n");
+    assert_eq!(assets_digest(&root), before, "an untracked file written under ui/");
+    put("protocol/compiled/a.ir.json", "{}\n");
+    let file = fs::File::options().write(true).open(root.join("protocol/compiled/a.ir.json")).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(86_400)).unwrap();
+    assert_eq!(assets_digest(&root), before, "a tracked file written again with the same bytes and another time");
+    put("protocol/compiled/a.ir.json", "{\"a\":1}\n");
+    assert_ne!(assets_digest(&root), before, "a tracked file with other bytes");
 }
 
 /// The prefix made from the debug builds, built by the first caller under a lock, read by every other.

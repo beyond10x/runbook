@@ -7,6 +7,9 @@
 //   - pages that connect and leave leave no timer, stream or descriptor, and the idle server uses no CPU;
 //   - the clock branch is turned on by SDC_CLOCK_DIR, not by an argument, and the README says so;
 //   - the static route serves nothing outside web/.
+// The shared server runs a round each 100 ms (--round-ms) where it runs one each 700 ms; the windows that look at rounds are the
+// same number of rounds as before (a round and a half for late events, two and a half for a counter that stands), and the
+// idle case waits for the server to report no page and no timer of the rounds (GET /api/rounds) where it slept a second.
 // Fixtures only, invented text, no network beyond loopback. The servers listen on ports the kernel gives.
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
@@ -69,7 +72,7 @@ test.beforeAll(async ({}, info) => {
     put(path.join(runDir(i), 'work', 'own.txt'), `${mark(i)}\n`);
     put(path.join(runDir(i), 'work', 'swap.txt'), `${mark(i)} swap\n`);
   }
-  ({url: base, proc: srv} = await startServer(['--count-reads', '--no-view', '--runs', path.join(root, 'runs')]));
+  ({url: base, proc: srv} = await startServer(['--count-reads', '--round-ms', '100', '--no-view', '--runs', path.join(root, 'runs')]));
   pid = await srv.started;
 });
 
@@ -115,7 +118,7 @@ test('events-source: a page of one source receives no event of another, and a so
     put(path.join(c, 'case.json'), JSON.stringify({id: `LEAKCASE-r${i}`}));
   }
   await until('rounds', async () => (await reads()).rounds >= before + 4);
-  await sleep(800);
+  await sleep(150);
   const bad = [];
   for (const [v, p] of pages) {
     const want = Number(v);
@@ -261,9 +264,9 @@ test('idle-handles: 200 pages that connect and leave leave no timer, no stream a
     if (!waitHello) setTimeout(() => { req.destroy(); ok(); }, 1);
   });
   for (let b = 0; b < 10; b++) await Promise.all(Array.from({length: 20}, (_, k) => one(k % 2 === 0, b * 20 + k)));
-  await sleep(1000);
+  await until('every page gone and the timer of the rounds cleared', async () => { const s = await (await fetch(`${base}/api/rounds`)).json(); return s.pages === 0 && !s.running; });
   const r1 = (await reads()).rounds;
-  await sleep(1700);
+  await sleep(250);
   const r2 = (await reads()).rounds;
   const fd1 = fds(pid);
   const c0 = cpuTicks(pid);

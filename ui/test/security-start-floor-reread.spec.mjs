@@ -6,7 +6,7 @@
 // Daemons of this file's own (stub runtime, no token), ended by their handle. Invented texts; no model call; no
 // request beyond 127.0.0.1.
 import {test, expect as plain} from '@playwright/test';
-import {spawnChild} from './child.mjs';
+import {spawnChild, SERVE_CAPS} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -33,7 +33,7 @@ test.afterAll(() => {
 function serve(listen, floor) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, 'empty'), {recursive: true});
-    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', listen, '--state-dir', path.join(dir, 'state'), '--min-confinement', floor], {cwd: path.join(dir, 'empty'), env: {...process.env, HOME: dir, RUNBOOK_TOKEN: ''}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawnChild(bin, ['serve', ...SERVE_CAPS, '--ui', '--principal', 'agent:test-daemon', '--listen', listen, '--state-dir', path.join(dir, 'state'), '--min-confinement', floor], {cwd: path.join(dir, 'empty'), env: {...process.env, HOME: dir, RUNBOOK_TOKEN: ''}, stdio: ['ignore', 'pipe', 'pipe']});
     procs.push(proc);
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);

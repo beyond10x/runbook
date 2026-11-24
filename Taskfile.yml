@@ -7,30 +7,36 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier, the ESS specification and its generated output and the planning store.
+    desc: "Build, test and lint driver, watch, goals and runbook: the test steps of the driver, of runbook and of ui/ and check:steps (the steps that need no result of a test step), side by side; then the protocol checks (fast lane), bindings and fixture cases. check-protocols.sh and evaluate-cases.sh write protocol/compiled/ by a redirection, which cuts a file to nothing before it is written again, and tests of the driver and of runbook and the servers the UI specs start read those files: the writers start when the readers have ended."
     deps:
       - test:driver
       - test:runbook
       - test:ui
+      - check:steps
+    cmds:
+      - task: check:protocols
+      - scripts/check-bindings.sh
+      - scripts/evaluate-cases.sh
+
+  check:steps:
+    desc: "The steps of task check that need no result of a test step and write nothing a test reads, one after another, beside the test steps: the CI change classifier, the ESS specification and its generated output, the cycles suite, the unreferenced files, build and clippy (warnings denied) of driver, watch, goals and runbook, the tests of watch and goals, and the planning store."
     cmds:
       - task: check:ci-paths
       - task: check:ess-generated
       - task: check:cycles-suite
       - task: check:unreferenced
-      - task: check:protocols
-      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
-      - for c in watch goals; do (cd "$c" && cargo test --locked) || exit 1; done
-      - scripts/check-bindings.sh
-      - scripts/evaluate-cases.sh
+      - exec >> /dev/stdout 2>> /dev/stderr; for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - exec >> /dev/stdout 2>> /dev/stderr; for c in watch goals; do (cd "$c" && cargo nextest run --locked --color never) || exit 1; done
       - task: plan
 
   test:ui:
     dir: ui
-    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes its output and its errors into a pipe of its own that cat drains: node turns a pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest). Every step of `task check` that prints the output of a runner opens the output again (`>> /dev/stdout`, `exec >> /dev/stdout 2>> /dev/stderr`): an open file of its own, which stays blocking whatever turns the shared one non-blocking."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
-      - slot npx playwright test --workers=4
+      - set -o pipefail; slot npx playwright test --workers=4 2>&1 | cat >> /dev/stdout
+      - ../scripts/check-tree-links.sh
 
   test:loom-real:
     desc: "Slow lane of runbook/: the stub cycle through runbook run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
@@ -116,6 +122,7 @@ tasks:
       - cargo nextest run --locked --color never --no-run
       - |
         set -u
+        exec >> /dev/stdout 2>> /dev/stderr
         log=target/nextest-driver.log
         code=0
         cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
@@ -141,6 +148,7 @@ tasks:
       - cargo nextest run --locked --color never --no-run
       - |
         set -u
+        exec >> /dev/stdout 2>> /dev/stderr
         log=target/nextest-runbook.log
         code=0
         trap_dir=$(cd ../scripts/host-tool-traps && pwd)
