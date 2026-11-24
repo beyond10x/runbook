@@ -76,7 +76,33 @@ beyond `ess specify validate`, `cargo` or `slot` (a compile, a synthesis, a test
 build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `cmp` or an
 `sdc-findings` or `sdc-bugfix` check, which end in seconds, and keep Loom's 60 s. A `person`,
 `open` or `copy` binding runs no program and names none; an `arguments_from` argv (`list-epics`,
-`list-stories`, `spec-domain`: `aep` or `yq` over files) runs under its binding's timeout.
+`list-stories`, `spec-domain`: `aep` or `yq` over files) runs under its binding's timeout, at most 3600 s.
+
+The limits (Loom 0.61.0, `story:bound-program-timeout-above-an-hour`; Loom refuses the bindings file at
+load past them, `TimeoutOutOfRange`):
+
+- A `program` binding's `timeout_seconds` is from 1 to 14400 (`MAX_PROGRAM_TIMEOUT_SECONDS`). Past
+  3600 s the program gets 3600/`timeout_seconds` of one core (a 14400 s step gets a quarter of a core),
+  so a longer limit buys waiting time, not more CPU time than an hour of one core.
+- Every other executor keeps 1 to 3600 (`MAX_TIMEOUT_SECONDS`); Loom's words past it: `<n> is not from
+  1 to 3600; only a program executor may name up to 14400`. A program past 14400: `<n> is not from 1 to
+  14400, the range of a program executor`.
+- A binding's `handoff_when` check and its `arguments_from` program run under the binding's
+  `timeout_seconds` but at most 3600 s, whatever the binding names; `LOOM_TIMEOUT_SECONDS` tells each
+  the limit it runs under. Loom does not refuse a `handoff_when` beside a `timeout_seconds` above 3600:
+  the check keeps the hour.
+- `runbook check` names a `timeout_seconds` past its executor's range in Loom's words
+  (`runbook/src/check.rs`, `timeout_defect`). The cases: `check::tests` in `runbook/src/check.rs` and
+  the two `inproc` cases of `runbook/tests/loom_run/inproc.rs` (a program at 14400 runs and its
+  `handoff_when` check gets 3600; 14401 and a person step at 3601 are refused at the opening).
+
+A run killed at its timeout gives the value `timeout`, and from Loom 0.61.0 only a `timeout` row of
+the table matches it, never `*` (`story:wildcard-result-row-does-not-match-timeout`): a table with a
+`*` row and no `timeout` row ends such a run `ResultNotInTable`, and the case may stop `Stuck`. Every
+program binding of `bindings/*.yaml` and of the test fixtures whose table has a `*` row has a `timeout`
+row with the result `*` gave before (`failed`, `invalid`, `open`, ...), and the JSON copies in
+`driver/examples/sdc/` name it as well, so `scripts/check-bindings.sh` compares equal tables; that
+script takes `timeout` as a key of a `from: exit` table beside the exit codes and `*`.
 
 | Value | Bindings | Why |
 |---|---|---|
@@ -84,7 +110,7 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:245`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 3000, 3000, 4200 (3600 in `bindings/sdc-bugfix.yaml`: Loom refuses more, `TimeoutOutOfRange`) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
+| 3000, 3000, 4200 (4200 in `bindings/sdc-bugfix.yaml` since Loom 0.61.0; it was held at 3600 while Loom refused more) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |

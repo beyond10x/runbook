@@ -103,6 +103,18 @@ fn a_binding_of_another_runbook_without_exits_error_is_the_one_line_named() {
     assert_eq!(out, "FAIL exits\n  bindings/example.yaml bare.action: exits.error is [], want [75,126,127] or [69,70,75,126,127]\n", "{err}");
 }
 
+/// Loom 0.61.0: a run killed at its timeout matches only a `timeout` row of a `from: exit` table, never
+/// `*` (`story:wildcard-result-row-does-not-match-timeout`). The key `timeout` is a value Loom reads beside
+/// the exit codes, so the check takes it as it takes `*`: no shape line, no `jq` error, the exits step passes.
+#[test]
+fn a_timeout_row_of_a_result_table_read_from_the_exit_passes_as_loom_reads_it() {
+    let doc = "format: loom.bindings/1\nprotocol: example@1\nactions:\n  - action: run.action\n    executor: {kind: program, argv: [tools/x.sh]}\n    exits: {error: [75, 126, 127]}\n    evidence:\n      - {kind: k, subject: s, producer: p, from: exit, results: {\"0\": passed, timeout: failed, \"*\": failed}}\n";
+    let o = outside_root("timeout-row-passes", doc);
+    let (out, err) = said(&o);
+    assert_eq!((o.status.code(), out.as_str()), (Some(0), "pass exits\n"), "{err}");
+    assert!(!err.contains("jq:"), "{err}");
+}
+
 fn waiting_action(name: &str, exits: &str) -> String {
     format!("  - action: {name}\n    executor: {{kind: program, argv: [tools/x.sh, --pool-wait, \"600\"]}}\n    exits: {exits}\n")
 }

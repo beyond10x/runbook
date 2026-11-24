@@ -22,6 +22,7 @@
     "producer": "ess",
     "results": {
       "0": "passed",
+      "timeout": "failed",
       "*": "failed"
     }
   },
@@ -68,6 +69,7 @@
     "producer": "aep",
     "results": {
       "0": "valid",
+      "timeout": "invalid",
       "*": "invalid"
     }
   },
@@ -85,6 +87,7 @@
     "results": {
       "0": "covered",
       "5": "finding",
+      "timeout": "uncovered",
       "*": "uncovered"
     }
   },
@@ -98,6 +101,7 @@
     "producer": "aep",
     "results": {
       "0": "scoped",
+      "timeout": "unassessed",
       "*": "unassessed"
     }
   },
@@ -111,6 +115,7 @@
     "producer": "aep",
     "results": {
       "0": "active",
+      "timeout": "draft",
       "*": "draft"
     }
   },

@@ -18,7 +18,7 @@ actions:
         subject: notes
         producer: notes-check
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: notes.stage
     executor:
       kind: program
@@ -28,7 +28,7 @@ actions:
         subject: notes
         producer: notes-stage
         from: exit
-        results: {"0": staged, "*": failed}
+        results: {"0": staged, timeout: failed, "*": failed}
   - action: notes.review
     executor:
       kind: person

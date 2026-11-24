@@ -1160,35 +1160,35 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "bc189ac10a964921d6f53ecc9f82dc1d1a9f20f3d9f427e5272d68ff9c045b3e"
+      "sha256": "1f960c242f9fba61a8b44406b1452fef538d8858c2a0a8ace91fba7d67cf9520"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
-      "sha256": "473e1f311bab1c25ebecb942ae26c7abf4eaeea9d6dea459afcaf3ec093071d5"
+      "sha256": "ca81af1f64c003886ca21a94f3c27f96b0d5febb8d186d5d663e1a7f78057177"
     },
     {
       "path": "driver/examples/sdc/sdc-epic.bindings.json",
-      "sha256": "bfb85fa11598ecf3626306483a4ce3b9c5ffc0c26ed661debbabee14e6653950"
+      "sha256": "0816899a608b8fd86a4cc6fe97ed1cc8f5942d2ac25d74766ffc23b7f1ce8777"
     },
     {
       "path": "driver/examples/sdc/sdc-intake.bindings.json",
-      "sha256": "5ba45f21fe655d5ccd29267b7f5f50db97e6231d225ed44e9a011e9e237b39ed"
+      "sha256": "5a37ef6fc26330cafeec54c6572da73ae9ff7d3f39213add1ece12cf2e3740c6"
     },
     {
       "path": "driver/examples/sdc/sdc-plan.bindings.json",
-      "sha256": "fb42ea5ef208966bb4e55438c31e52c72eb431a16a5fb4444ab7e53c7e2e9001"
+      "sha256": "88dbfb5a60f5ad2a77d93efc1fff9bb949efe14d3defbfd14036397672289fe5"
     },
     {
       "path": "driver/examples/sdc/sdc-release.bindings.json",
-      "sha256": "8b1df1abbd41f7f3cf5a7f9ed712f6a08803ab9d8605d2ecaac12ee0253cb95a"
+      "sha256": "0366dea665c8f02b19fdc886c76f63bd1ba5d17c7f396ad4e20b77f8a1284431"
     },
     {
       "path": "driver/examples/sdc/sdc-spec.bindings.json",
-      "sha256": "bed9e75d6b158320c4c155a68e3466cd1d31ab76e1af0c479adf7aed93c616bd"
+      "sha256": "db86bec8419c2b6e1978f84d3a1b86a8a95e7b8eff3322447a64461c207e172b"
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "029b815adc647d0b802b33246ec1f5e948d328f017dc526c45fbbb8db497bbbe"
+      "sha256": "ebb8acb160e338bb90084028fd8e340e25c3a8537fb7ad81039bc7a7ca3d3f78"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",

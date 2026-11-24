@@ -54,7 +54,8 @@
         "program": "sdc-tool.sh bugfix dissection-check",
         "results": {
           "*": "invalid",
-          "0": "valid"
+          "0": "valid",
+          "timeout": "invalid"
         }
       },
       "name": "dissection.check",
@@ -147,7 +148,8 @@
         "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
         "results": {
           "*": "not_red",
-          "0": "red"
+          "0": "red",
+          "timeout": "not_red"
         },
         "timeout_s": 3000
       },
@@ -230,7 +232,8 @@
         "program": "sdc-tool.sh bugfix tests-run --pool-wait 1200",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         },
         "timeout_s": 3000
       },
@@ -322,7 +325,8 @@
         "program": "sdc-tool.sh bugfix gate-run --pool-wait 1200",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         },
         "timeout_s": 4200
       },

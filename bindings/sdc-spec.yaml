@@ -45,7 +45,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": valid, "*": invalid}
+        results: {"0": valid, timeout: invalid, "*": invalid}
   - action: spec.compile
     executor:
       kind: program
@@ -57,7 +57,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": compiled, "*": refused}
+        results: {"0": compiled, timeout: refused, "*": refused}
   - action: spec.scan
     executor:
       kind: program
@@ -68,7 +68,7 @@ actions:
         subject: spec
         producer: grep
         from: exit
-        results: {"0": none, "*": present}
+        results: {"0": none, timeout: present, "*": present}
   - action: spec.synthesize
     executor:
       kind: program
@@ -80,7 +80,7 @@ actions:
         subject: spec
         producer: ess
         from: exit
-        results: {"0": clean, "*": refused}
+        results: {"0": clean, timeout: refused, "*": refused}
   - action: spec.trace
     executor:
       kind: program
@@ -92,7 +92,7 @@ actions:
         subject: spec
         producer: sdc-check
         from: exit
-        results: {"0": traced, "5": finding, "*": untraced}
+        results: {"0": traced, "5": finding, timeout: untraced, "*": untraced}
   - action: spec.review
     executor:
       kind: program
@@ -103,7 +103,7 @@ actions:
         subject: spec
         producer: reviewer-stub
         from: exit
-        results: {"0": approved, "*": rejected}
+        results: {"0": approved, timeout: rejected, "*": rejected}
   - action: amend.upstream
     executor:
       kind: program

@@ -11,7 +11,8 @@
         "program": "sdc-tool.sh ess-gate",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         }
       },
       "name": "spec.gate",
@@ -68,7 +69,8 @@
         "program": "sdc-tool.sh conform-run release --pool-wait 1200",
         "results": {
           "*": "failed",
-          "0": "passed"
+          "0": "passed",
+          "timeout": "failed"
         },
         "timeout_s": 2400
       },
@@ -160,7 +162,8 @@
         "program": "sdc-tool.sh observe",
         "results": {
           "*": "unhealthy",
-          "0": "healthy"
+          "0": "healthy",
+          "timeout": "unhealthy"
         }
       },
       "name": "release.observe",
