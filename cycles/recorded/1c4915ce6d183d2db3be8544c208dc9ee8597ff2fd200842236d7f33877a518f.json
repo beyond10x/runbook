@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--test",
+    "last_page",
+    "--",
+    "--exact",
+    "last_partial_page_is_shown"
+  ],
+  "exit": 0,
+  "format": "sdc.recorded-pool/1",
+  "stderr": "   Compiling pager v0.1.0 ({dir})\n    Finished `test` profile [unoptimized] target(s) in 0.00s\n     Running tests/last_page.rs ({target}/debug/deps/last_page-af05de030b7d2b22)\n",
+  "stdout": "\nrunning 1 test\ntest last_partial_page_is_shown ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+}
