@@ -11,6 +11,7 @@ pub mod cost;
 pub mod engine;
 pub mod ledger;
 pub mod mcp;
+pub mod runbooks;
 pub mod runtime;
 pub mod serve;
 pub mod state;

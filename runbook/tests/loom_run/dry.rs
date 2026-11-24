@@ -168,7 +168,7 @@ fn the_adapter_in_the_settings_is_refused_with_the_flag_and_dry_is_refused_witho
 fn the_required_options_stay_required_with_dry() {
     let w = World::new("dry-required");
     settings_without_login(&w, &json!({}));
-    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement", "--spend-ledger"] {
+    for flag in ["--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds", "--confinement"] {
         let mut a = dry_args(&w, "r1");
         let i = a.iter().position(|x| x == flag).unwrap();
         a.drain(i..i + 2);
@@ -437,6 +437,7 @@ impl Inproc {
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", "/marker-home-dir")
             .stdin(Stdio::null());
+        crate::isolate(&mut c);
         c.output().unwrap()
     }
 }

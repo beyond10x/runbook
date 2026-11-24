@@ -21,6 +21,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 fn cli_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> Output {
     let mut c = Command::new(BIN);
     c.args(args).env_clear().env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
+    crate::isolate(&mut c);
     for (k, v) in env {
         c.env(k, v);
     }
@@ -149,9 +150,9 @@ fn run_without_detach_runs_in_process_and_names_the_options_it_lacks() {
     let o = cli_in(&dir, &["run", "sdc", "--intake", "i"], &[], None);
     assert_eq!(code(&o), 64);
     let text = err(&o);
-    for flag in ["--run", "--runs-dir", "--confinement", "--settings", "--spend-ledger", "--cap-micro-usd", "--max-llm-calls", "--max-wall-seconds"] {
-        assert!(text.contains(flag), "{flag} is not named: {text}");
-    }
+    // the run, the directory of the runs, the settings and the ledger have defaults now; the confinement has none
+    assert!(text.contains("--confinement") && text.contains("confinement = ") && text.contains("runbook.toml"), "the first value that is not stated is not named with its line: {text}");
+    assert!(!text.contains("--runs-dir") && !text.contains("--settings") && !text.contains("--spend-ledger"), "{text}");
     assert!(!text.contains("waits for"), "{text}");
     assert_eq!(out(&o), "");
 }

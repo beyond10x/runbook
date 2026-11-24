@@ -148,6 +148,7 @@ impl World {
             .env("SDC_SECRET_MARKER", "marker-secret-value")
             .env("ANTHROPIC_API_KEY", "marker")
             .stdin(Stdio::null());
+        crate::isolate(&mut c);
         c
     }
 
@@ -268,8 +269,9 @@ fn the_child_environment_is_built_and_not_inherited() {
     for call in &calls {
         let keys: Vec<&str> = call.env.iter().map(|(k, _)| k.as_str()).collect();
         for k in &keys {
-            assert!(["PATH", "HOME", "XDG_DATA_HOME", "PWD", "SHLVL", "_", "OLDPWD"].contains(k), "unexpected variable {k} in {keys:?}");
+            assert!(["PATH", "HOME", "XDG_DATA_HOME", "RUNBOOK_NO_CONFIG", "PWD", "SHLVL", "_", "OLDPWD"].contains(k), "unexpected variable {k} in {keys:?}");
         }
+        assert!(call.env.iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a program of the run is not told to read no runbook.toml: {keys:?}");
         let text = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n");
         for marker in ["marker-secret-value", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
             assert!(!text.contains(marker), "{marker} reached the child: {text}");

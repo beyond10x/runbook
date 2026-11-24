@@ -23,6 +23,8 @@ pub enum Source {
     Env,
     Installed,
     Checkout,
+    /// A directory of the `runbooks` list of `runbook.toml` (`runbooks.rs`).
+    Configured,
 }
 
 impl Source {
@@ -31,6 +33,7 @@ impl Source {
             Source::Env => "RUNBOOK_HOME",
             Source::Installed => "installed (share/runbook)",
             Source::Checkout => "checkout",
+            Source::Configured => "runbooks of runbook.toml",
         }
     }
 }
@@ -85,6 +88,10 @@ pub const LAYOUT: &[Part] = &[
     Part { name: "bindings/tools/sdc-tool.sh", path: "bindings/tools/sdc-tool.sh", shape: Shape::Program, by: "every runbook: the tool the story and plan nodes run" },
     Part { name: "bindings/tools/llm-adapter-claude-cli.sh", path: "bindings/tools/llm-adapter-claude-cli.sh", shape: Shape::Program, by: "every runbook: the adapter that runs the claude CLI" },
 ];
+
+/// The parts of `LAYOUT` a runbook directory of `runbook.toml` has (`runbooks.rs`); the others are the
+/// built-in set's: its scripts, the inspector, the cycles and the programs its bindings run.
+pub const DIRECTORY_PARTS: [&str; 3] = ["protocol/", "bindings/", "bindings/*.yaml"];
 
 impl Part {
     /// Why the part is not there, in a few words.

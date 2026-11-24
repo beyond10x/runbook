@@ -39,6 +39,7 @@ printf '%s\\n' \"$@\" > .seed-args
 pwd > .seed-cwd
 ls ../store > .seed-store 2>&1
 date +%s > .seed-time
+env > .seed-env
 case $2 in
   --ticket) { echo 'ticket:'; echo '  id: PAGER-7'; sed 's/^/# /' \"$3\"; } > bug.yaml ;;
   --from) printf 'text: %s\\n' \"$5\" > bug.yaml; printf 'story: %s\\n' \"$7\" >> bug.yaml ;;
@@ -108,6 +109,7 @@ impl Rig {
             .env_clear()
             .env("PATH", path_dirs)
             .env("HOME", "/marker-home-dir")
+            .env("RUNBOOK_CONFIG", crate::empty_config())
             .env("RUNBOOK_HOME", self.root.join("fx"))
             .stdin(Stdio::null())
             .output()
@@ -188,6 +190,18 @@ fn a_ticket_seeds_the_root_case_before_the_tree_opens() {
     let settings: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir().join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["case"], "BUG-1", "{settings}");
     assert_eq!(settings["root_protocol"], "sdc-bugfix@1", "{settings}");
+}
+
+#[test]
+fn the_seed_helper_gets_no_walk_of_runbook_toml_and_nothing_of_the_runners_environment() {
+    // docs/loom-run.md: the runner gives RUNBOOK_NO_CONFIG to the programs it starts itself, the seed helper
+    // of `--bugfix` among them, so a `runbook` the helper starts reads no file of the work tree it seeds
+    let rig = Rig::new("seed-env");
+    let o = rig.run(&rig.args("sdc-bugfix", &["--bugfix-ticket", &rig.p("ticket.yaml")]));
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let dump = rig.seen(".seed-env");
+    assert!(dump.lines().any(|l| l == "RUNBOOK_NO_CONFIG=1"), "the seed helper got no RUNBOOK_NO_CONFIG=1; its environment:\n{dump}");
+    assert!(!dump.contains("marker-home-dir") && !dump.contains("RUNBOOK_CONFIG="), "the seed helper got the runner's own environment:\n{dump}");
 }
 
 #[test]
@@ -357,6 +371,7 @@ fn real_run(scratch: &Path, name: &str, extra: &[&str]) -> Output {
         .env_clear()
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
+        .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("RUNBOOK_HOME", &root)
         .stdin(Stdio::null())
         .output()

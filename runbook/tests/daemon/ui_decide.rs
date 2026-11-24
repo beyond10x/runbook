@@ -165,6 +165,7 @@ impl Daemon {
         let mut cmd = Command::new(BIN);
         cmd.args(["serve", "--ui", "--listen", "127.0.0.1:0", "--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env_remove("RUNBOOK_TOKEN").env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::isolate(&mut cmd);
         let mut child = cmd.spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();

@@ -73,6 +73,7 @@ impl Rig {
     fn command(&self, args: &[String], path: &str) -> Command {
         let mut c = Command::new(BIN);
         c.args(args).env_clear().env("PATH", path).env("RUNBOOK_HOME", self.root.join("fx")).stdin(Stdio::null());
+        crate::isolate(&mut c);
         c
     }
 

@@ -90,6 +90,7 @@ fn the_dry_run_of_sdc_from_the_prefix_ends_as_the_same_run_of_the_checkout_build
             .env_clear()
             .env("PATH", path)
             .env("HOME", &w)
+            .env("RUNBOOK_NO_CONFIG", "1")
             .current_dir(&w)
             .stdin(Stdio::null())
             .output()

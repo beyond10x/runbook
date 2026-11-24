@@ -457,7 +457,10 @@ fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
         if flag {
             args.push("--mcp");
         }
-        let mut child = Command::new(BIN).args(&args).env_remove("RUNBOOK_TOKEN").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut cmd = Command::new(BIN);
+        cmd.args(&args).env_remove("RUNBOOK_TOKEN").stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::isolate(&mut cmd);
+        let mut child = cmd.spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let addr: SocketAddr = line.trim().strip_prefix("runbook: listening on http://").unwrap_or_else(|| panic!("{line:?}")).parse().unwrap();
