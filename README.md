@@ -170,11 +170,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.9.3`; nothing is published to crates.io. The latest is 0.9.3 (2026-11-24).
+`0.10.0`; nothing is published to crates.io. The latest is 0.10.0 (2026-11-24).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.9.3 over 0.9.2 (nothing is unreleased): Loom `d8944d49` is linked, in which a rejection gives an
+- New in 0.10.0 over 0.9.3 (nothing is unreleased): a `runbook.toml` supplies the defaults of `runbook run` and names
+  the directories runbooks are loaded from; a daemon run is never unbound, takes an autonomy level and a decider and
+  records the step in flight; a binding names the per-call budget of its programs; the Products tab lists what the run
+  wrote. Two changes are breaking: the daemon has no built-in confinement (start it with `--default-confinement`, or
+  name `confinement` in the submit), and `runbook run` has no money limit built in. No evaluation run was made on this
+  code ([docs/releases/0.10.0.md](docs/releases/0.10.0.md)).
+- New in 0.9.3 over 0.9.2: Loom `d8944d49` is linked, in which a rejection gives an
   action a new allowance of runs (`budget.runs_per`, `budget.rework_limit`, `budget.rework_on`; `change.implement`
   of the story runbook uses it), `runbook check` and `scripts/check-bindings.sh` refuse by name what Loom refuses in
   a `budget`, and the inspector does no work while no page looks at it. Nothing is breaking. No evaluation run was
