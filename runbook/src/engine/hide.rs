@@ -114,6 +114,7 @@ impl EventSink for HidingSink<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
 
     #[test]
@@ -127,5 +128,61 @@ mod tests {
         assert_eq!(hide.text("no path here"), "no path here");
         let record = hide.value(serde_json::json!({"a": ["/h/home/b/c", 3], "b": {"c": "/s/runs/r1/x"}}));
         assert_eq!(record, serde_json::json!({"a": ["b/c", 3], "b": {"c": "x"}}));
+    }
+
+    #[derive(Default)]
+    struct Catch {
+        records: std::sync::Mutex<Vec<(String, Value)>>,
+        requests: std::sync::Mutex<Vec<DecisionRequest>>,
+    }
+
+    impl EventSink for Catch {
+        fn started(&self) {}
+        fn record(&self, kind: &str, record: Value) {
+            self.records.lock().unwrap().push((kind.to_string(), record));
+        }
+        fn decision_requested(&self, request: DecisionRequest) {
+            self.requests.lock().unwrap().push(request);
+        }
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn a_record_and_the_options_of_a_question_reach_the_sink_without_the_directory() {
+        let hide = Hide::new(&[&PathBuf::from("/s/runs/r1"), &PathBuf::from("/h/home")]);
+        let catch = Catch::default();
+        let sink = HidingSink { inner: &catch, hide: &hide };
+        sink.record("note", serde_json::json!({"file": "/s/runs/r1/protocol/x.yaml", "list": ["/h/home/bindings/a"], "n": 2}));
+        sink.decision_requested(DecisionRequest {
+            request_id: "q1".into(),
+            case_id: "c".into(),
+            action: "act".into(),
+            capability: "approve".into(),
+            question: "is /s/runs/r1/out right".into(),
+            options: vec![serde_json::json!({"answer": "approve", "label": "keep /h/home/bindings/a"}), serde_json::json!("/s/runs/r1")],
+        });
+        assert_eq!(*catch.records.lock().unwrap(), vec![("note".to_string(), serde_json::json!({"file": "protocol/x.yaml", "list": ["bindings/a"], "n": 2}))]);
+        let requests = catch.requests.lock().unwrap();
+        assert_eq!(requests[0].question, "is out right");
+        assert_eq!(requests[0].options, vec![serde_json::json!({"answer": "approve", "label": "keep bindings/a"}), serde_json::json!(".")]);
+        assert_eq!((requests[0].request_id.as_str(), requests[0].action.as_str()), ("q1", "act"));
+    }
+
+    #[test]
+    fn a_directory_whose_name_has_a_control_character_a_quote_or_a_mark_is_hidden_as_every_step_spells_it() {
+        let dir = PathBuf::from("/s/st\tate\"\\/x\u{301}\n");
+        let hide = Hide::new(&[&dir]);
+        assert_eq!(hide.text("read /s/st\tate\"\\/x\u{301}\n/runs/r/f"), "read runs/r/f");
+        assert_eq!(hide.text("read /s/st ate\"\\/x\u{301} /runs/r/f"), "read runs/r/f");
+        assert_eq!(hide.text("file \"/s/st\\tate\\\"\\\\/x\\u{301}\\n/runs/r/f\": bad"), "file \"runs/r/f\": bad");
+        let bytes = PathBuf::from(std::ffi::OsStr::from_bytes(b"/s/st\xFFate"));
+        let hide = Hide::new(&[&bytes]);
+        assert_eq!(hide.text("a /s/st\u{FFFD}ate/f and \"/s/st\\xFFate/g\""), "a f and \"g\"");
+    }
+
+    #[test]
+    fn a_directory_given_as_a_relative_word_rewrites_no_word_of_a_reason() {
+        let hide = Hide::new(&[&PathBuf::from("home"), &PathBuf::from("state")]);
+        assert_eq!(hide.text("a link that leaves the runbook home in the state of things"), "a link that leaves the runbook home in the state of things");
     }
 }

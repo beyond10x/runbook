@@ -1945,3 +1945,585 @@ fn no_record_of_a_run_names_a_path_into_the_runs_directory() {
     assert!(!seen.contains(runs.to_str().unwrap()), "a record names a path under the runs directory");
     assert!(!seen.contains(rig.home.to_str().unwrap()), "a record names a path of the home");
 }
+
+/// What leaves the engine toward a client names no path of the state directory and no path of the
+/// runbook home, whatever the names of those directories are.
+mod names_of_paths {
+    use super::super::state::scratch;
+    use runbook::commands::{AnswerDecision, CancelRun, Config, Daemon, SubmitRun};
+    use runbook::engine::Engine;
+    use super::journal_before_hand_over::config;
+    use runbook::runtime::Confinement;
+    use serde_json::Value;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    const RUNBOOK: &str = "engine-demo";
+
+    fn fresh(tag: &str) -> PathBuf {
+        std::fs::canonicalize(scratch(&format!("names-of-paths-{tag}"))).unwrap()
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    /// A daemon over the real engine whose state directory and runbook home have the names given. `token` is a
+    /// piece of the path of both that nothing a client reads may hold.
+    struct Rig {
+        dir: PathBuf,
+        home: PathBuf,
+        state: PathBuf,
+        ctx: PathBuf,
+        d: Daemon,
+        token: String,
+    }
+
+    /// A leaf of a path: the bytes, and whether the path goes through a link to a directory of its own.
+    struct Leaf {
+        bytes: &'static [u8],
+        link: bool,
+    }
+
+    const fn leaf(bytes: &'static [u8]) -> Leaf {
+        Leaf { bytes, link: false }
+    }
+
+    impl Rig {
+        fn new(tag: &str, state: &Leaf, home: &Leaf) -> Rig {
+            let dir = fresh(tag);
+            let place = |leaf: &Leaf, real: &str| -> PathBuf {
+                let named = dir.join(OsStr::from_bytes(leaf.bytes));
+                if leaf.link {
+                    let target = dir.join(real);
+                    std::fs::create_dir_all(&target).unwrap();
+                    std::os::unix::fs::symlink(&target, &named).unwrap();
+                }
+                named
+            };
+            let home_path = place(home, "real-home");
+            let state_path = place(state, "real-state");
+            copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home_path);
+            let binding = home_path.join("bindings/engine-draft.yaml");
+            let text = std::fs::read_to_string(&binding).unwrap().replace("principal: reviewer", &format!("principal: {}", super::super::PRINCIPAL));
+            std::fs::write(&binding, text).unwrap();
+            let ctx = fresh(&format!("{tag}-ctx"));
+            let engine = Arc::new(Engine::with_levels(home_path.clone(), state_path.clone(), &[Confinement::Local, Confinement::Linux]));
+            let cfg = Config { state_dir: state_path.clone(), confinement_floor: Confinement::Local, context_roots: vec![ctx.clone()], runbook_dir: None, principal: super::super::PRINCIPAL.into() };
+            let token = dir.file_name().unwrap().to_string_lossy().into_owned();
+            Rig { dir, home: home_path, state: state_path, ctx, d: Daemon::start(cfg, engine).unwrap(), token }
+        }
+
+        fn row(&self, run: &str) -> Value {
+            self.d.run_detail(run)[0].clone()
+        }
+
+        fn state_of(&self, run: &str) -> String {
+            self.row(run)["state"].as_str().unwrap().to_string()
+        }
+
+        fn over(&self, run: &str) -> bool {
+            matches!(self.state_of(run).as_str(), "Ended" | "Cancelled" | "FailedToStart")
+        }
+
+        fn until(&self, what: &str, secs: u64, mut done: impl FnMut(&Rig) -> bool) {
+            let limit = Instant::now() + Duration::from_secs(secs);
+            while !done(self) {
+                assert!(Instant::now() < limit, "gave up waiting for {what}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        fn seen(&self, run: &str) -> String {
+            format!("{} {:?} {:?}", self.row(run), self.d.events_after(run, 0), self.d.decisions_of_run(run))
+        }
+
+        /// Answers what the run asks until it is over or `secs` have passed (then the run is cancelled).
+        fn settle(&self, run: &str, secs: u64) {
+            let mut answered = std::collections::BTreeSet::new();
+            let limit = Instant::now() + Duration::from_secs(secs);
+            while !self.over(run) {
+                if Instant::now() > limit {
+                    let _ = self.d.cancel_run(CancelRun { run_id: run.into() });
+                    break;
+                }
+                for d in self.d.open_decisions_of_run(run) {
+                    let id = d["request_id"].as_str().unwrap().to_string();
+                    if !answered.insert(id.clone()) {
+                        continue;
+                    }
+                    let review = d["options"].as_array().unwrap().iter().any(|o| o["answer"].as_str().is_some_and(|a| a.contains("result")));
+                    let (answer, who) = if review { ("performed", "reviewer") } else { ("approve", "owner") };
+                    let _ = self.d.answer_decision(AnswerDecision { run_id: run.into(), request_id: id, answer: answer.into(), answered_by: who.into() });
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// What a client reads of one submit that fails in the way `kind` says.
+        fn client_reads(&self, kind: &str) -> String {
+            self.client_reads_as_texts(kind).0
+        }
+
+        /// What a client reads of one submit that fails in the way `kind` says: once as one text of the
+        /// Debug form of the records, once as the plain texts the records hold.
+        fn client_reads_as_texts(&self, kind: &str) -> (String, Vec<String>) {
+            let mut context = None;
+            match kind {
+                "protocol-not-yaml" => std::fs::write(self.home.join("protocol/zz.protocol.yaml"), "protocol: [unclosed\n").unwrap(),
+                "idea-is-a-directory" => {
+                    std::fs::create_dir_all(self.ctx.join("c/idea.yaml")).unwrap();
+                    context = Some(self.ctx.join("c").to_str().unwrap().to_string());
+                }
+                "link-out" => {
+                    let outside = self.dir.join("outside-file");
+                    std::fs::write(&outside, "x").unwrap();
+                    std::os::unix::fs::symlink(&outside, self.home.join("bindings/tools/leak.sh")).unwrap();
+                }
+                other => panic!("{other}"),
+            }
+            let o = self.d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), context_path: context, ..SubmitRun::default() }).unwrap();
+            let mut texts = Vec::new();
+            if o.is_refusal() {
+                texts.extend(o.error.map(str::to_string));
+                texts.extend(o.payload.iter().flat_map(strings_of));
+                texts.extend(o.published.iter().flat_map(|(name, v)| std::iter::once(name.to_string()).chain(strings_of(v))));
+                return (format!("{o:?}"), texts);
+            }
+            let run = o.run_id.clone().unwrap();
+            self.until("the run to be over", 40, |me| me.over(&run));
+            texts.extend(strings_of(&self.row(&run)));
+            texts.extend(self.d.events_after(&run, 0).iter().flat_map(strings_of));
+            texts.extend(self.d.decisions_of_run(&run).iter().flat_map(strings_of));
+            (self.seen(&run), texts)
+        }
+    }
+
+    /// Every key and every text a value holds, as they are and not escaped.
+    fn strings_of(value: &Value) -> Vec<String> {
+        match value {
+            Value::String(s) => vec![s.clone()],
+            Value::Array(items) => items.iter().flat_map(strings_of).collect(),
+            Value::Object(map) => map.iter().flat_map(|(k, v)| std::iter::once(k.clone()).chain(strings_of(v))).collect(),
+            _ => vec![],
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            self.d.stop();
+        }
+    }
+
+    /// What in `seen` names the rig's paths, or nothing.
+    fn leaked(rig: &Rig, kind: &str, seen: &str) -> Option<String> {
+        let at = seen.find(rig.token.as_str())?;
+        let from = seen[..at].char_indices().rev().nth(60).map_or(0, |(i, _)| i);
+        let to = (at + 160).min(seen.len());
+        let to = (to..=seen.len()).find(|i| seen.is_char_boundary(*i)).unwrap_or(seen.len());
+        Some(format!("{kind}: the token of the path is in what a client reads: ...{}...", &seen[from..to]))
+    }
+
+    fn names_leave_nothing(tag: &str, state: &Leaf, home: &Leaf) -> Vec<String> {
+        let mut bad = Vec::new();
+        for kind in ["protocol-not-yaml", "idea-is-a-directory", "link-out"] {
+            let rig = Rig::new(&format!("{tag}-{kind}"), state, home);
+            let seen = rig.client_reads(kind);
+            if let Some(why) = leaked(&rig, kind, &seen) {
+                bad.push(why);
+            }
+        }
+        bad
+    }
+
+    fn assert_clean(what: &str, bad: Vec<String>) {
+        assert!(bad.is_empty(), "{what}: {} of 3 failures name the path:\n{}", bad.len(), bad.join("\n"));
+    }
+
+    /// Every way a text can spell `path`: as the file system names it (lossy where it is not UTF-8), with
+    /// each control character replaced by a space, and as Rust's `Debug` escapes it, of each of those.
+    fn forms_of(path: &Path) -> Vec<String> {
+        let mut forms = spellings_of(path);
+        if let Ok(real) = std::fs::canonicalize(path) {
+            forms.extend(spellings_of(&real));
+        }
+        forms.sort();
+        forms.dedup();
+        forms
+    }
+
+    fn spellings_of(path: &Path) -> Vec<String> {
+        let escaped = |s: &str| {
+            let quoted = format!("{s:?}");
+            quoted[1..quoted.len() - 1].to_string()
+        };
+        let lossy = path.to_string_lossy().into_owned();
+        let cleaned: String = lossy.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        let debug_path = format!("{path:?}");
+        let mut forms = vec![lossy.clone(), cleaned.clone(), escaped(&lossy), escaped(&cleaned), debug_path[1..debug_path.len() - 1].to_string()];
+        let escaped_then_cleaned: String = escaped(&lossy).chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        forms.push(escaped_then_cleaned);
+        forms
+    }
+
+    #[test]
+    fn no_form_of_the_state_directory_or_the_home_reaches_a_client_whatever_the_names_are() {
+        let table: [(&str, Leaf, Leaf); 14] = [
+            ("tab", leaf(b"st\tate"), leaf(b"ho\tme")),
+            ("newline", leaf(b"st\nate"), leaf(b"ho\nme")),
+            ("carriage return", leaf(b"st\rate"), leaf(b"ho\rme")),
+            ("c1 control", leaf("st\u{85}ate".as_bytes()), leaf("ho\u{9b}me".as_bytes())),
+            ("delete", leaf(b"st\x7fate"), leaf(b"ho\x7fme")),
+            ("quote", leaf(b"st\"ate"), leaf(b"ho\"me")),
+            ("backslash", leaf(b"st\\ate"), leaf(b"ho\\me")),
+            ("combining mark", leaf("st\u{301}ate".as_bytes()), leaf("ho\u{301}me".as_bytes())),
+            ("space", leaf(b"st ate  dir"), leaf(b"ho me x")),
+            ("not utf-8", leaf(b"st\xFFate"), leaf(b"ho\xFEme")),
+            ("prefix of another", leaf(b"st"), leaf(b"st-home")),
+            ("another is its prefix", leaf(b"h-state"), leaf(b"h")),
+            ("linked directories", Leaf { bytes: b"link-state", link: true }, Leaf { bytes: b"link-home", link: true }),
+            ("tab and quote below a link", Leaf { bytes: b"l\t\"k-state", link: true }, Leaf { bytes: b"l\t\"k-home", link: true }),
+        ];
+        let mut bad = Vec::new();
+        for (n, (what, state, home)) in table.iter().enumerate() {
+            for kind in ["protocol-not-yaml", "idea-is-a-directory", "link-out"] {
+                let rig = Rig::new(&format!("forms-{n}-{kind}"), state, home);
+                let (seen, texts) = rig.client_reads_as_texts(kind);
+                if let Some(why) = leaked(&rig, &format!("{what}/{kind}"), &seen) {
+                    bad.push(why);
+                }
+                for (dir, name) in [(&rig.state, "state directory"), (&rig.home, "home")] {
+                    for form in forms_of(dir) {
+                        if let Some(text) = texts.iter().find(|t| t.contains(form.as_str())) {
+                            bad.push(format!("{what}/{kind}: the {name} as {form:?} is in the text {:?}", text.chars().take(240).collect::<String>()));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{} of {} failures name a path:\n{}", bad.len(), table.len() * 3, bad.join("\n"));
+    }
+
+    #[test]
+    fn a_state_directory_with_a_tab_in_its_name_leaves_no_path_in_a_failure() {
+        assert_clean("tab", names_leave_nothing("tab", &leaf(b"st\tate"), &leaf(b"home")));
+    }
+
+    #[test]
+    fn a_state_directory_with_a_newline_in_its_name_leaves_no_path_in_a_failure() {
+        assert_clean("newline", names_leave_nothing("nl", &leaf(b"st\nate"), &leaf(b"home")));
+    }
+
+    #[test]
+    fn a_state_directory_with_a_quote_and_a_backslash_in_its_name_leaves_no_path_in_a_failure() {
+        assert_clean("quote and backslash", names_leave_nothing("quote", &leaf(b"st\"at\\e"), &leaf(b"home")));
+    }
+
+    #[test]
+    fn a_state_directory_with_a_combining_mark_in_its_name_leaves_no_path_in_a_failure() {
+        assert_clean("combining mark", names_leave_nothing("comb", &leaf("st\u{301}ate".as_bytes()), &leaf(b"home")));
+    }
+
+    #[test]
+    fn a_state_directory_and_a_home_that_are_not_utf8_leave_no_path_in_a_failure() {
+        assert_clean("not UTF-8", names_leave_nothing("bytes", &leaf(b"st\xFFate"), &leaf(b"ho\xFEme")));
+    }
+
+    #[test]
+    fn a_home_given_as_a_relative_name_leaves_the_words_of_a_reason_as_they_are() {
+        // `runbook serve --runbook-home home`: the engine's home is the relative path `home`. What the engine
+        // takes out of a text is the path, not every word that spells it.
+        let dir = fresh("relative");
+        let home = dir.join("home");
+        copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
+        let binding = home.join("bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&binding).unwrap().replace("principal: reviewer", &format!("principal: {}", super::super::PRINCIPAL));
+        std::fs::write(&binding, text).unwrap();
+        let outside = dir.join("outside-file");
+        std::fs::write(&outside, "x").unwrap();
+        std::os::unix::fs::symlink(&outside, home.join("bindings/tools/leak.sh")).unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let engine = Arc::new(Engine::with_levels(PathBuf::from("home"), dir.join("state"), &[Confinement::Local, Confinement::Linux]));
+        let d = Daemon::start(config(&dir), engine).unwrap();
+        let run = d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+        let limit = Instant::now() + Duration::from_secs(40);
+        while !matches!(d.run_detail(&run)[0]["state"].as_str(), Some("FailedToStart" | "Ended")) {
+            assert!(Instant::now() < limit, "the run did not end");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let seen = format!("{} {:?}", d.run_detail(&run)[0], d.events_after(&run, 0));
+        d.stop();
+        assert!(seen.contains("a link that leaves the runbook home"), "a word of the reason was taken for the path: {seen}");
+    }
+
+    #[test]
+    fn a_home_with_a_tab_and_a_space_and_a_state_directory_with_spaces_leave_no_path_in_a_failure() {
+        assert_clean("spaces", names_leave_nothing("space", &leaf(b"st ate  dir"), &leaf(b"ho\tme x")));
+    }
+
+    #[test]
+    fn a_state_directory_and_a_home_reached_through_links_leave_no_path_in_a_failure() {
+        assert_clean("links", names_leave_nothing("link", &Leaf { bytes: b"link-state", link: true }, &Leaf { bytes: b"link-home", link: true }));
+    }
+
+    #[test]
+    fn a_path_that_is_a_prefix_of_another_leaves_no_path_in_a_failure() {
+        assert_clean("prefix", names_leave_nothing("prefix-a", &leaf(b"st"), &leaf(b"st-home")));
+        assert_clean("prefix reversed", names_leave_nothing("prefix-b", &leaf(b"h-state"), &leaf(b"h")));
+        assert_clean("home inside state", names_leave_nothing("nested", &leaf(b"st"), &leaf(b"st/home")));
+        assert_clean("state inside home", names_leave_nothing("nested-b", &leaf(b"home/state"), &leaf(b"home")));
+    }
+
+    #[test]
+    fn a_program_that_names_its_own_paths_leaves_no_path_in_what_the_run_reports() {
+        let rig = Rig::new("program", &leaf(b"state"), &leaf(b"home"));
+        let say = "#!/bin/sh\necho \"program $0 in $PWD, workspace $PWD.\" >&2\necho \"out $0 in $PWD.\"\n";
+        std::fs::write(rig.home.join("bindings/tools/draft-check.sh"), format!("{say}[ -s draft.txt ]\n")).unwrap();
+        let run = rig.d.submit_run(SubmitRun { runbook_id: RUNBOOK.into(), intake: "a note on tea".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+        rig.settle(&run, 20);
+        let seen = rig.seen(&run);
+        if let Some(why) = leaked(&rig, "program", &seen) {
+            panic!("{why}");
+        }
+    }
+}
+
+/// The daemon hands an answer to a run only after its journal holds the line, and takes the line back
+/// when the run refuses the answer.
+mod journal_before_hand_over {
+    use super::super::state::scratch;
+    use runbook::commands::{AnswerDecision, Config, Daemon, SubmitRun};
+    use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest, EventSink, Finish, Recovery, Runtime, RuntimeFailure, RunbookInfo, StartRequest};
+    use serde_json::Value;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    fn fresh(tag: &str) -> PathBuf {
+        std::fs::canonicalize(scratch(&format!("journal-{tag}"))).unwrap()
+    }
+
+    // ---- the journal line comes before the run is handed the answer ----
+
+    /// A runtime of one run with two requests. The first answer makes it fail (it keeps the failure to itself
+    /// until `release`, so that a late answer reaches the daemon after the runtime has failed); `kill` ends the
+    /// process the moment the daemon hands it an answer.
+    struct Gate {
+        state: Mutex<GateState>,
+        kill: bool,
+    }
+
+    #[derive(Default)]
+    struct GateState {
+        dead: bool,
+        first: bool,
+        release: bool,
+        delivered: Vec<String>,
+    }
+
+    impl Gate {
+        fn new(kill: bool) -> Arc<Gate> {
+            Arc::new(Gate { state: Mutex::new(GateState::default()), kill })
+        }
+
+        fn wait_for(&self, what: &str, f: impl Fn(&GateState) -> bool) {
+            let limit = Instant::now() + Duration::from_secs(20);
+            while !f(&self.state.lock().unwrap()) {
+                assert!(Instant::now() < limit, "gave up waiting for {what}");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+
+    impl Runtime for Gate {
+        fn recover(&self, _run_id: &str) -> Recovery {
+            Recovery::Gone
+        }
+        fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool {
+            runbook == "book" && version.is_none()
+        }
+        fn runbooks(&self) -> Vec<RunbookInfo> {
+            vec![RunbookInfo { name: "book".into(), version: None }]
+        }
+        fn kind(&self) -> &'static str {
+            "stub"
+        }
+        fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
+            sink.started();
+            for which in ["a", "b"] {
+                sink.decision_requested(DecisionRequest { request_id: format!("{}-{which}", request.run_id), case_id: "c".into(), action: "act".into(), capability: "approve".into(), question: "q".into(), options: vec![] });
+            }
+            if self.kill {
+                while !cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                return Ok(Finish::Cancelled);
+            }
+            self.wait_for("the first answer", |s| s.first);
+            self.state.lock().unwrap().dead = true;
+            self.wait_for("the release", |s| s.release);
+            Err(RuntimeFailure { reason: "RunbookCopyChanged: the copy changed".into() })
+        }
+        fn answer(&self, _run_id: &str, request_id: &str, _answer: &str, _principal: &str) -> Result<(), AnswerFailure> {
+            if self.kill {
+                unsafe {
+                    libc::kill(libc::getpid(), libc::SIGKILL);
+                }
+                std::thread::sleep(Duration::from_secs(30));
+            }
+            let mut st = self.state.lock().unwrap();
+            if st.dead {
+                return Err(AnswerFailure::UnknownRun);
+            }
+            st.delivered.push(request_id.to_string());
+            if request_id.ends_with("-a") {
+                st.first = true;
+            }
+            Ok(())
+        }
+        fn cancel(&self, _run_id: &str) {}
+    }
+
+    pub(super) fn config(dir: &Path) -> Config {
+        Config { state_dir: dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![], runbook_dir: None, principal: super::super::PRINCIPAL.into() }
+    }
+
+    fn submit_waiting(d: &Daemon) -> String {
+        let run = d.submit_run(SubmitRun { runbook_id: "book".into(), intake: "x".into(), confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap().run_id.unwrap();
+        let limit = Instant::now() + Duration::from_secs(20);
+        while d.open_decisions_of_run(&run).len() < 2 {
+            assert!(Instant::now() < limit, "the run did not open its requests");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        run
+    }
+
+    fn answer(d: &Daemon, run: &str, which: &str) -> runbook::commands::Outcome {
+        d.answer_decision(AnswerDecision { run_id: run.into(), request_id: format!("{run}-{which}"), answer: "approve".into(), answered_by: "x".into() }).unwrap()
+    }
+
+    fn decision(d: &Daemon, run: &str, which: &str) -> Value {
+        d.decisions_of_run(run).into_iter().find(|x| x["request_id"] == format!("{run}-{which}")).unwrap()
+    }
+
+    fn lines_for(dir: &Path, needle: &str) -> usize {
+        let text = std::fs::read_to_string(dir.join("state/journal.jsonl")).unwrap();
+        text.lines().filter(|l| l.contains("\"fact\":\"decision_answered\"") && l.contains(needle)).count()
+    }
+
+    #[test]
+    fn an_answer_refused_as_late_is_not_in_the_journal_when_the_daemon_starts_again() {
+        let dir = fresh("late-journal");
+        let gate = Gate::new(false);
+        let d = Daemon::start(config(&dir), gate.clone()).unwrap();
+        let run = submit_waiting(&d);
+        assert_eq!(answer(&d, &run, "a").name, "answered");
+        gate.wait_for("the runtime to fail", |s| s.dead);
+        let late = answer(&d, &run, "b");
+        assert!(late.is_refusal() && late.name == "run-not-waiting", "{late:?}");
+        gate.state.lock().unwrap().release = true;
+        let limit = Instant::now() + Duration::from_secs(20);
+        while d.run_detail(&run)[0]["state"] != "Ended" {
+            assert!(Instant::now() < limit, "the run did not end");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        d.stop();
+        drop(d);
+        assert_eq!(lines_for(&dir, &format!("{run}-a")), 1, "the first answer is on the journal once");
+        assert_eq!(lines_for(&dir, &format!("{run}-b")), 0, "the journal holds the line of an answer that was refused");
+        let reopened = Daemon::start(config(&dir), Gate::new(false)).unwrap();
+        assert_eq!(decision(&reopened, &run, "a")["state"], "Answered");
+        assert_ne!(decision(&reopened, &run, "b")["state"], "Answered", "a daemon that starts again holds an answer that was refused");
+        reopened.stop();
+    }
+
+    const KILL_DIR: &str = "RUNBOOK_KILL_DIR";
+
+    #[test]
+    fn a_kill_between_the_journal_line_and_the_hand_over_leaves_the_answer_on_the_journal_once() {
+        if let Some(dir) = std::env::var_os(KILL_DIR) {
+            // The child: the daemon hands the first answer to the runtime, which ends the process.
+            let d = Daemon::start(config(Path::new(&dir)), Gate::new(true)).unwrap();
+            let run = submit_waiting(&d);
+            std::fs::write(Path::new(&dir).join("run-id"), &run).unwrap();
+            let _ = answer(&d, &run, "a");
+            std::thread::sleep(Duration::from_secs(30));
+            return;
+        }
+        let dir = fresh("kill");
+        let exe = std::env::current_exe().unwrap();
+        let name = "daemon::copy_integrity::journal_before_hand_over::a_kill_between_the_journal_line_and_the_hand_over_leaves_the_answer_on_the_journal_once";
+        let status = std::process::Command::new(exe).args(["--exact", name, "--nocapture", "--test-threads=1"]).env(KILL_DIR, &dir).status().unwrap();
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(status.signal(), Some(libc::SIGKILL), "the child was not killed at the hand-over: {status:?}");
+        let run = std::fs::read_to_string(dir.join("run-id")).unwrap();
+        let journal = std::fs::read(dir.join("state/journal.jsonl")).unwrap();
+        assert_eq!(journal.last(), Some(&b'\n'), "the journal ends in a line that is not whole");
+        assert_eq!(lines_for(&dir, &format!("{run}-a")), 1, "the answer the run was being handed is on the journal once");
+        let d = Daemon::start(config(&dir), Gate::new(false)).unwrap();
+        assert_eq!(decision(&d, &run, "a")["state"], "Answered", "the answer the journal holds is not recorded after the restart");
+        let row = d.run_detail(&run)[0].clone();
+        assert_eq!((row["state"].as_str(), row["outcome"].as_str()), (Some("Ended"), Some("orphaned")), "{row}");
+        assert!(d.open_decisions_of_run(&run).is_empty(), "a request is still open after the restart");
+        d.stop();
+    }
+
+    #[test]
+    fn two_clients_answering_two_requests_leave_one_journal_line_each_and_a_whole_journal() {
+        let dir = fresh("two-lines");
+        let gate = Gate::new(false);
+        let d = Daemon::start(config(&dir), gate.clone()).unwrap();
+        let mut problems = Vec::new();
+        for i in 0..40u64 {
+            let run = submit_waiting(&d);
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let second = {
+                let (d, run, barrier) = (d.clone(), run.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let until = Instant::now() + Duration::from_micros(i * 15);
+                    while Instant::now() < until {
+                        std::hint::spin_loop();
+                    }
+                    answer(&d, &run, "b")
+                })
+            };
+            barrier.wait();
+            let first = answer(&d, &run, "a");
+            let second = second.join().unwrap();
+            let state = |w: &str| decision(&d, &run, w)["state"].clone();
+            for (w, o) in [("a", &first), ("b", &second)] {
+                let accepted = o.name == "answered";
+                let on_journal = lines_for(&dir, &format!("{run}-{w}"));
+                if on_journal > 1 || accepted != (on_journal == 1) || accepted != (state(w) == "Answered") {
+                    problems.push(format!("run {i} answer {w}: {} journal lines {on_journal}, decision {}", o.name, state(w)));
+                }
+            }
+            gate.state.lock().unwrap().release = true;
+            let limit = Instant::now() + Duration::from_secs(20);
+            while d.run_detail(&run)[0]["state"] != "Ended" {
+                assert!(Instant::now() < limit, "the run did not end");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            *gate.state.lock().unwrap() = GateState::default();
+        }
+        d.stop();
+        drop(d);
+        let text = std::fs::read_to_string(dir.join("state/journal.jsonl")).unwrap();
+        assert!(text.ends_with('\n') && text.lines().all(|l| serde_json::from_str::<Value>(l).is_ok()), "the journal holds a line that is not whole");
+        assert!(problems.is_empty(), "{} problems: {:?}", problems.len(), &problems[..problems.len().min(6)]);
+    }
+}
