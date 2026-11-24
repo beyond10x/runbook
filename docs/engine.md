@@ -179,6 +179,18 @@ daemon"); only a second signal, the drain bound, a kill or a crash orphans a liv
 so a dead holder lets go by itself; `tree/src/lock.rs:82`). Resuming an orphaned run from its store
 is not built.
 
+## The step in flight
+
+The engine wraps the runner every bound program starts through in `engine::announce::Announcing`,
+the wrapper `runbook run` uses too, when the sink gives a target (`EventSink::steps`, the daemon's
+sink does). Before a program starts the target is told its case, action, role and try, and after it
+ended it is told that; the daemon records the run event `runbook.action-started` and keeps the step
+for the view `run` (`docs/daemon-api.md`, "The step in flight"). The gate tests are
+`a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends`,
+`actions_in_turn_give_one_event_each_in_the_order_they_started`,
+`a_handoff_check_is_recorded_as_a_check_of_its_action` and
+`after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event` in `runbook/tests/daemon/engine.rs`.
+
 ## Loom gaps seen
 
 All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program

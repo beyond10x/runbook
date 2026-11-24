@@ -1155,6 +1155,26 @@ fn guard_an_events_file_that_is_read_only_does_not_stop_the_run() {
     an_events_file_a_program_made_unusable_does_not_stop_the_run("mode444", "chmod 444 ../events.jsonl");
 }
 
+#[test]
+fn runbook_run_writes_one_action_started_line_per_program_in_order_with_tries_before_the_steps_they_start() {
+    let rig = Rig::new("start-turns");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let events = rig.events("r1");
+    let started: Vec<(usize, &Value)> = events.iter().enumerate().filter(|(_, e)| e["event"] == "action_started" && e["source"] == "program_start").collect();
+    let shape: Vec<(&str, u64, &str)> = started.iter().map(|(_, e)| (e["action"].as_str().unwrap(), e["try"].as_u64().unwrap(), e["role"].as_str().unwrap())).collect();
+    assert_eq!(shape, [("draft.check", 1, "program"), ("draft.write", 1, "program"), ("draft.check", 2, "program")], "{shape:?}");
+    // each start is before the step its program made, and the starts are in the order of the steps
+    let made: Vec<usize> = events.iter().enumerate().filter(|(_, e)| e["event"] == "step_made").map(|(i, _)| i).collect();
+    for (n, (at, e)) in started.iter().enumerate() {
+        assert!(made.iter().any(|m| m > at), "no step after the start {e}");
+        let before = made.iter().filter(|m| *m < at).count();
+        assert!(before <= n + 1, "{e} comes after more steps than programs started: {before} steps before start {n}");
+    }
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(rig.run_dir("r1").join("runner.json")).unwrap()).unwrap();
+    assert!(record["closed_at"].as_u64().is_some(), "{record}");
+}
+
 /// The text of a refused action leaves the run in `outcome.json`, `events.jsonl` and `run-stopped.json`: it names
 /// the action and the exit, and no absolute path of the machine (the run dir, the runbook home, the fixture root).
 #[test]
