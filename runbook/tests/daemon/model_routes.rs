@@ -217,6 +217,18 @@ fn a_gateway_that_does_not_answer_is_not_ready_or_does_not_list_the_alias_gives_
 }
 
 #[test]
+fn a_local_route_on_a_gateway_without_its_status_routes_is_listed_and_not_unreachable() {
+    // today's gateway answers 404 for /v1/status and for the status of a model it does not start
+    let gw = Standin::start(vec![("GET /ready", 200, json!({"status": "ready"})), ("GET /v1/models", 200, models(&[("qwen-local", &["chat"])]))]);
+    let file = format!("[gateways.gw]\nbase_url = \"{}\"\n[routes.local-qwen]\ngateway = \"gw\"\nmodel = \"qwen-local\"\nkind = \"local\"\n", gw.base_url);
+    let l = live("routes-local-404", &[], Some(&file));
+    let rows = rows(&l, "/daemon/views/routes");
+    rows.iter().for_each(|r| openapi::check_row("Routes", r));
+    assert_eq!(without_read_at(&rows), vec![json!({"route": "local-qwen", "gateway": "gw", "alias": "qwen-local", "kind": "local", "wires": ["chat"], "status": "listed"})]);
+    assert_eq!(gw.lines(), ["GET /ready", "GET /v1/models", "GET /v1/status", "GET /v1/models/qwen-local/status"]);
+}
+
+#[test]
 fn what_a_gateway_says_reaches_a_row_only_as_short_visible_words() {
     let long = "p".repeat(65);
     let many: Vec<String> = (0..20).map(|i| format!("w{i}")).collect();
@@ -283,9 +295,18 @@ fn the_gateway_is_read_at_most_once_every_15_seconds_of_the_daemons_clock_and_th
     assert_eq!((tool.status.as_u16(), tool.body.clone()), (200, first.clone()), "the MCP tool answers the view's body");
     assert_eq!((gw.count("GET /ready"), gw.count("GET /v1/models/qwen/status")), (1, 1), "{:?}", gw.lines());
     clock.set("2026-11-25T10:00:15Z");
-    let later = view(&d);
+    assert_eq!(view(&d), first, "a read 15 s later still answers the rows of the last read at once and starts one read");
+    let read = std::time::Instant::now();
+    let later = loop {
+        let v = view(&d);
+        if v != first || read.elapsed() > Duration::from_secs(5) {
+            break v;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
     assert_eq!(later["rows"][0]["read_at"], "2026-11-25T10:00:15.000Z", "{later}");
-    assert_eq!((gw.count("GET /ready"), gw.count("GET /v1/models/qwen/status")), (2, 2), "{:?}", gw.lines());
+    assert_eq!(view(&d), later);
+    assert_eq!((gw.count("GET /ready"), gw.count("GET /v1/models/qwen/status")), (2, 2), "one read in the background, and none while its rows are fresh: {:?}", gw.lines());
     // list_routes takes no argument
     assert!(runbook::mcp::tools::call(&runbook::mcp::Local(d.clone()), "list_routes", &json!({"route": "qwen"})).is_err());
     d.stop();

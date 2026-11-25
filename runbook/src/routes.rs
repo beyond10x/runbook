@@ -8,18 +8,18 @@
 //! [`RouteTable::declare`] checks the tables and reads nothing; [`RouteTable::read_tokens`] reads the token files
 //! once, when the daemon starts. Every refusal names the key (`routes.qwen.gateway`) and never a value, a part of a
 //! value or a path. [`Listing`] is the view `routes`: what the gateway says of each route, read at most once every
-//! [`READ_EVERY_MILLIS`] of the daemon's clock with `GET` requests only; a read sends no model call and starts
-//! nothing.
+//! [`READ_EVERY_MILLIS`] of the daemon's clock with `GET` requests only, in the background and within
+//! [`READ_BOUND`]; a read sends no model call and starts nothing.
 
 use crate::client::http::{Client, Token};
 use crate::client::url::Target;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 /// The tables of `runbook.toml`.
 pub const GATEWAYS: &str = "gateways";
@@ -30,8 +30,12 @@ pub const LONE_GATEWAY: &str = "gateway";
 pub const DEFAULT_GATEWAY: &str = "default";
 /// How long the rows of a read of the gateways are answered before the gateways are read again.
 pub const READ_EVERY_MILLIS: i64 = 15_000;
-/// How long a read of a gateway waits for its answer.
-const READ_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long one `GET` of a gateway may take, its whole answer included.
+const GET_BOUND: Duration = Duration::from_secs(3);
+/// How long one read of every gateway may take: a `GET` still open then ends as no answer.
+pub const READ_BOUND: Duration = Duration::from_secs(5);
+/// What the first request waits beyond [`READ_BOUND`] for the read's rows to reach the cache.
+const WAIT_SLACK: Duration = Duration::from_millis(250);
 /// The most bytes of a gateway's token (`sdc_tools::gateway::TOKEN_LIMIT`).
 const TOKEN_LIMIT: usize = sdc_tools::gateway::TOKEN_LIMIT;
 
@@ -94,7 +98,7 @@ pub struct Wake {
 }
 
 /// A gateway: an address and, once [`RouteTable::read_tokens`] ran, the token of its token file. The token is
-/// read through [`Gateway::token`] and is never in `Debug`.
+/// read through [`Gateway::token`]; neither it nor the address is in `Debug`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Gateway {
     name: String,
@@ -112,7 +116,7 @@ impl std::fmt::Debug for Gateway {
             (None, Some(_)) => "<named>",
             (None, None) => "<none>",
         };
-        f.debug_struct("Gateway").field("name", &self.name).field("base_url", &self.base_url).field("token", &token).finish()
+        f.debug_struct("Gateway").field("name", &self.name).field("token", &token).finish_non_exhaustive()
     }
 }
 
@@ -427,12 +431,13 @@ impl RouteTable {
 
 /// How a gateway answered `GET /ready` and `GET /v1/models`.
 enum Reach {
-    /// No answer, or an address the daemon does not speak (https).
+    /// No answer in time, or an address the daemon does not speak (https).
     Unreachable,
     /// An answer that is not 200, or no list of models.
     NotReady,
-    /// Ready, with its models and their wires, and the status of `/v1/status` when it answered one.
-    Ready { models: BTreeMap<String, Vec<String>>, status: Option<BTreeMap<String, ModelStatus>> },
+    /// Ready, with its models and their wires; the status of each model `GET /v1/status` gave (`of_all`) and of
+    /// each model whose own status route answered (`of_model`), by alias.
+    Ready { models: BTreeMap<String, Vec<String>>, of_all: BTreeMap<String, ModelStatus>, of_model: BTreeMap<String, ModelStatus> },
 }
 
 /// The status of one model as the gateway gives it.
@@ -451,7 +456,7 @@ fn client_of(gateway: &Gateway) -> Option<Reader> {
     let (authority, prefix) = rest.split_once('/').map(|(a, p)| (a, format!("/{}", p.trim_end_matches('/')))).unwrap_or((rest, String::new()));
     let target: Target = crate::client::url::parse(&format!("http://{authority}")).ok()?;
     let prefix = if prefix == "/" { String::new() } else { prefix };
-    Some((Client::new(target, gateway.token.clone().map(Token::new)).with_reply_timeout(READ_TIMEOUT), prefix))
+    Some((Client::new(target, gateway.token.clone().map(Token::new)), prefix))
 }
 
 /// A path segment with every byte that is not unreserved percent-encoded.
@@ -459,9 +464,11 @@ fn segment(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-/// `GET <prefix><path>`: the status and the body as JSON (null when it is none); `None` when no answer came.
-fn get(client: &Client, prefix: &str, path: &str) -> Option<(u16, Value)> {
-    let reply = client.request("GET", &format!("{prefix}{path}"), None).ok()?;
+/// `GET <prefix><path>`, whole within [`GET_BOUND`] and by `until`: the status and the body as JSON (null when it
+/// is none); `None` when no whole answer came in that time.
+fn get(client: &Client, prefix: &str, path: &str, until: Instant) -> Option<(u16, Value)> {
+    let until = until.min(Instant::now() + GET_BOUND);
+    let reply = client.clone().with_deadline(until).request("GET", &format!("{prefix}{path}"), None).ok()?;
     Some((reply.status, serde_json::from_str(&reply.body).unwrap_or(Value::Null)))
 }
 
@@ -484,26 +491,35 @@ fn model_status(m: &Value) -> Option<ModelStatus> {
     (status.phase.is_some() || status.callable.is_some()).then_some(status)
 }
 
-fn read_gateway(gateway: &Gateway) -> (Reach, Option<Reader>) {
-    let Some((client, prefix)) = client_of(gateway) else { return (Reach::Unreachable, None) };
-    let reach = match get(&client, &prefix, "/ready") {
-        None => Reach::Unreachable,
-        Some((200, _)) => match get(&client, &prefix, "/v1/models") {
-            None => Reach::Unreachable,
-            Some((200, body)) if body["data"].is_array() => {
-                let models = body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), wires(&m["wires"])))).collect();
-                Reach::Ready { models, status: None }
-            }
-            Some(_) => Reach::NotReady,
-        },
-        Some(_) => Reach::NotReady,
+/// What the gateway `name` says of the routes of `table` on it, every request done by `until`.
+fn read_gateway(table: &RouteTable, name: &str, gateway: &Gateway, until: Instant) -> Reach {
+    let Some((client, prefix)) = client_of(gateway) else { return Reach::Unreachable };
+    match get(&client, &prefix, "/ready", until) {
+        None => return Reach::Unreachable,
+        Some((200, _)) => {}
+        Some(_) => return Reach::NotReady,
+    }
+    let models: BTreeMap<String, Vec<String>> = match get(&client, &prefix, "/v1/models", until) {
+        None => return Reach::Unreachable,
+        Some((200, body)) if body["data"].is_array() => body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), wires(&m["wires"])))).collect(),
+        Some(_) => return Reach::NotReady,
     };
-    (reach, Some((client, prefix)))
+    let listed: Vec<&Route> = table.routes.values().filter(|r| r.gateway == name && models.contains_key(&r.alias)).collect();
+    let of_all = if listed.is_empty() { BTreeMap::new() } else { read_all_status(&client, &prefix, until).unwrap_or_default() };
+    let mut of_model = BTreeMap::new();
+    for route in listed {
+        if route.kind.has_model_status() && !of_all.contains_key(&route.alias) && !of_model.contains_key(&route.alias) {
+            if let Some(s) = read_model_status(&client, &prefix, &route.alias, until) {
+                of_model.insert(route.alias.clone(), s);
+            }
+        }
+    }
+    Reach::Ready { models, of_all, of_model }
 }
 
 /// `GET /v1/status`: the status of every model, by alias; none when the gateway does not serve it.
-fn read_all_status(client: &Client, prefix: &str) -> Option<BTreeMap<String, ModelStatus>> {
-    match get(client, prefix, "/v1/status")? {
+fn read_all_status(client: &Client, prefix: &str, until: Instant) -> Option<BTreeMap<String, ModelStatus>> {
+    match get(client, prefix, "/v1/status", until)? {
         (200, body) if body["models"].is_array() => Some(
             body["models"]
                 .as_array()
@@ -516,103 +532,167 @@ fn read_all_status(client: &Client, prefix: &str) -> Option<BTreeMap<String, Mod
     }
 }
 
-/// `GET /v1/models/{alias}/status`: the phase of one model; none when it did not answer one.
-fn read_model_status(client: &Client, prefix: &str, alias: &str) -> Option<ModelStatus> {
-    match get(client, prefix, &format!("/v1/models/{}/status", segment(alias)))? {
+/// `GET /v1/models/{alias}/status`: the phase of one model; none when it did not answer one. A gateway that does not
+/// serve the route answers 404: the model has no status there, and its gateway is no less reachable.
+fn read_model_status(client: &Client, prefix: &str, alias: &str, until: Instant) -> Option<ModelStatus> {
+    match get(client, prefix, &format!("/v1/models/{}/status", segment(alias)), until)? {
         (200, body) => word(&body["phase"]).map(|p| ModelStatus { phase: Some(p), callable: None }),
         _ => None,
     }
 }
 
+/// One read of every gateway of `table` at `now_millis`, each gateway on a thread of its own and every request done
+/// by `until`: the rows of the view.
+fn read(table: &RouteTable, now_millis: i64, until: Instant) -> Vec<Value> {
+    let names: BTreeSet<&str> = table.routes.values().map(|r| r.gateway.as_str()).collect();
+    let reads: BTreeMap<&str, Reach> = std::thread::scope(|scope| {
+        let readers: Vec<_> = names.into_iter().filter_map(|name| Some((name, table.gateways.get(name)?))).map(|(name, gateway)| (name, scope.spawn(move || read_gateway(table, name, gateway, until)))).collect();
+        readers.into_iter().map(|(name, reader)| (name, reader.join().unwrap_or(Reach::Unreachable))).collect()
+    });
+    rows_of(table, &reads, now_millis)
+}
+
+/// The rows of `table` from what its gateways said; a gateway that is not in `reads` gave no answer.
+fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -> Vec<Value> {
+    let read_at = crate::clock::format_instant(now_millis);
+    table
+        .routes
+        .values()
+        .map(|route| {
+            let (status, wires, phase) = match reads.get(route.gateway.as_str()) {
+                None | Some(Reach::Unreachable) => ("gateway-unreachable", Vec::new(), None),
+                Some(Reach::NotReady) => ("gateway-not-ready", Vec::new(), None),
+                Some(Reach::Ready { models, of_all, of_model }) => match models.get(&route.alias) {
+                    None => ("model-unknown", Vec::new(), None),
+                    Some(wires) => {
+                        let of_model = || of_model.get(&route.alias).filter(|_| route.kind.has_model_status());
+                        match of_all.get(&route.alias).or_else(of_model).cloned() {
+                            Some(s) => {
+                                let ready = s.callable.unwrap_or(s.phase.as_deref() == Some("ready"));
+                                (if ready { "ready" } else { "not-ready" }, wires.clone(), s.phase)
+                            }
+                            None => ("listed", wires.clone(), None),
+                        }
+                    }
+                },
+            };
+            let mut row = Map::new();
+            row.insert("route".into(), json!(route.name));
+            row.insert("gateway".into(), json!(route.gateway));
+            row.insert("alias".into(), json!(route.alias));
+            row.insert("kind".into(), json!(route.kind.as_str()));
+            row.insert("wires".into(), json!(wires));
+            row.insert("status".into(), json!(status));
+            if let Some(phase) = phase {
+                row.insert("phase".into(), json!(phase));
+            }
+            row.insert("read_at".into(), json!(read_at));
+            Value::Object(row)
+        })
+        .collect()
+}
+
+/// The rows of the last read and whether a read runs.
+#[derive(Debug, Default)]
+struct Cache {
+    last: Option<(i64, Vec<Value>)>,
+    reading: bool,
+}
+
+#[derive(Debug, Default)]
+struct Shared {
+    table: Arc<RouteTable>,
+    cache: Mutex<Cache>,
+    read_done: Condvar,
+}
+
+impl Shared {
+    fn cache(&self) -> MutexGuard<'_, Cache> {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// Ends a read: its rows, when it made any, become the cache, and the waiters wake. It ends the read on a panic too.
+struct Reading {
+    shared: Arc<Shared>,
+    at: i64,
+    rows: Option<Vec<Value>>,
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        let mut cache = self.shared.cache();
+        if let Some(rows) = self.rows.take() {
+            cache.last = Some((self.at, rows));
+        }
+        cache.reading = false;
+        self.shared.read_done.notify_all();
+    }
+}
+
 /// The view `routes`: the routes of the table with what their gateways say, read at most once every
-/// [`READ_EVERY_MILLIS`] of the clock it is given; a read in that time answers the rows of the last one.
+/// [`READ_EVERY_MILLIS`] of the clock it is given.
+///
+/// A request answers the rows of the last read at once. When they are older than [`READ_EVERY_MILLIS`] it starts
+/// one read in the background, unless one runs, and still answers the older rows. Only the first request, before
+/// any read ended, waits for a read, and at most [`READ_BOUND`]; no lock is held while a gateway is read.
 #[derive(Debug, Default)]
 pub struct Listing {
-    table: Arc<RouteTable>,
-    last: Mutex<Option<(i64, Vec<Value>)>>,
+    shared: Arc<Shared>,
 }
 
 impl Listing {
     pub fn new(table: Arc<RouteTable>) -> Listing {
-        Listing { table, last: Mutex::new(None) }
+        Listing { shared: Arc::new(Shared { table, ..Shared::default() }) }
     }
 
     pub fn table(&self) -> &Arc<RouteTable> {
-        &self.table
+        &self.shared.table
     }
 
-    /// The rows at `now_millis`. The reads wait on the network: inside the daemon's runtime they run where a
-    /// worker may block.
+    /// The rows at `now_millis`.
     pub fn rows(&self, now_millis: i64) -> Vec<Value> {
-        if self.table.routes.is_empty() {
+        if self.shared.table.routes.is_empty() {
             return Vec::new();
         }
-        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((at, rows)) = last.as_ref() {
-            if (0..READ_EVERY_MILLIS).contains(&(now_millis - at)) {
-                return rows.clone();
-            }
+        let asked = Instant::now();
+        let mut cache = self.shared.cache();
+        let start = !cache.reading && cache.last.as_ref().is_none_or(|(at, _)| !(0..READ_EVERY_MILLIS).contains(&(now_millis - at)));
+        if start {
+            cache.reading = self.start(now_millis);
         }
-        let read = || self.read(now_millis);
-        let rows = match tokio::runtime::Handle::try_current() {
-            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => tokio::task::block_in_place(read),
-            _ => read(),
+        if let Some((_, rows)) = cache.last.as_ref() {
+            return rows.clone();
+        }
+        drop(cache);
+        let wait = || {
+            let until = asked + READ_BOUND + WAIT_SLACK;
+            let mut cache = self.shared.cache();
+            while cache.last.is_none() {
+                let left = until.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                cache = self.shared.read_done.wait_timeout(cache, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            cache.last.as_ref().map(|(_, rows)| rows.clone())
         };
-        *last = Some((now_millis, rows.clone()));
-        rows
+        let rows = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => tokio::task::block_in_place(wait),
+            _ => wait(),
+        };
+        rows.unwrap_or_else(|| rows_of(&self.shared.table, &BTreeMap::new(), now_millis))
     }
 
-    fn read(&self, now_millis: i64) -> Vec<Value> {
-        let read_at = crate::clock::format_instant(now_millis);
-        let mut reads: BTreeMap<&str, (Reach, Option<Reader>)> = BTreeMap::new();
-        for route in self.table.routes.values() {
-            if !reads.contains_key(route.gateway.as_str()) {
-                let Some(gateway) = self.table.gateways.get(&route.gateway) else { continue };
-                let (mut reach, client) = read_gateway(gateway);
-                if let (Reach::Ready { models, status }, Some((c, prefix))) = (&mut reach, &client) {
-                    if self.table.routes.values().any(|r| r.gateway == route.gateway && models.contains_key(&r.alias)) {
-                        *status = read_all_status(c, prefix);
-                    }
-                }
-                reads.insert(&route.gateway, (reach, client));
-            }
-        }
-        self.table
-            .routes
-            .values()
-            .map(|route| {
-                let (status, wires, phase) = match reads.get(route.gateway.as_str()) {
-                    None | Some((Reach::Unreachable, _)) => ("gateway-unreachable", Vec::new(), None),
-                    Some((Reach::NotReady, _)) => ("gateway-not-ready", Vec::new(), None),
-                    Some((Reach::Ready { models, status }, client)) => match models.get(&route.alias) {
-                        None => ("model-unknown", Vec::new(), None),
-                        Some(wires) => {
-                            let of_all = status.as_ref().and_then(|s| s.get(&route.alias)).cloned();
-                            let of_model = || client.as_ref().filter(|_| route.kind.has_model_status()).and_then(|(c, prefix)| read_model_status(c, prefix, &route.alias));
-                            match of_all.or_else(of_model) {
-                                Some(s) => {
-                                    let ready = s.callable.unwrap_or(s.phase.as_deref() == Some("ready"));
-                                    (if ready { "ready" } else { "not-ready" }, wires.clone(), s.phase)
-                                }
-                                None => ("listed", wires.clone(), None),
-                            }
-                        }
-                    },
-                };
-                let mut row = Map::new();
-                row.insert("route".into(), json!(route.name));
-                row.insert("gateway".into(), json!(route.gateway));
-                row.insert("alias".into(), json!(route.alias));
-                row.insert("kind".into(), json!(route.kind.as_str()));
-                row.insert("wires".into(), json!(wires));
-                row.insert("status".into(), json!(status));
-                if let Some(phase) = phase {
-                    row.insert("phase".into(), json!(phase));
-                }
-                row.insert("read_at".into(), json!(read_at));
-                Value::Object(row)
-            })
-            .collect()
+    /// Starts one read at `now_millis` on a thread of its own: whether it started. The caller holds the lock of the
+    /// cache, so the read ends after the caller marked it as running.
+    fn start(&self, now_millis: i64) -> bool {
+        let shared = self.shared.clone();
+        let spawned = std::thread::Builder::new().name("runbook-routes".into()).spawn(move || {
+            let mut reading = Reading { shared, at: now_millis, rows: None };
+            reading.rows = Some(read(&reading.shared.table, now_millis, Instant::now() + READ_BOUND));
+        });
+        spawned.is_ok()
     }
 }
 

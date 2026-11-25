@@ -123,7 +123,7 @@ const TOOLS: [Tool; 12] = [
     Tool {
         name: "list_routes",
         title: "List the model routes",
-        description: "The model routes the daemon declares, in order of name, in the `rows` of the result: each with `route` (the name a run names), `gateway` (by name), `alias` (the gateway's name of the model), `kind` (managed, hosted or local), `wires` (chat, responses, messages, as the gateway lists them), `status` (ready, not-ready, listed, model-unknown, gateway-not-ready or gateway-unreachable), `phase` when the gateway gave one, and `read_at`. The daemon reads its gateways at most once every 15 seconds and answers the last read until then; a read sends no model call and starts nothing. No address, token or price is in a row.",
+        description: "The model routes the daemon declares, in order of name, in the `rows` of the result: each with `route` (the name a run names), `gateway` (by name), `alias` (the gateway's name of the model), `kind` (managed, hosted or local), `wires` (chat, responses, messages, as the gateway lists them), `status` (ready, not-ready, listed, model-unknown, gateway-not-ready or gateway-unreachable), `phase` when the gateway gave one, and `read_at`. The daemon reads its gateways at most once every 15 seconds, in the background and within 5 seconds, and answers the last read at once; a read sends no model call and starts nothing. No address, token or price is in a row.",
         read_only: true,
         kind: Kind::ListRoutes,
     },

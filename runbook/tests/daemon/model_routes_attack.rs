@@ -83,7 +83,8 @@ fn stalling(aliases: &[&str], seconds: u64) -> String {
 
 #[test]
 fn a_gateway_that_drips_its_answer_one_byte_at_a_time_does_not_hold_the_view_past_its_read_bound() {
-    // the route's status read waits at most 3 s for a gateway's answer (`routes::READ_TIMEOUT`); a gateway that
+    // each GET of a gateway ends within 3 s, its whole answer included (`routes::GET_BOUND`), and a read of the view
+    // within 5 s (`routes::READ_BOUND`); before, the 3 s bound held each socket read, and a gateway that
     // sends a byte every half second never trips a per-read timeout and holds the view for as long as it drips
     let base_url = dripping(45);
     let file = format!("[gateways.drip]\nbase_url = \"{base_url}\"\n[routes.r]\ngateway = \"drip\"\nmodel = \"m\"\nkind = \"hosted\"\n");
@@ -92,7 +93,7 @@ fn a_gateway_that_drips_its_answer_one_byte_at_a_time_does_not_hold_the_view_pas
     let got = try_send(l.addr, "GET", "/daemon/views/routes", &[], None);
     let took = started.elapsed();
     let resp = got.unwrap_or_else(|e| panic!("the view routes gave no answer in {took:?} while one gateway drips its answer: {e}"));
-    assert!(took < Duration::from_secs(8), "the view routes took {took:?} for one gateway that drips its answer");
+    assert!(took < runbook::routes::READ_BOUND, "the view routes took {took:?} for one gateway that drips its answer");
     assert_eq!(resp.status, 200, "{}", resp.text());
     assert_eq!(resp.json()["rows"][0]["status"], "gateway-unreachable", "{}", resp.text());
 }

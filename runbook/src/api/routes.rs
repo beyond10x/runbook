@@ -36,6 +36,9 @@ pub const VIEWS: [&str; 17] = [
 
 /// The views that page events by position: asked with `Accept: text/event-stream` they are streams.
 pub const EVENT_VIEWS: [&str; 3] = ["events", "session-events", "daemon-events"];
+/// The views whose answer may wait on the network (the first read of the gateways): they are answered off the
+/// workers of the daemon.
+pub const WAITING_VIEWS: [&str; 1] = ["routes"];
 
 pub fn command_path(name: &str) -> String {
     format!("/daemon/commands/{name}")

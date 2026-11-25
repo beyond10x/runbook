@@ -200,8 +200,14 @@ The view `routes` (and the MCP tool `list_routes`, [`mcp.md`](mcp.md)) lists the
 daemon reads each gateway a route names with `GET` requests only, with the gateway's token when it has one:
 `GET /ready`, then `GET /v1/models` (the wires of each alias), then `GET /v1/status`, and for a managed or a local
 route whose alias that does not cover, `GET /v1/models/{alias}/status`. It sends no model call and no wake, and
-reads nothing of a gateway no route names. A read is kept and answered for 15 s of the daemon's clock; `read_at`
-says when it was made. `status` is:
+reads nothing of a gateway no route names.
+
+Each `GET` ends within 3 s, its whole answer included, and one read of all gateways within 5 s (the gateways are
+read side by side); a request still open then counts as no answer. A read is kept for 15 s of the daemon's clock;
+`read_at` says when it was made. A request answers the rows of the last read at once and waits on no gateway: when
+they are 15 s old or older, it starts one read in the background (never a second while one runs) and still answers
+them; the next request after that read answers its rows. Only a request before the first read ended waits for it,
+at most 5 s; a gateway that has not answered by then is `gateway-unreachable`. `status` is:
 
 | Status | When |
 |---|---|
@@ -209,7 +215,7 @@ says when it was made. `status` is:
 | `gateway-not-ready` | `/ready` answered, not `200`, or `/v1/models` gave no list |
 | `model-unknown` | the gateway lists no model of the route's alias |
 | `ready`, `not-ready` | the gateway gave the model's status: `callable` of `/v1/status`, else the phase of the model's own status route (`ready` only for the phase `ready`); `phase` is the gateway's |
-| `listed` | the gateway lists the alias and gave no status of it: a hosted route on a gateway without `/v1/status`, or a status route that did not answer |
+| `listed` | the gateway lists the alias and gave no status of it: a hosted route on a gateway without `/v1/status`, or a status route that did not answer in time or answered anything but `200` with a phase. Today's gateway answers `404` for `/v1/status` and for the status route of a model it does not start (a local model): such a route is `listed`, not `gateway-unreachable` |
 
 A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none. A run does not take a
 route yet (`story:run-names-a-model-route`).
