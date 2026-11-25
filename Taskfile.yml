@@ -306,7 +306,7 @@ tasks:
           c && d && !/^      - / { d = 0 }
         ' Taskfile.yml)
         outside=$(cat <<'OUTSIDE'
-        test:ui|at the forge's CPU count its run does not end within 120 s: 412 to 413 of 609 tests on 2 CPUs of the build node, 508 on 4 (docs/forge-gate.md)
+        test:ui|at the forge's CPU count its run does not end within 120 s: 550 to 587 of 611 tests on 2 CPUs of the build node (docs/forge-gate.md)
         OUTSIDE
         )
         rb_tmo=$(printf '%s\n' "$ci" | sed -n 's/^test:runbook|[^|]*|//p')
