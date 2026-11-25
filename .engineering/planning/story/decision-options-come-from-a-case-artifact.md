@@ -29,12 +29,14 @@ scope:
 - confidence: cited
   path: runbook/src/engine/decision.rs
 - confidence: cited
+  path: runbook/src/engine/shape.rs
+- confidence: cited
   path: runbook/src/mcp/tools.rs
 - confidence: cited
   path: runbook/src/runtime.rs
 - confidence: inferred
   path: runbook/tests/daemon
-revision: 6
+revision: 8
 ---
 ## What is missing
 
@@ -66,6 +68,43 @@ With a fixture case that holds a decision-request artifact of three options, a r
 - an answer of the letter `B` is accepted and the runtime receives the effect of option B; an answer `approve` is refused by name and the request stays Open;
 - the same case without the artifact gives the row it gave before this change (an existing test holds the bytes);
 - `ess specify validate --path ess` passes and `task check:ess-generated` holds the OpenAPI document equal to the specification.
+
+## Also needed: a case whose artifact holds only the question, and an action that declares its results
+
+Added 2026-11-25 from a consumer's report on Runbook 0.9.3. The consumer's person action `decision.answer` declares the results A, B, C, D, E, F and `free` in its binding, and its case's artifact holds the question the person is asked. The row of `read_open_decisions` showed none of it: a question generated from the decision, the option `approve` and the generic `{"result":"<result>","reasons":"<text>"}`, and an empty `capability`.
+
+Read on `main` at `81079535`:
+
+- `plan` builds the options of an `ApproveAction` decision as exactly those two entries, whatever the action declares, and puts `decision.capability.unwrap_or_default()` into the request, which is empty for a person action (`runbook/src/engine/decision.rs:62-86`).
+- The results an action declares are already read from the bindings copy by `declared_results` (`runbook/src/engine/shape.rs:35-68`); the decider's side uses them (`shape.rs:72-97`), the request's side does not.
+- The row is built from the request as stored: `question`, `options`, `capability` and the rest, nothing from the binding (`runbook/src/commands.rs:1026-1032`).
+
+So the same need, that a person is shown the real question and the real choices, has a second source beside the contract-shaped artifact: the question is a field of an artifact a binding names, and the choices are the results the action declares.
+
+### Outcome, added to the four above
+
+5. A binding may name the field of the case's artifact that is the question of a person action. Where it does, the request's `question` is that field's text, read by the engine and never written by it or a model.
+6. Where the binding names it and the case's artifact carries no options of the contract's shape (outcome 1), the request's `options` are the results the action declares, each as an option with the result as its letter; `free` is listed with the note that it takes text.
+7. An answer that names a result the action declares is accepted, and the runtime receives that result; an answer that names none (and is not a free answer where `free` is declared) is refused by name before anything is delivered, as outcome 3 says for letters.
+8. Where the artifact carries options of the contract's shape, they win over the declared results, and both appear in no row together.
+
+### What a guard must hold, added
+
+- Outcome 4 stands: a person action whose binding names no question field, in a case with no artifact, opens the request it opens today, byte for byte; the declared results are listed only where the binding opted in.
+- The declared results come from the run's bindings copy through the held directory, as `declared_results` reads them; the artifact cannot widen them.
+- A question field that is missing or empty leaves the generated question in place and the request open, with the cause named in the run's record; it does not stop the run.
+
+### Open question, with the option recommended
+
+- Whether the declared results are listed for every person action that declares some, with no opt-in by the binding. Recommended: no. It changes the rows of every existing runbook and breaks outcome 4's byte-for-byte rule; the binding's field is the opt-in. The other option goes to the operator.
+
+### Acceptance, added
+
+With a fixture person action that declares A, B and `free`, whose binding names a question field, and a case artifact that holds the question and no options:
+
+- the view `open-decisions` has a row whose `question` is the field's text and whose `options` are A, B and `free`; the row of the MCP tool `read_open_decisions` is the same;
+- an answer `B` is accepted and the runtime receives the result B; an answer `Z` is refused by name and the request stays Open;
+- the same action with a binding that names no field gives the row it gave before (an existing test holds the bytes).
 
 ## Scope
 
