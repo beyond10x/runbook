@@ -278,8 +278,13 @@ option.
 
 `runbook run --dry` presets the adapter `dry`: it checks the shape of the table (the refusals above except
 those that read a file or the runtime directory), reads no `token_file`, writes no private directory and
-no option, and records `"gateway": "named"`. The daemon starts runs from a flat text map of settings and has
-no place for a gateway: a run it starts has none.
+no option, and records `"gateway": "named"`.
+
+A run started through the daemon (`runbook serve`) takes the `[gateway]` of the daemon's own `runbook.toml`, never
+one of its submit: the daemon writes the same file into the run's private directory for the model decider of a
+run whose kind is `model`, and a submit that names a gateway, an address or a token is refused by name
+(`docs/engine.md`, "A gateway"). `sdc-free-agent` takes no gateway: it refuses `--gateway-file` by name, and
+`sdc-experiment` refuses a `gateway.*` setting of a `free-agent` variant.
 
 ## What `sdc-experiment run` writes, and what a run does with it
 
@@ -288,8 +293,10 @@ Both sides use this format. The writer is `loom_settings_toml` in `driver/src/bi
 directory. It writes `format`, `run`, `autonomy`, `decider.kind`, `decider.model` (or
 `decider.verdict` for `rule`), `models.<role>.model` for the four roles, `max_llm_calls`,
 `max_wall_seconds`, `loom_sha256` (`in_process = true` in its place for a record that sets it),
-`confinement`, `cap_micro_usd` and `login_file` (only when the record names one), and, when the
-record sets them:
+`confinement`, `cap_micro_usd` and `login_file` (only when the record names one), `[gateway]` with
+`base_url` and `token_file` (only when the record names `gateway.base_url`, and `token_file` only when it names
+`gateway.token_file`; `--print` shows `<gateway.token_file>` in place of the path, and a record names no token:
+`gateway.token` is refused), and, when the record sets them:
 
 | Record key | File key |
 |---|---|
@@ -353,3 +360,4 @@ table's own name end `runbook serve` with exit 2, naming the table and no value.
 | `runbook serve --decider <kind>` | the kind of a submit that names none; a kind that is not configured and the daemon does not start |
 | `submit_run` `autonomy`, `decider` | the run's own level and kind; they win over the daemon's; an unknown level, a kind that is not configured and a level with no kind are refused (400) before anything is written |
 | `login_file`, `cap_micro_usd`, `max_llm_calls` | read for the model decider of a run only; none is required, and a rule needs none |
+| `[gateway]` | the gateway of the model decider of a run whose kind is `model`, instead of `login_file`; its `token_file` is read once, when the daemon starts, and `[deciders.model]` then names `adapter = "claude-cli"` (`docs/engine.md`, "A gateway") |

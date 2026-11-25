@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-runs-take-a-gateway
 kind: story
-status: proposed
+status: active
 title: A daemon whose operator named a gateway gives it to the model programs of its runs
 summary: The gateway table of runbook run does not reach runs started through the daemon, sdc-experiment run or sdc-free-agent; the daemon's operator states it and a submit cannot.
 relations:
@@ -15,9 +15,10 @@ scope:
   path: driver/src/bin/sdc-free-agent.rs
 - confidence: cited
   path: runbook/src/engine
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-23T14:15:34Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-25T01:42:45Z", actor: "human:operator", revision: 6, executor: "agent:runbook"}
 ---
 ## What is missing
 
