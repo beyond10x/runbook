@@ -1,0 +1,639 @@
+//! The model routes a daemon declares (`docs/model-routes.md`, section 1; `docs/daemon-api.md`, "Model routes").
+//!
+//! The daemon's `runbook.toml` declares its gateways (`[gateways.<name>]`: an address and a token file), its routes
+//! (`[routes.<name>]`: a gateway by name, the gateway's alias of a model, the kind, and optional prices and wait) and
+//! its policy (`[route_policy]`: the route of a run that names none and the route of a delegation's classify calls).
+//! A lone `[gateway]` table is the gateway `default`.
+//!
+//! [`RouteTable::declare`] checks the tables and reads nothing; [`RouteTable::read_tokens`] reads the token files
+//! once, when the daemon starts. Every refusal names the key (`routes.qwen.gateway`) and never a value, a part of a
+//! value or a path. [`Listing`] is the view `routes`: what the gateway says of each route, read at most once every
+//! [`READ_EVERY_MILLIS`] of the daemon's clock with `GET` requests only; a read sends no model call and starts
+//! nothing.
+
+use crate::client::http::{Client, Token};
+use crate::client::url::Target;
+use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// The tables of `runbook.toml`.
+pub const GATEWAYS: &str = "gateways";
+pub const ROUTES: &str = "routes";
+pub const POLICY: &str = "route_policy";
+/// The one gateway of a file before routes: read as the gateway [`DEFAULT_GATEWAY`].
+pub const LONE_GATEWAY: &str = "gateway";
+pub const DEFAULT_GATEWAY: &str = "default";
+/// How long the rows of a read of the gateways are answered before the gateways are read again.
+pub const READ_EVERY_MILLIS: i64 = 15_000;
+/// How long a read of a gateway waits for its answer.
+const READ_TIMEOUT: Duration = Duration::from_secs(3);
+/// The most bytes of a gateway's token (`sdc_tools::gateway::TOKEN_LIMIT`).
+const TOKEN_LIMIT: usize = sdc_tools::gateway::TOKEN_LIMIT;
+
+const GATEWAY_MEMBERS: [&str; 2] = ["base_url", "token_file"];
+const ROUTE_MEMBERS: [&str; 9] = ["gateway", "model", "kind", "start_wait_seconds", "price_in_micro_usd_per_mtok", "price_out_micro_usd_per_mtok", "wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd"];
+const WAKE_MEMBERS: [&str; 3] = ["wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd"];
+const POLICY_MEMBERS: [&str; 2] = ["default", "classifier"];
+/// The members a route never has: what reaches a model is its gateway's.
+const ROUTE_REFUSED: [&str; 4] = ["token", "token_file", "base_url", "api_key"];
+
+/// What stands behind a route's alias at its gateway.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteKind {
+    /// A model on a pod the gateway starts and stops.
+    Managed,
+    /// A fixed upstream: nothing is started.
+    Hosted,
+    /// A model server on the gateway's machine (Ollama).
+    Local,
+}
+
+impl RouteKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteKind::Managed => "managed",
+            RouteKind::Hosted => "hosted",
+            RouteKind::Local => "local",
+        }
+    }
+
+    fn parse(text: &str) -> Option<RouteKind> {
+        match text {
+            "managed" => Some(RouteKind::Managed),
+            "hosted" => Some(RouteKind::Hosted),
+            "local" => Some(RouteKind::Local),
+            _ => None,
+        }
+    }
+
+    /// Whether the gateway has a status of the model that is not its own process: a pod or a local server.
+    fn has_model_status(self) -> bool {
+        self != RouteKind::Hosted
+    }
+}
+
+/// What the ledger books per million tokens of a call on the route; none declared: the cost is not known.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Prices {
+    pub in_micro_usd_per_mtok: Option<u64>,
+    pub out_micro_usd_per_mtok: Option<u64>,
+}
+
+/// The wake keys of a managed route, read and kept. `on_submit` is false: true is refused at start, the wake is
+/// not built (`docs/model-routes.md`, section 3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Wake {
+    pub on_submit: bool,
+    pub daily_cap_micro_usd: Option<u64>,
+    pub cost_micro_usd: Option<u64>,
+}
+
+/// A gateway: an address and, once [`RouteTable::read_tokens`] ran, the token of its token file. The token is
+/// read through [`Gateway::token`] and is never in `Debug`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Gateway {
+    name: String,
+    /// The table the gateway was declared in, for a refusal: `gateways.<name>`, or `gateway` for a lone table.
+    member: String,
+    base_url: String,
+    token_file: Option<String>,
+    token: Option<String>,
+}
+
+impl std::fmt::Debug for Gateway {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let token = match (&self.token, &self.token_file) {
+            (Some(_), _) => "<read>",
+            (None, Some(_)) => "<named>",
+            (None, None) => "<none>",
+        };
+        f.debug_struct("Gateway").field("name", &self.name).field("base_url", &self.base_url).field("token", &token).finish()
+    }
+}
+
+impl Gateway {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// The token of the gateway's token file; none for a gateway without one, and before the file was read.
+    pub fn token(&self) -> Option<&str> {
+        self.token.as_deref()
+    }
+}
+
+/// A declared route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Route {
+    pub name: String,
+    /// The name of its gateway.
+    pub gateway: String,
+    /// The gateway's alias of the model: what `GET /v1/models` lists and a call names.
+    pub alias: String,
+    pub kind: RouteKind,
+    /// How long a run waits for the route's model (`docs/model-routes.md`, section 3); none declared: none set.
+    pub start_wait_seconds: Option<u64>,
+    pub prices: Prices,
+    pub wake: Wake,
+}
+
+/// What a route name resolves to: the address of its gateway, the gateway's token, the alias, the kind and the
+/// prices. Its `Debug` holds no token.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Resolved<'a> {
+    pub route: &'a str,
+    pub base_url: &'a str,
+    pub token: Option<&'a str>,
+    pub alias: &'a str,
+    pub kind: RouteKind,
+    pub prices: Prices,
+}
+
+impl std::fmt::Debug for Resolved<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let token = if self.token.is_some() { "<read>" } else { "<none>" };
+        f.debug_struct("Resolved").field("route", &self.route).field("base_url", &self.base_url).field("token", &token).field("alias", &self.alias).field("kind", &self.kind).field("prices", &self.prices).finish()
+    }
+}
+
+/// The tables of a file as read (TOML read into JSON values), each absent when the file has none. A relative
+/// `token_file` is made absolute against the file before this (`config.rs`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Tables<'a> {
+    pub gateway: Option<&'a Value>,
+    pub gateways: Option<&'a Value>,
+    pub routes: Option<&'a Value>,
+    pub route_policy: Option<&'a Value>,
+}
+
+/// The gateways, the routes and the policy a daemon declares. Empty: no route.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RouteTable {
+    gateways: BTreeMap<String, Gateway>,
+    routes: BTreeMap<String, Route>,
+    default: Option<String>,
+    classifier: Option<String>,
+}
+
+/// A name of a gateway or a route: 1 to 64 letters, digits, `.`, `_` and `-`.
+pub fn is_name(text: &str) -> bool {
+    !text.is_empty() && text.len() <= 64 && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// An alias of a gateway: 1 to 256 bytes of visible ASCII (the gateway's own bound), and no address.
+fn is_alias(text: &str) -> bool {
+    !text.is_empty() && text.len() <= 256 && text.bytes().all(|b| b.is_ascii_graphic()) && !text.contains("://")
+}
+
+/// A table of `[gateways]` or `[routes]` with its name.
+type Named<'a> = (&'a String, &'a Map<String, Value>);
+
+/// The tables of `table` (`gateways`, `routes`), each a table; a name that is not one is refused without the name.
+fn tables_of<'a>(value: &'a Value, key: &str, what: &str) -> Result<Vec<Named<'a>>, String> {
+    let Some(map) = value.as_object() else {
+        return Err(format!("{key}: a table of tables, one per {what} ([{key}.<name>])"));
+    };
+    map.iter()
+        .map(|(name, v)| {
+            if !is_name(name) {
+                return Err(format!("{key}: the name of a {what} is 1 to 64 letters, digits, '.', '_' or '-'"));
+            }
+            v.as_object().map(|t| (name, t)).ok_or_else(|| format!("{key}.{name}: a table"))
+        })
+        .collect()
+}
+
+fn whole(table: &Map<String, Value>, at: &str, key: &str) -> Result<Option<u64>, String> {
+    match table.get(key) {
+        None => Ok(None),
+        Some(v) => v.as_u64().map(Some).ok_or_else(|| format!("{at}.{key}: a whole number of 0 or more")),
+    }
+}
+
+fn gateway_of(name: &str, member: &str, table: &Map<String, Value>) -> Result<Gateway, String> {
+    for key in table.keys() {
+        if key == "token" {
+            return Err(format!("{member}.token: not a key of runbook.toml (the file holds no token: name {member}.token_file)"));
+        }
+        if !GATEWAY_MEMBERS.contains(&key.as_str()) {
+            return Err(format!("{member}.{key}: not a member of a gateway (known: {})", GATEWAY_MEMBERS.join(", ")));
+        }
+    }
+    let base_url = match table.get("base_url") {
+        None => return Err(format!("{member}.base_url: required")),
+        Some(Value::String(url)) => {
+            sdc_tools::gateway::check_base_url(url).map_err(|why| format!("{member}.base_url: {why}"))?;
+            url.clone()
+        }
+        Some(_) => return Err(format!("{member}.base_url: text")),
+    };
+    let token_file = match table.get("token_file") {
+        None => None,
+        Some(Value::String(path)) if Path::new(path).is_absolute() => Some(path.clone()),
+        Some(Value::String(_)) => return Err(format!("{member}.token_file: not an absolute path")),
+        Some(_) => return Err(format!("{member}.token_file: a path as text")),
+    };
+    Ok(Gateway { name: name.to_owned(), member: member.to_owned(), base_url, token_file, token: None })
+}
+
+fn declared(names: impl Iterator<Item = impl AsRef<str>>) -> String {
+    let names: Vec<String> = names.map(|n| n.as_ref().to_owned()).collect();
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, Gateway>) -> Result<Route, String> {
+    let at = format!("{ROUTES}.{name}");
+    for key in table.keys() {
+        if ROUTE_REFUSED.contains(&key.as_str()) {
+            return Err(format!("{at}.{key}: a route holds no address, token or key: those are its gateway's ([{GATEWAYS}.<name>])"));
+        }
+        if !ROUTE_MEMBERS.contains(&key.as_str()) {
+            return Err(format!("{at}.{key}: not a member of a route (known: {})", ROUTE_MEMBERS.join(", ")));
+        }
+    }
+    let gateway = match table.get("gateway") {
+        None => return Err(format!("{at}.gateway: required (the name of a [{GATEWAYS}.<name>] table)")),
+        Some(Value::String(g)) if gateways.contains_key(g) => g.clone(),
+        Some(_) => return Err(format!("{at}.gateway: names no declared gateway (declared: {})", declared(gateways.keys()))),
+    };
+    let alias = match table.get("model") {
+        None => return Err(format!("{at}.model: required (the gateway's alias of the model, as its /v1/models lists it)")),
+        Some(Value::String(a)) if is_alias(a) => a.clone(),
+        Some(_) => return Err(format!("{at}.model: the gateway's alias of a model (1 to 256 visible ASCII characters), never an address")),
+    };
+    let kind = match table.get("kind") {
+        None => return Err(format!("{at}.kind: required (managed, hosted or local)")),
+        Some(Value::String(k)) => RouteKind::parse(k).ok_or_else(|| format!("{at}.kind: one of managed, hosted, local"))?,
+        Some(_) => return Err(format!("{at}.kind: one of managed, hosted, local")),
+    };
+    if kind != RouteKind::Managed {
+        if let Some(key) = WAKE_MEMBERS.iter().find(|k| table.contains_key(**k)) {
+            return Err(format!("{at}.{key}: a key of a managed route only"));
+        }
+    }
+    let on_submit = match table.get("wake_on_submit") {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => {
+            return Err(format!("{at}.wake_on_submit: true is not built yet (the wake of a managed route ships off, docs/model-routes.md section 3): remove the key or set it to false"));
+        }
+        Some(_) => return Err(format!("{at}.wake_on_submit: true or false")),
+    };
+    Ok(Route {
+        name: name.to_owned(),
+        gateway,
+        alias,
+        kind,
+        start_wait_seconds: whole(table, &at, "start_wait_seconds")?,
+        prices: Prices { in_micro_usd_per_mtok: whole(table, &at, "price_in_micro_usd_per_mtok")?, out_micro_usd_per_mtok: whole(table, &at, "price_out_micro_usd_per_mtok")? },
+        wake: Wake { on_submit, daily_cap_micro_usd: whole(table, &at, "wake_daily_cap_micro_usd")?, cost_micro_usd: whole(table, &at, "wake_cost_micro_usd")? },
+    })
+}
+
+/// The token of the file `path`: one line, an end of line after it allowed. The file is opened once, without
+/// following a link and without blocking (a FIFO opens at once and is no regular file), the kind is asked of the
+/// open descriptor, and it is read up to a limit. An error names `member` and what is wrong, never the path or the
+/// content.
+pub fn read_token_file(path: &str, member: &str) -> Result<String, String> {
+    let unreadable = || format!("{member}: not a readable file");
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC).open(path).map_err(|_| unreadable())?;
+    if !file.metadata().map_err(|_| unreadable())?.is_file() {
+        return Err(unreadable());
+    }
+    let mut text = String::new();
+    file.take(TOKEN_LIMIT as u64 + 16).read_to_string(&mut text).map_err(|_| format!("{member}: not readable as text"))?;
+    if text.trim().is_empty() {
+        return Err(format!("{member}: empty"));
+    }
+    let line = text.strip_suffix('\n').map(|t| t.strip_suffix('\r').unwrap_or(t)).unwrap_or(&text);
+    if line.contains('\n') || line.contains('\r') {
+        return Err(format!("{member}: not one line"));
+    }
+    sdc_tools::gateway::check_token(line).map_err(|why| format!("{member}: the token {why}"))?;
+    Ok(line.to_owned())
+}
+
+impl RouteTable {
+    /// The table of a file's tables: every key checked, nothing read. A refusal names the key, never a value.
+    pub fn declare(tables: &Tables) -> Result<RouteTable, String> {
+        let mut gateways = BTreeMap::new();
+        if let Some(lone) = tables.gateway {
+            if tables.gateways.and_then(|g| g.get(DEFAULT_GATEWAY)).is_some() {
+                return Err(format!("{LONE_GATEWAY} and {GATEWAYS}.{DEFAULT_GATEWAY}: one or the other (a lone [{LONE_GATEWAY}] table is the gateway {DEFAULT_GATEWAY})"));
+            }
+            let table = lone.as_object().ok_or_else(|| format!("{LONE_GATEWAY}: a table with base_url and token_file"))?;
+            gateways.insert(DEFAULT_GATEWAY.to_owned(), gateway_of(DEFAULT_GATEWAY, LONE_GATEWAY, table)?);
+        }
+        if let Some(value) = tables.gateways {
+            for (name, table) in tables_of(value, GATEWAYS, "gateway")? {
+                gateways.insert(name.clone(), gateway_of(name, &format!("{GATEWAYS}.{name}"), table)?);
+            }
+        }
+        let mut routes = BTreeMap::new();
+        if let Some(value) = tables.routes {
+            for (name, table) in tables_of(value, ROUTES, "route")? {
+                routes.insert(name.clone(), route_of(name, table, &gateways)?);
+            }
+        }
+        let (mut default, mut classifier) = (None, None);
+        if let Some(value) = tables.route_policy {
+            let table = value.as_object().ok_or_else(|| format!("{POLICY}: a table with default and classifier"))?;
+            for (key, v) in table {
+                let slot = match key.as_str() {
+                    "default" => &mut default,
+                    "classifier" => &mut classifier,
+                    _ => return Err(format!("{POLICY}.{key}: not a member of the policy (known: {})", POLICY_MEMBERS.join(", "))),
+                };
+                match v {
+                    Value::String(route) if routes.contains_key(route) => *slot = Some(route.clone()),
+                    _ => return Err(format!("{POLICY}.{key}: names no declared route (declared: {})", declared(routes.keys()))),
+                }
+            }
+        }
+        Ok(RouteTable { gateways, routes, default, classifier })
+    }
+
+    /// Reads the token file of every gateway that names one, once: every `[gateways.<name>]`, and a lone `[gateway]`
+    /// only when a route names it (without one it is the model decider's alone, which reads it itself, as before
+    /// routes). A refusal names the member, never the path or the content.
+    pub fn read_tokens(&mut self) -> Result<(), String> {
+        let routes = &self.routes;
+        for gateway in self.gateways.values_mut() {
+            let lone_and_unused = gateway.member == LONE_GATEWAY && !routes.values().any(|r| r.gateway == gateway.name);
+            if lone_and_unused {
+                continue;
+            }
+            if let Some(path) = &gateway.token_file {
+                gateway.token = Some(read_token_file(path, &format!("{}.token_file", gateway.member))?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the file declares no gateway and no route.
+    pub fn is_empty(&self) -> bool {
+        self.gateways.is_empty() && self.routes.is_empty()
+    }
+
+    /// The declared route names, in order.
+    pub fn names(&self) -> Vec<&str> {
+        self.routes.keys().map(String::as_str).collect()
+    }
+
+    pub fn route(&self, name: &str) -> Option<&Route> {
+        self.routes.get(name)
+    }
+
+    pub fn routes(&self) -> impl Iterator<Item = &Route> {
+        self.routes.values()
+    }
+
+    pub fn gateway(&self, name: &str) -> Option<&Gateway> {
+        self.gateways.get(name)
+    }
+
+    /// `route_policy.default`: the route of a run that names none.
+    pub fn default_route(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
+
+    /// `route_policy.classifier`: the route of a delegation's classify and build calls.
+    pub fn classifier(&self) -> Option<&str> {
+        self.classifier.as_deref()
+    }
+
+    /// The route `name` as a call reaches it: its gateway's address and token, the alias, the kind and the prices.
+    /// None for a name that is not declared.
+    pub fn resolve(&self, name: &str) -> Option<Resolved<'_>> {
+        let route = self.routes.get(name)?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        Some(Resolved { route: &route.name, base_url: &gateway.base_url, token: gateway.token(), alias: &route.alias, kind: route.kind, prices: route.prices })
+    }
+}
+
+// ---- the view `routes`: what the gateways say ----
+
+/// How a gateway answered `GET /ready` and `GET /v1/models`.
+enum Reach {
+    /// No answer, or an address the daemon does not speak (https).
+    Unreachable,
+    /// An answer that is not 200, or no list of models.
+    NotReady,
+    /// Ready, with its models and their wires, and the status of `/v1/status` when it answered one.
+    Ready { models: BTreeMap<String, Vec<String>>, status: Option<BTreeMap<String, ModelStatus>> },
+}
+
+/// The status of one model as the gateway gives it.
+#[derive(Clone, Default)]
+struct ModelStatus {
+    phase: Option<String>,
+    callable: Option<bool>,
+}
+
+/// A client of a gateway and the path the gateway's routes start with.
+type Reader = (Client, String);
+
+/// A client of `base_url` and the path its routes start with; none for an address the daemon does not speak.
+fn client_of(gateway: &Gateway) -> Option<Reader> {
+    let rest = gateway.base_url.strip_prefix("http://")?;
+    let (authority, prefix) = rest.split_once('/').map(|(a, p)| (a, format!("/{}", p.trim_end_matches('/')))).unwrap_or((rest, String::new()));
+    let target: Target = crate::client::url::parse(&format!("http://{authority}")).ok()?;
+    let prefix = if prefix == "/" { String::new() } else { prefix };
+    Some((Client::new(target, gateway.token.clone().map(Token::new)).with_reply_timeout(READ_TIMEOUT), prefix))
+}
+
+/// A path segment with every byte that is not unreserved percent-encoded.
+fn segment(text: &str) -> String {
+    text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+/// `GET <prefix><path>`: the status and the body as JSON (null when it is none); `None` when no answer came.
+fn get(client: &Client, prefix: &str, path: &str) -> Option<(u16, Value)> {
+    let reply = client.request("GET", &format!("{prefix}{path}"), None).ok()?;
+    Some((reply.status, serde_json::from_str(&reply.body).unwrap_or(Value::Null)))
+}
+
+/// The most wires a row keeps of a model.
+const MAX_WIRES: usize = 16;
+
+/// A word a gateway gave (a wire, a phase), when it is 1 to 64 visible ASCII characters: nothing else of a gateway's
+/// answer reaches a row.
+fn word(v: &Value) -> Option<String> {
+    v.as_str().filter(|s| !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_graphic())).map(str::to_owned)
+}
+
+fn wires(v: &Value) -> Vec<String> {
+    v.as_array().map(|a| a.iter().filter_map(word).take(MAX_WIRES).collect()).unwrap_or_default()
+}
+
+/// The status of one model in `m`; none when it has neither a phase nor a `callable` that is a boolean.
+fn model_status(m: &Value) -> Option<ModelStatus> {
+    let status = ModelStatus { phase: word(&m["phase"]), callable: m["callable"].as_bool() };
+    (status.phase.is_some() || status.callable.is_some()).then_some(status)
+}
+
+fn read_gateway(gateway: &Gateway) -> (Reach, Option<Reader>) {
+    let Some((client, prefix)) = client_of(gateway) else { return (Reach::Unreachable, None) };
+    let reach = match get(&client, &prefix, "/ready") {
+        None => Reach::Unreachable,
+        Some((200, _)) => match get(&client, &prefix, "/v1/models") {
+            None => Reach::Unreachable,
+            Some((200, body)) if body["data"].is_array() => {
+                let models = body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), wires(&m["wires"])))).collect();
+                Reach::Ready { models, status: None }
+            }
+            Some(_) => Reach::NotReady,
+        },
+        Some(_) => Reach::NotReady,
+    };
+    (reach, Some((client, prefix)))
+}
+
+/// `GET /v1/status`: the status of every model, by alias; none when the gateway does not serve it.
+fn read_all_status(client: &Client, prefix: &str) -> Option<BTreeMap<String, ModelStatus>> {
+    match get(client, prefix, "/v1/status")? {
+        (200, body) if body["models"].is_array() => Some(
+            body["models"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|m| Some((m["model"].as_str()?.to_owned(), model_status(m)?)))
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// `GET /v1/models/{alias}/status`: the phase of one model; none when it did not answer one.
+fn read_model_status(client: &Client, prefix: &str, alias: &str) -> Option<ModelStatus> {
+    match get(client, prefix, &format!("/v1/models/{}/status", segment(alias)))? {
+        (200, body) => word(&body["phase"]).map(|p| ModelStatus { phase: Some(p), callable: None }),
+        _ => None,
+    }
+}
+
+/// The view `routes`: the routes of the table with what their gateways say, read at most once every
+/// [`READ_EVERY_MILLIS`] of the clock it is given; a read in that time answers the rows of the last one.
+#[derive(Debug, Default)]
+pub struct Listing {
+    table: Arc<RouteTable>,
+    last: Mutex<Option<(i64, Vec<Value>)>>,
+}
+
+impl Listing {
+    pub fn new(table: Arc<RouteTable>) -> Listing {
+        Listing { table, last: Mutex::new(None) }
+    }
+
+    pub fn table(&self) -> &Arc<RouteTable> {
+        &self.table
+    }
+
+    /// The rows at `now_millis`. The reads wait on the network: inside the daemon's runtime they run where a
+    /// worker may block.
+    pub fn rows(&self, now_millis: i64) -> Vec<Value> {
+        if self.table.routes.is_empty() {
+            return Vec::new();
+        }
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, rows)) = last.as_ref() {
+            if (0..READ_EVERY_MILLIS).contains(&(now_millis - at)) {
+                return rows.clone();
+            }
+        }
+        let read = || self.read(now_millis);
+        let rows = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => tokio::task::block_in_place(read),
+            _ => read(),
+        };
+        *last = Some((now_millis, rows.clone()));
+        rows
+    }
+
+    fn read(&self, now_millis: i64) -> Vec<Value> {
+        let read_at = crate::clock::format_instant(now_millis);
+        let mut reads: BTreeMap<&str, (Reach, Option<Reader>)> = BTreeMap::new();
+        for route in self.table.routes.values() {
+            if !reads.contains_key(route.gateway.as_str()) {
+                let Some(gateway) = self.table.gateways.get(&route.gateway) else { continue };
+                let (mut reach, client) = read_gateway(gateway);
+                if let (Reach::Ready { models, status }, Some((c, prefix))) = (&mut reach, &client) {
+                    if self.table.routes.values().any(|r| r.gateway == route.gateway && models.contains_key(&r.alias)) {
+                        *status = read_all_status(c, prefix);
+                    }
+                }
+                reads.insert(&route.gateway, (reach, client));
+            }
+        }
+        self.table
+            .routes
+            .values()
+            .map(|route| {
+                let (status, wires, phase) = match reads.get(route.gateway.as_str()) {
+                    None | Some((Reach::Unreachable, _)) => ("gateway-unreachable", Vec::new(), None),
+                    Some((Reach::NotReady, _)) => ("gateway-not-ready", Vec::new(), None),
+                    Some((Reach::Ready { models, status }, client)) => match models.get(&route.alias) {
+                        None => ("model-unknown", Vec::new(), None),
+                        Some(wires) => {
+                            let of_all = status.as_ref().and_then(|s| s.get(&route.alias)).cloned();
+                            let of_model = || client.as_ref().filter(|_| route.kind.has_model_status()).and_then(|(c, prefix)| read_model_status(c, prefix, &route.alias));
+                            match of_all.or_else(of_model) {
+                                Some(s) => {
+                                    let ready = s.callable.unwrap_or(s.phase.as_deref() == Some("ready"));
+                                    (if ready { "ready" } else { "not-ready" }, wires.clone(), s.phase)
+                                }
+                                None => ("listed", wires.clone(), None),
+                            }
+                        }
+                    },
+                };
+                let mut row = Map::new();
+                row.insert("route".into(), json!(route.name));
+                row.insert("gateway".into(), json!(route.gateway));
+                row.insert("alias".into(), json!(route.alias));
+                row.insert("kind".into(), json!(route.kind.as_str()));
+                row.insert("wires".into(), json!(wires));
+                row.insert("status".into(), json!(status));
+                if let Some(phase) = phase {
+                    row.insert("phase".into(), json!(phase));
+                }
+                row.insert("read_at".into(), json!(read_at));
+                Value::Object(row)
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_segment_is_encoded_and_a_base_with_a_path_keeps_it_as_a_prefix() {
+        assert_eq!(segment("qwen"), "qwen");
+        assert_eq!(segment("org/model:v1 x"), "org%2Fmodel%3Av1%20x");
+        let g = |url: &str| Gateway { name: "g".into(), member: "gateways.g".into(), base_url: url.into(), token_file: None, token: None };
+        assert_eq!(client_of(&g("http://127.0.0.1:9/prefix/")).map(|(_, p)| p), Some("/prefix".to_owned()));
+        assert_eq!(client_of(&g("http://127.0.0.1:9/")).map(|(_, p)| p), Some(String::new()));
+        assert_eq!(client_of(&g("http://127.0.0.1:9")).map(|(_, p)| p), Some(String::new()));
+        assert!(client_of(&g("https://127.0.0.1:9")).is_none(), "the daemon speaks no https");
+    }
+
+    #[test]
+    fn names_and_aliases() {
+        assert!(is_name("local-qwen") && is_name("a.b_c") && !is_name("") && !is_name("a b") && !is_name(&"x".repeat(65)));
+        assert!(is_alias("qwen") && is_alias("org/model:v1") && !is_alias("http://h/v1") && !is_alias("a b") && !is_alias(""));
+    }
+}

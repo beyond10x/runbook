@@ -12,6 +12,7 @@ pub mod engine;
 pub mod ledger;
 pub mod mcp;
 pub mod record_write;
+pub mod routes;
 pub mod runbooks;
 pub mod runtime;
 pub mod serve;

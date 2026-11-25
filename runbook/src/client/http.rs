@@ -35,6 +35,7 @@ impl std::fmt::Debug for Token {
 pub struct Client {
     target: Target,
     token: Option<Token>,
+    reply_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -111,7 +112,14 @@ fn why(e: &io::Error) -> String {
 
 impl Client {
     pub fn new(target: Target, token: Option<Token>) -> Client {
-        Client { target, token }
+        Client { target, token, reply_timeout: REPLY_TIMEOUT }
+    }
+
+    /// The client with `timeout` as the most a read or a write of [`Client::request`] waits (the daemon's own
+    /// default is 30 s).
+    pub fn with_reply_timeout(mut self, timeout: Duration) -> Client {
+        self.reply_timeout = timeout;
+        self
     }
 
     pub fn target(&self) -> &Target {
@@ -129,7 +137,7 @@ impl Client {
             match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
                 Ok(s) => {
                     s.set_read_timeout(Some(read_timeout)).ok();
-                    s.set_write_timeout(Some(REPLY_TIMEOUT)).ok();
+                    s.set_write_timeout(Some(self.reply_timeout)).ok();
                     s.set_nodelay(true).ok();
                     return Ok(s);
                 }
@@ -157,7 +165,7 @@ impl Client {
 
     /// The status, the headers and the body of the answer, whole.
     pub fn request(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Reply, Failure> {
-        let mut s = self.connect(REPLY_TIMEOUT)?;
+        let mut s = self.connect(self.reply_timeout)?;
         self.send(&mut s, method, path, &[("Accept", "application/json".to_string())], body)?;
         let (status, headers, mut body) = self.read_response(s)?;
         let mut text = Vec::new();

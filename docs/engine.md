@@ -399,7 +399,8 @@ adapter is given its path in `SDC_GATEWAY_FILE` and nothing else of it, and the 
 linked or copied. The file and its directory go when the run ends. A run whose kind is `rule`, or that has
 no kind, starts no model program and writes no gateway file. The bound programs of the runbook get neither a
 login nor a gateway from the daemon. Named model routes, several gateways and routes side by side, are designed in
-`docs/model-routes.md` (not built).
+`docs/model-routes.md`: the daemon declares them and lists them in the view `routes` (`docs/daemon-api.md`, "Model
+routes"; a lone `[gateway]` is the gateway `default` there); a run takes no route yet.
 
 The token file is read once, when the daemon starts, and only when the `model` kind is configured. The daemon
 does not start (exit 2, naming the member and never a value or a path) when the token file cannot be read as

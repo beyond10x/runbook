@@ -13,7 +13,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 const MODERN: &str = "2026-07-28";
-const ELEVEN: [&str; 11] = ["submit_run", "list_runs", "read_run", "read_events", "read_open_decisions", "answer_decision", "cancel_run", "open_session", "close_session", "list_products", "read_product"];
+const TWELVE: [&str; 12] = ["submit_run", "list_runs", "read_run", "read_events", "read_open_decisions", "answer_decision", "cancel_run", "open_session", "close_session", "list_products", "read_product", "list_routes"];
 
 // ---- a daemon with the MCP endpoint, in process ----
 
@@ -198,10 +198,10 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
-// ---- acceptance 1: initialize, server info, the eleven tools ----
+// ---- acceptance 1: initialize, server info, the twelve tools ----
 
 #[test]
-fn stdio_initialize_answers_server_info_and_the_eleven_tools() {
+fn stdio_initialize_answers_server_info_and_the_twelve_tools() {
     let d = Daemon::start("mcp-init", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.initialize();
@@ -210,7 +210,7 @@ fn stdio_initialize_answers_server_info_and_the_eleven_tools() {
     assert_eq!(r["result"]["serverInfo"]["name"], "runbook");
     assert_eq!(r["result"]["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(r["result"]["capabilities"]["tools"].is_object(), "{r}");
-    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), ELEVEN, "the instructions name every tool, in list order");
+    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), TWELVE, "the instructions name every tool, in list order");
     // `notifications/initialized` is not answered: the next message read is the answer to the next request.
     c.write(&json!({"jsonrpc": "2.0", "id": "p", "method": "ping"}));
     let p = c.read();
@@ -218,12 +218,12 @@ fn stdio_initialize_answers_server_info_and_the_eleven_tools() {
     c.write(&json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list"}));
     let l = c.read();
     assert_eq!(l["id"], json!(7));
-    assert_eq!(names(&l["result"]["tools"]), ELEVEN);
+    assert_eq!(names(&l["result"]["tools"]), TWELVE);
     assert!(l["result"].get("resultType").is_none(), "a legacy answer is bare: {l}");
 }
 
 #[test]
-fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_eleven_tools() {
+fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_twelve_tools() {
     let d = Daemon::start("mcp-modern", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.ask("server/discover", json!({}));
@@ -231,10 +231,10 @@ fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_eleven_too
     assert_eq!(r["result"]["supportedVersions"], json!([MODERN, "2025-11-25", "2025-06-18"]));
     assert!(r["result"]["capabilities"]["tools"].is_object());
     assert_eq!(r["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "runbook");
-    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), ELEVEN, "the instructions name every tool, in list order");
+    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), TWELVE, "the instructions name every tool, in list order");
     let l = c.ask("tools/list", json!({}));
     assert_eq!(l["result"]["resultType"], "complete");
-    assert_eq!(names(&l["result"]["tools"]), ELEVEN);
+    assert_eq!(names(&l["result"]["tools"]), TWELVE);
     // A request of an unsupported revision is the error that names the revisions; one without the
     // per-request metadata is invalid params, before any handshake.
     c.write(&json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}));
@@ -635,7 +635,7 @@ fn http_endpoint_answers_the_same_tools_list_as_stdio() {
     assert!(r.header("content-type").unwrap().starts_with("application/json"));
     let http = r.json();
     assert_eq!(http["id"], 1);
-    assert_eq!(names(&http["result"]["tools"]), ELEVEN);
+    assert_eq!(names(&http["result"]["tools"]), TWELVE);
     let mut c = Stdio1::to(&d);
     let stdio = c.ask("tools/list", json!({}));
     assert_eq!(http["result"]["tools"], stdio["result"]["tools"], "one list on both transports");
@@ -657,7 +657,7 @@ fn http_endpoint_without_the_bearer_token_gets_401_on_a_non_loopback_listener() 
     right.push(("Authorization", "Bearer s3cret-token"));
     let r = d.mcp(&right, &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), ELEVEN);
+    assert_eq!(names(&r.json()["result"]["tools"]), TWELVE);
     // The same check guards the other routes, so a request to the endpoint is not a way round it.
     assert_eq!(d.get("/daemon/views/runs").status, 401);
     // A GET to the endpoint without the token is 401 too, not 405: the check comes first.
@@ -685,7 +685,7 @@ fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
         let _ = child.wait();
         assert_eq!(r.status, want, "serve flag {flag}: {}", r.text());
         if flag {
-            assert_eq!(names(&r.json()["result"]["tools"]), ELEVEN);
+            assert_eq!(names(&r.json()["result"]["tools"]), TWELVE);
         }
     }
 }
@@ -775,7 +775,7 @@ fn http_serves_a_legacy_client_without_a_session() {
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
     let r = d.mcp(&[("MCP-Protocol-Version", "2025-06-18")], &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), ELEVEN);
+    assert_eq!(names(&r.json()["result"]["tools"]), TWELVE);
     assert!(r.json()["result"].get("resultType").is_none());
     let r = d.mcp(&[], &list);
     assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!(-32602)), "neither era is named");
@@ -923,12 +923,12 @@ fn stdio_with_the_daemon_gone_is_a_tool_error_that_does_not_carry_the_token() {
 }
 
 #[test]
-fn the_mcp_page_lists_the_eleven_tools_in_the_order_of_tools_list() {
+fn the_mcp_page_lists_the_twelve_tools_in_the_order_of_tools_list() {
     let page = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/mcp.md")).unwrap();
     let section = page.split("\n## The tools\n").nth(1).unwrap().split("\n## ").next().unwrap();
     let rows: Vec<&str> = section.lines().filter_map(|l| l.strip_prefix("| `").and_then(|r| r.split('`').next())).collect();
-    assert_eq!(rows, ELEVEN, "the table of docs/mcp.md, \"The tools\"");
-    assert!(section.contains("exactly these eleven"), "{section}");
+    assert_eq!(rows, TWELVE, "the table of docs/mcp.md, \"The tools\"");
+    assert!(section.contains("exactly these twelve"), "{section}");
     assert!(!page.contains("seven"), "docs/mcp.md still counts seven tools");
 }
 
@@ -947,7 +947,7 @@ fn standalone(v: &Value) -> bool {
 fn input_schemas_are_derived_from_the_openapi_document() {
     let doc = super::openapi::doc();
     let tools = mcp::tools::list();
-    assert_eq!(names(&Value::Array(tools.clone())), ELEVEN);
+    assert_eq!(names(&Value::Array(tools.clone())), TWELVE);
     let by = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap().clone();
     let input = |command: &str| doc["components"]["schemas"][format!("sdc.daemon.{}.Input", command)].clone();
     let keys = |v: &Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
