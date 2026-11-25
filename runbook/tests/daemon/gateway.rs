@@ -1,7 +1,7 @@
 //! The gateway of a daemon's runs (`docs/engine.md`, "A gateway"): the `[gateway]` table of the `runbook.toml` the
-//! daemon reads gives the model programs of its runs an address and a token, the way `runbook run` gives them: one
-//! file `gateway` in the run's private directory, the address and the token set for the model process only, and no
-//! login linked or copied. A submit names no gateway, address or token.
+//! daemon reads is the route of its runs whose decider is a model. Their model programs reach it through the daemon's
+//! relay and the run's route file (`relay_daemon.rs`), the gateway's token is added by the daemon alone, and no login
+//! is linked or copied. A submit names no gateway, address or token.
 //!
 //! No test calls a model or a network beyond loopback: the model decider's adapter is the committed claude-cli
 //! adapter, `claude` is a stand-in in bash that the run's copy of the bindings puts first on the decider's `PATH`,
@@ -16,14 +16,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const TOKEN: &str = "gw-daemon-7c41e9b2d05a";
+pub(super) const TOKEN: &str = "gw-daemon-7c41e9b2d05a";
 const RULE: &str = "[deciders.rule]\nverdict = \"approve\"\n";
 
-fn repo() -> PathBuf {
+pub(super) fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
-fn copy_tree(from: &Path, to: &Path) {
+pub(super) fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap().flatten() {
         let target = to.join(entry.file_name());
@@ -35,7 +35,7 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-fn write_exe(path: &Path, text: &str) {
+pub(super) fn write_exe(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -71,9 +71,16 @@ fn standin_gateway() -> StandinGateway {
 }
 
 /// A `claude` in bash: it notes whether its config directory holds a login and whether a login variable reached it
-/// (`log/claude-env`), sends one request to `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` as its bearer, and
-/// approves only when the gateway answered 200.
+/// (`log/claude-env`), sends one Messages call to `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` as its bearer and
+/// the model it was given as `model`, and approves only when the answer was 200.
 fn standin_claude(log: &Path) -> String {
+    claude_calling(log, r#""$model""#)
+}
+
+/// The stand-in `claude` of [`standin_claude`] that sends one Messages call per role of `roles` (bash words; `"$model"`
+/// is the model it was given), in order. It keeps the status line of each answer in `log/statuses`, its body in
+/// `log/bodies` and its whole environment in `log/claude-env-all`, and approves only when the last answer was 200.
+pub(super) fn claude_calling(log: &Path, roles: &str) -> String {
     format!(
         r#"#!/bin/bash
 log='{log}'
@@ -82,12 +89,25 @@ log='{log}'
   [ -n "${{SDC_CLAUDE_CREDENTIALS+x}}" ] && echo login_variable=set || echo login_variable=unset
   [ -n "${{SDC_GATEWAY_FILE+x}}" ] && echo gateway_variable=set || echo gateway_variable=unset
 }} >> "$log/claude-env"
+env >> "$log/claude-env-all"
+model=''
+prev=''
+for a in "$@"; do [ "$prev" = --model ] && model=$a; prev=$a; done
 rest=${{ANTHROPIC_BASE_URL#http://}}
 hostport=${{rest%%/*}}
-exec 3<>"/dev/tcp/${{hostport%:*}}/${{hostport##*:}}" || exit 7
-printf 'POST /v1/messages HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Length: 0\r\n\r\n' "$hostport" "${{ANTHROPIC_AUTH_TOKEN-}}" >&3
-read -r status <&3
-exec 3<&-
+base=''
+[ "$rest" = "$hostport" ] || base=/${{rest#*/}}
+status=''
+for role in {roles}; do
+  body="{{\"model\":\"$role\",\"max_tokens\":8,\"messages\":[{{\"role\":\"user\",\"content\":\"hi\"}}]}}"
+  exec 3<>"/dev/tcp/${{hostport%:*}}/${{hostport##*:}}" || exit 7
+  printf 'POST %s/v1/messages HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' "$base" "$hostport" "${{ANTHROPIC_AUTH_TOKEN-}}" "${{#body}}" "$body" >&3
+  answer=$(cat <&3)
+  exec 3<&-
+  status=${{answer%%$'\r'*}}
+  printf '%s\n' "$status" >> "$log/statuses"
+  printf '%s\n' "${{answer#*$'\r\n\r\n'}}" >> "$log/bodies"
+done
 case $status in *" 200 "*) ;; *) exit 8 ;; esac
 mkdir -p out && printf '%s\n' '{{"decision":"approve","reasons":["ok"],"cites":[]}}' > out/decision.json
 printf '%s\n' '{{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"session_id":"s","usage":{{"input_tokens":0,"output_tokens":0}},"result":"ok","terminal_reason":"completed","structured_output":{{"decision":"approve","reasons":["ok"],"cites":[]}}}}'
@@ -98,14 +118,14 @@ printf '%s\n' '{{"type":"result","subtype":"success","is_error":false,"num_turns
 
 /// The home of a daemon with the model kind on the committed claude-cli adapter and a stand-in `claude` in the
 /// runbook's tools, the token file outside every directory the daemon writes, and the runtime directory.
-struct Home {
-    home: PathBuf,
-    token_file: PathBuf,
-    xdg: PathBuf,
-    log: PathBuf,
+pub(super) struct Home {
+    pub(super) home: PathBuf,
+    pub(super) token_file: PathBuf,
+    pub(super) xdg: PathBuf,
+    pub(super) log: PathBuf,
 }
 
-fn home(tag: &str) -> Home {
+pub(super) fn home(tag: &str) -> Home {
     let base = super::state::scratch(&format!("{tag}-files"));
     let home = base.join("home");
     copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/autonomy-runbook"), &home);
@@ -124,36 +144,41 @@ fn home(tag: &str) -> Home {
     Home { home, token_file, xdg, log }
 }
 
-fn model_table(adapter: Option<&str>) -> String {
+pub(super) fn model_table(adapter: Option<&str>) -> String {
     let adapter = adapter.map(|a| format!("adapter = \"{a}\"\n")).unwrap_or_default();
     format!("[deciders.model]\nmodel = \"a-model\"\n{adapter}without_claims = true\ntimeout_seconds = 20\nretries = 0\n")
 }
 
-fn claude_cli() -> String {
+pub(super) fn claude_cli() -> String {
     repo().join("bindings/tools/llm-adapter-claude-cli.sh").display().to_string()
 }
 
-fn gateway_table(base_url: &str, token_file: &Path) -> String {
+pub(super) fn gateway_table(base_url: &str, token_file: &Path) -> String {
     format!("[gateway]\nbase_url = \"{base_url}\"\ntoken_file = \"{}\"\n", token_file.display())
 }
 
-fn serve(tag: &str, h: &Home, file: &str, with_runtime_dir: bool) -> Live {
+pub(super) fn serve(tag: &str, h: &Home, file: &str, with_runtime_dir: bool) -> Live {
+    serve_capped(tag, h, file, with_runtime_dir, "10000")
+}
+
+/// [`serve`] with `max_llm_calls` as the most model calls of a run.
+pub(super) fn serve_capped(tag: &str, h: &Home, file: &str, with_runtime_dir: bool, max_llm_calls: &str) -> Live {
     let xdg = h.xdg.to_str().unwrap();
-    let all = ["--runtime", "loom", "--runbook-home", h.home.to_str().unwrap(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", "10000", "--cap-micro-usd", "1000000000"];
+    let all = ["--runtime", "loom", "--runbook-home", h.home.to_str().unwrap(), "--min-confinement", "local", "--max-wall-seconds", "3600", "--max-llm-calls", max_llm_calls, "--cap-micro-usd", "1000000000"];
     live_env(tag, &all, Some(file), &[("XDG_RUNTIME_DIR", with_runtime_dir.then_some(xdg))])
 }
 
-fn submit(l: &Live, kind: &str) -> String {
+pub(super) fn submit(l: &Live, kind: &str) -> String {
     let (status, body) = post(l, &json!({"runbook_id": "autonomy-demo", "intake": "a note on tea", "confinement": "local", "autonomy": "A5", "decider": kind}));
     assert_eq!((status, body["outcome"].clone()), (202, json!("submitted")), "{body}");
     body["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned()
 }
 
-fn row(l: &Live, run: &str) -> Value {
+pub(super) fn row(l: &Live, run: &str) -> Value {
     rows(l, &format!("/daemon/views/run?run_id={run}"))[0].clone()
 }
 
-fn until_state(l: &Live, run: &str, states: &[&str]) -> Value {
+pub(super) fn until_state(l: &Live, run: &str, states: &[&str]) -> Value {
     let limit = Instant::now() + Duration::from_secs(40);
     loop {
         let r = row(l, run);
@@ -165,13 +190,13 @@ fn until_state(l: &Live, run: &str, states: &[&str]) -> Value {
     }
 }
 
-fn entries(dir: &Path) -> Vec<String> {
+pub(super) fn entries(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir).map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
     names.sort();
     names
 }
 
-fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+pub(super) fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     let limit = Instant::now() + Duration::from_secs(10);
     while !done() {
         assert!(Instant::now() < limit, "gave up waiting for {what}");
@@ -180,7 +205,7 @@ fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
 }
 
 /// Every file below `dir` whose bytes hold `needle`.
-fn holders(dir: &Path, needle: &str) -> Vec<PathBuf> {
+pub(super) fn holders(dir: &Path, needle: &str) -> Vec<PathBuf> {
     let mut hits = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -220,32 +245,6 @@ fn a_run_of_a_daemon_whose_file_names_a_gateway_reaches_the_standin_gateway_with
     assert!(!serde_json::to_string(&row(&l, &run)).unwrap().contains(TOKEN));
     // the private directory and its gateway file went with the run
     wait_until("the run's private directory to go", || entries(&h.xdg.join("runbook")).is_empty());
-}
-
-#[test]
-fn the_gateway_file_of_a_daemon_run_is_mode_600_in_its_private_directory_and_the_adapter_gets_its_path_alone() {
-    let h = home("gw-daemon-file");
-    let gw = standin_gateway();
-    // an adapter that keeps its environment and what the gateway file holds, and fails: the decision stays open
-    let adapter = h.log.join("adapter.sh");
-    write_exe(&adapter, &format!("#!/bin/sh\nenv > '{log}/adapter-env'\nstat -c '%a' \"$SDC_GATEWAY_FILE\" > '{log}/file-mode'\nstat -c '%a' \"$(dirname \"$SDC_GATEWAY_FILE\")\" > '{log}/dir-mode'\nls -A \"$(dirname \"$SDC_GATEWAY_FILE\")\" > '{log}/dir-ls'\ngrep -qx 'token={TOKEN}' \"$SDC_GATEWAY_FILE\" && grep -qx 'base_url={base}' \"$SDC_GATEWAY_FILE\" && echo yes > '{log}/file-content'\nexit 1\n", log = h.log.display(), base = gw.base_url));
-    let file = format!("{}{}", gateway_table(&gw.base_url, &h.token_file), model_table(Some(adapter.to_str().unwrap())));
-    let l = serve("gw-daemon-file-d", &h, &file, true);
-    let run = submit(&l, "model");
-    wait_until("the adapter to run", || h.log.join("file-content").exists() || h.log.join("adapter-env").exists());
-    std::thread::sleep(Duration::from_millis(300));
-    let env = std::fs::read_to_string(h.log.join("adapter-env")).unwrap();
-    let file_var = env.lines().find_map(|l| l.strip_prefix("SDC_GATEWAY_FILE=")).expect("the adapter was given no gateway file").to_owned();
-    assert!(Path::new(&file_var).starts_with(h.xdg.join("runbook")) && file_var.ends_with("/gateway"), "{file_var}");
-    assert!(!env.contains(TOKEN) && !env.contains("ANTHROPIC_") && !env.contains("SDC_CLAUDE_CREDENTIALS"), "{env}");
-    let read = |name: &str| std::fs::read_to_string(h.log.join(name)).unwrap_or_default().trim().to_owned();
-    assert_eq!((read("file-mode"), read("dir-mode"), read("dir-ls"), read("file-content")), ("600".to_owned(), "700".to_owned(), "gateway".to_owned(), "yes".to_owned()));
-    assert!(gw.heads.lock().unwrap().is_empty(), "the stand-in adapter calls nothing");
-    let r = super::http::send(l.addr, "POST", "/daemon/commands/cancel-run", &[("Content-Type", "application/json")], Some(json!({"run_id": run}).to_string().as_bytes()));
-    assert!(r.status < 300, "cancel-run: {}", r.status);
-    until_state(&l, &run, &["Cancelled"]);
-    wait_until("the run's private directory to go", || !Path::new(&file_var).parent().unwrap().exists());
-    assert_eq!(holders(&l.dir, TOKEN), Vec::<PathBuf>::new(), "the token is in a file of the daemon's state");
 }
 
 #[test]

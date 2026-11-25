@@ -19,9 +19,12 @@
 # `<gateway token>` before `events.jsonl` and `stderr.txt` are written. A gateway file that names no token (a
 # gateway without ingress auth) gives ANTHROPIC_AUTH_TOKEN the fixed placeholder `runbook-gateway-no-token`, no
 # credential, and its output is not filtered. A file that cannot be read ends the
-# call with exit 127 before `claude` starts, naming the variable and no value. `claude` and what it starts get
-# no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5 are closed for the start), and
-# no descriptor above 2 that the caller left open.
+# call with exit 127 before `claude` starts, naming the variable and no value. With RUNBOOK_ROUTE_FILE (a daemon run on a
+# route: `runbook.route/1`, the daemon's relay and the run's own token; docs/model-routes.md, section 11) the route file
+# takes the place of a gateway file the same way, before it, and `claude` asks for the run's role (the request's model
+# when the file names a route for it, else `default`), not a model; RUNBOOK_ROUTE_FILE is not in `claude`'s environment.
+# `claude` and what it starts get no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5
+# are closed for the start), and no descriptor above 2 that the caller left open.
 # A call
 # is the same on any host: its effort is the request's (set by sdc-node or the decider of `runbook run`), and
 # CLAUDE_CODE_EFFORT_LEVEL, which would override it, is unset for the child.
@@ -37,12 +40,27 @@ mkdir -p "$rec"
 # home, and the runner removes its private directory with all it holds. Otherwise (the driver's runs)
 # it is made in the record directory, as it always was.
 scratch=$rec
+model=$(r .model)
+route_file=${RUNBOOK_ROUTE_FILE:-}
+if [[ -n $route_file ]]; then
+  # A route (docs/model-routes.md, section 11): the run's route file names the daemon's relay and the run's own
+  # token, never a gateway's credential. It takes the place of a gateway file, before any gateway file, key or
+  # login of the environment: the address and the token go to the one start of `claude` as a gateway's do. The
+  # model `claude` asks for is a role of the run: the request's model when the file names a route for it, else
+  # `default`; the relay sets the route's alias.
+  SDC_GATEWAY_BASE_URL=$(jq -er 'select(.format == "runbook.route/1") | .base_url | strings' "$route_file" 2>/dev/null) &&
+    SDC_GATEWAY_TOKEN=$(jq -er 'select(.format == "runbook.route/1") | .token | strings' "$route_file" 2>/dev/null) &&
+    model=$(jq -er --arg m "$model" 'if ((.routes // {}) | has($m)) then $m else "default" end' "$route_file" 2>/dev/null) ||
+    { echo "llm-adapter-claude-cli.sh: RUNBOOK_ROUTE_FILE does not name a route file that can be read" >&2; exit 127; }
+  SDC_GATEWAY_FILE=$route_file
+  export -n SDC_GATEWAY_FILE
+fi
 if [[ -n ${SDC_GATEWAY_FILE:-} ]]; then
   # A gateway (docs/loom-run-settings.md, "[gateway]"): the file holds the address and the token, read by the
   # one reader of the bindings. It comes before any key or login of the environment, and the config home that
   # is made below holds no login. The file is in the runner's private directory, so is the config home.
   # shellcheck source=gateway.sh
-  source "$(dirname -- "${BASH_SOURCE[0]}")/gateway.sh" && sdc_gateway_read "$SDC_GATEWAY_FILE" ||
+  [[ -n $route_file ]] || { source "$(dirname -- "${BASH_SOURCE[0]}")/gateway.sh" && sdc_gateway_read "$SDC_GATEWAY_FILE"; } ||
     { echo "llm-adapter-claude-cli.sh: SDC_GATEWAY_FILE does not name a gateway file that can be read" >&2; exit 127; }
   # The two values are shell variables of this script and no process but the one `claude` start gets them: a
   # caller that exported either name does not make the filter and the other programs inherit the token.
@@ -77,7 +95,7 @@ tools=$(jq -r '[.operations[] | {"file.read": "Read", "file.write": "Write", "fi
 # A money budget is optional: `--max-budget-usd` goes to the CLI only when the request names `max_budget_usd`.
 budget=()
 [[ -n $(r '.max_budget_usd // ""') ]] && budget=(--max-budget-usd "$(r .max_budget_usd)")
-argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
+argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$model"
   --max-turns "$(r .max_turns)" "${budget[@]}"
   --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
   --tools "$tools" --setting-sources "" --strict-mcp-config --disable-slash-commands
@@ -91,7 +109,7 @@ argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
 stdin=/dev/null
 extra_env=()
 if [[ $(r '.implement_mode // ""') == request ]]; then
-  argv=("${CLAUDE:-claude}" -p --model "$(r .model)" --max-turns "$(r .max_turns)" "${budget[@]}"
+  argv=("${CLAUDE:-claude}" -p --model "$model" --max-turns "$(r .max_turns)" "${budget[@]}"
     --tools "" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill" --setting-sources "" --strict-mcp-config
     --disable-slash-commands --output-format stream-json --verbose --no-session-persistence)
   [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
@@ -153,7 +171,7 @@ close_inherited() {
 }
 (cd "$(r .cwd)" && close_inherited && { [[ -z ${SDC_GATEWAY_FILE:-} ]] || {
     export ANTHROPIC_BASE_URL=$SDC_GATEWAY_BASE_URL ANTHROPIC_AUTH_TOKEN=$gateway_token
-    unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS gateway_token
+    unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS RUNBOOK_ROUTE_FILE gateway_token
   }; } && env -u CLAUDE_CODE_EFFORT_LEVEL "${unset_names[@]}" "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" >&4 2>&5 4>&- 5>&-)
 code=$?
 exec 4>&- 5>&-

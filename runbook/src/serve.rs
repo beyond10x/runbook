@@ -68,6 +68,10 @@ pub struct ServeArgs {
     /// read. Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub routes: Arc<crate::routes::RouteTable>,
+    /// The route table of the runs whose decider kind is `model` (`crate::relay`): the daemon serves the relay and
+    /// such a run's model calls go through it. Not an option: the binary fills it from the `[gateway]` of the file.
+    #[arg(skip)]
+    pub route_table: Option<crate::relay::RouteTable>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -142,6 +146,8 @@ pub struct Prepared {
     pub addr: SocketAddr,
     pub token: Option<String>,
     pub daemon: Daemon,
+    /// The relay of the runs on a route, when the daemon has a route table: served beside the API.
+    pub relay: Option<Arc<crate::relay::Relay>>,
 }
 
 /// The runbook name of the stub's run that waits on two decisions (`StubRuntime::decision_script`).
@@ -186,6 +192,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     let autonomy = args.autonomy.as_deref().map(|a| Autonomy::parse(a).ok_or_else(|| format!("--autonomy {a}: not a level"))).transpose()?;
     check_terms(&Terms { autonomy, decider: args.decider.clone() }, &kinds).map_err(|e| format!("the default decider of the daemon (--autonomy, --decider): {e}"))?;
     let state = std::path::absolute(state_dir(args, env)?).map_err(|_| "the state directory cannot be made absolute: the daemon has no current directory".to_string())?;
+    let mut relay = None;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
         let home = std::path::absolute(home).map_err(|_| "the runbook home cannot be made absolute: the daemon has no current directory".to_string())?;
@@ -197,6 +204,11 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         let mut engine = Engine::new(home, state.clone(), caps).with_runbook_dirs(args.runbooks.clone());
         if let Some(arbiter) = &args.arbiter {
             engine = engine.with_arbiter(arbiter.clone());
+        }
+        if let Some(table) = args.route_table.clone().filter(|t| !t.is_empty()) {
+            let r = crate::relay::Relay::new();
+            engine = engine.with_routes(r.clone(), table);
+            relay = Some(r);
         }
         (Arc::new(engine), None)
     } else {
@@ -210,7 +222,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
     let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone() };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
-    Ok(Prepared { addr, token, daemon })
+    Ok(Prepared { addr, token, daemon, relay })
 }
 
 /// SIGTERM and SIGINT as one stream of stop signals. Both handlers are installed once, so a second signal
@@ -343,7 +355,7 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let Prepared { addr, token, daemon } = prepared;
+    let Prepared { addr, token, daemon, relay } = prepared;
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(r) => r,
         Err(e) => {
@@ -361,8 +373,22 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         } else {
             note(format_args!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed"));
         }
+        // The relay of the runs on a route answers on this listener when it is loopback: its address goes into every
+        // route file. On any other listener it is not served, and a run on a route does not start.
+        if let Some(relay) = &relay {
+            relay.set_listen(bound);
+            if !relay.serves() {
+                note(format_args!("runbook: the relay of model calls serves a loopback listener only: a run whose decider is a model does not start on {bound}"));
+            }
+        }
         println!("runbook: listening on http://{bound}");
-        let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
+        let mut extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
+        if let Some(relay) = relay.as_ref().filter(|r| r.serves()) {
+            extra = Some(match extra {
+                Some(mcp) => mcp.merge(relay.router()),
+                None => relay.router(),
+            });
+        }
         let end = Arc::new(std::sync::Mutex::new(StopEnd { orphaned: 0, failed: false }));
         let stopping = {
             let (daemon, end) = (daemon.clone(), end.clone());

@@ -822,8 +822,36 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
 `ess/generated/conformance/suite.json` with a digest of its sources, which `task check:ess-suite:synthesized` compares; ess 0.98.0 makes it in under a minute (0.97.1 took 1048 s and did not finish in 1800 s).
 `CONFORMANCE_SUITE=<file> CONFORMANCE_ONLY=sdc.daemon cargo test conformance` runs any suite document, the synthesized one included, and prints its counts.
 
+## The relay of a run's model calls
+
+A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener when that is loopback, the relay of
+the model calls of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
+On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
+a run whose kind is `model` does not start. On a loopback listener:
+
+- `POST /daemon/relay/<run>/v1/messages`, `/v1/chat/completions` and `/v1/responses`, the gateway's three wires.
+  A call carries the run's own token, from the run's route file (`RUNBOOK_ROUTE_FILE`, `runbook.route/1`), as
+  `Authorization: Bearer <token>` or `x-api-key`, and never the daemon's token: the daemon's guard checks `Host`
+  and `Origin` of these paths and leaves the token to the relay. A run that is not live, or another token, is
+  `401`.
+- The call's `model` names a role of the run. The relay answers in the gateway's shape,
+  `{"error": {"code", "message"}}`: `400 route-refused` for a role the run has no route for (the message names
+  the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent),
+  `400 bad-request` for a body that is no JSON object, `503 run-not-ready` before the run takes calls, and
+  `502 route-unavailable` when the gateway gives no answer. Every other answer is the gateway's, passed back
+  unchanged and streamed as it comes (its `content-type`, `x-llm-gateway-call` and other headers but those of
+  the connection).
+- The relay sets `model` to the route's alias, sets `stream_options.include_usage` on a streamed chat call,
+  adds the gateway's token and sends the call, one request per connection, to `<base_url>/v1/<wire>`. It reads
+  the tokens from the answer's `usage` (or the usage of a stream's events) and books the call before the caller
+  sees the end of the answer. A `stream_options` that is `null` or no object is replaced by
+  `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
+  booked once.
+
 ## Outside the language
 
+- The relay of a run's model calls: its paths are the gateway's wires, not commands or views of the
+  specification, so the OpenAPI document does not list them.
 - SSE. ESS 0.96.0 has no construct for a server-sent event stream; the three views above are the
   page a stream serves, and the OpenAPI document lists them as plain `GET` views with a JSON
   response. The `text/event-stream` binding is written above and tested in the story

@@ -223,7 +223,10 @@ fn main() -> ExitCode {
                     gateway: f.members.get(loom_run::gateway::KEY).cloned(),
                 };
                 match loom_run::arbiter::DaemonArbiter::new(f.deciders.clone(), limits) {
-                    Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
+                    Ok(arbiter) => {
+                        args.route_table = arbiter.route_table();
+                        args.arbiter = Some(std::sync::Arc::new(arbiter));
+                    }
                     Err(e) => {
                         eprintln!("runbook serve: {}", config::printable(&e));
                         return ExitCode::from(loom_run::EXIT_REFUSED);

@@ -290,6 +290,7 @@ fn the_daemons_start_refuses_two_directories_with_one_name_before_it_writes_its_
         decider: None,
         arbiter: None,
         routes: Default::default(),
+        route_table: None,
         token_file: None,
         principal: Some("person:test".to_owned()),
         ui: false,
