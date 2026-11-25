@@ -274,8 +274,9 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && request.runbook == crate::delegation::FREE_RUNBOOK;
         let home = match (&self.free_home, &request.model_route) {
-            (Some(free), Some(_)) if request.runbook == crate::delegation::FREE_RUNBOOK => free.clone(),
+            (Some(free), Some(_)) if free_run => free.clone(),
             _ => layout::home_of(&self.homes, &request.runbook).map_err(failure)?,
         };
         let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
@@ -362,7 +363,9 @@ impl Engine {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
-                    std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| format!("{}: {e}", path.display()))?;
+                    // the free run's agent node reads the request whole, never a member of it
+                    let document = if free_run { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
+                    std::fs::write(path, document).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
                 Ok(())
             })

@@ -20,6 +20,9 @@ pub const RESULT_LIMIT: u64 = 1_048_576;
 pub const DELEGATED_EVENT: &str = "runbook.delegated";
 /// The instruction file of the free run's agent node, relative to the repository `sdc-node` reads its instructions from.
 pub const INSTRUCTION: &str = "instructions/delegation.free.md";
+/// Where a `result.md` that came with a delegation's workspace is moved before the run starts: a dot name, which the products
+/// leave out, so that the view `delegation-result` answers only a `result.md` the run wrote.
+pub const SET_ASIDE: &str = ".result.from-workspace.md";
 /// The directory under the daemon's state directory the free run's home is written to.
 const HOME_DIR: &str = "delegation";
 
@@ -92,6 +95,16 @@ pub fn install(state_dir: &Path, tools_dir: Option<&Path>) -> std::io::Result<Pa
     std::fs::write(home.join("protocol").join(format!("{FREE_RUNBOOK}.protocol.yaml")), PROTOCOL)?;
     std::fs::write(home.join("bindings").join(format!("{FREE_RUNBOOK}.yaml")), bindings(tools_dir))?;
     Ok(home)
+}
+
+/// Move a `result.md` of the workspace (one copied in with it) to [`SET_ASIDE`]; nothing when there is none.
+pub fn set_aside(workspace: &Path) -> std::io::Result<()> {
+    let found = workspace.join(RESULT_FILE);
+    match std::fs::symlink_metadata(&found) {
+        Ok(_) => std::fs::rename(&found, workspace.join(SET_ASIDE)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// The `bindings/tools` of an asset root, when it holds the tools `sdc-node` reads (`node-classes.json`).

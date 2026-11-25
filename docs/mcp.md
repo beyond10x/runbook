@@ -88,8 +88,12 @@ error: a model that reads it can correct itself.
 the run, the route, its state and outcome, the path, the protocol, the calls and the cost, followed by
 the run's `result.md` (`docs/model-routes.md`, "What is recorded"). `isError` is true for a run that
 failed to start, was cancelled or ended `runtime-failure`; a refusal of the command or the view is its
-answer, as for every tool. The streamable HTTP endpoint runs each call off the daemon's workers and has
-no stream: there `delegate` waits the same and sends no progress.
+answer, as for every tool. A run whose `result.md` is not text says so in the text (read it with
+`read_product`). Over stdio each `tools/call` is answered on a thread of its own, at most 16 side by side,
+so the `delegate`, `delegation_result` and `cancel_run` calls of one session do not wait on each other; the
+progress notifications of a call go out before its reply. The streamable HTTP endpoint runs each call off
+the daemon's workers, at most 32 at once (the next waits for one to end, on no thread), and has no stream:
+there `delegate` waits the same and sends no progress.
 
 A `submit_run` while the daemon drains after a stop signal is `isError` true with `503` and the body
 `{"refused": "draining", "message": ..., "live_runs": <n>}` of the route, and no run is made

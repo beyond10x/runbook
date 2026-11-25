@@ -201,6 +201,8 @@ pub struct Outcome {
     pub published: Vec<(&'static str, Value)>,
     /// The run a submit created or replayed.
     pub run_id: Option<String>,
+    /// The view the `Location` of the answer names the run in, when not the command's own (`api::routes`).
+    pub location_view: Option<&'static str>,
 }
 
 impl Outcome {
@@ -343,6 +345,7 @@ fn done(command: &'static str, outcome: &'static str, events: Vec<(&'static str,
         payload: None,
         published: events.into_iter().map(|(e, p)| (event_name(e), p)).collect(),
         run_id: None,
+        location_view: None,
     }
 }
 
@@ -356,6 +359,7 @@ fn refuse(command: &'static str, outcome: &'static str, payload: Value) -> Outco
         payload: Some(payload),
         published: vec![],
         run_id: None,
+        location_view: None,
     }
 }
 
@@ -1040,7 +1044,10 @@ impl Daemon {
         if let Some(key) = &input.idempotency_key {
             if let Some(first) = st.run_by_key(key) {
                 let first = first.run_id.clone();
+                // the key may be one a submit-run used: its run is read from the view run, not from delegation-result
+                let delegation = st.events_after(Some(&first), None, 0).iter().any(|e| e.kind == crate::delegation::DELEGATED_EVENT);
                 let mut out = done("delegate", "already-submitted", vec![("SubmitReplayed", json!({"idempotency_key": key, "run_id": first}))]);
+                out.location_view = (!delegation).then_some("run");
                 out.run_id = Some(first);
                 return Ok(out);
             }
@@ -1581,6 +1588,17 @@ impl Daemon {
             if let Err(e) = copy_dir(from, &request.workspace_dir) {
                 if !self.is_stopping() {
                     let _ = self.fail_run_start(&run_id, &format!("the context could not be copied into the workspace: {e}"));
+                }
+                lock(&self.inner.cancels).remove(&run_id);
+                return;
+            }
+        }
+        // A delegation answers only a result.md its run wrote: one that came with the workspace is set aside.
+        let delegation = self.st().events_after(Some(&run_id), None, 0).iter().any(|e| e.kind == crate::delegation::DELEGATED_EVENT);
+        if delegation {
+            if let Err(e) = crate::delegation::set_aside(&request.workspace_dir) {
+                if !self.is_stopping() {
+                    let _ = self.fail_run_start(&run_id, &format!("the result.md of the workspace could not be set aside: {}", e.kind()));
                 }
                 lock(&self.inner.cancels).remove(&run_id);
                 return;

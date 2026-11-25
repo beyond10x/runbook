@@ -136,7 +136,7 @@ const TOOLS: [Tool; 14] = [
     Tool {
         name: "delegate",
         title: "Delegate agent work",
-        description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (none: the daemon's default route; a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken, and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
+        description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (none: the daemon's default route; a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken (over stdio only: the HTTP endpoint sends none), and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
         read_only: false,
         kind: Kind::Delegate,
     },
@@ -362,6 +362,9 @@ fn delegation_answer(a: &Answer) -> Value {
     let body = match row["result_text"].as_str() {
         Some(text) => text.to_owned(),
         None if ["Submitted", "Running", "WaitingOnDecision"].contains(&state.as_str()) => "The run has not ended: read its result with delegation_result.".to_owned(),
+        None if row["products"].as_array().is_some_and(|p| p.iter().any(|f| f == crate::delegation::RESULT_FILE)) => {
+            "The run's result.md is not text: read it with read_product.".to_owned()
+        }
         None => "The run wrote no result.md.".to_owned(),
     };
     let failed = matches!(state.as_str(), "FailedToStart" | "Cancelled") || row["outcome"] == "runtime-failure";
@@ -437,4 +440,18 @@ pub fn result(a: &Answer) -> Value {
         "isError": a.status.as_u16() >= 400,
         "_meta": {STATUS_KEY: a.status.as_u16()},
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A run that ended with a result.md that is not text has a result file: the head says so instead of "wrote no result.md".
+    #[test]
+    fn a_result_md_that_is_not_text_is_named_as_such() {
+        let row = json!({"run_id": "r", "run_state": "Ended", "outcome": "delivered", "route": "default", "path": "free", "protocol": "delegation-free", "calls": 1, "cost_micro_usd": 0, "cost_known": true, "result_truncated": false, "products": ["result.md"]});
+        let a = delegation_answer(&Answer { status: StatusCode::OK, body: json!({"rows": [row]}), location: None });
+        let text = a["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("wrote no result.md") && text.contains("result.md is not text"), "{text}");
+    }
 }

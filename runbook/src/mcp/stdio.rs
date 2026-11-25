@@ -14,9 +14,14 @@ use clap::Args;
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// The longest message read: the daemon's own body limit.
 const MAX_LINE: usize = crate::api::MAX_BODY_BYTES;
+/// The most `tools/call` requests answered side by side; one more is answered in the read loop, which then reads nothing
+/// until it is answered.
+pub const MAX_CALLS: usize = 16;
 
 #[derive(Args, Debug, Clone)]
 pub struct McpArgs {
@@ -28,11 +33,52 @@ pub struct McpArgs {
     pub token_file: Option<PathBuf>,
 }
 
-/// Serve the messages of `input` to `output` until the input ends.
-pub fn serve(be: &dyn Backend, mut input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
+/// Serve the messages of `input` to `output` until the input ends, and every call taken has been answered. A `tools/call`
+/// is answered on a thread of its own (`delegate` waits for its run's end), so the calls of one session run side by side;
+/// the notifications of a call go out before its reply, each message whole.
+pub fn serve(be: &(dyn Backend + Sync), input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+    let output = Mutex::new(output);
+    let broken: Mutex<Option<std::io::Error>> = Mutex::new(None);
+    let calls = AtomicUsize::new(0);
+    let read = std::thread::scope(|scope| read_loop(be, input, &output, &broken, &calls, scope));
+    let failed = lock(&broken).take();
+    match failed {
+        Some(e) => Err(e),
+        None => read,
+    }
+}
+
+/// Write `message` unless a write failed before; a failure is kept for `serve` to return.
+fn send(output: &Mutex<impl Write>, broken: &Mutex<Option<std::io::Error>>, message: &serde_json::Value) {
+    let mut failed = lock(broken);
+    if failed.is_none() {
+        *failed = write_line(&mut *lock(output), message).err();
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Whether a message is one request of `tools/call` (a batch or anything else is answered in the read loop).
+fn is_call(text: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(text).is_ok_and(|m| m["method"] == "tools/call" && m.get("id").is_some())
+}
+
+fn read_loop<'scope, 'env, W: Write + Send>(
+    be: &'env (dyn Backend + Sync),
+    mut input: impl BufRead,
+    output: &'env Mutex<W>,
+    broken: &'env Mutex<Option<std::io::Error>>,
+    calls: &'env AtomicUsize,
+    scope: &'scope std::thread::Scope<'scope, 'env>,
+) -> std::io::Result<()> {
     let mut legacy = false;
     let mut line = Vec::new();
     loop {
+        if lock(broken).is_some() {
+            return Ok(());
+        }
         line.clear();
         let n = (&mut input).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut line)?;
         if n == 0 {
@@ -48,7 +94,7 @@ pub fn serve(be: &dyn Backend, mut input: impl BufRead, mut output: impl Write) 
                     break;
                 }
             }
-            write_line(&mut output, &serde_json::json!({"jsonrpc": "2.0", "id": null, "error": {"code": rpc::INVALID_REQUEST, "message": format!("a message is at most {MAX_LINE} bytes")}}))?;
+            send(output, broken, &serde_json::json!({"jsonrpc": "2.0", "id": null, "error": {"code": rpc::INVALID_REQUEST, "message": format!("a message is at most {MAX_LINE} bytes")}}));
             continue;
         }
         let text = line.trim_ascii();
@@ -56,18 +102,25 @@ pub fn serve(be: &dyn Backend, mut input: impl BufRead, mut output: impl Write) 
             continue;
         }
         // A notification a call sends while it runs (the progress of `delegate`) goes out at once, before the reply; one that
-        // cannot be written ends the server as the reply would.
-        let mut broken = None;
-        let reply = rpc::handle_with(be, text, Wire::Stdio { legacy: &mut legacy }, &mut |note| {
-            if broken.is_none() {
-                broken = write_line(&mut output, &note).err();
-            }
-        });
-        if let Some(e) = broken {
-            return Err(e);
+        // cannot be written ends the server as the reply would. A call reads the handshake's era and never changes it.
+        let call = is_call(text);
+        if call && calls.fetch_add(1, Ordering::SeqCst) < MAX_CALLS {
+            let (text, mut era) = (text.to_vec(), legacy);
+            scope.spawn(move || {
+                let reply = rpc::handle_with(be, &text, Wire::Stdio { legacy: &mut era }, &mut |note| send(output, broken, &note));
+                if let Some(message) = reply.message {
+                    send(output, broken, &message);
+                }
+                calls.fetch_sub(1, Ordering::SeqCst);
+            });
+            continue;
         }
+        if call {
+            calls.fetch_sub(1, Ordering::SeqCst);
+        }
+        let reply = rpc::handle_with(be, text, Wire::Stdio { legacy: &mut legacy }, &mut |note| send(output, broken, &note));
         if let Some(message) = reply.message {
-            write_line(&mut output, &message)?;
+            send(output, broken, &message);
         }
     }
 }
@@ -96,7 +149,7 @@ pub fn run(args: McpArgs) -> ExitCode {
     if remote.clear_token() {
         eprintln!("runbook mcp: the token goes to {url} over plain HTTP, and that host is not this machine");
     }
-    match serve(&remote, std::io::stdin().lock(), std::io::stdout().lock()) {
+    match serve(&remote, std::io::stdin().lock(), std::io::stdout()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("runbook mcp: {e}");

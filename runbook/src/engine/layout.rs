@@ -105,6 +105,14 @@ pub fn idea_path(bindings: &Path) -> Result<Option<String>, String> {
     Ok(doc["artifacts"]["idea"].as_str().map(str::to_string))
 }
 
+/// The idea document of a text that is to be read whole: `text: <the text>`, also when the text reads as a mapping with
+/// `text` (the request of a delegation's free run, `crate::delegation`).
+pub fn text_document(intake: &str) -> String {
+    let mut m = serde_yaml::Mapping::new();
+    m.insert("text".into(), intake.into());
+    serde_yaml::to_string(&serde_yaml::Value::Mapping(m)).unwrap_or_else(|_| format!("text: {intake:?}\n"))
+}
+
 /// The idea document the intake text becomes: a mapping that already has `text` is kept as given,
 /// any other text becomes `text: <the text>`.
 pub fn idea_document(intake: &str) -> String {

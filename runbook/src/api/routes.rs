@@ -92,7 +92,8 @@ fn outcome(o: Outcome) -> Answer {
     // The answer of a submit names the run in the event it publishes; a replay has no run in its
     // body, so the first run is also named in the `Location`.
     // A delegation's run is read from its result view.
-    let view = if o.command == "delegate" { "delegation-result" } else { "run" };
+    // A delegate that replays the key of a submit-run names that run in the view run.
+    let view = o.location_view.unwrap_or(if o.command == "delegate" { "delegation-result" } else { "run" });
     let location = o.run_id.as_ref().map(|run_id| format!("{}?run_id={run_id}", view_path(view)));
     Answer { status: StatusCode::from_u16(o.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body: o.body(), location }
 }

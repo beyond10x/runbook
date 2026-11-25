@@ -235,7 +235,8 @@ events and the web UI work on it unchanged.
   runbook `delegation-free`, one agent node (`sdc-node delegation.free` on the claude-cli adapter, the instruction
   `instructions/delegation.free.md`) whose instruction is the request, with the files of the workspace as its inputs,
   writing `result.md`. The daemon writes that runbook under its state directory at every start
-  (`runbook/src/delegation.rs`); a `submit-run` does not find it.
+  (`runbook/src/delegation.rs`); a `submit-run` does not find it. The free run's agent node reads the request
+  whole, as the session wrote it, also when it reads as YAML.
 - The route: `model_route`, by the name the daemon declares it under (`[routes.<name>]`, above, "Model routes");
   none named: the daemon's default route, `[route_policy] default`. A route the daemon does not declare, or none
   named on a daemon without a default route, is refused `RouteRefused` (422) with the declared routes in
@@ -245,6 +246,10 @@ events and the web UI work on it unchanged.
   the answer). Any answer but `200` refuses the delegation `503` with `{"refused": "route-unavailable", "message":
   "route <name> is not ready: ..."}`, naming the route and never its address or token. A replay of an
   idempotency key is not asked about.
+- A replay (`202` outcome `already-submitted`) names the first run with the key. Its `Location` is that run's
+  `delegation-result`, or `/daemon/views/run?run_id=<id>` when the key was a `submit-run`'s.
+- A `result.md` that comes with the workspace is moved to `.result.from-workspace.md` before the run starts
+  (a dot name, which the products leave out): the result is only a `result.md` the run writes.
 - The accepted answer, `202` outcome `delegated`, publishes `RunSubmitted` (`published[0].payload.run_id` is the
   run) and `RunDelegated` (`route`, `path`, `protocol`), and the `Location` header names the run's result:
   `/daemon/views/delegation-result?run_id=<id>`. The run holds two events before the runtime records any:
