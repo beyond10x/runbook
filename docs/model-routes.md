@@ -1,7 +1,7 @@
 # Model routes and delegation: the architecture of the stack
 
-Status: design, 2026-11-25. Nothing here is built. The operator settled D-1 to D-6 on 2026-11-25; D-7 and the
-gateway's C1 to C4 are open (end of the document). No code starts before the operator accepts this design.
+Status: design, 2026-11-25. Nothing here is built. The operator settled D-1 to D-7 and the gateway's C1 to C4 on
+2026-11-25 (end of the document). No code starts before the operator accepts this design.
 
 ## The goal
 
@@ -306,7 +306,7 @@ At submit, after the route is resolved and before anything is written:
   is reached stops the run as today.
 - A tool that a program starts and that calls a model through the route file (section 11) is booked by the relay
   like any call. A tool that reaches a model by another path (its own login, its own address) is outside the route
-  and unbooked; confinement, not this design, closes that path (D-2, D-7).
+  and unbooked; confinement, not this design, closes that path (D-2).
 
 ### 6. What the daemon shows
 
@@ -529,7 +529,7 @@ Body `{"error":{"code","message"}}`, stable codes.
   nothing on a gateway open on loopback. So a dispatcher on the same machine reads status and call records without
   the owner secret, and cannot wake a pod.
 
-### The gateway's choices, open to the operator
+### The gateway's choices (taken, see "Decisions")
 
 - C1 `start_on_request` defaults to `false` (a break) instead of an opt-in key that leaves today's default.
 - C2 a hosted route's status is probed when asked, not by a background loop.
@@ -544,7 +544,9 @@ Body `{"error":{"code","message"}}`, stable codes.
 ### On this machine (2026-11-25)
 
 The gateway unit serves on loopback with two routes, `claude` and `qwen`, both of the hosted kind; the qwen pod's
-proxy does not answer. Moving qwen to the managed kind (D-6) waits for `story:a-call-starts-no-pod`.
+proxy does not answer. Moving qwen to the managed kind (D-6) waits for `story:a-call-starts-no-pod`. A local
+Ollama (0.40.18, OpenAI-compatible `/v1`) serves `inkling-2-mini` on loopback port 11434: the first model of the
+`local` route kind.
 
 ## Part two: the Claude Code plugin whose delegation Runbook serves
 
@@ -685,12 +687,12 @@ accepts and one it refuses, a free run that writes `result.md`, the result view.
 Agent call with the reason naming `delegate`; a headless session against a stand-in Messages server (the
 consumer's test 7).
 
-## Decisions of the operator (2026-11-25)
+## Decisions (the operator, 2026-11-25)
 
 - **D-1 Where routes are declared:** both. The daemon declares routes with address, token and price; a protocol
   declares the routes it needs by name or requirements, and the daemon admits or refuses them (section 2).
 - **D-2 A tool's own model calls:** a tool that uses the route file is booked by the relay; one that reaches a model
-  by another path is not (D-7).
+  by another path is not.
 - **D-3 Cost:** a declared price per million tokens on the route, else the reservation.
 - **D-4 Confined runs:** routes serve `local` runs only until `story:gateway-under-substrate-confinement` is
   decided.
@@ -698,13 +700,9 @@ consumer's test 7).
   waits, then ends `stopped: route`; the wake turns on only with a daily wake cap (section 3).
 - **D-6 The route `qwen`:** moves to a gateway-managed RunPod model in the gateway's document, so its status is
   readable; it goes live after the gateway's change that keeps a call from starting a pod.
-
-## Open for the operator
-
-- **D-7 Every model call of a run goes through runbookd's relay** (section 11). A: yes; the relay books every call,
-  holds the gateway's credential out of the run, names the cause of a failed call and checks caps per call
-  (recommended: the consumer's tests 1 and 2 need it, and the decider today cannot tell a down route from another
-  failure). B: model processes call the gateway directly as `[gateway]` does today; booking comes from each
-  process's own report, and a program's own client is not booked. D-2 as taken earlier ("later, with a booking
-  proxy") becomes A now if A is chosen.
-- The gateway's C1 to C4 (its section).
+- **D-7 Every model call of a run goes through runbookd's relay:** "A: yes, relay in runbook". The relay books every
+  call, holds the gateway's credential out of the run, names the cause of a failed call and checks caps per call
+  (section 11). D-2 follows: a tool that uses the route file is booked like any call.
+- **The gateway's C1 to C4**, taken as its maintainer proposed: C1 `start_on_request` defaults to `false` (follows
+  D-5); C2 a hosted route's status is probed when asked; C3 Runbook reads the `callable` flag; C4 status and call
+  records are readable on a loopback-open gateway without the owner secret, wake is not.
