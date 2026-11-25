@@ -2,12 +2,13 @@
 format: aep.planning-md/3
 id: story:flaky-daemon-step-and-drain-tests
 kind: story
-status: active
+status: implemented
 title: The daemon step-in-flight and drain submit-race tests pass on every gate run
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-25T09:03:42Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
 - {from: "proposed", to: "active", at: "2026-11-25T09:03:42Z", actor: "human:operator", revision: 3, executor: "agent:runbook"}
+- {from: "active", to: "implemented", at: "2026-11-25T10:45:01Z", actor: "agent:runbook", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Outcome
 

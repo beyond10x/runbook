@@ -21,7 +21,7 @@ pub const LEGACY: [&str; 2] = ["2025-11-25", "2025-06-18"];
 pub const SUPPORTED: [&str; 3] = [MODERN, LEGACY[0], LEGACY[1]];
 
 pub const SERVER_NAME: &str = "runbook";
-const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, answer_decision, cancel_run. Each result is the JSON body the daemon's HTTP route of the same name answers; isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
+const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, read_open_decisions, answer_decision, cancel_run, open_session, close_session. Each result is the JSON body the daemon's HTTP route of the same name answers; isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
 
 pub const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 pub const META_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";

@@ -53,6 +53,9 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
+An MCP client reaches `open-session` and `close-session` through the tools `open_session` and
+`close_session` ([`mcp.md`](mcp.md)), with the same refusals and statuses.
+
 Notes for a caller:
 
 - `submit-run` takes the intake inline (text), the runbook by name with an optional version, the
