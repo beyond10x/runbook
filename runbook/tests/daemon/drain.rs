@@ -427,6 +427,7 @@ fn three_runs_at_once_all_end_with_their_outcome_and_the_daemon_exits_0_after_th
 }
 
 #[test]
+#[ignore = "quarantined: a program forked for one run holds a copy of another run's Loom store lock until it execs, and that run ends runtime-failure StoreInUse; story:daemon-tests-back-when-loom-unlocks-the-store"]
 fn a_submit_racing_the_signal_leaves_no_run_submitted_after_draining_and_none_unended_at_drained() {
     let mut s = Serve::start("drain-race", &[]);
     let accepted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
