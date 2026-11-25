@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "e57d1799d54b645caa8d13d965f522c08c20a13274eda0ce4c19735799848a43",
-    "contract_digest": "b308cf645d2e480e1f03960f55f3b7de1f1e4b07ae2bfed31bc61adae343333e",
+    "spec_digest": "3f1b012712ff7ea5fc8c132b93fde8642a6ef99a4084bc1f061f94931c78a09f",
+    "contract_digest": "1620850dd0c4cff728eae77d4ad78805b6d24b4f4d30f44a230b4c6e5ccb5dd3",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -2502,10 +2502,6 @@
               "kind": "literal",
               "value": "idempotency_key"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -2680,10 +2676,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key-1"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -3129,8 +3121,11 @@
               "holds": "enum",
               "variants": [
                 "named",
-                "free"
-              ]
+                "free",
+                "classified",
+                "generated"
+              ],
+              "optional": true
             },
             "protocol": {
               "holds": "primitive",
@@ -3603,10 +3598,6 @@
               "kind": "literal",
               "value": "idempotency_key"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -3679,10 +3670,6 @@
               "kind": "literal",
               "value": "idempotency_key"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -3754,10 +3741,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -4177,10 +4160,6 @@
               "kind": "literal",
               "value": "idempotency_key"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4355,10 +4334,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key-1"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -4666,10 +4641,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -5082,10 +5053,6 @@
               "kind": "literal",
               "value": "idempotency_key"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -5260,10 +5227,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key-1"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -5626,10 +5589,6 @@
             "idempotency_key": {
               "kind": "literal",
               "value": "idempotency_key"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -13857,6 +13816,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.EventKind"
         },
         {
@@ -18223,6 +18186,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -20057,6 +20024,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -20712,6 +20683,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
         },
         {
           "kind": "type",

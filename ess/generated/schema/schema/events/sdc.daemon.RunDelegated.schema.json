@@ -14,36 +14,38 @@
       "type": "string"
     },
     "path": {
-      "$ref": "#/$defs/sdc.daemon.DelegationPath"
+      "$ref": "#/$defs/sdc.daemon.DelegationPath",
+      "description": "Absent for a delegation the daemon classifies when its run starts: the run event `runbook.delegation-resolved` names its path then."
     },
     "protocol": {
       "$ref": "#/$defs/sdc.daemon.RunbookId",
-      "description": "The runbook the run runs: the named one, or delegation-free."
+      "description": "The runbook the run was submitted with: the named one, delegation-free, or delegation for a delegation the daemon classifies."
     }
   },
   "required": [
     "run_id",
     "route",
-    "path",
     "protocol"
   ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:494bb162fd71804b2f627b1c327239762445f5f2e33e6812251c293ce9037a03",
+    "contract_digest": "slice-sha256/2:c0f7383ef04e0859acde7e7347aa2a85edb79456886c3b5ca74dcbae1570eae5",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.DelegationPath": {
       "title": "DelegationPath",
-      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
       "x-ess-name": "sdc.daemon.DelegationPath",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
         "named",
-        "free"
+        "free",
+        "classified",
+        "generated"
       ]
     },
     "sdc.daemon.RunId": {

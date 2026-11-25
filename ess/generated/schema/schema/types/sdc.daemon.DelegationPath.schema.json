@@ -5,19 +5,21 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:42cc19ff4eb3352651db40270a14cc43228b460c03a89a00b07d560cd8a8fc1a",
+    "contract_digest": "slice-sha256/2:989579333b944ac51e930a7c8af63e0640da714adc9b1708f1ca0afd6ee48d7e",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.DelegationPath": {
       "title": "DelegationPath",
-      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
       "x-ess-name": "sdc.daemon.DelegationPath",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
         "named",
-        "free"
+        "free",
+        "classified",
+        "generated"
       ]
     }
   }
