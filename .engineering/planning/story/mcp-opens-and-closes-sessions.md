@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:mcp-opens-and-closes-sessions
 kind: story
-status: draft
+status: active
 title: MCP tools open_session and close_session
 summary: The two session commands exist over HTTP and submit_run takes session_id; the MCP tool list has no way to open or close a session.
 tags:
@@ -11,17 +11,22 @@ relations:
 - depends_on: story:daemon-runs-take-a-gateway
 - informed_by: story:mcp-exposure
 scope:
+- confidence: inferred
+  path: CHANGELOG.md
+- confidence: inferred
+  path: docs/daemon-api.md
 - confidence: cited
   path: docs/mcp.md
 - confidence: cited
   path: runbook/src/mcp/rpc.rs
-- confidence: inferred
-  path: runbook/src/mcp/schema.rs
 - confidence: cited
   path: runbook/src/mcp/tools.rs
-- confidence: inferred
-  path: runbook/tests/daemon
-revision: 6
+- confidence: cited
+  path: runbook/tests/daemon/mcp.rs
+revision: 12
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T10:44:47Z", actor: "agent:runbook", revision: 7}
+- {from: "proposed", to: "active", at: "2026-11-25T10:44:47Z", actor: "agent:runbook", revision: 8}
 ---
 ## What is missing
 
@@ -58,3 +63,15 @@ A tool for the view `sessions` (listing sessions) is not asked and not added; th
 - `story:daemon-runs-take-a-gateway`: the order is behind the gateway release; there is no code dependency.
 - Informed by `story:mcp-exposure` (the tool layer and the line that names these two tools as not built).
 - Order: second, after `story:decision-options-come-from-a-case-artifact`: a consumer needs it for the step that submits a run in a named session.
+
+## Design (taken by the operator, 2026-11-25, reversible before release)
+
+Decided by the operator on 2026-11-25 (D805 A), from the seven answers of the scope report. Each can be changed before the release.
+
+1. `open_session` is not idempotent: a second open of an existing id is refused with the route's 422 `session-exists`, as `ess/domains/daemon.yaml` declares.
+2. `client` is required, as the OpenAPI document has it; the tool supplies no default label.
+3. `client` gets the length check only (`runbook/src/commands.rs:688-690`), the same check as the HTTP route; no new check is added to the command layer.
+4. No new tool annotations: both tools carry `readOnlyHint: false` like the other command tools.
+5. `INSTRUCTIONS` (`runbook/src/mcp/rpc.rs`) lists all nine tools by name, in list order.
+6. `close_session` cancels no live run: the runs of a closed session go on, as the specification says, and the tool's description says so.
+7. Whichever of this story and `story:mcp-reads-a-run-product` lands second edits the tool count constant and the `Tool` array length in its own change and appends its rows after the earlier ones.
