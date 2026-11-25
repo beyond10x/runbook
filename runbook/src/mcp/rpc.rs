@@ -21,7 +21,7 @@ pub const LEGACY: [&str; 2] = ["2025-11-25", "2025-06-18"];
 pub const SUPPORTED: [&str; 3] = [MODERN, LEGACY[0], LEGACY[1]];
 
 pub const SERVER_NAME: &str = "runbook";
-const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, read_open_decisions, answer_decision, cancel_run, open_session, close_session, list_products, read_product, list_routes. Each result is the JSON body the daemon's HTTP route of the same name answers; isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
+const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, read_open_decisions, answer_decision, cancel_run, open_session, close_session, list_products, read_product, list_routes, and agent work on a named model route: delegate, delegation_result. Each result is the JSON body the daemon's HTTP route of the same name answers (delegate and delegation_result: the row of the view delegation-result, with a text that starts with one line naming the run); isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
 
 pub const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 pub const META_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";
@@ -119,8 +119,13 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Handle one message: the bytes of a line (stdio) or a POST body (HTTP).
-pub fn handle(be: &dyn Backend, input: &[u8], mut wire: Wire) -> Reply {
+/// Handle one message: the bytes of a line (stdio) or a POST body (HTTP). Notifications a call would send are dropped.
+pub fn handle(be: &dyn Backend, input: &[u8], wire: Wire) -> Reply {
+    handle_with(be, input, wire, &mut |_| {})
+}
+
+/// `handle`, with the notifications a call sends while it runs (the progress of `delegate`) given to `notify`, each before the reply.
+pub fn handle_with(be: &dyn Backend, input: &[u8], mut wire: Wire, notify: &mut dyn FnMut(Value)) -> Reply {
     let msg: Value = match serde_json::from_slice(input) {
         Ok(v) => v,
         Err(e) => return fail(Value::Null, PARSE_ERROR, &format!("not JSON: {}", crate::commands::out_of_range_member(input, &e).unwrap_or_else(|| e.to_string())), None),
@@ -146,7 +151,7 @@ pub fn handle(be: &dyn Backend, input: &[u8], mut wire: Wire) -> Reply {
     if !params.is_object() {
         return fail(id, INVALID_PARAMS, "params must be an object", None);
     }
-    request(be, &mut wire, id, method, &params)
+    request(be, &mut wire, id, method, &params, notify)
 }
 
 enum Era {
@@ -213,7 +218,7 @@ fn check_headers(h: &Headers, id: &Value, method: &str, params: &Value) -> Resul
     Ok(())
 }
 
-fn request(be: &dyn Backend, wire: &mut Wire, id: Value, method: &str, params: &Value) -> Reply {
+fn request(be: &dyn Backend, wire: &mut Wire, id: Value, method: &str, params: &Value, notify: &mut dyn FnMut(Value)) -> Reply {
     if method == "initialize" {
         return initialize(wire, id, params);
     }
@@ -234,7 +239,7 @@ fn request(be: &dyn Backend, wire: &mut Wire, id: Value, method: &str, params: &
             "instructions": INSTRUCTIONS,
         }),
         ("tools/list", _) => json!({"tools": tools::list()}),
-        ("tools/call", _) => match tools_call(be, params) {
+        ("tools/call", _) => match tools_call(be, params, notify) {
             Ok(r) => r,
             Err(Invalid::UnknownTool(n)) => return fail(id, INVALID_PARAMS, &format!("Unknown tool: {n}"), None),
             Err(Invalid::Arguments(m)) => return fail(id, INVALID_PARAMS, &m, None),
@@ -256,10 +261,13 @@ fn decorate(mut result: Value, era: &Era) -> Value {
     result
 }
 
-fn tools_call(be: &dyn Backend, params: &Value) -> Result<Value, Invalid> {
+fn tools_call(be: &dyn Backend, params: &Value, notify: &mut dyn FnMut(Value)) -> Result<Value, Invalid> {
     let name = params.get("name").and_then(Value::as_str).ok_or_else(|| Invalid::Arguments("tools/call needs params.name, a string".into()))?;
     let arguments = params.get("arguments").unwrap_or(&Value::Null);
-    tools::call(be, name, arguments).map(|a| tools::result(&a))
+    // A progress token is a string or an integer (`_meta.progressToken`); without one the call sends no progress.
+    let token = params.get("_meta").and_then(|m| m.get("progressToken")).filter(|t| t.is_string() || t.is_i64() || t.is_u64()).cloned();
+    let progress = token.map(|token| tools::Progress { token, send: notify });
+    tools::run(be, name, arguments, progress)
 }
 
 fn initialize(wire: &mut Wire, id: Value, params: &Value) -> Reply {

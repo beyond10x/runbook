@@ -157,6 +157,18 @@ types:
     naming:
       summary: "The work/ directory of a run as a row of RunProducts: its text is the run's id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run."
 
+  - name: sdc.daemon.DelegationPath
+    kind: enum
+    variants: [named, free]
+    naming:
+      summary: "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them."
+
+  - name: sdc.daemon.DelegationId
+    kind: newtype
+    of: String
+    naming:
+      summary: "A delegation as a row of Delegation: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's record and files, not the run."
+
   - name: sdc.daemon.ProductPath
     kind: newtype
     of: String
@@ -455,6 +467,38 @@ entities:
       states: [Read]
       terminal: [Read]
 
+  - name: sdc.daemon.Delegation
+    naming:
+      summary: "What a delegation's run has come to, as the daemon reads it when a client asks for the view DelegationResult: one row per run that a Delegate created. The route, the path and the protocol are the run's event `runbook.delegated`; the state, the outcome and the failure are the Run's; the calls, the tokens and the cost are the sum of the run's events `runbook.model-call` (one per call the relay booked); the result text is the file result.md of the run's work/ directory, read through the reader of ProductOfRun (no link followed, at most `result_limit` bytes), and the products are the paths ProductsOfRun lists. The language cannot read a file system, so no command creates or changes a row, as with RunProducts."
+    identity:
+      name: delegation_id
+      type: sdc.daemon.DelegationId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State, summary: "Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "The run's outcome once it Ended."}
+      - {name: failure, type: Optional<String>, summary: "Why the run failed to start, or what failed it after it started (the runtime's reason); absent otherwise."}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The model route of the run, by name."}
+      - {name: path, type: sdc.daemon.DelegationPath}
+      - {name: protocol, type: sdc.daemon.RunbookId, summary: "The runbook the run runs: the named one, or delegation-free."}
+      - {name: confidence, type: Optional<Json>, summary: "The classifier's confidence, a number from 0 to 1, for a classified delegation; null for the paths named and free."}
+      - {name: result_text, type: Optional<String>, summary: "The text of result.md in the run's work/ directory, at most `result_limit` bytes; absent while the run has written none, and for a file that is not text."}
+      - {name: result_truncated, type: Boolean, summary: "True when result.md holds more than `result_limit` bytes: `result_text` is its start."}
+      - {name: result_limit, type: Integer, summary: "The most bytes of result.md the view answers: 1048576."}
+      - {name: products, type: "List<String>", summary: "The paths of the files of the run's work/ directory, as ProductsOfRun lists them."}
+      - {name: calls, type: Integer, summary: "The model calls the relay booked for the run."}
+      - {name: input_tokens, type: Integer, summary: "The input tokens those calls reported; a call that reported none adds 0."}
+      - {name: output_tokens, type: Integer}
+      - {name: cost_micro_usd, type: Integer, summary: "What the calls booked: the route's declared price times the tokens, else the reservation of a call of unknown cost."}
+      - {name: cost_known, type: Boolean, summary: "False when any call was booked at its reservation because its cost was not known."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+      - {name: route, kind: references, target: sdc.daemon.ModelRoute, cardinality: one, via: route}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
+
   - name: sdc.daemon.RunCase
     naming:
       summary: "One case of a run's tree, as the runtime reads the run's store when a client asks for the view CasesOfRun: the Loom runtime answers it from Loom's tree status of the store, which it reads without holding it, so it answers while the run goes on; the stub runtime has no tree and answers none. No path of the store or of a case file is in a row. The language cannot read a store, so no command creates or changes a row, as with Runbook."
@@ -515,6 +559,7 @@ actors:
       - sdc.daemon.SubmitRun
       - sdc.daemon.CancelRun
       - sdc.daemon.AnswerDecision
+      - sdc.daemon.Delegate
 
 errors:
   - name: sdc.daemon.NoSuchDecisionRequest
@@ -553,7 +598,7 @@ errors:
       - {name: run_id, type: sdc.daemon.RunId}
 
   - name: sdc.daemon.RouteRefused
-    summary: "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call; or the run makes model calls, names no route, and the daemon declares routes and no `route_policy.default`. The run was not submitted and nothing was written. The reason names what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name."
+    summary: "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call; or the run makes model calls, names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name."
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: reason, type: String}
@@ -839,6 +884,103 @@ commands:
             runbook_id: input.runbook_id
             confinement: input.confinement
         summary: "The run is Submitted and holds its first event, `runbook.submitted`, sequence 1 (position: the next of the daemon)."
+
+  - name: sdc.daemon.Delegate
+    naming:
+      wire: delegate
+      display: Delegate agent work
+      summary: "Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run's workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon's default level, and the daemon writes the run's first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); without, the free run (path `free`): one agent node whose instruction is the request, on the delegation's route, in the run's workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Every model call of the run goes to that route through the daemon's relay. The run's result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon's default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route's gateway whether it is ready (`GET /ready`, a few seconds at most); a gateway that does not answer 200 refuses the delegation with 503 `route-unavailable` naming the route, the daemon's `{refused, message}` answer, outside the language as a draining daemon's refusal is."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: request, type: String, summary: "The work asked for, as text: the run's intake, at most 1 MiB."}
+      - {name: model_route, type: Optional<String>, summary: "The route the run's model calls take, by the name the daemon declares it under; absent: the daemon's default route, and a daemon with none refuses the delegation as route-refused. Never an address, a token or an alias."}
+      - {name: protocol, type: Optional<sdc.daemon.RunbookId>, summary: "The runbook to run with the request as its intake; absent: the free run."}
+      - {name: workspace, type: Optional<sdc.daemon.ContextPath>, summary: "A directory under one of the daemon's context roots: its files are copied into the run's workspace before the run starts."}
+      - {name: settings, type: sdc.daemon.RunSettings}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: runbook_id, type: sdc.daemon.RunbookId, summary: "The runbook the run takes: the protocol, else delegation-free. The handler fills it."}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel, summary: "The daemon's default level: a delegation names none. The handler fills it; a daemon with no default refuses the delegation by name (400) and writes nothing."}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The route the run takes, by name: model_route, else the daemon's default route. The handler fills it."}
+      - {name: model_route_alias, type: String, summary: "The alias of route at its gateway, as the daemon's file declares it. The handler fills it."}
+      - {name: model_route_source, type: sdc.daemon.RouteSource, summary: "run when the delegation named its route, default when it took route_policy.default. The handler fills it."}
+      - {name: path, type: sdc.daemon.DelegationPath, summary: "named when the delegation names a protocol, else free. The handler fills it."}
+      - {name: route_declared, type: Boolean}
+      - {name: runbook_known, type: Boolean}
+      - {name: context_inside_roots, type: Boolean}
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: intake-too-large
+        when: request.count > 1048576
+        error: sdc.daemon.IntakeTooLarge
+        summary: "The request is larger than 1 MiB: nothing was submitted."
+      - name: route-refused
+        when: route_declared == false
+        error: sdc.daemon.RouteRefused
+        summary: "The delegation names a route the daemon does not declare, or names none and the daemon has no default route: nothing was submitted, and the answer lists the declared routes. The refusals of a named route are the run's (submit-run): an alias, an address, a token or an empty name in its place is refused too, and the reason names what was wrong, never the value."
+      - name: no-runbook
+        when: runbook_known == false
+        error: sdc.daemon.NoSuchRunbook
+        summary: "The protocol is no runbook the daemon can run: nothing was submitted."
+      - name: context-outside-roots
+        when: context_inside_roots == false
+        error: sdc.daemon.ContextOutsideRoots
+        summary: "The workspace lies under no context root of the daemon: nothing was submitted."
+      - name: no-daemon
+        when_related: {via: input.daemon_id, exists: false}
+        error: sdc.daemon.NoSuchDaemon
+        summary: "No daemon was started under this id: nothing was submitted."
+      - name: no-session
+        when_related: {via: input.session_id, exists: false}
+        error: sdc.daemon.NoSuchSession
+        summary: "A session was named and none has that name: nothing was submitted."
+      - name: session-closed
+        when_related: {via: input.session_id, predicate: state == Closed}
+        error: sdc.daemon.SessionClosedToRuns
+        summary: "The named session is Closed and takes no new run: nothing was submitted."
+      - name: already-submitted
+        when: defined(idempotency_key)
+        when_related:
+          entity: sdc.daemon.Run
+          where: idempotency_key == input.idempotency_key
+          exists: true
+        emits:
+          - sdc.daemon.SubmitReplayed
+        payload:
+          sdc.daemon.SubmitReplayed:
+            idempotency_key: input.idempotency_key
+            run_id: {related: {entity: sdc.daemon.Run, where: idempotency_key == input.idempotency_key, field: run_id}}
+        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run."
+      - name: delegated
+        creates: sdc.daemon.Run
+        instance: run_id
+        sets:
+          runbook_id: input.runbook_id
+          intake: input.request
+          context_path: input.workspace
+          settings: input.settings
+          confinement: input.confinement
+          session_id: input.session_id
+          idempotency_key: input.idempotency_key
+          model_route: input.route
+          model_route_alias: input.model_route_alias
+          model_route_source: input.model_route_source
+          submitted_at: input.at
+        emits:
+          - sdc.daemon.RunSubmitted
+          - sdc.daemon.RunDelegated
+        payload:
+          sdc.daemon.RunSubmitted:
+            run_id: input.run_id
+            runbook_id: input.runbook_id
+            confinement: input.confinement
+          sdc.daemon.RunDelegated:
+            run_id: input.run_id
+            route: input.route
+            path: input.path
+            protocol: input.runbook_id
+        summary: "The run is Submitted on the route and holds its first two events, `runbook.submitted` and `runbook.delegated`. The answer names the run (`run_id` of RunSubmitted, and the `Location` header: the view DelegationResult of the run), the route and the path (RunDelegated)."
 
   - name: sdc.daemon.CancelRun
     naming:
@@ -1265,6 +1407,12 @@ events:
     fields:
       - {name: daemon_id, type: sdc.daemon.DaemonId}
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+  - name: sdc.daemon.RunDelegated
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The route the run's model calls take, by name."}
+      - {name: path, type: sdc.daemon.DelegationPath}
+      - {name: protocol, type: sdc.daemon.RunbookId, summary: "The runbook the run runs: the named one, or delegation-free."}
   - name: sdc.daemon.RunSubmitted
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
@@ -1432,6 +1580,35 @@ views:
       - {name: shown, type: Integer}
       - {name: truncated, type: Boolean}
       - {name: limit, type: Integer}
+
+  - name: sdc.daemon.DelegationResult
+    naming:
+      wire: delegation-result
+      display: The result of a delegation
+      summary: "What a delegation's run has come to, in one row: GET /daemon/views/delegation-result?run_id=... (the MCP tool delegation_result; the tool delegate answers the same row when the run ends within its wait). The run's state, and once it Ended its outcome, the text of its result.md (at most 1048576 bytes; the MCP tools hold the text to 40000 characters), its products, its route, path and protocol, the classifier's confidence (null for named and free), and the calls, tokens and cost the relay booked. A view has no outcome in the language, so the refusal is the daemon's {refused, message} answer: 404 `no such run` for a run id the daemon does not know, and 404 `not a delegation` for a run that no Delegate created."
+    source: sdc.daemon.Delegation
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: path, type: sdc.daemon.DelegationPath}
+      - {name: protocol, type: sdc.daemon.RunbookId}
+      - {name: confidence, type: Optional<Json>}
+      - {name: result_text, type: Optional<String>}
+      - {name: result_truncated, type: Boolean}
+      - {name: result_limit, type: Integer}
+      - {name: products, type: "List<String>"}
+      - {name: calls, type: Integer}
+      - {name: input_tokens, type: Integer}
+      - {name: output_tokens, type: Integer}
+      - {name: cost_micro_usd, type: Integer}
+      - {name: cost_known, type: Boolean}
 
   - name: sdc.daemon.Runs
     naming:

@@ -1917,6 +1917,23 @@ fn the_prompt_of_change_review_asked_again_is_its_golden_byte_for_byte() {
     compare("llm-node", "change.review.retry", &r.files[&format!("{REC}/prompt.md")]);
 }
 
+/// The prompt of the free run of a delegation (`runbook/src/delegation.rs`): the request of `request.yaml` is the task,
+/// and every other file of the workspace but `result.md` an input.
+#[test]
+fn the_prompt_of_the_free_run_of_a_delegation_is_its_golden_byte_for_byte() {
+    let root = fresh("golden-delegation-free");
+    let work = root.join("work");
+    put(&work, "request.yaml", "text: Write one sentence about tea.\n");
+    put(&work, "notes.txt", "a file of the workspace\n");
+    let mut s = start("delegation.free").with(&["--adapter", "true", "--instructions", r#"{"task":"instructions/delegation.free.md"}"#]);
+    s.binding = false;
+    let o = spawn(&root, &s, "delegation-free");
+    let p = work.join(".sdc/llm/001-delegation.free/prompt.md");
+    let text = fs::read_to_string(&p).unwrap_or_else(|_| panic!("no prompt.md at {}: {}", p.display(), String::from_utf8_lossy(&o.stderr)));
+    assert!(text.contains("Write one sentence about tea.") && text.contains("notes.txt"), "{text}");
+    compare("llm-node", "delegation.free", &text);
+}
+
 /// The prompt of `change.implement` in Loom mode, on the story of two requirements.
 fn implement_prompt(name: &str, more: &dyn Fn(&Path), env: &[(&str, &str)]) -> String {
     prompt(name, "change.implement", &|root| {

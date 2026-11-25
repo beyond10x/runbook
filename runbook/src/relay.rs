@@ -53,6 +53,8 @@ pub const ROUTE_REFUSED: &str = "route-refused";
 pub const CAP_REACHED: &str = "cap-reached";
 /// The cause of a call the gateway refused or did not answer.
 pub const ROUTE_UNAVAILABLE: &str = "route-unavailable";
+/// The kind of the run event that records one call the relay booked.
+pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 /// The code of a call whose gateway did not answer: nothing ran.
 const CONNECTION_FAILED: &str = "connection-failed";
 /// The code of a call whose answer broke off after its head: the call ran and is booked at its cost.
@@ -143,6 +145,36 @@ impl RouteTable {
 
     pub fn is_empty(&self) -> bool {
         self.roles.is_empty()
+    }
+}
+
+/// How long the readiness probe of a route waits for a connection, and then for the answer's status line.
+const READY_WAIT: Duration = Duration::from_secs(3);
+
+/// Whether the gateway of `route` is ready: `GET <base_url>/ready` answers 200 within a few seconds (`docs/model-routes.md`,
+/// section 3). `Err` says why not, naming the route and never its address or token. It blocks: call it off the async workers.
+pub fn ready(route: &ResolvedRoute) -> Result<(), String> {
+    use std::io::{BufRead, Write};
+    use std::net::ToSocketAddrs;
+    let not_ready = |why: String| format!("route {} is not ready: {why}", route.name);
+    let (addr, host, base) = parts(&route.base_url).map_err(|e| not_ready(e.to_owned()))?;
+    let path = if base.is_empty() { "/ready".to_owned() } else { format!("/{base}/ready") };
+    let socket = addr.to_socket_addrs().ok().and_then(|mut a| a.next()).ok_or_else(|| not_ready("its gateway's address does not resolve".to_owned()))?;
+    let mut stream = std::net::TcpStream::connect_timeout(&socket, READY_WAIT).map_err(|e| not_ready(format!("its gateway took no connection ({})", e.kind())))?;
+    let _ = stream.set_read_timeout(Some(READY_WAIT));
+    let _ = stream.set_write_timeout(Some(READY_WAIT));
+    let mut head = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
+    if let Some(token) = &route.token {
+        head.push_str(&format!("Authorization: Bearer {token}\r\n"));
+    }
+    head.push_str("\r\n");
+    stream.write_all(head.as_bytes()).map_err(|e| not_ready(format!("the probe could not be sent to its gateway ({})", e.kind())))?;
+    let mut line = String::new();
+    std::io::BufReader::new(std::io::Read::take(stream, 1024)).read_line(&mut line).map_err(|e| not_ready(format!("its gateway did not answer GET /ready ({})", e.kind())))?;
+    match line.split_whitespace().nth(1).and_then(|s| s.parse::<u16>().ok()).filter(|_| line.starts_with("HTTP/")) {
+        Some(200) => Ok(()),
+        Some(status) => Err(not_ready(format!("its gateway answered {status} to GET /ready"))),
+        None => Err(not_ready("its gateway gave no status to GET /ready".to_owned())),
     }
 }
 
@@ -527,13 +559,19 @@ impl Call {
 
 /// The address of `base_url` and the path of `wire` below it. Only `http://` is served.
 fn target(base_url: &str, wire: &str) -> Result<(String, String, String), String> {
+    let (addr, authority, path) = parts(base_url)?;
+    let path = if path.is_empty() { format!("/v1/{wire}") } else { format!("/{path}/v1/{wire}") };
+    Ok((addr, authority, path))
+}
+
+/// The address (`host:port`), the authority and the path (no leading or trailing `/`) of an `http://` base URL.
+fn parts(base_url: &str) -> Result<(String, String, String), &'static str> {
     let rest = base_url.strip_prefix("http://").ok_or("the relay sends to an http:// gateway only")?;
     let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
     let path = path.trim_end_matches('/');
     let has_port = if authority.starts_with('[') { authority.contains("]:") } else { authority.contains(':') };
     let addr = if has_port { authority.to_owned() } else { format!("{authority}:80") };
-    let path = if path.is_empty() { format!("/v1/{wire}") } else { format!("/{path}/v1/{wire}") };
-    Ok((addr, authority.to_owned(), path))
+    Ok((addr, authority.to_owned(), path.to_owned()))
 }
 
 /// The gateway's answer as it comes in: its status, its headers and its body.

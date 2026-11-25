@@ -72,6 +72,10 @@ pub struct ServeArgs {
     /// such a run's model calls go through it. Not an option: the binary fills it from the `[gateway]` of the file.
     #[arg(skip)]
     pub route_table: Option<crate::relay::RouteTable>,
+    /// The root of the daemon's assets (`assets::Lookup`), whose `bindings/tools` the free run of a delegation hands to
+    /// `sdc-node` (`crate::delegation`). Not an option: the binary fills it.
+    #[arg(skip)]
+    pub assets_root: Option<PathBuf>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -205,13 +209,16 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if let Some(arbiter) = &args.arbiter {
             engine = engine.with_arbiter(arbiter.clone());
         }
-        // The relay serves the runs on a route: those on a declared route, and those on the route `default` of a lone
-        // `[gateway]` table.
+        // The relay serves the runs on a route: those on a declared route (a delegation's among them), and those on the
+        // route `default` of a lone `[gateway]` table.
         if args.route_table.as_ref().is_some_and(|t| !t.is_empty()) || !args.routes.names().is_empty() {
             let r = crate::relay::Relay::new();
             engine = engine.with_relay(r.clone());
             relay = Some(r);
         }
+        let tools = args.assets_root.as_deref().and_then(crate::delegation::tools_of);
+        let free = crate::delegation::install(&state, tools.as_deref()).map_err(|e| format!("state directory: the free run of a delegation could not be written: {e}"))?;
+        engine = engine.with_free_run(free);
         (Arc::new(engine), None)
     } else {
         let stub = StubRuntime::new();

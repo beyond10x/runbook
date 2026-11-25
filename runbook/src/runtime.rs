@@ -193,10 +193,13 @@ pub struct StartRequest {
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
     pub workspace_dir: PathBuf,
-    /// The route of each role of a run that makes model calls (`Terms::makes_model_calls`), resolved by the daemon
-    /// at the submit: the run's model processes reach these routes through the daemon's relay. None: the run is on
-    /// no route.
+    /// The route of each role of a run that makes model calls (`Terms::makes_model_calls`) or is a delegation, resolved by
+    /// the daemon at the submit: the run's model processes reach these routes through the daemon's relay. None: the run
+    /// is on no route.
     pub routes: Option<crate::relay::RouteTable>,
+    /// The route of a delegation (`Daemon::delegate`), by name: the run is a delegation, on that route as the role
+    /// `default` (`routes`). None: the run is no delegation.
+    pub model_route: Option<String>,
 }
 
 /// A question the runtime raised for a run.
@@ -390,5 +393,16 @@ pub trait Runtime: Send + Sync + 'static {
     /// has a run whose tree is not written yet.
     fn cases(&self, _run_id: &str) -> Result<Vec<CaseRow>, String> {
         Ok(Vec::new())
+    }
+
+    /// Why the route `route` (a delegation's, as the daemon resolved it) cannot take a run now (its gateway is not ready), naming the route and never its address or
+    /// token; `None`: it can. Asked at a delegation, before anything is written; it may block a few seconds.
+    fn route_unready(&self, _route: &crate::relay::ResolvedRoute) -> Option<String> {
+        None
+    }
+
+    /// Whether the runtime runs the free run of a delegation (`crate::delegation`).
+    fn free_run(&self) -> bool {
+        false
     }
 }

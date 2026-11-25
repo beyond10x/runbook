@@ -8,6 +8,7 @@ pub mod client;
 pub mod clock;
 pub mod commands;
 pub mod cost;
+pub mod delegation;
 pub mod engine;
 pub mod ledger;
 pub mod mcp;

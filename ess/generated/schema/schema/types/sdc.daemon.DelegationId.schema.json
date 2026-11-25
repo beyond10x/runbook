@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DelegationId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DelegationId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:8284b52e7b9ec45edb277d0e4d5244a1443ced49e0603129b919ede449904ec4",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DelegationId": {
+      "title": "DelegationId",
+      "description": "A delegation as a row of Delegation: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's record and files, not the run.",
+      "x-ess-name": "sdc.daemon.DelegationId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

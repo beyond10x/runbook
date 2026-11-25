@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.Delegate.schema.json",
+  "title": "Delegate agent work input",
+  "description": "Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run's workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon's default level, and the daemon writes the run's first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); without, the free run (path `free`): one agent node whose instruction is the request, on the delegation's route, in the run's workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Every model call of the run goes to that route through the daemon's relay. The run's result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon's default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route's gateway whether it is ready (`GET /ready`, a few seconds at most); a gateway that does not answer 200 refuses the delegation with 503 `route-unavailable` naming the route, the daemon's `{refused, message}` answer, outside the language as a draining daemon's refusal is.",
+  "x-ess-name": "sdc.daemon.Delegate",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "request": {
+      "description": "The work asked for, as text: the run's intake, at most 1 MiB.",
+      "type": "string"
+    },
+    "model_route": {
+      "description": "The route the run's model calls take, by the name the daemon declares it under; absent: the daemon's default route, and a daemon with none refuses the delegation as route-refused. Never an address, a token or an alias.",
+      "type": "string"
+    },
+    "protocol": {
+      "$ref": "#/$defs/sdc.daemon.RunbookId",
+      "description": "The runbook to run with the request as its intake; absent: the free run."
+    },
+    "workspace": {
+      "$ref": "#/$defs/sdc.daemon.ContextPath",
+      "description": "A directory under one of the daemon's context roots: its files are copied into the run's workspace before the run starts."
+    },
+    "settings": {
+      "$ref": "#/$defs/sdc.daemon.RunSettings"
+    },
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    },
+    "idempotency_key": {
+      "$ref": "#/$defs/sdc.daemon.IdempotencyKey"
+    },
+    "runbook_id": {
+      "$ref": "#/$defs/sdc.daemon.RunbookId",
+      "description": "The runbook the run takes: the protocol, else delegation-free. The handler fills it."
+    },
+    "confinement": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel",
+      "description": "The daemon's default level: a delegation names none. The handler fills it; a daemon with no default refuses the delegation by name (400) and writes nothing."
+    },
+    "route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName",
+      "description": "The route the run takes, by name: model_route, else the daemon's default route. The handler fills it."
+    },
+    "model_route_alias": {
+      "description": "The alias of route at its gateway, as the daemon's file declares it. The handler fills it.",
+      "type": "string"
+    },
+    "model_route_source": {
+      "$ref": "#/$defs/sdc.daemon.RouteSource",
+      "description": "run when the delegation named its route, default when it took route_policy.default. The handler fills it."
+    },
+    "path": {
+      "$ref": "#/$defs/sdc.daemon.DelegationPath",
+      "description": "named when the delegation names a protocol, else free. The handler fills it."
+    },
+    "route_declared": {
+      "type": "boolean"
+    },
+    "runbook_known": {
+      "type": "boolean"
+    },
+    "context_inside_roots": {
+      "type": "boolean"
+    },
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "run_id",
+    "request",
+    "settings",
+    "runbook_id",
+    "confinement",
+    "route",
+    "model_route_alias",
+    "model_route_source",
+    "path",
+    "route_declared",
+    "runbook_known",
+    "context_inside_roots",
+    "daemon_id",
+    "at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:186b9dd41ed06a0954b34aa9cd72b226fee010e8b74895874133b30feca48003",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon's default level (runbook serve --default-confinement, or `confinement` of runbook.toml); a daemon with none refuses the submit by name and writes nothing, as the binary has no built-in default; the handler fills it. The daemon's floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "local",
+        "linux"
+      ]
+    },
+    "sdc.daemon.ContextPath": {
+      "title": "ContextPath",
+      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.",
+      "x-ess-name": "sdc.daemon.ContextPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free"
+      ]
+    },
+    "sdc.daemon.IdempotencyKey": {
+      "title": "IdempotencyKey",
+      "description": "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.",
+      "x-ess-name": "sdc.daemon.IdempotencyKey",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RouteSource": {
+      "title": "RouteSource",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
+      "x-ess-name": "sdc.daemon.RouteSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "run",
+        "default"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunSettings": {
+      "title": "RunSettings",
+      "description": "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now.",
+      "x-ess-name": "sdc.daemon.RunSettings",
+      "x-ess-kind": "newtype",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "x-ess-map-key": "String"
+    },
+    "sdc.daemon.RunbookId": {
+      "title": "RunbookId",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
+      "x-ess-name": "sdc.daemon.RunbookId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

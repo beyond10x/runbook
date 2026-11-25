@@ -31,6 +31,7 @@ mod submit_order;
 mod answer_order;
 mod default_confinement;
 mod default_level;
+mod delegate;
 mod autonomy;
 mod autonomy_guards;
 mod gateway;

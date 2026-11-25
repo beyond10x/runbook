@@ -230,6 +230,10 @@ impl Runtime for StubRuntime {
         "stub"
     }
 
+    fn free_run(&self) -> bool {
+        self.table.lock().unwrap().contains_key(crate::delegation::FREE_RUNBOOK)
+    }
+
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
         let script = self.table.lock().unwrap().get(&request.runbook).cloned();
         let Some(script) = script else {

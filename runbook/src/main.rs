@@ -68,6 +68,8 @@ enum Cmd {
     },
     /// Answer a decision request of a run on a daemon.
     Decide(runbook::client::DecideArgs),
+    /// Delegate a piece of agent work to a daemon on a named model route and print the run's id; its result is read from the view delegation-result.
+    Delegate(runbook::client::DelegateArgs),
     /// Run the cycles of a `loom.tree-suite/1` file through Loom's suite runner in this process; exit 1 when a cycle is not as expected, 2 when the suite is refused.
     Test(runbook::test_suite::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
@@ -187,6 +189,7 @@ fn main() -> ExitCode {
         },
         Cmd::Runs { cmd } => runbook::client::runs(cmd),
         Cmd::Decide(args) => runbook::client::decide(args),
+        Cmd::Delegate(args) => runbook::client::delegate(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
         Cmd::Canon { version: true, .. } => canon_cmd::version(),
         Cmd::Canon { cmd: Some(cmd), .. } => canon_cmd::run(cmd),
@@ -256,6 +259,7 @@ fn main() -> ExitCode {
                 args.runbook_dir = world.assets.as_ref().map(|a| a.protocol_dir());
             }
             let presets: Vec<String> = world.startable().iter().map(|s| s.to_string()).collect();
+            args.assets_root = world.assets.as_ref().map(|a| a.root.clone());
             if args.runbook_home.is_none() {
                 args.runbook_home = world.assets.map(|a| a.root);
             }

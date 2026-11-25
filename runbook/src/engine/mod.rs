@@ -118,6 +118,8 @@ pub struct Engine {
     /// The daemon's relay; none: no run is on a route. The route table of a run is its own, resolved by the daemon at
     /// the submit (`StartRequest::routes`).
     relay: Option<Arc<crate::relay::Relay>>,
+    /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
+    free_home: Option<PathBuf>,
 }
 
 struct Registered<'a> {
@@ -152,7 +154,14 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None, free_home: None }
+    }
+
+    /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
+    /// is read from there, never from the configured homes.
+    pub fn with_free_run(mut self, home: PathBuf) -> Engine {
+        self.free_home = Some(std::path::absolute(&home).unwrap_or(home));
+        self
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
@@ -162,7 +171,7 @@ impl Engine {
         self
     }
 
-    /// The daemon's relay: a run that makes model calls (`Terms::makes_model_calls`) and comes with a route table
+    /// The daemon's relay: a run that makes model calls (`Terms::makes_model_calls`) or is a delegation and comes with a route table
     /// (`StartRequest::routes`) is taken onto it, its model processes reach their model through it and the run's route
     /// file (`engine::route`), and its model calls are taken and booked there.
     pub fn with_relay(mut self, relay: Arc<crate::relay::Relay>) -> Engine {
@@ -228,7 +237,11 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && request.runbook == crate::delegation::FREE_RUNBOOK;
+        let home = match (&self.free_home, &request.model_route) {
+            (Some(free), Some(_)) if free_run => free.clone(),
+            _ => layout::home_of(&self.homes, &request.runbook).map_err(failure)?,
+        };
         let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let mut runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
@@ -252,7 +265,8 @@ impl Engine {
         // A run whose decider is a model is on the route the daemon resolved for it at the submit: the run's place on
         // the relay and its route file, whose path every bound program and the decider get (`engine::route`). It goes
         // when the run ends. A run with a route table and no relay to take it does not start: it would reach no model.
-        let route = match (&self.relay, request.routes.as_ref().filter(|_| terms.makes_model_calls())) {
+        // A delegation is on its route whatever its decider (`StartRequest::model_route`).
+        let route = match (&self.relay, request.routes.as_ref().filter(|_| terms.makes_model_calls() || request.model_route.is_some())) {
             (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
             (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
             (_, None) => None,
@@ -314,7 +328,9 @@ impl Engine {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
-                    std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| format!("{}: {e}", path.display()))?;
+                    // the free run's agent node reads the request whole, never a member of it
+                    let document = if free_run { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
+                    std::fs::write(path, document).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
                 Ok(())
             })
@@ -793,6 +809,14 @@ impl Runtime for Engine {
             .into_iter()
             .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
             .collect())
+    }
+
+    fn route_unready(&self, route: &crate::relay::ResolvedRoute) -> Option<String> {
+        crate::relay::ready(route).err()
+    }
+
+    fn free_run(&self) -> bool {
+        self.free_home.is_some()
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

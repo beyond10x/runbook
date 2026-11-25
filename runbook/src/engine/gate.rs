@@ -370,7 +370,7 @@ impl Gate {
     pub fn record_calls(&self, sink: &dyn EventSink) {
         if let Some(booking) = &self.routed {
             for line in std::mem::take(&mut *lock(&booking.pending)) {
-                sink.record("runbook.model-call", line);
+                sink.record(crate::relay::MODEL_CALL_EVENT, line);
             }
         }
     }
@@ -391,7 +391,7 @@ impl Gate {
             std::mem::take(&mut *pending)
         };
         for line in lines {
-            sink.record("runbook.model-call", line);
+            sink.record(crate::relay::MODEL_CALL_EVENT, line);
         }
         let left = booking.in_flight();
         if left > 0 {

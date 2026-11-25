@@ -2664,6 +2664,7 @@ mod relative_state_directory {
             state_dir: run_dir,
             workspace_dir: PathBuf::from("rel-state-dir/workspaces/r1"),
             routes: None,
+            model_route: None,
             terms: Default::default(),
         };
         let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).expect_err("the start did not fail").reason;
@@ -2690,6 +2691,7 @@ mod relative_state_directory {
             arbiter: None,
             routes: Default::default(),
             route_table: None,
+            assets_root: None,
             token_file: None,
             principal: Some(super::super::PRINCIPAL.into()),
             ui: false,

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.Delegation.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.Delegation.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:11267faf3bab0736a803cc0d4c68294dfa29741a4ef42a9139bdffa21fb27474",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.Delegation.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Delegation.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Read"
+      ]
+    }
+  }
+}
