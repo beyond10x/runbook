@@ -651,7 +651,10 @@ async function drain() {
   inflight = true;
   try {
     while (pending.full || pending.cases.size || pending.run || pending.live || pending.sources || pending.tree) {
-      const full = pending.full || !S.cases.size;
+      // an empty tree is a tree not read yet on the inspector's page; on the daemon's page it is a run with no case or a
+      // refused read, and the tick reads the tree whole (pending.tree): a full drain there would read the run list and
+      // the files of the run once more on every tick
+      const full = pending.full || (!daemon && !S.cases.size);
       const cases = Array.from(pending.cases);
       const run = pending.run, live = pending.live || full, srcs = pending.sources || full, tree = pending.tree;
       pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false; pending.sources = false; pending.tree = false;
