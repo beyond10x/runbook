@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RouteStatus.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RouteStatus",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e66accf6b030cf3ab1c82d64b430d9b13a20da3e9d51559589e740c2a803471e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RouteStatus": {
+      "title": "RouteStatus",
+      "description": "Where a route stands as the daemon last read its gateway: gateway-unreachable (no answer from `GET /ready` or `GET /v1/models`, or an address the daemon does not speak, https), gateway-not-ready (`/ready` answered, not 200, or `/v1/models` gave no list), model-unknown (the gateway is ready and `GET /v1/models` does not list the route's alias), ready or not-ready (the gateway read the route's model: `callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route, ready only for the phase ready), listed (the gateway is ready and lists the alias, and no status of the model was read: a hosted route on a gateway without `/v1/status`, or a status route that did not answer). A read sends no model call and starts nothing.",
+      "x-ess-name": "sdc.daemon.RouteStatus",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "ready",
+        "not-ready",
+        "listed",
+        "model-unknown",
+        "gateway-not-ready",
+        "gateway-unreachable"
+      ]
+    }
+  }
+}

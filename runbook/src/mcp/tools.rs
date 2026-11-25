@@ -1,7 +1,7 @@
-//! The eleven tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! The twelve tools and their calls. A tool names a route of the command layer: `submit_run`,
 //! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
 //! names, `list_runs`, `read_run`,
-//! `read_events`, `read_open_decisions`, `list_products` and `read_product` are the views `runs*`, `run`, `events`, `open-decisions`, `products` and `product`. The result of a call is the body of the
+//! `read_events`, `read_open_decisions`, `list_products`, `read_product` and `list_routes` are the views `runs*`, `run`, `events`, `open-decisions`, `products`, `product` and `routes`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
 
 use super::schema;
@@ -31,6 +31,7 @@ enum Kind {
     ReadOpenDecisions,
     ListProducts,
     ReadProduct,
+    ListRoutes,
 }
 
 struct Tool {
@@ -41,7 +42,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 11] = [
+const TOOLS: [Tool; 12] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -119,6 +120,13 @@ const TOOLS: [Tool; 11] = [
         read_only: true,
         kind: Kind::ReadProduct,
     },
+    Tool {
+        name: "list_routes",
+        title: "List the model routes",
+        description: "The model routes the daemon declares, in order of name, in the `rows` of the result: each with `route` (the name a run names), `gateway` (by name), `alias` (the gateway's name of the model), `kind` (managed, hosted or local), `wires` (chat, responses, messages, as the gateway lists them), `status` (ready, not-ready, listed, model-unknown, gateway-not-ready or gateway-unreachable), `phase` when the gateway gave one, and `read_at`. The daemon reads its gateways at most once every 15 seconds, in the background and within 5 seconds, and answers the last read at once; a read sends no model call and starts nothing. No address, token or price is in a row.",
+        read_only: true,
+        kind: Kind::ListRoutes,
+    },
 ];
 
 /// The members of a command's input the HTTP handler fills; a client never sends them.
@@ -144,6 +152,7 @@ fn input_schema(tool: &Tool) -> Value {
         Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
         Kind::ListProducts => schema::object(vec![("run_id", schema::view_param("products", "run_id"))], &["run_id"]),
         Kind::ReadProduct => schema::object(vec![("run_id", schema::view_param("product", "run_id")), ("path", schema::view_param("product", "path"))], &["run_id", "path"]),
+        Kind::ListRoutes => schema::object(Vec::new(), &[]),
         Kind::ReadEvents => schema::object(
             vec![
                 ("run_id", schema::view_param("events", "run_id")),
@@ -160,7 +169,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the eleven tools, in a fixed order.
+/// The result of `tools/list`: exactly the twelve tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -252,6 +261,7 @@ pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, I
         Kind::ReadOpenDecisions => Ok(be.view("open-decisions", &query_of(&args)?)),
         Kind::ListProducts => Ok(be.view("products", &query_of(&args)?)),
         Kind::ReadProduct => Ok(be.view("product", &query_of(&args)?)),
+        Kind::ListRoutes => Ok(be.view("routes", &HashMap::new())),
         Kind::ReadEvents => {
             let mut q = query_of(&args)?;
             let after_sequence = match q.remove("after_sequence") {

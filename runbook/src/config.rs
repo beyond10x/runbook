@@ -35,7 +35,7 @@ pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 4] = ["runs_dir", "spend_ledger", "runbooks", "deciders"];
+const OWN_KEYS: [&str; 7] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY];
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
@@ -45,8 +45,10 @@ const MEMBER_KEYS: [&str; 8] = ["login_file", "gateway", "autonomy", "decider", 
 
 /// The keys a file found by a program of a run that has no run directory above it (by the walk or in the user's
 /// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger, the directories
-/// runbooks are loaded from and the gateway of the model programs. The floor of the daemon has no key in any file.
-const NESTED_REFUSED_KEYS: [&str; 8] = ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway"];
+/// runbooks are loaded from, the gateway of the model programs and the model routes. The floor of the daemon has no
+/// key in any file.
+const NESTED_REFUSED_KEYS: [&str; 11] =
+    ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
 /// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
@@ -383,6 +385,10 @@ pub struct File {
     pub deciders: Map<String, Value>,
     /// The run settings members, in file order, as `loom_run/settings.rs` reads them.
     pub members: Map<String, Value>,
+    /// `[gateways.<name>]`, `[routes.<name>]` and `[route_policy]`, with a lone `[gateway]` as the gateway `default`:
+    /// the model routes `runbook serve` declares. Checked here, its token files not read: the daemon reads them when
+    /// it starts. `runbook run` does not read them yet.
+    pub routes: runbook::routes::RouteTable,
 }
 
 impl File {
@@ -396,6 +402,7 @@ impl File {
             && self.max_wall_seconds.is_none()
             && self.runbooks.is_empty()
             && self.members.is_empty()
+            && self.routes.is_empty()
     }
 
     /// What `runbook run` says on standard error before anything starts: the file and how it was found.
@@ -629,7 +636,7 @@ fn read_text(found: &Found) -> Result<File, String> {
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
     if found.nested && !found.via.chosen() {
         if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
-            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories or the gateway; name the file with --config to use it)")));
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories, the gateway or the model routes; name the file with --config to use it)")));
         }
     }
     for key in top.keys() {
@@ -688,8 +695,28 @@ fn read_text(found: &Found) -> Result<File, String> {
         Some(Value::Object(kinds)) if kinds.values().all(Value::is_object) => kinds,
         Some(_) => return Err(fail("deciders: a table of tables, one per decider kind ([deciders.rule])".to_owned())),
     };
+    let mut gateways = top.shift_remove(runbook::routes::GATEWAYS);
+    // a relative token file is relative to the file, as the one of `[gateway]`
+    for (name, table) in gateways.as_mut().and_then(Value::as_object_mut).into_iter().flat_map(|g| g.iter_mut()) {
+        match table.as_object_mut().and_then(|t| t.get_mut("token_file")) {
+            Some(Value::String(s)) if !s.is_empty() && !content_like(s) => {
+                if !Path::new(s.as_str()).is_absolute() {
+                    *s = dir.join(s.as_str()).display().to_string();
+                }
+            }
+            Some(Value::String(_)) => {
+                let name = if runbook::routes::is_name(name) { name.as_str() } else { "<name>" };
+                return Err(fail(format!("{}.{name}.token_file: a path as text (a path, never content)", runbook::routes::GATEWAYS)));
+            }
+            _ => {}
+        }
+    }
+    let routes = top.shift_remove(runbook::routes::ROUTES);
+    let route_policy = top.shift_remove(runbook::routes::POLICY);
     check_members(&top).map_err(fail)?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top })
+    let tables = runbook::routes::Tables { gateway: top.get(crate::loom_run::gateway::KEY), gateways: gateways.as_ref(), routes: routes.as_ref(), route_policy: route_policy.as_ref() };
+    let routes = runbook::routes::RouteTable::declare(&tables).map_err(|e| fail(mask(&e)))?;
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -1098,6 +1125,31 @@ mod tests {
         let nested = parse(&found(text, true, Via::Walk)).unwrap_err();
         assert!(nested.contains("gateway: not a key of runbook.toml found by a program of a run"), "{nested}");
         assert!(parse(&found(text, true, Via::Option)).is_ok());
+    }
+
+    #[test]
+    fn the_model_routes_of_runbook_toml_take_a_token_file_relative_to_the_file_and_a_file_in_a_run_names_none() {
+        let found = |text: &str, nested: bool, via: Via| Found { path: PathBuf::from("/x/runbook.toml"), via, text: text.to_owned(), nested };
+        let text = "[gateways.gw]\nbase_url = \"http://127.0.0.1:8080\"\ntoken_file = \"gw-token\"\n[routes.qwen]\ngateway = \"gw\"\nmodel = \"qwen\"\nkind = \"managed\"\n[route_policy]\ndefault = \"qwen\"\n";
+        let f = parse(&found(text, false, Via::Walk)).unwrap();
+        assert_eq!((f.routes.names(), f.routes.default_route()), (vec!["qwen"], Some("qwen")));
+        assert!(!f.states_nothing() && f.members.is_empty(), "the tables are the file's own keys, not run settings");
+        assert!(format!("{:?}", f.routes.gateway("gw").unwrap()).contains("<named>"));
+        // the relative token file is made absolute against the file: the read names its member, never the path
+        let e = f.routes.clone().read_tokens().unwrap_err();
+        assert!(e.contains("gateways.gw.token_file") && !e.contains("/x") && !e.contains("gw-token"), "{e}");
+        for key in ["gateways", "routes", "route_policy"] {
+            let only = match key {
+                "gateways" => "[gateways.gw]\nbase_url = \"http://127.0.0.1:8080\"\n".to_owned(),
+                "routes" => "[routes.qwen]\ngateway = \"default\"\nmodel = \"qwen\"\nkind = \"hosted\"\n".to_owned(),
+                _ => "[route_policy]\n".to_owned(),
+            };
+            let nested = parse(&found(&only, true, Via::Walk)).unwrap_err();
+            assert!(nested.contains(&format!("{key}: not a key of runbook.toml found by a program of a run")), "{nested}");
+        }
+        let lone = parse(&found("[gateway]\nbase_url = \"http://127.0.0.1:8080\"\n[routes.r]\ngateway = \"default\"\nmodel = \"m\"\nkind = \"local\"\n", false, Via::Option)).unwrap();
+        assert_eq!(lone.routes.resolve("r").map(|r| r.base_url), Some("http://127.0.0.1:8080"), "a lone [gateway] is the gateway default");
+        assert_eq!(lone.members["gateway"]["base_url"], "http://127.0.0.1:8080", "and stays the run setting it was");
     }
 
     #[test]

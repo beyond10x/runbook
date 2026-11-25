@@ -14,8 +14,6 @@ use super::{Args, Confinement};
 pub use sdc_tools::gateway::{FILE_VARIABLE, OPTION};
 use sdc_tools::gateway::{self, Gateway};
 use serde_json::Value;
-use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// The key of the table.
@@ -60,22 +58,7 @@ pub fn check_shape(settings: &Value) -> Result<(), String> {
 /// open descriptor, and it is read up to a limit; an error names the member and what is wrong, never the path or
 /// the content.
 fn token_of_file(path: &str) -> Result<String, String> {
-    let unreadable = || "gateway.token_file: not a readable file".to_owned();
-    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC).open(path).map_err(|_| unreadable())?;
-    if !file.metadata().map_err(|_| unreadable())?.is_file() {
-        return Err(unreadable());
-    }
-    let mut text = String::new();
-    file.take(gateway::TOKEN_LIMIT as u64 + 16).read_to_string(&mut text).map_err(|_| "gateway.token_file: not readable as text".to_owned())?;
-    if text.trim().is_empty() {
-        return Err("gateway.token_file: empty".to_owned());
-    }
-    let line = text.strip_suffix('\n').map(|t| t.strip_suffix('\r').unwrap_or(t)).unwrap_or(&text);
-    if line.contains('\n') || line.contains('\r') {
-        return Err("gateway.token_file: not one line".to_owned());
-    }
-    gateway::check_token(line).map_err(|why| format!("gateway.token_file: the token {why}"))?;
-    Ok(line.to_owned())
+    runbook::routes::read_token_file(path, "gateway.token_file")
 }
 
 /// The adapter of a model decider's table: its own, else the default `metaharness`; none for another kind.

@@ -190,6 +190,24 @@ types:
     naming:
       summary: "What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered)."
 
+  - name: sdc.daemon.RouteName
+    kind: newtype
+    of: String
+    naming:
+      summary: "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file."
+
+  - name: sdc.daemon.ModelRouteKind
+    kind: enum
+    variants: [managed, hosted, local]
+    naming:
+      summary: "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it."
+
+  - name: sdc.daemon.RouteStatus
+    kind: enum
+    variants: [ready, not-ready, listed, model-unknown, gateway-not-ready, gateway-unreachable]
+    naming:
+      summary: "Where a route stands as the daemon last read its gateway: gateway-unreachable (no answer from `GET /ready` or `GET /v1/models`, or an address the daemon does not speak, https), gateway-not-ready (`/ready` answered, not 200, or `/v1/models` gave no list), model-unknown (the gateway is ready and `GET /v1/models` does not list the route's alias), ready or not-ready (the gateway read the route's model: `callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route, ready only for the phase ready), listed (the gateway is ready and lists the alias, and no status of the model was read: a hosted route on a gateway without `/v1/status`, or a status route that did not answer). A read sends no model call and starts nothing."
+
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
     to: sdc.daemon.ConfinementLevel
@@ -247,6 +265,25 @@ entities:
       initial: Listed
       states: [Listed]
       terminal: [Listed]
+
+  - name: sdc.daemon.ModelRoute
+    naming:
+      summary: "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind, with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row."
+    identity:
+      name: route
+      type: sdc.daemon.RouteName
+    fields:
+      - {name: gateway, type: String, summary: "The name of the route's gateway in the daemon's file, never its address."}
+      - {name: alias, type: String, summary: "The model's alias at the gateway: what the gateway's `GET /v1/models` lists and a model call names."}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>", summary: "The wires the gateway lists for the alias (chat, responses, messages), in its order; none when the gateway did not answer or does not list the alias."}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>, summary: "The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read."}
+      - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this row."}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
 
   - name: sdc.daemon.Run
     naming:
@@ -1275,6 +1312,25 @@ views:
       - {name: runbook_id, type: sdc.daemon.RunbookName}
       - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
       - {name: runtime, type: sdc.daemon.RuntimeKind}
+
+  - name: sdc.daemon.Routes
+    naming:
+      wire: routes
+      display: Model routes
+      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
+    source: sdc.daemon.ModelRoute
+    consistency: read_your_writes
+    order_by:
+      - route asc
+    fields:
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: gateway, type: String}
+      - {name: alias, type: String}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>"}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>}
+      - {name: read_at, type: Timestamp}
 
   - name: sdc.daemon.ProductsOfRun
     naming:
