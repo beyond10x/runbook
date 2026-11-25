@@ -85,7 +85,7 @@
     },
     "model_route": {
       "$ref": "#/$defs/sdc.daemon.RouteName",
-      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Fixed at the submit.",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit.",
       "x-ess-relation": {
         "name": "model_route",
         "kind": "references",
@@ -124,7 +124,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:7e2e5a0f89e8deb67b796a42e7c212f116d343bc28200bceb2799c5a6bf47c56",
+    "contract_digest": "slice-sha256/2:21f1b71bceb8ce273a9555ebe0ecc55617ea738d9b4c09d707f1a1faca603573",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -201,7 +201,7 @@
     },
     "sdc.daemon.RouteSource": {
       "title": "RouteSource",
-      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table gives a model run the route `default` on that gateway, as before routes, and says default too). The protocol's own word comes with its story.",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
       "x-ess-name": "sdc.daemon.RouteSource",
       "x-ess-kind": "enum",
       "type": "string",

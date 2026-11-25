@@ -233,7 +233,18 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
+            // A lone [gateway] and a model decider and no route declared: the run's interim route default is a route of
+            // the table, listed by the view routes and taken as its default.
+            if let Some(alias) = args.route_table.as_ref().and_then(|t| t.get("default")).map(|(r, _)| r.alias.clone()) {
+                match (*args.routes).clone().with_interim_default(&alias) {
+                    Ok(routes) => args.routes = std::sync::Arc::new(routes),
+                    Err(e) => {
+                        eprintln!("runbook serve: {}", config::printable(&e));
+                        return ExitCode::from(loom_run::EXIT_REFUSED);
+                    }
+                }
+            }
+            let world =match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {
                     eprintln!("runbook serve: {}", config::printable(&e));

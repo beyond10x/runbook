@@ -95,7 +95,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ea407793ce92acfb396136d872b5ef5d81b5455865efbbbf23fc3a29738e304c",
+    "contract_digest": "slice-sha256/2:a0ab5d38560f768bd766763cb55586f3e25807aa5ea4c1f703bbf23df2897401",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -179,7 +179,7 @@
     },
     "sdc.daemon.RouteSource": {
       "title": "RouteSource",
-      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table gives a model run the route `default` on that gateway, as before routes, and says default too). The protocol's own word comes with its story.",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
       "x-ess-name": "sdc.daemon.RouteSource",
       "x-ess-kind": "enum",
       "type": "string",

@@ -119,12 +119,12 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     // a cap the settings file names and no option does is the cap of the run
-    let raw = settings::merged(args)?;
+    let (raw, own) = settings::merged_and_own(args)?;
     let named = settings::with_named_caps(args, &raw);
     let args = &named;
     let given = settings::normalise(&raw, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
-    let given = super::route::take(args, given)?;
+    let given = super::route::take(args, given, &own)?;
     let (given, gateway) = super::gateway::take(args, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;

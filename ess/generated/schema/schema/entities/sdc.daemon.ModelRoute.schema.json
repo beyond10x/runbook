@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/entities/sdc.daemon.ModelRoute.schema.json",
   "title": "ModelRoute",
-  "description": "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind, with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row.",
+  "description": "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind (a daemon that declares no route but has a lone [gateway] table and a model decider declares the interim route `default` on that gateway: kind hosted, its alias the model of the decider, no price), with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row.",
   "x-ess-name": "sdc.daemon.ModelRoute",
   "x-ess-kind": "entity",
   "type": "object",
@@ -58,7 +58,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:66551b850a6a01b0a921479009bee3e1e6fb803374473e40aa9415c928affb1e",
+    "contract_digest": "slice-sha256/2:a25103c9be10dcf414975ca17862dbd71cf8ea2b6cf03d7aa531d72077dd7e1a",
     "regenerate": "ess generate"
   },
   "$defs": {

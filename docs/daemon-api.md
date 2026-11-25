@@ -238,8 +238,10 @@ no name in `model_routes`, or a route at all for a run that makes no model call;
 calls names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
 (`model_route`, `model_routes.<role>`) and why, and never the value. `model_route_alias`, `model_route_source` and
 `route_refused` are filled by the daemon: a submit that sends one is refused `400` by its name. A daemon with only
-a `[gateway]` declares no route: it refuses every named route (`declared` is empty) and puts a model run on the
-route `default` of that gateway, as before.
+a `[gateway]` and a model decider declares the interim route `default` on that gateway (kind `hosted`, the
+decider's model as its alias, no price) and takes it as its default: the view `routes` lists it, a model run that
+names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
+`declared` `["default"]`.
 
 ### The products of a run
 

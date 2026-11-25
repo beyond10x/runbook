@@ -212,7 +212,7 @@ types:
     kind: enum
     variants: [run, default]
     naming:
-      summary: "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table gives a model run the route `default` on that gateway, as before routes, and says default too). The protocol's own word comes with its story."
+      summary: "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story."
 
   - name: sdc.daemon.RoleRoutes
     kind: newtype
@@ -280,7 +280,7 @@ entities:
 
   - name: sdc.daemon.ModelRoute
     naming:
-      summary: "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind, with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row."
+      summary: "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind (a daemon that declares no route but has a lone [gateway] table and a model decider declares the interim route `default` on that gateway: kind hosted, its alias the model of the decider, no price), with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row."
     identity:
       name: route
       type: sdc.daemon.RouteName
@@ -321,7 +321,7 @@ entities:
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."}
       - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state."}
       - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>, summary: "The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none."}
-      - {name: model_route, type: Optional<sdc.daemon.RouteName>, summary: "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Fixed at the submit."}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>, summary: "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit."}
       - {name: model_route_alias, type: Optional<String>, summary: "The gateway's alias of the model behind model_route, as the daemon's file declared it at the submit: what every call of the role names at the gateway. Absent with model_route."}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>, summary: "The setting that chose model_route: run or default. Absent with model_route."}
       - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>, summary: "The routes of the other roles the submit named (`model_routes.<role>`), each chosen by the run; absent when it named none."}

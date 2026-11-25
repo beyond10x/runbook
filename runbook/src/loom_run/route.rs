@@ -4,7 +4,8 @@
 //!
 //! [`take`] runs before the `[gateway]` setting is read (`gateway.rs`) and nothing is written before it: it refuses a
 //! name the file does not declare (naming the declared ones), a route beside a gateway or a login file of the
-//! settings, and a route that cannot answer now: its gateway is asked `GET /ready`, `GET /v1/models` and the status
+//! `--settings` file (those of `runbook.toml` are defaults the route replaces: its lone `[gateway]` is the routes'
+//! gateway `default`), and a route that cannot answer now: its gateway is asked `GET /ready`, `GET /v1/models` and the status
 //! of the route's model, and nothing else. `runbook run` does not wait for a route: the wait is the daemon's
 //! (`waiting-for-route`). A route that answers becomes the run's `[gateway]` (its gateway's address and token) and
 //! its alias the model of every role and of a model decider, so that `gateway.rs` takes it as it takes a named
@@ -24,7 +25,7 @@ pub const DEFAULT: &str = "route_policy.default";
 
 /// The settings of the run on its route: see the module's text. With `--dry` a declared name is checked and nothing
 /// is read or changed.
-pub fn take(args: &Args, mut settings: Value) -> Result<Value, String> {
+pub fn take(args: &Args, mut settings: Value, own: &[String]) -> Result<Value, String> {
     let (name, chosen_by) = match (&args.model_route, args.routes.default_route()) {
         (Some(name), _) => (name.as_str(), OPTION),
         (None, Some(name)) => (name, DEFAULT),
@@ -35,7 +36,9 @@ pub fn take(args: &Args, mut settings: Value) -> Result<Value, String> {
         let declared = if names.is_empty() { "runbook.toml declares no route".to_owned() } else { format!("the routes of runbook.toml are {}", names.join(", ")) };
         return Err(format!("{chosen_by}: no route of that name ({declared})"));
     }
-    let beside = [super::gateway::KEY, super::settings::LOGIN_KEY].into_iter().find(|k| settings.get(*k).is_some());
+    // a gateway or a login file of the --settings file; those of runbook.toml are the defaults a route replaces (its
+    // lone [gateway] is the gateway default of the routes, docs/model-routes.md, section 1)
+    let beside = [super::gateway::KEY, super::settings::LOGIN_KEY].into_iter().find(|k| settings.get(*k).is_some() && own.iter().any(|o| o == k));
     if let Some(key) = beside {
         if chosen_by == DEFAULT {
             // the settings name their own way to a model: the default of the file does not replace it
@@ -67,6 +70,10 @@ pub fn take(args: &Args, mut settings: Value) -> Result<Value, String> {
     table.insert("base_url".into(), json!(gateway.base_url()));
     if let Some(token) = gateway.token() {
         table.insert("token".into(), json!(token));
+    }
+    if let Some(o) = settings.as_object_mut() {
+        // a login file of runbook.toml is a default the route replaces, as its gateway is
+        o.remove(super::settings::LOGIN_KEY);
     }
     settings[super::gateway::KEY] = Value::Object(table);
     Ok(settings)

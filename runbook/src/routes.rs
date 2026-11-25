@@ -386,6 +386,29 @@ impl RouteTable {
         Ok(())
     }
 
+    /// The table of a daemon that declares no route and has a lone `[gateway]` (the gateway `default`) and a model
+    /// decider: the interim route `default` on that gateway, kind hosted, with `alias` (the decider's model) and no
+    /// price, and the policy's default on it, so that the route a model run takes is one the view `routes` lists.
+    /// Unchanged when the table declares a route or has no gateway `default`.
+    pub fn with_interim_default(mut self, alias: &str) -> Result<RouteTable, String> {
+        if !self.routes.is_empty() || !self.gateways.contains_key(DEFAULT_GATEWAY) {
+            return Ok(self);
+        }
+        let route = Route {
+            name: DEFAULT_GATEWAY.to_owned(),
+            gateway: DEFAULT_GATEWAY.to_owned(),
+            alias: alias.to_owned(),
+            kind: RouteKind::Hosted,
+            start_wait_seconds: None,
+            prices: Prices::default(),
+            wake: Wake::default(),
+        };
+        self.routes.insert(DEFAULT_GATEWAY.to_owned(), route);
+        self.default = Some(DEFAULT_GATEWAY.to_owned());
+        self.read_token_of(DEFAULT_GATEWAY)?;
+        Ok(self)
+    }
+
     /// Reads the token file of the gateway `name` alone, when it names one: `runbook run` reads the gateway of the one
     /// route it takes. A refusal names the member, never the path or the content.
     pub fn read_token_of(&mut self, name: &str) -> Result<(), String> {

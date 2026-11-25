@@ -211,13 +211,16 @@ fn a_route_that_is_down_fails_the_call_naming_the_route_the_code_and_the_setting
 }
 
 #[test]
-fn a_daemon_with_only_a_gateway_table_runs_a_model_run_on_the_route_default_and_refuses_a_named_route() {
+fn a_daemon_with_only_a_gateway_table_runs_a_model_run_on_its_interim_route_default_and_refuses_another_name() {
     let h = home_calling("rr-lone", r#""$model""#);
     let gw = gateway(OK);
     let file = format!("{}{}", super::gateway::gateway_table(&gw.base_url, &h.token_file), model_table(Some(&claude_cli())));
     let l = serve("rr-lone-d", &h, &file, true);
-    let (status, body) = submit_with(&l, "model", json!({"model_route": "default"}));
-    assert_eq!((status, body["outcome"].clone(), body["payload"]["declared"].clone()), (422, json!("route-refused"), json!([])), "{body}");
+    let (status, body) = submit_with(&l, "model", json!({"model_route": "qwen"}));
+    assert_eq!((status, body["outcome"].clone(), body["payload"]["declared"].clone()), (422, json!("route-refused"), json!(["default"])), "{body}");
+    let named = submitted(&l, "model", json!({"model_route": "default"}));
+    ended(&l, &named);
+    assert_eq!(row(&l, &named)["model_route_source"], "run");
     let run = submitted(&l, "model", json!({}));
     ended(&l, &run);
     assert!(!got(&gw).is_empty() && models(&gw).iter().all(|m| m == "a-model"), "{:?}", models(&gw));

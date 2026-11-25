@@ -294,8 +294,10 @@ run whose kind is `model`, and a submit that names a gateway, an address or a to
 written it refuses, exit 2:
 
 - a name the file does not declare, naming the declared routes;
-- `--model-route` beside a `[gateway]` or a `login_file` of the settings (the default of the file then does not
-  apply: the settings keep their own way to a model);
+- `--model-route` beside a `[gateway]` or a `login_file` of the `--settings` file (the default of `runbook.toml`
+  then does not apply: the settings keep their own way to a model). A `[gateway]` or `login_file` of
+  `runbook.toml` itself is a default the route replaces: its lone `[gateway]` is the gateway `default` a route
+  names;
 - a route at a `--confinement` other than `local`, as `[gateway]`;
 - a route that cannot answer now. The run reads the token file of the route's gateway and asks it `GET /ready`,
   `GET /v1/models` and the status of the route's model (`GET /v1/status`, else `GET /v1/models/{alias}/status` for
