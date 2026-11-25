@@ -712,3 +712,111 @@ fn runbook_delegate_is_a_client_of_the_endpoint() {
         "{err}"
     );
 }
+
+// ---- adversary cases ----
+
+/// The free run's instruction is the request as the session wrote it: a request that happens to read as a YAML mapping
+/// with a `text` member is still the whole request, not that one member.
+#[test]
+fn adversary_the_free_runs_agent_node_gets_the_whole_request_when_it_reads_as_yaml_with_text() {
+    let d = daemon("dlg-adv-yaml", OK);
+    let request = "text: Write one sentence about tea.\nlanguage: answer in French and never in English\n";
+    let (status, body, _) = delegate(&d.l, &json!({"request": request, "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let prompt = std::fs::read_to_string(d.h.log.join("prompt")).unwrap_or_default();
+    assert!(
+        prompt.contains("language: answer in French and never in English"),
+        "the agent node was given only a part of the request (end {end}): {prompt}"
+    );
+}
+
+/// `result_text` is "absent while the run has written none" (ess/domains/daemon.yaml, Delegation): a `result.md` that came
+/// with the workspace and that the run never wrote is not the run's result.
+#[test]
+fn adversary_a_free_run_that_writes_no_result_answers_no_result_text_from_the_workspace_copy() {
+    let d = daemon("dlg-adv-stale", OK);
+    // the agent node answers success and writes nothing
+    write_exe(
+        &d.h.log.join("bin/claude"),
+        "#!/bin/bash\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"total_cost_usd\":0,\"duration_ms\":1,\"usage\":{\"input_tokens\":0,\"output_tokens\":0},\"result\":\"ok\",\"terminal_reason\":\"completed\"}'\n",
+    );
+    let workspace = d.roots.join("stale");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::write(workspace.join("result.md"), "an old answer the run never wrote\n").unwrap();
+    let (status, body, _) = delegate(
+        &d.l,
+        &json!({"request": "Write one sentence about tea.", "model_route": "default", "workspace": workspace.to_str().unwrap()}),
+    );
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert!(
+        end["result_text"].is_null(),
+        "a run that wrote no result.md answers the workspace's copy as its result: {end}"
+    );
+}
+
+/// A session delegates side by side (parallel sub-agents): a second `delegate` on the same `runbook mcp` is taken while
+/// the first one waits for its run, so the second run is submitted before the first run ends.
+#[test]
+fn adversary_mcp_delegate_does_not_hold_the_server_while_it_waits() {
+    let d = daemon("dlg-adv-mcp-par", OK);
+    write_exe(
+        &d.h.log.join("bin/claude"),
+        &format!(
+            "#!/bin/bash\nsleep 3\nexec '{}' \"$@\"\n",
+            d.h.log.join("bin/claude-real").display()
+        ),
+    );
+    write_exe(&d.h.log.join("bin/claude-real"), &claude_answering(&d.h.log));
+    let mut m = Mcp::to(&d.l);
+    for id in [2, 3] {
+        m.send(&json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "delegate", "arguments": {"request": format!("task {id}"), "model_route": "default", "wait_seconds": 30}}}));
+    }
+    let mut answers = std::collections::BTreeMap::new();
+    while answers.len() < 2 {
+        let mut line = String::new();
+        assert!(m.out.read_line(&mut line).unwrap() > 0, "runbook mcp ended: {answers:?}");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if let Some(id) = v["id"].as_u64() {
+            answers.insert(id, v);
+        }
+    }
+    let run = |id: u64| {
+        let r = answers[&id]["result"]["structuredContent"]["rows"][0]["run_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{}", answers[&id]))
+            .to_owned();
+        rows(&d.l, &format!("/daemon/views/run?run_id={r}"))[0].clone()
+    };
+    let (first, second) = (run(2), run(3));
+    let at = |row: &Value, key: &str| runbook::clock::parse_instant(row[key].as_str().unwrap_or_else(|| panic!("{key}: {row}"))).unwrap();
+    assert!(
+        at(&second, "submitted_at") < at(&first, "ended_at"),
+        "the second delegate was taken only after the first run ended: first {first}, second {second}"
+    );
+}
+
+/// The answer of an accepted delegation names its run in the `Location` of the view `delegation-result`; a replay of an
+/// idempotency key a submit-run used names a run that view refuses.
+#[test]
+fn adversary_a_delegate_replaying_a_submit_runs_key_names_a_result_its_location_answers() {
+    let d = daemon("dlg-adv-key", OK);
+    let (status, body) = super::default_confinement::post(
+        &d.l,
+        &json!({"runbook_id": "answer-demo", "intake": "x", "idempotency_key": "k-shared"}),
+    );
+    assert_eq!(status, 202, "{body}");
+    let (status, body, location) = delegate(
+        &d.l,
+        &json!({"request": "x", "model_route": "default", "protocol": "answer-demo", "idempotency_key": "k-shared"}),
+    );
+    assert_eq!(status, 202, "{body}");
+    let location = location.unwrap_or_else(|| panic!("no Location: {body}"));
+    let r = send(d.l.addr, "GET", &location, &[], None);
+    assert_eq!(
+        r.status, 200,
+        "delegate answered 202 {} and its Location {location} answers: {}",
+        body["outcome"], r.text()
+    );
+}
