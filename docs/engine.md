@@ -398,7 +398,8 @@ adapter is given its path in `SDC_GATEWAY_FILE` and nothing else of it, and the 
 `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for the `claude` it starts and no other process; no login is
 linked or copied. The file and its directory go when the run ends. A run whose kind is `rule`, or that has
 no kind, starts no model program and writes no gateway file. The bound programs of the runbook get neither a
-login nor a gateway from the daemon.
+login nor a gateway from the daemon. Named model routes, several gateways and routes side by side, are designed in
+`docs/model-routes.md` (not built).
 
 The token file is read once, when the daemon starts, and only when the `model` kind is configured. The daemon
 does not start (exit 2, naming the member and never a value or a path) when the token file cannot be read as
