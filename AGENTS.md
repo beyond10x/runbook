@@ -91,6 +91,9 @@
 - Planning lives in `.engineering/planning/` and changes only through the `aep` CLI
   (`aep plan artifact new|move|relate|body|validate|waves`). Never hand-edit an artifact file.
   Body scratch files go in `.engineering/drafts/` (git-ignored).
+  Every write runs with `AEP_ACTOR=human:operator` and `--executor agent:<session>` where the verb
+  takes it: without it aep records `human:$USER`, the login name of a person, into a file of this
+  public repository (2026-11-25, a story move caught before its push).
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
