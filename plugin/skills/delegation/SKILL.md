@@ -1,11 +1,11 @@
 ---
 name: delegation
-description: "Hand sub-agent work to Runbook in a Claude Code session that runs with the Runbook plugin: the runbook MCP tool `delegate` runs the task as a Runbook run on a named model route and returns its result, and the Agent tool is denied. Use when a task would go to a sub-agent, when an Agent call was denied with a reason naming `delegate`, or when asked which routes or runbooks a delegation may name. Not for a session without the runbook MCP tools (the plugin is not enabled there), and not for starting a runbook by its id with an intake (the `submit_run` tool)."
+description: "Hand sub-agent work to Runbook in a Claude Code session that runs with the Runbook plugin: the runbook MCP tool `delegate` runs the task as a Runbook run on a named model route and returns its result, and the Agent and Workflow tools are denied. Use when a task would go to a sub-agent, when an Agent or Workflow call was denied with a reason naming `delegate`, or when asked which routes or runbooks a delegation may name. Not for a session without the runbook MCP tools (the plugin is not enabled there), and not for starting a runbook by its id with an intake (the `submit_run` tool)."
 ---
 
 # delegation
 
-In this session Runbook serves every sub-agent. The plugin's `PreToolUse` hook denies each Agent call, so a
+In this session Runbook serves every sub-agent. The plugin's `PreToolUse` hook denies each Agent and Workflow call, so a
 task sent there runs nowhere. Send it to the runbook MCP tool `delegate` instead.
 
 ## Route
@@ -30,7 +30,7 @@ This step is done when the task's result is in the conversation, or a tool error
 ## A refusal
 
 - A route that is not declared or not callable comes back as a tool error naming the route and the daemon's list
-  of routes: pick a route from that list or from `describe_catalog`, or report the error. The Agent tool stays
+  of routes: pick a route from that list or from `describe_catalog`, or report the error. The Agent and Workflow tools stay
   denied; the session's own model takes no sub-agent work.
 - `daemon unreachable` (status 502): the daemon named by `RUNBOOK_DAEMON` does not answer. Report it.
 

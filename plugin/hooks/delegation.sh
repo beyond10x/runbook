@@ -1,8 +1,9 @@
 #!/bin/sh
 # The Runbook plugin's delegation hook for Claude Code.
 #
-#   delegation.sh pre-tool-use   denies the Agent call on standard input, naming the runbook
-#                                `delegate` tool, the prompt's first line and the session's route
+#   delegation.sh pre-tool-use   denies the Agent or Workflow call on standard input, naming the
+#                                runbook `delegate` tool, the prompt's first non-blank line and the
+#                                session's route
 #   delegation.sh session-start  says the same as context at the start of the session
 #
 # Input: the hook's JSON on standard input. Output: one JSON object on standard output, exit 0.
@@ -14,12 +15,12 @@ export LC_ALL
 
 event=${1-}
 
+# One UTF-8 character of two to four bytes (RFC 3629, table 3-7 of Unicode): no overlong form,
+# no surrogate, nothing above U+10FFFF.
 hi=$(printf '\200-\377')
-cont=$(printf '\200-\277')
-lead2=$(printf '\302-\337')
-lead3=$(printf '\340-\357')
-lead4=$(printf '\360-\364')
-utf8_char="[$lead2][$cont]|[$lead3][$cont][$cont]|[$lead4][$cont][$cont][$cont]"
+c=$(printf '\200-\277')
+utf8_char=$(printf '[\302-\337][%s]|\340[\240-\277][%s]|[\341-\354\356\357][%s][%s]|\355[\200-\237][%s]|\360[\220-\277][%s][%s]|[\361-\363][%s][%s][%s]|\364[\200-\217][%s][%s]' \
+	"$c" "$c" "$c" "$c" "$c" "$c" "$c" "$c" "$c" "$c" "$c" "$c")
 
 # Prints $1 when it is UTF-8 throughout, else nothing.
 utf8() {
@@ -46,22 +47,29 @@ fi
 input=$(tr '\000-\037' '                                ')
 
 if [ "$event" = session-start ]; then
-	context="This session has the Runbook plugin: its sub-agent work is served by Runbook. Call the runbook MCP tool \`delegate\` with \`request\` = the task and $route_use; the Agent tool is denied. \`delegation_result\` reads a delegation that outlasted its call; \`describe_catalog\` lists the routes and runbooks a delegation may name."
+	context="This session has the Runbook plugin: its sub-agent work is served by Runbook. Call the runbook MCP tool \`delegate\` with \`request\` = the task and $route_use; the Agent and Workflow tools are denied. \`delegation_result\` reads a delegation that outlasted its call; \`describe_catalog\` lists the routes and runbooks a delegation may name."
 	printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$context"
 	exit 0
 fi
 
-# A call of another tool passes: the hook answers nothing. A tool name it cannot read, or any
-# "tool_name" of Agent in the input, is an Agent call.
+# Both tools start sub-agents: Agent one, Workflow many from a script. A call of another tool
+# passes: the hook answers nothing. A tool name it cannot read, or any "tool_name" of Agent or
+# Workflow in the input, is denied.
 tool=$(printf '%s\n' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_]*\)".*/\1/p')
-agent_named=$(printf '%s\n' "$input" | sed -n '/"tool_name"[[:space:]]*:[[:space:]]*"Agent"/p')
-if [ -n "$tool" ] && [ "$tool" != Agent ] && [ -z "$agent_named" ]; then
-	exit 0
-fi
+spawner_named=$(printf '%s\n' "$input" | sed -n -E '/"tool_name"[[:space:]]*:[[:space:]]*"(Agent|Workflow)"/p')
+case $tool in
+Agent | Workflow) call="$tool call" ;;
+'') call=call ;;
+*)
+	[ -z "$spawner_named" ] && exit 0
+	call=call
+	;;
+esac
 
-# The prompt's first line, still JSON-escaped: the escapes up to the first \n or \r, or to the
-# string's end; at most 200 characters, cut on a character boundary.
-line=$(printf '%s\n' "$input" | sed -n -E 's/.*"prompt"[[:space:]]*:[[:space:]]*"(([^"\\]|\\u[0-9a-fA-F]{4}|\\[^nru])*).*/\1/p')
+# The prompt's first non-blank line, still JSON-escaped: blanks and \n, \r, \t escapes at its
+# start are skipped, then the escapes up to the next \n or \r, or to the string's end; at most
+# 200 characters, cut on a character boundary.
+line=$(printf '%s\n' "$input" | sed -n -E 's/.*"prompt"[[:space:]]*:[[:space:]]*"([[:space:]]|\\[nrt])*(([^"\\]|\\u[0-9a-fA-F]{4}|\\[^nru])*).*/\2/p')
 line=$(utf8 "$line")
 line=$(printf '%s\n' "$line" | sed -E "s/^(([^\\\\$hi]|$utf8_char|\\\\u[0-9a-fA-F]{4}|\\\\[^u]){200}).+\$/\\1 .../")
 line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
@@ -69,8 +77,8 @@ line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 if [ -n "$line" ]; then
 	prompt="The prompt begins: $line"
 else
-	prompt="The prompt could not be read from the hook's input: pass the prompt this Agent call was given."
+	prompt="No prompt could be read from the hook's input: pass the task this $call was given."
 fi
 
-reason="Sub-agents in this session are served by Runbook: this Agent call is denied and runs nowhere. Call the runbook MCP tool \`delegate\` instead, with \`request\` = this Agent call's full prompt and $route_use. \`describe_catalog\` lists the routes and runbooks. $prompt"
+reason="Sub-agents in this session are served by Runbook: this $call is denied and runs nowhere. Call the runbook MCP tool \`delegate\` instead, one call per sub-agent task, with \`request\` = the task's full text and $route_use. \`describe_catalog\` lists the routes and runbooks. $prompt"
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"

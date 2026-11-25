@@ -398,7 +398,7 @@ fn hook_names_no_network_program() {
 #[test]
 fn hooks_deny_agent_and_block_when_the_hook_fails() {
     let h = json(&root().join("plugin/hooks/hooks.json"));
-    for (event, matcher, arg) in [("PreToolUse", Some("Agent"), "pre-tool-use"), ("SessionStart", None, "session-start")] {
+    for (event, matcher, arg) in [("PreToolUse", Some("Agent|Workflow"), "pre-tool-use"), ("SessionStart", None, "session-start")] {
         let groups = h["hooks"][event].as_array().unwrap_or_else(|| panic!("hooks.{event}"));
         assert_eq!(groups.len(), 1, "{event}");
         if let Some(m) = matcher {
@@ -421,7 +421,7 @@ fn mcp_configuration_starts_runbook_mcp_on_the_sessions_daemon() {
     let s = &m["mcpServers"]["runbook"];
     assert_eq!(s["command"], "runbook");
     assert_eq!(s["args"], serde_json::json!(["mcp"]));
-    assert_eq!(s["env"]["RUNBOOK_DAEMON"], "${RUNBOOK_DAEMON}");
+    assert!(s.get("env").is_none(), "`runbook mcp` takes RUNBOOK_DAEMON from the session's environment, set nothing over it: {s}");
     let timeout = s["timeout"].as_u64().expect("a per-server timeout in milliseconds");
     assert!(timeout >= 1000, "Claude Code ignores a timeout under 1000 ms: {timeout}");
 }

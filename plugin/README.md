@@ -35,19 +35,28 @@ With the plugin on, a Claude Code session's sub-agent work is served by Runbook:
 run on a named model route, records it and hands the result back. The design is `docs/model-routes.md`,
 "Part two" (story `claude-plugin-serves-delegation`). Three parts, Claude Code only:
 
-- `.mcp.json`: the MCP server `runbook`, started as `runbook mcp` with `RUNBOOK_DAEMON` from the session's
-  environment and a per-server `timeout` of 3,600,000 ms (one hour per tool call). `runbook` must be on the
-  session's `PATH` and `RUNBOOK_DAEMON` must name a running daemon (`docs/mcp.md`).
-- `hooks/hooks.json`: a `PreToolUse` hook on `Agent` that runs `hooks/delegation.sh pre-tool-use` (POSIX sh,
-  `sed` and `tr` only, no network) with `onFailure: "block"`. It denies every Agent call with
-  `permissionDecision: "deny"` and a reason naming the runbook `delegate` tool, the first line of the call's
-  prompt and the session's route: `RUNBOOK_MODEL_ROUTE`, or the daemon's default route when that is not set.
-  A failed or timed-out hook blocks the call too, so no Agent call runs on the session's own model.
+- `.mcp.json`: the MCP server `runbook`, started as `runbook mcp` with a per-server `timeout` of 3,600,000 ms
+  (one hour per tool call) and no `env` of its own: it takes `RUNBOOK_DAEMON` from the session's environment
+  (*inferred*: the Claude Code documentation does not say in words that a stdio server inherits it), and a
+  session without it gets `runbook mcp`'s own "no daemon named" message. `runbook` must be on the session's
+  `PATH` and `RUNBOOK_DAEMON` must name a running daemon (`docs/mcp.md`).
+- `hooks/hooks.json`: a `PreToolUse` hook on `Agent|Workflow` that runs `hooks/delegation.sh pre-tool-use`
+  (POSIX sh, `sed` and `tr` only, no network) with `onFailure: "block"`. It denies every Agent and every
+  Workflow call with `permissionDecision: "deny"` and a reason naming the runbook `delegate` tool, the first
+  non-blank line of the call's prompt (at most 200 characters) and the session's route: `RUNBOOK_MODEL_ROUTE`,
+  or the daemon's default route when that is not set. A failed or timed-out hook blocks the call too, so no
+  sub-agent runs on the session's own model.
 - A `SessionStart` hook (`hooks/delegation.sh session-start`) and the skill `delegation` that say the same
   before the first delegation.
 
+Why Workflow too: the Workflow tool runs a script whose `agent()` calls each start a sub-agent on the session's
+model. The Claude Code documentation (code.claude.com/docs, workflows and hooks, read 2026-11-25) does not say
+that an `agent()` call inside a workflow fires a `PreToolUse` hook for `Agent`; it says only that the workflow
+agents' own tool calls go through the session's permission checks. So the hook denies the `Workflow` call itself.
+
 The MCP tools `delegate`, `delegation_result` and `describe_catalog` are not built yet (a later story of the
-same design); until they are, the hook denies Agent calls and the session has no `delegate` to call.
+same design); until they are, the hook denies Agent and Workflow calls and the session has no `delegate` to
+call.
 
 Enable it for one session only; nothing is installed and other sessions do not see it:
 
@@ -67,11 +76,11 @@ marketplace for that session (the marketplace `runbook` is registered if Claude 
 }
 ```
 
-A launcher that starts a session for Runbook delegation also passes `--disallowedTools Agent`: the model then
-never sees the Agent tool, and the hook covers a session started with the plugin alone.
+A launcher that starts a session for Runbook delegation also passes `--disallowedTools Agent Workflow`: the
+model then never sees either tool, and the hook covers a session started with the plugin alone.
 
 ```console
-claude --plugin-dir <checkout>/plugin --disallowedTools Agent
+claude --plugin-dir <checkout>/plugin --disallowedTools Agent Workflow
 ```
 
 The hooks and the MCP configuration are Claude Code's; the Codex manifest lists the skills only.
