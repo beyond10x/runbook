@@ -105,13 +105,33 @@ fn shell_reads(case: &Case, path: &Path, lc_all: &str) -> (bool, String) {
 
 // ---- every descriptor of the adapter that is not 0, 1, 2 stays out of claude and what it starts ----
 
+/// `c` starts with the two ends of a pipe open at the high descriptors 142 and 145 and without close-on-exec, as a
+/// caller (a CI runner, the process that started the tests) can leave them: the adapter gets them as its own.
+pub(crate) fn inheriting_an_open_pipe(mut c: Command) -> Command {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let (r, w) = std::io::pipe().unwrap();
+    // SAFETY: between fork and exec the closure calls `dup2` alone, which is async-signal-safe; it owns both ends.
+    unsafe {
+        c.pre_exec(move || {
+            for (from, to) in [(r.as_raw_fd(), 142), (w.as_raw_fd(), 145)] {
+                if libc::dup2(from, to) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    c
+}
+
 fn descriptors_of_claude(gateway: bool, tag: &str) -> String {
     let case = Case::new(tag);
     let log = case.base.join("log/fds");
     // The glob lists the descriptors of the shell once, before any redirect of the loop's body is opened.
     let list = |who: &str| format!("for f in /proc/self/fd/*; do echo \"{who} ${{f##*/}} $(readlink \"$f\")\" >> '{}'; done", log.display());
     case.program("claude", &format!("#!/bin/sh\n{}\nsh -c '{}'\necho '{RESULT}'\n", list("claude"), list("child").replace('\'', "'\\''")));
-    let (o, _) = case.bounded(case.command(gateway));
+    let (o, _) = case.bounded(inheriting_an_open_pipe(case.command(gateway)));
     assert_eq!(o.status.code(), Some(0), "{}", said(&o));
     fs::read_to_string(&log).expect("claude did not start")
 }

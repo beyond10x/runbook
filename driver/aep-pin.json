@@ -1,0 +1,32 @@
+{
+  "format": "sdc.aep-pin/1",
+  "version": "0.80.0",
+  "release": "https://github.com/beyond10x/aep/releases/tag/0.80.0",
+  "commit": "af11af152de1732383a5edee0da723bb72d9acb4",
+  "platforms": {
+    "aarch64-apple-darwin": {
+      "asset": "aep-0.80.0-aarch64-apple-darwin.tar.gz",
+      "archive_sha256": "ba938f0ba923e6db0bccc2fadb9face6af5858ce94a3ec61137c3323d42ca85f",
+      "member": "aep-0.80.0-aarch64-apple-darwin/aep",
+      "binary_sha256": "3757aa7160f18ce70ad9e5059bbc3a7ebb0c3aaa38d9639223fd274afd32e11e"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "asset": "aep-0.80.0-aarch64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "a7a77202cad6a6266737d4321022953f9eff51f3d58971cbd8d6c0336d9f213a",
+      "member": "aep-0.80.0-aarch64-unknown-linux-gnu/aep",
+      "binary_sha256": "74df95868377d0f12e934aeaaad7c4a2e0cd0aed065821e340923e1db0b08cf5"
+    },
+    "x86_64-apple-darwin": {
+      "asset": "aep-0.80.0-x86_64-apple-darwin.tar.gz",
+      "archive_sha256": "a181d1c1a0a61b6fe96d07a8c09fba45bca3c5edf286ea8582f5c54c7b7d91aa",
+      "member": "aep-0.80.0-x86_64-apple-darwin/aep",
+      "binary_sha256": "f0a57407025293264b3a3e5c5891cc8acf29dff062e8de764e78d90243681cdc"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "asset": "aep-0.80.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "9277f3977397b540767497917bdb9666719249364901c466939343d1787d502a",
+      "member": "aep-0.80.0-x86_64-unknown-linux-gnu/aep",
+      "binary_sha256": "17cf105e64cfaf7e07a21ddd375859b5ef4f85b372d7546ec08497f112103e48"
+    }
+  }
+}

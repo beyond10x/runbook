@@ -7,6 +7,8 @@
 //! sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
 //! sdc-conform ess-path [--pin <ess-pin.json>]
 //! sdc-conform ess-install [--archive <ess-….tar.gz>] [--pin <ess-pin.json>]
+//! sdc-conform aep-path [--pin <aep-pin.json>]
+//! sdc-conform aep-install [--archive <aep-….tar.gz>] [--pin <aep-pin.json>]
 //! sdc-conform prompt [--attempt <n>] [--refused <why>]... [--run-fault <why>]...
 //! ```
 //!

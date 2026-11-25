@@ -407,9 +407,13 @@ function walk(dir, parent, depth, out) {
   return out;
 }
 
+// The files of a case a round looks at. One checked listing of the case directory (listDir) says which of them are there: a
+// name it does not list is '-', what statSig says of an absent file or of a link that leaves the run, without a path built
+// and checked for it; a listed one is checked and statted as before.
+const CASE_FILES = ['events.jsonl', 'observed.jsonl', 'case.json', 'authority.json', 'decisions.json', 'evidence', 'evaluations', 'work/questions.yaml'];
 function caseSig(dir) {
-  return ['events.jsonl', 'observed.jsonl', 'case.json', 'authority.json', 'decisions.json', 'evidence', 'evaluations', 'work/questions.yaml']
-    .map((f) => statSig(path.join(dir, f))).join('|');
+  const here = new Set(listDir(dir));
+  return CASE_FILES.map((f) => (here.has(f.split('/')[0]) ? statSig(path.join(dir, f)) : '-')).join('|');
 }
 
 function runDirOf(src) {

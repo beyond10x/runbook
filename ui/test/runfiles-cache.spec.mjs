@@ -7,7 +7,9 @@
 //   - an entry whose file is gone, refused or changed leaves when it is seen;
 //   - a path that was read and then becomes a link out, a second name, a directory, a pipe or is gone is refused, whatever
 //     the cache holds; a limit smaller than the file never returns more than it; a file that grew is not served cut;
-//   - the static route's root is checked with a separator (servedUnder).
+//   - the static route's root is checked with a separator (servedUnder);
+//   - a name with nothing behind it is refused without a real path (runPath), so a round over a deep case is not paid per
+//     absent name; a listing checks only its links by their real paths (listDir).
 import {test, expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -15,7 +17,7 @@ import path from 'node:path';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import {fixtureRoot, put} from './security-products-lib.mjs';
-import {registerRun, readText, readJson, readCount, runPath, exists, servedUnder, CACHE_BOUND, cacheStats, cacheClear} from '../runfiles.mjs';
+import {registerRun, readText, readJson, readCount, runPath, exists, listDir, servedUnder, CACHE_BOUND, cacheStats, cacheClear} from '../runfiles.mjs';
 
 const root = fixtureRoot('runfiles-cache');
 const MiB = 1048576;
@@ -330,4 +332,52 @@ test('runpath-of-the-filesystem-root: a path that is the root of the file system
   expect(runPath('/')).toBeNull();
   expect(exists('/')).toBe(false);
   expect(runPath('/etc/hostname')).toBeNull();
+});
+
+// A round of the server checks each case for files most of which a case does not have (caseSig: eight names); in a case
+// nested 14 deep the real path of each absent name walked every component again for each one, and the rounds of the drop
+// case of idle-slow-page.spec.mjs cost seconds each on the build node.
+test('runpath-absent-name-costs-no-real-path: a name with nothing behind it, deep in a run, is refused without a real path; present names and links are checked as before', () => {
+  const dir = fresh('absent');
+  let deep = dir;
+  for (let i = 0; i < 14; i++) deep = path.join(deep, ...(i ? ['children'] : []), `s${String(i).padStart(3, '0')}${'n'.repeat(196)}`);
+  put(path.join(deep, 'case.json'), '{}');
+  put(path.join(root, 'absent-outside', 'secret.txt'), SECRET);
+  // link targets short enough for every file system (XFS holds at most 1024 bytes)
+  fs.symlinkSync('gone.json', path.join(deep, 'dangling'));
+  fs.symlinkSync(path.join(root, 'absent-outside', 'secret.txt'), path.join(dir, 'out'));
+  const native = fs.realpathSync.native;
+  let calls = 0;
+  fs.realpathSync.native = (...a) => { calls++; return native(...a); };
+  try {
+    for (const name of ['events.jsonl', 'decisions.json', path.join('children', 'x', 'case.json'), 'dangling']) {
+      calls = 0;
+      expect(runPath(path.join(deep, name)), name).toBeNull();
+      expect(exists(path.join(deep, name)), name).toBe(false);
+      expect(calls, `${name}: an absent name computed a real path`).toBe(0);
+    }
+    calls = 0;
+    expect(runPath(path.join(deep, 'case.json'))).toBe(path.join(native(deep), 'case.json'));
+    expect(calls, 'a present name is checked by its real path').toBeGreaterThan(0);
+    expect(runPath(path.join(dir, 'out')), 'a link that leaves the run').toBeNull();
+  } finally { fs.realpathSync.native = native; }
+});
+
+// walk (server.mjs) lists the children/ directory of each case in every round; 300 cases under one deep case paid a real
+// path each, every round.
+test('listdir-checks-only-links: the entries of a directory of a run that are no links are listed without a real path each; a link is listed when it stays in the run and not when it leaves', () => {
+  const dir = fresh('listing');
+  for (let i = 0; i < 50; i++) put(path.join(dir, 'children', `c${String(i).padStart(2, '0')}`, 'case.json'), '{}');
+  put(path.join(dir, 'children', 'plain.txt'), 'x');
+  put(path.join(root, 'listing-outside', 'secret.txt'), SECRET);
+  fs.symlinkSync(path.join(dir, 'children', 'c00'), path.join(dir, 'children', 'link-in'));
+  fs.symlinkSync(path.join(root, 'listing-outside'), path.join(dir, 'children', 'link-out'));
+  const native = fs.realpathSync.native;
+  let calls = 0;
+  fs.realpathSync.native = (...a) => { calls++; return native(...a); };
+  try {
+    const names = listDir(path.join(dir, 'children'));
+    expect(names).toEqual([...Array.from({length: 50}, (_, i) => `c${String(i).padStart(2, '0')}`), 'link-in', 'plain.txt']);
+    expect(calls, '51 plain entries and two links: the directory and the two links are checked by their real paths').toBeLessThanOrEqual(6);
+  } finally { fs.realpathSync.native = native; }
 });
