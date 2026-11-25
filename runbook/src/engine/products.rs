@@ -137,7 +137,8 @@ impl Refusal {
     }
 }
 
-fn said(path: &str) -> String {
+/// What a refusal repeats of what a client asked: at most `SAID` characters of it.
+pub fn said(path: &str) -> String {
     path.chars().take(SAID).collect()
 }
 

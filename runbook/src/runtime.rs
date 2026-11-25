@@ -123,6 +123,20 @@ pub struct RunbookInfo {
     pub version: Option<String>,
 }
 
+/// One case of a run's tree as the runtime reads it (`Runtime::cases`): what the view `cases` shows, and the last
+/// stop its run log names, from which the daemon says where it stands. No path of the store or a case file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaseRow {
+    pub case_id: String,
+    pub parent: Option<String>,
+    /// The link name the opening action gave the case; none for the root.
+    pub name: Option<String>,
+    pub protocol: String,
+    pub outcome: Option<String>,
+    /// The stop of the case's last `Stopped` line (`AwaitingPerson`, `AwaitingAuthority`, another stop), if any.
+    pub stop: Option<String>,
+}
+
 /// Everything a run is started with.
 #[derive(Clone, Debug)]
 pub struct StartRequest {
@@ -326,5 +340,12 @@ pub trait Runtime: Send + Sync + 'static {
     /// submit, before anything is written; the reason names no path.
     fn check_runbook(&self, _runbook: &str, _version: Option<&str>) -> Result<(), String> {
         Ok(())
+    }
+
+    /// The cases of the run's tree, in the order the runtime lists them, or that they cannot be read now (the
+    /// reason is for the log and is never shown to a client). A runtime with no tree (the stub) has none, and so
+    /// has a run whose tree is not written yet.
+    fn cases(&self, _run_id: &str) -> Result<Vec<CaseRow>, String> {
+        Ok(Vec::new())
     }
 }

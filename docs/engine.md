@@ -290,6 +290,25 @@ files with a second name and the names that are not UTF-8 (`left_out`). The gate
 `runbook/tests/daemon/products.rs` (the views) and the `list_products` and `read_product` cases of
 `runbook/tests/daemon/mcp.rs` (the tools).
 
+## The case tree of a run
+
+`Runtime::cases` (`runbook/src/runtime.rs`) answers the cases of a run's tree; the stub runtime has none (the default).
+The engine answers it with Loom's tree status of the run's store, `calls::status` over `calls::catalog`
+(`runbook/src/engine/calls.rs`), the call it makes at a run's end: Loom reads the manifest, the case files and the run
+logs without taking the store's lock, so the tree answers while `run_tree` runs, and a run whose store has no manifest
+yet has no case. A case gives its id, its parent, its link name, the protocol id of its bindings, its outcome and the
+stop of its last `Stopped` run-log line; no path leaves the engine. The daemon makes the view `cases` from it
+(`Daemon::cases_of_run`, `runbook/src/commands.rs`; `docs/daemon-api.md`, "The case tree of a run"): a waiting stop
+counts while the run waits on a decision, a `Stuck` or `BudgetSpent` stop once the run ended by its tree (a wait or
+a cancel that ended with the run, or an orphaned run, leaves the case `Open`: a case above one that waits records a
+`Stuck` stop of its own), and the run's step in
+flight marks its case `Running`. A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
+page keeps the tree it shows and reads again on the next tick. The gate tests are
+`the_cases_of_a_run_are_its_tree_with_each_case_state_and_the_tree_follows_the_run_to_its_end`,
+`a_case_whose_program_runs_is_running_while_the_run_goes_on` and
+`a_tree_three_levels_deep_is_answered_to_its_last_case` (a middle protocol, `engine-section`, written by the test) in
+`runbook/tests/daemon/engine.rs`, and `runbook/tests/daemon/cases.rs` (the stub's empty tree, the guard).
+
 ## Loom gaps seen
 
 All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program

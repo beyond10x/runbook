@@ -1233,3 +1233,214 @@ fn the_copy_lies_outside_the_work_directory_and_no_record_names_its_path() {
         assert!(!e.to_string().contains(&state), "an event of the daemon names a path of the state directory: {e}");
     }
 }
+
+// ---- the case tree of a run (story daemon-page-shows-a-run-tree-and-products) ----
+
+/// The rows of the view `cases` for `run`, each checked against the generated OpenAPI row schema.
+fn cases(rig: &Rig, run: &str) -> Vec<Value> {
+    let query = HashMap::from([("run_id".to_string(), run.to_string())]);
+    let answer = runbook::api::routes::view_answer("cases", rig.d(), &query);
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    let rows = answer.body["rows"].as_array().unwrap().clone();
+    for r in &rows {
+        super::openapi::check_row("CasesOfRun", r);
+    }
+    rows
+}
+
+/// The tree as lines, a case under its parent, indented by its depth: `<name> <protocol> <state>[ <outcome>]`, the
+/// root named `(root)`. The case ids are Loom's and are not compared; each parent is found by its id.
+fn tree_lines(rows: &[Value]) -> Vec<String> {
+    let mut out = Vec::new();
+    fn visit(rows: &[Value], parent: Option<&str>, depth: usize, out: &mut Vec<String>) {
+        for r in rows.iter().filter(|r| r["parent"].as_str() == parent) {
+            let name = r["name"].as_str().unwrap_or("(root)");
+            let outcome = r["outcome"].as_str().map(|o| format!(" {o}")).unwrap_or_default();
+            out.push(format!("{}{name} {} {}{outcome}", "  ".repeat(depth), r["protocol"].as_str().unwrap(), r["case_state"].as_str().unwrap()));
+            visit(rows, r["case_id"].as_str(), depth + 1, out);
+        }
+    }
+    visit(rows, None, 0, &mut out);
+    assert_eq!(out.len(), rows.len(), "every case hangs below the root: {rows:?}");
+    out
+}
+
+/// A middle level in the runbook home: the root opens `section` (protocol `engine.section`), which opens the drafting
+/// case `draft` and passes once it passed. The tree is three levels deep.
+fn deepen(home: &Path) {
+    std::fs::write(
+        home.join("protocol/engine-section.protocol.yaml"),
+        "format: protocol/1\nprotocol:\n  id: engine.section\n  revision: 1\n  description: >-\n    A section of the engine tests' runbook: it opens one drafting case and passes once that case passed.\nartifacts:\n  idea: {}\nevidence_kinds:\n  case_outcome: {}\n  draft_opened: {}\nclaims:\n  draft.opened:\n    true_when:\n      evidence: {kind: draft_opened, subject: idea, result: opened}\n  draft.passed:\n    true_when:\n      children: {in: [passed]}\nactions:\n  draft.open:\n    effect: write\n    case_open: {protocol: engine.draft, subject: idea}\n    may_produce:\n      - evidence: draft_opened\noutcomes:\n  passed:\n    requires:\n      all:\n        - {claim: draft.opened}\n        - {claim: draft.passed}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("bindings/engine-section.yaml"),
+        "format: loom.bindings/1\nprotocol: engine-section@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\nactions:\n  - action: draft.open\n    executor:\n      kind: open\n      name: draft\n      bindings: engine-draft.yaml\n    evidence:\n      - kind: draft_opened\n        subject: idea\n        producer: loom\n        from: effect\n        results: {performed: opened}\n",
+    )
+    .unwrap();
+    replace_in(home, "protocol/engine-demo.protocol.yaml", "case_open: {protocol: engine.draft, subject: idea}", "case_open: {protocol: engine.section, subject: idea}");
+    replace_in(home, "bindings/engine-demo.yaml", "      name: draft\n      bindings: engine-draft.yaml", "      name: section\n      bindings: engine-section.yaml");
+}
+
+#[test]
+fn the_cases_of_a_run_are_its_tree_with_each_case_state_and_the_tree_follows_the_run_to_its_end() {
+    let rig = Rig::new("cases-tree", &[Confinement::Local]);
+    let run = rig.submit();
+    rig.wait_review(&run);
+    let rows = cases(&rig, &run);
+    assert_eq!(tree_lines(&rows), ["(root) engine-demo Open", "  draft engine-draft AwaitingPerson"], "{rows:?}");
+    rig.settle(&run, &["performed"]);
+    let rows = cases(&rig, &run);
+    assert_eq!(tree_lines(&rows), ["(root) engine-demo Ended delivered", "  draft engine-draft Ended passed"], "{rows:?}");
+    let text = Value::Array(rows).to_string();
+    assert!(!text.contains(rig.dir.to_str().unwrap()), "a row names a path of the host: {text}");
+}
+
+#[test]
+fn a_case_whose_program_runs_is_running_while_the_run_goes_on() {
+    let rig = Rig::new("cases-running", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
+    rig.wait_started(&run, "draft.write");
+    let rows = cases(&rig, &run);
+    assert_eq!(tree_lines(&rows), ["(root) engine-demo Open", "  draft engine-draft Running"], "{rows:?}");
+    until("the writer's pause to be seen and ended", 20, end_the_pauses);
+    rig.wait_review(&run);
+    assert_eq!(tree_lines(&cases(&rig, &run))[1], "  draft engine-draft AwaitingPerson");
+}
+
+#[test]
+fn a_tree_three_levels_deep_is_answered_to_its_last_case() {
+    let rig = Rig::new("cases-deep", &[Confinement::Local]);
+    deepen(&rig.home);
+    let run = rig.submit();
+    until(&format!("run {run} to wait or end"), 40, || rig.state_of(&run) != "Running" && rig.state_of(&run) != "Submitted");
+    assert_eq!(rig.state_of(&run), "WaitingOnDecision", "{} {:?}", rig.row(&run), rig.kinds(&run));
+    rig.wait_review(&run);
+    let rows = cases(&rig, &run);
+    assert_eq!(tree_lines(&rows), ["(root) engine-demo Open", "  section engine-section Open", "    draft engine-draft AwaitingPerson"], "{rows:?}");
+    rig.settle(&run, &["performed"]);
+    assert_eq!(
+        tree_lines(&cases(&rig, &run)),
+        ["(root) engine-demo Ended delivered", "  section engine-section Ended passed", "    draft engine-draft Ended passed"]
+    );
+}
+
+#[test]
+fn the_cases_of_a_run_the_daemon_does_not_have_are_refused_by_name() {
+    let rig = Rig::new("cases-unknown", &[Confinement::Local]);
+    for id in ["run-that-is-not-there", "../runs", ""] {
+        let query = HashMap::from([("run_id".to_string(), id.to_string())]);
+        let answer = runbook::api::routes::view_answer("cases", rig.d(), &query);
+        assert_eq!((answer.status.as_u16(), answer.body["refused"].clone()), (404, json!("no such run")), "{id:?}: {}", answer.body);
+        assert!(answer.body["message"].as_str().unwrap().contains(id), "{}", answer.body);
+    }
+    let answer = runbook::api::routes::view_answer("cases", rig.d(), &HashMap::new());
+    assert_eq!(answer.status.as_u16(), 400, "{}", answer.body);
+}
+
+// ---- the adversary's cases against the case tree ----
+
+#[test]
+fn a_case_that_waited_when_its_run_was_cancelled_is_not_stuck() {
+    let rig = Rig::new("cases-cancelled", &[Confinement::Local]);
+    let run = rig.submit();
+    rig.wait_review(&run);
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    // the wait ended with the run: the case is neither waiting on a person nor stuck on a stop of its own
+    assert_eq!(tree_lines(&cases(&rig, &run)), ["(root) engine-demo Open", "  draft engine-draft Open"]);
+}
+
+#[test]
+fn a_case_above_the_one_that_waited_is_not_stuck_after_a_cancel_either() {
+    let rig = Rig::new("cases-cancelled-deep", &[Confinement::Local]);
+    deepen(&rig.home);
+    let run = rig.submit();
+    rig.wait_review(&run);
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    assert_eq!(tree_lines(&cases(&rig, &run)), ["(root) engine-demo Open", "  section engine-section Open", "    draft engine-draft Open"]);
+}
+
+#[test]
+fn a_tree_left_without_a_move_shows_its_case_stuck() {
+    let rig = Rig::build_with("cases-stuck", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    rig.wait_state(&run, "Ended");
+    assert_eq!(rig.row(&run)["outcome"], "runtime-failure", "{}", rig.row(&run));
+    let lines = tree_lines(&cases(&rig, &run));
+    assert_eq!(lines[1], "  draft engine-draft Stuck", "{lines:?}");
+}
+
+#[test]
+fn a_reader_that_asks_for_the_tree_in_a_loop_while_the_run_writes_gets_the_tree_or_a_retry_and_never_a_path() {
+    let rig = Rig::new("cases-loop", &[Confinement::Local]);
+    let run = rig.submit();
+    let state = rig.state_root().to_string_lossy().into_owned();
+    let (mut trees, mut retries) = (0, 0);
+    let limit = Instant::now() + Duration::from_secs(40);
+    let mut answered: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let query = HashMap::from([("run_id".to_string(), run.clone())]);
+        let answer = runbook::api::routes::view_answer("cases", rig.d(), &query);
+        let text = answer.body.to_string();
+        assert!(!text.contains(&state), "an answer names a path of the host: {text}");
+        match answer.status.as_u16() {
+            200 => trees += 1,
+            503 => {
+                assert_eq!(answer.body["refused"], "tree not readable", "{text}");
+                retries += 1;
+            }
+            other => panic!("{other}: {text}"),
+        }
+        if rig.state_of(&run) == "Ended" {
+            break;
+        }
+        for d in rig.d().open_decisions_of_run(&run) {
+            let id = d["request_id"].as_str().unwrap().to_string();
+            if answered.insert(id.clone()) {
+                let review = d["options"].as_array().unwrap().iter().any(|o| o["answer"].as_str().is_some_and(|a| a.contains("result")));
+                rig.answer(&run, &id, if review { "performed" } else { "approve" }, "reviewer");
+            }
+        }
+        assert!(Instant::now() < limit, "the run did not end");
+    }
+    assert!(trees > 0, "{trees} trees, {retries} retries");
+    assert_eq!(tree_lines(&cases(&rig, &run)), ["(root) engine-demo Ended delivered", "  draft engine-draft Ended passed"]);
+}
+
+/// `levels` sections between the root and the drafting case: `section1` opens `section2` and so on; the last opens
+/// `draft`.
+fn deepen_to(home: &Path, levels: usize) {
+    for i in 1..=levels {
+        let next = if i == levels { ("engine.draft", "draft", "engine-draft.yaml".to_string()) } else { ("", "", String::new()) };
+        let (opens, name, bindings) = if i == levels { (next.0.to_string(), next.1.to_string(), next.2) } else { (format!("engine.section{}", i + 1), format!("section{}", i + 1), format!("engine-section{}.yaml", i + 1)) };
+        std::fs::write(
+            home.join(format!("protocol/engine-section{i}.protocol.yaml")),
+            format!("format: protocol/1\nprotocol:\n  id: engine.section{i}\n  revision: 1\n  description: >-\n    Level {i} of a deep tree.\nartifacts:\n  idea: {{}}\nevidence_kinds:\n  case_outcome: {{}}\n  draft_opened: {{}}\nclaims:\n  draft.opened:\n    true_when:\n      evidence: {{kind: draft_opened, subject: idea, result: opened}}\n  draft.passed:\n    true_when:\n      children: {{in: [passed]}}\nactions:\n  draft.open:\n    effect: write\n    case_open: {{protocol: {opens}, subject: idea}}\n    may_produce:\n      - evidence: draft_opened\noutcomes:\n  passed:\n    requires:\n      all:\n        - {{claim: draft.opened}}\n        - {{claim: draft.passed}}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(format!("bindings/engine-section{i}.yaml")),
+            format!("format: loom.bindings/1\nprotocol: engine-section{i}@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\nactions:\n  - action: draft.open\n    executor:\n      kind: open\n      name: {name}\n      bindings: {bindings}\n    evidence:\n      - kind: draft_opened\n        subject: idea\n        producer: loom\n        from: effect\n        results: {{performed: opened}}\n"),
+        )
+        .unwrap();
+    }
+    replace_in(home, "protocol/engine-demo.protocol.yaml", "case_open: {protocol: engine.draft, subject: idea}", "case_open: {protocol: engine.section1, subject: idea}");
+    replace_in(home, "bindings/engine-demo.yaml", "      name: draft\n      bindings: engine-draft.yaml", "      name: section1\n      bindings: engine-section1.yaml");
+}
+
+#[test]
+fn a_tree_eight_levels_deep_is_answered_whole_with_each_case_under_its_parent() {
+    let rig = Rig::new("cases-eight", &[Confinement::Local]);
+    deepen_to(&rig.home, 6);
+    let run = rig.submit();
+    until(&format!("run {run} to wait or end"), 40, || !matches!(rig.state_of(&run).as_str(), "Running" | "Submitted"));
+    assert_eq!(rig.state_of(&run), "WaitingOnDecision", "{} {:?}", rig.row(&run), rig.kinds(&run));
+    let mut want = vec!["(root) engine-demo Open".to_string()];
+    for i in 1..=6 {
+        want.push(format!("{}section{i} engine-section{i} Open", "  ".repeat(i)));
+    }
+    want.push(format!("{}draft engine-draft AwaitingPerson", "  ".repeat(7)));
+    assert_eq!(tree_lines(&cases(&rig, &run)), want);
+}

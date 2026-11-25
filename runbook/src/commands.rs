@@ -167,7 +167,7 @@ pub enum Fault {
 
 impl Fault {
     fn no_such_run(run_id: &str) -> Fault {
-        Fault::Refused { status: 404, what: "no such run", message: format!("the daemon has no run {run_id}") }
+        Fault::Refused { status: 404, what: "no such run", message: format!("the daemon has no run {}", crate::engine::products::said(run_id)) }
     }
 }
 
@@ -1180,6 +1180,42 @@ impl Daemon {
         m.insert("truncated".into(), json!(r.truncated));
         m.insert("limit".into(), json!(crate::engine::products::LIMIT));
         Ok(vec![Value::Object(m)])
+    }
+
+    /// The view `CasesOfRun` (wire name `cases`): a row per case of the run's tree, as the runtime reads it
+    /// (`Runtime::cases`), read after the state is let go. Where a case stands (`case_state`): `Ended` with an outcome;
+    /// else `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else
+    /// `Stuck` when its last stop is `Stuck` or `BudgetSpent` and the run ended by its tree (`Ended`, not orphaned: a wait
+    /// or a cancel that ended with the run, or a run the daemon orphaned, leaves the case `Open`); else `Running` when the
+    /// run's step in flight names the case; else `Open`.
+    pub fn cases_of_run(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
+        let (state, step_case, ended_by_its_tree) = {
+            let st = self.st();
+            let run = st.run(run_id).ok_or_else(|| Fault::no_such_run(run_id))?;
+            let step = if run.state == RunState::Running { lock(&self.inner.steps).get(run_id).and_then(|s| s.case.clone()) } else { None };
+            (run.state, step, run.state == RunState::Ended && run.outcome.as_deref() != Some("orphaned"))
+        };
+        let cases = self.inner.runtime.cases(run_id).map_err(|_| Fault::Refused { status: 503, what: "tree not readable", message: format!("the tree of run {} cannot be read at this moment: ask again", crate::engine::products::said(run_id)) })?;
+        Ok(cases
+            .into_iter()
+            .map(|c| {
+                let case_state = match (&c.outcome, c.stop.as_deref()) {
+                    (Some(_), _) => "Ended",
+                    (None, Some(stop @ ("AwaitingPerson" | "AwaitingAuthority"))) if state == RunState::WaitingOnDecision => stop,
+                    (None, Some("Stuck" | "BudgetSpent")) if ended_by_its_tree => "Stuck",
+                    _ if step_case.as_deref() == Some(c.case_id.as_str()) => "Running",
+                    _ => "Open",
+                };
+                let mut m = Map::new();
+                m.insert("case_id".into(), json!(c.case_id));
+                put(&mut m, "parent", &c.parent);
+                put(&mut m, "name", &c.name);
+                m.insert("protocol".into(), json!(c.protocol));
+                m.insert("case_state".into(), json!(case_state));
+                put(&mut m, "outcome", &c.outcome);
+                Value::Object(m)
+            })
+            .collect())
     }
 
     /// The view `DaemonConfiguration` (wire name `configuration`).

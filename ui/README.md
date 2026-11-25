@@ -436,11 +436,12 @@ is compared by time:
   does not keep them apart. The blob of a run of `runbook run` is found through Loom's own run log
   (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
   projected events do not carry the digest.
-- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The daemon's API has no
-  view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
+- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The tab lists the files of the
+  run's `work/` directory (the daemon's views `products` and `product`) and says that the daemon serves no evidence
+  records and no action output of a case; the line counts the files (`docs/daemon-api.md`, "The web UI").
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
-`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/daemon-run-tree.spec.mjs`, `test/daemon-run-tree-security.spec.mjs`, `test/step-products-bounds.spec.mjs`,
 `test/written-model.spec.mjs`, `test/written-api.spec.mjs`, `test/written-page.spec.mjs`,
 `test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 

@@ -113,19 +113,23 @@ test('a run that is submitted while the page is open appears in the list and its
   await expect(page.locator('#feed')).toContainText('runbook.submitted');
 });
 
-// story inspector-shows-step-products: the page of the daemon has the same panels. The daemon's API has no view of
-// the files, the evidence or the actions of a run, so the panels say that, in place of a list that is empty.
-test('the daemon page has the Products panel and the product line, and says the daemon serves no files of a run yet', async ({page}) => {
+// story inspector-shows-step-products: the page of the daemon has the same panels. Since story
+// daemon-page-shows-a-run-tree-and-products the daemon serves the files of a run's work/ directory (views `products` and
+// `product`) and its case tree (view `cases`); a run of the stub runtime has neither files nor a tree, and the panels say
+// so. The evidence and the actions of a case are not served, and the tab says that.
+test('the daemon page has the Products panel and the product line; a stub run has no file and no case tree, and the page says so', async ({page}) => {
   const problems = [];
   page.on('pageerror', (e) => problems.push(`pageerror ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') problems.push(`console ${m.text()}`); });
   await page.goto(`${base}/`);
   await expect(page.locator('#live')).toHaveClass(/\bon\b/);
   await pick(page, runs[0]);
-  await expect(page.locator('#product')).toContainText('the daemon serves no files of a run yet');
+  await expect(page.locator('#product')).toContainText('the run has written no file under work/ yet');
   await expect(page.locator('#product .prod-link')).toHaveCount(0);
+  await expect(page.locator('#tree')).toContainText('This run has no case tree');
   await page.locator('#tabs button[data-tab=products]').click();
-  await expect(page.locator('#panel .prod .prod-note')).toContainText('the daemon serves no files, evidence records or action output of a run yet');
+  await expect(page.locator('#panel .prod .prod-daemon')).toContainText('it serves no evidence records and no action output of a case');
+  await expect(page.locator('#panel .prod-files')).toContainText('the run has written no file under work/ yet');
   await expect(page.locator('#panel .prod-file')).toHaveCount(0);
   expect(problems).toEqual([]);
   const served = await fetch(`${base}/markdown.js`);

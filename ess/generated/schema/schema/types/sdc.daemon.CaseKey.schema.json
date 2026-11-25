@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.CaseKey.schema.json",
+  "$ref": "#/$defs/sdc.daemon.CaseKey",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:821d80420662de4aaca440a4ac60509bbeffbd6b54c07d213c55ec6937ec7695",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CaseKey": {
+      "title": "CaseKey",
+      "description": "One case of one run as a row of RunCase: the run's id and the case's id. A type of its own, not RunId, because a row is a case and not the run.",
+      "x-ess-name": "sdc.daemon.CaseKey",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
