@@ -196,12 +196,16 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 
 ## Check output
 
-This block is the findings the check prints (`sdc-check-routes --root .`, exit 1): 36 (13 `own-failure`,
-8 `shared-cap`, 6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
-and `unrecorded-exit`). With `--doc docs/reject-routes.md` it prints `routes: 36 findings, all listed`.
+This block is the findings the check prints (`sdc-check-routes --root .`, exit 1): 37 (13 `own-failure`,
+8 `shared-cap`, 6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 2 `not-handed` and 1
+`unrecorded-exit`). With `--doc docs/reject-routes.md` it prints `routes: 37 findings, all listed`. The
+`not-handed` of `sdc.bugfix` `handback.describe` is known: its default writer is a program, which
+reads no feedback, so a refusal sent back writes the same description unless its inputs changed; a
+model writer bound in its place gets the line (`docs/bugfix.md`, "Hand-back: the spec reference").
 
 ```text
 shared-cap sdc.bugfix change.fix: 2 retry kinds share max_runs 3
+not-handed sdc.bugfix handback.describe: retry_when spec_reference=refused, but the log of handback.spec-check does not reach it
 own-failure sdc.bugfix bug.dissect: a failed run's log does not reach its next run
 own-failure sdc.bugfix change.fix: a failed run's log does not reach its next run
 own-failure sdc.bugfix test.reproduce: a failed run's log does not reach its next run

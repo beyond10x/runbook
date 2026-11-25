@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: k1
+kind: spec_reference
+result: ok
+subject: description
+subject_revision: m1
+producer: spec-check
+observed_at: 2026-11-21T09:00:00Z

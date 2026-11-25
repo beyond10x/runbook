@@ -106,6 +106,74 @@
       },
       "requires": []
     },
+    "handback.describe": {
+      "description": "write the description of the code merge request (the fix summary and the ticket's text) once the gate passes, while no spec reference is recorded as ok; the writer again after a refused spec check",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "description_written"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "any": [
+              {
+                "claim": {
+                  "id": "spec.referenced",
+                  "is": "false"
+                }
+              },
+              {
+                "claim": {
+                  "id": "spec.referenced",
+                  "is": "unknown"
+                }
+              }
+            ]
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "handback.spec-check": {
+      "description": "run the check program on the current description and the change kind; once per description revision, and only once the writer has left one",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "spec_reference"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "handback.described",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.checked",
+              "is": "unknown"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
     "repro.run": {
       "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid and the test writer has left a repro record (a run against no test would end the case not_reproduced)",
       "effect": "read",
@@ -243,6 +311,9 @@
     "change": {
       "description": "the code tree; its revision is its content digest"
     },
+    "description": {
+      "description": "the description of the code merge request: the fix summary and the ticket's text, written once the gate passes; what the spec check reads"
+    },
     "dissection": {
       "description": "the bug report dissected into a data document: observed, expected, where, how to reproduce"
     },
@@ -317,6 +388,16 @@
         }
       }
     },
+    "handback.described": {
+      "description": "the current description revision is the output of a description writer run",
+      "true_when": {
+        "evidence": {
+          "kind": "description_written",
+          "result": null,
+          "subject": "description"
+        }
+      }
+    },
     "repro.checked": {
       "description": "a run of the current reproducing test is recorded, whatever its result",
       "true_when": {
@@ -344,6 +425,26 @@
           "kind": "repro_written",
           "result": null,
           "subject": "repro"
+        }
+      }
+    },
+    "spec.checked": {
+      "description": "a spec check is recorded about the current description, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_reference",
+          "result": null,
+          "subject": "description"
+        }
+      }
+    },
+    "spec.referenced": {
+      "description": "the current description references a spec, as the check said ok; every action that hands back requires it",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_reference",
+          "result": "ok",
+          "subject": "description"
         }
       }
     },
@@ -379,6 +480,9 @@
     }
   },
   "evidence_kinds": {
+    "description_written": {
+      "description": "the record that the description writer ran and left the description at a new revision"
+    },
     "dissection_check": {
       "description": "a program's check of the dissection against its schema and the code tree; valid or invalid"
     },
@@ -397,6 +501,9 @@
     "repro_written": {
       "description": "the record that the test writer ran and left the repro record at a new revision"
     },
+    "spec_reference": {
+      "description": "a check program reads the description and the change kind (defect or change); ok when the description references a spec as the check's rule asks, refused otherwise; its text is the check's one line"
+    },
     "story_record": {
       "description": "the record that the bug's story was moved to implemented in the planning store"
     },
@@ -408,7 +515,7 @@
   "obligations": {},
   "outcomes": {
     "fixed": {
-      "description": "the reproducing test was red on the unchanged code, the fix passes it and the whole suite, the story is implemented and the gate passes",
+      "description": "the reproducing test was red on the unchanged code, the fix passes it and the whole suite, the story is implemented, the gate passes and the description references a spec: the point of hand-back",
       "requires": {
         "all": [
           {
@@ -432,6 +539,12 @@
           {
             "claim": {
               "id": "repro.red",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.referenced",
               "is": "true"
             }
           },
@@ -506,7 +619,7 @@
     }
   },
   "protocol": {
-    "description": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes. One case, no child cases; its inputs are the bug report and the code tree in the case's work directory, so a parent can open it as a child. No approval in this revision: a merge approval is the next addition.",
+    "description": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes. Hand-back, the outcome fixed, also needs the description of the code merge request to reference a spec, as a check program says: a refused reference sends the description writer back and never reaches fixed. One case, no child cases; its inputs are the bug report and the code tree in the case's work directory, so a parent can open it as a child. No approval in this revision: a merge approval is the next addition.",
     "id": "sdc.bugfix",
     "revision": 1
   }

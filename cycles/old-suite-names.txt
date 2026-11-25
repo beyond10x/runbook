@@ -115,6 +115,7 @@ bugfix-full
 bugfix-not-red
 bugfix-edited-test
 bugfix-never-red
+bugfix-spec-refused
 bugfix-from-ticket
 bugfix-pool-wait
 bugfix-over-time

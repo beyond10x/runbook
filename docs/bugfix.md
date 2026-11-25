@@ -5,7 +5,7 @@ it, update the story, run the gate, done." And: "Break it down, make it composab
 `story:bugfix-cycle`.
 
 `protocol/sdc-bugfix.protocol.yaml` is one case with no child cases: no intake, direction, epic,
-spec or plan. `sdc.story` is unchanged. `canon check`: 1024 states, 0 findings.
+spec or plan. `sdc.story` is unchanged. `canon check`: 32768 states, 0 findings (`protocol/check-ledger.json`; 1024 at the start, 4096 before the hand-back steps).
 
 ## Steps
 
@@ -22,21 +22,94 @@ Each step is admissible only after the one before it (the preconditions in the p
 | 5 | `tests.run` | `sdc-bugfix tests-run` (see below) | `test_run` passed / failed |
 | 6 | `story.update` | `sdc-bugfix story-update`: the story named by `bug.yaml` `story` moved to `implemented` through `aep`, actor and executor `agent:story.update`; created first if no parent handed it in | `story_record` |
 | 7 | `gate.run` | `sdc-bugfix gate-run`: every `gate` command of the case's `checks.yaml` in order (for Rust: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`) | `gate_run` passed / failed |
-| 8 | close | the former trial script closed the terminable root through its outcome; no outcome requires a decision, so under its `--autopilot` the close was `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`); under `runbook run` the close is a `Close` decision (`docs/loom-run-decisions.md`) | `terminated` with `principal` |
+| 8 | `handback.describe` | `sdc-bugfix handback-describe`: `handback/mr-description.md`, the description of the code merge request (below) | `description_written` |
+|   | `handback.spec-check` | `sdc-bugfix handback-check -- <check argv>`: the check program on the description and the change kind (below) | `spec_reference` ok / refused |
+| 9 | close | the former trial script closed the terminable root through its outcome; no outcome requires a decision, so under its `--autopilot` the close was `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`); under `runbook run` the close is a `Close` decision (`docs/loom-run-decisions.md`) | `terminated` with `principal` |
 
-Outcomes: `fixed` (all of the above), `not_reproduced` (no valid dissection, or no red), `not_fixed`
-(red, but the fix fails the suite or the gate). The two failure outcomes end a case only once nothing
-is useful any more, so first the writer spends its runs.
+Outcomes: `fixed` (all of the above, the spec reference included: the point of hand-back),
+`not_reproduced` (no valid dissection, or no red), `not_fixed` (red, but the fix fails the suite or
+the gate). The two failure outcomes end a case only once nothing is useful any more, so first the
+writer spends its runs. A refused spec reference has no outcome (below).
 
 Retries: a failed check is fed back to the writer of that step through `retry_when`
 (`dissection_check` invalid to `bug.dissect`, `repro_run` not_red to `test.reproduce`,
-`test_run` failed and `gate_run` failed to `change.fix`). The writer gets the record and its log in
-`in/feedback.md`. Each writer has `max_runs` 3, as on the story protocol. A spent writer with no
+`test_run` failed and `gate_run` failed to `change.fix`, `spec_reference` refused to
+`handback.describe`). The writer gets the record and its log in `in/feedback.md`. Each model writer
+has `max_runs` 3, as on the story protocol; `handback.describe` has 2. A spent writer with no
 outcome left ends the run `writer_spent`.
 
 No approval and no decider request in this revision. The obvious next addition is a merge approval
 (`merge.approve` under the capability `change.merge`, as in `sdc.story`), then `change.merge`
 copying `impl/` to `mainline/`.
+
+## Hand-back: the spec reference (2026-11-24)
+
+`story:a-bug-fix-hands-back-only-with-a-spec-reference`. A consumer's rule: a change of
+customer-visible behaviour goes spec first, and the spec's merge request is the contract before code.
+So a fix reaches hand-back only when the description of its code merge request references a spec, as
+a check program says. Names and the check's interface were agreed with the consumer.
+
+- `handback.describe` (a program, after `gate.run`, while no reference is recorded as ok) writes
+  `handback/mr-description.md`: the title, the dissection's `observed`, `expected` and `where`, the
+  reproducing test, the files `impl/` changed against the base, and the ticket's text (`bug.yaml`
+  `text`). What the run already holds suffices, so no model call is made. It prints the path and the
+  size only, never the ticket's text. A missing input is exit 126 (a program error).
+- `handback.spec-check` runs `sdc-bugfix handback-check -- <check argv>`, which runs
+  `<check argv> handback/mr-description.md <kind>`: `<kind>` is `bug.yaml` `change_kind` (from the
+  ticket's, below), `defect` when it has none. The check prints one line on standard output and
+  exits:
+
+  | the check | the record |
+  |---|---|
+  | `spec-first: allowed: <why>`, exit 0 | `spec_reference` `ok` |
+  | `spec-first: refused: <why>`, exit 77 (a tool error of the check too, with its reason) | `spec_reference` `refused` |
+  | exit 75, 126 or 127 | none: a program error (`exits.error`), the run ends `refused`, cause `program_error` |
+  | any other exit, a signal, or a line that is not the one the exit asks for | none: `handback-check` exits 126, naming the breach of the interface |
+  | killed at its timeout (Loom's 60 s) | none: the table has no `timeout` row and no `*` row, so Loom ends the step `ResultNotInTable` and records nothing, never `ok` (from Loom 0.61.0 a `*` row would not match it either; `docs/loom-bindings.md`, "Timeouts") |
+
+  The record's text is the line: Loom keeps the program's output as its blob. No result file is read.
+- The claim `spec.referenced` holds only on `ok` about the current description. The outcome `fixed`
+  requires it besides the gate, and every action that hands back (the later action that opens the
+  code merge request) must require it: `driver/tests/bugfix_handback.rs` fails for any `handback.*`
+  action, other than these two, whose precondition does not.
+- A refusal goes back to the author of the description, as a rejection goes back to its writer:
+  `retry_when: {spec_reference: [refused]}` on `handback.describe`, `budget.max_runs` 2. No outcome
+  reads a refused reference: Loom ends a case at its first legitimate outcome, so such an outcome
+  would end the case before the writer is sent back (the same reason `bugfix-not-red` is pending,
+  `docs/cycles-suite.md`). So a refused reference never reaches `fixed`; when the writer is spent the
+  tree is stuck (`runbook run` exit 3, `runbook test` exit 4), as a spent rework allowance ends.
+  `canon simulate` names that state as its one finding, a cycle (`protocol/simulate/sdc-bugfix.txt`).
+  The default writer is a program: sent back, it writes the same description unless its inputs
+  changed. A consumer that binds a model writer gets the refusal line in `in/feedback.md`.
+
+### The check
+
+The check program is the consumer's: its binding names its own argv after `--`
+(`argv: [sdc-bugfix, handback-check, --, <its check>...]`, `exits.error: [75, 126, 127]`,
+`results: {"0": ok, "77": refused}`, no `*` row). This repository's bindings use the default check,
+`sdc-bugfix spec-check [--spec-dir <dir>]... [--spec-repo <url>]... <description file> <kind>`
+(`--spec-dir spec` in `bindings/sdc-bugfix.yaml`). It reads the whole description, word by word:
+
+- `change` passes with a link to a merge request (a path with `merge_requests`, `pull` or `pulls`
+  followed by a number) of a spec repository, or with a path under a named spec directory;
+- `defect` passes with a spec line: `<file>:<line>` under a named spec directory, or a link into a
+  spec repository with a line anchor (`#L14`, `#L14-L20`); or with the words "spec says nothing"
+  (any case, across a line break);
+- a spec repository is a URL that starts with a `--spec-repo` prefix, or, with none named, a URL with
+  a path segment that holds `spec`;
+- anything else is refused, and so is a usage error, a kind other than `defect` or `change`, and a
+  description that cannot be read, each with its reason (exit 77).
+
+Limits of the default rule: it reads the whole description, so a code path under the spec directory
+(a test tree named `spec/`, as some languages keep) counts; name another directory with
+`--spec-dir`. It checks that a reference is there, not that the spec says what the fix does.
+
+The cycle seed report (`cycles/seeds/bugfix-pager/bug.yaml`) and the pager ticket say "The spec
+says nothing about a partial last page", so `bugfix-full` ends `fixed` with one `spec_reference` `ok`; `bugfix-spec-refused` seeds the report
+without it (`cycles/seeds/bugfix-pager/bug-no-spec.yaml`) and ends stuck with one `refused` record and
+two runs of `handback.describe`. `cases/12-bugfix-red-first/handback-refused` and
+`handback-unchecked` are the Canon evaluations: with the gate passed, a refused reference leaves
+`fixed` blocked, no outcome legitimate and `handback.describe` admissible.
 
 ## The programs (red and green)
 
@@ -268,6 +341,7 @@ $ sdc-bugfix schema ticket                                         # the JSON sc
 | `format` | required | `sdc.ticket/1` |
 | `id` | required | the ticket's key in its system, a string (quote a number) |
 | `kind` | required | `bug` or `feature`; `sdc-bugfix` refuses `feature`: its protocol (`sdc-feature`) does not exist yet |
+| `change_kind` | optional | `defect` (default) or `change`: what the fix is against the spec; written into `bug.yaml` and given to the hand-back check (above) |
 | `title`, `text` | required | the ticket's words |
 | `context` | optional | a list of `{kind: comment\|linked\|doc, ref, text}` |
 | `source` | optional | `{system, url?, fetched_at}`: `system` is one free word (`jira`, `github`), `fetched_at` an RFC 3339 instant |
@@ -286,6 +360,7 @@ An invented example, also the fixture of the cycle `bugfix-from-ticket`
 format: sdc.ticket/1
 id: PAGER-7
 kind: bug
+change_kind: defect
 title: The last partial page is never shown
 text: >-
   An invented ticket. With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and
@@ -295,6 +370,9 @@ context:
 - kind: comment
   ref: comment-1
   text: Seen with every total that is not a multiple of the page size.
+- kind: doc
+  ref: spec
+  text: The spec says nothing about a partial last page.
 source:
   system: example
   url: https://tickets.example.invalid/PAGER-7
@@ -327,7 +405,7 @@ writes `work/checks.yaml` and:
 
 - `work/bug.yaml`: `title`; `text`, the title, the text and each context entry in that order,
   separated by a blank line, an entry headed `--- <kind> <ref>`; `story: story:ticket-<id>` (the id
-  lower case, every run of other characters one `-`); `ticket` (`id`, `kind`, `source`, no text);
+  lower case, every run of other characters one `-`); `change_kind` (`defect` when the ticket has none); `ticket` (`id`, `kind`, `source`, no text);
   `constraints`; `check` when the ticket has one;
 - `work/.sdc/seed.json` (`sdc.bugfix-seed/1`): the ticket's id, kind and branch, the repository's
   path, remote and base (`ref`, `commit`), the number of files and bytes copied, and where
@@ -355,7 +433,8 @@ a language of its own (`story:bugfix-any-language`).
 - Size cap: 2000 files and 16 MiB (`SEED_MAX_FILES`, `SEED_MAX_BYTES`), raised for one run with
   `SDC_SEED_MAX_FILES` and `SDC_SEED_MAX_BYTES`. Every model call copies the code tree into its
   scratch directory and back (the model node, `input impl` and `seed impl`).
-- No hand-back: nothing is committed or pushed to the repository, and `branch` is only recorded.
+- No hand-back yet: nothing is committed or pushed to the repository, and `branch` is only recorded.
+  What hand-back will need is in place: the description and its spec reference (above).
 
 The ticket's text reaches the prompts and the run's own records (`runs/`, never committed) only.
 The seed prints the repository, the commit and the counts; the cycle checks that the run's output
