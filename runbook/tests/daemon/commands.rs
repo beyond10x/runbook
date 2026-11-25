@@ -1,6 +1,6 @@
 use super::state::scratch;
 use super::stub::ask;
-use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Fault, OpenSession, Outcome, Policy, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
+use runbook::commands::{AnswerDecision, CancelRun, CloseSession, Config, Daemon, Delegate, Fault, OpenSession, Outcome, Policy, SubmitRun, MAX_INTAKE_BYTES, OUTCOMES};
 use runbook::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use runbook::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunState, State};
 use runbook::stub::{Script, Step, StubRuntime};
@@ -822,7 +822,7 @@ fn the_outcome_table_lists_every_command_in_the_order_of_the_domain_file() {
     assert_eq!(have, want, "the outcomes of each command in runbook/src/commands.rs OUTCOMES are in the order of ess/domains/daemon.yaml");
 }
 
-const CLIENT_COMMANDS: [&str; 5] = ["open-session", "close-session", "submit-run", "cancel-run", "answer-decision"];
+const CLIENT_COMMANDS: [&str; 6] = ["open-session", "close-session", "submit-run", "delegate", "cancel-run", "answer-decision"];
 
 /// A way to make each refusal of a client command happen through the command layer.
 fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
@@ -836,6 +836,14 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
         let run = fx.submit(book);
         fx.wait_open_decisions(&run, if book == "ask2" { 2 } else { 1 });
         run
+    };
+    // A delegation on the stub's route `default`, naming the runbook `quick`.
+    let delegation = || Delegate { request: "x".into(), model_route: Some("default".into()), protocol: Some("quick".into()), ..Delegate::default() };
+    let delegate = |f: &dyn Fn(&mut Delegate)| {
+        fx.stub.route("default");
+        let mut i = delegation();
+        f(&mut i);
+        d.delegate(i).unwrap()
     };
     Some(match (command, outcome) {
         ("open-session", "session-exists") => {
@@ -858,6 +866,20 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
             d.open_session(OpenSession { session_id: "s".into(), client: "c".into() }).unwrap();
             d.close_session(CloseSession { session_id: "s".into() }).unwrap();
             submit(&|s| s.session_id = Some("s".into()))
+        }
+        ("delegate", "intake-too-large") => delegate(&|i| i.request = "a".repeat(MAX_INTAKE_BYTES + 1)),
+        ("delegate", "route-refused") => delegate(&|i| i.model_route = Some("undeclared".into())),
+        ("delegate", "no-runbook") => delegate(&|i| i.protocol = Some("nothing".into())),
+        ("delegate", "context-outside-roots") => delegate(&|i| i.workspace = Some(fx.dir.to_string_lossy().into_owned())),
+        ("delegate", "no-daemon") => {
+            fx.stub.route("default");
+            d.delegate_for("another-daemon", delegation()).unwrap()
+        }
+        ("delegate", "no-session") => delegate(&|i| i.session_id = Some("none".into())),
+        ("delegate", "session-closed") => {
+            d.open_session(OpenSession { session_id: "s".into(), client: "c".into() }).unwrap();
+            d.close_session(CloseSession { session_id: "s".into() }).unwrap();
+            delegate(&|i| i.session_id = Some("s".into()))
         }
         ("cancel-run", "no-run") => d.cancel_run(CancelRun { run_id: "none".into() }).unwrap(),
         ("cancel-run", "already-ended") => {
