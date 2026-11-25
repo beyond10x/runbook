@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:bugfix-repro-run-reads-red-from-one-suite-run
 kind: story
-status: draft
+status: active
 title: repro.run of the bug-fix runbook reads its verdict without a second full suite job
 summary: repro.run runs the reproducing test on the tree and then the whole suite on the base, two pool jobs in sequence (947 s measured by a consumer); the verdict comes from one suite run read per test, a kept base verdict, or two jobs at once.
 relations:
@@ -14,7 +14,10 @@ scope:
   path: docs/bugfix.md
 - confidence: cited
   path: driver/src/bin/sdc-bugfix.rs
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 5}
 ---
 ## Defect
 

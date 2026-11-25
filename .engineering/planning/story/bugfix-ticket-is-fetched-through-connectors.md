@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:bugfix-ticket-is-fetched-through-connectors
 kind: story
-status: draft
+status: active
 title: The ticket of a bug-fix run is fetched from a tracker through the connectors command
 summary: runbook run --bugfix-ticket takes a ticket key; one tool of this repository reads it through the connectors command into sdc.ticket/1. No second tracker client.
 relations:
 - decomposes: epic:ticket-to-merge-request-on-a-real-repository
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 3}
 ---
 ## What is known
 

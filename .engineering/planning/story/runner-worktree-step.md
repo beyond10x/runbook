@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:runner-worktree-step
 kind: story
-status: draft
+status: active
 title: A run has a managed worktree that the runner creates, finishes and collects
 summary: 'A worktree step calls the host''s worktree command: create at the start of a run, finish at its end whatever the outcome, gc of finished ones; id and path in the run directory.'
 tags:
@@ -25,7 +25,10 @@ scope:
   path: runbook/src/loom_run
 - confidence: inferred
   path: runbook/tests/loom_run
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 

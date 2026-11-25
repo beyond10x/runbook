@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:program-commands-have-a-deadline-and-a-retry
 kind: story
-status: draft
+status: active
 title: A command of a program step has its own deadline and retry, and a long step has one pattern
 summary: A runner-supplied helper gives a command inside a program step a deadline and a retry with each try recorded; one documented long-step pattern with an example runbook.
 tags:
@@ -25,7 +25,10 @@ scope:
   path: runbook/src/loom_run/run_dir.rs
 - confidence: inferred
   path: tools
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 
