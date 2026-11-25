@@ -69,4 +69,10 @@ pub trait Arbiter: std::fmt::Debug + Send + Sync + 'static {
 pub trait RunArbiter: Send {
     /// `decision` is the entry of `decisions[]` as Loom printed it.
     fn judge(&mut self, decision: &Value) -> Judgement;
+
+    /// What one call of the decider may cost, micro USD (its `max_budget_usd`; `u64::MAX` when it names none): what a
+    /// call of the decider through the relay books when its cost is not known.
+    fn max_call_micro_usd(&self) -> u64 {
+        u64::MAX
+    }
 }

@@ -41,7 +41,8 @@ fn read(log: &Path, name: &str) -> String {
 fn a_model_call_of_a_daemon_run_goes_through_the_relay_reaches_the_gateway_with_the_alias_and_books_one_line() {
     let h = home_calling("relay-d-reach", r#""$model""#);
     let gw = gateway(OK);
-    let file = format!("{}{}", gateway_table(&gw.base_url, &h.token_file), model_table(Some(&claude_cli())));
+    // the decider names what one of its calls may cost: a call of unknown cost outside a step books that
+    let file = format!("{}{}max_budget_usd = 0.02\n", gateway_table(&gw.base_url, &h.token_file), model_table(Some(&claude_cli())));
     let l = serve("relay-d-reach-d", &h, &file, true);
     let run = submit(&l, "model");
     let end = until_state(&l, &run, &["Ended", "FailedToStart", "Cancelled"]);
@@ -62,7 +63,7 @@ fn a_model_call_of_a_daemon_run_goes_through_the_relay_reaches_the_gateway_with_
     for line in &lines {
         assert_eq!((line["run"].clone(), line["role"].clone(), line["route"].clone(), line["alias"].clone()), (json!(run), json!("default"), json!("default"), json!("a-model")), "{line}");
         assert_eq!((line["input_tokens"].clone(), line["output_tokens"].clone(), line["gateway_call"].clone()), (json!(11), json!(5), json!("gw-call-7")), "{line}");
-        assert_eq!((line["cost_known"].clone(), line["micro_usd"].clone()), (json!(false), json!(10_000)), "no price declared: the runbook's reservation (0.01 USD) is booked: {line}");
+        assert_eq!((line["cost_known"].clone(), line["micro_usd"].clone()), (json!(false), json!(20_000)), "no price declared: the decider call books what one call of the decider may cost (0.02 USD): {line}");
     }
     let booked = events(&l, &run, "runbook.model-call");
     assert_eq!(booked.len(), seen.len(), "the run's record has no line per call: {booked:?}");

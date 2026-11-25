@@ -53,6 +53,10 @@ pub const ROUTE_REFUSED: &str = "route-refused";
 pub const CAP_REACHED: &str = "cap-reached";
 /// The cause of a call the gateway refused or did not answer.
 pub const ROUTE_UNAVAILABLE: &str = "route-unavailable";
+/// The code of a call whose gateway did not answer: nothing ran.
+const CONNECTION_FAILED: &str = "connection-failed";
+/// The code of a call whose answer broke off after its head: the call ran and is booked at its cost.
+const ANSWER_BROKEN: &str = "answer-broken";
 
 /// The most bytes of a call's body the relay reads.
 const MAX_CALL_BYTES: usize = 64 * 1024 * 1024;
@@ -148,7 +152,8 @@ struct Entry {
 /// The relay of one daemon: the runs on a route, each with its token and table.
 #[derive(Default)]
 pub struct Relay {
-    base: Mutex<Option<String>>,
+    /// The relay's address once the daemon listens; why it serves no run when the listener is not loopback.
+    base: Mutex<Option<Result<String, String>>>,
     runs: Mutex<HashMap<String, Arc<Entry>>>,
 }
 
@@ -229,22 +234,27 @@ impl Relay {
         Arc::new(Relay::default())
     }
 
-    /// The address the daemon listens on: the relay's address in every route file. An address of every interface
-    /// is reached on loopback.
+    /// The address the daemon listens on: the relay's address in every route file. The relay serves a loopback
+    /// listener only (`docs/model-routes.md`, section 11): on any other, every interface included, it serves no run,
+    /// and [`Relay::serves`] says so.
     pub fn set_listen(&self, addr: SocketAddr) {
-        let host = match addr.ip() {
-            ip if ip.is_unspecified() && ip.is_ipv6() => "[::1]".to_owned(),
-            ip if ip.is_unspecified() => "127.0.0.1".to_owned(),
-            std::net::IpAddr::V4(ip) => ip.to_string(),
-            std::net::IpAddr::V6(ip) => format!("[{ip}]"),
+        let base = match addr.ip() {
+            ip if !ip.is_loopback() => Err(format!("the relay of model calls serves a loopback listener only, and the daemon listens on {addr}")),
+            std::net::IpAddr::V4(ip) => Ok(format!("http://{ip}:{}", addr.port())),
+            std::net::IpAddr::V6(ip) => Ok(format!("http://[{ip}]:{}", addr.port())),
         };
-        *lock(&self.base) = Some(format!("http://{host}:{}", addr.port()));
+        *lock(&self.base) = Some(base);
     }
 
-    /// Takes the run `run` with its table: a token is minted for it. Refused when the relay has no address yet,
-    /// when the table is empty, or when the run is on the relay already.
+    /// Whether the relay serves runs: the daemon listens, on loopback.
+    pub fn serves(&self) -> bool {
+        matches!(*lock(&self.base), Some(Ok(_)))
+    }
+
+    /// Takes the run `run` with its table: a token is minted for it. Refused when the relay has no address yet or
+    /// serves no run, when the table is empty, or when the run is on the relay already.
     pub fn open(self: &Arc<Self>, run: &str, table: RouteTable) -> Result<Ticket, String> {
-        let base = lock(&self.base).clone().ok_or("the relay of the daemon has no address yet")?;
+        let base = lock(&self.base).clone().ok_or("the relay of the daemon has no address yet")??;
         if table.is_empty() {
             return Err("the run's route table names no role".to_owned());
         }
@@ -300,29 +310,47 @@ impl Relay {
             return error(StatusCode::BAD_REQUEST, ROUTE_REFUSED, &format!("the run has no route for the role {role:?}; its roles: {roles}"));
         };
         let (route, source) = (route.clone(), source.to_owned());
-        let admitting = booking.clone();
-        match tokio::task::spawn_blocking(move || admitting.admit()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
-            Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
-        }
         body.insert("model".to_owned(), Value::String(route.alias.clone()));
         if wire == "chat/completions" && body.get("stream") == Some(&Value::Bool(true)) {
-            let options = body.entry("stream_options").or_insert_with(|| json!({}));
-            if let Some(o) = options.as_object_mut() {
-                o.insert("include_usage".to_owned(), Value::Bool(true));
+            match body.get_mut("stream_options") {
+                Some(Value::Object(o)) => {
+                    o.insert("include_usage".to_owned(), Value::Bool(true));
+                }
+                _ => {
+                    body.insert("stream_options".to_owned(), json!({"include_usage": true}));
+                }
             }
         }
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
         let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking };
-        match open_upstream(&call.route, wire, &passed, &sent).await {
-            Err(why) => {
-                let line = call.line(None, &Usage::default(), Some(("connection-failed".to_owned(), why.clone())));
-                call.book(line).await;
-                error(StatusCode::BAD_GATEWAY, ROUTE_UNAVAILABLE, &format!("route {} (chosen by {}): the gateway did not answer: {why}", call.route.name, call.source))
+        // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
+        // drops this handler and not the call, so a call that was sent is booked, once.
+        let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
+        tokio::spawn(async move {
+            if answered.is_closed() {
+                return;
             }
-            Ok(upstream) => answer(call, upstream),
+            let _ = answered.send(exchange(call, passed, sent).await);
+        });
+        answer.await.unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the relay lost the call"))
+    }
+}
+
+/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once.
+async fn exchange(call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) -> Response {
+    let admitting = call.booking.clone();
+    match tokio::task::spawn_blocking(move || admitting.admit()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
+        Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
+    }
+    match open_upstream(&call.route, call.wire, &passed, &sent).await {
+        Err(why) => {
+            let line = call.line(None, &Usage::default(), Some((CONNECTION_FAILED.to_owned(), why.clone())));
+            call.book(line).await;
+            error(StatusCode::BAD_GATEWAY, ROUTE_UNAVAILABLE, &format!("route {} (chosen by {}): the gateway did not answer: {why}", call.route.name, call.source))
         }
+        Ok(upstream) => answer(call, upstream),
     }
 }
 
@@ -442,10 +470,14 @@ pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
 }
 
 impl Call {
-    /// The ledger line of this call. `failed`: the gateway's code and what was wrong, for a call that failed.
+    /// The ledger line of this call. `failed`: the gateway's code and what was wrong, for a call that failed. A call the
+    /// gateway refused or did not answer cost nothing; one whose answer broke off ran, and is booked as a call that
+    /// ended is.
     fn line(&self, call_id: Option<String>, usage: &Usage, failed: Option<(String, String)>) -> (Value, u64) {
         let (micro_usd, cost_known) = match (&failed, cost_of(&self.route, usage)) {
-            (Some(_), _) => (0, true),
+            (Some((code, _)), _) if code != ANSWER_BROKEN => (0, true),
+            (Some(_), Some(cost)) => (cost, true),
+            (Some(_), None) => (self.booking.reservation_micro_usd(), false),
             (None, Some(cost)) => (cost, true),
             (None, None) => (self.booking.reservation_micro_usd(), false),
         };
@@ -663,14 +695,22 @@ fn answer(call: Call, upstream: Upstream) -> Response {
         let failed = if status >= 400 {
             Some((gateway_code(status, &kept), format!("the gateway answered {status}")))
         } else {
-            broken.map(|why| ("answer-broken".to_owned(), why))
+            broken.map(|why| (ANSWER_BROKEN.to_owned(), why))
         };
         let line = call.line(call_id, &usage, failed);
         // Booked before the caller sees the end of the answer: a process that read its answer finds its call booked.
         call.book(line).await;
         drop(tx);
     });
-    let stream = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|item| (item, rx)) });
+    // Before an error is passed on the stream is pending once: the server writes out what it holds (the head, the
+    // chunks before the break) before the error ends the caller's connection.
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        let item = rx.recv().await?;
+        if item.is_err() {
+            tokio::task::yield_now().await;
+        }
+        Some((item, rx))
+    });
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
     for (name, value) in &headers {
@@ -814,5 +854,23 @@ mod tests {
         assert_eq!(target("http://gw.test/base/", "chat/completions").unwrap(), ("gw.test:80".to_owned(), "gw.test".to_owned(), "/base/v1/chat/completions".to_owned()));
         assert_eq!(target("http://[::1]:9/", "responses").unwrap().0, "[::1]:9");
         assert!(target("https://gw.test", "messages").is_err());
+    }
+
+    #[test]
+    fn a_relay_whose_daemon_listens_on_an_address_that_is_not_loopback_serves_no_run() {
+        for addr in ["0.0.0.0:7000", "[::]:7000", "192.0.2.1:7000"] {
+            let relay = Relay::new();
+            relay.set_listen(addr.parse().unwrap());
+            assert!(!relay.serves(), "{addr}");
+            let why = relay.open("run-a", RouteTable::default().with("default", route_named("default"), "default")).err().unwrap_or_default();
+            assert!(why.contains("loopback"), "{addr}: {why}");
+        }
+        let relay = Relay::new();
+        relay.set_listen("127.0.0.1:7000".parse().unwrap());
+        assert!(relay.serves());
+    }
+
+    fn route_named(name: &str) -> ResolvedRoute {
+        ResolvedRoute { name: name.to_owned(), base_url: "http://127.0.0.1:9".to_owned(), token: None, alias: "a".to_owned(), kind: "hosted".to_owned(), price_in_micro_usd_per_mtok: None, price_out_micro_usd_per_mtok: None }
     }
 }

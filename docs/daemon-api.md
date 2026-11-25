@@ -756,8 +756,10 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
 
 ## The relay of a run's model calls
 
-A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener, the relay of the model calls
-of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11):
+A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener when that is loopback, the relay of
+the model calls of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
+On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
+a run whose kind is `model` does not start. On a loopback listener:
 
 - `POST /daemon/relay/<run>/v1/messages`, `/v1/chat/completions` and `/v1/responses`, the gateway's three wires.
   A call carries the run's own token, from the run's route file (`RUNBOOK_ROUTE_FILE`, `runbook.route/1`), as
@@ -774,7 +776,9 @@ of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-ro
 - The relay sets `model` to the route's alias, sets `stream_options.include_usage` on a streamed chat call,
   adds the gateway's token and sends the call, one request per connection, to `<base_url>/v1/<wire>`. It reads
   the tokens from the answer's `usage` (or the usage of a stream's events) and books the call before the caller
-  sees the end of the answer.
+  sees the end of the answer. A `stream_options` that is `null` or no object is replaced by
+  `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
+  booked once.
 
 ## Outside the language
 

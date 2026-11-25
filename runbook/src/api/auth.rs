@@ -16,9 +16,10 @@
 //!    else 415 (a page cannot send that without a preflight the daemon does not answer).
 //!
 //! A `POST` to a path of the relay of a run's model calls, `/daemon/relay/<run>/v1/<wire>` exactly
-//! (`crate::relay::is_relay_path`), passes 1 and 2, and not 3 and 4: its caller is a process of a run,
+//! (`crate::relay::is_relay_path`), on a loopback listener passes 1 and 2, and not 3 and 4: its caller is a process of a run,
 //! which holds the run's own token and never the daemon's, and the relay checks that token itself (401
-//! without it) and takes JSON alone. Any other path under `/daemon/relay/` passes all four.
+//! without it) and takes JSON alone. Any other path under `/daemon/relay/`, and every one on a listener that is not
+//! loopback (where the daemon serves no relay), passes all four.
 //!
 //! The refusals have constant bodies that name no header value.
 
@@ -181,7 +182,7 @@ pub async fn guard(State(auth): State<Arc<Auth>>, request: Request, next: Next) 
     if loopback.is_some_and(|l| !host_is_listener(host.as_ref(), &l)) || !origin_is_host(request.headers(), host.as_ref()) {
         return refusal(StatusCode::FORBIDDEN, "forbidden", "this request is not for this daemon: its Host or Origin header is refused");
     }
-    if *request.method() == Method::POST && crate::relay::is_relay_path(request.uri().path()) {
+    if loopback.is_some() && *request.method() == Method::POST && crate::relay::is_relay_path(request.uri().path()) {
         return next.run(request).await;
     }
     let login = auth.ui && *request.method() == Method::POST && request.uri().path() == "/ui/login";

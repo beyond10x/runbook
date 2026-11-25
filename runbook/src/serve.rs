@@ -369,13 +369,17 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         } else {
             note(format_args!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed"));
         }
-        // The relay of the runs on a route answers on this listener: its address goes into every route file.
+        // The relay of the runs on a route answers on this listener when it is loopback: its address goes into every
+        // route file. On any other listener it is not served, and a run on a route does not start.
         if let Some(relay) = &relay {
             relay.set_listen(bound);
+            if !relay.serves() {
+                note(format_args!("runbook: the relay of model calls serves a loopback listener only: a run whose decider is a model does not start on {bound}"));
+            }
         }
         println!("runbook: listening on http://{bound}");
         let mut extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
-        if let Some(relay) = &relay {
+        if let Some(relay) = relay.as_ref().filter(|r| r.serves()) {
             extra = Some(match extra {
                 Some(mcp) => mcp.merge(relay.router()),
                 None => relay.router(),

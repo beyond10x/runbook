@@ -282,7 +282,7 @@ fn a_call_whose_caller_hangs_up_before_the_gateway_answers_is_still_booked_once(
     let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
     let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
     write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
-    let limit = std::time::Instant::now() + Duration::from_secs(10);
+    let limit = std::time::Instant::now() + Duration::from_secs(3);
     while got(&review).is_empty() {
         assert!(std::time::Instant::now() < limit, "the call never reached the gateway");
         std::thread::sleep(Duration::from_millis(10));
@@ -291,7 +291,7 @@ fn a_call_whose_caller_hangs_up_before_the_gateway_answers_is_still_booked_once(
     std::thread::sleep(Duration::from_millis(300));
     // the gateway ran the call and answers it, with its usage: the call was sent, so it is one line
     release.send(()).unwrap();
-    let lines = wait_for_lines(&book, 1);
+    let lines = wait_for_lines_within(&book, 1, Duration::from_secs(3));
     assert_eq!(lines.len(), 1, "{lines:?}");
 }
 
@@ -335,8 +335,33 @@ fn a_streamed_chat_call_with_stream_options_null_still_asks_for_its_usage() {
     assert_eq!(seen[0].body["stream_options"], json!({"include_usage": true}), "a streamed chat call went out without include_usage: {:?}", seen[0].body);
 }
 
+#[test]
+fn a_relay_path_on_a_listener_that_is_not_loopback_needs_the_daemons_token() {
+    let fx = super::commands::Fx::new("relay-wide");
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let listener = rt.block_on(tokio::net::TcpListener::bind("0.0.0.0:0")).unwrap();
+    let addr: SocketAddr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port()).parse().unwrap();
+    // a relay that took a run elsewhere, mounted on a listener of every interface by mistake
+    let relay = Relay::new();
+    relay.set_listen("127.0.0.1:9".parse().unwrap());
+    let review = gateway(OK_ANSWER);
+    let ticket = relay.open("run-wide", RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "default")).unwrap();
+    ticket.take_calls(Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) }));
+    let (daemon, extra) = (fx.d().clone(), relay.router());
+    rt.spawn(async move {
+        let _ = runbook::api::serve_extra(listener, daemon, Some(DAEMON_TOKEN), runbook::api::Streams::default(), Some(extra), std::future::pending()).await;
+    });
+    let r = send(addr, "POST", "/daemon/relay/run-wide/v1/messages", &[("Content-Type", "application/json"), ("Authorization", &format!("Bearer {}", ticket.token()))], Some(json!({"model": "review", "messages": []}).to_string().as_bytes()));
+    assert_eq!(r.status, 401, "{}", r.text());
+    assert!(got(&review).is_empty(), "a call on a listener that is not loopback reached the gateway");
+}
+
 fn wait_for_lines(book: &Book, n: usize) -> Vec<(Value, u64)> {
-    let limit = std::time::Instant::now() + Duration::from_secs(10);
+    wait_for_lines_within(book, n, Duration::from_secs(10))
+}
+
+fn wait_for_lines_within(book: &Book, n: usize, within: Duration) -> Vec<(Value, u64)> {
+    let limit = std::time::Instant::now() + within;
     loop {
         let lines = book.lines.lock().unwrap().clone();
         if lines.len() >= n {

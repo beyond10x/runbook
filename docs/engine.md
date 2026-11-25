@@ -397,7 +397,9 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
 `runbook/src/engine/route.rs`):
 
 - The relay answers on the daemon's own listener, at `/daemon/relay/<run>/v1/messages`,
-  `/v1/chat/completions` and `/v1/responses` ("The relay of a run's model calls", `docs/daemon-api.md`).
+  `/v1/chat/completions` and `/v1/responses` ("The relay of a run's model calls", `docs/daemon-api.md`), when
+  that listener is loopback. On any other (every interface included) the relay is not served, the daemon says so
+  on stderr as it starts, and a run whose decider kind is `model` fails to start by that name.
 - When the run starts, the daemon mints a token for it (32 random bytes), void when the run ends, and writes
   `route.json` (`runbook.route/1`, mode 0600: the relay's address for the run, the token, the roles and the
   route of each) into the run's private directory (`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode
@@ -412,17 +414,27 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   the gateway. Each call that was sent is one line of the run's spend ledger (`what` `model call`; run, step,
   role, route, alias, the setting that chose the route as `source`, the gateway's `x-llm-gateway-call` as
   `gateway_call`, `input_tokens`, `output_tokens`, `cost_known`, `micro_usd`) and one event
-  `runbook.model-call` of the run. With no price on the route the cost is not known: the line books the
-  reservation of the step in flight, else the largest budget of the runbook, with `cost_known: false`.
+  `runbook.model-call` of the run. With no price on the route the cost is not known, and the line books the
+  call's reservation with `cost_known: false` (`docs/model-routes.md`, section 5): in a step, the largest
+  reservation the step holds; otherwise (a call of the decider, or a step that holds none) what one call of the
+  decider may cost (`max_call_micro_usd`, its `max_budget_usd`), at most what the run's spend cap has left.
+- A call is exchanged with the gateway and booked apart from its caller: a caller that hangs up before the
+  answer does not stop a call that was sent from being booked, once. An answer that breaks off after its head
+  ran on the gateway: it is booked at its tokens and prices as read, else at its reservation.
 - A gateway that refuses the call, or does not answer, fails the call: the refusal is passed back unchanged
   (a connection that fails answers `502` `route-unavailable`), and the line and the event carry `cause`
-  `route-unavailable`, the route, the gateway's `code` (`connection-failed` for no answer) and the `source`.
-  The relay never sends a call to another route. A model call that fails ends the decider's call as any failed
-  call does: the decision stays open for a person.
+  `route-unavailable`, the route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for
+  an answer that broke off) and the `source`. A call the gateway refused or did not answer costs 0. The relay
+  never sends a call to another route. Such a call in a step fails that step with `route-unavailable`, the
+  route, the code and the `source`; a call of the decider that fails ends the decider's call as any failed call
+  does: the decision stays open for a person.
 - For a run on a route the relay's line is the call's cost: the cost records of its bound programs book
   nothing, and one with no `cost_usd` does not end the run (`runbook/src/cost.rs`). A line the ledger cannot
   write fails the step the call ran in (fail closed). The spend cap is held against what was booked when a
   call is taken: calls in flight at once may each pass it, by at most their own cost.
+- When the run ends its token is void at once, and the calls still in flight are waited for up to 5 seconds
+  and recorded. A call that outlasts that is booked in the ledger when it ends and said on the daemon's stderr;
+  the run's record says how many were left with one event `runbook.model-calls-unfinished`.
 
 A run whose kind is `rule`, or that has no kind, is on no route and writes no route file.
 

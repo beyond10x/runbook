@@ -226,6 +226,10 @@ fn written(shaped: &shape::Shaped, approve: bool, reasons: Option<String>) -> St
 }
 
 impl RunArbiter for Judge {
+    fn max_call_micro_usd(&self) -> u64 {
+        self.decider.max_call_micro_usd()
+    }
+
     fn judge(&mut self, decision: &Value) -> Judgement {
         let text = |k: &str| decision.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let (kind, key) = (text("kind"), key(decision));

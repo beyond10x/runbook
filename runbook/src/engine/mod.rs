@@ -44,6 +44,8 @@ pub const STORE_DIR: &str = "tree";
 pub const PINNED_EVENT: &str = "runbook.pinned";
 
 const POLL: Duration = Duration::from_millis(20);
+/// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
+const ROUTE_DRAIN: Duration = Duration::from_secs(5);
 
 /// What a run's store on disk is, as a restarted daemon finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -336,6 +338,9 @@ impl Engine {
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         if let Some(r) = &route {
             let booking = gate.route(r.step.clone());
+            if let Some(j) = &judge {
+                booking.set_max_call(j.max_call_micro_usd());
+            }
             r.ticket.take_calls(booking);
         }
         gate.persist();
@@ -363,9 +368,10 @@ impl Engine {
             done.store(true, Ordering::SeqCst);
             result
         });
-        // The run's token is void and its route file gone before the last calls are recorded.
+        // The run's token is void and its route file gone before the last calls are recorded; a call still in flight
+        // is waited for a while, and one that outlasts that is said in the run's record.
         drop(route);
-        gate.record_calls(sink);
+        gate.close_route(sink, ROUTE_DRAIN);
         gate.persist();
         result
     }
