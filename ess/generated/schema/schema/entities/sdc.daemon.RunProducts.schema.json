@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.RunProducts.schema.json",
+  "title": "RunProducts",
+  "description": "What a run wrote under its work/ directory, as the daemon finds it when a client asks for the view ProductsOfRun: one row per run the daemon knows. The daemon reads the directory from the host through one reader (runbook/src/engine/products.rs) with the guards of the inspector's file route: no link is followed or listed, a file with more than one name is not listed, a name that starts with a dot is neither listed nor entered, and the walk stops at 500 files, 2000 directories, 20000 entries and 6 levels. The language cannot read a file system, so no command creates or changes a row, as with Runbook.",
+  "x-ess-name": "sdc.daemon.RunProducts",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "work_id": {
+      "$ref": "#/$defs/sdc.daemon.WorkId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "description": "The run whose work/ directory this is.",
+      "x-ess-relation": {
+        "name": "run",
+        "kind": "references",
+        "source": "sdc.daemon.RunProducts",
+        "target": "sdc.daemon.Run",
+        "cardinality": "one",
+        "via": "run_id"
+      }
+    },
+    "files": {
+      "description": "The files, by path.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.daemon.ProductFile"
+      }
+    },
+    "cut": {
+      "description": "The bound the listing stopped at: files, directories, entries or depth; absent when it walked the whole directory.",
+      "type": "string"
+    },
+    "hidden": {
+      "description": "Entries whose name starts with a dot: neither listed nor served.",
+      "type": "integer"
+    },
+    "left_out": {
+      "description": "Links and files with more than one name: neither listed nor served.",
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.RunProducts.State"
+    }
+  },
+  "required": [
+    "work_id",
+    "run_id",
+    "files",
+    "hidden",
+    "left_out",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:2357649183f6805c340f860f0318c22ad4c84f98e5098af9918df30deacd21e5",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ProductFile": {
+      "title": "ProductFile",
+      "description": "One file of a run's work/ directory as the listing names it: a regular file with one name, reached through no link.",
+      "x-ess-name": "sdc.daemon.ProductFile",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/sdc.daemon.ProductPath"
+        },
+        "size": {
+          "description": "Its length in bytes.",
+          "type": "integer"
+        },
+        "modified_at": {
+          "description": "When it was last written.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "modified_at"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.ProductPath": {
+      "title": "ProductPath",
+      "description": "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.",
+      "x-ess-name": "sdc.daemon.ProductPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunProducts.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunProducts.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Listed"
+      ]
+    },
+    "sdc.daemon.WorkId": {
+      "title": "WorkId",
+      "description": "The work/ directory of a run as a row of RunProducts: its text is the run's id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run.",
+      "x-ess-name": "sdc.daemon.WorkId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

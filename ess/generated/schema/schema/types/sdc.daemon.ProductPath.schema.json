@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ProductPath.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ProductPath",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:5ae5a69041c7b736cc8b199da17a2b7aee3e32e761ebb44dee0c964527de99ea",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ProductPath": {
+      "title": "ProductPath",
+      "description": "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.",
+      "x-ess-name": "sdc.daemon.ProductPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

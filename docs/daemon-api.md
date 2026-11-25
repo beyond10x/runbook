@@ -129,6 +129,8 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
 | `runbooks` | none | the runbooks a `submit-run` of this daemon accepts, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
+| `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
+| `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -148,6 +150,50 @@ rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
+
+### The products of a run
+
+The `work/` directory of a daemon run is its workspace, `<state dir>/workspaces/<run id>/`, which the
+cases of the run share. The views `products` and `product` (and the MCP tools `list_products` and
+`read_product`, [`mcp.md`](mcp.md)) list and serve the files under it, through one reader
+(`runbook/src/engine/products.rs`, `docs/engine.md`, "The products of a run"). A path in both is
+relative to `work/` (`draft.txt`, `notes/a.md`), never absolute and never a path of the host.
+
+`products` answers one row: `files`, the regular files with one name by path, each with `size` (bytes)
+and `modified_at`; `hidden`, the entries whose name starts with a dot (a tool's cache or login: neither
+listed nor entered); `left_out`, the links and the files with more than one name (neither listed nor
+served); and `cut` when the walk stopped at a bound, the inspector's: `files` (500), `directories`
+(2000), `entries` (20000) or `depth` (6 levels). A directory is read an entry at a time, so one with a
+million entries costs no more than the bound.
+
+`product` answers one row for the file at `path`: `kind` `text` with `text`, the first 1,048,576 bytes
+(`limit`) as UTF-8 (a partial character at the cut is dropped), or `binary` (a NUL byte or a sequence
+that is not UTF-8) with no text; `size`, `shown` (the bytes of `text`), `truncated` (true when the file
+holds more than `limit` bytes) and `modified_at`.
+
+The guards are those of the inspector's file route, held through directory descriptors: the `work/`
+directory is opened without following a link at its name, each directory on the path relative to the one
+before with `O_NOFOLLOW | O_DIRECTORY`, the file with `O_NOFOLLOW | O_NONBLOCK`, and the type and the
+link count are read from the open file before a byte is read. The file is read in the daemon's process;
+no program opens it. A refusal is the daemon's `{"refused", "message"}` answer, names the path as it was
+asked, and holds no byte of a file and no path of the host:
+
+| Status | `refused` | When |
+|---|---|---|
+| 400 | `bad path` | the path is empty, absolute, holds a NUL or a backslash, or has a `..` component |
+| 404 | `not served` | a component starts with a dot |
+| 404 | `no such file` | nothing is at the path |
+| 403 | `link` | a link lies at a component of the path (also one that points into `work/`: no link is followed) |
+| 403 | `more than one link` | the file has a second name (a hard link may be a file outside the run) |
+| 415 | `not a regular file` | a directory, a pipe, a socket or a device: never opened |
+| 404 | `no such run` | the daemon has no run of that id (both views) |
+| 400 | `bad request` | the query lacks `run_id` or `path` |
+
+Both are reads: they sit behind the one guard (`runbook/src/api/auth.rs`) as every view does, so a
+request without the token, with a foreign `Host` or `Origin`, gets the answer any other read gets, and
+the cookie of the web UI's login opens them. The specification declares the entities `RunProducts` and
+`RunProduct`, which no command creates, as it does `Runbook`: the daemon fills the rows from the host
+when asked.
 
 ### A request read from its case
 
@@ -635,7 +681,9 @@ Without `--ui`, `GET /` is `404`.
 
 The MCP tools `read_run` and `read_events` ([`mcp.md`](mcp.md)) answer a run id the daemon does not know
 with an error: `isError` is true and `_meta["runbook/http-status"]` is `404`. The HTTP views `run` and
-`events` answer the same id with `200` and no rows; both stay as they are.
+`events` answer the same id with `200` and no rows; both stay as they are. The views `products` and
+`product` refuse such an id themselves (`404`, `no such run`), and the tools `list_products` and
+`read_product` carry that answer.
 
 ## Conformance
 
@@ -683,3 +731,5 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
   scenario-tested; the checks themselves are tested in the same story. The intake size limit is in
   the specification as a character count, the weaker bound; the handler holds the limit in bytes
   (1,048,576 bytes of UTF-8).
+- The refusals of the views `products` and `product`: a view has no outcome in the language, so the
+  refusals are the daemon's answers, written in the views' summaries and in "The products of a run".

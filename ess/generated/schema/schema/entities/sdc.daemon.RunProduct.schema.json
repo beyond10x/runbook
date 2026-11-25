@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.RunProduct.schema.json",
+  "title": "RunProduct",
+  "description": "One file of a run's work/ directory, read when a client asks for the view ProductOfRun. The reader opens each directory on the path and the file relative to the one before without following a link, reads the type and the link count from the open file before a byte, and reads at most `limit` bytes in the daemon's process; no program opens the file. As with RunProducts, no command creates or changes a row.",
+  "x-ess-name": "sdc.daemon.RunProduct",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "path": {
+      "$ref": "#/$defs/sdc.daemon.ProductPath"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "run",
+        "kind": "references",
+        "source": "sdc.daemon.RunProduct",
+        "target": "sdc.daemon.Run",
+        "cardinality": "one",
+        "via": "run_id"
+      }
+    },
+    "size": {
+      "description": "The length of the file in bytes.",
+      "type": "integer"
+    },
+    "modified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "kind": {
+      "$ref": "#/$defs/sdc.daemon.ProductKind"
+    },
+    "text": {
+      "description": "The first `limit` bytes as text; absent when kind is binary.",
+      "type": "string"
+    },
+    "shown": {
+      "description": "The bytes of `text`; 0 for binary.",
+      "type": "integer"
+    },
+    "truncated": {
+      "description": "True when the file holds more than `limit` bytes: `text` is its start.",
+      "type": "boolean"
+    },
+    "limit": {
+      "description": "The most bytes a read answers: 1048576.",
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.RunProduct.State"
+    }
+  },
+  "required": [
+    "path",
+    "run_id",
+    "size",
+    "modified_at",
+    "kind",
+    "shown",
+    "truncated",
+    "limit",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d0fd91281f779ddf9f7f8e650ee0ca44068ac475fc919cec32d2fd8a7d2bfe2d",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ProductKind": {
+      "title": "ProductKind",
+      "description": "What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered).",
+      "x-ess-name": "sdc.daemon.ProductKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "text",
+        "binary"
+      ]
+    },
+    "sdc.daemon.ProductPath": {
+      "title": "ProductPath",
+      "description": "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.",
+      "x-ess-name": "sdc.daemon.ProductPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunProduct.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunProduct.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Read"
+      ]
+    }
+  }
+}

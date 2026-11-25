@@ -151,6 +151,33 @@ types:
       - {name: grounds, type: "List<sdc.decision.Ground>", summary: "The grounds of the recommendation, each with a citation the runtime checked before the request opened."}
       - {name: free_answer, type: Boolean, summary: "Whether an answer that names no option is taken as a free answer (a question request)."}
 
+  - name: sdc.daemon.WorkId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The work/ directory of a run as a row of RunProducts: its text is the run's id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run."
+
+  - name: sdc.daemon.ProductPath
+    kind: newtype
+    of: String
+    naming:
+      summary: "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host."
+
+  - name: sdc.daemon.ProductFile
+    kind: struct
+    naming:
+      summary: "One file of a run's work/ directory as the listing names it: a regular file with one name, reached through no link."
+    fields:
+      - {name: path, type: sdc.daemon.ProductPath}
+      - {name: size, type: Integer, summary: "Its length in bytes."}
+      - {name: modified_at, type: Timestamp, summary: "When it was last written."}
+
+  - name: sdc.daemon.ProductKind
+    kind: enum
+    variants: [text, binary]
+    naming:
+      summary: "What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered)."
+
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
     to: sdc.daemon.ConfinementLevel
@@ -316,6 +343,47 @@ entities:
       initial: Recorded
       states: [Recorded]
       terminal: [Recorded]
+
+  - name: sdc.daemon.RunProducts
+    naming:
+      summary: "What a run wrote under its work/ directory, as the daemon finds it when a client asks for the view ProductsOfRun: one row per run the daemon knows. The daemon reads the directory from the host through one reader (runbook/src/engine/products.rs) with the guards of the inspector's file route: no link is followed or listed, a file with more than one name is not listed, a name that starts with a dot is neither listed nor entered, and the walk stops at 500 files, 2000 directories, 20000 entries and 6 levels. The language cannot read a file system, so no command creates or changes a row, as with Runbook."
+    identity:
+      name: work_id
+      type: sdc.daemon.WorkId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId, summary: "The run whose work/ directory this is."}
+      - {name: files, type: "List<sdc.daemon.ProductFile>", summary: "The files, by path."}
+      - {name: cut, type: Optional<String>, summary: "The bound the listing stopped at: files, directories, entries or depth; absent when it walked the whole directory."}
+      - {name: hidden, type: Integer, summary: "Entries whose name starts with a dot: neither listed nor served."}
+      - {name: left_out, type: Integer, summary: "Links and files with more than one name: neither listed nor served."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Listed
+      states: [Listed]
+      terminal: [Listed]
+
+  - name: sdc.daemon.RunProduct
+    naming:
+      summary: "One file of a run's work/ directory, read when a client asks for the view ProductOfRun. The reader opens each directory on the path and the file relative to the one before without following a link, reads the type and the link count from the open file before a byte, and reads at most `limit` bytes in the daemon's process; no program opens the file. As with RunProducts, no command creates or changes a row."
+    identity:
+      name: path
+      type: sdc.daemon.ProductPath
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: size, type: Integer, summary: "The length of the file in bytes."}
+      - {name: modified_at, type: Timestamp}
+      - {name: kind, type: sdc.daemon.ProductKind}
+      - {name: text, type: Optional<String>, summary: "The first `limit` bytes as text; absent when kind is binary."}
+      - {name: shown, type: Integer, summary: "The bytes of `text`; 0 for binary."}
+      - {name: truncated, type: Boolean, summary: "True when the file holds more than `limit` bytes: `text` is its start."}
+      - {name: limit, type: Integer, summary: "The most bytes a read answers: 1048576."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
 
 actors:
   - name: sdc.daemon.Runtime
@@ -1174,6 +1242,48 @@ views:
       - {name: runbook_id, type: sdc.daemon.RunbookName}
       - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
       - {name: runtime, type: sdc.daemon.RuntimeKind}
+
+  - name: sdc.daemon.ProductsOfRun
+    naming:
+      wire: products
+      display: Products of a run
+      summary: "The files a run wrote under its work/ directory, in one row: GET /daemon/views/products?run_id=... (the MCP tool list_products). A view has no outcome in the language, so the refusals are the daemon's {refused, message} answers: 404 `no such run` for a run id the daemon does not know, 403 `link` when the work/ directory itself is a link. No path of the host is in a row or a refusal."
+    source: sdc.daemon.RunProducts
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: files, type: "List<sdc.daemon.ProductFile>"}
+      - {name: cut, type: Optional<String>}
+      - {name: hidden, type: Integer}
+      - {name: left_out, type: Integer}
+
+  - name: sdc.daemon.ProductOfRun
+    naming:
+      wire: product
+      display: One product of a run
+      summary: "One file of a run's work/ directory, by its path as ProductsOfRun names it, in one row: GET /daemon/views/product?run_id=...&path=... (the MCP tool read_product). The refusals, each the daemon's {refused, message} answer naming the path as asked and holding no byte of a file and no path of the host: 400 `bad path` (empty, absolute, a NUL, a backslash or a `..` component), 404 `not served` (a name that starts with a dot), 404 `no such file`, 403 `link` (a link at any component of the path: no link is followed, whether it stays in the run or not), 403 `more than one link`, 415 `not a regular file` (a directory, a pipe, a socket or a device, never opened), 404 `no such run`."
+    source: sdc.daemon.RunProduct
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: path, type: sdc.daemon.ProductPath}
+    filter:
+      all:
+        - run_id == param.run_id
+        - path == param.path
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: path, type: sdc.daemon.ProductPath}
+      - {name: size, type: Integer}
+      - {name: modified_at, type: Timestamp}
+      - {name: kind, type: sdc.daemon.ProductKind}
+      - {name: text, type: Optional<String>}
+      - {name: shown, type: Integer}
+      - {name: truncated, type: Boolean}
+      - {name: limit, type: Integer}
 
   - name: sdc.daemon.Runs
     naming:

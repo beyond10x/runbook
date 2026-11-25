@@ -11,6 +11,7 @@ mod gate;
 mod hide;
 pub mod layout;
 pub mod pin;
+pub mod products;
 pub mod refusal;
 pub mod shape;
 mod tail;

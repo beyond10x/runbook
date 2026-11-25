@@ -267,6 +267,29 @@ for the view `run` (`docs/daemon-api.md`, "The step in flight"). The gate tests 
 `a_handoff_check_is_recorded_as_a_check_of_its_action` and
 `after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event` in `runbook/tests/daemon/engine.rs`.
 
+## The products of a run
+
+The run's `work/` directory is its workspace, `<state dir>/workspaces/<run id>/`: the bound programs of
+every case of the run write there, and a stub run has one too. `runbook/src/engine/products.rs` is the
+one reader of it: `list` walks it for the views `products` and `list_products`, `read` reads one file for
+`product` and `read_product` (`docs/daemon-api.md`, "The products of a run"; `docs/mcp.md`). It runs in
+the daemon's process and starts no program, so no name and no path reaches a shell.
+
+It holds directories as descriptors (`record_write::Held`, the store of the run's record uses the same
+walk): the workspace is opened without following a link at its own name, each directory below with
+`O_NOFOLLOW | O_DIRECTORY` relative to the one above, and a file with `O_NOFOLLOW | O_NONBLOCK`, after
+`fstatat` without following named a regular file with one link. The type and the link count are read
+again from the open descriptor before a byte is read, so a file swapped for a link, a pipe or a second
+name between the two is refused, and a pipe never blocks the read. A path is checked before anything
+opens: not empty, not absolute, no NUL, no backslash, no `.` or `..` component, no component that starts
+with a dot. A file is read up to 1 MiB and one more byte (to say `truncated`), never more.
+
+The listing has the inspector's bounds (500 files, 2000 directories, 20000 entries, 6 levels; the first
+reached is `cut`). It counts the names that start with a dot (`hidden`, never entered) and the links, the
+files with a second name and the names that are not UTF-8 (`left_out`). The gate tests are
+`runbook/tests/daemon/products.rs` (the views) and the `list_products` and `read_product` cases of
+`runbook/tests/daemon/mcp.rs` (the tools).
+
 ## Loom gaps seen
 
 All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program

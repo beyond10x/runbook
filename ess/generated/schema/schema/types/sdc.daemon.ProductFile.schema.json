@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ProductFile.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ProductFile",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:9d88da8966d89788f748d3f80d88ffafcd15c16890e37d3da7b9a88b564cd3be",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ProductFile": {
+      "title": "ProductFile",
+      "description": "One file of a run's work/ directory as the listing names it: a regular file with one name, reached through no link.",
+      "x-ess-name": "sdc.daemon.ProductFile",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/sdc.daemon.ProductPath"
+        },
+        "size": {
+          "description": "Its length in bytes.",
+          "type": "integer"
+        },
+        "modified_at": {
+          "description": "When it was last written.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "modified_at"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.ProductPath": {
+      "title": "ProductPath",
+      "description": "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.",
+      "x-ess-name": "sdc.daemon.ProductPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:ddbe651c42249ec3fbc7851f1ddaef32b0ee6322a45426e6592fb5d057ff0594
+# contract digest slice-sha256/2:4a9313bb915eead22ce13f04f07a4436c13f71c6ace6244fdd09993720c67f19
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:ddbe651c42249ec3fbc7851f1ddaef32b0ee6322a45426e6592fb5d057ff0594
+    contract_digest: slice-sha256/2:4a9313bb915eead22ce13f04f07a4436c13f71c6ace6244fdd09993720c67f19
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -534,6 +534,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.OpenDecisionsOfRun.Response'
+  /daemon/views/product:
+    get:
+      operationId: sdc.daemon.ProductOfRun
+      summary: One product of a run
+      description: 'One file of a run''s work/ directory, by its path as ProductsOfRun names it, in one row: GET /daemon/views/product?run_id=...&path=... (the MCP tool read_product). The refusals, each the daemon''s {refused, message} answer naming the path as asked and holding no byte of a file and no path of the host: 400 `bad path` (empty, absolute, a NUL, a backslash or a `..` component), 404 `not served` (a name that starts with a dot), 404 `no such file`, 403 `link` (a link at any component of the path: no link is followed, whether it stays in the run or not), 403 `more than one link`, 415 `not a regular file` (a directory, a pipe, a socket or a device, never opened), 404 `no such run`.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      parameters:
+      - name: run_id
+        in: query
+        description: Read by the view's filter as `param.run_id`; it selects which rows the view holds.
+        required: true
+        schema:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      - name: path
+        in: query
+        description: Read by the view's filter as `param.path`; it selects which rows the view holds.
+        required: true
+        schema:
+          $ref: '#/components/schemas/sdc.daemon.ProductPath'
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.ProductOfRun`, a projection of `sdc.daemon.RunProduct`. Contains the instances where `(run_id == param.run_id and path == param.path)` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.ProductOfRun.Response'
+  /daemon/views/products:
+    get:
+      operationId: sdc.daemon.ProductsOfRun
+      summary: Products of a run
+      description: 'The files a run wrote under its work/ directory, in one row: GET /daemon/views/products?run_id=... (the MCP tool list_products). A view has no outcome in the language, so the refusals are the daemon''s {refused, message} answers: 404 `no such run` for a run id the daemon does not know, 403 `link` when the work/ directory itself is a link. No path of the host is in a row or a refusal.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      parameters:
+      - name: run_id
+        in: query
+        description: Read by the view's filter as `param.run_id`; it selects which rows the view holds.
+        required: true
+        schema:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.ProductsOfRun`, a projection of `sdc.daemon.RunProducts`. Contains the instances where `run_id == param.run_id` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.ProductsOfRun.Response'
   /daemon/views/run:
     get:
       operationId: sdc.daemon.RunDetail
@@ -1728,6 +1778,127 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.ProductFile:
+      title: ProductFile
+      description: 'One file of a run''s work/ directory as the listing names it: a regular file with one name, reached through no link.'
+      x-ess-name: sdc.daemon.ProductFile
+      x-ess-kind: struct
+      type: object
+      properties:
+        path:
+          $ref: '#/components/schemas/sdc.daemon.ProductPath'
+        size:
+          description: Its length in bytes.
+          type: integer
+        modified_at:
+          description: When it was last written.
+          type: string
+          format: date-time
+      required:
+      - path
+      - size
+      - modified_at
+      additionalProperties: false
+    sdc.daemon.ProductKind:
+      title: ProductKind
+      description: 'What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered).'
+      x-ess-name: sdc.daemon.ProductKind
+      x-ess-kind: enum
+      type: string
+      enum:
+      - text
+      - binary
+    sdc.daemon.ProductOfRun.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.ProductOfRun`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.ProductOfRun.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.ProductOfRun.Row:
+      title: One product of a run row
+      description: 'One file of a run''s work/ directory, by its path as ProductsOfRun names it, in one row: GET /daemon/views/product?run_id=...&path=... (the MCP tool read_product). The refusals, each the daemon''s {refused, message} answer naming the path as asked and holding no byte of a file and no path of the host: 400 `bad path` (empty, absolute, a NUL, a backslash or a `..` component), 404 `not served` (a name that starts with a dot), 404 `no such file`, 403 `link` (a link at any component of the path: no link is followed, whether it stays in the run or not), 403 `more than one link`, 415 `not a regular file` (a directory, a pipe, a socket or a device, never opened), 404 `no such run`.'
+      x-ess-name: sdc.daemon.ProductOfRun
+      x-ess-kind: view-row
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        path:
+          $ref: '#/components/schemas/sdc.daemon.ProductPath'
+        size:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+        kind:
+          $ref: '#/components/schemas/sdc.daemon.ProductKind'
+        text:
+          type: string
+        shown:
+          type: integer
+        truncated:
+          type: boolean
+        limit:
+          type: integer
+      required:
+      - run_id
+      - path
+      - size
+      - modified_at
+      - kind
+      - shown
+      - truncated
+      - limit
+      additionalProperties: false
+    sdc.daemon.ProductPath:
+      title: ProductPath
+      description: 'The path of a file of a run, relative to the run''s work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.'
+      x-ess-name: sdc.daemon.ProductPath
+      x-ess-kind: newtype
+      type: string
+    sdc.daemon.ProductsOfRun.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.ProductsOfRun`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.ProductsOfRun.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.ProductsOfRun.Row:
+      title: Products of a run row
+      description: 'The files a run wrote under its work/ directory, in one row: GET /daemon/views/products?run_id=... (the MCP tool list_products). A view has no outcome in the language, so the refusals are the daemon''s {refused, message} answers: 404 `no such run` for a run id the daemon does not know, 403 `link` when the work/ directory itself is a link. No path of the host is in a row or a refusal.'
+      x-ess-name: sdc.daemon.ProductsOfRun
+      x-ess-kind: view-row
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.ProductFile'
+        cut:
+          type: string
+        hidden:
+          type: integer
+        left_out:
+          type: integer
+      required:
+      - run_id
+      - files
+      - hidden
+      - left_out
+      additionalProperties: false
     sdc.daemon.Run.State:
       title: State
       x-ess-name: sdc.daemon.Run.State
@@ -3098,6 +3269,42 @@ x-ess-entities:
     maxLength: 200
     x-ess-invariants:
     - value.count <= 200
+  sdc.daemon.ProductFile:
+    title: ProductFile
+    description: 'One file of a run''s work/ directory as the listing names it: a regular file with one name, reached through no link.'
+    x-ess-name: sdc.daemon.ProductFile
+    x-ess-kind: struct
+    type: object
+    properties:
+      path:
+        $ref: '#/x-ess-entities/sdc.daemon.ProductPath'
+      size:
+        description: Its length in bytes.
+        type: integer
+      modified_at:
+        description: When it was last written.
+        type: string
+        format: date-time
+    required:
+    - path
+    - size
+    - modified_at
+    additionalProperties: false
+  sdc.daemon.ProductKind:
+    title: ProductKind
+    description: 'What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered).'
+    x-ess-name: sdc.daemon.ProductKind
+    x-ess-kind: enum
+    type: string
+    enum:
+    - text
+    - binary
+  sdc.daemon.ProductPath:
+    title: ProductPath
+    description: 'The path of a file of a run, relative to the run''s work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host.'
+    x-ess-name: sdc.daemon.ProductPath
+    x-ess-kind: newtype
+    type: string
   sdc.daemon.Run:
     title: Run
     description: One run of a runbook on the daemon:its inputs as submitted, its confinement, where it stands and how it ended.
@@ -3265,6 +3472,116 @@ x-ess-entities:
     x-ess-name: sdc.daemon.RunOutcome
     x-ess-kind: newtype
     type: string
+  sdc.daemon.RunProduct:
+    title: RunProduct
+    description: One file of a run's work/ directory, read when a client asks for the view ProductOfRun. The reader opens each directory on the path and the file relative to the one before without following a link, reads the type and the link count from the open file before a byte, and reads at most `limit` bytes in the daemon's process; no program opens the file. As with RunProducts, no command creates or changes a row.
+    x-ess-name: sdc.daemon.RunProduct
+    x-ess-kind: entity
+    type: object
+    properties:
+      path:
+        $ref: '#/x-ess-entities/sdc.daemon.ProductPath'
+      run_id:
+        $ref: '#/x-ess-entities/sdc.daemon.RunId'
+        x-ess-relation:
+          name: run
+          kind: references
+          source: sdc.daemon.RunProduct
+          target: sdc.daemon.Run
+          cardinality: one
+          via: run_id
+          $ref: '#/x-ess-entities/sdc.daemon.Run'
+      size:
+        description: The length of the file in bytes.
+        type: integer
+      modified_at:
+        type: string
+        format: date-time
+      kind:
+        $ref: '#/x-ess-entities/sdc.daemon.ProductKind'
+      text:
+        description: The first `limit` bytes as text; absent when kind is binary.
+        type: string
+      shown:
+        description: The bytes of `text`; 0 for binary.
+        type: integer
+      truncated:
+        description: 'True when the file holds more than `limit` bytes: `text` is its start.'
+        type: boolean
+      limit:
+        description: 'The most bytes a read answers: 1048576.'
+        type: integer
+      state:
+        $ref: '#/x-ess-entities/sdc.daemon.RunProduct.State'
+    required:
+    - path
+    - run_id
+    - size
+    - modified_at
+    - kind
+    - shown
+    - truncated
+    - limit
+    - state
+    additionalProperties: false
+  sdc.daemon.RunProduct.State:
+    title: State
+    x-ess-name: sdc.daemon.RunProduct.State
+    x-ess-kind: enum
+    type: string
+    enum:
+    - Read
+  sdc.daemon.RunProducts:
+    title: RunProducts
+    description: 'What a run wrote under its work/ directory, as the daemon finds it when a client asks for the view ProductsOfRun: one row per run the daemon knows. The daemon reads the directory from the host through one reader (runbook/src/engine/products.rs) with the guards of the inspector''s file route: no link is followed or listed, a file with more than one name is not listed, a name that starts with a dot is neither listed nor entered, and the walk stops at 500 files, 2000 directories, 20000 entries and 6 levels. The language cannot read a file system, so no command creates or changes a row, as with Runbook.'
+    x-ess-name: sdc.daemon.RunProducts
+    x-ess-kind: entity
+    type: object
+    properties:
+      work_id:
+        $ref: '#/x-ess-entities/sdc.daemon.WorkId'
+      run_id:
+        $ref: '#/x-ess-entities/sdc.daemon.RunId'
+        description: The run whose work/ directory this is.
+        x-ess-relation:
+          name: run
+          kind: references
+          source: sdc.daemon.RunProducts
+          target: sdc.daemon.Run
+          cardinality: one
+          via: run_id
+          $ref: '#/x-ess-entities/sdc.daemon.Run'
+      files:
+        description: The files, by path.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.ProductFile'
+      cut:
+        description: 'The bound the listing stopped at: files, directories, entries or depth; absent when it walked the whole directory.'
+        type: string
+      hidden:
+        description: 'Entries whose name starts with a dot: neither listed nor served.'
+        type: integer
+      left_out:
+        description: 'Links and files with more than one name: neither listed nor served.'
+        type: integer
+      state:
+        $ref: '#/x-ess-entities/sdc.daemon.RunProducts.State'
+    required:
+    - work_id
+    - run_id
+    - files
+    - hidden
+    - left_out
+    - state
+    additionalProperties: false
+  sdc.daemon.RunProducts.State:
+    title: State
+    x-ess-name: sdc.daemon.RunProducts.State
+    x-ess-kind: enum
+    type: string
+    enum:
+    - Listed
   sdc.daemon.RunSettings:
     title: RunSettings
     description: 'The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime''s run-settings story; none are declared now.'
@@ -3392,6 +3709,12 @@ x-ess-entities:
     - started_at
     - seconds
     additionalProperties: false
+  sdc.daemon.WorkId:
+    title: WorkId
+    description: 'The work/ directory of a run as a row of RunProducts: its text is the run''s id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run.'
+    x-ess-name: sdc.daemon.WorkId
+    x-ess-kind: newtype
+    type: string
   sdc.decision.ActionId:
     title: ActionId
     description: A protocol action id, such as roadmap.approve.
