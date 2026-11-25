@@ -209,6 +209,15 @@ fn main() -> ExitCode {
             }
             // The level of a submit that names none and the deciders the daemon offers come from the same file.
             args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+            // The model routes: their token files are read once, here, before the daemon reads or writes anything.
+            if let Some(f) = file.as_ref() {
+                let mut routes = f.routes.clone();
+                if let Err(e) = routes.read_tokens() {
+                    eprintln!("runbook serve: {}", config::printable(&e));
+                    return ExitCode::from(loom_run::EXIT_REFUSED);
+                }
+                args.routes = std::sync::Arc::new(routes);
+            }
             if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
                 let limits = loom_run::arbiter::Limits {
                     login_file: f.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),

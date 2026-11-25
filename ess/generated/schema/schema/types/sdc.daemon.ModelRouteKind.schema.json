@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ModelRouteKind.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ModelRouteKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:52c01511af35c5954a481165cde742d494d9ceb812fe620ea2dd837908970bf8",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ModelRouteKind": {
+      "title": "ModelRouteKind",
+      "description": "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it.",
+      "x-ess-name": "sdc.daemon.ModelRouteKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "managed",
+        "hosted",
+        "local"
+      ]
+    }
+  }
+}

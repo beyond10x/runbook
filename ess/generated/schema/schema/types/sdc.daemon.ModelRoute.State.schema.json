@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ModelRoute.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ModelRoute.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:775d5c4d29f709b1e792dd97d65c7d80620d6516ad854e5c4f678255df655bf2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ModelRoute.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.ModelRoute.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Declared"
+      ]
+    }
+  }
+}

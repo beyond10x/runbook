@@ -79,6 +79,13 @@ async fn view_route(app: App, name: &'static str, query: HashMap<String, String>
     if routes::EVENT_VIEWS.contains(&name) && routes::wants_stream(request.headers()) {
         return sse::answer(name, &app.daemon, &query, request.headers(), &app.streams, app.closing.clone());
     }
+    if routes::WAITING_VIEWS.contains(&name) {
+        // a view that may wait on the network waits off the workers that answer every other request
+        let daemon = app.daemon.clone();
+        return tokio::task::spawn_blocking(move || routes::view(name, &daemon, &query))
+            .await
+            .unwrap_or_else(|_| refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal error", "the view failed"));
+    }
     routes::view(name, &app.daemon, &query)
 }
 

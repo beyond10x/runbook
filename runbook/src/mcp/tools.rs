@@ -1,7 +1,7 @@
-//! The thirteen tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! The fourteen tools and their calls. A tool names a route of the command layer: `submit_run`,
 //! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
 //! names, `list_runs`, `read_run`,
-//! `read_events`, `read_open_decisions`, `list_products` and `read_product` are the views `runs*`, `run`, `events`, `open-decisions`, `products` and `product`. The result of a call is the body of the
+//! `read_events`, `read_open_decisions`, `list_products`, `read_product` and `list_routes` are the views `runs*`, `run`, `events`, `open-decisions`, `products`, `product` and `routes`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
 //!
 //! `delegate` and `delegation_result` are the command `delegate` and the view `delegation-result`: `delegate` waits for the run's
@@ -35,6 +35,7 @@ enum Kind {
     ReadOpenDecisions,
     ListProducts,
     ReadProduct,
+    ListRoutes,
     Delegate,
     DelegationResult,
 }
@@ -47,7 +48,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 13] = [
+const TOOLS: [Tool; 14] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -126,6 +127,13 @@ const TOOLS: [Tool; 13] = [
         kind: Kind::ReadProduct,
     },
     Tool {
+        name: "list_routes",
+        title: "List the model routes",
+        description: "The model routes the daemon declares, in order of name, in the `rows` of the result: each with `route` (the name a run names), `gateway` (by name), `alias` (the gateway's name of the model), `kind` (managed, hosted or local), `wires` (chat, responses, messages, as the gateway lists them), `status` (ready, not-ready, listed, model-unknown, gateway-not-ready or gateway-unreachable), `phase` when the gateway gave one, and `read_at`. The daemon reads its gateways at most once every 15 seconds, in the background and within 5 seconds, and answers the last read at once; a read sends no model call and starts nothing. No address, token or price is in a row.",
+        read_only: true,
+        kind: Kind::ListRoutes,
+    },
+    Tool {
         name: "delegate",
         title: "Delegate agent work",
         description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken, and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
@@ -174,6 +182,7 @@ fn input_schema(tool: &Tool) -> Value {
         Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
         Kind::ListProducts => schema::object(vec![("run_id", schema::view_param("products", "run_id"))], &["run_id"]),
         Kind::ReadProduct => schema::object(vec![("run_id", schema::view_param("product", "run_id")), ("path", schema::view_param("product", "path"))], &["run_id", "path"]),
+        Kind::ListRoutes => schema::object(Vec::new(), &[]),
         Kind::Delegate => {
             let mut s = schema::command_input("delegate", &DELEGATE_FILLED, &SUBMIT_DEFAULTED);
             s["properties"]["wait_seconds"] = json!({"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "description": format!("How long the tool waits for the run's end before it answers the run id and its state. Default {DEFAULT_WAIT_SECONDS}.")});
@@ -196,7 +205,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the thirteen tools, in a fixed order.
+/// The result of `tools/list`: exactly the fourteen tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -391,6 +400,7 @@ pub fn call(be: &dyn Backend, name: &str, arguments_given: &Value) -> Result<Ans
         Kind::ReadOpenDecisions => Ok(be.view("open-decisions", &query_of(&args)?)),
         Kind::ListProducts => Ok(be.view("products", &query_of(&args)?)),
         Kind::ReadProduct => Ok(be.view("product", &query_of(&args)?)),
+        Kind::ListRoutes => Ok(be.view("routes", &HashMap::new())),
         Kind::Delegate => Ok(be.command("delegate", Value::Object(args).to_string().as_bytes())),
         Kind::DelegationResult => Ok(be.view("delegation-result", &query_of(&args)?)),
         Kind::ReadEvents => {

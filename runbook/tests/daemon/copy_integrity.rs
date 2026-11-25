@@ -2688,6 +2688,7 @@ mod relative_state_directory {
             autonomy: None,
             decider: None,
             arbiter: None,
+            routes: Default::default(),
             route_table: None,
             assets_root: None,
             token_file: None,
