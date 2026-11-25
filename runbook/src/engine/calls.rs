@@ -5,7 +5,7 @@
 
 use super::decision::Parsed;
 use crate::runtime::Confinement;
-use b10x_loom_tree::model::{ApprovalDecision, DecisionKind, NextDecision, TreeStop};
+use b10x_loom_tree::model::{ApprovalDecision, DecisionKind, NextDecision, TreeRefusalReason, TreeStop};
 use b10x_loom_tree::{
     approve, close, open_tree, read_protocols_directory, run_tree, status_json, stored_catalog, tree_status, verify_json, verify_tree, ApproveRequest, CloseRequest,
     ConfinementAdapter, EngineConfinement, EngineRunner, OpenRequest, Reasons, RunSettings, TestRunner, TreeTime, UNCONFINED_FLAG_REASON,
@@ -14,6 +14,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Whether the process sits in a cgroup whose subtree it may write: the delegation the `linux`
 /// level needs. A check that fails closed; Substrate's own probe still decides at the first
@@ -122,6 +123,25 @@ pub struct Ran {
     pub decisions: Vec<NextDecision>,
 }
 
+/// How long a call on a store that is held with no holder named is asked again.
+const UNNAMED_HOLD: Duration = Duration::from_secs(5);
+
+/// `call`, a Loom call that holds the store's lock, asked again every 10 ms for up to
+/// [`UNNAMED_HOLD`] while it is refused `StoreInUse` with no holder named. A process forked while
+/// a call holds the lock (the program of another run of this process) holds a copy of the lock's
+/// descriptor, and with it the lock, until it execs; the call that took the lock has let go and
+/// removed its holder file. A refused call wrote nothing. A holder that names its process is
+/// another command and is not waited for.
+fn settled<T>(mut call: impl FnMut() -> Result<T, b10x_loom_tree::Refused>) -> Result<T, b10x_loom_tree::Refused> {
+    let limit = Instant::now() + UNNAMED_HOLD;
+    loop {
+        match call() {
+            Err(e) if e.reason() == TreeRefusalReason::StoreInUse && e.0.holder.is_none() && Instant::now() < limit => std::thread::sleep(Duration::from_millis(10)),
+            done => return done,
+        }
+    }
+}
+
 /// `run_tree` once, with the observer the caller gives.
 pub fn run(
     store: &Path,
@@ -130,7 +150,8 @@ pub fn run(
     observer: Option<&mut dyn b10x_loom_tree::RunObserver>,
     cancel: Option<&AtomicBool>,
 ) -> Result<Ran, super::refusal::Refusal> {
-    let ran = run_tree(store, catalog, settings, observer, cancel).map_err(|e| super::refusal::Refusal::of(&e))?;
+    let mut observer = observer;
+    let ran = settled(|| run_tree(store, catalog, settings, observer.as_mut().map(|o| &mut **o as &mut dyn b10x_loom_tree::RunObserver), cancel)).map_err(|e| super::refusal::Refusal::of(&e))?;
     let document = b10x_loom_tree::run_json(&ran);
     Ok(Ran { stop: ran.stop, case: ran.case, steps: ran.steps, detail: ran.detail, document, decisions: ran.decisions })
 }
@@ -197,7 +218,7 @@ pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDe
                 (None, Some(file)) => Some(Reasons::File(file)),
                 (None, None) => None,
             };
-            approve(&ApproveRequest {
+            let request = ApproveRequest {
                 store,
                 case: &d.case,
                 capability: d.capability.as_deref(),
@@ -209,7 +230,8 @@ pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDe
                 time: TreeTime::Host,
                 catalog,
                 runner: Some(Arc::clone(runner)),
-            })
+            };
+            settled(|| approve(&request))
             .map(|_| ())
             .map_err(|e| e.to_string())
         }
@@ -221,7 +243,8 @@ pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDe
                 return Ok(());
             }
             let outcome = d.outcome.as_deref().ok_or("the decision names no outcome")?;
-            close(&CloseRequest { store, case: &d.case, outcome, time: TreeTime::Host, catalog }).map(|_| ()).map_err(|e| e.to_string())
+            let request = CloseRequest { store, case: &d.case, outcome, time: TreeTime::Host, catalog };
+            settled(|| close(&request)).map(|_| ()).map_err(|e| e.to_string())
         }
         DecisionKind::Handoff => Ok(()),
     }

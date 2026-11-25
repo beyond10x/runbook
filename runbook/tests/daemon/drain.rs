@@ -288,6 +288,22 @@ fn header<'a>(h: &'a [(String, String)], name: &str) -> Option<&'a str> {
     h.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
 }
 
+/// Why each of `runs` that did not end `delivered` ended: its `run_ended` fact, the reason of its
+/// `runbook.runtime-failed` event, and the daemon's standard error.
+fn not_delivered(s: &Serve, runs: &[String]) -> String {
+    let journal = s.journal();
+    let mut out = String::new();
+    for run in runs {
+        let ended: Vec<&Value> = journal.iter().filter(|f| f["fact"] == "run_ended" && f["run_id"] == run.as_str()).collect();
+        if ended.iter().all(|f| f["outcome"] == "delivered") && !ended.is_empty() {
+            continue;
+        }
+        let failed: Vec<&Value> = journal.iter().filter(|f| f["fact"] == "event_recorded" && f["run_id"] == run.as_str() && f["kind"] == "runbook.runtime-failed").map(|f| &f["record"]["reason"]).collect();
+        out.push_str(&format!("run {run}: ended {ended:?}; runtime-failed {failed:?}\n"));
+    }
+    format!("{out}stderr:\n{}", s.stderr())
+}
+
 /// The reasons of every `runbook.run-orphaned` event the journal holds.
 fn reasons(s: &Serve) -> Vec<String> {
     s.journal().into_iter().filter(|f| f["fact"] == "event_recorded" && f["kind"] == "runbook.run-orphaned").map(|f| f["record"]["reason"].as_str().unwrap().to_string()).collect()
@@ -435,7 +451,7 @@ fn a_submit_racing_the_signal_leaves_no_run_submitted_after_draining_and_none_un
     let _ = submitter.join();
     let runs = accepted.lock().unwrap().clone();
     let outcomes = s.settle_all(&runs);
-    assert!(outcomes.iter().all(|o| o == "delivered"), "{outcomes:?}");
+    assert!(outcomes.iter().all(|o| o == "delivered"), "{outcomes:?}\n{}", not_delivered(&s, &runs));
     let (code, _) = s.exit_within(Duration::from_secs(20));
     assert_eq!(code, Some(0), "{}", s.stderr());
     let journal = s.journal();

@@ -566,6 +566,44 @@ fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
     assert!(rig.workspace(&run).join("draft.txt").exists());
 }
 
+/// Whether a process below this one other than itself has `lock` open.
+fn held_below(lock: &Path) -> bool {
+    descendant_processes().into_iter().any(|(pid, _)| {
+        std::fs::read_dir(format!("/proc/{pid}/fd")).into_iter().flatten().flatten().any(|fd| std::fs::read_link(fd.path()).is_ok_and(|t| t == lock))
+    })
+}
+
+#[test]
+fn a_process_forked_while_a_step_holds_the_store_and_slow_to_exec_does_not_end_the_run() {
+    use std::os::unix::process::CommandExt;
+    let rig = Rig::new("engine-forked-hold", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
+    rig.wait_started(&run, "draft.write");
+    // The writer runs inside Loom's step, which holds the lock of the run's store. A process forked now, as the
+    // daemon forks the program of another run, holds a copy of the lock's descriptor until it execs: here a second.
+    let lock = rig.store(&run).join("tree.lock");
+    let forked = std::thread::spawn(|| {
+        let mut command = std::process::Command::new("true");
+        // SAFETY: nanosleep is async-signal-safe and nothing is allocated between the fork and the exec.
+        unsafe {
+            command.pre_exec(|| {
+                let second = libc::timespec { tv_sec: 1, tv_nsec: 0 };
+                libc::nanosleep(&second, std::ptr::null_mut());
+                Ok(())
+            })
+        };
+        command.status().unwrap()
+    });
+    until("a forked process to hold the run's store lock", 10, || held_below(&lock));
+    // the writer ends and the step lets go of the lock; the next step takes it while the forked copy is still open
+    until("the writer's pause to be seen and ended", 20, end_the_pauses);
+    until("the run to wait on the review or end", 40, || rig.state_of(&run) == "Ended" || !rig.d().open_decisions_of_run(&run).is_empty());
+    let failed: Vec<Value> = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").map(|e| e["record"]["reason"].clone()).collect();
+    assert!(failed.is_empty(), "{failed:?}");
+    rig.wait_review(&run);
+    assert!(forked.join().unwrap().success());
+}
+
 #[test]
 fn actions_in_turn_give_one_event_each_in_the_order_they_started() {
     let rig = Rig::new("engine-in-flight-turns", &[Confinement::Local]);
