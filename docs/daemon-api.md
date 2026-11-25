@@ -231,12 +231,34 @@ every member but `request` optional. A delegation is a run, at the daemon's defa
 with none refuses it `400` and writes nothing), with the request as its intake; `cancel-run`, the run views, the
 events and the web UI work on it unchanged.
 
-- With `protocol`, that runbook runs (the path `named`). Without, the free run (the path `free`): the daemon's own
+- With `protocol`, that runbook runs (the path `named`). With `protocol` `delegation-free`, or without one on a
+  daemon that has no classifier route, the free run (the path `free`): the daemon's own
   runbook `delegation-free`, one agent node (`sdc-node delegation.free` on the claude-cli adapter, the instruction
   `instructions/delegation.free.md`) whose instruction is the request, with the files of the workspace as its inputs,
   writing `result.md`. The daemon writes that runbook under its state directory at every start
   (`runbook/src/delegation.rs`); a `submit-run` does not find it. The free run's agent node reads the request
   whole, as the session wrote it, also when it reads as YAML.
+- Without `protocol` on a daemon with `[route_policy] classifier`, the run takes its path when it starts
+  (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
+  `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
+  the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title and description of
+  each runbook a person can start), answers `{"protocol", "confidence", "inputs"}`; at a confidence of 0.8 or
+  above that runbook runs with the request as its intake (`classified`). Below it a second call
+  (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
+  `{"free": true}`, the free run): the daemon runs it (`generated`) only when every action is the agent node
+  `sdc-node delegation.free`, every evidence is read from the exit, and nothing but `format`, `artifacts` and
+  `actions` is named; it writes each executor's arguments, exits, budget and timeout from the free run's, puts the
+  artifact `idea` at `request.yaml`, and checks the result with the loader of a runbook (the layout, the budgets,
+  Loom's reader of the protocol directory, the opening of the tree). Both calls are the run's: taken against its
+  caps, booked in its ledger and recorded as its events `runbook.model-call`. An answer that is not the JSON asked
+  for is asked again, with the validator's error, at most twice. The run then fails to start with `failure`
+  `classifier-answer: ...`; a call the route does not serve `route-unavailable: ...` (`cap-reached: ...` past a
+  cap); a generated protocol the loader refuses `protocol-refused: <the loader's line>`. The run event
+  `runbook.delegation-resolved` records `path`, `protocol` (the id the protocol declares), `confidence`,
+  `classifier_route` and, for a generated protocol, `protocol_digest` (`sha256:<hex>` of the document); the
+  classifier's answer (`classify.json`) and the generated documents (`protocol.yaml`, `bindings.yaml`) are products
+  of the run under `work/delegation/`. The view `run` (and the MCP tool `read_run`) shows those members for every
+  delegation's run.
 - The route: `model_route`, by the name the daemon declares it under (`[routes.<name>]`, above, "Model routes");
   none named: the daemon's default route, `[route_policy] default`. A route the daemon does not declare, or none
   named on a daemon without a default route, is refused `RouteRefused` (422) with the declared routes in
@@ -256,7 +278,8 @@ events and the web UI work on it unchanged.
   `runbook.submitted` and `runbook.delegated` (`route`, `path`, `protocol`).
 
 `GET /daemon/views/delegation-result?run_id=<id>` answers one row: `run_state`, and once the run ended its
-`outcome` (and `failure`); `route`, `path`, `protocol`; `confidence` (`null`: no classifier yet); `result_text`,
+`outcome` (and `failure`); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
+(`null` for `named` and `free`), `classifier_route` and `protocol_digest`; `result_text`,
 the text of `result.md` of the run's `work/` directory read as the view `product` reads a file (absent while there
 is none, and for a file that is not text), `result_truncated` and `result_limit` (1,048,576 bytes); `products`, the
 paths the view `products` lists; `calls`, `input_tokens`, `output_tokens` and `cost_micro_usd`, the sum of the

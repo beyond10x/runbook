@@ -5,6 +5,7 @@
 pub mod announce;
 pub mod arbiter;
 pub mod calls;
+mod classify;
 pub mod copy;
 mod decision;
 mod gate;
@@ -274,29 +275,46 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let free_run = self.free_home.is_some() && request.model_route.is_some() && request.runbook == crate::delegation::FREE_RUNBOOK;
-        let home = match (&self.free_home, &request.model_route) {
-            (Some(free), Some(_)) if free_run => free.clone(),
-            _ => layout::home_of(&self.homes, &request.runbook).map_err(failure)?,
-        };
-        let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
-        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
+        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
+        let meter = Arc::new(Meter::on(before, self.wall.clone()));
+        *lock(&slot.meter) = Some(meter.clone());
+        // A delegation the daemon classifies takes its path now: the runbook the classifier picked, or a generated protocol
+        // (`classify`). Its ledger stays the one of the runbook it was submitted under.
+        let taken = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK && self.classifies() {
+            Some(classify::resolve(self, request, sink, caps, &workspace, &meter).map_err(failure)?)
+        } else {
+            None
+        };
+        // a cancel that came while the classifier answered: nothing of the run is opened
+        if taken.is_some() && Self::cancelled(cancel, slot) {
+            return Ok(Finish::Cancelled);
+        }
+        let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
+        let generated = taken.as_ref().is_some_and(|t| t.generated);
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
+        let home = match (&taken, &self.free_home, &request.model_route) {
+            (Some(t), _, _) => t.home.clone(),
+            (None, Some(free), Some(_)) if free_run => free.clone(),
+            _ => layout::home_of(&self.homes, runbook).map_err(failure)?,
+        };
+        let in_home = layout::resolve(&home, runbook, request.version.as_deref()).map_err(failure)?;
+        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         // The run takes its runbook now: it reads the copy in its own directory until it ends.
         let (resolved, pin) = if resume {
             let pin = Pin::load(&request.state_dir).map_err(failure)?;
             (in_home, pin)
         } else {
-            let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            let (pin, copied) = Pin::take(&home, &request.state_dir, runbook, request.version.as_deref()).map_err(failure)?;
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
         // What each program reserves, from the bindings the run reads (the copy's members are kept
         // beside it, `budget::seal`); a runbook whose programs could call a model with no budget
         // anywhere is refused here.
-        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
+        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{runbook}.yaml")));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         let terms = &request.terms;
         // A run whose decider is a model is on the daemon's route: the run's place on the relay and its route file,
@@ -363,13 +381,15 @@ impl Engine {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
-                    // the free run's agent node reads the request whole, never a member of it
-                    let document = if free_run { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
+                    // the free run's agent node reads the request whole, never a member of it, and so does a generated protocol's
+                    let whole = free_run || taken.as_ref().is_some_and(|t| t.whole_text);
+                    let document = if whole { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
                     std::fs::write(path, document).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
                 Ok(())
             })
-            .map_err(failure)?;
+            // a generated protocol's tree is opened by the loader of a runbook: what it refuses is the protocol's refusal
+            .map_err(|e| failure(if generated { format!("protocol-refused: {e}") } else { e }))?;
         }
         let catalog = calls::catalog(&store).map_err(failure)?;
 
@@ -385,9 +405,6 @@ impl Engine {
             tail.sync_all().map_err(failure)?;
         }
 
-        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
-        let meter = Arc::new(Meter::on(before, self.wall.clone()));
-        *lock(&slot.meter) = Some(meter.clone());
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         if let Some(r) = &route {
             let booking = gate.route(r.step.clone());
@@ -857,6 +874,10 @@ impl Runtime for Engine {
 
     fn free_run(&self) -> bool {
         self.free_home.is_some()
+    }
+
+    fn classifies(&self) -> bool {
+        self.declared.as_ref().is_some_and(|(_, table)| table.classifier().is_some())
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

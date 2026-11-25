@@ -891,6 +891,9 @@ fn a_classifier_answer_of_0_9_runs_that_runbook_and_read_run_shows_path_protocol
     assert!(sent.contains("green or black") && sent.contains("answer-demo"), "the classifier was not given the request and the catalog: {sent}");
     assert_eq!(posted_to(&d.gw, "a-model").len(), 1);
     assert_eq!(end["calls"], json!(2), "the classifier call is booked like any call: {end}");
+    // neither route declares a price: the classifier call books one call's reservation (1 USD), the program's its budget
+    // (0.5 USD), and neither books what the run's cap has left
+    assert_eq!((end["cost_micro_usd"].clone(), end["cost_known"].clone()), (json!(1_500_000), json!(false)), "{end}");
     // read_run shows the path, the protocol and the confidence
     let row = rows(&d.l, &format!("/daemon/views/run?run_id={run}"))[0].clone();
     assert_eq!((row["path"].clone(), row["protocol"].clone(), row["confidence"].clone()), (json!("classified"), json!("answer-demo"), json!(0.9)), "{row}");
