@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:decision-options-come-from-a-case-artifact
 kind: story
-status: draft
+status: active
 title: A person action's question, options, recommendation and grounds come from a case artifact
 summary: The engine builds fixed approve and deny options; a person action reads the contract's request from its case so the daemon shows the case's options, recommendation and grounds.
 tags:
@@ -36,7 +36,10 @@ scope:
   path: runbook/src/runtime.rs
 - confidence: inferred
   path: runbook/tests/daemon
-revision: 8
+revision: 12
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T03:11:22Z", actor: "human:operator", revision: 9, executor: "agent:runbook"}
+- {from: "proposed", to: "active", at: "2026-11-25T03:11:22Z", actor: "human:operator", revision: 10, executor: "agent:runbook"}
 ---
 ## What is missing
 
@@ -115,3 +118,20 @@ With a fixture person action that declares A, B and `free`, whose binding names 
 - `story:daemon-runs-take-a-gateway`: the order is behind the gateway release; there is no code dependency.
 - Informed by `story:decision-request-from-question` (builds the request this story reads) and `story:decision-contract-goals-grounds` (the free answer and the goals ground).
 - Order: first of the six stories filed together, because it is the one a consumer's first person-facing step needs.
+
+## Design (taken by the operator, 2026-11-25, reversible before release)
+
+The scope report's seven answers, taken as decided, and the two answers outcomes 5 to 8 needed:
+
+1. **The artifact file.** A JSON file `decision-request.json` in the contract's shape (`sdc.decision.DecisionRequest`), written by the case's bound program into the case's `work/` (the run's workspace). The engine finds it through the decision: in the directory of the decision's `path` (the subject's file, inside the workspace), or at the workspace's root when the decision names no `path`. It is read without following a link, at most 1 MiB. No file: the request is the one of today.
+2. **One optional member.** `artifact` on `runtime::DecisionRequest` and on `state::DecisionRequest` (`#[serde(default)]` in the state, so a journal line written before still loads): the recommendation (`recommended_option`, `recommended_answer`, `recommendation_strength`), the `grounds`, and `free_answer` (whether text that names no option is taken; true for an artifact whose `unblocks.kind` is `question`). An answer whose letter is not one of the request's options is refused only when the request carries the artifact: new outcome `unknown-option` of `AnswerDecision`, error `UnknownOption`, HTTP 422, checked after the request's and the run's state and before the answer is committed or delivered.
+3. **Letter to effect.** `engine::decision::parse_option` maps a letter to the effect by the decision's kind and the option's `consequence`: `Approve` approves when the option's `grant` is `granted` and denies otherwise; `Close` closes when the option `produces: canon_decisions` and declines otherwise; `ApproveAction` gives the result `consequence.answer` when the option has one and the result `performed` otherwise; `Handoff` approves for every letter. A free answer is taken as the reasons of an approval. A re-ask after Loom refused an answer copies the first request's artifact and does not read the file again.
+4. **Grounds.** The engine starts no `tools/decision-grounds.sh`. It checks in Rust what decides: `subject_revision` equals the decision's `revision`, and every `path_line` citation names a file inside the workspace, its lines in range, and the digest of the lines where one is given. A request whose artifact fails the check is not opened with the artifact's words: the run ends by the named cause `DecisionArtifactRefused: <what failed>`.
+5. **Hiding.** The new members go through the hide pass with the question and the options.
+6. **Both views.** The rows of `open-decisions` and `decisions` (and so the MCP tool `read_open_decisions`) carry the member `artifact` beside the options, built by one row function, only where the request has one.
+7. **No artifact: today's bytes.** A request with no artifact has no new member; its options keep the shape `{answer, effect}` (the specification's `List<sdc.decision.DecisionOption>` describes the artifact's options; `docs/daemon-api.md` says so).
+
+Outcomes 5 to 8, the two answers the scope report did not give (the smallest that work with Loom, whose loader refuses a member of a binding it does not know, `loom-bindings/src/decode.rs` `known`):
+
+8. **The binding's question field.** A file `person-questions.json` beside the bindings files of the runbook (`bindings/person-questions.json`, copied into the run's copy with them and read through the held directory) names, per person action, the member of the decision's subject that is its question: `{"format": "runbook.person-questions/1", "actions": {"<action>": "<member>"}}`. The subject is the file of the decision's `path`, read as JSON or YAML; the member is a top-level member whose value is text. For an action named there, a subject file that cannot be read, a missing member or an empty text leaves the generated question and the request open, and the cause is recorded as the run event `runbook.question-field-unread`; the run goes on.
+9. **The declared results as options.** Where the action is named there and no contract artifact with options is found, the options are the results the action declares (`shape::declared_results` over the run's bindings copy), each `{letter: <result>, does, cost, consequence: {admits: [], blocks: [], answer: <result>}}`; the option `free` says that it takes text, and the request's `artifact` has `free_answer` true. An answer that is a declared result hands the runtime that result; with `free` declared, any other text hands the runtime the result `free` with the text as its reasons; anything else is refused `unknown-option`. A contract artifact with options wins (outcome 8); the declared results are never added to its options.
