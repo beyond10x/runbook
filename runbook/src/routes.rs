@@ -386,6 +386,40 @@ impl RouteTable {
         Ok(())
     }
 
+    /// Reads the token file of the gateway `name` alone, when it names one: `runbook run` reads the gateway of the one
+    /// route it takes. A refusal names the member, never the path or the content.
+    pub fn read_token_of(&mut self, name: &str) -> Result<(), String> {
+        if let Some(gateway) = self.gateways.get_mut(name) {
+            if let Some(path) = &gateway.token_file {
+                gateway.token = Some(read_token_file(path, &format!("{}.token_file", gateway.member))?);
+            }
+        }
+        Ok(())
+    }
+
+    /// What the gateway of the route `name` says of it now (`docs/model-routes.md`, section 3): `GET /ready`, `GET
+    /// /v1/models` and the status of the route's model, every request done by `until`. None for a name that is not
+    /// declared. A read sends no model call and starts nothing.
+    pub fn readiness(&self, name: &str, until: Instant) -> Option<Readiness> {
+        let route = self.routes.get(name)?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        Some(match read_gateway(self, &route.gateway, gateway, until) {
+            Reach::Unreachable => Readiness::Unreachable,
+            Reach::NotReady => Readiness::NotReady,
+            Reach::Ready { models, of_all, of_model } => {
+                if !models.contains_key(&route.alias) {
+                    Readiness::Unlisted
+                } else {
+                    let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias).filter(|_| route.kind.has_model_status()));
+                    match status {
+                        Some(s) if !s.callable.unwrap_or(s.phase.as_deref() == Some("ready")) => Readiness::NotCallable { phase: s.phase.clone() },
+                        _ => Readiness::Callable,
+                    }
+                }
+            }
+        })
+    }
+
     /// Whether the file declares no gateway and no route.
     pub fn is_empty(&self) -> bool {
         self.gateways.is_empty() && self.routes.is_empty()
@@ -425,6 +459,23 @@ impl RouteTable {
         let gateway = self.gateways.get(&route.gateway)?;
         Some(Resolved { route: &route.name, base_url: &gateway.base_url, token: gateway.token(), alias: &route.alias, kind: route.kind, prices: route.prices })
     }
+}
+
+/// What a route's gateway says of it when a run is about to take it ([`RouteTable::readiness`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    /// The gateway is ready and lists the alias, and the status of the model, when one was read, says it can answer
+    /// (`callable` of `GET /v1/status`, else the phase `ready` of `GET /v1/models/{alias}/status` for a managed or a
+    /// local route). A hosted route on a gateway without `/v1/status` is read no further: no model call probes it.
+    Callable,
+    /// No answer from `GET /ready` or `GET /v1/models` in time, or an address the daemon does not speak (https).
+    Unreachable,
+    /// `GET /ready` answered, not 200, or `GET /v1/models` gave no list.
+    NotReady,
+    /// The gateway is ready and does not list the route's alias.
+    Unlisted,
+    /// The status of the model says it cannot answer now, with the phase the gateway gave.
+    NotCallable { phase: Option<String> },
 }
 
 // ---- the view `routes`: what the gateways say ----

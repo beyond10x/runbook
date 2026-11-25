@@ -286,6 +286,30 @@ run whose kind is `model`, and a submit that names a gateway, an address or a to
 (`docs/engine.md`, "A gateway"). `sdc-free-agent` takes no gateway: it refuses `--gateway-file` by name, and
 `sdc-experiment` refuses a `gateway.*` setting of a `free-agent` variant.
 
+## A model route: `--model-route`
+
+`runbook run` reads the model routes of its `runbook.toml` (`[gateways.<name>]`, `[routes.<name>]`,
+`[route_policy]`, `docs/daemon-api.md`, "Model routes") and takes `--model-route <name>`; without the option,
+`[route_policy] default` names the route, and with neither the settings are taken as they are. Before anything is
+written it refuses, exit 2:
+
+- a name the file does not declare, naming the declared routes;
+- `--model-route` beside a `[gateway]` or a `login_file` of the settings (the default of the file then does not
+  apply: the settings keep their own way to a model);
+- a route at a `--confinement` other than `local`, as `[gateway]`;
+- a route that cannot answer now. The run reads the token file of the route's gateway and asks it `GET /ready`,
+  `GET /v1/models` and the status of the route's model (`GET /v1/status`, else `GET /v1/models/{alias}/status` for
+  a managed or a local route), nothing else, within 5 s. The refusal names the route, the setting that chose it
+  (`--model-route` or `route_policy.default`) and what is wrong: `gateway not ready`, the gateway serves no model
+  `<alias>`, the model is not callable (with its phase), or the gateway does not answer. `runbook run` does not wait
+  for a route; the daemon does.
+
+A route that answers is the run's `[gateway]` (its gateway's address and token: the file, the copy and the records
+are as for a named gateway, `"gateway": "named"`), and its alias is the `model` of every role (`models.<role>.model`)
+and of a model decider (`decider.model`). A model the settings name that is not the alias is refused by its member.
+`--dry` checks that the name is declared and reads nothing. With `--detach` the option goes to the daemon as the
+submit's `model_route`.
+
 ## What `sdc-experiment run` writes, and what a run does with it
 
 Both sides use this format. The writer is `loom_settings_toml` in `driver/src/bin/sdc-experiment.rs`

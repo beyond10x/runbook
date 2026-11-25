@@ -40,6 +40,7 @@ pub mod ports;
 pub mod private;
 pub use runbook::record_write;
 pub mod replay;
+pub mod route;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;
@@ -115,6 +116,12 @@ pub struct Args {
     /// The `runbook.toml` the values were taken from, by name and origin (never the path): the member
     /// `config` of the run's start record. `None`: no file, or a file that stated nothing.
     pub config: Option<String>,
+    /// `--model-route`: the route of `routes` the run's model programs take (`route.rs`). `None`: the policy's
+    /// default, else the settings as they are.
+    pub model_route: Option<String>,
+    /// The model routes of `runbook.toml` (`[gateways.*]`, `[routes.*]`, `[route_policy]`), their token files not
+    /// read. Empty: no file, or a file without routes.
+    pub routes: runbook::routes::RouteTable,
 }
 
 /// How the run reaches Loom, from the options: one of the two ways.

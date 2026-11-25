@@ -140,6 +140,8 @@ mod tests {
             max_wall_seconds: 1,
             ports: Default::default(),
             config: None,
+            model_route: None,
+            routes: Default::default(),
         };
         a.ports.dry = dry;
         a

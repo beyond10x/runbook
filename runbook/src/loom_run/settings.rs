@@ -342,6 +342,8 @@ mod tests {
             max_wall_seconds: 3600,
             ports: Default::default(),
             config: None,
+            model_route: None,
+            routes: Default::default(),
         }
     }
 

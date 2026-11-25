@@ -277,6 +277,11 @@ fn a_refused_submit_exits_65_and_prints_the_code_and_message() {
     let o = f.cli(&["run", "quick", "--intake", "i", "--context", "/", "--detach"]);
     assert_eq!(code(&o), exit::REFUSED as i32, "a context outside the roots: {}", err(&o));
     assert!(err(&o).contains("sdc.daemon.ContextOutsideRoots"), "{}", err(&o));
+    // --model-route goes to the daemon as model_route: this daemon declares no route
+    let o = f.cli(&["run", "quick", "--intake", "i", "--model-route", "no-such-route", "--detach"]);
+    assert_eq!(code(&o), exit::REFUSED as i32, "an undeclared route: {}", err(&o));
+    assert!(err(&o).contains("sdc.daemon.RouteRefused") && err(&o).contains("model_route") && !err(&o).contains("no-such-route"), "{}", err(&o));
+    assert!(f.server.view("runs", "").is_empty(), "a refused submit made a run");
 }
 
 #[test]

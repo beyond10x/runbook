@@ -54,6 +54,9 @@ pub struct RunArgs {
     /// A setting of the run, `KEY=VALUE`; repeatable, each key once. With `--detach` it goes to the daemon; in process it is a condition of the replay (`--recorded`).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
+    /// The model route of the run, by the name `runbook.toml` (`[routes.<name>]`) or the daemon declares; without it the route policy's default. In process, a route that cannot answer now is refused.
+    #[arg(long = "model-route", value_name = "NAME")]
+    pub model_route: Option<String>,
     /// Submit the run to the daemon, print its id and return at once.
     #[arg(long)]
     pub detach: bool,
@@ -217,7 +220,7 @@ fn run_detached(args: RunArgs) -> Result<(), Failure> {
         None => None,
         Some(dir) => Some(absolute_dir(dir)?),
     };
-    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, ..SubmitRun::default() };
+    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, model_route: args.model_route, ..SubmitRun::default() };
     let reply = api.command("submit-run", &input)?;
     if args.json {
         return say(&format!("{}\n", reply.body.trim_end()));

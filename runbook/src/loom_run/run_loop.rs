@@ -124,6 +124,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let args = &named;
     let given = settings::normalise(&raw, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
+    let given = super::route::take(args, given)?;
     let (given, gateway) = super::gateway::take(args, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
     bindings_copy::efforts(&given)?;
@@ -999,6 +1000,8 @@ mod tests {
             max_wall_seconds: wall,
             ports: Default::default(),
             config: None,
+            model_route: None,
+            routes: Default::default(),
         }
     }
 
