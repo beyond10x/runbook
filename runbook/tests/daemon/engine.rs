@@ -56,12 +56,15 @@ fn descendants() -> Vec<String> {
 }
 
 /// Ends every `sleep` below this process: a step whose program pauses (`pause.txt`) goes on at once, when the case has seen
-/// what it waited for, instead of after the pause.
-fn end_the_pauses() {
-    for (pid, _) in descendant_processes().into_iter().filter(|(_, c)| c == "sleep") {
+/// what it waited for, instead of after the pause. Whether it ended one: a case that waits to see the pause reads it
+/// here, from the scan that ends it, so no pause is ended without being seen.
+fn end_the_pauses() -> bool {
+    let pauses: Vec<u32> = descendant_processes().into_iter().filter(|(_, c)| c == "sleep").map(|(pid, _)| pid).collect();
+    for pid in &pauses {
         // SAFETY: a plain signal to a process id this case just read below its own process.
-        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
     }
+    !pauses.is_empty()
 }
 
 /// The process id and the command name of every process below this one.
@@ -555,11 +558,7 @@ fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
     assert_eq!(step["started_at"], event["at"], "{row}");
     assert!(step["seconds"].as_u64().is_some_and(|s| s <= 3), "{row}");
     // it is gone once the run waits on the review: the writer and the check ended
-    until("the writer's pause to be seen and ended", 20, || {
-        let pausing = descendants().iter().any(|c| c == "sleep");
-        end_the_pauses();
-        pausing
-    });
+    until("the writer's pause to be seen and ended", 20, end_the_pauses);
     rig.wait_review(&run);
     let row = rig.run_view(&run);
     super::openapi::check_row("RunDetail", &row);
