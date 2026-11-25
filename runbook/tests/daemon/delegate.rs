@@ -4,8 +4,8 @@
 //! the request as its intake; one that names none is the free run: one agent node (`sdc-node delegation.free` on the
 //! committed claude-cli adapter) whose instruction is the request, on the delegation's route, writing `result.md`.
 //!
-//! The daemon is `runbook serve` with the Loom runtime; its route is the one route `default` of its `[gateway]` until
-//! the daemon declares routes of its own. No model is called and nothing leaves loopback: the gateway is a stand-in on
+//! The daemon is `runbook serve` with the Loom runtime; it declares the one route `default` (`[routes.default]` on its
+//! lone `[gateway]`, the gateway `default`). No model is called and nothing leaves loopback: the gateway is a stand-in on
 //! a port of the test's own and `claude` is a stand-in in bash first on the daemon's `PATH`.
 
 use super::default_confinement::{live_env, rows, Live};
@@ -89,10 +89,18 @@ struct Delegating {
     roots: std::path::PathBuf,
 }
 
+/// The table that declares the route `default` on the lone `[gateway]`.
+const ROUTE: &str = "[routes.default]\ngateway = \"default\"\nmodel = \"a-model\"\nkind = \"hosted\"\n";
+
 /// `runbook serve` with the Loom runtime, the route `default` on a stand-in gateway answering `answer`, the stand-in
 /// `claude` of [`claude_answering`] and the built `sdc-node` first on its `PATH`, the level `local` as its default and a
 /// context root of its own.
 fn daemon(tag: &str, answer: &'static [u8]) -> Delegating {
+    daemon_with(tag, answer, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))))
+}
+
+/// [`daemon`] with `tables` after the lone `[gateway]` of its `runbook.toml`.
+fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
     let h = home(tag);
     answer_runbook(&h);
     let bin = h.log.join("bin");
@@ -102,11 +110,7 @@ fn daemon(tag: &str, answer: &'static [u8]) -> Delegating {
     std::fs::create_dir_all(roots.join("project")).unwrap();
     std::fs::write(roots.join("project/notes.txt"), "a file of the workspace\n").unwrap();
     let gw = gateway(answer);
-    let file = format!(
-        "{}{}",
-        gateway_table(&gw.base_url, &h.token_file),
-        model_table(Some(&claude_cli()))
-    );
+    let file = format!("{}{tables}", gateway_table(&gw.base_url, &h.token_file));
     let path = format!(
         "{}:{}:/usr/local/bin:/usr/bin:/bin",
         bin.display(),
@@ -278,6 +282,31 @@ fn a_free_run_writes_result_md_through_the_relay_and_the_result_view_returns_it(
     // a delegation is a run: the run views know it
     let run_row = rows(&d.l, &format!("/daemon/views/run?run_id={run}"));
     assert_eq!(run_row[0]["runbook_id"], "delegation-free");
+}
+
+#[test]
+fn a_delegation_that_names_no_route_takes_the_daemons_default_route() {
+    let d = daemon_with("dlg-default", OK, &format!("{}{ROUTE}[route_policy]\ndefault = \"default\"\n", model_table(Some(&claude_cli()))));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "red or blue", "protocol": "answer-demo"}));
+    assert_eq!(status, 202, "{body}");
+    assert_eq!(delegated(&body, "route"), json!("default"), "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["outcome"].clone(), end["route"].clone(), end["calls"].clone()), (json!("answered"), json!("default"), json!(1)), "{end}");
+    assert_eq!(posted(&d.gw).len(), 1);
+}
+
+#[test]
+fn a_daemon_without_a_model_decider_runs_a_free_delegation_on_the_route_it_declares() {
+    let other = "[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"hosted\"\n";
+    let d = daemon_with("dlg-declared", OK, &format!("{ROUTE}{other}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "x", "model_route": "qwen"}));
+    assert_eq!((status, body["payload"]["routes"].clone()), (422, json!(["default", "other"])), "{body}");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "other"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["outcome"].clone(), end["route"].clone(), end["calls"].clone()), (json!("delivered"), json!("other"), json!(1)), "{end}");
+    assert_eq!(end["result_text"], json!(format!("{ANSWER}\n")), "{end}");
+    assert_eq!(posted(&d.gw).len(), 1);
 }
 
 #[test]
