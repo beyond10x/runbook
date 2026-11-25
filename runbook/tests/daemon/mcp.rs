@@ -13,7 +13,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 const MODERN: &str = "2026-07-28";
-const SEVEN: [&str; 7] = ["submit_run", "list_runs", "read_run", "read_events", "read_open_decisions", "answer_decision", "cancel_run"];
+const NINE: [&str; 9] = ["submit_run", "list_runs", "read_run", "read_events", "read_open_decisions", "answer_decision", "cancel_run", "open_session", "close_session"];
 
 // ---- a daemon with the MCP endpoint, in process ----
 
@@ -96,6 +96,14 @@ fn run_of(body: &Value) -> String {
 
 fn names(tools: &Value) -> Vec<String> {
     tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
+}
+
+/// The words of a text that have the shape of a tool name (`lower_case_words`), in order.
+fn tool_names_in(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+        .filter(|w| !w.starts_with('_') && !w.ends_with('_') && w.contains('_'))
+        .map(String::from)
+        .collect()
 }
 
 /// The text of a body with the ids of runs replaced, to compare two answers about different runs.
@@ -190,10 +198,10 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
-// ---- acceptance 1: initialize, server info, the six tools ----
+// ---- acceptance 1: initialize, server info, the nine tools ----
 
 #[test]
-fn stdio_initialize_answers_server_info_and_the_seven_tools() {
+fn stdio_initialize_answers_server_info_and_the_nine_tools() {
     let d = Daemon::start("mcp-init", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.initialize();
@@ -202,6 +210,7 @@ fn stdio_initialize_answers_server_info_and_the_seven_tools() {
     assert_eq!(r["result"]["serverInfo"]["name"], "runbook");
     assert_eq!(r["result"]["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(r["result"]["capabilities"]["tools"].is_object(), "{r}");
+    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), NINE, "the instructions name every tool, in list order");
     // `notifications/initialized` is not answered: the next message read is the answer to the next request.
     c.write(&json!({"jsonrpc": "2.0", "id": "p", "method": "ping"}));
     let p = c.read();
@@ -209,12 +218,12 @@ fn stdio_initialize_answers_server_info_and_the_seven_tools() {
     c.write(&json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list"}));
     let l = c.read();
     assert_eq!(l["id"], json!(7));
-    assert_eq!(names(&l["result"]["tools"]), SEVEN);
+    assert_eq!(names(&l["result"]["tools"]), NINE);
     assert!(l["result"].get("resultType").is_none(), "a legacy answer is bare: {l}");
 }
 
 #[test]
-fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_seven_tools() {
+fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_nine_tools() {
     let d = Daemon::start("mcp-modern", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.ask("server/discover", json!({}));
@@ -222,9 +231,10 @@ fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_seven_tool
     assert_eq!(r["result"]["supportedVersions"], json!([MODERN, "2025-11-25", "2025-06-18"]));
     assert!(r["result"]["capabilities"]["tools"].is_object());
     assert_eq!(r["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "runbook");
+    assert_eq!(tool_names_in(r["result"]["instructions"].as_str().unwrap()), NINE, "the instructions name every tool, in list order");
     let l = c.ask("tools/list", json!({}));
     assert_eq!(l["result"]["resultType"], "complete");
-    assert_eq!(names(&l["result"]["tools"]), SEVEN);
+    assert_eq!(names(&l["result"]["tools"]), NINE);
     // A request of an unsupported revision is the error that names the revisions; one without the
     // per-request metadata is invalid params, before any handshake.
     c.write(&json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}));
@@ -402,6 +412,125 @@ fn a_tool_takes_no_path_the_http_command_does_not_take() {
     assert!(r["error"]["message"].as_str().unwrap().contains("no_such_tool"));
 }
 
+// ---- sessions: open_session and close_session, equal to the HTTP routes ----
+
+/// A tool result held against the route's answer to the same call: the same status, `isError` from
+/// it, and the same body once the ids of runs and sessions are replaced.
+fn same_as_route(tool: &str, result: &Value, http: &Resp, ids: &[&str]) {
+    assert_eq!(result["_meta"]["runbook/http-status"], json!(http.status), "{tool}: the status of the route: {result}");
+    assert_eq!(result["isError"], json!(http.status >= 400), "{tool}: {result}");
+    assert_eq!(without_ids(&result["structuredContent"], ids), without_ids(&http.json(), ids), "{tool}: the body of the route");
+    assert_eq!(serde_json::from_str::<Value>(result["content"][0]["text"].as_str().unwrap()).unwrap(), result["structuredContent"], "{tool}: the text is the structured body");
+}
+
+/// The sequence of the story's acceptance, the tools on session `s1` and the HTTP routes on `h1` of
+/// the same daemon; `call` is one tool call on the transport under test and returns its `result`.
+fn open_submit_list_and_close(d: &Daemon, call: &mut dyn FnMut(&str, Value) -> Value) {
+    let open = call("open_session", json!({"session_id": "s1", "client": "mcp"}));
+    let http = d.command("open-session", &json!({"session_id": "h1", "client": "mcp"}));
+    assert_eq!((http.status, open["structuredContent"]["outcome"].clone()), (202, json!("opened")), "{open}");
+    same_as_route("open_session", &open, &http, &["s1", "h1"]);
+    let sub = call("submit_run", json!({"runbook_id": "hold", "intake": "x", "session_id": "s1"}));
+    let http = d.command("submit-run", &json!({"runbook_id": "hold", "intake": "x", "session_id": "h1"}));
+    let (run, other) = (run_of(&sub["structuredContent"]), run_of(&http.json()));
+    same_as_route("submit_run", &sub, &http, &[&run, &other, "s1", "h1"]);
+    d.wait_state(&run, "Running");
+    d.wait_state(&other, "Running");
+    let list = call("list_runs", json!({"session_id": "s1"}));
+    let rows = list["structuredContent"]["rows"].as_array().unwrap();
+    assert_eq!(rows.iter().map(|r| r["run_id"].clone()).collect::<Vec<_>>(), [json!(run)], "the run of s1 and only it: {list}");
+    assert_eq!(list["structuredContent"], d.get("/daemon/views/runs-of-session?session_id=s1").json());
+    let again = call("open_session", json!({"session_id": "s1", "client": "mcp"}));
+    let http = d.command("open-session", &json!({"session_id": "h1", "client": "mcp"}));
+    assert_eq!((http.status, again["structuredContent"]["outcome"].clone(), again["structuredContent"]["error"].clone()), (422, json!("session-exists"), json!("sdc.daemon.SessionExists")), "{again}");
+    same_as_route("open_session again", &again, &http, &["s1", "h1"]);
+    let close = call("close_session", json!({"session_id": "s1"}));
+    let http = d.command("close-session", &json!({"session_id": "h1"}));
+    assert_eq!((http.status, close["structuredContent"]["outcome"].clone()), (202, json!("closed")), "{close}");
+    same_as_route("close_session", &close, &http, &["s1", "h1"]);
+    let closed = call("submit_run", json!({"runbook_id": "hold", "intake": "x", "session_id": "s1"}));
+    let http = d.command("submit-run", &json!({"runbook_id": "hold", "intake": "x", "session_id": "h1"}));
+    assert_eq!((http.status, closed["structuredContent"]["error"].clone()), (409, json!("sdc.daemon.SessionClosedToRuns")), "{closed}");
+    let minted = |b: &Value| b["payload"]["run_id"].as_str().unwrap_or_else(|| panic!("no minted run id in {b}")).to_string();
+    let (mine, theirs) = (minted(&closed["structuredContent"]), minted(&http.json()));
+    same_as_route("submit_run to a closed session", &closed, &http, &[&mine, &theirs, "s1", "h1"]);
+    let twice = call("close_session", json!({"session_id": "s1"}));
+    let http = d.command("close-session", &json!({"session_id": "h1"}));
+    assert_eq!((http.status, twice["structuredContent"]["outcome"].clone()), (409, json!("wrong-state")), "{twice}");
+    same_as_route("close_session again", &twice, &http, &["s1", "h1"]);
+    let none = call("close_session", json!({"session_id": "none"}));
+    let http = d.command("close-session", &json!({"session_id": "none"}));
+    assert_eq!((http.status, none["structuredContent"]["outcome"].clone()), (404, json!("no-session")), "{none}");
+    same_as_route("close_session of no session", &none, &http, &[]);
+    // Closing a session cancels none of its runs: the run of s1 still runs.
+    assert_eq!(d.get(&format!("/daemon/views/run?run_id={run}")).json()["rows"][0]["state"], "Running");
+    assert_eq!(d.get("/daemon/views/runs").json()["rows"].as_array().unwrap().len(), 2, "the refused submits made no run");
+    for r in [&run, &other] {
+        assert_eq!(d.command("cancel-run", &json!({"run_id": r})).status, 202);
+    }
+}
+
+#[test]
+fn stdio_open_submit_list_and_close_a_session_as_the_http_routes_do() {
+    let d = Daemon::start("mcp-sessions", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    c.initialize();
+    open_submit_list_and_close(&d, &mut |tool, arguments| c.tool(tool, arguments));
+}
+
+#[test]
+fn http_tool_calls_open_and_close_a_session_as_the_http_routes_do() {
+    let d = Daemon::start("mcp-http-sessions", None, "127.0.0.1:0");
+    let endpoint = |tool: &str, arguments: Value| {
+        let r = d.modern("tools/call", json!({"name": tool, "arguments": arguments}));
+        assert_eq!(r.status, 200, "{tool}: {}", r.text());
+        let r = r.json();
+        assert!(r.get("error").is_none(), "{tool}: {r}");
+        assert_eq!(r["result"]["resultType"], "complete");
+        r["result"].clone()
+    };
+    open_submit_list_and_close(&d, &mut |tool, arguments| endpoint(tool, arguments));
+}
+
+#[test]
+fn a_session_tool_checks_client_as_the_route_does_and_takes_no_other_argument() {
+    let d = Daemon::start("mcp-session-guards", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    // Over the route's bound of 200 characters: the route's 400 and its body, and no session.
+    let long = "c".repeat(201);
+    let r = c.tool("open_session", json!({"session_id": "s1", "client": long}));
+    let http = d.command("open-session", &json!({"session_id": "h1", "client": long}));
+    assert_eq!(http.status, 400);
+    same_as_route("open_session with a long client", &r, &http, &["s1", "h1"]);
+    assert!(!r.to_string().contains(&long), "the refusal does not echo the label: {r}");
+    assert_eq!(d.get("/daemon/views/sessions").json()["rows"], json!([]), "nothing was opened");
+    // 200 characters, and a label the route takes as it is: the route's answer, nothing more.
+    for (n, client) in [(1, "c".repeat(200)), (2, "rule:a-label".to_string())] {
+        let (mine, theirs) = (format!("s-{n}"), format!("h-{n}"));
+        let r = c.tool("open_session", json!({"session_id": mine, "client": client}));
+        let http = d.command("open-session", &json!({"session_id": theirs, "client": client}));
+        same_as_route("open_session", &r, &http, &[&mine, &theirs]);
+    }
+    // A member the tool does not take is a JSON-RPC error and reaches no route.
+    for (tool, arguments) in [
+        ("open_session", json!({"session_id": "s2", "client": "mcp", "at": "2026-01-01T00:00:00Z"})),
+        ("open_session", json!({"session_id": "s2", "client": "mcp", "principal": "person:someone"})),
+        ("close_session", json!({"session_id": "s-1", "client": "mcp"})),
+        ("close_session", json!({"session_id": "s-1", "at": "2026-01-01T00:00:00Z"})),
+    ] {
+        let r = c.ask("tools/call", json!({"name": tool, "arguments": arguments}));
+        assert_eq!(r["error"]["code"], -32602, "{tool} {arguments}: {r}");
+    }
+    let sessions = d.get("/daemon/views/sessions").json();
+    let open: Vec<&Value> = sessions["rows"].as_array().unwrap().iter().filter(|r| r["state"] == "Open").collect();
+    assert_eq!(open.len(), 4, "s-1, s-2, h-1 and h-2, all still open: {sessions}");
+    // A missing member is the route's own 400.
+    let r = c.tool("open_session", json!({"session_id": "s3"}));
+    let http = d.command("open-session", &json!({"session_id": "s3"}));
+    assert_eq!(http.status, 400);
+    same_as_route("open_session without a client", &r, &http, &[]);
+}
+
 // ---- acceptance 3: events after a sequence number ----
 
 #[test]
@@ -441,7 +570,7 @@ fn http_endpoint_answers_the_same_tools_list_as_stdio() {
     assert!(r.header("content-type").unwrap().starts_with("application/json"));
     let http = r.json();
     assert_eq!(http["id"], 1);
-    assert_eq!(names(&http["result"]["tools"]), SEVEN);
+    assert_eq!(names(&http["result"]["tools"]), NINE);
     let mut c = Stdio1::to(&d);
     let stdio = c.ask("tools/list", json!({}));
     assert_eq!(http["result"]["tools"], stdio["result"]["tools"], "one list on both transports");
@@ -463,7 +592,7 @@ fn http_endpoint_without_the_bearer_token_gets_401_on_a_non_loopback_listener() 
     right.push(("Authorization", "Bearer s3cret-token"));
     let r = d.mcp(&right, &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
+    assert_eq!(names(&r.json()["result"]["tools"]), NINE);
     // The same check guards the other routes, so a request to the endpoint is not a way round it.
     assert_eq!(d.get("/daemon/views/runs").status, 401);
     // A GET to the endpoint without the token is 401 too, not 405: the check comes first.
@@ -491,7 +620,7 @@ fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
         let _ = child.wait();
         assert_eq!(r.status, want, "serve flag {flag}: {}", r.text());
         if flag {
-            assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
+            assert_eq!(names(&r.json()["result"]["tools"]), NINE);
         }
     }
 }
@@ -581,7 +710,7 @@ fn http_serves_a_legacy_client_without_a_session() {
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
     let r = d.mcp(&[("MCP-Protocol-Version", "2025-06-18")], &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
+    assert_eq!(names(&r.json()["result"]["tools"]), NINE);
     assert!(r.json()["result"].get("resultType").is_none());
     let r = d.mcp(&[], &list);
     assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!(-32602)), "neither era is named");
@@ -699,6 +828,14 @@ fn stdio_sends_the_token_it_reads_from_the_environment_and_never_has_it_in_argv(
     let r = without.tool("list_runs", json!({}));
     assert_eq!((r["isError"].clone(), r["_meta"]["runbook/http-status"].clone()), (json!(true), json!(401)));
     assert!(!r.to_string().contains("s3cret-token"));
+    // The session tools go the same way: with the token they reach the command, without it the 401.
+    for (tool, arguments) in [("open_session", json!({"session_id": "s1", "client": "mcp"})), ("close_session", json!({"session_id": "s1"}))] {
+        let r = without.tool(tool, arguments.clone());
+        assert_eq!((r["isError"].clone(), r["_meta"]["runbook/http-status"].clone()), (json!(true), json!(401)), "{tool}: {r}");
+        assert!(!r.to_string().contains("s3cret-token"), "{tool}: {r}");
+        let r = with.tool(tool, arguments);
+        assert_eq!((r["isError"].clone(), r["_meta"]["runbook/http-status"].clone()), (json!(false), json!(202)), "{tool}: {r}");
+    }
     let dir = super::state::scratch("mcp-token-file");
     let file = dir.join("token");
     std::fs::write(&file, "s3cret-token\n").unwrap();
@@ -720,6 +857,16 @@ fn stdio_with_the_daemon_gone_is_a_tool_error_that_does_not_carry_the_token() {
     assert!(r.to_string().contains("daemon unreachable"));
 }
 
+#[test]
+fn the_mcp_page_lists_the_nine_tools_in_the_order_of_tools_list() {
+    let page = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/mcp.md")).unwrap();
+    let section = page.split("\n## The tools\n").nth(1).unwrap().split("\n## ").next().unwrap();
+    let rows: Vec<&str> = section.lines().filter_map(|l| l.strip_prefix("| `").and_then(|r| r.split('`').next())).collect();
+    assert_eq!(rows, NINE, "the table of docs/mcp.md, \"The tools\"");
+    assert!(section.contains("exactly these nine"), "{section}");
+    assert!(!page.contains("seven"), "docs/mcp.md still counts seven tools");
+}
+
 // ---- the schemas ----
 
 /// Every `$ref` and `x-ess-` key is gone: a schema stands alone.
@@ -735,7 +882,7 @@ fn standalone(v: &Value) -> bool {
 fn input_schemas_are_derived_from_the_openapi_document() {
     let doc = super::openapi::doc();
     let tools = mcp::tools::list();
-    assert_eq!(names(&Value::Array(tools.clone())), SEVEN);
+    assert_eq!(names(&Value::Array(tools.clone())), NINE);
     let by = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap().clone();
     let input = |command: &str| doc["components"]["schemas"][format!("sdc.daemon.{}.Input", command)].clone();
     let keys = |v: &Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
@@ -755,8 +902,8 @@ fn input_schemas_are_derived_from_the_openapi_document() {
     assert_eq!(submit["inputSchema"]["required"], json!(["runbook_id", "intake"]));
     assert_eq!(submit["inputSchema"]["properties"]["confinement"]["enum"], json!(["local", "linux"]), "the enum is the document's");
     assert_eq!(submit["inputSchema"]["properties"]["idempotency_key"]["maxLength"], 200);
-    // The other two commands: the document's members less `at`.
-    for (tool, command) in [("cancel_run", "CancelRun"), ("answer_decision", "AnswerDecision")] {
+    // The other commands: the document's members less `at` (and less what the handler fills of an answer).
+    for (tool, command) in [("cancel_run", "CancelRun"), ("answer_decision", "AnswerDecision"), ("open_session", "OpenSession"), ("close_session", "CloseSession")] {
         let mut want = keys(&input(command)["properties"]);
         let filled: &[&str] = if tool == "answer_decision" { &mcp::tools::ANSWER_FILLED } else { &["at"] };
         want.retain(|k| !filled.contains(&k.as_str()));
@@ -764,6 +911,12 @@ fn input_schemas_are_derived_from_the_openapi_document() {
         let mut req: Vec<Value> = input(command)["required"].as_array().unwrap().clone();
         req.retain(|k| !filled.contains(&k.as_str().unwrap_or_default()));
         assert_eq!(by(tool)["inputSchema"]["required"], Value::Array(req), "{tool}");
+    }
+    assert_eq!(by("open_session")["inputSchema"]["required"], json!(["session_id", "client"]));
+    assert_eq!(by("close_session")["inputSchema"]["required"], json!(["session_id"]));
+    assert_eq!(keys(&by("close_session")["inputSchema"]["properties"]), ["session_id"]);
+    for tool in ["open_session", "close_session"] {
+        assert_eq!(by(tool)["annotations"], json!({"readOnlyHint": false}), "{tool}: the annotations of every command tool");
     }
     // The views: their query parameters.
     assert_eq!(by("read_run")["inputSchema"]["required"], json!(["run_id"]));

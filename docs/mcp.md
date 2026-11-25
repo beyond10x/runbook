@@ -1,6 +1,6 @@
 # MCP
 
-The run commands of the daemon as MCP tools, over standard input and output (`runbook mcp`) and over
+The run and session commands of the daemon as MCP tools, over standard input and output (`runbook mcp`) and over
 streamable HTTP (`runbook serve --mcp`). MCP is the third face of the daemon's command layer, with the
 HTTP API ([`daemon-api.md`](daemon-api.md)) and the command line: a tool calls the function the HTTP
 route of the same name calls, and its result is the JSON body that route answers.
@@ -24,20 +24,20 @@ served as `2026-07-28`; `initialize` selects the legacy shape.
 | `initialize` | 2025-11-25, 2025-06-18 | `protocolVersion` (the client's, when it is one of the two; else `2025-11-25`), `capabilities.tools`, `serverInfo` (`runbook` and the version), `instructions` |
 | `notifications/initialized`, any other notification | legacy | accepted, no answer |
 | `ping` | both | `{}` |
-| `tools/list` | both | the seven tools below |
+| `tools/list` | both | the nine tools below |
 | `tools/call` | both | the result of the tool |
 
 A request of another protocol version is the error `-32022` (`UnsupportedProtocolVersion`) with
 `data.supported` and `data.requested`. A modern request without `clientCapabilities` is `-32602`; so
 is any other request before a legacy client has sent `initialize`. An unknown method is `-32601`, an
 unknown tool or an argument the tool does not take `-32602`. A modern result carries
-`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has seven tools),
+`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has nine tools),
 `ttlMs` and `cacheScope`, `subscriptions/listen`, multi round-trip requests, cancellation of a call,
 progress, resources, prompts. The server sends no request and no notification of its own.
 
 ## The tools
 
-`tools/list` prints exactly these seven, in this order:
+`tools/list` prints exactly these nine, in this order:
 
 | Tool | Calls | Input |
 |---|---|---|
@@ -48,13 +48,16 @@ progress, resources, prompts. The server sends no request and no notification of
 | `read_open_decisions` | view `open-decisions` | `run_id`; the rows carry `request_id`, `run_id`, `case_id`, `action`, `capability`, `question`, `options`, `opened_at`, and `artifact` (the recommendation, its grounds and `free_answer`) for a request read from its case (`docs/daemon-api.md`, "A request read from its case") |
 | `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it); a request with `artifact` refuses an answer that names none of its options as `unknown-option` (422) |
 | `cancel_run` | command `cancel-run` | `run_id` |
+| `open_session` | command `open-session` | `session_id`, `client` (a label of at most 200 characters, stored and shown, that grants nothing; the route's length check and no other); an id the daemon already knows is `session-exists` (422), a longer label `400` |
+| `close_session` | command `close-session` | `session_id`; afterwards a `submit_run` with that id is `SessionClosedToRuns` (409); the runs of the session go on, none is cancelled; an unknown id is `no-session` (404), a closed session `wrong-state` (409) |
 
 Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
 the `Input` schema of its command with the members the HTTP handler fills removed (`run_id`,
 `daemon_id`, `runbook_known`, `context_inside_roots` of a submit, and `at` of all) and with the
 members the daemon defaults (`settings`, `confinement`) not required (a `submit_run` with no `autonomy` and no `decider` takes the daemon's defaults of `runbook serve --autonomy` and `--decider`, else none, and every decision of the run waits for `answer_decision`; the level and the kind are `autonomy` and `decider` of `read_run`; a kind the operator did not configure is refused as `400` `bad request` before anything is written, naming the configured kinds; an `answered_by` that starts with `rule:`, `decider:` or `router:` (in any case, after ASCII whitespace is trimmed) is refused too, as is one with a non-ASCII or control character, because those names are the daemon's for the answers of a rule, a decider or a router; a `submit_run` without `confinement` runs at the daemon's default level, and a daemon with none refuses it `400` by name and writes nothing; the level and where it came from are `confinement` and `confinement_source` of `read_run`); a view tool's schema is built
-from the query parameters of its view. Every `$ref` is inlined. The one member typed here is
+from the query parameters of its view. The schemas of `open_session` and `close_session` are the `Input`
+schemas of `OpenSession` and `CloseSession` less `at`, like `cancel_run`'s. Every `$ref` is inlined. The one member typed here is
 `after_sequence` of `read_events`, which has no parameter in the view: the view pages by `position`;
 a run's own `sequence` (from 1) is the filter the tool puts on the rows of that view.
 
