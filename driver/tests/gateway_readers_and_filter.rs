@@ -662,7 +662,8 @@ fn claude_inherits_no_descriptor_of_the_filters_beyond_its_three_streams() {
     let case = Case::new("claude-fds");
     let log = case.base.join("log/claude-fds");
     case.program("claude", &format!("#!/bin/sh\nfor f in /proc/self/fd/*; do readlink \"$f\"; done > '{}'\necho '{RESULT}'\n", log.display()));
-    let o = case.adapter(TOKEN, false);
+    // The adapter's caller left a pipe open beside its three streams: that one does not reach claude either.
+    let o = case.bounded(crate::gateway_descriptors_bound_and_kinds::inheriting_an_open_pipe(case.command(TOKEN, false, &[])));
     assert_eq!(o.status.code(), Some(0), "{}", said(&o));
     let fds = fs::read_to_string(&log).expect("claude did not start");
     let pipes = fds.lines().filter(|l| l.starts_with("pipe:")).count();
