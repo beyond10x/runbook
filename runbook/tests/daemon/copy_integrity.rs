@@ -2687,6 +2687,7 @@ mod relative_state_directory {
             autonomy: None,
             decider: None,
             arbiter: None,
+            route_table: None,
             token_file: None,
             principal: Some(super::super::PRINCIPAL.into()),
             ui: false,

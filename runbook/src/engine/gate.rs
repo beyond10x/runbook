@@ -16,6 +16,10 @@
 //! such a program and no budget anywhere is refused at load (`budget::reserves`). What a program
 //! costs is booked from the cost records after it, and the next step is refused once the cap is
 //! reached.
+//!
+//! A run on a route ([`Gate::route`]) books its model calls where they are relayed (`crate::relay`): each
+//! call is taken against the model calls and the spend of the run before it is sent ([`RelayBooking`]),
+//! and its line in the ledger is its cost; the cost records of the bound programs then book nothing.
 
 use crate::budget;
 use crate::caps::{Caps, Usage};
@@ -215,6 +219,58 @@ impl TestRunner for Reserving {
     }
 }
 
+/// What the relay of a run on a route asks of the run (`crate::relay::Booking`): each call is taken against the
+/// run's caps of model calls and spend before it is sent, and booked into the run's spend ledger when its answer
+/// has ended, at the cost the relay read (the step's largest reservation, else the runbook's largest budget, when
+/// the cost is not known). The lines wait here until the run's thread records them as events of the run.
+pub struct RelayBooking {
+    held: Arc<Held>,
+    meter: Arc<Meter>,
+    max_calls: u64,
+    step: Arc<Mutex<Option<String>>>,
+    pending: Mutex<Vec<Value>>,
+    /// The first call the ledger could not book: the step it ran in fails with it.
+    unbooked: Mutex<Option<String>>,
+}
+
+impl crate::relay::Booking for RelayBooking {
+    fn admit(&self) -> Result<(), String> {
+        let max = self.max_calls;
+        self.meter.calls.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < max).then_some(n + 1)).map_err(|n| format!("llm calls: {n} of {max} calls"))?;
+        let cap = self.held.cap_micro_usd;
+        let refused = match self.held.ledger.spent_by_run(&self.held.run_id) {
+            Ok(spent) if spent >= cap => Some(format!("spend cap: {spent} of {cap} micro USD spent")),
+            Ok(_) => None,
+            Err(why) => Some(format!("the spend ledger cannot be read: {why}")),
+        };
+        match refused {
+            Some(why) => {
+                self.meter.calls.fetch_sub(1, Ordering::SeqCst);
+                Err(why)
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn reservation_micro_usd(&self) -> u64 {
+        lock(&self.held.reserved).iter().map(|r| r.micro_usd).max().unwrap_or(self.held.reserves.unnamed_micro_usd)
+    }
+
+    fn step(&self) -> Option<String> {
+        lock(&self.step).clone()
+    }
+
+    fn book(&self, line: Value, micro_usd: u64) -> Result<(), String> {
+        let booked = self.held.ledger.book_line(&self.held.run_id, &line, micro_usd);
+        self.meter.spent.fetch_add(micro_usd, Ordering::SeqCst);
+        lock(&self.pending).push(line);
+        if let Err(why) = &booked {
+            lock(&self.unbooked).get_or_insert_with(|| why.clone());
+        }
+        booked
+    }
+}
+
 pub struct Gate {
     pub caps: Caps,
     pub meter: Arc<Meter>,
@@ -222,6 +278,8 @@ pub struct Gate {
     run_dir: PathBuf,
     workspace: PathBuf,
     reader: CostReader,
+    /// The run is on a route: its model calls are taken and booked by the relay.
+    routed: Option<Arc<RelayBooking>>,
 }
 
 impl Gate {
@@ -243,7 +301,26 @@ impl Gate {
             let _ = reader.read_new(workspace);
         }
         let held = Arc::new(Held { ledger, run_id: run_id.to_owned(), cap_micro_usd: caps.cap_micro_usd, reserves, reserved: Mutex::new(Vec::new()), stopped: Mutex::new(None) });
-        Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader })
+        Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader, routed: None })
+    }
+
+    /// The run is on a route: from now on its model calls are taken against its caps and booked by the relay through
+    /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
+    /// the step in flight.
+    pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), unbooked: Mutex::new(None) });
+        self.reader = std::mem::take(&mut self.reader).routed();
+        self.routed = Some(booking.clone());
+        booking
+    }
+
+    /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`).
+    pub fn record_calls(&self, sink: &dyn EventSink) {
+        if let Some(booking) = &self.routed {
+            for line in std::mem::take(&mut *lock(&booking.pending)) {
+                sink.record("runbook.model-call", line);
+            }
+        }
     }
 
     /// The runner of the run's bound programs: `inner`, reserving the budget of each program that
@@ -286,7 +363,11 @@ impl Gate {
         let held: Vec<Reservation> = std::mem::take(&mut *lock(&self.held.reserved));
         let largest = held.iter().map(|r| r.micro_usd).max().unwrap_or(0);
         let result = self.reader.read_new(&self.workspace);
+        let routed = self.routed.is_some();
         let (booked, what, calls, outcome) = match result {
+            // The relay took and booked every model call of the step; the step's reservations are released. A call
+            // the ledger could not book fails the step (fail closed).
+            Ok(_) if routed => (0, "step", 0, self.routed.as_ref().and_then(|b| lock(&b.unbooked).take()).map_or(Ok(()), Err)),
             Ok(cost) => {
                 let unknown = cost.unknown.len() as u64;
                 let booked = cost.micro_usd.saturating_add(largest.saturating_mul(unknown));
@@ -304,6 +385,7 @@ impl Gate {
         if calls > 0 {
             sink.record("runbook.cost-booked", json!({"calls": calls, "micro_usd": booked, "spent_micro_usd": self.meter.usage().spent_micro_usd}));
         }
+        self.record_calls(sink);
         self.persist();
         outcome
     }
@@ -350,5 +432,42 @@ mod tests {
         gate.commit(&[first, second], "step", 100).unwrap();
         // 100 spent, nothing held: 900 of the run's 1000 are left
         assert_eq!(ledger.reserve_for_run("run-a", 1000, 1000).unwrap().micro_usd, 900, "a reservation of the step is still held after it was booked");
+    }
+
+    struct Quiet;
+
+    impl EventSink for Quiet {
+        fn steps(&self) -> Option<Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
+        fn started(&self) {}
+        fn record(&self, _: &str, _: Value) {}
+        fn decision_requested(&self, _: crate::runtime::DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn a_relayed_call_the_ledger_could_not_book_fails_the_step_it_ran_in() {
+        use crate::relay::Booking;
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("gate-unit-relay-book-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let caps = Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 };
+        let mut gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::on(Usage::default(), WallClock::default())), budget::Reserves::default()).unwrap();
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        let file = dir.join("ledgers").join("rb.json");
+        let kept = std::fs::read(&file).unwrap_or_default();
+        let _ = std::fs::remove_file(&file);
+        std::fs::create_dir(&file).unwrap();
+        assert!(booking.admit().is_err(), "a call was admitted while the ledger could not be read");
+        assert!(booking.book(json!({"what": "model call"}), 5).is_err(), "a ledger that cannot be written booked the call");
+        std::fs::remove_dir(&file).unwrap();
+        std::fs::write(&file, kept).unwrap();
+        let outcome = gate.book(&Quiet);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_err_and(|why| why.contains("spend ledger")), "the step of a call the ledger did not book ended without its error");
     }
 }

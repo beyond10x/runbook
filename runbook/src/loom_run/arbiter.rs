@@ -17,7 +17,9 @@ use crate::loom_run::decider::NativeDecider;
 use crate::loom_run::gateway;
 use crate::loom_run::private::PrivateDir;
 use runbook::engine::arbiter::{Arbiter, Judgement, Opened, Opening, RunArbiter};
+use runbook::engine::route::private_name;
 use runbook::engine::shape::{self, Unshaped};
+use runbook::relay::{ResolvedRoute, RouteTable};
 use sdc_tools::gateway::Gateway;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -51,7 +53,8 @@ pub struct Limits {
 pub struct DaemonArbiter {
     kinds: BTreeMap<String, Value>,
     limits: Limits,
-    /// The gateway of the runs whose kind is `model`, read when the daemon started (its `Debug` holds no token).
+    /// The gateway of the runs whose kind is `model`, read when the daemon started (its `Debug` holds no token): the
+    /// route of those runs (`route_table`), which the daemon's relay alone reaches.
     gateway: Option<Gateway>,
 }
 
@@ -90,12 +93,24 @@ impl DaemonArbiter {
     }
 }
 
-/// The name of a run's private directory under `$XDG_RUNTIME_DIR/runbook/`: the daemon's process, so
-/// that a directory a killed daemon left does not refuse the run's resume, and the run's own name
-/// (the last part of its directory) reduced to characters a path part may hold.
-fn private_name(run_dir: &Path) -> String {
-    let run: String = run_dir.file_name().and_then(|n| n.to_str()).unwrap_or("run").chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
-    format!("daemon-{}-{run}", std::process::id())
+impl DaemonArbiter {
+    /// The route table of the runs whose kind is `model`, built from the daemon's `[gateway]` until the daemon
+    /// declares routes of its own (`docs/model-routes.md`, section 1): one route `default` on that gateway, whose
+    /// alias is the model of `[deciders.model]`, for the role `default`. None without a gateway or a model kind.
+    pub fn route_table(&self) -> Option<RouteTable> {
+        let gateway = self.gateway.as_ref()?;
+        let alias = self.kinds.get("model")?.get("model").and_then(Value::as_str)?;
+        let route = ResolvedRoute {
+            name: "default".to_owned(),
+            base_url: gateway.base_url().to_owned(),
+            token: gateway.token().map(str::to_owned),
+            alias: alias.to_owned(),
+            kind: "hosted".to_owned(),
+            price_in_micro_usd_per_mtok: None,
+            price_out_micro_usd_per_mtok: None,
+        };
+        Some(RouteTable::default().with("default", route, "default"))
+    }
 }
 
 fn root_name(bindings: &Path) -> Result<&str, String> {
@@ -136,12 +151,16 @@ impl Arbiter for DaemonArbiter {
         // The model's adapter is given a link in the run's private directory, never the login file's own path; the
         // link goes with the judge, when the run ends.
         let login = self.limits.login_file.as_deref().filter(|_| kind == "model").map(Path::new);
-        // A gateway instead: the file with its address and token in the same directory, for a run whose kind starts a
-        // model program; the adapter is given the file's path, never what it holds.
-        let gateway = self.gateway.as_ref().filter(|_| kind == "model");
-        let private = PrivateDir::create_with(&private_name(o.run_dir), login, gateway)?;
-        if let Some(file) = private.as_ref().and_then(PrivateDir::gateway_file) {
-            decider.use_gateway(file);
+        // A gateway instead: the run is on the daemon's route (`route_table`), and the adapter is given the path of
+        // the run's route file, which names the daemon's relay and the run's own token; the gateway's address and
+        // credential stay in the daemon. A model run without its route file does not start.
+        let route_file = o.route_file.filter(|_| kind == "model");
+        if self.gateway.is_some() && kind == "model" && route_file.is_none() {
+            return Err("the daemon's gateway serves this run through its relay, and the run has no route file".to_owned());
+        }
+        let private = PrivateDir::create_with(&private_name(o.run_dir), login, None)?;
+        if let Some(file) = route_file {
+            decider.use_route_file(file);
         }
         let path = format!("{}:{SYSTEM_PATH}", dst.join("tools").display());
         let verdict = table.get("verdict").and_then(Value::as_str).map(str::to_owned);
@@ -315,7 +334,7 @@ mod tests {
         let terms = runbook::runtime::Terms { autonomy: Some(runbook::runtime::Autonomy::A3), decider: Some("rule".to_owned()) };
         let arbiter = DaemonArbiter::new(configured("rule", json!({"verdict": "approve"})), Limits::default()).unwrap();
         let opened = arbiter
-            .open(&Opening { run_dir: &run_dir, workspace: &run_dir.join("w"), bindings: &root.join("bindings/autonomy-demo.yaml"), terms: &terms, resume: false })
+            .open(&Opening { run_dir: &run_dir, workspace: &run_dir.join("w"), bindings: &root.join("bindings/autonomy-demo.yaml"), terms: &terms, resume: false, route_file: None })
             .unwrap_or_else(|e| panic!("{e}"));
         (opened.judge, run_dir)
     }

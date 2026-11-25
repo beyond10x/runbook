@@ -25,6 +25,9 @@ pub struct Opening<'a> {
     pub terms: &'a Terms,
     /// The run has a store already: its bindings copy was made when it started and is read, not made again.
     pub resume: bool,
+    /// The run's route file when the run is on a route (`engine::route`): the decider's model program gets its path
+    /// and nothing else of the route.
+    pub route_file: Option<&'a Path>,
 }
 
 /// What opening a run's arbiter gives.
