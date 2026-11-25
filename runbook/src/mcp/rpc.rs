@@ -21,7 +21,7 @@ pub const LEGACY: [&str; 2] = ["2025-11-25", "2025-06-18"];
 pub const SUPPORTED: [&str; 3] = [MODERN, LEGACY[0], LEGACY[1]];
 
 pub const SERVER_NAME: &str = "runbook";
-const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, read_open_decisions, answer_decision, cancel_run, open_session, close_session, list_products, read_product, list_routes, and agent work on a named model route: delegate, delegation_result. Each result is the JSON body the daemon's HTTP route of the same name answers (delegate and delegation_result: the row of the view delegation-result, with a text that starts with one line naming the run); isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
+const INSTRUCTIONS: &str = "Runs of a runbook on the Runbook daemon: submit_run, list_runs, read_run, read_events, read_open_decisions, answer_decision, cancel_run, open_session, close_session, list_products, read_product, list_routes, and agent work on a named model route: delegate, delegation_result, describe_catalog (the routes, runbooks and delegate members a delegation may name). Each result is the JSON body the daemon's HTTP route of the same name answers (delegate and delegation_result: the row of the view delegation-result, with a text that starts with one line naming the run); isError is true and _meta[\"runbook/http-status\"] is the HTTP status when the route refused.";
 
 pub const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 pub const META_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";

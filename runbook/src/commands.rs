@@ -1498,6 +1498,107 @@ impl Daemon {
         self.inner.routes.rows(now)
     }
 
+    /// The view `Catalog` (wire name `catalog`, `docs/model-routes.md` section 10): one row with what a delegation may name.
+    /// `routes`: the rows of the view `routes` (the gateways read at most once every [`crate::routes::READ_EVERY_MILLIS`])
+    /// with the prices and the wait of the daemon's file. `runbooks`: the rows of the view `runbooks` with what the runtime
+    /// says of each (`Runtime::runbook_facts`) and the admission of its route entries (`crate::admission`) against those
+    /// routes and the default route. `delegation`: the members of `Delegate` as the OpenAPI document gives them, the paths,
+    /// the default and classifier routes, the level and the most bytes of a request. No address, token or path.
+    pub fn catalog(&self) -> Vec<Value> {
+        use crate::admission::{admit, parse, Facts};
+        let table = self.inner.routes.table().clone();
+        let rows = self.routes();
+        let facts: Vec<Facts> = rows.iter().map(Facts::of_row).collect();
+        let routes: Vec<Value> = rows
+            .into_iter()
+            .map(|mut row| {
+                let declared = row["route"].as_str().and_then(|r| table.route(r)).cloned();
+                if let (Some(route), Some(m)) = (declared, row.as_object_mut()) {
+                    let read_at = m.shift_remove("read_at");
+                    let numbers = [("price_in_micro_usd_per_mtok", route.prices.in_micro_usd_per_mtok), ("price_out_micro_usd_per_mtok", route.prices.out_micro_usd_per_mtok), ("start_wait_seconds", route.start_wait_seconds)];
+                    for (key, value) in numbers {
+                        if let Some(n) = value {
+                            m.insert(key.into(), json!(n));
+                        }
+                    }
+                    if let Some(at) = read_at {
+                        m.insert("read_at".into(), at);
+                    }
+                }
+                row
+            })
+            .collect();
+        let default = table.default_route();
+        let runbooks: Vec<Value> = self
+            .runbooks()
+            .into_iter()
+            .map(|row| {
+                let id = row["runbook_id"].as_str().unwrap_or_default().to_owned();
+                let f = self.inner.runtime.runbook_facts(&id);
+                let mut m = Map::new();
+                m.insert("runbook_id".into(), json!(id));
+                if let Some(v) = row.get("runbook_version") {
+                    m.insert("runbook_version".into(), v.clone());
+                }
+                put(&mut m, "title", &f.title);
+                put(&mut m, "description", &f.description);
+                m.insert("inputs".into(), json!(f.inputs));
+                let (entries, allowed, refusal) = match f.routes_file.map(|text| text.and_then(|t| parse(&id, &t))) {
+                    None => (Vec::new(), None, None),
+                    Some(Err(why)) => (Vec::new(), None, Some(why)),
+                    Some(Ok(declared)) => {
+                        let a = admit(&declared, &facts, default);
+                        let refusal = (!a.reasons.is_empty()).then(|| a.reasons.join("; "));
+                        (a.entries, a.routes_allowed, refusal)
+                    }
+                };
+                m.insert("route_entries".into(), json!(entries));
+                if let Some(list) = allowed {
+                    m.insert("routes_allowed".into(), json!(list));
+                }
+                m.insert("admitted".into(), json!(refusal.is_none()));
+                put(&mut m, "refusal", &refusal);
+                Value::Object(m)
+            })
+            .collect();
+        let schema = crate::mcp::schema::command_input("delegate", &crate::mcp::tools::DELEGATE_FILLED, &crate::mcp::tools::SUBMIT_DEFAULTED);
+        let required: Vec<&str> = schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let members: Vec<Value> = schema["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, s)| {
+                let mut m = Map::new();
+                m.insert("name".into(), json!(name));
+                m.insert("required".into(), json!(required.contains(&name.as_str())));
+                if let Some(d) = s["description"].as_str() {
+                    m.insert("summary".into(), json!(d));
+                }
+                if let Some(n) = s["maxLength"].as_u64() {
+                    m.insert("max_length".into(), json!(n));
+                }
+                Value::Object(m)
+            })
+            .collect();
+        let mut paths = Vec::new();
+        if !runbooks.is_empty() {
+            paths.push("named");
+        }
+        if self.inner.runtime.free_run() {
+            paths.push("free");
+        }
+        let mut delegation = Map::new();
+        delegation.insert("members".into(), json!(members));
+        delegation.insert("paths".into(), json!(paths));
+        put(&mut delegation, "default_route", &default.map(str::to_owned));
+        put(&mut delegation, "classifier_route", &table.classifier().map(str::to_owned));
+        if let Some(level) = self.inner.policy.default_confinement {
+            delegation.insert("confinement".into(), json!(level));
+        }
+        delegation.insert("request_limit".into(), json!(MAX_INTAKE_BYTES));
+        vec![json!({"routes": routes, "runbooks": runbooks, "delegation": delegation})]
+    }
+
     /// The view `Runbooks` (wire name `runbooks`): the runtime's own runbooks and the entries of
     /// `--runbook-dir`, each name once (the runtime's row wins), by name. A name is listed only when
     /// `runbook_known` accepts it, and a row holds a name, a version and the runtime, never a path.

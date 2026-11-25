@@ -22,6 +22,7 @@ runtime.
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 | ModelRoute | Declared | A model route of the daemon's `runbook.toml` with what its gateway last said of it (below, "Model routes"). |
+| DaemonCatalog | Read | What a delegation may name, read when a client asks: the routes, the runbooks with the admission of their route entries, the terms of a delegation (below, "The catalog"). |
 
 Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
 `confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
@@ -134,8 +135,9 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
-| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `read_at` (below) |
+| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at` (below) |
 | `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
+| `catalog` | none | one row: the declared routes with their prices, the runbooks with their purpose, inputs and the admission of their route entries, and the terms of a delegation (below, "The catalog") |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -266,6 +268,47 @@ daemon does not know is `404` `no such run`; a run no delegation created is `404
 `runbook delegate [--route <r>] [--protocol <p>] [--workspace <dir>] [--set K=V] <request-file|->` sends one
 delegation and prints the run's id (`--json`: the route's answer); the MCP tools `delegate` and
 `delegation_result` are in [`mcp.md`](mcp.md).
+
+### The catalog
+
+`GET /daemon/views/catalog` (the MCP tool `describe_catalog`, the command `runbook catalog [--json]`) answers one row
+with what a delegation may name on this daemon (`docs/model-routes.md`, section 10):
+
+- `routes`: each declared route, in order of name, as the view `routes` reads it (`route`, `gateway` by name,
+  `alias`, `kind`, `wires`, `status`, `phase`, `read_at`, and `max_model_len` and `tool_calling` when the gateway's
+  `GET /v1/models` gives them for the alias), with what the daemon's file declares beside the address:
+  `price_in_micro_usd_per_mtok`, `price_out_micro_usd_per_mtok` and `start_wait_seconds`, each when declared.
+- `runbooks`: each row of the view `runbooks`, with `title` (the root protocol's title, else the first sentence of its
+  description), `description` (at most 2000 characters), `inputs` (`idea` when the root bindings place it: the request
+  is the run's intake), and the admission of its route entries.
+- `delegation`: `members`, the members of `delegate` a client sends as the OpenAPI document gives them (`name`,
+  `required`, `summary`, `max_length`); `paths` (`named` when a runbook is listed, `free` when the daemon runs the free
+  run); `default_route` and `classifier_route` (`[route_policy]`); `confinement`, the daemon's default level, which
+  every delegation runs at; `request_limit`, 1,048,576 bytes.
+
+A runbook's route entries are the file `bindings/<runbook>.routes.yaml` beside its bindings (format
+`runbook.routes/1`, Runbook's own file, not part of Loom's bindings):
+
+```yaml
+format: runbook.routes/1
+model_routes:
+  writer: {route: qwen}
+  review: {needs: {wire: messages, min_context: 100000, tool_calling: true}}
+routes_allowed: [qwen, claude]
+```
+
+An entry that names a route is admitted when the daemon declares it and `routes_allowed`, when given, holds it. An
+entry with `needs` (`wire`, `min_context`, `tool_calling`, `kind`, each optional) is admitted with the daemon's
+default route when that is allowed and meets them, else with the one allowed route that meets them; none or several
+is a refusal. A need is checked against what the gateway listed for the route's alias (`wires`, `max_model_len`,
+`tool_calling`) and the route's `kind`; a fact the gateway did not give meets no requirement. Each entry is listed
+with `role`, `route` (the one that serves it), `needs`, `admitted` and the `reason` of one that is not; a runbook
+whose entries cannot be admitted is listed with `admitted: false` and `refusal`, every reason joined by `; ` (or what
+is wrong with the file as a whole: not `runbook.routes/1`, an unknown member, a link, more than 64 KiB). A reason
+names the role and the route or the requirement; an address, a token or another text that is not a name is never
+echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
+lists the admission only; a submit or a delegation does not check it yet (`story:protocol-declares-the-routes-it-needs`).
+No address, token, token file or path of the host is in the row.
 
 ### The products of a run
 

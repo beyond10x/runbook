@@ -435,9 +435,23 @@ enum Reach {
     Unreachable,
     /// An answer that is not 200, or no list of models.
     NotReady,
-    /// Ready, with its models and their wires; the status of each model `GET /v1/status` gave (`of_all`) and of
-    /// each model whose own status route answered (`of_model`), by alias.
-    Ready { models: BTreeMap<String, Vec<String>>, of_all: BTreeMap<String, ModelStatus>, of_model: BTreeMap<String, ModelStatus> },
+    /// Ready, with its models as `GET /v1/models` lists them; the status of each model `GET /v1/status` gave (`of_all`)
+    /// and of each model whose own status route answered (`of_model`), by alias.
+    Ready { models: BTreeMap<String, Listed>, of_all: BTreeMap<String, ModelStatus>, of_model: BTreeMap<String, ModelStatus> },
+}
+
+/// One model of `GET /v1/models`: its wires, and its context length and tool calling when the gateway gives them.
+#[derive(Clone, Default)]
+struct Listed {
+    wires: Vec<String>,
+    max_model_len: Option<u64>,
+    tool_calling: Option<bool>,
+}
+
+impl Listed {
+    fn of(m: &Value) -> Listed {
+        Listed { wires: wires(&m["wires"]), max_model_len: m["max_model_len"].as_u64(), tool_calling: m["tool_calling"].as_bool() }
+    }
 }
 
 /// The status of one model as the gateway gives it.
@@ -499,9 +513,9 @@ fn read_gateway(table: &RouteTable, name: &str, gateway: &Gateway, until: Instan
         Some((200, _)) => {}
         Some(_) => return Reach::NotReady,
     }
-    let models: BTreeMap<String, Vec<String>> = match get(&client, &prefix, "/v1/models", until) {
+    let models: BTreeMap<String, Listed> = match get(&client, &prefix, "/v1/models", until) {
         None => return Reach::Unreachable,
-        Some((200, body)) if body["data"].is_array() => body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), wires(&m["wires"])))).collect(),
+        Some((200, body)) if body["data"].is_array() => body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), Listed::of(m)))).collect(),
         Some(_) => return Reach::NotReady,
     };
     let listed: Vec<&Route> = table.routes.values().filter(|r| r.gateway == name && models.contains_key(&r.alias)).collect();
@@ -559,19 +573,19 @@ fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -
         .routes
         .values()
         .map(|route| {
-            let (status, wires, phase) = match reads.get(route.gateway.as_str()) {
-                None | Some(Reach::Unreachable) => ("gateway-unreachable", Vec::new(), None),
-                Some(Reach::NotReady) => ("gateway-not-ready", Vec::new(), None),
+            let (status, listed, phase) = match reads.get(route.gateway.as_str()) {
+                None | Some(Reach::Unreachable) => ("gateway-unreachable", Listed::default(), None),
+                Some(Reach::NotReady) => ("gateway-not-ready", Listed::default(), None),
                 Some(Reach::Ready { models, of_all, of_model }) => match models.get(&route.alias) {
-                    None => ("model-unknown", Vec::new(), None),
-                    Some(wires) => {
+                    None => ("model-unknown", Listed::default(), None),
+                    Some(listed) => {
                         let of_model = || of_model.get(&route.alias).filter(|_| route.kind.has_model_status());
                         match of_all.get(&route.alias).or_else(of_model).cloned() {
                             Some(s) => {
                                 let ready = s.callable.unwrap_or(s.phase.as_deref() == Some("ready"));
-                                (if ready { "ready" } else { "not-ready" }, wires.clone(), s.phase)
+                                (if ready { "ready" } else { "not-ready" }, listed.clone(), s.phase)
                             }
-                            None => ("listed", wires.clone(), None),
+                            None => ("listed", listed.clone(), None),
                         }
                     }
                 },
@@ -581,10 +595,16 @@ fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -
             row.insert("gateway".into(), json!(route.gateway));
             row.insert("alias".into(), json!(route.alias));
             row.insert("kind".into(), json!(route.kind.as_str()));
-            row.insert("wires".into(), json!(wires));
+            row.insert("wires".into(), json!(listed.wires));
             row.insert("status".into(), json!(status));
             if let Some(phase) = phase {
                 row.insert("phase".into(), json!(phase));
+            }
+            if let Some(len) = listed.max_model_len {
+                row.insert("max_model_len".into(), json!(len));
+            }
+            if let Some(tools) = listed.tool_calling {
+                row.insert("tool_calling".into(), json!(tools));
             }
             row.insert("read_at".into(), json!(read_at));
             Value::Object(row)

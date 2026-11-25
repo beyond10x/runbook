@@ -1,4 +1,4 @@
-//! The fourteen tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! The fifteen tools and their calls. A tool names a route of the command layer: `submit_run`,
 //! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
 //! names, `list_runs`, `read_run`,
 //! `read_events`, `read_open_decisions`, `list_products`, `read_product` and `list_routes` are the views `runs*`, `run`, `events`, `open-decisions`, `products`, `product` and `routes`. The result of a call is the body of the
@@ -6,7 +6,7 @@
 //!
 //! `delegate` and `delegation_result` are the command `delegate` and the view `delegation-result`: `delegate` waits for the run's
 //! end, reading that view, with a progress notification per step; both answer the view's row with the result text held to
-//! `RESULT_CHARS` and a text whose first line names the run.
+//! `RESULT_CHARS` and a text whose first line names the run. `describe_catalog` is the view `catalog`.
 
 use super::schema;
 use super::{refused, Backend};
@@ -38,6 +38,7 @@ enum Kind {
     ListRoutes,
     Delegate,
     DelegationResult,
+    DescribeCatalog,
 }
 
 struct Tool {
@@ -48,7 +49,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 14] = [
+const TOOLS: [Tool; 15] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -147,6 +148,13 @@ const TOOLS: [Tool; 14] = [
         read_only: true,
         kind: Kind::DelegationResult,
     },
+    Tool {
+        name: "describe_catalog",
+        title: "Describe what a delegation may name",
+        description: "What a delegate call may name on this daemon, in one row (`rows[0]` of the result): `routes`, each declared model route with `route` (the name a delegation names), `kind`, `alias`, `gateway` (by name), `wires`, `status` and `phase` as list_routes reads them, `max_model_len` and `tool_calling` when the gateway lists them, and the prices per million tokens and the wait the daemon's file declares; `runbooks`, each runbook a delegation may name as its `protocol`, with `title` (its purpose in one line), `description`, `inputs`, its `route_entries` (per role the route that serves it, or the reason it cannot be admitted), `routes_allowed`, `admitted` and the `refusal` of one that is not; `delegation`, the members of delegate (`name`, `required`, `summary`, `max_length`), the `paths` a delegation may take (named, free), the `default_route`, the `classifier_route`, the `confinement` it runs at and the `request_limit` in bytes. No address, token or path is in it.",
+        read_only: true,
+        kind: Kind::DescribeCatalog,
+    },
 ];
 
 /// The members of the input of `delegate` the handler fills.
@@ -182,7 +190,7 @@ fn input_schema(tool: &Tool) -> Value {
         Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
         Kind::ListProducts => schema::object(vec![("run_id", schema::view_param("products", "run_id"))], &["run_id"]),
         Kind::ReadProduct => schema::object(vec![("run_id", schema::view_param("product", "run_id")), ("path", schema::view_param("product", "path"))], &["run_id", "path"]),
-        Kind::ListRoutes => schema::object(Vec::new(), &[]),
+        Kind::ListRoutes | Kind::DescribeCatalog => schema::object(Vec::new(), &[]),
         Kind::Delegate => {
             let mut s = schema::command_input("delegate", &DELEGATE_FILLED, &SUBMIT_DEFAULTED);
             s["properties"]["wait_seconds"] = json!({"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "description": format!("How long the tool waits for the run's end before it answers the run id and its state. Default {DEFAULT_WAIT_SECONDS}.")});
@@ -205,7 +213,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the fourteen tools, in a fixed order.
+/// The result of `tools/list`: exactly the fifteen tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -406,6 +414,7 @@ pub fn call(be: &dyn Backend, name: &str, arguments_given: &Value) -> Result<Ans
         Kind::ListRoutes => Ok(be.view("routes", &HashMap::new())),
         Kind::Delegate => Ok(be.command("delegate", Value::Object(args).to_string().as_bytes())),
         Kind::DelegationResult => Ok(be.view("delegation-result", &query_of(&args)?)),
+        Kind::DescribeCatalog => Ok(be.view("catalog", &HashMap::new())),
         Kind::ReadEvents => {
             let mut q = query_of(&args)?;
             let after_sequence = match q.remove("after_sequence") {

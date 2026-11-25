@@ -123,6 +123,18 @@ pub struct RunbookInfo {
     pub version: Option<String>,
 }
 
+/// What the catalog (`Daemon::catalog`) says of a runbook beside its name and version, as the runtime's runbook
+/// directories hold it: its purpose in one line and its description (the root protocol's), the inputs a delegation's
+/// request fills, and the text of its route entries file (`crate::admission`), or why that file cannot be read. No path.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RunbookFacts {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub inputs: Vec<String>,
+    /// None: the runbook has no route entries file.
+    pub routes_file: Option<Result<String, String>>,
+}
+
 /// One case of a run's tree as the runtime reads it (`Runtime::cases`): what the view `cases` shows, and the last
 /// stop its run log names, from which the daemon says where it stands. No path of the store or a case file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -315,6 +327,12 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// The runtime's name as the view `runbooks` gives it: `stub` or `loom`.
     fn kind(&self) -> &'static str;
+
+    /// What the catalog says of the runbook `runbook` (a name `runbooks` lists) beside its name. The default (the stub,
+    /// whose runbooks are scripts): nothing.
+    fn runbook_facts(&self, _runbook: &str) -> RunbookFacts {
+        RunbookFacts::default()
+    }
 
     /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that
     /// is a run that could not start. The `cancel` flag is checked between steps.

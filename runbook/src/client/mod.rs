@@ -1,4 +1,5 @@
-//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`, `runbook delegate`.
+//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`, `runbook delegate`,
+//! `runbook catalog`.
 //!
 //! Each command is one call of a route of the daemon (`api`), with the input types of the server's own
 //! routes, and prints what the route returns: text lines by default, the route's JSON with `--json`.
@@ -149,6 +150,21 @@ pub struct DelegateArgs {
     pub json: bool,
     #[command(flatten)]
     pub remote: Remote,
+}
+
+#[derive(Args, Debug)]
+pub struct CatalogArgs {
+    /// Print what the route returns as JSON.
+    #[arg(long)]
+    pub json: bool,
+    #[command(flatten)]
+    pub remote: Remote,
+}
+
+/// `runbook catalog`: one call of `GET /daemon/views/catalog`; prints a line per route, per runbook (with the refusal of
+/// one whose route entries cannot be admitted) and of the delegation's terms.
+pub fn catalog(args: CatalogArgs) -> ExitCode {
+    done("catalog", catalog_print(args))
 }
 
 pub fn run(args: RunArgs) -> ExitCode {
@@ -309,6 +325,57 @@ fn delegate_run(args: DelegateArgs) -> Result<(), Failure> {
     }
     let run_id = run_id_of(&reply).ok_or_else(|| Failure::new(exit::OTHER, "the answer of delegate names no run"))?;
     say(&format!("{run_id}\n"))
+}
+
+// ---- catalog ----
+
+fn catalog_print(args: CatalogArgs) -> Result<(), Failure> {
+    let reply = connect(&args.remote)?.view("catalog", &[])?;
+    if args.json {
+        return say(&format!("{}\n", reply.body.trim_end()));
+    }
+    let rows = Api::rows(&reply)?;
+    let row = rows.first().ok_or_else(|| Failure::new(exit::OTHER, "the view catalog answered no row"))?;
+    say(&catalog_text(row))
+}
+
+/// The text of a row of the view `catalog`: a line per route, per runbook and per route entry that is not admitted, and one
+/// of the delegation's terms.
+fn catalog_text(row: &Value) -> String {
+    let list = |v: &Value| v.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".to_owned());
+    let mut text = String::new();
+    for r in row["routes"].as_array().into_iter().flatten() {
+        let mut line = format!("route {}  {}  alias {}  {}", field(r, "route"), field(r, "kind"), field(r, "alias"), field(r, "status"));
+        if let Some(p) = r["phase"].as_str() {
+            line.push_str(&format!(" ({p})"));
+        }
+        line.push_str(&format!("  wires {}", list(&r["wires"])));
+        if let Some(n) = r["max_model_len"].as_u64() {
+            line.push_str(&format!("  context {n}"));
+        }
+        match (r["price_in_micro_usd_per_mtok"].as_u64(), r["price_out_micro_usd_per_mtok"].as_u64()) {
+            (None, None) => line.push_str("  no price"),
+            (i, o) => line.push_str(&format!("  micro USD per Mtok in {} out {}", i.map_or("-".to_owned(), |n| n.to_string()), o.map_or("-".to_owned(), |n| n.to_string()))),
+        }
+        text.push_str(&format!("{line}\n"));
+    }
+    for b in row["runbooks"].as_array().into_iter().flatten() {
+        let state = if b["admitted"] == Value::Bool(true) { "admitted".to_owned() } else { format!("refused: {}", field(b, "refusal")) };
+        text.push_str(&format!("runbook {}  {}  inputs {}  {state}\n", field(b, "runbook_id"), field(b, "title"), list(&b["inputs"])));
+        for e in b["route_entries"].as_array().into_iter().flatten().filter(|e| e["admitted"] == Value::Bool(true)) {
+            text.push_str(&format!("  role {}: route {}\n", field(e, "role"), field(e, "route")));
+        }
+    }
+    let d = &row["delegation"];
+    text.push_str(&format!(
+        "delegation  paths {}  default route {}  classifier route {}  confinement {}  request at most {} bytes\n",
+        list(&d["paths"]),
+        field(d, "default_route"),
+        field(d, "classifier_route"),
+        field(d, "confinement"),
+        d["request_limit"]
+    ));
+    text
 }
 
 /// The run a submit created: the `run_id` of the event it published, else the `Location` header.
