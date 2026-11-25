@@ -18,6 +18,8 @@ pub const RESULT_FILE: &str = "result.md";
 pub const RESULT_LIMIT: u64 = 1_048_576;
 /// The event a delegation's run holds second: the route, the path and the protocol.
 pub const DELEGATED_EVENT: &str = "runbook.delegated";
+/// The instruction file of the free run's agent node, relative to the repository `sdc-node` reads its instructions from.
+pub const INSTRUCTION: &str = "instructions/delegation.free.md";
 /// The directory under the daemon's state directory the free run's home is written to.
 const HOME_DIR: &str = "delegation";
 
@@ -62,7 +64,7 @@ actions:
   - action: {FREE_ACTION}
     executor:
       kind: program
-      argv: [sdc-node, {FREE_ACTION}, --adapter, claude-cli, --max-turns, \"40\", --max-budget-usd, \"2\", --instructions, '{{\"task\":\"instructions/{FREE_ACTION}.md\"}}'{tools}]
+      argv: [sdc-node, {FREE_ACTION}, --adapter, claude-cli, --max-turns, \"40\", --max-budget-usd, \"2\", --instructions, '{{\"task\":\"{INSTRUCTION}\"}}'{tools}]
     exits: {{error: [75, 126, 127], not_called: [79]}}
     budget: {{max_runs: 2}}
     timeout_seconds: 3600

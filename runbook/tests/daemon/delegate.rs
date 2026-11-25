@@ -676,6 +676,7 @@ fn runbook_delegate_is_a_client_of_the_endpoint() {
             "default",
         ])
         .arg(&request)
+        .env("RUNBOOK_NO_CONFIG", "1")
         .env_remove("RUNBOOK_DAEMON")
         .env_remove("RUNBOOK_TOKEN_FILE")
         .output()
@@ -701,6 +702,7 @@ fn runbook_delegate_is_a_client_of_the_endpoint() {
             "answer-demo",
         ])
         .arg(&request)
+        .env("RUNBOOK_NO_CONFIG", "1")
         .output()
         .unwrap();
     assert!(!refused.status.success());
