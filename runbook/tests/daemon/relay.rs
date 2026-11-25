@@ -33,6 +33,11 @@ pub(super) struct Gateway {
 }
 
 pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
+    gateway_answering(move |_| answer.to_vec())
+}
+
+/// A gateway on a loopback port that keeps every request and answers each with what `answer` makes of it.
+pub(super) fn gateway_answering(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static) -> Gateway {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
     let got = Arc::new(Mutex::new(Vec::new()));
@@ -53,8 +58,10 @@ pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
             let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
             let mut body = vec![0u8; length];
             let _ = stream.read_exact(&mut body);
-            kept.lock().unwrap().push(Got { head, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
-            let _ = stream.write_all(answer);
+            let got = Got { head, body: serde_json::from_slice(&body).unwrap_or(Value::Null) };
+            let bytes = answer(&got);
+            kept.lock().unwrap().push(got);
+            let _ = stream.write_all(&bytes);
         }
     });
     Gateway { base_url, got }
