@@ -72,12 +72,12 @@ test('the run view names the level and the kind of a run that has them, and noth
   await expect(page.locator('#live')).toHaveClass(/\bon\b/);
 
   await pick(page, runs.with);
-  await expect(page.locator('[data-key=dnote]')).toContainText('autonomy A3');
-  await expect(page.locator('[data-key=dnote]')).toContainText('decider rule');
+  await expect(page.locator('[data-key=dhead]')).toContainText('autonomy A3');
+  await expect(page.locator('[data-key=dhead]')).toContainText('decider rule');
 
   await pick(page, runs.without);
-  await expect(page.locator('[data-key=dnote]')).toContainText('autonomy-demo');
-  await expect(page.locator('[data-key=dnote]')).not.toContainText('autonomy A');
-  await expect(page.locator('[data-key=dnote]')).not.toContainText('decider');
+  await expect(page.locator('[data-key=dhead]')).toContainText('autonomy-demo');
+  await expect(page.locator('[data-key=dhead]')).not.toContainText('autonomy A');
+  await expect(page.locator('[data-key=dhead]')).not.toContainText('decider');
   expect(problems).toEqual([]);
 });

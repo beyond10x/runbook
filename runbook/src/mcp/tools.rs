@@ -1,7 +1,7 @@
-//! The nine tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! The eleven tools and their calls. A tool names a route of the command layer: `submit_run`,
 //! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
 //! names, `list_runs`, `read_run`,
-//! `read_events` and `read_open_decisions` are the views `runs*`, `run`, `events` and `open-decisions`. The result of a call is the body of the
+//! `read_events`, `read_open_decisions`, `list_products` and `read_product` are the views `runs*`, `run`, `events`, `open-decisions`, `products` and `product`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
 
 use super::schema;
@@ -29,6 +29,8 @@ enum Kind {
     ReadRun,
     ReadEvents,
     ReadOpenDecisions,
+    ListProducts,
+    ReadProduct,
 }
 
 struct Tool {
@@ -39,7 +41,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 9] = [
+const TOOLS: [Tool; 11] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -103,6 +105,20 @@ const TOOLS: [Tool; 9] = [
         read_only: false,
         kind: Kind::Command("close-session"),
     },
+    Tool {
+        name: "list_products",
+        title: "List the products of a run",
+        description: "The files a run wrote under its work/ directory, in one row: `files` (each with path, size and modified_at; a path is relative to work/), `hidden` (entries whose name starts with a dot: neither listed nor served), `left_out` (links and files with more than one name: neither listed nor served) and `cut` when the listing stopped at a bound (500 files, 2000 directories, 20000 entries, 6 levels). A run id the daemon does not know is an error with the HTTP status 404.",
+        read_only: true,
+        kind: Kind::ListProducts,
+    },
+    Tool {
+        name: "read_product",
+        title: "Read a product of a run",
+        description: "One file of a run's work/ directory, by its path as list_products names it, in one row: `kind` text (with `text`, the first 1048576 bytes as UTF-8) or binary (no text), `size`, `shown`, `truncated` (true when the file holds more than `limit` bytes) and `modified_at`. Refused by name: a path that is empty, absolute or has `..` (400), a name that starts with a dot or a file that is not there (404), a link on the path or a file with more than one link (403), anything that is not a regular file (415), a run id the daemon does not know (404). A refusal holds no content of a file.",
+        read_only: true,
+        kind: Kind::ReadProduct,
+    },
 ];
 
 /// The members of a command's input the HTTP handler fills; a client never sends them.
@@ -126,6 +142,8 @@ fn input_schema(tool: &Tool) -> Value {
         ),
         Kind::ReadRun => schema::object(vec![("run_id", schema::view_param("run", "run_id"))], &["run_id"]),
         Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
+        Kind::ListProducts => schema::object(vec![("run_id", schema::view_param("products", "run_id"))], &["run_id"]),
+        Kind::ReadProduct => schema::object(vec![("run_id", schema::view_param("product", "run_id")), ("path", schema::view_param("product", "path"))], &["run_id", "path"]),
         Kind::ReadEvents => schema::object(
             vec![
                 ("run_id", schema::view_param("events", "run_id")),
@@ -142,7 +160,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the nine tools, in a fixed order.
+/// The result of `tools/list`: exactly the eleven tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -232,6 +250,8 @@ pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, I
             }
         }
         Kind::ReadOpenDecisions => Ok(be.view("open-decisions", &query_of(&args)?)),
+        Kind::ListProducts => Ok(be.view("products", &query_of(&args)?)),
+        Kind::ReadProduct => Ok(be.view("product", &query_of(&args)?)),
         Kind::ReadEvents => {
             let mut q = query_of(&args)?;
             let after_sequence = match q.remove("after_sequence") {

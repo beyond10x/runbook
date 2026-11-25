@@ -129,6 +129,9 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
 | `runbooks` | none | the runbooks a `submit-run` of this daemon accepts, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
+| `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
+| `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
+| `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -148,6 +151,74 @@ rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
+
+### The products of a run
+
+The `work/` directory of a daemon run is its workspace, `<state dir>/workspaces/<run id>/`, which the
+cases of the run share. The views `products` and `product` (and the MCP tools `list_products` and
+`read_product`, [`mcp.md`](mcp.md)) list and serve the files under it, through one reader
+(`runbook/src/engine/products.rs`, `docs/engine.md`, "The products of a run"). A path in both is
+relative to `work/` (`draft.txt`, `notes/a.md`), never absolute and never a path of the host.
+
+`products` answers one row: `files`, the regular files with one name by path, each with `size` (bytes)
+and `modified_at`; `hidden`, the entries whose name starts with a dot (a tool's cache or login: neither
+listed nor entered); `left_out`, the links and the files with more than one name (neither listed nor
+served); and `cut` when the walk stopped at a bound, the inspector's: `files` (500), `directories`
+(2000), `entries` (20000) or `depth` (6 levels). A directory is read an entry at a time, so one with a
+million entries costs no more than the bound.
+
+`product` answers one row for the file at `path`: `kind` `text` with `text`, the first 1,048,576 bytes
+(`limit`) as UTF-8 (a partial character at the cut is dropped), or `binary` (a NUL byte or a sequence
+that is not UTF-8) with no text; `size`, `shown` (the bytes of `text`), `truncated` (true when the file
+holds more than `limit` bytes) and `modified_at`.
+
+The guards are those of the inspector's file route, held through directory descriptors: the `work/`
+directory is opened without following a link at its name, each directory on the path relative to the one
+before with `O_NOFOLLOW | O_DIRECTORY`, the file with `O_NOFOLLOW | O_NONBLOCK`, and the type and the
+link count are read from the open file before a byte is read. The file is read in the daemon's process;
+no program opens it. A refusal is the daemon's `{"refused", "message"}` answer, names the path as it was
+asked, and holds no byte of a file and no path of the host:
+
+| Status | `refused` | When |
+|---|---|---|
+| 400 | `bad path` | the path is empty, absolute, holds a NUL or a backslash, or has a `..` component |
+| 404 | `not served` | a component starts with a dot |
+| 404 | `no such file` | nothing is at the path |
+| 403 | `link` | a link lies at a component of the path (also one that points into `work/`: no link is followed) |
+| 403 | `more than one link` | the file has a second name (a hard link may be a file outside the run) |
+| 415 | `not a regular file` | a directory, a pipe, a socket or a device: never opened |
+| 404 | `no such run` | the daemon has no run of that id (both views) |
+| 400 | `bad request` | the query lacks `run_id` or `path` |
+
+Both are reads: they sit behind the one guard (`runbook/src/api/auth.rs`) as every view does, so a
+request without the token, with a foreign `Host` or `Origin`, gets the answer any other read gets, and
+the cookie of the web UI's login opens them. The specification declares the entities `RunProducts` and
+`RunProduct`, which no command creates, as it does `Runbook`: the daemon fills the rows from the host
+when asked.
+
+### The case tree of a run
+
+The view `cases` answers a row per case of the run's tree, in the order the runtime lists them: `case_id` (the case's id
+in the tree), `parent` (absent for the root), `name` (the link name the opening action gave the case; absent for the
+root), `protocol` (the protocol id of the case's bindings, `engine-draft`), `case_state` and `outcome` (absent while the
+case has not ended). No path of the store or of a case file is in a row. The Loom runtime reads the run's store with
+Loom's tree status (`docs/engine.md`, "The case tree of a run"), which does not hold the store, so the view answers
+while the run goes on; the stub runtime has no tree, and a run of it has no row.
+
+`case_state` is where the case stands when the daemon reads the tree:
+
+| `case_state` | When |
+|---|---|
+| `Ended` | the case has an outcome |
+| `AwaitingPerson`, `AwaitingAuthority` | its last stop is that one and the run is `WaitingOnDecision` |
+| `Stuck` | its last stop is `Stuck` (no move) or `BudgetSpent` and the run ended by its tree (`Ended`, not `orphaned`); a wait or a cancel that ended with the run, or an orphaned run, leaves the case `Open` |
+| `Running` | the run's step in flight (`docs/daemon-api.md`, "The step in flight") names the case |
+| `Open` | none of these |
+
+The member is `case_state`, not `state`: in the specification `state` is an entity's lifecycle, and no command moves a
+case (the entity `RunCase`, like `Runbook`, is filled from the host when asked). A run id the daemon does not know is
+`404` `no such run`; a tree that cannot be read at that moment (Loom refused the read) is `503` `tree not readable`, with
+no word of Loom's reason: ask again. The view is a read behind the one guard, like every view.
 
 ### A request read from its case
 
@@ -543,11 +614,14 @@ Without `--ui`, `GET /` is `404`.
   in `style.css`.
 - What a step produced. The page has a Products tab and a product line (`ui/web/products.js`,
   `ui/web/markdown.js`, embedded like every file of `ui/web/`). Served by the inspector (`ui/server.mjs`) they list
-  the evidence records, the actions and the files of a run and open each one; the daemon's API has no view of
-  the files, evidence records or action output of a run yet, so served here the tab and the line say "the
-  daemon serves no files of a run yet" and list nothing. Nothing in them is made up. Run content never becomes
+  the evidence records, the actions and the files of a run and open each one. Served here, the tab lists the files of
+  the run's `work/` directory, which its cases share, from the view `products`, and opens one through the view
+  `product` (text, Markdown rendered by the page's renderer, JSON indented, a file over 1 MiB with the part shown
+  said, bytes that are not text by their size); the line counts the files. The daemon serves no evidence record and
+  no action output of a case, and the tab says so. Nothing in them is made up. Run content never becomes
   markup of the page: the page builds nodes from the text, and the policy above (`script-src 'self'`,
-  `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced").
+  `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced"); the
+  inspector's hostile cases run against this page too (`ui/test/daemon-run-tree-security.spec.mjs`).
 - Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
   token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
   `Authorization` header with a page load, so it hands the token over once: the `401` of a page load
@@ -627,15 +701,24 @@ Without `--ui`, `GET /` is `404`.
   blocks), and an answer is one option or free text. Each card names the step that asks: the case, the
   action and the capability of the request, as text. The daemon records no event
   when a run starts to wait or goes on, so the page reads the runs and the open decisions again after
-  its own answer and every two seconds while it is visible. The case tree, the graph and the phases need
-  views the daemon does not have yet: the inventory is in the story `ui-embedded-in-the-binary`, section
-  "Slice 1". Served by `ui/server.mjs`, the page reads that server as before.
+  its own answer and every two seconds while it is visible. The sidebar's case tree is the view `cases` of the
+  selected run: each case under its parent with the depth guides, labelled by its link name (the root by its id),
+  with its protocol and its state ("open", "running a step", "awaiting a person", "stuck", "ended
+  <outcome>"); it is read again on each event of the run and on the two-second tick, so a case that starts to
+  wait and a run that ends while the page shows it change in place. A run of the stub runtime has no tree, and the
+  sidebar says so. The daemon serves no graph, phases, timeline or explanation of a case: those panes say so.
+  The address of a run is `?run=<run id>`: it opens that run after a reload and in another tab, and choosing a
+  run writes its id there; an id the daemon does not have shows a note naming it and no other run. Served by
+  `ui/server.mjs`, the page reads that server as before (its `?run=` names a run directory), and the inspector
+  has no route to the daemon.
 
 ## MCP
 
 The MCP tools `read_run` and `read_events` ([`mcp.md`](mcp.md)) answer a run id the daemon does not know
 with an error: `isError` is true and `_meta["runbook/http-status"]` is `404`. The HTTP views `run` and
-`events` answer the same id with `200` and no rows; both stay as they are.
+`events` answer the same id with `200` and no rows; both stay as they are. The views `products` and
+`product` refuse such an id themselves (`404`, `no such run`), and the tools `list_products` and
+`read_product` carry that answer.
 
 ## Conformance
 
@@ -683,3 +766,6 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
   scenario-tested; the checks themselves are tested in the same story. The intake size limit is in
   the specification as a character count, the weaker bound; the handler holds the limit in bytes
   (1,048,576 bytes of UTF-8).
+- The refusals of the views `products`, `product` and `cases`: a view has no outcome in the language, so the
+  refusals are the daemon's answers, written in the views' summaries, in "The products of a run" and in "The case
+  tree of a run". Where a case stands (`case_state`) is read from the runtime, not moved by a command.

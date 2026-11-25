@@ -14,7 +14,7 @@ use std::collections::HashMap;
 pub const COMMANDS: [&str; 5] = ["open-session", "close-session", "submit-run", "cancel-run", "answer-decision"];
 
 /// The views, by wire name.
-pub const VIEWS: [&str; 13] = [
+pub const VIEWS: [&str; 16] = [
     "runs",
     "runs-of-session",
     "runs-in-state",
@@ -28,6 +28,9 @@ pub const VIEWS: [&str; 13] = [
     "sessions",
     "configuration",
     "runbooks",
+    "products",
+    "product",
+    "cases",
 ];
 
 /// The views that page events by position: asked with `Accept: text/event-stream` they are streams.
@@ -76,6 +79,7 @@ fn fault(f: Fault) -> Answer {
             let message = format!("the daemon is draining: it got its stop signal, takes no new run and waits for {live_runs} live run(s) to end; submit again to the daemon that starts next");
             Answer { status: StatusCode::SERVICE_UNAVAILABLE, body: json!({"refused": "draining", "message": message, "live_runs": live_runs}), location: None }
         }
+        Fault::Refused { status, what, message } => refused(StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), what, &message),
     }
 }
 
@@ -145,6 +149,9 @@ pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>)
             "sessions" => daemon.sessions(),
             "configuration" => daemon.daemon_configuration(),
             "runbooks" => daemon.runbooks(),
+            "products" => daemon.products_of_run(text(query, "run_id")?)?,
+            "product" => daemon.product_of_run(text(query, "run_id")?, text(query, "path")?)?,
+            "cases" => daemon.cases_of_run(text(query, "run_id")?)?,
             other => unreachable!("no view {other}"),
         })
     })();

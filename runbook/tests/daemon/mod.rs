@@ -40,3 +40,6 @@ mod copy_integrity;
 mod homes_leave_no_path;
 mod decision_artifact;
 mod decision_artifact_attack;
+mod products;
+mod cases;
+mod products_attack;

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.WorkId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.WorkId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:488acbfe87b534225aef54fd116057cbffd5f61ac97ee3411e87444dbffc8d50",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.WorkId": {
+      "title": "WorkId",
+      "description": "The work/ directory of a run as a row of RunProducts: its text is the run's id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run.",
+      "x-ess-name": "sdc.daemon.WorkId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

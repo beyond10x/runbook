@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.CaseState.schema.json",
+  "$ref": "#/$defs/sdc.daemon.CaseState",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:1b6cd81ce0db629a04e94fb0811b0051c279e7093d30a09d0f85f118b81c4723",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CaseState": {
+      "title": "CaseState",
+      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
+      "x-ess-name": "sdc.daemon.CaseState",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Open",
+        "Running",
+        "AwaitingPerson",
+        "AwaitingAuthority",
+        "Stuck",
+        "Ended"
+      ]
+    }
+  }
+}

@@ -13,7 +13,8 @@
 //! `runbook::engine::announce`, and whether it names the model tool is read by the runner's
 //! `loom_run::bindings_copy::model_node_in`, all three through a [`Held`] of the directory. `budget::runbook_budgets`
 //! reads by path: the daemon calls it at a run's start, on the runbook home or on the run's pinned copy outside the
-//! workspace.
+//! workspace. The daemon's reader of a run's products, `runbook::engine::products`, walks and reads the workspace
+//! through a [`Held`] too ([`Held::stat`], [`Held::child`], [`Held::open_as_is`], [`Held::names_within`]).
 //!
 //! The file lives in the library so that the runner (`runbook run`, `loom_run::record_write` is this module) and the
 //! code of the library it calls (`budget`, `cost`, `engine::announce`) hold one guard.
@@ -139,6 +140,63 @@ fn check_regular(file: File, path: &Path) -> Result<File, String> {
         return Err(format!("{}: not a regular file with one name", path.display()));
     }
     Ok(file)
+}
+
+/// What a name or an open descriptor is, as `stat` tells it: its kind, its length, its link count and when it was last
+/// written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stat {
+    pub mode: u32,
+    pub size: u64,
+    pub links: u64,
+    /// Milliseconds since the epoch of the last write.
+    pub modified_millis: i64,
+}
+
+impl Stat {
+    // `st_nlink` is a `u64` on x86_64 Linux and a `u32` on others: the cast holds both.
+    #[allow(clippy::unnecessary_cast)]
+    fn of(st: &libc::stat) -> Stat {
+        Stat { mode: st.st_mode, size: st.st_size.max(0) as u64, links: st.st_nlink as u64, modified_millis: st.st_mtime.saturating_mul(1000).saturating_add(st.st_mtime_nsec / 1_000_000) }
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.mode & libc::S_IFMT == libc::S_IFREG
+    }
+
+    pub fn is_dir(&self) -> bool {
+        self.mode & libc::S_IFMT == libc::S_IFDIR
+    }
+
+    pub fn is_link(&self) -> bool {
+        self.mode & libc::S_IFMT == libc::S_IFLNK
+    }
+
+    /// The kind in words: `file`, `directory`, `symbolic link`, `named pipe`, `socket`, `block device`,
+    /// `character device`.
+    pub fn kind(&self) -> &'static str {
+        match self.mode & libc::S_IFMT {
+            libc::S_IFREG => "file",
+            libc::S_IFDIR => "directory",
+            libc::S_IFLNK => "symbolic link",
+            libc::S_IFIFO => "named pipe",
+            libc::S_IFSOCK => "socket",
+            libc::S_IFBLK => "block device",
+            libc::S_IFCHR => "character device",
+            _ => "unknown",
+        }
+    }
+}
+
+/// What the open descriptor `file` is (`fstat`).
+pub fn stat_open(file: &File) -> std::io::Result<Stat> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: `file` is open for the call; `stat` is a zeroed buffer the call fills.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut stat) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(Stat::of(&stat))
 }
 
 /// The bytes of the regular file with one name at `path`, at most [`READ_LIMIT`] of them.
@@ -314,6 +372,46 @@ impl Held {
 
     /// The names in this directory, listed through the descriptor (`.` and `..` left out), sorted.
     pub fn names(&self) -> Result<Vec<std::ffi::OsString>, String> {
+        self.names_within(usize::MAX)
+    }
+
+    /// What lies at the name `leaf` of this directory, a link not followed (`fstatat` with `AT_SYMLINK_NOFOLLOW`); none
+    /// when nothing is there or the name is not a plain name.
+    pub fn stat(&self, leaf: impl AsRef<std::ffi::OsStr>) -> Option<Stat> {
+        use std::os::fd::AsRawFd;
+        let c_leaf = leaf_name(leaf.as_ref(), &self.path).ok()?;
+        // SAFETY: as in `symlink`; `stat` is a zeroed buffer the call fills.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        (unsafe { libc::fstatat(self.dir.as_raw_fd(), c_leaf.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) } == 0).then(|| Stat::of(&stat))
+    }
+
+    /// The directory `leaf` of this one, which must exist, opened and held without making anything: `openat` relative to
+    /// the descriptor with `O_NOFOLLOW | O_DIRECTORY`, so a link, a file or anything else that is not a directory at the
+    /// name is an error.
+    pub fn child(&self, leaf: impl AsRef<std::ffi::OsStr>) -> Result<Held, String> {
+        let leaf = leaf.as_ref();
+        leaf_name(leaf, &self.path)?;
+        Ok(Held { dir: walk_dirs(&self.dir, &self.path, Path::new(leaf), false)?, path: self.path.join(leaf) })
+    }
+
+    /// The name `leaf` of this directory opened for reading as it is: `openat` relative to the descriptor with
+    /// `O_NOFOLLOW | O_NONBLOCK`, so a link at the name is an error (`ELOOP`) and a pipe is not waited for. The caller reads
+    /// the type and the link count from the descriptor ([`stat_open`]) before it reads a byte.
+    pub fn open_as_is(&self, leaf: impl AsRef<std::ffi::OsStr>) -> std::io::Result<File> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let c_leaf = leaf_name(leaf.as_ref(), &self.path).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        // SAFETY: `dir` is an open directory for the call and `c_leaf` is a NUL-terminated name that outlives it.
+        let raw = unsafe { libc::openat(self.dir.as_raw_fd(), c_leaf.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+        if raw < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        Ok(unsafe { File::from_raw_fd(raw) })
+    }
+
+    /// [`Held::names`], at most `most` of them: the listing reads one entry at a time and stops there, so a directory of
+    /// a million names costs no more than `most`. The names read are sorted.
+    pub fn names_within(&self, most: usize) -> Result<Vec<std::ffi::OsString>, String> {
         use std::os::fd::AsRawFd;
         use std::os::unix::ffi::OsStrExt;
         // SAFETY: `dup` of a descriptor `self` keeps open; the new descriptor is handed to `fdopendir`, which owns it from then on.
@@ -331,7 +429,7 @@ impl Held {
         // SAFETY: the stream starts at the first entry whatever an earlier listing of the same directory read.
         unsafe { libc::rewinddir(stream) };
         let mut names = Vec::new();
-        loop {
+        while names.len() < most {
             // SAFETY: `stream` is open until `closedir` below; an entry is read before the next call.
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {

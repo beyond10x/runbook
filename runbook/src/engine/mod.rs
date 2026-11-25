@@ -11,6 +11,7 @@ mod gate;
 mod hide;
 pub mod layout;
 pub mod pin;
+pub mod products;
 pub mod refusal;
 pub mod shape;
 mod tail;
@@ -19,7 +20,7 @@ pub use decision::Parsed;
 pub use gate::WallClock;
 
 use crate::caps::{CapPolicy, Caps, Usage};
-use crate::runtime::{AnswerFailure, Autonomy, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, Autonomy, CaseRow, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
@@ -732,6 +733,22 @@ impl Runtime for Engine {
     fn check_runbook(&self, runbook: &str, version: Option<&str>) -> Result<(), String> {
         let resolved = layout::resolve_in(&self.homes, runbook, version)?;
         crate::budget::reserve_for_unnamed(&resolved.bindings).map(|_| ())
+    }
+
+    /// Loom's tree status of the run's store (`calls::status`): Loom reads the store without its lock, so the tree
+    /// answers while the run goes on. A run whose store has no manifest yet has no case.
+    fn cases(&self, run_id: &str) -> Result<Vec<CaseRow>, String> {
+        let store = std::path::absolute(self.store_of(run_id)).map_err(|e| e.to_string())?;
+        if !store.join(MANIFEST).is_file() {
+            return Ok(Vec::new());
+        }
+        let catalog = calls::catalog(&store)?;
+        let status = calls::status(&store, &catalog)?;
+        Ok(status
+            .cases
+            .into_iter()
+            .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
+            .collect())
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

@@ -160,6 +160,21 @@ pub enum Fault {
     Internal(String),
     /// The daemon got its stop signal and waits for `live_runs` runs to end: it takes no new run.
     Draining { live_runs: usize },
+    /// A read the daemon refuses by name, with its HTTP status: a run it does not know, or a file of a run it does not
+    /// serve (`engine::products::Refusal`). No outcome of the specification: a view has none.
+    Refused { status: u16, what: &'static str, message: String },
+}
+
+impl Fault {
+    fn no_such_run(run_id: &str) -> Fault {
+        Fault::Refused { status: 404, what: "no such run", message: format!("the daemon has no run {}", crate::engine::products::said(run_id)) }
+    }
+}
+
+impl From<crate::engine::products::Refusal> for Fault {
+    fn from(r: crate::engine::products::Refusal) -> Fault {
+        Fault::Refused { status: r.status(), what: r.word(), message: r.message() }
+    }
 }
 
 impl From<io::Error> for Fault {
@@ -1119,6 +1134,88 @@ impl Daemon {
                 Value::Object(m)
             })
             .collect()
+    }
+
+    /// The workspace of a run the daemon knows (its `work/`), or the refusal of an unknown run.
+    fn workspace_of(&self, run_id: &str) -> Result<PathBuf, Fault> {
+        let st = self.st();
+        if st.run(run_id).is_none() {
+            return Err(Fault::no_such_run(run_id));
+        }
+        Ok(st.workspace_dir(run_id))
+    }
+
+    /// The view `ProductsOfRun` (wire name `products`): one row, the files under the run's workspace
+    /// (`engine::products::list`), read after the state is let go.
+    pub fn products_of_run(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
+        let workspace = self.workspace_of(run_id)?;
+        let l = crate::engine::products::list(&workspace)?;
+        let files: Vec<Value> = l.files.iter().map(|f| json!({"path": f.path, "size": f.size, "modified_at": crate::clock::format_instant(f.modified_millis)})).collect();
+        let mut m = Map::new();
+        m.insert("run_id".into(), json!(run_id));
+        m.insert("files".into(), json!(files));
+        if let Some(cut) = l.cut {
+            m.insert("cut".into(), json!(cut));
+        }
+        m.insert("hidden".into(), json!(l.hidden));
+        m.insert("left_out".into(), json!(l.left_out));
+        Ok(vec![Value::Object(m)])
+    }
+
+    /// The view `ProductOfRun` (wire name `product`): one row, one file of the run's workspace
+    /// (`engine::products::read`), read after the state is let go.
+    pub fn product_of_run(&self, run_id: &str, path: &str) -> Result<Vec<Value>, Fault> {
+        let workspace = self.workspace_of(run_id)?;
+        let r = crate::engine::products::read(&workspace, path)?;
+        let mut m = Map::new();
+        m.insert("run_id".into(), json!(run_id));
+        m.insert("path".into(), json!(r.path));
+        m.insert("size".into(), json!(r.size));
+        m.insert("modified_at".into(), json!(crate::clock::format_instant(r.modified_millis)));
+        m.insert("kind".into(), json!(if r.text.is_some() { "text" } else { "binary" }));
+        if let Some(text) = r.text {
+            m.insert("text".into(), json!(text));
+        }
+        m.insert("shown".into(), json!(r.shown));
+        m.insert("truncated".into(), json!(r.truncated));
+        m.insert("limit".into(), json!(crate::engine::products::LIMIT));
+        Ok(vec![Value::Object(m)])
+    }
+
+    /// The view `CasesOfRun` (wire name `cases`): a row per case of the run's tree, as the runtime reads it
+    /// (`Runtime::cases`), read after the state is let go. Where a case stands (`case_state`): `Ended` with an outcome;
+    /// else `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else
+    /// `Stuck` when its last stop is `Stuck` or `BudgetSpent` and the run ended by its tree (`Ended`, not orphaned: a wait
+    /// or a cancel that ended with the run, or a run the daemon orphaned, leaves the case `Open`); else `Running` when the
+    /// run's step in flight names the case; else `Open`.
+    pub fn cases_of_run(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
+        let (state, step_case, ended_by_its_tree) = {
+            let st = self.st();
+            let run = st.run(run_id).ok_or_else(|| Fault::no_such_run(run_id))?;
+            let step = if run.state == RunState::Running { lock(&self.inner.steps).get(run_id).and_then(|s| s.case.clone()) } else { None };
+            (run.state, step, run.state == RunState::Ended && run.outcome.as_deref() != Some("orphaned"))
+        };
+        let cases = self.inner.runtime.cases(run_id).map_err(|_| Fault::Refused { status: 503, what: "tree not readable", message: format!("the tree of run {} cannot be read at this moment: ask again", crate::engine::products::said(run_id)) })?;
+        Ok(cases
+            .into_iter()
+            .map(|c| {
+                let case_state = match (&c.outcome, c.stop.as_deref()) {
+                    (Some(_), _) => "Ended",
+                    (None, Some(stop @ ("AwaitingPerson" | "AwaitingAuthority"))) if state == RunState::WaitingOnDecision => stop,
+                    (None, Some("Stuck" | "BudgetSpent")) if ended_by_its_tree => "Stuck",
+                    _ if step_case.as_deref() == Some(c.case_id.as_str()) => "Running",
+                    _ => "Open",
+                };
+                let mut m = Map::new();
+                m.insert("case_id".into(), json!(c.case_id));
+                put(&mut m, "parent", &c.parent);
+                put(&mut m, "name", &c.name);
+                m.insert("protocol".into(), json!(c.protocol));
+                m.insert("case_state".into(), json!(case_state));
+                put(&mut m, "outcome", &c.outcome);
+                Value::Object(m)
+            })
+            .collect())
     }
 
     /// The view `DaemonConfiguration` (wire name `configuration`).

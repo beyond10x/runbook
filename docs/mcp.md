@@ -24,20 +24,20 @@ served as `2026-07-28`; `initialize` selects the legacy shape.
 | `initialize` | 2025-11-25, 2025-06-18 | `protocolVersion` (the client's, when it is one of the two; else `2025-11-25`), `capabilities.tools`, `serverInfo` (`runbook` and the version), `instructions` |
 | `notifications/initialized`, any other notification | legacy | accepted, no answer |
 | `ping` | both | `{}` |
-| `tools/list` | both | the nine tools below |
+| `tools/list` | both | the eleven tools below |
 | `tools/call` | both | the result of the tool |
 
 A request of another protocol version is the error `-32022` (`UnsupportedProtocolVersion`) with
 `data.supported` and `data.requested`. A modern request without `clientCapabilities` is `-32602`; so
 is any other request before a legacy client has sent `initialize`. An unknown method is `-32601`, an
 unknown tool or an argument the tool does not take `-32602`. A modern result carries
-`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has nine tools),
+`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has eleven tools),
 `ttlMs` and `cacheScope`, `subscriptions/listen`, multi round-trip requests, cancellation of a call,
 progress, resources, prompts. The server sends no request and no notification of its own.
 
 ## The tools
 
-`tools/list` prints exactly these nine, in this order:
+`tools/list` prints exactly these eleven, in this order:
 
 | Tool | Calls | Input |
 |---|---|---|
@@ -50,6 +50,8 @@ progress, resources, prompts. The server sends no request and no notification of
 | `cancel_run` | command `cancel-run` | `run_id` |
 | `open_session` | command `open-session` | `session_id`, `client` (a label of at most 200 characters, stored and shown, that grants nothing; the route's length check and no other); an id the daemon already knows is `session-exists` (422), a longer label `400` |
 | `close_session` | command `close-session` | `session_id`; afterwards a `submit_run` with that id is `SessionClosedToRuns` (409); the runs of the session go on, none is cancelled; an unknown id is `no-session` (404), a closed session `wrong-state` (409) |
+| `list_products` | view `products` | `run_id`; one row: the files under the run's `work/` directory (`files`, each `path` relative to `work/`, `size`, `modified_at`), `hidden` (names that start with a dot), `left_out` (links and files with a second name) and `cut` when a bound of the walk was reached (`docs/daemon-api.md`, "The products of a run") |
+| `read_product` | view `product` | `run_id`, `path` (relative to `work/`); one row: `kind` `text` with `text` (at most 1 MiB, `truncated` when the file is larger) or `binary`, `size`, `shown`, `modified_at`; a path that leaves `work/` is `bad path` (400), a link at any component `link` (403), a name with a dot `not served` (404), a missing file `no such file` (404), a directory or a pipe `not a regular file` (415), an unknown run `no such run` (404) |
 
 Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
