@@ -46,7 +46,7 @@ const TOOLS: [Tool; 12] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
-        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
+        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none. A run whose decider kind is model names its model route by model_route (a route name list_routes lists; none named: the daemon's default route) and a route per role by model_routes; an undeclared route, an alias, an address or a token is refused as `route-refused` (HTTP status 422) naming the declared routes.",
         read_only: false,
         kind: Kind::Command("submit-run"),
     },
@@ -130,7 +130,7 @@ const TOOLS: [Tool; 12] = [
 ];
 
 /// The members of a command's input the HTTP handler fills; a client never sends them.
-pub const SUBMIT_FILLED: [&str; 6] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source"];
+pub const SUBMIT_FILLED: [&str; 9] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source", "model_route_alias", "model_route_source", "route_refused"];
 
 /// The members of the input of `answer-decision` the handler fills: the instant, the daemon's own
 /// principal and whether the request takes the answer (`answer_offered`), which no tool argument sets.

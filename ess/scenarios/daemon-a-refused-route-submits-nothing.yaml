@@ -1,0 +1,52 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-a-refused-route-submits-nothing
+summary: "A submit whose model route the handler refuses (a route the daemon does not declare) creates no run; the same submit without the route is taken."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-refused-route"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      model_route: "no-such-route"
+      route_refused: "model_route names no route the daemon declares"
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: route-refused
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-without-route"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:02:00Z
+    outcome: submitted
+
+assert:
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-without-route"}
+    contains: {run_id: "run-without-route", state: Submitted}

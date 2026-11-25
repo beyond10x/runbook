@@ -83,6 +83,30 @@
       "$ref": "#/$defs/sdc.daemon.StepInFlight",
       "description": "The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none."
     },
+    "model_route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Fixed at the submit.",
+      "x-ess-relation": {
+        "name": "model_route",
+        "kind": "references",
+        "source": "sdc.daemon.Run",
+        "target": "sdc.daemon.ModelRoute",
+        "cardinality": "one",
+        "via": "model_route"
+      }
+    },
+    "model_route_alias": {
+      "description": "The gateway's alias of the model behind model_route, as the daemon's file declared it at the submit: what every call of the role names at the gateway. Absent with model_route.",
+      "type": "string"
+    },
+    "model_route_source": {
+      "$ref": "#/$defs/sdc.daemon.RouteSource",
+      "description": "The setting that chose model_route: run or default. Absent with model_route."
+    },
+    "model_routes": {
+      "$ref": "#/$defs/sdc.daemon.RoleRoutes",
+      "description": "The routes of the other roles the submit named (`model_routes.<role>`), each chosen by the run; absent when it named none."
+    },
     "state": {
       "$ref": "#/$defs/sdc.daemon.Run.State"
     }
@@ -100,7 +124,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:707e9d772c4f8479e4fdd1fa11c4554f949d5f73d654b64dcc0eabd5eec73164",
+    "contract_digest": "slice-sha256/2:7e2e5a0f89e8deb67b796a42e7c212f116d343bc28200bceb2799c5a6bf47c56",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -155,6 +179,35 @@
       "maxLength": 200,
       "x-ess-invariants": [
         "value.count <= 200"
+      ]
+    },
+    "sdc.daemon.RoleRoutes": {
+      "title": "RoleRoutes",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "x-ess-name": "sdc.daemon.RoleRoutes",
+      "x-ess-kind": "newtype",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/sdc.daemon.RouteName"
+      },
+      "x-ess-map-key": "String"
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RouteSource": {
+      "title": "RouteSource",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table gives a model run the route `default` on that gateway, as before routes, and says default too). The protocol's own word comes with its story.",
+      "x-ess-name": "sdc.daemon.RouteSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "run",
+        "default"
       ]
     },
     "sdc.daemon.Run.State": {

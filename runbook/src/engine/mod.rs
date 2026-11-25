@@ -115,8 +115,9 @@ pub struct Engine {
     arbiter: Option<Arc<dyn Arbiter>>,
     /// What the wall caps of its runs are held against: the host's clock unless a test gave another.
     wall: WallClock,
-    /// The daemon's relay and the route table of the runs whose decider kind is `model`; none: no run is on a route.
-    routes: Option<(Arc<crate::relay::Relay>, crate::relay::RouteTable)>,
+    /// The daemon's relay; none: no run is on a route. The route table of a run is its own, resolved by the daemon at
+    /// the submit (`StartRequest::routes`).
+    relay: Option<Arc<crate::relay::Relay>>,
 }
 
 struct Registered<'a> {
@@ -151,7 +152,7 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None }
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
@@ -161,11 +162,11 @@ impl Engine {
         self
     }
 
-    /// The daemon's relay and the route table it hands every run whose decider kind is `model` (with a level above
-    /// `A0`): such a run's model processes reach their model through `relay` and the run's route file
-    /// (`engine::route`), and its model calls are taken and booked there.
-    pub fn with_routes(mut self, relay: Arc<crate::relay::Relay>, table: crate::relay::RouteTable) -> Engine {
-        self.routes = Some((relay, table));
+    /// The daemon's relay: a run that makes model calls (`Terms::makes_model_calls`) and comes with a route table
+    /// (`StartRequest::routes`) is taken onto it, its model processes reach their model through it and the run's route
+    /// file (`engine::route`), and its model calls are taken and booked there.
+    pub fn with_relay(mut self, relay: Arc<crate::relay::Relay>) -> Engine {
+        self.relay = Some(relay);
         self
     }
 
@@ -248,12 +249,13 @@ impl Engine {
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         let terms = &request.terms;
-        // A run whose decider is a model is on the daemon's route: the run's place on the relay and its route file,
-        // whose path every bound program and the decider get (`engine::route`). It goes when the run ends.
-        let model_run = terms.decider.as_deref() == Some("model") && terms.autonomy.is_some_and(|l| l != Autonomy::A0);
-        let route = match &self.routes {
-            Some((relay, table)) if model_run => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
-            _ => None,
+        // A run whose decider is a model is on the route the daemon resolved for it at the submit: the run's place on
+        // the relay and its route file, whose path every bound program and the decider get (`engine::route`). It goes
+        // when the run ends. A run with a route table and no relay to take it does not start: it would reach no model.
+        let route = match (&self.relay, request.routes.as_ref().filter(|_| terms.makes_model_calls())) {
+            (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
+            (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
+            (_, None) => None,
         };
         if let Some(r) = &route {
             runner = route::RouteEnv::wrap(runner, r.file());

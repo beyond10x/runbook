@@ -102,6 +102,21 @@ impl std::fmt::Debug for ResolvedRoute {
     }
 }
 
+impl From<crate::routes::Resolved<'_>> for ResolvedRoute {
+    /// A declared route as a run uses it: its gateway's address and token, its alias, its kind and its prices.
+    fn from(r: crate::routes::Resolved<'_>) -> ResolvedRoute {
+        ResolvedRoute {
+            name: r.route.to_owned(),
+            base_url: r.base_url.to_owned(),
+            token: r.token.map(str::to_owned),
+            alias: r.alias.to_owned(),
+            kind: r.kind.as_str().to_owned(),
+            price_in_micro_usd_per_mtok: r.prices.in_micro_usd_per_mtok,
+            price_out_micro_usd_per_mtok: r.prices.out_micro_usd_per_mtok,
+        }
+    }
+}
+
 /// The route of each role of a run, and the setting that chose it (`run`, `protocol`, `default` or the name of the
 /// daemon's setting).
 #[derive(Clone, Debug, Default)]

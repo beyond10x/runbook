@@ -2663,6 +2663,7 @@ mod relative_state_directory {
             confinement: Confinement::Local,
             state_dir: run_dir,
             workspace_dir: PathBuf::from("rel-state-dir/workspaces/r1"),
+            routes: None,
             terms: Default::default(),
         };
         let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).expect_err("the start did not fail").reason;

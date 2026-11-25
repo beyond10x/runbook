@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.SubmitRun.schema.json",
   "title": "Submit a run input",
-  "description": "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.",
+  "description": "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0) takes a model route (docs/model-routes.md, section 2): the one the submit names by name in `model_route` (and per role in `model_routes`), else the daemon's `route_policy.default`; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model.",
   "x-ess-name": "sdc.daemon.SubmitRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -47,6 +47,26 @@
     "idempotency_key": {
       "$ref": "#/$defs/sdc.daemon.IdempotencyKey"
     },
+    "model_route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName",
+      "description": "The route of the run's role `default`, by the name the daemon's file declares it under; never an address, a token or a gateway's alias, each refused by name. Absent: the daemon's `route_policy.default` for a run that makes model calls (the handler fills it and says which in model_route_source), none for a run that makes none. A run that makes no model call and names a route is refused (route-refused)."
+    },
+    "model_routes": {
+      "$ref": "#/$defs/sdc.daemon.RoleRoutes",
+      "description": "The route of each further role of the run, by name, under the same rules as model_route."
+    },
+    "model_route_alias": {
+      "description": "The alias of model_route at its gateway: the handler fills it from the daemon's file. A client never sends it.",
+      "type": "string"
+    },
+    "model_route_source": {
+      "$ref": "#/$defs/sdc.daemon.RouteSource",
+      "description": "Where model_route came from: the handler fills it. A client never sends it."
+    },
+    "route_refused": {
+      "description": "Why the handler refuses the run's route, when it does: a fact it reads from the daemon's file, which the language cannot read. Absent when the route is admitted or the run takes none. A client never sends it.",
+      "type": "string"
+    },
     "runbook_known": {
       "type": "boolean"
     },
@@ -75,7 +95,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:2224d30c4f4b1773a8514cd767d90b64b99d2c43361da137de99393aa41e22c9",
+    "contract_digest": "slice-sha256/2:ea407793ce92acfb396136d872b5ef5d81b5455865efbbbf23fc3a29738e304c",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -137,6 +157,35 @@
       "maxLength": 200,
       "x-ess-invariants": [
         "value.count <= 200"
+      ]
+    },
+    "sdc.daemon.RoleRoutes": {
+      "title": "RoleRoutes",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "x-ess-name": "sdc.daemon.RoleRoutes",
+      "x-ess-kind": "newtype",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/sdc.daemon.RouteName"
+      },
+      "x-ess-map-key": "String"
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RouteSource": {
+      "title": "RouteSource",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table gives a model run the route `default` on that gateway, as before routes, and says default too). The protocol's own word comes with its story.",
+      "x-ess-name": "sdc.daemon.RouteSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "run",
+        "default"
       ]
     },
     "sdc.daemon.RunId": {

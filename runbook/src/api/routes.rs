@@ -102,7 +102,7 @@ pub fn command_answer(name: &str, daemon: &Daemon, body: &[u8]) -> Answer {
     let reply = match name {
         "open-session" => parse::<OpenSession>(body).and_then(|i| daemon.open_session(i)),
         "close-session" => parse::<CloseSession>(body).and_then(|i| daemon.close_session(i)),
-        "submit-run" => crate::commands::refuse_gateway_members(body).and_then(|()| parse::<SubmitRun>(body)).and_then(|i| daemon.submit_run(i)),
+        "submit-run" => crate::commands::refuse_gateway_members(body).and_then(|()| crate::commands::refuse_route_members(body)).and_then(|()| parse::<SubmitRun>(body)).and_then(|i| daemon.submit_run(i)),
         "cancel-run" => parse::<CancelRun>(body).and_then(|i| daemon.cancel_run(i)),
         "answer-decision" => parse::<AnswerDecision>(body).and_then(|i| daemon.answer_decision(i)),
         other => unreachable!("no command {other}"),

@@ -99,6 +99,10 @@ pub struct Run {
     /// submitted before the daemon kept them has neither.
     #[serde(default)]
     pub terms: Terms,
+    /// The model route of a run that makes model calls, fixed at the submit; none for any other run, and in a journal
+    /// line of a run submitted before the daemon kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_route: Option<crate::runtime::RunRoute>,
     pub session_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub submitted_at: String,

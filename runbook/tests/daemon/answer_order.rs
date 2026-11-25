@@ -52,6 +52,7 @@ fn submitted(id: &str) -> Run {
         confinement: Confinement::Linux,
         confinement_source: None,
         terms: Default::default(),
+        model_route: None,
         session_id: None,
         idempotency_key: None,
         submitted_at: "t".into(),
