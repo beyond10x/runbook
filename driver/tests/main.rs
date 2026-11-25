@@ -24,6 +24,7 @@ mod decision_request;
 mod capture_stream;
 mod ess_pin_guard;
 mod experiment_loom;
+mod experiment_gateway;
 mod finding_kpis;
 mod gateway;
 mod gateway_hardening;

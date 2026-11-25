@@ -78,10 +78,31 @@ fn token_of_file(path: &str) -> Result<String, String> {
     Ok(line.to_owned())
 }
 
-/// The adapter a settings file gives a model decider: its own, else the default `metaharness`.
-fn decider_adapter(settings: &Value) -> Option<String> {
-    let decider = settings.get("decider")?;
+/// The adapter of a model decider's table: its own, else the default `metaharness`; none for another kind.
+fn model_decider_adapter(decider: &Value) -> Option<String> {
     (decider.get("kind").and_then(Value::as_str) == Some("model")).then(|| decider.get("adapter").and_then(Value::as_str).unwrap_or("metaharness").to_owned())
+}
+
+/// Refuses a model decider whose adapter cannot carry a gateway: `metaharness`, the default. `table` names where the
+/// decider's table is (`decider` in a settings file, `deciders.model` in the daemon's `runbook.toml`).
+pub fn check_decider_adapter(decider: &Value, table: &str) -> Result<(), String> {
+    if model_decider_adapter(decider).as_deref() == Some("metaharness") {
+        return Err(format!("gateway and {table}.adapter: the adapter metaharness (the model decider's default) cannot take a gateway; name {table}.adapter = \"claude-cli\""));
+    }
+    Ok(())
+}
+
+/// The gateway of a `[gateway]` table: its shape checked, its `token_file` read. Every refusal names the member and
+/// never a value or a path. `runbook run` reads it through [`take`]; the daemon reads its file's table once, when it
+/// starts (`loom_run::arbiter`).
+pub fn of_table(table: &Value) -> Result<Gateway, String> {
+    check_shape(&serde_json::json!({ KEY: table }))?;
+    let base = table["base_url"].as_str().unwrap_or_default();
+    match (table.get("token").and_then(Value::as_str), table.get("token_file").and_then(Value::as_str)) {
+        (Some(token), _) => Gateway::new(base, token),
+        (None, Some(path)) => Gateway::new(base, &token_of_file(path)?),
+        (None, None) => Gateway::without_token(base),
+    }
 }
 
 /// Reads the gateway of `settings` (already shape-checked) and returns the settings with the table replaced
@@ -103,16 +124,10 @@ pub fn take(args: &Args, mut settings: Value) -> Result<(Value, Option<Gateway>)
     if settings.get("adapter").and_then(Value::as_str) == Some("metaharness") {
         return Err("gateway and adapter: the adapter metaharness cannot take a gateway (it removes ANTHROPIC_* and starts its own proxy); name adapter = \"claude-cli\"".to_owned());
     }
-    if decider_adapter(&settings).as_deref() == Some("metaharness") {
-        return Err("gateway and decider.adapter: the adapter metaharness (the model decider's default) cannot take a gateway; name decider.adapter = \"claude-cli\"".to_owned());
+    if let Some(decider) = settings.get("decider") {
+        check_decider_adapter(decider, "decider")?;
     }
-    let base = table["base_url"].as_str().unwrap_or_default();
-    let gateway = match (table.get("token").and_then(Value::as_str), table.get("token_file").and_then(Value::as_str)) {
-        (Some(token), _) => Gateway::new(base, token)?,
-        (None, Some(path)) => Gateway::new(base, &token_of_file(path)?)?,
-        (None, None) => Gateway::without_token(base)?,
-    };
-    Ok((settings, Some(gateway)))
+    Ok((settings, Some(of_table(&table)?)))
 }
 
 #[cfg(test)]

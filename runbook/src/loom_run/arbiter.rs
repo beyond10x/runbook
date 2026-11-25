@@ -14,9 +14,11 @@
 use crate::loom_run::bindings_copy;
 use crate::loom_run::decide::{Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider::NativeDecider;
+use crate::loom_run::gateway;
 use crate::loom_run::private::PrivateDir;
 use runbook::engine::arbiter::{Arbiter, Judgement, Opened, Opening, RunArbiter};
 use runbook::engine::shape::{self, Unshaped};
+use sdc_tools::gateway::Gateway;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -39,6 +41,9 @@ pub struct Limits {
     pub cap_micro_usd: Option<u64>,
     /// How many model calls the decider of one run may make; none: no limit.
     pub max_llm_calls: Option<u64>,
+    /// The `[gateway]` table of the file (`base_url`, an absolute `token_file`; the file holds no token): the model
+    /// decider's gateway instead of the login. [`DaemonArbiter::new`] reads it and keeps none of it here.
+    pub gateway: Option<Value>,
 }
 
 /// The deciders the operator configured, by kind name.
@@ -46,13 +51,15 @@ pub struct Limits {
 pub struct DaemonArbiter {
     kinds: BTreeMap<String, Value>,
     limits: Limits,
+    /// The gateway of the runs whose kind is `model`, read when the daemon started (its `Debug` holds no token).
+    gateway: Option<Gateway>,
 }
 
 impl DaemonArbiter {
     /// The kinds `configured` names, each with its table (the members of a `decider` table without `kind`,
     /// or with the kind that is its name). A table the decider's reader refuses is refused here by name, so
     /// the daemon does not start with it.
-    pub fn new(configured: Map<String, Value>, limits: Limits) -> Result<DaemonArbiter, String> {
+    pub fn new(configured: Map<String, Value>, mut limits: Limits) -> Result<DaemonArbiter, String> {
         let mut kinds = BTreeMap::new();
         for (name, table) in configured {
             if !KINDS.contains(&name.as_str()) {
@@ -70,7 +77,16 @@ impl DaemonArbiter {
             NativeDecider::parse(&json!({"autonomy": "A5", "decider": table}), &table).map_err(|e| format!("deciders.{name}: {e}"))?;
             kinds.insert(name, table);
         }
-        Ok(DaemonArbiter { kinds, limits })
+        // The gateway is read once, here, and only for the kind that starts a model program: a token file that
+        // cannot be read, and a model decider whose adapter cannot carry a gateway, stop the daemon at its start.
+        let gateway = match (limits.gateway.take(), kinds.get("model")) {
+            (Some(table), Some(model)) => {
+                gateway::check_decider_adapter(model, "deciders.model")?;
+                Some(gateway::of_table(&table)?)
+            }
+            _ => None,
+        };
+        Ok(DaemonArbiter { kinds, limits, gateway })
     }
 }
 
@@ -120,7 +136,13 @@ impl Arbiter for DaemonArbiter {
         // The model's adapter is given a link in the run's private directory, never the login file's own path; the
         // link goes with the judge, when the run ends.
         let login = self.limits.login_file.as_deref().filter(|_| kind == "model").map(Path::new);
-        let private = PrivateDir::create(&private_name(o.run_dir), login)?;
+        // A gateway instead: the file with its address and token in the same directory, for a run whose kind starts a
+        // model program; the adapter is given the file's path, never what it holds.
+        let gateway = self.gateway.as_ref().filter(|_| kind == "model");
+        let private = PrivateDir::create_with(&private_name(o.run_dir), login, gateway)?;
+        if let Some(file) = private.as_ref().and_then(PrivateDir::gateway_file) {
+            decider.use_gateway(file);
+        }
         let path = format!("{}:{SYSTEM_PATH}", dst.join("tools").display());
         let verdict = table.get("verdict").and_then(Value::as_str).map(str::to_owned);
         Ok(Opened {

@@ -79,19 +79,16 @@ impl PrivateDir {
     }
 
     /// Makes the private directory of `run` when `login` is given, with the link in it; returns
-    /// `None` when no login file is named (nothing is made, `XDG_RUNTIME_DIR` is not needed).
-    /// Refused, with nothing made, when `XDG_RUNTIME_DIR` is unset, not absolute, not a directory
+    /// `None` when neither a login file nor a gateway is named (nothing is made, `XDG_RUNTIME_DIR` is not
+    /// needed). Refused, with nothing made, when `XDG_RUNTIME_DIR` is unset, not absolute, not a directory
     /// or not owned by the user, when the login file is not an absolute path of a file that
     /// exists, and when the directory of this run name exists already. No message holds the login
     /// file's path.
-    pub fn create(run: &str, login: Option<&Path>) -> Result<Option<PrivateDir>, String> {
-        PrivateDir::create_with(run, login, None)
-    }
-
-    /// [`PrivateDir::create`] for a run that may name a gateway instead of a login: with `gateway`, the
+    ///
+    /// A run may name a gateway instead of a login: with `gateway`, the
     /// directory holds the one file `gateway` (mode 0600, written with `create_new` into the directory of
     /// mode 0700, so it never exists with wider rights) and no link. A login and a gateway together are
-    /// refused; neither: nothing is made. No message holds the token.
+    /// refused. No message holds the token.
     pub fn create_with(run: &str, login: Option<&Path>, gateway: Option<&Gateway>) -> Result<Option<PrivateDir>, String> {
         if login.is_some() && gateway.is_some() {
             return Err("gateway and login_file: a run has one or the other, never both".to_owned());
@@ -215,7 +212,7 @@ mod tests {
         assert!(none.contains("gateway") && none.contains("XDG_RUNTIME_DIR") && !none.contains(TOKEN), "{none}");
         // a login alone works as it did
         std::env::set_var("XDG_RUNTIME_DIR", &xdg);
-        let by_login = PrivateDir::create("g5", Some(&login)).unwrap().unwrap();
+        let by_login = PrivateDir::create_with("g5", Some(&login), None).unwrap().unwrap();
         assert!(by_login.link().is_some() && by_login.gateway_file().is_none());
     }
 }

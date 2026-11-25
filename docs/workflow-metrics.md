@@ -281,6 +281,8 @@ none is ignored silently, and a name that is no setting at all is refused too.
 | `max_llm_calls` | optional: cap on model calls of one run (as for `sdc`), a whole number (0 allows none); none named means no limit | `--max-llm-calls`, `max_llm_calls` of the settings file, and the shared ledger (as for `loom.cap_micro_usd`) |
 | `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here: it bounds time, not money) | `--max-wall-seconds` |
 | `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `login_file` of the settings file only; see below |
+| `gateway.base_url` | optional: the address of a gateway the model programs reach their model through (`http://` or `https://` with a host), never beside `loom.login_file` (in the record or by `--login-file`); `adapter` is then not `metaharness` and a `model` decider names `decider.adapter: claude-cli` | `[gateway] base_url` of the settings file |
+| `gateway.token_file` | optional, with `gateway.base_url`: a path (absolute or `~/…`) of the file that holds the token; a record names no token (`gateway.token` is refused) | `[gateway] token_file` of the settings file; `--print` shows `<gateway.token_file>` |
 
 The file is TOML (`settings.toml`), `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
 programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the unit gets (the build's
@@ -292,11 +294,11 @@ Refused for a `loom` variant, each with its reason in the message: `implement_mo
 (waits for its port into `runbook run`; in `sdc-experiment.rs` one function per setting, marked
 `// port: <name>`, which the port removes), `efforts.<class>.effort` (the runner takes the
 efforts, but the record format does not carry them to it yet, so the class defaults of
-`tools/node-classes.json` apply), `free.*`. `flags.recorded` is not refused: it is passed on as
+`tools/node-classes.json` apply), `free.*`, `gateway.token` (a record is a committed file and names no token: `gateway.token_file`). `flags.recorded` is not refused: it is passed on as
 `runbook run --recorded`, with `flags.on_divergence`, `flags.live_adapter`, `flags.live_cap` and
 `flags.source_tree` as the options that go with it. `flags.live_cap` is optional: none named means no limit on live calls,
 a whole number is a cap and 0 is accepted and lets no live call start (as `--live-cap 0` does); text, a negative number and a fraction are refused by name.
-A `free-agent` variant's `free.max_usd` is optional in the same way: when it is named it is a finite number of at least 0 (0 spends nothing), and `check` refuses any other value by name; a free-agent variant that sets a key `sdc-free-agent` does not read (a cap under a misspelt name), and a `fixed` or `settings` block that is no mapping, are refused by name too. A `loom` input is an `idea` (the case is `IDEA-1`) or a
+A `free-agent` variant's `free.max_usd` is optional in the same way: when it is named it is a finite number of at least 0 (0 spends nothing), and `check` refuses any other value by name; a free-agent variant that sets a key `sdc-free-agent` does not read (a cap under a misspelt name), and a `fixed` or `settings` block that is no mapping, are refused by name too; a `gateway.*` setting of a free-agent variant is refused by name (`sdc-free-agent` takes no gateway). A `loom` input is an `idea` (the case is `IDEA-1`) or a
 `seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
@@ -412,7 +414,7 @@ temp, runtime or device-shared directory, or `/root/`) by `<absolute path remove
 | `run-stopped.<x>.json` | name only | one reopen each | 0 |
 | `defects.jsonl` | `forced` | forced steps | 0 |
 | `rounds.jsonl` | `seconds` | `run.driver_s`, waiting time | null |
-| `run-settings.jsonl` | the last line, nested objects flattened by dots (`at`, `format`, `nodes`, `llm_calls_before` dropped) | `settings`; `check --runs-dir` compares it with the record: `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd`, the models, `decider.model`, `max_llm_calls`, `max_wall_seconds`, whichever the record sets (not `loom.bin`, `loom.login_file`) | every setting reads `not recorded` and `check` refuses the run |
+| `run-settings.jsonl` | the last line, nested objects flattened by dots (`at`, `format`, `nodes`, `llm_calls_before` dropped) | `settings`; `check --runs-dir` compares it with the record: `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd`, the models, `decider.model`, `max_llm_calls`, `max_wall_seconds`, whichever the record sets (not `loom.bin`, `loom.login_file`, `gateway.*`: the run records `"gateway": "named"`) | every setting reads `not recorded` and `check` refuses the run |
 | `oracle.json` | `conformance.*` | the `conformance*` metrics | `not observed` |
 
 The run's end: `closed_outcome` is the root's `terminated.outcome`, else `status.json` `outcome`

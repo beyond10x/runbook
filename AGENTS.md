@@ -150,6 +150,12 @@
   `b10x-gates bot -- commit -F <message file>` and `b10x-gates bot -- push`. It mints a token from
   the organization App's credentials. Every other GitHub write goes through
   `b10x-gates api` or `b10x-gates gh`.
+- A pull request is merged only by a bot merge commit made locally (`b10x-gates bot -- merge --no-ff -F
+  <message file> <head>` on a tree at `origin/main`) and pushed with `b10x-gates bot -- push origin
+  <merge>:refs/heads/main`, never by the GitHub merge API or the web button. 2026-11-25: PR 88 merged
+  through the API left a commit with GitHub as committer on `main`, and the bot's push of every range
+  holding it was refused ("branch authority missing or ambiguous": the repository has no ruleset
+  `b10x-bot-branch-authority`).
 - No attribution lines. Every commit has a subject and a body.
 - Common Gates: hooks with `b10x-gates --repository beyond10x/runbook --policy ../gates-policy/policy.json
   install`; before a push, `b10x-gates --repository beyond10x/runbook check --receipt <file>`. CI runs
