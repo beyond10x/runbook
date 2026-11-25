@@ -239,6 +239,102 @@ fn a_streamed_chat_call_asks_for_its_usage_and_is_passed_back_as_it_came() {
     assert_eq!((line["input_tokens"].clone(), line["output_tokens"].clone(), line["cost_known"].clone(), *micro), (json!(40), json!(2), json!(false), 7_000), "no price: the reservation is booked: {line}");
 }
 
+/// A gateway on a loopback port that reads one whole call, keeps it, and answers `answer` only once the test sends on
+/// the returned channel (or after 20 s).
+fn held_gateway(answer: &'static [u8]) -> (Gateway, std::sync::mpsc::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let kept = got.clone();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let mut raw = Vec::new();
+        let mut byte = [0u8; 1];
+        while !raw.ends_with(b"\r\n\r\n") && raw.len() < 64 * 1024 {
+            match stream.read(&mut byte) {
+                Ok(1) => raw.push(byte[0]),
+                _ => break,
+            }
+        }
+        let head = String::from_utf8_lossy(&raw).into_owned();
+        let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+        let mut body = vec![0u8; length];
+        let _ = stream.read_exact(&mut body);
+        kept.lock().unwrap().push(Got { head, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
+        let _ = released.recv_timeout(Duration::from_secs(20));
+        let _ = stream.write_all(answer);
+    });
+    (Gateway { base_url, got }, release)
+}
+
+#[test]
+fn a_call_whose_caller_hangs_up_before_the_gateway_answers_is_still_booked_once() {
+    let s = served("relay-hangup");
+    let (review, release) = held_gateway(OK_ANSWER);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", Some((3_000_000, 15_000_000))), "run");
+    let ticket = s.relay.open("run-hangup", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    // a model process sends its call and is killed (the run's wall cap, a cancel, its own timeout) before the answer
+    let body = json!({"model": "review", "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    let limit = std::time::Instant::now() + Duration::from_secs(10);
+    while got(&review).is_empty() {
+        assert!(std::time::Instant::now() < limit, "the call never reached the gateway");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(caller);
+    std::thread::sleep(Duration::from_millis(300));
+    // the gateway ran the call and answers it, with its usage: the call was sent, so it is one line
+    release.send(()).unwrap();
+    let lines = wait_for_lines(&book, 1);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+}
+
+const BROKEN_STREAM: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n76\r\nevent: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1200000,\"output_tokens\":300}}}\n\n\r\n";
+
+#[test]
+fn a_streamed_answer_that_breaks_off_after_its_usage_is_not_booked_as_a_call_that_cost_nothing() {
+    let s = served("relay-broken");
+    let review = gateway(BROKEN_STREAM);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", Some((3_000_000, 15_000_000))), "run");
+    let ticket = s.relay.open("run-broken", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let body = json!({"model": "review", "stream": true, "max_tokens": 5, "messages": []}).to_string();
+    // the caller reads what it gets; a stream that breaks off is no complete HTTP answer, so it is read raw
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    let mut answer = Vec::new();
+    let _ = caller.read_to_end(&mut answer);
+    assert!(String::from_utf8_lossy(&answer).starts_with("HTTP/1.1 200"), "{}", String::from_utf8_lossy(&answer));
+    let lines = wait_for_lines(&book, 1);
+    let (line, micro) = &lines[0];
+    // the gateway ran the call (1.2 M input tokens reported) and the connection broke mid-stream: the call cost
+    // money, so it is booked at its tokens times the prices, or as a call of unknown cost; never at 0 as known
+    assert!(!(*micro == 0 && line["cost_known"] == json!(true)), "a call that ran on the gateway was booked as known to cost nothing: {line}");
+}
+
+#[test]
+fn a_streamed_chat_call_with_stream_options_null_still_asks_for_its_usage() {
+    let s = served("relay-null-opts");
+    let review = gateway(STREAM_ANSWER);
+    let table = RouteTable::default().with("default", route("claude", &review.base_url, "claude-alias", None), "default");
+    let ticket = s.relay.open("run-null-opts", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let r = call(&s, ticket.base_url(), "chat/completions", ticket.token(), &json!({"model": "default", "stream": true, "stream_options": null, "messages": []}));
+    assert_eq!(r.status, 200);
+    let seen = got(&review);
+    assert_eq!(seen[0].body["stream_options"], json!({"include_usage": true}), "a streamed chat call went out without include_usage: {:?}", seen[0].body);
+}
+
 fn wait_for_lines(book: &Book, n: usize) -> Vec<(Value, u64)> {
     let limit = std::time::Instant::now() + Duration::from_secs(10);
     loop {

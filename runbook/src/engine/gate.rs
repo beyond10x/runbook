@@ -470,4 +470,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(outcome.is_err_and(|why| why.contains("spend ledger")), "the step of a call the ledger did not book ended without its error");
     }
+
+    fn routed_gate(tag: &str, caps: Caps) -> (Gate, std::path::PathBuf) {
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("gate-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::on(Usage::default(), WallClock::default())), budget::Reserves::default()).unwrap();
+        (gate, dir)
+    }
+
+    #[test]
+    fn a_relayed_call_the_gateway_refused_fails_the_step_it_ran_in_route_unavailable_naming_the_route_the_code_and_the_setting() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-refused", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("notes.write".to_owned()))));
+        booking.admit().unwrap();
+        // the line the relay books for a call its gateway refused 503 model-stopped (`relay::Call::line`)
+        let line = json!({"what": "model call", "run": "run-a", "step": "notes.write", "role": "writer", "route": "qwen", "alias": "qwen-alias", "source": "protocol", "wire": "messages", "gateway_call": null, "input_tokens": null, "output_tokens": null, "cost_known": true, "micro_usd": 0, "cause": "route-unavailable", "code": "model-stopped", "detail": "the gateway answered 503"});
+        booking.book(line, 0).unwrap();
+        let outcome = gate.book(&Quiet);
+        let _ = std::fs::remove_dir_all(&dir);
+        let why = outcome.expect_err("the step whose model call the gateway refused was booked Ok");
+        for word in ["route-unavailable", "qwen", "model-stopped", "protocol"] {
+            assert!(why.contains(word), "the step's failure does not name {word}: {why}");
+        }
+    }
+
+    #[test]
+    fn decider_calls_of_unknown_cost_reach_the_spend_cap_when_the_runbooks_programs_reserve_nothing() {
+        use crate::relay::Booking;
+        // a runbook whose bound programs call no model (`max_budget_usd: 0` on each, as `budget::reserves` asks of
+        // such a program): its largest budget is 0. The decider of kind `model` calls through the relay between
+        // steps, and its route declares no price.
+        let (mut gate, dir) = routed_gate("relay-unknown", Caps { max_wall_seconds: 60, max_llm_calls: 100, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        let mut admitted = 0;
+        for _ in 0..5 {
+            if booking.admit().is_err() {
+                break;
+            }
+            admitted += 1;
+            // what `relay::Call::line` books for a call of unknown cost
+            let reservation = booking.reservation_micro_usd();
+            booking.book(json!({"what": "model call", "cost_known": false, "micro_usd": reservation}), reservation).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(admitted < 5, "5 model calls of unknown cost were admitted against a spend cap of 1000 micro USD: each booked {} (docs/model-routes.md, section 5: a call of unknown cost books its reservation, max_call_micro_usd)", booking.reservation_micro_usd());
+    }
+
+    #[test]
+    fn the_spend_the_meter_shows_does_not_wrap_past_the_largest_amount() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-wrap", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: u64::MAX });
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        // `relay::cost_of` saturates a huge count of tokens at u64::MAX; the ledger saturates its sum
+        booking.book(json!({"what": "model call"}), u64::MAX).unwrap();
+        booking.book(json!({"what": "model call"}), 2).unwrap();
+        let shown = gate.meter.usage().spent_micro_usd;
+        let ledger = gate.held.ledger.spent_by_run("run-a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!((shown, ledger), (u64::MAX, u64::MAX), "the run's shown spend wrapped while the ledger saturated");
+    }
 }
