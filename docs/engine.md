@@ -288,6 +288,33 @@ works with nothing of the sort. Money: the
 caps are optional (`cap_micro_usd`, `max_llm_calls` of the file); a rule costs nothing and needs
 none; when a cap is named and spent, the decider stops and the decision stays open.
 
+### A gateway
+
+The daemon's operator may name a gateway instead of a login: the `[gateway]` table of the `runbook.toml` the
+daemon reads, with `base_url` and, for a gateway that takes a token, `token_file` (the file holds no token:
+`gateway.token` there is refused, `docs/loom-run-settings.md` "`[gateway]`"). The model programs of a daemon
+run are those of its `model` decider, and they take the gateway the way `runbook run` gives it: the daemon
+writes one file `gateway` (mode 0600, the address and the token) into the run's private directory
+(`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode 0700) when the run's kind is `model`, the decider's
+adapter is given its path in `SDC_GATEWAY_FILE` and nothing else of it, and the adapter sets
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for the `claude` it starts and no other process; no login is
+linked or copied. The file and its directory go when the run ends. A run whose kind is `rule`, or that has
+no kind, starts no model program and writes no gateway file. The bound programs of the runbook get neither a
+login nor a gateway from the daemon.
+
+The token file is read once, when the daemon starts, and only when the `model` kind is configured. The daemon
+does not start (exit 2, naming the member and never a value or a path) when the token file cannot be read as
+one line of a token, when the gateway's shape is refused, and when the `model` kind's adapter is
+`metaharness`, its default, which cannot take a gateway: name `adapter = "claude-cli"` in
+`[deciders.model]`. A gateway and a `login_file` in one file are refused. A model run under a gateway without
+`XDG_RUNTIME_DIR` fails to start by that name.
+
+A submit names no gateway, address or token: a setting, or a member of the request, named `gateway`,
+`base_url`, `token`, `token_file` or `gateway.<member>`, in any case, is refused (400) by its name and never
+with its value, and no run is made. The cases are `runbook/tests/daemon/gateway.rs`: a stand-in gateway on a
+loopback port receives the configured token from a stand-in `claude` started by the committed claude-cli
+adapter, and no file of the daemon's state and no event of the run holds it.
+
 ## Not built
 
 Resume of an orphaned run from its store; a stream of decisions to a person while `run_tree` runs

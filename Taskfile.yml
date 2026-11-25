@@ -41,12 +41,31 @@ tasks:
       - '{ for c in watch goals; do (cd "$c" && cargo nextest run --locked --color never) || exit 1; done; } >> /dev/stdout 2>> /dev/stderr'
 
   test:ui:
+    silent: true
     dir: ui
-    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes its output and its errors into a pipe of its own that cat drains: node turns a pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest). Every step of `task check` that prints the output of a runner opens the output again for one command or one group (`>> /dev/stdout`, `{ ...; } >> /dev/stdout 2>> /dev/stderr`): an open file of its own, which stays blocking whatever turns the shared one non-blocking. Never by `exec` with redirections only: go-task 3.52, the forge's, closes that file at the end of its line (check:task-output)."
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The specs write their run directories under ui/target/fixture-runs; scripts/check-tree-links.sh then fails on a link outside a target/ directory that a copy of the tree cannot follow. The slow lane stays `task slow` in ui/. Playwright writes its output and its errors into a pipe of its own that cat drains: node turns a pipe it writes to non-blocking, and with the pipe of `task check` shared the other steps beside it lost output (cat of a nextest log stopped at a write that would block, with its summary and ten slowest). Every step of `task check` that prints the output of a runner opens the output again for one command or one group (`>> /dev/stdout`, `{ ...; } >> /dev/stdout 2>> /dev/stderr`): an open file of its own, which stays blocking whatever turns the shared one non-blocking. Never by `exec` with redirections only: go-task 3.52, the forge's, closes that file at the end of its line (check:task-output). The forge does not run this step: at its CPU count the run does not end within 120 s (docs/forge-gate.md; the OUTSIDE line of check:ci-paths). UI_TEST_FORGE=1 runs it here on the first FORGE_CPUS CPUs (`taskset`), the way test:runbook measures the forge, and prints the load average before and after; with `CI` set Playwright starts without the `slot` prefix (the forge has no pool)."
+    vars:
+      FORGE_CPUS: 2
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
       - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
-      - set -o pipefail; slot npx playwright test --workers=4 2>&1 | cat >> /dev/stdout
+      - |
+        {
+        set -u
+        set -o pipefail
+        pool=slot
+        limit=""
+        if [ -n "${CI:-}" ]; then
+          pool=""
+        elif [ -n "${UI_TEST_FORGE:-}" ]; then
+          limit="taskset -c 0-$(({{.FORGE_CPUS}} - 1))"
+        fi
+        echo "playwright, 4 workers${limit:+, held to {{.FORGE_CPUS}} CPUs by $limit}; load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
+        code=0
+        $pool $limit npx playwright test --workers=4 2>&1 | cat || code=$?
+        echo "load average after the run: $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
+        exit $code
+        } >> /dev/stdout 2>> /dev/stderr
       - ../scripts/check-tree-links.sh
 
   test:loom-real:
@@ -140,7 +159,9 @@ tasks:
   test:driver:
     silent: true
     dir: driver
-    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. Needs cargo-nextest."
+    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml, after steps that install the pinned ess with `sdc-conform ess-install` and the pinned aep with `sdc-conform aep-install`) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment does not apply to it). DRIVER_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), as RUNBOOK_TEST_FORGE does for runbook/: 78 to 87 s on 2 CPUs of the build node (docs/forge-gate.md). Other work on those CPUs slows the run: it prints the load average before and after. Like test:runbook it puts the traps `ess` and `aep` of scripts/host-tool-traps first on the PATH of its tests: the forge has neither on PATH. Ahead of them it puts the directory of the pinned aep (driver/aep-pin.json, `sdc-conform aep-path`), the planning store the programs under test call; without it the step stops with the install command. Needs cargo-nextest, the pinned ess, the pinned aep and, for DRIVER_TEST_FORGE, taskset."
+    vars:
+      FORGE_CPUS: 2
     cmds:
       - cargo nextest run --locked --color never --no-run
       - |
@@ -148,8 +169,26 @@ tasks:
         set -u
         log=target/nextest-driver.log
         code=0
-        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
+        trap_dir=$(cd ../scripts/host-tool-traps && pwd)
+        if ! aep_bin=$(cargo run --locked --quiet --bin sdc-conform -- aep-path); then
+          echo "the driver tests run the pinned aep of driver/aep-pin.json, never the aep on PATH: install it with \`cargo run --locked --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install\`"
+          exit 1
+        fi
+        aep_dir=$(dirname "$aep_bin")
+        echo "aep of the tests: $aep_bin (driver/aep-pin.json)"
+        profile=default
+        limit=""
+        if [ -n "${CI:-}" ]; then
+          profile=forge
+        elif [ -n "${DRIVER_TEST_FORGE:-}" ]; then
+          profile=forge
+          limit="taskset -c 0-$(({{.FORGE_CPUS}} - 1))"
+        fi
+        if [ "$profile" = forge ]; then unset NEXTEST_TEST_THREADS; fi
+        echo "nextest profile $profile${limit:+, held to {{.FORGE_CPUS}} CPUs by $limit}; test threads ${NEXTEST_TEST_THREADS:-of the profile}; load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
+        PATH="$aep_dir:$trap_dir:$PATH" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
         cat "$log"
+        echo "load average after the run: $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
         secs=$(sed -n 's/^ *Summary \[ *\([0-9.]*\)s\].*/\1/p' "$log" | tail -1)
@@ -201,7 +240,7 @@ tasks:
 
   check:ci-paths:
     silent: true
-    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty. Also fails when a nextest call of this file lacks --color never."
+    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty. Then the local gate equals the forge: each test step of task check (a `test:` dep) has a step `run: task <name>` in pages.yml or an OUTSIDE line here with the reason it is left out (not both); each such forge step runs for a code change and is skipped for a planning and a docs-site change (its `if:` on the class the classifier gives), names a timeout-minutes no larger than the runbook step's, and its task has the forge's way (`CI` set) and a local forge way (a *_TEST_FORGE variable with taskset). Also fails when a nextest call of this file lacks --color never."
     cmds:
       - |
         set -eu
@@ -243,6 +282,71 @@ tasks:
         code|views/sdc.view.json
         code|
         CASES
+        classify() { printf '%s' "$1" | tr ' ' '\n' | CHANGED_FILES= GITHUB_OUTPUT=/dev/stdout bash -c "$step" | sed -n 's/^class=//p'; }
+        runs_for() {
+          case "$1" in
+          "steps.changes.outputs.class == '"*"'") v=${1#*"== '"}; v=${v%"'"}; [ "$2" = "$v" ] && echo yes || echo no ;;
+          "steps.changes.outputs.class != '"*"'") v=${1#*"!= '"}; v=${v%"'"}; [ "$2" != "$v" ] && echo yes || echo no ;;
+          *) echo unknown ;;
+          esac
+        }
+        ci=$(awk '
+          function emit() { if (run ~ /^task test:[a-z:-]+$/) print substr(run, 6) "|" cond "|" tmo }
+          /^      - / { emit(); run = ""; cond = ""; tmo = "" }
+          /^        if: / { cond = $0; sub(/^        if: /, "", cond) }
+          /^        timeout-minutes: / { tmo = $2 }
+          /^        run: / { run = $0; sub(/^        run: /, "", run) }
+          END { emit() }
+        ' .github/workflows/pages.yml)
+        gate=$(awk '
+          /^  check:$/ { c = 1; next }
+          c && /^  [^ ]/ { exit }
+          c && /^    deps:$/ { d = 1; next }
+          c && d && /^      - test:/ { print $2; next }
+          c && d && !/^      - / { d = 0 }
+        ' Taskfile.yml)
+        outside=$(cat <<'OUTSIDE'
+        test:ui|at the forge's CPU count its run does not end within 120 s: 550 to 587 of 611 tests on 2 CPUs of the build node (docs/forge-gate.md)
+        OUTSIDE
+        )
+        rb_tmo=$(printf '%s\n' "$ci" | sed -n 's/^test:runbook|[^|]*|//p')
+        code_class=$(classify driver/src/lib.rs)
+        planning_class=$(classify .engineering/planning/story/x.md)
+        site_class=$(classify website/docs/index.md)
+        for t in $gate; do
+          n=$((n + 1))
+          line=$(printf '%s\n' "$ci" | grep "^$t|" || true)
+          out=$(printf '%s\n' "$outside" | grep "^$t|" || true)
+          if [ -n "$line" ] && [ -n "$out" ]; then echo "FAIL $t of task check has a forge step and is listed as left out of it"; fail=1; continue; fi
+          if [ -n "$out" ]; then echo "ok   $t of task check is left out of the forge: ${out#*|}"; continue; fi
+          if [ -z "$line" ]; then echo "FAIL $t of task check has no step \`task $t\` in .github/workflows/pages.yml and no OUTSIDE line with the reason in check:ci-paths"; fail=1; continue; fi
+          echo "ok   $t of task check runs on the forge as \`task $t\`"
+          cond=$(printf '%s' "$line" | cut -d '|' -f 2)
+          tmo=$(printf '%s' "$line" | cut -d '|' -f 3)
+          for side in "code|$code_class|yes|driver/src/lib.rs" "planning|$planning_class|no|.engineering/planning/story/x.md" "docs-site|$site_class|no|website/docs/index.md"; do
+            n=$((n + 1))
+            name=${side%%|*}; rest=${side#*|}; class=${rest%%|*}; rest=${rest#*|}; want=${rest%%|*}; file=${rest#*|}
+            got=$(runs_for "$cond" "$class")
+            if [ "$got" = "$want" ]; then
+              echo "ok   the forge step of $t $( [ "$want" = yes ] && echo runs || echo is skipped ) for a $name change ($file -> $class)"
+            else
+              echo "FAIL the forge step of $t ($cond) answers $got for a $name change ($file -> $class), want $want"; fail=1
+            fi
+          done
+          n=$((n + 1))
+          if [ -n "$tmo" ] && [ -n "$rb_tmo" ] && [ "$tmo" -le "$rb_tmo" ]; then
+            echo "ok   the forge step of $t names timeout-minutes $tmo, no more than the runbook step's $rb_tmo"
+          else
+            echo "FAIL the forge step of $t names timeout-minutes '${tmo}', want one no larger than the runbook step's '${rb_tmo}'"; fail=1
+          fi
+          n=$((n + 1))
+          body=$(awk -v t="  $t:" '$0 == t { f = 1; next } f && /^  [^ ]/ { exit } f' Taskfile.yml)
+          if printf '%s' "$body" | grep -q 'CI:-' && printf '%s' "$body" | grep -q '_TEST_FORGE:-' && printf '%s' "$body" | grep -q 'taskset'; then
+            echo "ok   $t has the forge's way (CI set) and a local forge way (*_TEST_FORGE, taskset)"
+          else
+            echo "FAIL $t lacks the forge's way (\${CI:-}) or a local forge way (\${*_TEST_FORGE:-} with taskset)"; fail=1
+          fi
+        done
         n=$((n + 1))
         bare=$(grep -n 'cargo nextest [r]un' Taskfile.yml | grep -v -e '--color never' || true)
         if [ -z "$bare" ]; then echo "ok   every nextest call of Taskfile.yml has --color never"; else echo "FAIL a nextest call without --color never (the forge sets CARGO_TERM_COLOR=always and the tasks parse the log):"; echo "$bare"; fail=1; fi

@@ -394,6 +394,36 @@ pub fn out_of_range_member(body: &[u8], e: &serde_json::Error) -> Option<String>
     Some(format!("the setting {key} is a number out of range, not a string{hint}"))
 }
 
+/// The names a submit does not carry, as a setting or as a member of the request: the daemon's operator names the
+/// gateway of the model programs (`runbook.toml`, `[gateway]`; `docs/engine.md`, "A gateway"), never a client.
+const GATEWAY_NAMES: [&str; 4] = ["gateway", "base_url", "token", "token_file"];
+/// The members of a `[gateway]` table a refusal may echo after `gateway.`: any other text there could be a value.
+const GATEWAY_MEMBERS: [&str; 4] = ["base_url", "token", "token_file", "model"];
+
+/// How a refusal names `key` when it names a gateway, in any case: the key itself when it is one of the names, else
+/// the words "a gateway.* name" (the rest of such a key is the client's text and could be a value). `None`: no gateway.
+fn gateway_name(key: &str) -> Option<String> {
+    let lower = key.to_ascii_lowercase();
+    if GATEWAY_NAMES.contains(&lower.as_str()) || lower.strip_prefix("gateway.").is_some_and(|m| GATEWAY_MEMBERS.contains(&m)) {
+        return Some(key.to_owned());
+    }
+    lower.starts_with("gateway.").then(|| "a gateway.* name".to_owned())
+}
+
+fn gateway_refusal(what: &str, name: &str) -> Fault {
+    Fault::Invalid(format!("{what} {name} is refused: a submit names no gateway, address or token; the daemon's operator names the gateway of the model programs in its runbook.toml (docs/engine.md, \"A gateway\")"))
+}
+
+/// The members of a submit's body, before it is read as one: a member that names a gateway is refused by its name and
+/// never with its value (`SubmitRun` has no such member, and a member it does not know would be dropped unread).
+pub fn refuse_gateway_members(body: &[u8]) -> Result<(), Fault> {
+    let Ok(Value::Object(members)) = serde_json::from_slice::<Value>(body) else { return Ok(()) };
+    match members.keys().find_map(|k| gateway_name(k)) {
+        Some(name) => Err(gateway_refusal("the member", &name)),
+        None => Ok(()),
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
@@ -699,6 +729,9 @@ impl Daemon {
 
     /// `SubmitRun` as the daemon `daemon_id` names (the HTTP handler always names its own).
     pub fn submit_run_for(&self, daemon_id: &str, input: SubmitRun) -> Reply {
+        if let Some(name) = input.settings.keys().find_map(|k| gateway_name(k)) {
+            return Err(gateway_refusal("the setting", &name));
+        }
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }

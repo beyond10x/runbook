@@ -435,8 +435,9 @@ const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
 /// `loom` settings that are optional: the money caps (a record names one or leaves it out), the path of the login file the model adapter reads, the way
 /// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
 /// deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 18] = ["loom.cap_micro_usd", "max_llm_calls", "conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
-    "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree"];
+const OPTIONAL_LOOM: [&str; 20] = ["loom.cap_micro_usd", "max_llm_calls", "conformance", "loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+    "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree",
+    "gateway.base_url", "gateway.token_file"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
 /// What the shell programs the bindings run (`sdc-tool.sh`, the adapters) need on
@@ -456,6 +457,7 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
             "it is a switch of the old driver and Loom's bindings carry no such switch",
         k if k.starts_with("efforts.") => "the record format does not carry an effort to the runner yet (the runner takes `efforts` in its settings), so the class defaults of tools/node-classes.json apply",
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
+        "gateway.token" => "a record is a committed file and names no token: name gateway.token_file, a file that holds it",
         _ => return None,
     })
 }
@@ -583,10 +585,35 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     if v.settings.get("loom.sha256").is_some_and(|s| !is_hex(s, 64, 64)) {
         p.push(format!("variant {:?}: loom.sha256 must be the 64 hex digits of the binary's sha256", v.id));
     }
-    for k in ["loom.bin", "loom.login_file"] {
+    for k in ["loom.bin", "loom.login_file", "gateway.token_file"] {
         if v.settings.get(k).is_some_and(|b| !(b.starts_with('/') || b.starts_with("~/"))) {
             p.push(format!("variant {:?}: {k} must be an absolute path or start with ~/", v.id));
         }
+    }
+    check_loom_gateway(v, p);
+}
+
+/// The gateway of a `loom` variant (docs/loom-run-settings.md, "[gateway]"): its address and, for a gateway that
+/// takes a token, a token file; never beside a login file, and only with the adapters that take it, as the runner
+/// refuses. A refusal names the setting and never its value.
+fn check_loom_gateway(v: &Variant, p: &mut Vec<String>) {
+    let Some(url) = v.settings.get("gateway.base_url") else {
+        if v.settings.contains_key("gateway.token_file") {
+            p.push(format!("variant {:?}: gateway.token_file goes with gateway.base_url (the address of the gateway)", v.id));
+        }
+        return;
+    };
+    if let Err(why) = sdc_tools::gateway::check_base_url(url) {
+        p.push(format!("variant {:?}: gateway.base_url {why}", v.id));
+    }
+    if v.settings.contains_key("loom.login_file") {
+        p.push(format!("variant {:?}: gateway.base_url and loom.login_file: a run has a gateway or a login file, never both", v.id));
+    }
+    if v.settings.get("adapter").is_some_and(|a| a == "metaharness") {
+        p.push(format!("variant {:?}: adapter metaharness cannot take a gateway (it removes ANTHROPIC_* and starts its own proxy); name adapter: claude-cli", v.id));
+    }
+    if v.settings.get("decider.kind").is_some_and(|k| k == "model") && v.settings.get("decider.adapter").is_none_or(|a| a == "metaharness") {
+        p.push(format!("variant {:?}: decider.adapter: a model decider under a gateway names decider.adapter: claude-cli (metaharness, its default, cannot take a gateway)", v.id));
     }
 }
 /// Environment variables a launched run gets besides the record's: the login's, never an SDC_ one.
@@ -824,7 +851,11 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
             }
             // Every key is one `free_argv` reads: a cap under a misspelt name is refused, never dropped.
             for k in v.settings.keys().filter(|k| !REQUIRED_FREE.contains(&k.as_str()) && k.as_str() != "free.max_usd") {
-                p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));
+                if k.starts_with("gateway.") {
+                    p.push(format!("variant {:?}: {k} is refused: runner free-agent takes no gateway (sdc-free-agent starts claude with a copy of the login; a run through a gateway is runner: loom)", v.id));
+                } else {
+                    p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));
+                }
             }
         } else if v.runner == "loom" {
             if prospective && v.from.is_none() {
@@ -1148,7 +1179,8 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
             };
             for (k, x) in &v.settings {
                 // A loom run records the adapters too; it never records the binary's path or the login's.
-                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) || REPLAY_FLAGS.iter().any(|(f, _)| f == k) } else { NOT_RECORDED.contains(&k.as_str()) };
+                // The gateway is recorded as `named`, never by its address or its token file.
+                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) || k.starts_with("gateway.") || REPLAY_FLAGS.iter().any(|(f, _)| f == k) } else { NOT_RECORDED.contains(&k.as_str()) };
                 if skipped {
                     continue;
                 }
@@ -2095,6 +2127,16 @@ fn loom_settings_toml(name: &str, settings: &BTreeMap<String, String>, redact: b
         let v = if redact { "<loom.login_file>".to_string() } else { expand_home(l, base)? };
         top.insert("login_file".into(), T::String(v));
     }
+    // A gateway: its address and, for one that takes a token, the file of the token, never the token.
+    if let Some(url) = settings.get("gateway.base_url") {
+        let mut gateway = Table::new();
+        gateway.insert("base_url".into(), T::String(url.clone()));
+        if let Some(f) = settings.get("gateway.token_file") {
+            let v = if redact { "<gateway.token_file>".to_string() } else { expand_home(f, base)? };
+            gateway.insert("token_file".into(), T::String(v));
+        }
+        top.insert("gateway".into(), T::Table(gateway));
+    }
     // The decider: `kind` as the record says it. A model decider also says that Loom's output holds
     // no claims (`without_claims`: the run makes no claim about claims it does not have). The
     // principal of its answers is not written: the runner derives it from the kind.
@@ -2531,6 +2573,9 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             "loom" => {
                 let mut s = s.clone();
                 if let Some(login) = &a.login_file {
+                    if s.contains_key("gateway.base_url") {
+                        return Err(format!("refused: variant {:?} names a gateway (gateway.base_url) and --login-file names a login: a run has a gateway or a login file, never both", p.variant.id));
+                    }
                     s.insert("loom.login_file".to_string(), login.clone());
                 }
                 let s = &s;
@@ -3020,6 +3065,27 @@ targets:
         assert!(loom_settings_toml("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
         let env = loom_env(&|k: &str| (k == "PATH" || k == "SDC_RUNS_DIR").then(|| "x".to_string()), Path::new("/b"));
         assert_eq!(env, [("PATH".to_string(), "/b/driver/target/debug:x".to_string())]);
+    }
+
+    #[test]
+    fn the_loom_settings_file_holds_a_gateway_table_with_its_token_file_and_never_a_token() {
+        let mut s: BTreeMap<String, String> = [("models.writer.model", "w"), ("models.implement.model", "i"), ("models.review.model", "r"),
+            ("models.other.model", "o"), ("decider.model", "d"), ("max_wall_seconds", "60"), ("loom.sha256", "ab"), ("loom.confinement", "local"),
+            ("decider.kind", "model"), ("decider.adapter", "claude-cli"), ("adapter", "claude-cli"), ("autonomy", "A5")]
+            .iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let base = |k: &str| (k == "HOME").then(|| "/h".to_string());
+        let read = |s: &BTreeMap<String, String>, redact: bool| -> toml::Table { toml::from_str(&loom_settings_toml("r1", s, redact, &base).unwrap()).unwrap() };
+        assert!(!read(&s, false).contains_key("gateway"), "a record that names no gateway");
+        // the address alone: a gateway without ingress auth; then the token file, expanded as the login is
+        s.insert("gateway.base_url".into(), "http://127.0.0.1:8080".into());
+        let gateway = read(&s, false)["gateway"].clone();
+        assert_eq!(gateway, toml::Value::Table(toml::Table::from_iter([("base_url".to_string(), toml::Value::String("http://127.0.0.1:8080".into()))])), "a gateway without ingress auth");
+        s.insert("gateway.token_file".into(), "~/.marker/gateway-token".into());
+        let doc = read(&s, false);
+        assert_eq!((doc["gateway"]["base_url"].as_str(), doc["gateway"]["token_file"].as_str()), (Some("http://127.0.0.1:8080"), Some("/h/.marker/gateway-token")));
+        assert!(!doc.contains_key("login_file") && doc["gateway"].get("token").is_none(), "{doc}");
+        assert_eq!(read(&s, true)["gateway"]["token_file"].as_str(), Some("<gateway.token_file>"));
+        assert!(loom_settings_toml("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
     }
 
     /// A record's settings that set every member the writer knows, each text with a quote, a

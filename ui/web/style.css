@@ -1558,4 +1558,10 @@ html:not(.rp-open) #product { margin-right: 44px; }
 :where(html.phone) .pf-k { flex-basis: 100%; }
 .md .al-center { text-align: center; }
 .md .al-right { text-align: right; }
+/* a reader who asks for less motion gets no animation, no transition and no blur behind a dialog or the drawer: each of them
+   draws the page again frame after frame (the UI tests run so, playwright.config.mjs; the ux loop keeps every effect) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  dialog::backdrop, #scrim { backdrop-filter: none !important; }
+}
 

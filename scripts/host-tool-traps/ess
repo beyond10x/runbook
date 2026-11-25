@@ -1,3 +1,3 @@
 #!/bin/sh
-echo "a test of runbook/ started the host's ess: a test brings its own stand-in on its own PATH" >&2
+echo "a test of runbook/ or driver/ started the host's ess: a test brings its own stand-in on its own PATH" >&2
 exit 127

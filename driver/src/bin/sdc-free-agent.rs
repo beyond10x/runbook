@@ -502,6 +502,8 @@ fn parse_run(args: &[String]) -> Result<RunArgs, String> {
             "--toolchain" => a.toolchain = Some(PathBuf::from(v()?)),
             "--credentials" => a.credentials = Some(PathBuf::from(v()?)),
             "--print" => a.print = true,
+            // sdc-node's option; the session here has no filter for a token in what it prints (docs/loom-run-settings.md)
+            "--gateway-file" | "--gateway" => return Err(format!("{x}: sdc-free-agent takes no gateway: it starts claude with a copy of the login (--credentials); a run through a gateway is a runbook run (runner: loom)")),
             y => return Err(format!("unknown argument {y}")),
         }
     }

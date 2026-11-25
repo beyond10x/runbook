@@ -12,7 +12,7 @@ use std::process::Command;
 use serde_json::{json, Value};
 
 const IDEA: &str = "Bill customers with invoices.";
-const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+pub(super) const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// The file of the `runbook` crate that makes `runbook run` run in process (`sdc-experiment` reads
 /// it as the sign of a build that has it).
 const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
@@ -22,7 +22,7 @@ const LOOM_SHA: &str = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef
 const OLD_LAUNCHER: &str = concat!("run-tri", "al.sh");
 const OLD_DRIVER: &str = concat!("sdc-dr", "ive");
 
-fn scratch(name: &str) -> PathBuf {
+pub(super) fn scratch(name: &str) -> PathBuf {
     let d = Path::new(env!("CARGO_TARGET_TMPDIR")).join("experiment-loom").join(name);
     let _ = fs::remove_dir_all(&d);
     fs::create_dir_all(&d).unwrap();
@@ -31,7 +31,7 @@ fn scratch(name: &str) -> PathBuf {
 
 /// The settings file of the first run of a `--print`, as printed: the lines after `  settings:`
 /// that are indented by four spaces (a blank line of the file is an empty line), without the indent.
-fn printed_settings(out: &str) -> String {
+pub(super) fn printed_settings(out: &str) -> String {
     let mut text = String::new();
     let mut on = false;
     for l in out.lines() {
@@ -56,7 +56,7 @@ fn sha(text: &str) -> String {
 }
 
 /// The `fixed` settings of the example record.
-fn fixed() -> Vec<(String, String)> {
+pub(super) fn fixed() -> Vec<(String, String)> {
     [
         ("loom.bin", "/opt/loom/b10x-loom"),
         ("loom.sha256", LOOM_SHA),
@@ -84,7 +84,7 @@ fn fixed() -> Vec<(String, String)> {
 
 /// A planned prospective record with two `loom` variants; `fixed` is the list of settings shared
 /// by both, `commit` the pinned commit (`null` while planned).
-fn record_with(fixed: &[(String, String)], commit: &str, status: &str, runs: (&str, &str)) -> String {
+pub(super) fn record_with(fixed: &[(String, String)], commit: &str, status: &str, runs: (&str, &str)) -> String {
     let settings: String = fixed.iter().map(|(k, v)| format!("  {k}: {v}\n")).collect();
     format!(
         r#"format: sdc.experiment/1
@@ -118,7 +118,7 @@ fn example(commit: &str) -> String {
     record_with(&f, commit, "planned", ("", ""))
 }
 
-fn write_record(d: &Path, text: &str) {
+pub(super) fn write_record(d: &Path, text: &str) {
     fs::create_dir_all(d.join("experiments")).unwrap();
     fs::write(d.join("experiments/lx.yaml"), text).unwrap();
 }
@@ -128,13 +128,13 @@ fn experiment_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> (i32, Stri
     (o.status.code().unwrap_or(-1), format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
 }
 
-fn experiment(args: &[&str], cwd: &Path) -> (i32, String) {
+pub(super) fn experiment(args: &[&str], cwd: &Path) -> (i32, String) {
     experiment_env(args, cwd, &[("PATH", "/usr/bin:/bin"), ("HOME", "/nonexistent-home")])
 }
 
 /// A build directory of `COMMIT` that holds what `run` reads from the tree: the root protocol and
 /// the `runbook/` crate.
-fn fake_build(d: &Path, revision: u32, with_crate: bool) -> PathBuf {
+pub(super) fn fake_build(d: &Path, revision: u32, with_crate: bool) -> PathBuf {
     let b = d.join("b").join(COMMIT);
     fs::create_dir_all(b.join("protocol")).unwrap();
     fs::write(b.join("protocol/sdc.protocol.yaml"), format!("format: protocol/1\nprotocol:\n  id: sdc\n  revision: {revision}\n")).unwrap();
@@ -1275,7 +1275,7 @@ fn loom_text(extra: &[(&str, &str)], settings: &str, commit: &str) -> String {
 }
 
 /// A planned free-agent record; `lines` are raw `fixed` lines after the required ones.
-fn free_text(lines: &str, commit: &str) -> String {
+pub(super) fn free_text(lines: &str, commit: &str) -> String {
     format!(
         r#"format: sdc.experiment/1
 id: lx

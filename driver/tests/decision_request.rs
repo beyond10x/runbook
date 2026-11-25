@@ -300,7 +300,17 @@ fn schemas_with(cache: &Path) -> PathBuf {
 }
 
 fn validate(instance: &Value, name: &str) -> (i32, String) {
-    validate_with(Path::new("ess"), &default_cache(), instance, name)
+    validate_with(&pinned_ess(), &default_cache(), instance, name)
+}
+
+/// The pinned ess of `driver/ess-pin.json` where `sdc-conform` installs it, never the `ess` on
+/// `PATH`: the forge has none there and installs the pinned one (`sdc-conform ess-install`), and
+/// `task test:driver` puts a trap `ess` first on the `PATH` of its tests.
+fn pinned_ess() -> PathBuf {
+    let pin: Value = serde_json::from_str(&fs::read_to_string(manifest().join("ess-pin.json")).unwrap()).unwrap();
+    let ess = crate::ess_pin_guard::installed_ess(&pin);
+    assert!(ess.is_file(), "the pinned ess is not installed (run `sdc-conform ess-install` or set ESS_BIN): {}", ess.display());
+    ess
 }
 
 fn default_cache() -> PathBuf {
@@ -351,11 +361,11 @@ fn the_shape_check_refuses_a_request_that_is_not_in_the_shape() {
     assert_eq!(code, 1, "{report}");
 }
 
-/// An `ess` that logs each call's arguments and runs the real one: `(program, log)`.
+/// An `ess` that logs each call's arguments and runs the pinned one: `(program, log)`.
 fn counting_ess(dir: &Path) -> (PathBuf, PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let (program, log) = (dir.join("ess"), dir.join("calls.log"));
-    fs::write(&program, format!("#!/bin/sh\necho \"$*\" >> '{}'\nexec ess \"$@\"\n", log.display())).unwrap();
+    fs::write(&program, format!("#!/bin/sh\necho \"$*\" >> '{}'\nexec '{}' \"$@\"\n", log.display(), pinned_ess().display())).unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
     (program, log)
 }

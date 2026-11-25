@@ -211,6 +211,7 @@ fn main() -> ExitCode {
                     login_file: f.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
                     cap_micro_usd: f.cap_micro_usd,
                     max_llm_calls: f.max_llm_calls,
+                    gateway: f.members.get(loom_run::gateway::KEY).cloned(),
                 };
                 match loom_run::arbiter::DaemonArbiter::new(f.deciders.clone(), limits) {
                     Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),

@@ -305,6 +305,11 @@ cap and says a cap is a string. A
 submit may name a lower cap or a higher one, up to the ceiling. The caps of a run are stored with it
 in `settings`, so the run view shows the three that applied, and a run taken up again has the same ones.
 
+A submit names no gateway, address or token for the model programs: the daemon's operator names the gateway
+in the daemon's `runbook.toml` (`docs/engine.md`, "A gateway"). A setting or a member of the request named
+`gateway`, `base_url`, `token`, `token_file` or `gateway.<member>`, in any case, is refused as an invalid
+request (`400`) naming it and never its value, and no run is made.
+
 What each cap stops. Before each step of a run the engine holds the use against the caps; a run that
 has reached one ends with an outcome and an event `runbook.cap-reached` (`cap`, `detail`), the same as
 any run:

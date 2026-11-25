@@ -20,7 +20,8 @@
 # gateway without ingress auth) gives ANTHROPIC_AUTH_TOKEN the fixed placeholder `runbook-gateway-no-token`, no
 # credential, and its output is not filtered. A file that cannot be read ends the
 # call with exit 127 before `claude` starts, naming the variable and no value. `claude` and what it starts get
-# no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5 are closed for the start).
+# no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5 are closed for the start), and
+# no descriptor above 2 that the caller left open.
 # A call
 # is the same on any host: its effort is the request's (set by sdc-node or the decider of `runbook run`), and
 # CLAUDE_CODE_EFFORT_LEVEL, which would override it, is unset for the child.
@@ -140,7 +141,17 @@ if [[ -n ${SDC_GATEWAY_FILE:-} && -n ${SDC_GATEWAY_TOKEN:-} ]]; then
 else
   exec 4> "$rec/events.jsonl" 5> "$rec/stderr.txt"
 fi
-(cd "$(r .cwd)" && { [[ -z ${SDC_GATEWAY_FILE:-} ]] || {
+# A descriptor above 2 that the caller of this script left open without close-on-exec (a CI runner's pipe) is closed in
+# the subshell that starts `claude`, so neither `claude` nor what it starts holds it; 4 and 5 are closed on the start line.
+close_inherited() {
+  local f n
+  for f in /dev/fd/*; do
+    n=${f##*/}
+    [[ $n =~ ^[0-9]+$ ]] && ((n > 2 && n != 4 && n != 5)) && eval "exec $n>&-"
+  done
+  return 0
+}
+(cd "$(r .cwd)" && close_inherited && { [[ -z ${SDC_GATEWAY_FILE:-} ]] || {
     export ANTHROPIC_BASE_URL=$SDC_GATEWAY_BASE_URL ANTHROPIC_AUTH_TOKEN=$gateway_token
     unset SDC_GATEWAY_FILE SDC_GATEWAY_BASE_URL SDC_GATEWAY_TOKEN SDC_CLAUDE_CREDENTIALS gateway_token
   }; } && env -u CLAUDE_CODE_EFFORT_LEVEL "${unset_names[@]}" "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" >&4 2>&5 4>&- 5>&-)
