@@ -30,6 +30,24 @@
       ],
       "status": "blocked"
     },
+    "handback.describe": {
+      "reasons": [
+        {
+          "claim": "spec.referenced",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "handback.spec-check": {
+      "reasons": [
+        {
+          "claim": "spec.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
     "repro.run": {
       "reasons": [
         {
@@ -81,6 +99,9 @@
     "gate.passed": {
       "value": "true"
     },
+    "handback.described": {
+      "value": "true"
+    },
     "repro.checked": {
       "value": "true"
     },
@@ -89,6 +110,12 @@
     },
     "repro.written": {
       "value": "unknown"
+    },
+    "spec.checked": {
+      "value": "true"
+    },
+    "spec.referenced": {
+      "value": "true"
     },
     "story.updated": {
       "value": "true"
@@ -124,6 +151,24 @@
         "because": [
           {
             "claim": "gate.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "handback.describe": {
+        "because": [
+          {
+            "claim": "spec.referenced",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "handback.spec-check": {
+        "because": [
+          {
+            "claim": "spec.checked",
             "value": "true"
           }
         ],
@@ -232,6 +277,24 @@
         ],
         "value": "unknown"
       },
+      "spec.checked": {
+        "because": [
+          {
+            "evidence": "k1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.referenced": {
+        "because": [
+          {
+            "evidence": "k1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "tests.pass": {
         "because": [
           {
@@ -257,6 +320,9 @@
           "change": {
             "revision": "c2"
           },
+          "description": {
+            "revision": "m1"
+          },
           "dissection": {
             "revision": "d1"
           },
@@ -278,7 +344,9 @@
       "evidence": [
         "d1",
         "g1",
+        "h1",
         "i1",
+        "k1",
         "p1",
         "s1",
         "t1"

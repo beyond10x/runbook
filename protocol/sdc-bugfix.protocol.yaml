@@ -8,9 +8,12 @@ protocol:
     checked data document, a test that reproduces the bug is written and observed failing on the
     unchanged code while the rest of the suite passes, and only then is the fix admissible; the same
     test and the whole suite must pass on the fixed revision, the bug's story is moved to
-    implemented, and the code tree's gate (build, test, lint, format) passes. One case, no child
-    cases; its inputs are the bug report and the code tree in the case's work directory, so a parent
-    can open it as a child. No approval in this revision: a merge approval is the next addition.
+    implemented, and the code tree's gate (build, test, lint, format) passes. Hand-back, the
+    outcome fixed, also needs the description of the code merge request to reference a spec, as a
+    check program says: a refused reference sends the description writer back and never reaches
+    fixed. One case, no child cases; its inputs are the bug report and the code tree in the case's
+    work directory, so a parent can open it as a child. No approval in this revision: a merge
+    approval is the next addition.
 
 artifacts:
   report:
@@ -26,6 +29,10 @@ artifacts:
     description: the code tree; its revision is its content digest
   story:
     description: the planning store holding the bug's story
+  description:
+    description: >-
+      the description of the code merge request: the fix summary and the ticket's text, written
+      once the gate passes; what the spec check reads
 
 evidence_kinds:
   dissection_written:
@@ -54,6 +61,14 @@ evidence_kinds:
     description: >-
       the code tree's gate run by a program: build, test, lint with warnings as errors, format
       check; passed or failed
+  description_written:
+    description: >-
+      the record that the description writer ran and left the description at a new revision
+  spec_reference:
+    description: >-
+      a check program reads the description and the change kind (defect or change); ok when the
+      description references a spec as the check's rule asks, refused otherwise; its text is the
+      check's one line
 
 claims:
   dissection.written:
@@ -132,6 +147,27 @@ claims:
       evidence:
         kind: gate_run
         subject: change
+  handback.described:
+    description: the current description revision is the output of a description writer run
+    true_when:
+      evidence:
+        kind: description_written
+        subject: description
+  spec.referenced:
+    description: >-
+      the current description references a spec, as the check said ok; every action that hands
+      back requires it
+    true_when:
+      evidence:
+        kind: spec_reference
+        result: ok
+        subject: description
+  spec.checked:
+    description: a spec check is recorded about the current description, whatever its result
+    true_when:
+      evidence:
+        kind: spec_reference
+        subject: description
 
 actions:
   bug.dissect:
@@ -234,12 +270,42 @@ actions:
           is: unknown
     may_produce:
       - evidence: gate_run
+  handback.describe:
+    description: >-
+      write the description of the code merge request (the fix summary and the ticket's text) once
+      the gate passes, while no spec reference is recorded as ok; the writer again after a refused
+      spec check
+    effect: write
+    precondition:
+      all:
+        - claim: gate.passed
+        - any:
+            - claim: spec.referenced
+              is: "false"
+            - claim: spec.referenced
+              is: unknown
+    may_produce:
+      - evidence: description_written
+  handback.spec-check:
+    description: >-
+      run the check program on the current description and the change kind; once per description
+      revision, and only once the writer has left one
+    effect: read
+    precondition:
+      all:
+        - claim: gate.passed
+        - claim: handback.described
+        - claim: spec.checked
+          is: unknown
+    may_produce:
+      - evidence: spec_reference
 
 outcomes:
   fixed:
     description: >-
       the reproducing test was red on the unchanged code, the fix passes it and the whole suite,
-      the story is implemented and the gate passes
+      the story is implemented, the gate passes and the description references a spec: the point
+      of hand-back
     requires:
       all:
         - claim: dissection.valid
@@ -248,6 +314,7 @@ outcomes:
         - claim: tests.pass
         - claim: story.updated
         - claim: gate.passed
+        - claim: spec.referenced
   not_reproduced:
     description: >-
       no valid dissection, or no test that is red on the unchanged code (ends the case once the

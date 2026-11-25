@@ -366,12 +366,112 @@
         "story.update",
         "tests.run"
       ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "write the description of the code merge request (the fix summary and the ticket's text) once the gate passes, while no spec reference is recorded as ok; the writer again after a refused spec check",
+      "effect": "write",
+      "executor": {
+        "kind": "program",
+        "max_runs": 2,
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix handback-describe",
+        "results": {
+          "0": null
+        },
+        "retry_when": [
+          "spec_reference"
+        ]
+      },
+      "name": "handback.describe",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:spec.referenced",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:spec.referenced",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "description_written"
+      ],
+      "step": 8,
+      "waits_for": [
+        "gate.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the check program on the current description and the change kind; once per description revision, and only once the writer has left one",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "spec-check",
+        "program": "sdc-tool.sh bugfix handback-check -- sdc-bugfix spec-check --spec-dir spec",
+        "results": {
+          "0": "ok",
+          "77": "refused"
+        }
+      },
+      "name": "handback.spec-check",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:handback.described",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "spec_reference"
+      ],
+      "step": 9,
+      "waits_for": [
+        "gate.run",
+        "handback.describe"
+      ]
     }
   ],
   "artifacts": [
     {
       "description": "the code tree; its revision is its content digest",
       "name": "change"
+    },
+    {
+      "description": "the description of the code merge request: the fix summary and the ticket's text, written once the gate passes; what the spec check reads",
+      "name": "description"
     },
     {
       "description": "the bug report dissected into a data document: observed, expected, where, how to reproduce",
@@ -471,6 +571,18 @@
       ]
     },
     {
+      "description": "the current description revision is the output of a description writer run",
+      "name": "handback.described",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:description_written",
+          "suffix": "about description",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
       "description": "a run of the current reproducing test is recorded, whatever its result",
       "name": "repro.checked",
       "true_when": [
@@ -503,6 +615,30 @@
           "reference": "evidence:repro_written",
           "suffix": "about repro",
           "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a spec check is recorded about the current description, whatever its result",
+      "name": "spec.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_reference",
+          "suffix": "about description",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current description references a spec, as the check said ok; every action that hands back requires it",
+      "name": "spec.referenced",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_reference",
+          "suffix": "about description",
+          "text": "evidence = ok:"
         }
       ]
     },
@@ -543,8 +679,15 @@
       ]
     }
   ],
-  "description": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes. One case, no child cases; its inputs are the bug report and the code tree in the case's work directory, so a parent can open it as a child. No approval in this revision: a merge approval is the next addition.",
+  "description": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes. Hand-back, the outcome fixed, also needs the description of the code merge request to reference a spec, as a check program says: a refused reference sends the description writer back and never reaches fixed. One case, no child cases; its inputs are the bug report and the code tree in the case's work directory, so a parent can open it as a child. No approval in this revision: a merge approval is the next addition.",
   "evidence": [
+    {
+      "description": "the record that the description writer ran and left the description at a new revision",
+      "name": "description_written",
+      "produced_by": [
+        "handback.describe"
+      ]
+    },
     {
       "description": "a program's check of the dissection against its schema and the code tree; valid or invalid",
       "name": "dissection_check",
@@ -588,6 +731,13 @@
       ]
     },
     {
+      "description": "a check program reads the description and the change kind (defect or change); ok when the description references a spec as the check's rule asks, refused otherwise; its text is the check's one line",
+      "name": "spec_reference",
+      "produced_by": [
+        "handback.spec-check"
+      ]
+    },
+    {
       "description": "the record that the bug's story was moved to implemented in the planning store",
       "name": "story_record",
       "produced_by": [
@@ -624,6 +774,16 @@
         "from": "action:gate.run",
         "kind": "produces",
         "to": "evidence:gate_run"
+      },
+      {
+        "from": "action:handback.describe",
+        "kind": "produces",
+        "to": "evidence:description_written"
+      },
+      {
+        "from": "action:handback.spec-check",
+        "kind": "produces",
+        "to": "evidence:spec_reference"
       },
       {
         "from": "action:repro.run",
@@ -722,6 +882,16 @@
       },
       {
         "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:handback.describe"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:handback.spec-check"
+      },
+      {
+        "from": "claim:gate.passed",
         "kind": "requires",
         "to": "outcome:fixed"
       },
@@ -730,6 +900,11 @@
         "kind": "requires",
         "qualifier": "false",
         "to": "outcome:not_fixed"
+      },
+      {
+        "from": "claim:handback.described",
+        "kind": "gates",
+        "to": "action:handback.spec-check"
       },
       {
         "from": "claim:repro.checked",
@@ -786,6 +961,29 @@
         "to": "action:repro.run"
       },
       {
+        "from": "claim:spec.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:handback.spec-check"
+      },
+      {
+        "from": "claim:spec.referenced",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:handback.describe"
+      },
+      {
+        "from": "claim:spec.referenced",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:handback.describe"
+      },
+      {
+        "from": "claim:spec.referenced",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
         "from": "claim:story.updated",
         "kind": "gates",
         "to": "action:gate.run"
@@ -821,6 +1019,11 @@
         "kind": "gates",
         "qualifier": "unknown",
         "to": "action:tests.run"
+      },
+      {
+        "from": "evidence:description_written",
+        "kind": "establishes",
+        "to": "claim:handback.described"
       },
       {
         "from": "evidence:dissection_check",
@@ -871,6 +1074,17 @@
         "to": "claim:repro.written"
       },
       {
+        "from": "evidence:spec_reference",
+        "kind": "establishes",
+        "to": "claim:spec.checked"
+      },
+      {
+        "from": "evidence:spec_reference",
+        "kind": "establishes",
+        "qualifier": "ok",
+        "to": "claim:spec.referenced"
+      },
+      {
         "from": "evidence:story_record",
         "kind": "establishes",
         "to": "claim:story.updated"
@@ -909,6 +1123,16 @@
         "name": "gate.run"
       },
       {
+        "id": "action:handback.describe",
+        "kind": "action",
+        "name": "handback.describe"
+      },
+      {
+        "id": "action:handback.spec-check",
+        "kind": "action",
+        "name": "handback.spec-check"
+      },
+      {
         "id": "action:repro.run",
         "kind": "action",
         "name": "repro.run"
@@ -927,6 +1151,11 @@
         "id": "action:tests.run",
         "kind": "action",
         "name": "tests.run"
+      },
+      {
+        "id": "evidence:description_written",
+        "kind": "evidence",
+        "name": "description_written"
       },
       {
         "id": "evidence:dissection_check",
@@ -957,6 +1186,11 @@
         "id": "evidence:repro_written",
         "kind": "evidence",
         "name": "repro_written"
+      },
+      {
+        "id": "evidence:spec_reference",
+        "kind": "evidence",
+        "name": "spec_reference"
       },
       {
         "id": "evidence:story_record",
@@ -999,6 +1233,11 @@
         "name": "gate.passed"
       },
       {
+        "id": "claim:handback.described",
+        "kind": "claim",
+        "name": "handback.described"
+      },
+      {
         "id": "claim:repro.checked",
         "kind": "claim",
         "name": "repro.checked"
@@ -1012,6 +1251,16 @@
         "id": "claim:repro.written",
         "kind": "claim",
         "name": "repro.written"
+      },
+      {
+        "id": "claim:spec.checked",
+        "kind": "claim",
+        "name": "spec.checked"
+      },
+      {
+        "id": "claim:spec.referenced",
+        "kind": "claim",
+        "name": "spec.referenced"
       },
       {
         "id": "claim:story.updated",
@@ -1050,7 +1299,7 @@
   "obligations": [],
   "outcomes": [
     {
-      "description": "the reproducing test was red on the unchanged code, the fix passes it and the whole suite, the story is implemented and the gate passes",
+      "description": "the reproducing test was red on the unchanged code, the fix passes it and the whole suite, the story is implemented, the gate passes and the description references a spec: the point of hand-back",
       "name": "fixed",
       "requires": [
         {
@@ -1085,6 +1334,11 @@
         {
           "depth": 1,
           "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.referenced",
           "text": "claim"
         }
       ]
@@ -1153,11 +1407,11 @@
       "not_reproduced": 2
     },
     "canon": "e81f970d",
-    "findings": 0,
-    "reachable": 13,
+    "findings": 1,
+    "reachable": 16,
     "revision": 1,
     "source": "protocol/simulate/sdc-bugfix.txt",
-    "stuck_or_cycle": 0,
+    "stuck_or_cycle": 1,
     "terminable": 5
   },
   "source": {

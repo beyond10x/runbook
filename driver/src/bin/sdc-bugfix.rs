@@ -10,6 +10,15 @@
 //!   sdc-bugfix tests-run                 exit 0 passed, 1 failed
 //!   sdc-bugfix gate-run                  every gate command of checks.yaml: exit 0 passed, 1 failed
 //!   sdc-bugfix story-update              the bug's story (bug.yaml `story`) to implemented through aep
+//!   sdc-bugfix handback-describe         handback/mr-description.md: the fix summary and the ticket's text
+//!   sdc-bugfix handback-check -- <check argv>
+//!                                        runs `<check argv> handback/mr-description.md <kind>` (bug.yaml
+//!                                        `change_kind`, default defect): exit 0 allowed, 77 refused, the
+//!                                        check's one line passed through; 75, 126, 127 and any other end
+//!                                        are program errors
+//!   sdc-bugfix spec-check [--spec-dir <dir>]... [--spec-repo <url>]... <description file> <kind>
+//!                                        the default check: one line `spec-first: allowed|refused: ...`,
+//!                                        exit 0 or 77
 //!   sdc-bugfix seed --from <dir> [--text <report>] [--story <id>] [--checks <file>]
 //!                                        a new case's work/: mainline/ and impl/ from the code tree
 //!                                        (<dir>, <dir>/crate or <dir>/repo), checks.yaml, bug.yaml, the
@@ -57,8 +66,10 @@ type R<T> = Result<T, String>;
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     // `--pool-wait <seconds>`: the step's bound for waiting in the build pool's queue, as for
-    // sdc-tool.sh (SDC_POOL_WAIT in the environment wins over it).
-    if let Some(i) = args.iter().position(|a| a == "--pool-wait") {
+    // sdc-tool.sh (SDC_POOL_WAIT in the environment wins over it). Read before a `--` only: what
+    // follows it is the argv of another program (`handback-check -- <check argv>`).
+    let own = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    if let Some(i) = args[..own].iter().position(|a| a == "--pool-wait") {
         match args.get(i + 1).filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit())).and_then(|v| v.parse().ok()) {
             Some(secs) => {
                 let _ = POOL_WAIT_ARG.set(secs);
@@ -84,7 +95,13 @@ fn main() -> ExitCode {
         Some("gate-run") => gate_run(),
         Some("story-update") => story_update(),
         Some("seed") => seed(&args[1..]),
-        _ => Err("usage: sdc-bugfix schema|checks|dissection-check|repro-install|repro-run|tests-run|gate-run|story-update|seed".into()),
+        // The hand-back steps answer with their own exit codes (docs/bugfix.md, "Hand-back: the
+        // spec reference"): no error of theirs goes through the mapping below.
+        Some("handback-describe") => return ExitCode::from(handback_describe()),
+        Some("handback-check") => return ExitCode::from(handback_check(&args[1..])),
+        Some("spec-check") => return ExitCode::from(spec_check(&args[1..])),
+        _ => Err("usage: sdc-bugfix schema|checks|dissection-check|repro-install|repro-run|tests-run|gate-run|story-update|seed|\
+            handback-describe|handback-check|spec-check".into()),
     };
     match r {
         Ok(code) => ExitCode::from(code),
@@ -416,6 +433,266 @@ fn gate_run() -> R<u8> {
         println!("gate: ok     checks.yaml has no gate command");
     }
     Ok(if ok { 0 } else { 1 })
+}
+
+// --- hand-back: the description and its spec reference ------------------------------------------
+//
+// docs/bugfix.md, "Hand-back: the spec reference". After the gate, `handback-describe` writes the
+// description of the code merge request; `handback-check -- <check argv>` runs a check program as
+// `<check argv> <description file> <kind>` and keeps its interface: one line `spec-first: allowed:
+// <why>` and exit 0, or `spec-first: refused: <why>` and exit 77 (a tool error of the check is 77
+// too); 75, 126 and 127 are program errors. `spec-check` is this repository's default check.
+
+const DESCRIPTION: &str = "handback/mr-description.md";
+const ALLOWED: &str = "spec-first: allowed: ";
+const REFUSED: &str = "spec-first: refused: ";
+const SPEC_REFUSED_EXIT: u8 = 77;
+/// The exits of a check that are a program error: no result is recorded.
+const CHECK_ERRORS: [i32; 3] = [75, 126, 127];
+
+/// The case's change kind: bug.yaml `change_kind` (from the ticket's), `defect` when it has none.
+fn change_kind() -> R<String> {
+    match report()?.get("change_kind") {
+        None => Ok("defect".into()),
+        Some(v) => match v.as_str() {
+            Some(k) if CHANGE_KINDS.contains(&k) => Ok(k.to_string()),
+            _ => Err("bug.yaml change_kind is not defect or change".into()),
+        },
+    }
+}
+
+/// The description from what the run holds: bug.yaml (title, text), the dissection, the repro
+/// record and the files impl/ changed against the base. No model call: these suffice.
+fn description_text() -> R<String> {
+    let rep = report()?;
+    let text = rep.get("text").and_then(|t| t.as_str()).map(str::trim).filter(|t| !t.is_empty())
+        .ok_or("bug.yaml has no text")?.to_string();
+    let title = rep.get("title").and_then(|t| t.as_str()).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string)
+        .unwrap_or_else(|| text.lines().next().unwrap_or("").chars().take(80).collect());
+    let d: Value = serde_json::from_str(&fs::read_to_string(DISSECTION).map_err(|_| format!("no {DISSECTION}"))?)
+        .map_err(|_| format!("{DISSECTION} is not JSON"))?;
+    let field = |k: &str| d.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+        .ok_or(format!("{DISSECTION} has no `{k}`"));
+    let (observed, expected, place) = (field("observed")?, field("expected")?, field("where")?);
+    let r: Value = serde_json::from_str(&fs::read_to_string("repro/repro.json").map_err(|_| "no repro/repro.json".to_string())?)
+        .map_err(|_| "repro/repro.json is not JSON".to_string())?;
+    let (file, test) = match (r.get("file").and_then(Value::as_str), r.get("test").and_then(Value::as_str)) {
+        (Some(f), Some(t)) => (f.to_string(), t.to_string()),
+        _ => return Err("repro/repro.json names no file and test".into()),
+    };
+    let changed = tree_diff(&base(), Path::new("impl"), &file)?;
+    let changed = if changed.is_empty() {
+        "none besides the test".to_string()
+    } else {
+        changed.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+    };
+    Ok(format!("# {title}\n\n## The fix\n\n{observed}\n\nExpected: {expected}\n\n- Where: `{place}`\n\
+        - Reproducing test: `{test}` in `{file}`, red on the unchanged code and green on the fix\n\
+        - Changed files: {changed}\n\n## The ticket\n\n{text}\n"))
+}
+
+/// `handback-describe`: writes handback/mr-description.md; exit 0. An input that is missing or
+/// unreadable is a program error (126). Nothing of the ticket's text is printed.
+fn handback_describe() -> u8 {
+    let text = match description_text() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("sdc-bugfix: handback-describe: {e}");
+            return 126;
+        }
+    };
+    if let Err(e) = fs::create_dir_all("handback").and_then(|_| fs::write(DESCRIPTION, &text)) {
+        eprintln!("sdc-bugfix: handback-describe: {DESCRIPTION}: {e}");
+        return 126;
+    }
+    println!("handback: wrote {DESCRIPTION} ({} bytes)", text.len());
+    0
+}
+
+/// `handback-check -- <check argv>`: runs the check with the description file and the case's kind
+/// appended, passes its standard output through and keeps its exit when the interface holds; every
+/// other end is a program error (126), never a result.
+fn handback_check(args: &[String]) -> u8 {
+    let argv = match args.split_first() {
+        Some((sep, rest)) if sep == "--" && !rest.is_empty() => rest,
+        _ => {
+            eprintln!("sdc-bugfix: handback-check -- <check argv>: the check's argv follows `--`");
+            return 126;
+        }
+    };
+    let kind = match change_kind() {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("sdc-bugfix: handback-check: {e}");
+            return 126;
+        }
+    };
+    // The default check is this program: found beside itself, whatever PATH holds.
+    let prog = match argv[0].as_str() {
+        "sdc-bugfix" => std::env::current_exe().unwrap_or_else(|_| PathBuf::from("sdc-bugfix")),
+        p => PathBuf::from(p),
+    };
+    let out = Command::new(&prog).args(&argv[1..]).arg(DESCRIPTION).arg(&kind).stdin(Stdio::null()).stderr(Stdio::inherit()).output();
+    let o = match out {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("sdc-bugfix: handback-check: the check {} is not found: a program error, no result", argv[0]);
+            return 127;
+        }
+        Err(e) => {
+            eprintln!("sdc-bugfix: handback-check: the check {} cannot be run ({e}): a program error, no result", argv[0]);
+            return 126;
+        }
+    };
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    print!("{stdout}");
+    let Some(code) = o.status.code() else {
+        eprintln!("sdc-bugfix: handback-check: the check was ended by a signal; the interface knows exits only: a program error, no result");
+        return 126;
+    };
+    if CHECK_ERRORS.contains(&code) {
+        eprintln!("sdc-bugfix: handback-check: the check exited {code}: a program error, no result");
+        return code as u8;
+    }
+    let want = match code {
+        0 => ALLOWED,
+        77 => REFUSED,
+        _ => {
+            eprintln!("sdc-bugfix: handback-check: the check exited {code}; the interface knows 0 (allowed), 77 (refused) and \
+                75, 126 and 127 (program errors): a program error, no result");
+            return 126;
+        }
+    };
+    let lines: Vec<&str> = stdout.lines().collect();
+    if lines.len() != 1 || !lines[0].starts_with(want) || lines[0].len() == want.len() {
+        eprintln!("sdc-bugfix: handback-check: the check exited {code} with {} line(s) on standard output; the interface asks \
+            for one line `{want}<why>`: a program error, no result", lines.len());
+        return 126;
+    }
+    code as u8
+}
+
+/// `spec-check [--spec-dir <dir>]... [--spec-repo <url>]... <description file> <kind>`, the default
+/// check: one line on standard output, exit 0 allowed, 77 refused (a usage or read error too).
+fn spec_check(args: &[String]) -> u8 {
+    let (ok, why) = match spec_verdict(args) {
+        Ok(v) => v,
+        Err(e) => (false, e),
+    };
+    // One line, whatever a quoted reference held.
+    let why: String = why.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    if ok {
+        println!("{ALLOWED}{why}");
+        0
+    } else {
+        println!("{REFUSED}{why}");
+        SPEC_REFUSED_EXIT
+    }
+}
+
+/// A token of the description, its quoting and punctuation taken off.
+fn spec_token(raw: &str) -> &str {
+    raw.trim_start_matches(['`', '\'', '"', '(', '[', '<', '{', '*'])
+        .trim_end_matches(['`', '\'', '"', ')', ']', '>', '}', ',', ';', '.', '!', '?', ':', '*'])
+}
+
+/// A URL's path segments (no scheme, host, query or fragment) and its fragment.
+fn url_parts(url: &str) -> (Vec<&str>, Option<&str>) {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let (rest, fragment) = match rest.split_once('#') {
+        Some((r, f)) => (r, Some(f)),
+        None => (rest, None),
+    };
+    let rest = rest.split('?').next().unwrap_or(rest);
+    let path = rest.split_once('/').map(|(_, p)| p).unwrap_or("");
+    (path.split('/').filter(|s| !s.is_empty()).collect(), fragment)
+}
+
+/// The verdict and its reason: `change` passes with a merge request link of a spec repository or a
+/// path under a named spec directory; `defect` with a spec line (`<file>:<line>` under a spec
+/// directory, or a link into a spec repository with a line anchor) or the words "spec says nothing".
+/// A spec repository is a URL prefix `--spec-repo` names; with none named, a URL with a path segment
+/// that holds `spec`.
+fn spec_verdict(args: &[String]) -> R<(bool, String)> {
+    const USAGE: &str = "usage: sdc-bugfix spec-check [--spec-dir <dir>]... [--spec-repo <url>]... <description file> <kind>";
+    let (mut dirs, mut repos, mut pos) = (Vec::new(), Vec::new(), Vec::new());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--spec-dir" => {
+                let d = it.next().ok_or(USAGE)?.trim_end_matches('/').to_string();
+                if d.is_empty() || d.starts_with('/') || d.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+                    return Err(format!("--spec-dir {d} is not a relative directory without `.` or `..`"));
+                }
+                dirs.push(d);
+            }
+            "--spec-repo" => {
+                let r = it.next().ok_or(USAGE)?.to_string();
+                if !(r.starts_with("https://") || r.starts_with("http://")) {
+                    return Err(format!("--spec-repo {r} is not an http(s) URL"));
+                }
+                repos.push(r);
+            }
+            _ => pos.push(a.clone()),
+        }
+    }
+    let [file, kind] = pos.as_slice() else { return Err(USAGE.into()) };
+    if !CHANGE_KINDS.contains(&kind.as_str()) {
+        return Err(format!("kind `{kind}` is not defect or change"));
+    }
+    let text = fs::read_to_string(file).map_err(|e| format!("the description {file} cannot be read: {e}"))?;
+    let spec_repo = |url: &str| {
+        if repos.is_empty() {
+            url_parts(url).0.iter().any(|s| s.to_ascii_lowercase().contains("spec"))
+        } else {
+            repos.iter().any(|r| url.starts_with(r.as_str()))
+        }
+    };
+    let under_spec = |path: &str| dirs.iter().any(|d| path.strip_prefix(d.as_str()).is_some_and(|r| r.len() > 1 && r.starts_with('/')));
+    let path_re = Regex::new(r"^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_./-]*?)(?::([1-9][0-9]*)(?:-[1-9][0-9]*)?)?$").unwrap();
+    let anchor_re = Regex::new(r"^L[1-9][0-9]*(?:-L?[1-9][0-9]*)?$").unwrap();
+    let quote = |t: &str| t.chars().take(200).collect::<String>();
+    for raw in text.split_whitespace() {
+        let tok = spec_token(raw);
+        if tok.starts_with("https://") || tok.starts_with("http://") {
+            let (segs, fragment) = url_parts(tok);
+            let mr = segs.windows(2).any(|w| matches!(w[0], "merge_requests" | "pull" | "pulls") && w[1].bytes().all(|b| b.is_ascii_digit()));
+            let anchored = fragment.is_some_and(|f| anchor_re.is_match(f));
+            if kind == "change" && mr && spec_repo(tok) {
+                return Ok((true, format!("change: a merge request of a spec repository, {}", quote(tok))));
+            }
+            if kind == "defect" && anchored && spec_repo(tok) {
+                return Ok((true, format!("defect: a spec line, {}", quote(tok))));
+            }
+            continue;
+        }
+        let Some(c) = path_re.captures(tok) else { continue };
+        let path = &c[1];
+        if path.split('/').any(|s| s == "..") || !under_spec(path) {
+            continue;
+        }
+        if kind == "change" {
+            return Ok((true, format!("change: a path under the spec directory, {}", quote(tok))));
+        }
+        if c.get(2).is_some() {
+            return Ok((true, format!("defect: a spec line, {}", quote(tok))));
+        }
+    }
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    if kind == "defect" && flat.contains("spec says nothing") {
+        return Ok((true, "defect: the description says the spec says nothing".into()));
+    }
+    let dirs_named = if dirs.is_empty() {
+        "under a spec directory (none is named)".to_string()
+    } else {
+        format!("under {}", dirs.iter().map(|d| format!("{d}/")).collect::<Vec<_>>().join(", "))
+    };
+    Ok((false, if kind == "change" {
+        format!("change: {file} names no merge request of a spec repository and no path {dirs_named}")
+    } else {
+        format!("defect: {file} names no spec line (a <file>:<line> {dirs_named}, or a link into a spec repository with a line \
+            anchor) and does not say the spec says nothing")
+    }))
 }
 
 // --- the commands of a case (sdc.checks/1) -----------------------------------------------------
@@ -932,10 +1209,11 @@ fn seed(args: &[String]) -> R<u8> {
 // here quotes a value of the ticket but its id.
 
 const TICKET_FORMAT: &str = "sdc.ticket/1";
-const TICKET_KEYS: [&str; 11] =
-    ["format", "id", "kind", "title", "text", "context", "source", "repository", "check", "constraints", "branch"];
+const TICKET_KEYS: [&str; 12] =
+    ["format", "id", "kind", "change_kind", "title", "text", "context", "source", "repository", "check", "constraints", "branch"];
 const TICKET_REQUIRED: [&str; 6] = ["format", "id", "kind", "title", "text", "repository"];
 const CONTEXT_KINDS: [&str; 3] = ["comment", "linked", "doc"];
+const CHANGE_KINDS: [&str; 2] = ["defect", "change"];
 const COMMIT_RE: &str = r"^([0-9a-f]{40}|[0-9a-f]{64})$";
 const SYSTEM_RE: &str = r"^[A-Za-z0-9][A-Za-z0-9._-]*$";
 const INSTANT_RE: &str = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$";
@@ -962,6 +1240,8 @@ struct Source {
 struct Ticket {
     id: String,
     kind: String,
+    /// `defect` or `change`, default `defect`: the kind of the spec reference the hand-back check asks for.
+    change_kind: String,
     title: String,
     text: String,
     context: Vec<Context>,
@@ -989,6 +1269,8 @@ fn ticket_schema() -> Value {
             "format": {"const": TICKET_FORMAT},
             "id": {"type": "string", "minLength": 1, "description": "the ticket's key in its system"},
             "kind": {"enum": ["bug", "feature"], "description": "sdc-bugfix takes bug only"},
+            "change_kind": {"enum": CHANGE_KINDS, "default": "defect",
+                "description": "what the fix is against the spec: a defect (the spec line it restores, or the spec says nothing) or a change (a spec merge request first); the hand-back check reads it"},
             "title": s, "text": s,
             "context": {"type": "array", "items": {"type": "object", "additionalProperties": false,
                 "required": ["kind", "ref", "text"], "properties": {
@@ -1100,6 +1382,16 @@ fn ticket_parse(doc: &str) -> Result<Ticket, Vec<String>> {
         }
         ok
     });
+    let change_kind = match m.get("change_kind") {
+        None => Some("defect".to_string()),
+        Some(_) => string(m, "change_kind", at, &mut errs).filter(|k| {
+            let ok = CHANGE_KINDS.contains(&k.as_str());
+            if !ok {
+                errs.push("ticket.change_kind is not defect or change".into());
+            }
+            ok
+        }),
+    };
     let title = string(m, "title", at, &mut errs);
     let text = string(m, "text", at, &mut errs);
     let mut context = Vec::new();
@@ -1162,9 +1454,9 @@ fn ticket_parse(doc: &str) -> Result<Ticket, Vec<String>> {
     if !errs.is_empty() {
         return Err(errs);
     }
-    match (id, kind, title, text, path, base_ref, base_commit) {
-        (Some(id), Some(kind), Some(title), Some(text), Some(path), Some(base_ref), Some(base_commit)) => Ok(Ticket {
-            id, kind, title, text, context, source, path, remote, base_ref, base_commit, check, constraints, branch,
+    match (id, kind, change_kind, title, text, path, base_ref, base_commit) {
+        (Some(id), Some(kind), Some(change_kind), Some(title), Some(text), Some(path), Some(base_ref), Some(base_commit)) => Ok(Ticket {
+            id, kind, change_kind, title, text, context, source, path, remote, base_ref, base_commit, check, constraints, branch,
         }),
         _ => Err(vec!["ticket: incomplete".into()]),
     }
@@ -1222,6 +1514,7 @@ fn ticket_report(t: &Ticket) -> R<serde_yaml::Value> {
     m.insert("title".into(), Y::String(t.title.trim().to_string()));
     m.insert("text".into(), Y::String(text));
     m.insert("story".into(), Y::String(ticket_story(&t.id)?));
+    m.insert("change_kind".into(), Y::String(t.change_kind.clone()));
     m.insert("ticket".into(), Y::Mapping(ticket));
     m.insert("constraints".into(), Y::Sequence(t.constraints.iter().cloned().map(Y::String).collect()));
     if let Some(argv) = &t.check {
@@ -1897,6 +2190,21 @@ branch: fix/pager-7
         let e = ticket_runnable(&t).unwrap_err();
         assert!(e.contains("sdc-feature") && e.contains("bug tickets only"), "{e}");
         assert!(ticket_runnable(&ticket_parse(&ticket_doc(COMMIT)).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn change_kind_is_defect_or_change_and_defect_by_default_and_reaches_bug_yaml() {
+        let t = ticket_parse(&ticket_doc(COMMIT)).unwrap();
+        assert_eq!(t.change_kind, "defect");
+        assert_eq!(ticket_report(&t).unwrap()["change_kind"].as_str(), Some("defect"));
+        let t = ticket_parse(&ticket_doc(COMMIT).replace("kind: bug\n", "kind: bug\nchange_kind: change\n")).unwrap();
+        assert_eq!(t.change_kind, "change");
+        assert_eq!(ticket_report(&t).unwrap()["change_kind"].as_str(), Some("change"));
+        let e = errs_of(&ticket_doc(COMMIT).replace("kind: bug\n", "kind: bug\nchange_kind: secret-kind\n"));
+        assert!(e.iter().any(|e| e == "ticket.change_kind is not defect or change"), "{e:?}");
+        assert!(!e.join("\n").contains("secret"), "{e:?}");
+        let s = ticket_schema();
+        assert_eq!(s["properties"]["change_kind"]["enum"], json!(["defect", "change"]));
     }
 
     #[test]

@@ -4,7 +4,8 @@
     "dissection": "bug-dissection.json",
     "repro": "repro",
     "change": "impl",
-    "story": "aep"
+    "story": "aep",
+    "description": "handback/mr-description.md"
   },
   "bug.dissect": {
     "argv": [
@@ -185,6 +186,44 @@
       "0": "passed",
       "timeout": "failed",
       "*": "failed"
+    }
+  },
+  "handback.describe": {
+    "argv": [
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
+      "bugfix",
+      "handback-describe"
+    ],
+    "produces": "description_written",
+    "subject": "description",
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": null
+    },
+    "retry_when": {
+      "spec_reference": [
+        "refused"
+      ]
+    },
+    "max_runs": 2
+  },
+  "handback.spec-check": {
+    "argv": [
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
+      "bugfix",
+      "handback-check",
+      "--",
+      "sdc-bugfix",
+      "spec-check",
+      "--spec-dir",
+      "spec"
+    ],
+    "produces": "spec_reference",
+    "subject": "description",
+    "producer": "spec-check",
+    "results": {
+      "0": "ok",
+      "77": "refused"
     }
   }
 }

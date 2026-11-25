@@ -361,6 +361,21 @@ cycles:
         - {check: count, name: one-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: red}}], is: 1}
         - {check: count, name: one-fix, select: [{records: {case: ".", kind: implementation_change}}], is: 1}
         - {check: count, name: one-green, select: [{records: {case: ".", kind: test_run}}, {where: {result: passed}}], is: 1}
+        - {check: count, name: one-spec-reference-ok, select: [{records: {case: ".", kind: spec_reference}}, {where: {result: ok}}], is: 1}
+        - {check: contains, name: the-check-line-is-the-text, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: handback.spec-check}}, {pick: first}, {follow: blob}], is: "spec-first: allowed: defect: "}
+
+  - name: bugfix-spec-refused
+    protocol: sdc-bugfix@1
+    bindings: bindings/sdc-bugfix.yaml
+    seed: [{from: seeds/bugfix-pager/bug-no-spec.yaml, to: bug.yaml}, {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}, {from: seeds/bugfix-pager/impl, to: impl}, {from: seeds/bugfix-pager/mainline, to: mainline}, {from: seeds/bugfix-pager/aep, to: aep}]
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: the-gate-passed, select: [{records: {case: ".", kind: gate_run}}, {where: {result: passed}}], is: 1}
+        - {check: count, name: one-refused-reference, select: [{records: {case: ".", kind: spec_reference}}, {where: {result: refused}}], is: 1}
+        - {check: count, name: no-reference-ok, select: [{records: {case: ".", kind: spec_reference}}, {where: {result: ok}}], is: 0}
+        - {check: count, name: the-writer-was-sent-back, select: [{runs: {case: "."}}, {where: {action: handback.describe}}], is: 2}
+        - {check: contains, name: the-refusal-line-is-the-text, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: handback.spec-check}}, {pick: first}, {follow: blob}], is: "spec-first: refused: defect: "}
 
   - name: bugfix-not-red
     pending: true

@@ -7,6 +7,7 @@ artifacts:
   repro: repro
   change: impl
   story: aep
+  description: handback/mr-description.md
 actions:
   - action: bug.dissect
     executor:
@@ -116,3 +117,28 @@ actions:
         producer: sdc-bugfix
         from: exit
         results: {"0": passed, timeout: failed, "*": failed}
+  - action: handback.describe
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, handback-describe, --action, handback.describe]
+    exits: {error: [75, 126, 127]}
+    budget: {max_runs: 2}
+    retry_when:
+      spec_reference: [refused]
+    evidence:
+      - kind: description_written
+        subject: description
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": null}
+  - action: handback.spec-check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, handback-check, --action, handback.spec-check, --, sdc-bugfix, spec-check, --spec-dir, spec]
+    exits: {error: [75, 126, 127]}
+    evidence:
+      - kind: spec_reference
+        subject: description
+        producer: spec-check
+        from: exit
+        results: {"0": ok, "77": refused}

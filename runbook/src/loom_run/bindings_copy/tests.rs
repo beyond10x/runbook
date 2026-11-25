@@ -99,17 +99,17 @@ fn digest_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
-fn no_settings_copy_every_file_but_the_tools_dir_of_the_model_nodes_and_keep_the_66_bindings() {
+fn no_settings_copy_every_file_but_the_tools_dir_of_the_model_nodes_and_keep_the_68_bindings() {
     let (dir, dst, root) = make("r2-copy-plain", &json!({}));
     assert_eq!(root.unwrap(), dst.join("sdc.yaml"));
     assert_only_the_tools_dir_differs(&dst);
-    assert_eq!(actions(&dst).len(), 66);
-    assert_eq!(actions(&committed()).len(), 66);
+    assert_eq!(actions(&dst).len(), 68);
+    assert_eq!(actions(&committed()).len(), 68);
     assert_eq!(digest_tree(&dir.path().join("run/instructions")), digest_tree(&committed().parent().unwrap().join("instructions")));
 }
 
 #[test]
-fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
+fn rewriting_keeps_all_68_bindings_and_changes_only_the_rewritten_members() {
     let settings = json!({
         "autonomy": "A5",
         "decider": {"kind": "model", "model": "claude-opus-5-5", "reply_bin": "y"},
@@ -123,8 +123,8 @@ fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
     root.unwrap();
     let before = actions(&committed());
     let after = actions(&dst);
-    assert_eq!(before.len(), 66);
-    assert_eq!(after.len(), 66);
+    assert_eq!(before.len(), 68);
+    assert_eq!(after.len(), 68);
     let (mut people, mut nodes) = (0, 0);
     for ((name, was), (name_after, is)) in before.iter().zip(&after) {
         assert_eq!(name, name_after);
@@ -428,7 +428,7 @@ fn the_committed_bindings_are_never_written_and_a_read_only_source_is_copied() {
     }
     root.unwrap();
     assert_eq!(digest_tree(&src), frozen, "the source changed");
-    assert_eq!(actions(&dst).len(), 66);
+    assert_eq!(actions(&dst).len(), 68);
     assert!(std::fs::metadata(dst.join("sdc.yaml")).unwrap().permissions().mode() & 0o200 != 0, "the copy is the run's to write");
 }
 

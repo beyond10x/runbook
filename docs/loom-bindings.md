@@ -27,9 +27,9 @@ first equal one at `2c0a6f48` ("First equal comparison").
 | `sdc.plan` | `bindings/sdc-plan.yaml` | `sdc-plan@7` | 8 | none |
 | `sdc.story` | `bindings/sdc-story.yaml` | `sdc-story@7` | 7 | none |
 | `sdc.release` | `bindings/sdc-release.yaml` | `sdc-release@4` | 5 | `release.rollback` |
-| `sdc.bugfix` | `bindings/sdc-bugfix.yaml` | `sdc-bugfix@1` | 8 | none |
+| `sdc.bugfix` | `bindings/sdc-bugfix.yaml` | `sdc-bugfix@1` | 10 | none |
 
-Every action bound in a JSON file is bound in its YAML file: 66 bindings.
+Every action bound in a JSON file is bound in its YAML file: 68 bindings.
 
 ## Field mapping
 
@@ -219,7 +219,7 @@ path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
 | G4 | 10 | initial child revisions (D30), only if step 3 shows `sdc.epic` needs them |
 
 The exit lists (Loom `70b0e6e0`, `exits: {error: [...], not_called: [...]}`; Loom ships no default
-list): each of the 50 program bindings of `bindings/*.yaml` states `exits.error`, `[75, 126, 127]`
+list): each of the 52 program bindings of `bindings/*.yaml` states `exits.error`, `[75, 126, 127]`
 (the former driver's `program_error`), and each of the 14 model-node bindings
 (the `sdc-node` actions) also `exits.not_called: [79]`. An exit in `error` ends the run
 `ProgramError`, the run log holds no result for the node, and the run is not counted against
@@ -291,7 +291,7 @@ That this repository keeps them is held by the test `the_three_files_the_pool_li
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
 
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
-name only 0, 1, 3, 5 and 8, the exits of the check tools) and
+name only 0, 1, 3, 5, 8 and 77, the exits of the check tools; 77 is the refusal of the hand-back spec check, `docs/bugfix.md`) and
 with no `exits.error` code of any binding (75, 126, 127, 69, 70); Loom refuses a code that is in
 both classes or in a class and a `from: exit` table key, and `scripts/check-bindings.sh` checks the
 same three things before Loom does. 79 also stays clear of the codes `sdc-node` passes through from
