@@ -114,6 +114,7 @@ timeline:
       answer: "A"
       answered_by: "operator"
       principal: "agent:conformance"
+      answer_offered: true
       at: 2026-11-22T10:07:00Z
     outcome: answered
     events:

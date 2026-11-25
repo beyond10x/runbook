@@ -107,6 +107,7 @@ timeline:
       answer: "B"
       answered_by: "operator"
       principal: "agent:conformance"
+      answer_offered: true
       at: 2026-11-22T10:05:00Z
     outcome: not-of-run
 
@@ -119,6 +120,7 @@ timeline:
       answer: "A"
       answered_by: "operator"
       principal: "agent:conformance"
+      answer_offered: true
       at: 2026-11-22T10:06:00Z
     outcome: answered
 
@@ -131,6 +133,7 @@ timeline:
       answer: "B"
       answered_by: "another-operator"
       principal: "agent:conformance"
+      answer_offered: true
       at: 2026-11-22T10:07:00Z
     outcome: already-answered
 

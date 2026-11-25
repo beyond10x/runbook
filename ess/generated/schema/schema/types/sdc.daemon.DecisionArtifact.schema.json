@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DecisionArtifact.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DecisionArtifact",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:9457b753cc8e868ea7966ad880714aea7666635520f865c012ba3a2d38863a45",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionArtifact": {
+      "title": "DecisionArtifact",
+      "description": "What a decision request read from its case carries beside its question and its options: the recommendation, its grounds and whether the request takes a free answer (docs/engine.md, 'A request read from the case'). The runtime reads it from the case and never writes it; a request the runtime built itself has none, and only a request that has one refuses an answer that names none of its options (AnswerDecision, unknown-option).",
+      "x-ess-name": "sdc.daemon.DecisionArtifact",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "recommended_option": {
+          "$ref": "#/$defs/sdc.decision.OptionLetter",
+          "description": "The letter of the option the case recommends."
+        },
+        "recommended_answer": {
+          "description": "A free answer the case recommends in place of an option, for a question.",
+          "type": "string"
+        },
+        "recommendation_strength": {
+          "$ref": "#/$defs/sdc.decision.Strength",
+          "description": "How strongly the grounds support the recommendation; none where the request carries no recommendation."
+        },
+        "grounds": {
+          "description": "The grounds of the recommendation, each with a citation the runtime checked before the request opened.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.Ground"
+          }
+        },
+        "free_answer": {
+          "description": "Whether an answer that names no option is taken as a free answer (a question request).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recommendation_strength",
+        "grounds",
+        "free_answer"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.ArtifactId": {
+      "title": "ArtifactId",
+      "description": "A case artifact id (canon-case/1 artifacts key), such as roadmap.",
+      "x-ess-name": "sdc.decision.ArtifactId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ArtifactRevisionCitation": {
+      "title": "ArtifactRevisionCitation",
+      "x-ess-name": "sdc.decision.ArtifactRevisionCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/sdc.decision.ArtifactId"
+        },
+        "revision": {
+          "$ref": "#/$defs/sdc.decision.Revision"
+        },
+        "case": {
+          "$ref": "#/$defs/sdc.decision.CaseId",
+          "description": "The case whose snapshot holds the artifact; absent means the request's case."
+        },
+        "entry": {
+          "description": "One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the current goals layers, apply at the check's instant (inside its validity window, not overridden by a lower layer) and still have the digest. A revision that moved since is noted (revision_moved), not refused (docs/requester.md decision 3).",
+          "type": "string"
+        },
+        "digest": {
+          "description": "sha256:<hex> of the cited entry as sdc-goals digest prints it; written by the grounding check when absent, so a later check sees a change.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.CaseId": {
+      "title": "CaseId",
+      "description": "A Canon case id (canon-case/1 id), such as IDEA-1.direction.",
+      "x-ess-name": "sdc.decision.CaseId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Citation": {
+      "title": "Citation",
+      "description": "Where a ground is: path:line, a record id, artifact@revision, or one entry of an artifact (goals@<revision>#<entry id>). A program checks that each resolves (tools/decision-grounds.sh; a goals entry through sdc-goals ground).",
+      "x-ess-name": "sdc.decision.Citation",
+      "x-ess-kind": "union",
+      "oneOf": [
+        {
+          "title": "artifact_revision",
+          "type": "object",
+          "properties": {
+            "form": {
+              "type": "string",
+              "const": "artifact_revision"
+            },
+            "value": {
+              "$ref": "#/$defs/sdc.decision.ArtifactRevisionCitation"
+            }
+          },
+          "required": [
+            "form",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "path_line",
+          "type": "object",
+          "properties": {
+            "form": {
+              "type": "string",
+              "const": "path_line"
+            },
+            "value": {
+              "$ref": "#/$defs/sdc.decision.PathLineCitation"
+            }
+          },
+          "required": [
+            "form",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "record_id",
+          "type": "object",
+          "properties": {
+            "form": {
+              "type": "string",
+              "const": "record_id"
+            },
+            "value": {
+              "$ref": "#/$defs/sdc.decision.RecordCitation"
+            }
+          },
+          "required": [
+            "form",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "x-ess-union-tag": "form"
+    },
+    "sdc.decision.Ground": {
+      "title": "Ground",
+      "description": "One ground of a recommendation: its source kind, a citation that resolves, the option it supports (or the free answer) and how.",
+      "x-ess-name": "sdc.decision.Ground",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/sdc.decision.GroundSource"
+        },
+        "citation": {
+          "$ref": "#/$defs/sdc.decision.Citation"
+        },
+        "supports": {
+          "$ref": "#/$defs/sdc.decision.OptionLetter",
+          "description": "The option the ground supports; absent: it supports the recommended free answer."
+        },
+        "how": {
+          "description": "How the cited text supports the option, one sentence.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "citation",
+        "how"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.GroundSource": {
+      "title": "GroundSource",
+      "description": "The kind of source a ground cites. idea: the person's own input and its dissection items (work/idea.yaml, work/dissection.yaml), which the decider cites (d1 to d4 in runs/trial-todo-1/decisions.jsonl). goals: one entry of the requester's goals document (sdc.goals/1, docs/requester.md § 2), cited as artifact_revision of artifact goals with its entry id and the entry's digest, displayed goals@<revision>#<entry id>.",
+      "x-ess-name": "sdc.decision.GroundSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "idea",
+        "vision",
+        "requirement",
+        "prior_decision",
+        "prd",
+        "story",
+        "spec",
+        "policy",
+        "evidence_record",
+        "autonomy_rule",
+        "goals"
+      ]
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.PathLineCitation": {
+      "title": "PathLineCitation",
+      "x-ess-name": "sdc.decision.PathLineCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "A file path relative to the repository root.",
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "line_end": {
+          "type": "integer"
+        },
+        "digest": {
+          "description": "sha256:<hex> of the cited lines when the ground was checked; a different digest later means the ground changed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.RecordCitation": {
+      "title": "RecordCitation",
+      "x-ess-name": "sdc.decision.RecordCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/sdc.decision.RecordStore"
+        },
+        "record_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "store",
+        "record_id"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.RecordStore": {
+      "title": "RecordStore",
+      "description": "Where a cited record id is looked up: the decision request log, a case's evidence/ (canon-evidence/1 id), authority.json, decisions.json, or an AEP planning store (kind:name).",
+      "x-ess-name": "sdc.decision.RecordStore",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "sdc_decisions",
+        "canon_evidence",
+        "canon_authority",
+        "canon_decisions",
+        "aep_artifact"
+      ]
+    },
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Strength": {
+      "title": "Strength",
+      "description": "How strongly the grounds support the recommended option. none: the request carries no recommendation (stored before Recommend and after a withheld one; a Recommend sending none is refused). strong: a vision, requirement, PRD, story or spec states it, or a prior decision on the same question and subject stands with its grounds unchanged. moderate: a policy, an autonomy rule or an evidence record supports it by inference. weak: the grounds make it plausible only.",
+      "x-ess-name": "sdc.decision.Strength",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "none",
+        "weak",
+        "moderate",
+        "strong"
+      ]
+    }
+  }
+}

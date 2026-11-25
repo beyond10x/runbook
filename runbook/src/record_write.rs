@@ -69,6 +69,11 @@ pub fn make_dir_in(base: &Path, dir: &Path) -> Result<File, String> {
 /// nothing is opened by it. A directory that is renamed or replaced after `base` was opened is not found again: the walk
 /// starts at the descriptor.
 pub fn make_dir_at(base: &File, shown: &Path, rel: &Path) -> Result<File, String> {
+    walk_dirs(base, shown, rel, true)
+}
+
+/// The walk of [`make_dir_at`]; `make` says whether a missing directory is made or ends the walk with an error.
+fn walk_dirs(base: &File, shown: &Path, rel: &Path, make: bool) -> Result<File, String> {
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
     let mut current = base.try_clone().map_err(|e| format!("{}: {e}", shown.display()))?;
@@ -83,7 +88,7 @@ pub fn make_dir_at(base: &File, shown: &Path, rel: &Path) -> Result<File, String
         let c_name = std::ffi::CString::new(name.as_bytes()).map_err(|_| format!("{}: a name with a NUL byte", walked.display()))?;
         let fd = current.as_raw_fd();
         // SAFETY: `fd` is an open directory of this function and `c_name` is a NUL-terminated name that outlives the call.
-        if unsafe { libc::mkdirat(fd, c_name.as_ptr(), 0o777) } != 0 {
+        if make && unsafe { libc::mkdirat(fd, c_name.as_ptr(), 0o777) } != 0 {
             let e = std::io::Error::last_os_error();
             if e.kind() != std::io::ErrorKind::AlreadyExists {
                 return Err(format!("{}: {e}", walked.display()));
@@ -154,6 +159,15 @@ fn read_open_within(file: File, path: &Path, limit: u64) -> Result<Vec<u8>, Stri
         return Err(format!("{}: more than {limit} bytes", path.display()));
     }
     Ok(bytes)
+}
+
+/// The bytes of the regular file with one name `rel` below the directory `base`, at most `limit` of them: no component
+/// of `rel` is followed when it is a link ([`Held::open_beneath`], then [`Held::read_within`]), so the file read lies
+/// below `base`. `rel` with a component that is not a plain name is an error.
+pub fn read_regular_beneath(base: &Path, rel: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    let leaf = rel.file_name().ok_or_else(|| format!("{}: not a file name", base.join(rel).display()))?;
+    let dir = rel.parent().unwrap_or(Path::new(""));
+    Held::open_beneath(base, dir)?.read_within(leaf, limit)
 }
 
 /// The text of the regular file with one name at `path` ([`read_regular`]); a file that is not UTF-8 is an error.
@@ -337,6 +351,32 @@ impl Held {
     }
 
     /// Whether the name `leaf` of this directory is a regular file, a link followed (`fstatat`): the answer of
+    /// The directory `rel` below the directory `base`, opened and held without making anything: `base` is opened by path
+    /// and each component of `rel` relative to the one before with `O_NOFOLLOW | O_DIRECTORY`, so a link, a file or a
+    /// missing name at a component is an error that names the path below `base`, and nothing below `base` is reached
+    /// through a link.
+    pub fn open_beneath(base: &Path, rel: &Path) -> Result<Held, String> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let open = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(base).map_err(|e| format!("{}: {e}", base.display()))?;
+        Ok(Held { dir: walk_dirs(&open, base, rel, false)?, path: base.join(rel) })
+    }
+
+    /// [`Held::read`] with at most `limit` bytes: a file that holds more is an error that names it.
+    pub fn read_within(&self, leaf: impl AsRef<std::ffi::OsStr>, limit: u64) -> Result<Vec<u8>, String> {
+        let path = self.path.join(leaf.as_ref());
+        read_open_within(open_regular_at(&self.dir, &self.path, leaf.as_ref())?, &path, limit)
+    }
+
+    /// Whether something is at the name `leaf` of this directory, a link not followed (`fstatat` with
+    /// `AT_SYMLINK_NOFOLLOW`): the answer of `symlink_metadata(..).is_ok()`, asked of the descriptor.
+    pub fn holds(&self, leaf: impl AsRef<std::ffi::OsStr>) -> bool {
+        use std::os::fd::AsRawFd;
+        let Ok(c_leaf) = leaf_name(leaf.as_ref(), &self.path) else { return false };
+        // SAFETY: as in `symlink`; `stat` is a zeroed buffer the call fills.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        unsafe { libc::fstatat(self.dir.as_raw_fd(), c_leaf.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) == 0 }
+    }
+
     /// `Path::is_file`, asked of the descriptor.
     pub fn is_file(&self, leaf: impl AsRef<std::ffi::OsStr>) -> bool {
         use std::os::fd::AsRawFd;

@@ -30,3 +30,4 @@ scenarios:
   - scenarios/daemon-an-answer-is-judged-by-its-request-before-its-run.yaml
   - scenarios/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned.yaml
   - scenarios/daemon-a-missing-session-is-refused-before-the-floor.yaml
+  - scenarios/daemon-an-answer-that-names-no-option-of-a-case-request-is-refused.yaml

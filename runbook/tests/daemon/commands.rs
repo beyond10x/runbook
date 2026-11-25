@@ -881,6 +881,11 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
             fx.wait_state(&run, "Ended");
             fx.answer(&run, "q1")
         }
+        ("answer-decision", "unknown-option") => {
+            fx.stub.script("art", Script::new(vec![Step::Ask(vec![super::decision_artifact::ask_with(false)]), Step::End("approved".into())]));
+            let run = ask_run("art");
+            d.answer_decision(AnswerDecision { run_id: run.clone(), request_id: format!("{run}-q"), answer: "Z".into(), answered_by: "operator".into() }).unwrap()
+        }
         _ => return None,
     })
 }
@@ -927,6 +932,7 @@ fn an_answer_for_a_request_whose_run_is_not_there_is_refused_no_such_run() {
             capability: "cap".into(),
             question: "?".into(),
             options: vec![],
+            artifact: None,
             opened_at: "t".into(),
             state: DecisionState::Open,
             answer: None,
@@ -973,6 +979,7 @@ fn journal_request(id: &str, run: &str) -> DecisionRequest {
         capability: "cap".into(),
         question: "?".into(),
         options: vec![],
+        artifact: None,
         opened_at: "t".into(),
         state: DecisionState::Open,
         answer: None,
@@ -1022,6 +1029,7 @@ fn the_runtime_side_commands_refuse_by_the_specification_s_names() {
         capability: request.capability.clone(),
         question: request.question.clone(),
         options: request.options.clone(),
+        artifact: None,
     };
     assert_eq!(name(d.request_decision("none", req.clone()).unwrap()), ("no-run", 409));
 

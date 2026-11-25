@@ -20,6 +20,7 @@ fn request(id: &str, run: &str) -> DecisionRequest {
         capability: "k".into(),
         question: "q".into(),
         options: vec![],
+        artifact: None,
         opened_at: "t".into(),
         state: DecisionState::Open,
         answer: None,

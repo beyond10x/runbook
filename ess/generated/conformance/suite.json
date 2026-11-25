@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "77a4b866b87a5baf86299823ac0ffe3f0d125b3fb5cac3f62d877a41c95b679a",
-    "contract_digest": "b45bb73b7052729c8f65cccd668ee8fdacf41f841c6c136a609f5eb65ab2a30f",
+    "spec_digest": "bbce5cc3ac7ecae569c7a8da3a662629562eaeca8d7f90061730c545745c1d6a",
+    "contract_digest": "2019ea77808e376ad98727d561424212fd0d8a1208135320edc0a368077ade90",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -3358,6 +3358,10 @@
       "source": [
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequestId"
         },
         {
@@ -3367,6 +3371,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -3382,11 +3402,39 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
         },
         {
           "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "entity",
@@ -9556,6 +9604,10 @@
               "kind": "literal",
               "value": "A"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -9777,6 +9829,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -9829,7 +9885,23 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -9845,7 +9917,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
         },
         {
           "kind": "type",
@@ -9854,6 +9938,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "command",
@@ -10499,6 +10599,10 @@
               "kind": "literal",
               "value": "A"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -10560,6 +10664,10 @@
             "answer": {
               "kind": "literal",
               "value": "B"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
             },
             "answered_by": {
               "kind": "literal",
@@ -10627,6 +10735,10 @@
             "answer": {
               "kind": "literal",
               "value": "B"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
             },
             "answered_by": {
               "kind": "literal",
@@ -10866,6 +10978,10 @@
               "kind": "literal",
               "value": "A"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -10989,6 +11105,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -11029,7 +11149,23 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -11045,7 +11181,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
         },
         {
           "kind": "type",
@@ -11054,6 +11202,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "command",
@@ -11138,6 +11302,587 @@
           "name": {
             "command": "sdc.daemon.ResumeRun",
             "outcome": "resumed"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.WaitOnDecision",
+            "outcome": "waiting"
+          }
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.DecisionsOfRun"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Runtime"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-an-answer-that-names-no-option-of-a-case-request-is-refused": {
+      "purpose": "A request read from its case carries its artifact; an answer that names none of its options is refused by name, the request stays Open, and a letter of its options is taken.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake.md"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "runbook_version": {
+              "kind": "literal",
+              "value": "0.3.0"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:02:00Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.WaitOnDecision",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.WaitOnDecision",
+            "outcome": "waiting"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.RequestDecision",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "action": {
+              "kind": "literal",
+              "value": "draft.review"
+            },
+            "artifact": {
+              "kind": "literal",
+              "value": {
+                "free_answer": false,
+                "grounds": [],
+                "recommendation_strength": "moderate",
+                "recommended_option": "B"
+              }
+            },
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:04:00Z"
+            },
+            "capability": {
+              "kind": "literal",
+              "value": ""
+            },
+            "case_id": {
+              "kind": "literal",
+              "value": "IDEA-1"
+            },
+            "options": {
+              "kind": "literal",
+              "value": [
+                {
+                  "consequence": {
+                    "admits": [
+                      "draft.review"
+                    ],
+                    "answer": "performed",
+                    "blocks": []
+                  },
+                  "cost": "None.",
+                  "does": "Ship the draft.",
+                  "letter": "A"
+                },
+                {
+                  "consequence": {
+                    "admits": [],
+                    "answer": "rejected",
+                    "blocks": [
+                      "draft.review"
+                    ]
+                  },
+                  "cost": "One more round.",
+                  "does": "Send it back.",
+                  "letter": "B"
+                }
+              ]
+            },
+            "question": {
+              "kind": "literal",
+              "value": "Which draft goes out?"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "dr-1"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.RequestDecision",
+            "outcome": "requested"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.AnswerDecision",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "answer": {
+              "kind": "literal",
+              "value": "approve"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": false
+            },
+            "answered_by": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:05:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "dr-1"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.AnswerDecision",
+            "outcome": "unknown-option"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.AnswerDecision",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "answer": {
+              "kind": "literal",
+              "value": "B"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
+            "answered_by": {
+              "kind": "literal",
+              "value": "operator"
+            },
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:06:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
+            "request_id": {
+              "kind": "literal",
+              "value": "dr-1"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.AnswerDecision",
+            "outcome": "answered"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.DecisionsOfRun",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.DecisionsOfRun",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "answer": {
+                "kind": "literal",
+                "value": "B"
+              },
+              "answered_at": {
+                "kind": "literal",
+                "value": "2026-11-22T10:06:00Z"
+              },
+              "answered_by": {
+                "kind": "literal",
+                "value": "operator"
+              },
+              "request_id": {
+                "kind": "literal",
+                "value": "dr-1"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Answered"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.AnswererLabel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DecisionRequest.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ActionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Consequence"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.DecisionOption"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Grant"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.AnswerDecision"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.RequestDecision"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.WaitOnDecision"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.AnswerDecision",
+            "outcome": "answered"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.AnswerDecision",
+            "outcome": "unknown-option"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.RequestDecision",
+            "outcome": "requested"
           }
         },
         {
@@ -11513,6 +12258,10 @@
               "kind": "literal",
               "value": "B"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -11550,6 +12299,10 @@
             "answer": {
               "kind": "literal",
               "value": "A"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
             },
             "answered_by": {
               "kind": "literal",
@@ -11591,6 +12344,10 @@
             "answer": {
               "kind": "literal",
               "value": "B"
+            },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
             },
             "answered_by": {
               "kind": "literal",
@@ -11692,6 +12449,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -11728,7 +12489,23 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -11744,7 +12521,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
         },
         {
           "kind": "type",
@@ -11753,6 +12542,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "command",
@@ -12194,6 +12999,10 @@
               "kind": "literal",
               "value": "A"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -12329,6 +13138,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -12377,7 +13190,23 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -12393,7 +13222,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
         },
         {
           "kind": "type",
@@ -12402,6 +13243,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "command",
@@ -13788,6 +14645,10 @@
               "kind": "literal",
               "value": "A"
             },
+            "answer_offered": {
+              "kind": "literal",
+              "value": true
+            },
             "answered_by": {
               "kind": "literal",
               "value": "operator"
@@ -14007,6 +14868,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DecisionArtifact"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.DecisionRequest.State"
         },
         {
@@ -14051,7 +14916,23 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.ArtifactId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.ArtifactRevisionCitation"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.CaseId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Citation"
         },
         {
           "kind": "type",
@@ -14067,7 +14948,19 @@
         },
         {
           "kind": "type",
+          "name": "sdc.decision.Ground"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.GroundSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.decision.OptionLetter"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.PathLineCitation"
         },
         {
           "kind": "type",
@@ -14076,6 +14969,22 @@
         {
           "kind": "type",
           "name": "sdc.decision.ProducedDocument"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordCitation"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.RecordStore"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Revision"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Strength"
         },
         {
           "kind": "command",

@@ -134,6 +134,37 @@ test('hostile fields of an open decision, in every place the page shows or store
   expect(problems).toEqual([]);
 });
 
+// The option `free` of a request whose options are the declared results takes text (`free: <text>`); the daemon
+// refuses its letter alone. Its button puts `free: ` in the empty field, and with text sends `free: <text>`.
+test('the option free sends its text with it, and its letter alone is never sent', async ({page}) => {
+  const s = servers.open;
+  const id = await waiting(s, 'a real run, to select');
+  const row = {
+    request_id: 'q-free', run_id: id, opened_at: '2026-01-01T00:00:00', case_id: 'case-1', action: 'decision.answer', capability: '',
+    question: 'Which tea goes in?',
+    options: [
+      {letter: 'A', does: 'take the action with the result A', cost: '', consequence: {admits: [], blocks: [], answer: 'A'}},
+      {letter: 'free', does: 'take the action with the result free; this option takes text', cost: '', consequence: {admits: [], blocks: [], answer: 'free'}},
+    ],
+    artifact: {recommendation_strength: 'none', grounds: [], free_answer: false},
+  };
+  await page.route('**/daemon/views/open-decisions**', (route) => route.fulfill({json: {rows: [row]}}));
+  const sentBodies = [];
+  await page.route('**/daemon/commands/answer-decision', (route) => { sentBodies.push(JSON.parse(route.request().postData())); route.fulfill({status: 202, json: {outcome: 'answered', published: []}}); });
+  await enter(page, s);
+  await drawer(page, id, 1);
+  await page.locator('#dd-by').fill('reviewer');
+  const field = card(page, 0).locator('input.tin');
+  await card(page, 0).locator('button[data-answer="free"]').click();
+  await expect(field).toHaveValue('free: ');
+  await expect(field).toBeFocused();
+  await field.fill('free: green tea');
+  await card(page, 0).locator('button[data-answer="free"]').click();
+  // a letter sent by the first click would arrive before the text: the first body sent is the text
+  await expect.poll(() => sentBodies.length).toBeGreaterThan(0);
+  expect(sentBodies, 'the letter free alone is not sent').toEqual([{run_id: id, request_id: 'q-free', answer: 'free: green tea', answered_by: 'reviewer'}]);
+});
+
 // Invariant 8: a daemon that refuses every read (a token the cookie no longer proves, a Host the daemon
 // refuses) is asked at a bounded rate, and a refused command is not sent again by the page.
 async function rate(page) {

@@ -51,7 +51,7 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
 | `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
-| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting` |
+| `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
 Notes for a caller:
 
@@ -74,6 +74,18 @@ Notes for a caller:
   has ended; an answer to a request withdrawn by a cancel is `DecisionWithdrawn`; `RunNotWaiting`
   is left for an Open request whose run does not wait (a state the daemon's own commands never
   leave, so a client does not meet it).
+- A request read from its case (it has the member `artifact`, below) takes the letter of one of its
+  options, alone or followed by a colon and text (`B: too short`: the text goes with the option as its
+  reasons), or any text where `artifact.free_answer` is true. The option `free` (a declared result) takes
+  text: it is answered `free: <text>`, and its letter alone or with nothing after the colon names no
+  option. Any other answer is refused
+  `UnknownOption` (status 422, outcome `unknown-option`, payload `request_id`) after the request's and
+  the run's state are judged and before anything is committed or handed to the runtime; the request
+  stays Open. The run's own decider is held to the same rule: its answer that names no option is not
+  saved, and the request stays Open for a person. A request without `artifact` takes any answer, as
+  before. The specification states the
+  check as the input `answer_offered`, which the handler fills (`ess/domains/daemon.yaml`,
+  `AnswerDecision`); a client never sends it.
 - An answer carries two names. `answered_by` is the label the client typed. `principal` is the daemon's
   own (`--principal`), the only one the runtime is given. Both are in the `DecisionAnswered` event the
   answer publishes (`published[0].payload`), in the row of the view `decisions` (and so in the answer
@@ -109,8 +121,8 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `runs-in-state` | `state` | the runs in a state |
 | `runs-of-session-in-state` | `session_id`, `state` | both filters |
 | `run` | `run_id` | one run with everything it was submitted with, and `step_in_flight` while a program of it runs (below) |
-| `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks |
-| `decisions` | `run_id` | every decision request of the run, with its state |
+| `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks, and `artifact` for a request read from its case (below) |
+| `decisions` | `run_id` | every decision request of the run, with its state, and `artifact` as in `open-decisions` |
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
 | `runbooks` | none | the runbooks a `submit-run` of this daemon accepts, by `runbook_id`, `runbook_version` (absent when the host names none) and `runtime` (`stub` or `loom`), in order of name |
@@ -133,6 +145,21 @@ rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
+
+### A request read from its case
+
+A person action whose case holds a decision request in the contract's shape
+(`sdc.decision.DecisionRequest`, `docs/decisions.md`) opens a request whose `question` and `options` are
+the case's and whose rows carry the member `artifact`: `recommended_option` and `recommended_answer` (each
+where the case names one), `recommendation_strength` (`none` to `strong`), `grounds` (each with its
+citation) and `free_answer`. Where the bindings name a question member for the action instead, the
+`question` is that member of the subject and the `options` are the results the action declares, each with
+the result as its letter; `artifact` then has `recommendation_strength` `none`, no grounds and
+`free_answer` false. The engine reads both and writes neither; how it finds them is `docs/engine.md`, "A
+request read from the case". A request that read nothing has no `artifact`, and its `options` keep the
+shape `{answer, effect}` of a request the runtime builds itself: the specification's
+`List<sdc.decision.DecisionOption>` describes the options of a request read from its case. The journal
+writes `artifact` only for a request that has one, and a journal written before the member existed loads.
 
 ### The step in flight
 

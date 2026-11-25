@@ -1383,6 +1383,7 @@ impl Runtime for Dying {
                 capability: "approve".into(),
                 question: "q".into(),
                 options: vec![],
+                artifact: None,
             });
         }
         if !self.fails {
@@ -2387,7 +2388,7 @@ mod journal_before_hand_over {
         fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {
             sink.started();
             for which in ["a", "b"] {
-                sink.decision_requested(DecisionRequest { request_id: format!("{}-{which}", request.run_id), case_id: "c".into(), action: "act".into(), capability: "approve".into(), question: "q".into(), options: vec![] });
+                sink.decision_requested(DecisionRequest { request_id: format!("{}-{which}", request.run_id), case_id: "c".into(), action: "act".into(), capability: "approve".into(), question: "q".into(), options: vec![], artifact: None });
             }
             if self.kill {
                 while !cancel.load(std::sync::atomic::Ordering::SeqCst) {

@@ -45,8 +45,8 @@ progress, resources, prompts. The server sends no request and no notification of
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id`; the row has `step_in_flight` (`action`, `case_id`, `started_at`, `seconds`) while a program of the run runs (`docs/daemon-api.md`, "The step in flight") |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
-| `read_open_decisions` | view `open-decisions` | `run_id`; the rows carry `request_id`, `run_id`, `case_id`, `action`, `capability`, `question`, `options`, `opened_at` |
-| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it) |
+| `read_open_decisions` | view `open-decisions` | `run_id`; the rows carry `request_id`, `run_id`, `case_id`, `action`, `capability`, `question`, `options`, `opened_at`, and `artifact` (the recommendation, its grounds and `free_answer`) for a request read from its case (`docs/daemon-api.md`, "A request read from its case") |
+| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it); a request with `artifact` refuses an answer that names none of its options as `unknown-option` (422) |
 | `cancel_run` | command `cancel-run` | `run_id` |
 
 Input schemas are derived from the generated OpenAPI document of the daemon

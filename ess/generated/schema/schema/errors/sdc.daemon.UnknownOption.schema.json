@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.UnknownOption.schema.json",
+  "title": "UnknownOption payload",
+  "description": "The answer names none of the options of a request read from its case (and the request takes no free answer): the request stays Open and nothing was handed to the runtime.",
+  "x-ess-name": "sdc.daemon.UnknownOption",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.daemon.DecisionRequestId"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:1b70a629aa327cd9f3df46db66356622048798b4418f6b6ee4430696bc7c2a9e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
