@@ -55,7 +55,18 @@ pub fn serve(be: &dyn Backend, mut input: impl BufRead, mut output: impl Write) 
         if text.is_empty() {
             continue;
         }
-        if let Some(message) = rpc::handle(be, text, Wire::Stdio { legacy: &mut legacy }).message {
+        // A notification a call sends while it runs (the progress of `delegate`) goes out at once, before the reply; one that
+        // cannot be written ends the server as the reply would.
+        let mut broken = None;
+        let reply = rpc::handle_with(be, text, Wire::Stdio { legacy: &mut legacy }, &mut |note| {
+            if broken.is_none() {
+                broken = write_line(&mut output, &note).err();
+            }
+        });
+        if let Some(e) = broken {
+            return Err(e);
+        }
+        if let Some(message) = reply.message {
             write_line(&mut output, &message)?;
         }
     }

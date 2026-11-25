@@ -1,4 +1,4 @@
-//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`.
+//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`, `runbook delegate`.
 //!
 //! Each command is one call of a route of the daemon (`api`), with the input types of the server's own
 //! routes, and prints what the route returns: text lines by default, the route's JSON with `--json`.
@@ -16,7 +16,7 @@ pub mod http;
 pub mod sse;
 pub mod url;
 
-use crate::commands::{AnswerDecision, CancelRun, SubmitRun, MAX_INTAKE_BYTES};
+use crate::commands::{AnswerDecision, CancelRun, Delegate, SubmitRun, MAX_INTAKE_BYTES};
 use api::Api;
 use clap::{Args, Subcommand};
 use exit::Failure;
@@ -127,8 +127,38 @@ pub struct DecideArgs {
     pub remote: Remote,
 }
 
+#[derive(Args, Debug)]
+pub struct DelegateArgs {
+    /// The request: a file holding the work asked for, as text, or `-` for standard input.
+    #[arg(value_name = "REQUEST_FILE|-")]
+    pub request: String,
+    /// The model route of the run, by the name the daemon declares it under.
+    #[arg(long, value_name = "ROUTE")]
+    pub route: Option<String>,
+    /// The runbook to run with the request as its intake; without one the daemon's free run does the work.
+    #[arg(long, value_name = "RUNBOOK")]
+    pub protocol: Option<String>,
+    /// A directory the daemon copies into the run's workspace; it must lie under one of the daemon's context roots.
+    #[arg(long, value_name = "DIR")]
+    pub workspace: Option<PathBuf>,
+    /// A setting of the run, `KEY=VALUE`; repeatable, each key once.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    pub set: Vec<String>,
+    /// Print what the route returns as JSON.
+    #[arg(long)]
+    pub json: bool,
+    #[command(flatten)]
+    pub remote: Remote,
+}
+
 pub fn run(args: RunArgs) -> ExitCode {
     done("run", run_detached(args))
+}
+
+/// `runbook delegate`: one call of `POST /daemon/commands/delegate`; prints the run's id (read its result with
+/// `GET /daemon/views/delegation-result`).
+pub fn delegate(args: DelegateArgs) -> ExitCode {
+    done("delegate", delegate_run(args))
 }
 
 pub fn runs(cmd: RunsCmd) -> ExitCode {
@@ -215,7 +245,7 @@ fn run_detached(args: RunArgs) -> Result<(), Failure> {
     let intake = read_intake(&args.intake)?;
     let context_path = match &args.context {
         None => None,
-        Some(dir) => Some(absolute_dir(dir)?),
+        Some(dir) => Some(absolute_dir("--context", dir)?),
     };
     let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, ..SubmitRun::default() };
     let reply = api.command("submit-run", &input)?;
@@ -238,23 +268,47 @@ fn settings_of(set: &[String]) -> Result<BTreeMap<String, String>, Failure> {
 }
 
 pub fn read_intake(source: &str) -> Result<String, Failure> {
+    read_text("--intake", "the intake", source)
+}
+
+/// The text of a file, or of standard input for `-`, at most `MAX_INTAKE_BYTES`: `flag` and `what` name it in a failure.
+fn read_text(flag: &str, what: &str, source: &str) -> Result<String, Failure> {
     let mut bytes = Vec::new();
     let limit = MAX_INTAKE_BYTES as u64 + 1;
     let read = if source == "-" { io::stdin().lock().take(limit).read_to_end(&mut bytes) } else { std::fs::File::open(source).and_then(|f| f.take(limit).read_to_end(&mut bytes)) };
-    read.map_err(|e| Failure::new(exit::NOT_FOUND, format!("--intake {source}: {e}")))?;
+    read.map_err(|e| Failure::new(exit::NOT_FOUND, format!("{flag} {source}: {e}")))?;
     if bytes.len() > MAX_INTAKE_BYTES {
-        return Err(Failure::new(exit::REFUSED, format!("IntakeTooLarge: the intake is over {MAX_INTAKE_BYTES} bytes")));
+        return Err(Failure::new(exit::REFUSED, format!("IntakeTooLarge: {what} is over {MAX_INTAKE_BYTES} bytes")));
     }
-    String::from_utf8(bytes).map_err(|_| Failure::new(exit::REFUSED, "the intake is not UTF-8 text"))
+    String::from_utf8(bytes).map_err(|_| Failure::new(exit::REFUSED, format!("{what} is not UTF-8 text")))
 }
 
-fn absolute_dir(dir: &Path) -> Result<String, Failure> {
-    let missing = |why: String| Failure::new(exit::NOT_FOUND, format!("--context {}: {why}", dir.display()));
+fn absolute_dir(flag: &str, dir: &Path) -> Result<String, Failure> {
+    let missing = |why: String| Failure::new(exit::NOT_FOUND, format!("{flag} {}: {why}", dir.display()));
     let full = std::fs::canonicalize(dir).map_err(|e| missing(e.to_string()))?;
     if !full.is_dir() {
         return Err(missing("not a directory".to_string()));
     }
-    full.to_str().map(String::from).ok_or_else(|| Failure::new(exit::REFUSED, "--context: the path is not UTF-8 text"))
+    full.to_str().map(String::from).ok_or_else(|| Failure::new(exit::REFUSED, format!("{flag}: the path is not UTF-8 text")))
+}
+
+// ---- delegate ----
+
+fn delegate_run(args: DelegateArgs) -> Result<(), Failure> {
+    let settings = settings_of(&args.set)?;
+    let api = connect(&args.remote)?;
+    let request = read_text("the request", "the request", &args.request)?;
+    let workspace = match &args.workspace {
+        None => None,
+        Some(dir) => Some(absolute_dir("--workspace", dir)?),
+    };
+    let input = Delegate { request, model_route: args.route, protocol: args.protocol, workspace, settings, ..Delegate::default() };
+    let reply = api.command("delegate", &input)?;
+    if args.json {
+        return say(&format!("{}\n", reply.body.trim_end()));
+    }
+    let run_id = run_id_of(&reply).ok_or_else(|| Failure::new(exit::OTHER, "the answer of delegate names no run"))?;
+    say(&format!("{run_id}\n"))
 }
 
 /// The run a submit created: the `run_id` of the event it published, else the `Location` header.

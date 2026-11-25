@@ -41,7 +41,11 @@ async fn post_message(State(backend): State<Shared>, request: Request) -> Respon
         return json_response(StatusCode::PAYLOAD_TOO_LARGE, &json!({"refused": "request body too large", "message": format!("the body is at most {MAX_BODY_BYTES} bytes")}));
     };
     let headers = Headers { protocol_version: text(&parts.headers, "mcp-protocol-version"), method: text(&parts.headers, "mcp-method"), name: text(&parts.headers, "mcp-name") };
-    let reply = rpc::handle(backend.as_ref(), &bytes, Wire::Http(&headers));
+    // A call may wait (`delegate` waits for its run's end): off the workers. The endpoint has no stream, so a notification a
+    // call sends is dropped.
+    let Ok(reply) = tokio::task::spawn_blocking(move || rpc::handle(backend.as_ref(), &bytes, Wire::Http(&headers))).await else {
+        return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"refused": "internal error", "message": "the MCP call ended without an answer"}));
+    };
     match reply.message {
         Some(m) => json_response(StatusCode::from_u16(reply.status).unwrap_or(StatusCode::OK), &m),
         None => Response::builder().status(StatusCode::ACCEPTED).body(Body::empty()).unwrap_or_default(),

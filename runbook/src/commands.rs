@@ -251,6 +251,15 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("submit-run", "session-closed", 409, Some("SessionClosedToRuns")),
     o("submit-run", "already-submitted", 202, None),
     o("submit-run", "submitted", 202, None),
+    o("delegate", "intake-too-large", 422, Some("IntakeTooLarge")),
+    o("delegate", "route-refused", 422, Some("RouteRefused")),
+    o("delegate", "no-runbook", 422, Some("NoSuchRunbook")),
+    o("delegate", "context-outside-roots", 422, Some("ContextOutsideRoots")),
+    o("delegate", "no-daemon", 409, Some("NoSuchDaemon")),
+    o("delegate", "no-session", 409, Some("NoSuchSession")),
+    o("delegate", "session-closed", 409, Some("SessionClosedToRuns")),
+    o("delegate", "already-submitted", 202, None),
+    o("delegate", "delegated", 202, None),
     o("cancel-run", "no-run", 404, Some("NoSuchRun")),
     o("cancel-run", "cancelled", 202, None),
     o("cancel-run", "already-ended", 409, Some("RunAlreadyEnded")),
@@ -304,6 +313,7 @@ fn event_name(short: &'static str) -> &'static str {
         "SessionClosed" => "sdc.daemon.SessionClosed",
         "DaemonStarted" => "sdc.daemon.DaemonStarted",
         "RunSubmitted" => "sdc.daemon.RunSubmitted",
+        "RunDelegated" => "sdc.daemon.RunDelegated",
         "SubmitReplayed" => "sdc.daemon.SubmitReplayed",
         "RunCancelled" => "sdc.daemon.RunCancelled",
         "RunStarted" => "sdc.daemon.RunStarted",
@@ -463,6 +473,45 @@ pub struct SubmitRun {
     pub session_id: Option<String>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+}
+
+/// The input of `Delegate` a client sends; the handler fills the rest (`run_id`, `runbook_id`, `confinement`, `route`, `path`, the
+/// facts and the instant).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Delegate {
+    pub request: String,
+    /// The route by the name the daemon declares it under; none: the daemon's default route (none yet).
+    #[serde(default)]
+    pub model_route: Option<String>,
+    /// The runbook to run with the request as its intake; none: the free run (`crate::delegation`).
+    #[serde(default)]
+    pub protocol: Option<String>,
+    /// A directory under a context root, copied into the run's workspace.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    #[serde(default, deserialize_with = "settings_of_strings")]
+    pub settings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// A run its command admitted: what `Daemon::enter` writes and starts.
+struct Admitted {
+    run_id: String,
+    runbook_id: String,
+    runbook_version: Option<String>,
+    intake: String,
+    context_path: Option<String>,
+    context_dir: Option<PathBuf>,
+    settings: BTreeMap<String, String>,
+    confinement: Confinement,
+    source: ConfinementSource,
+    terms: Terms,
+    session_id: Option<String>,
+    idempotency_key: Option<String>,
+    model_route: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -787,7 +836,7 @@ impl Daemon {
         // What the runtime refuses a run of the runbook for at load (a run never unbound in money).
         self.inner.runtime.check_runbook(&input.runbook_id, input.runbook_version.as_deref()).map_err(Fault::Invalid)?;
 
-        let mut st = self.st();
+        let st = self.st();
         draining_fault(&st)?;
         let floor = match st.daemon() {
             Some(d) if d.daemon_id == daemon_id => d.confinement_floor,
@@ -814,22 +863,49 @@ impl Daemon {
             }
         }
 
+        let payload = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement});
+        let admitted = Admitted {
+            run_id: run_id.clone(),
+            runbook_id: input.runbook_id,
+            runbook_version: input.runbook_version,
+            intake: input.intake,
+            context_path: input.context_path,
+            context_dir,
+            settings,
+            confinement,
+            source,
+            terms,
+            session_id: input.session_id,
+            idempotency_key: input.idempotency_key,
+            model_route: None,
+        };
+        self.enter(st, admitted, None)?;
+        let mut out = done("submit-run", "submitted", vec![("RunSubmitted", payload)]);
+        out.run_id = Some(run_id);
+        Ok(out)
+    }
+
+    /// A run that passed every guard of its command, under the lock those guards were read under: it is written (`Submitted`, with
+    /// its first event `runbook.submitted`, and for a delegation its second, `runbook.delegated` with `delegated` as its record) and
+    /// its thread is started.
+    fn enter(&self, mut st: MutexGuard<'_, State>, a: Admitted, delegated: Option<Value>) -> Result<(), Fault> {
+        let run_id = a.run_id;
         let (run_dir, workspace) = (st.run_dir(&run_id), st.workspace_dir(&run_id));
         // The run's directory holds its copy of the runbook and its store: private to the daemon's user.
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&run_dir)?;
         std::fs::create_dir_all(&workspace)?;
         let run = Run {
             run_id: run_id.clone(),
-            runbook_id: input.runbook_id.clone(),
-            runbook_version: input.runbook_version.clone(),
-            intake: input.intake.clone(),
-            context_path: input.context_path.clone(),
-            settings: settings.clone(),
-            confinement,
-            confinement_source: Some(source),
-            terms: terms.clone(),
-            session_id: input.session_id.clone(),
-            idempotency_key: input.idempotency_key.clone(),
+            runbook_id: a.runbook_id.clone(),
+            runbook_version: a.runbook_version.clone(),
+            intake: a.intake.clone(),
+            context_path: a.context_path,
+            settings: a.settings.clone(),
+            confinement: a.confinement,
+            confinement_source: Some(a.source),
+            terms: a.terms.clone(),
+            session_id: a.session_id,
+            idempotency_key: a.idempotency_key,
             submitted_at: st.now(),
             started_at: None,
             ended_at: None,
@@ -838,31 +914,148 @@ impl Daemon {
             state: RunState::Submitted,
         };
         st.commit(Fact::RunSubmitted(run))?;
-        let payload = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement});
-        let mut record = json!({"run_id": run_id, "runbook_id": input.runbook_id, "confinement": confinement, "confinement_source": source.as_str()});
-        if let Some(level) = terms.autonomy {
+        let mut record = json!({"run_id": run_id, "runbook_id": a.runbook_id, "confinement": a.confinement, "confinement_source": a.source.as_str()});
+        if let Some(level) = a.terms.autonomy {
             record["autonomy"] = json!(level);
         }
-        if let Some(kind) = &terms.decider {
+        if let Some(kind) = &a.terms.decider {
             record["decider"] = json!(kind);
         }
         record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
+        if let Some(d) = delegated {
+            record_event_locked(&mut st, &run_id, crate::delegation::DELEGATED_EVENT, d)?;
+        }
         drop(st);
 
         let request = StartRequest {
+            run_id,
+            runbook: a.runbook_id,
+            version: a.runbook_version,
+            intake: a.intake,
+            context_dir: a.context_dir,
+            settings: a.settings,
+            confinement: a.confinement,
+            terms: a.terms,
+            state_dir: run_dir,
+            workspace_dir: workspace,
+            model_route: a.model_route,
+        };
+        self.spawn_run(request);
+        Ok(())
+    }
+
+    /// `Delegate` (`docs/model-routes.md`, section 8): a piece of agent work on a named route, as a run. The guards run in the
+    /// specification's order; the gateway of the route is asked whether it is ready after the guards that need no lock and before
+    /// anything is written (a replay of an idempotency key is not asked about).
+    pub fn delegate(&self, input: Delegate) -> Reply {
+        let id = self.inner.daemon_id.clone();
+        self.delegate_for(&id, input)
+    }
+
+    /// `Delegate` as the daemon `daemon_id` names (the HTTP handler always names its own).
+    pub fn delegate_for(&self, daemon_id: &str, input: Delegate) -> Reply {
+        let daemon_id = daemon_id.to_owned();
+        if let Some(name) = input.settings.keys().find_map(|k| gateway_name(k)) {
+            return Err(gateway_refusal("the setting", &name));
+        }
+        if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
+            return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
+        }
+        draining_fault(&self.st())?;
+        let terms = Terms { autonomy: self.inner.policy.autonomy, decider: self.inner.policy.decider.clone() };
+        check_terms(&terms, &self.inner.policy.kinds).map_err(Fault::Invalid)?;
+        let confinement = self.inner.policy.default_confinement.ok_or_else(|| {
+            Fault::Invalid("a delegation runs at the daemon's default confinement level and this daemon has none: start it with --default-confinement or a `confinement` in runbook.toml".to_owned())
+        })?;
+        let run_id = uuid::Uuid::now_v7().to_string();
+        let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("delegate", name, payload)) };
+        // The facts the specification takes from the host. The daemon has no default route yet: a delegation that names none is
+        // refused as one that names an undeclared route.
+        let routes = self.inner.runtime.routes();
+        let route = input.model_route.as_deref().filter(|r| routes.iter().any(|d| d == r));
+        let (runbook_id, path) = match &input.protocol {
+            Some(p) => (p.clone(), "named"),
+            None => (crate::delegation::FREE_RUNBOOK.to_owned(), "free"),
+        };
+        let runbook_known = match &input.protocol {
+            Some(p) => self.runbook_known(p, None),
+            None => self.inner.runtime.free_run(),
+        };
+        let context = input.workspace.as_deref().map(|p| self.context_under_roots(p));
+
+        if input.request.len() > MAX_INTAKE_BYTES {
+            return refused("intake-too-large", json!({"run_id": run_id}));
+        }
+        let Some(route) = route.map(str::to_owned) else {
+            let mut payload = json!({"run_id": run_id, "routes": routes});
+            if let Some(named) = &input.model_route {
+                payload["route"] = json!(shown(named));
+            }
+            return refused("route-refused", payload);
+        };
+        if !runbook_known {
+            return refused("no-runbook", json!({"run_id": run_id}));
+        }
+        if matches!(context, Some(None)) {
+            return refused("context-outside-roots", json!({"run_id": run_id}));
+        }
+        let context_dir = context.flatten();
+        let mut settings = input.settings.clone();
+        match self.inner.runtime.resolve_caps(&settings) {
+            Ok(Some(caps)) => caps.put(&mut settings),
+            Ok(None) => {}
+            Err(why) => return Err(Fault::Invalid(why)),
+        }
+        if input.protocol.is_some() {
+            self.inner.runtime.check_runbook(&runbook_id, None).map_err(Fault::Invalid)?;
+        }
+        let replay = input.idempotency_key.as_deref().is_some_and(|k| self.st().run_by_key(k).is_some());
+        if !replay {
+            if let Some(why) = self.inner.runtime.route_unready(&route) {
+                return Err(Fault::Refused { status: 503, what: "route-unavailable", message: why });
+            }
+        }
+
+        let st = self.st();
+        draining_fault(&st)?;
+        match st.daemon() {
+            Some(d) if d.daemon_id == daemon_id => {}
+            _ => return refused("no-daemon", json!({"daemon_id": daemon_id})),
+        }
+        let session = input.session_id.as_ref().map(|sid| (sid, st.session(sid).map(|s| s.state)));
+        if let Some((sid, None)) = &session {
+            return refused("no-session", json!({"session_id": sid}));
+        }
+        if let Some((sid, Some(SessionState::Closed))) = &session {
+            return refused("session-closed", json!({"run_id": run_id, "session_id": sid}));
+        }
+        if let Some(key) = &input.idempotency_key {
+            if let Some(first) = st.run_by_key(key) {
+                let first = first.run_id.clone();
+                let mut out = done("delegate", "already-submitted", vec![("SubmitReplayed", json!({"idempotency_key": key, "run_id": first}))]);
+                out.run_id = Some(first);
+                return Ok(out);
+            }
+        }
+        let submitted = json!({"run_id": run_id, "runbook_id": runbook_id, "confinement": confinement});
+        let delegated = json!({"run_id": run_id, "route": route, "path": path, "protocol": runbook_id});
+        let admitted = Admitted {
             run_id: run_id.clone(),
-            runbook: input.runbook_id,
-            version: input.runbook_version,
-            intake: input.intake,
+            runbook_id: runbook_id.clone(),
+            runbook_version: None,
+            intake: input.request,
+            context_path: input.workspace,
             context_dir,
             settings,
             confinement,
+            source: ConfinementSource::DaemonDefault,
             terms,
-            state_dir: run_dir,
-            workspace_dir: workspace,
+            session_id: input.session_id,
+            idempotency_key: input.idempotency_key,
+            model_route: Some(route.clone()),
         };
-        self.spawn_run(request);
-        let mut out = done("submit-run", "submitted", vec![("RunSubmitted", payload)]);
+        self.enter(st, admitted, Some(json!({"route": route, "path": path, "protocol": runbook_id})))?;
+        let mut out = done("delegate", "delegated", vec![("RunSubmitted", submitted), ("RunDelegated", delegated)]);
         out.run_id = Some(run_id);
         Ok(out)
     }
@@ -1179,6 +1372,61 @@ impl Daemon {
         m.insert("shown".into(), json!(r.shown));
         m.insert("truncated".into(), json!(r.truncated));
         m.insert("limit".into(), json!(crate::engine::products::LIMIT));
+        Ok(vec![Value::Object(m)])
+    }
+
+    /// The view `DelegationResult` (wire name `delegation-result`): one row, what a delegation's run has come to. The route, path
+    /// and protocol are its event `runbook.delegated`; the calls, tokens and cost the sum of its events `runbook.model-call`; the
+    /// result the text of `result.md` of its workspace (`engine::products::read_within`, at most `delegation::RESULT_LIMIT` bytes)
+    /// and the products the paths `products_of_run` lists, read after the state is let go. A run that no delegation created is
+    /// refused 404 `not a delegation`.
+    pub fn delegation_result(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
+        use crate::delegation::{DELEGATED_EVENT, RESULT_FILE, RESULT_LIMIT};
+        let (mut m, workspace) = {
+            let st = self.st();
+            let run = st.run(run_id).ok_or_else(|| Fault::no_such_run(run_id))?;
+            let events = st.events_after(Some(run_id), None, 0);
+            let delegated = events.iter().find(|e| e.kind == DELEGATED_EVENT).ok_or_else(|| Fault::Refused {
+                status: 404,
+                what: "not a delegation",
+                message: format!("the run {} was not created by a delegation: read it with the view run", crate::engine::products::said(run_id)),
+            })?;
+            let (mut calls, mut input_tokens, mut output_tokens, mut cost, mut cost_known) = (0u64, 0u64, 0u64, 0u64, true);
+            for e in events.iter().filter(|e| e.kind == crate::relay::MODEL_CALL_EVENT) {
+                let n = |k: &str| e.record[k].as_u64().unwrap_or(0);
+                calls += 1;
+                input_tokens = input_tokens.saturating_add(n("input_tokens"));
+                output_tokens = output_tokens.saturating_add(n("output_tokens"));
+                cost = cost.saturating_add(n("micro_usd"));
+                cost_known &= e.record["cost_known"].as_bool().unwrap_or(false);
+            }
+            let mut m = Map::new();
+            m.insert("run_id".into(), json!(run_id));
+            m.insert("run_state".into(), json!(run.state));
+            put(&mut m, "outcome", &run.outcome);
+            put(&mut m, "failure", &run.failure);
+            for key in ["route", "path", "protocol"] {
+                m.insert(key.into(), delegated.record[key].clone());
+            }
+            m.insert("confidence".into(), Value::Null);
+            m.insert("calls".into(), json!(calls));
+            m.insert("input_tokens".into(), json!(input_tokens));
+            m.insert("output_tokens".into(), json!(output_tokens));
+            m.insert("cost_micro_usd".into(), json!(cost));
+            m.insert("cost_known".into(), json!(cost_known));
+            (m, st.workspace_dir(run_id))
+        };
+        let products: Vec<String> = crate::engine::products::list(&workspace)?.files.into_iter().map(|f| f.path).collect();
+        let (text, truncated) = match crate::engine::products::read_within(&workspace, RESULT_FILE, RESULT_LIMIT) {
+            Ok(r) => (r.text, r.truncated),
+            Err(_) => (None, false),
+        };
+        if let Some(text) = text {
+            m.insert("result_text".into(), json!(text));
+        }
+        m.insert("result_truncated".into(), json!(truncated));
+        m.insert("result_limit".into(), json!(RESULT_LIMIT));
+        m.insert("products".into(), json!(products));
         Ok(vec![Value::Object(m)])
     }
 

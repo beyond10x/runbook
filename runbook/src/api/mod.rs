@@ -63,6 +63,13 @@ async fn read_body(request: Request) -> Option<Vec<u8>> {
 
 async fn command_route(app: App, name: &'static str, request: Request) -> Response {
     match read_body(request).await {
+        // A delegation asks the route's gateway whether it is ready, which may take a few seconds: off the workers.
+        Some(body) if name == "delegate" => {
+            let daemon = app.daemon.clone();
+            tokio::task::spawn_blocking(move || routes::command(name, &daemon, &body))
+                .await
+                .unwrap_or_else(|_| refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal error", "the delegation's handler ended without an answer"))
+        }
         Some(body) => routes::command(name, &app.daemon, &body),
         None => refusal(StatusCode::PAYLOAD_TOO_LARGE, "request body too large", &format!("the body is at most {MAX_BODY_BYTES} bytes")),
     }

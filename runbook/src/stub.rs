@@ -105,6 +105,8 @@ pub struct StubRuntime {
     table: Mutex<HashMap<String, Script>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
     given: Mutex<Vec<AnswerGiven>>,
+    /// The model routes a delegation may name (`route`); none by default.
+    routes: Mutex<Vec<String>>,
 }
 
 const POLL: Duration = Duration::from_millis(2);
@@ -122,6 +124,16 @@ impl StubRuntime {
     /// Put a script in the table under a runbook name.
     pub fn script(&self, runbook: &str, script: Script) {
         self.table.lock().unwrap().insert(runbook.to_string(), script);
+    }
+
+    /// Declare a model route a delegation may name. The stub has no gateway: every declared route is ready, and a delegation's free
+    /// run is the script under `delegation-free`, when the table has one.
+    pub fn route(&self, name: &str) {
+        let mut routes = self.routes.lock().unwrap();
+        if !routes.iter().any(|r| r == name) {
+            routes.push(name.to_owned());
+            routes.sort();
+        }
     }
 
     /// The script `runbook serve` gives a preset: one record, a short sleep, the outcome `done`.
@@ -228,6 +240,14 @@ impl Runtime for StubRuntime {
 
     fn kind(&self) -> &'static str {
         "stub"
+    }
+
+    fn routes(&self) -> Vec<String> {
+        self.routes.lock().unwrap().clone()
+    }
+
+    fn free_run(&self) -> bool {
+        self.table.lock().unwrap().contains_key(crate::delegation::FREE_RUNBOOK)
     }
 
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure> {

@@ -117,6 +117,8 @@ pub struct Engine {
     wall: WallClock,
     /// The daemon's relay and the route table of the runs whose decider kind is `model`; none: no run is on a route.
     routes: Option<(Arc<crate::relay::Relay>, crate::relay::RouteTable)>,
+    /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
+    free_home: Option<PathBuf>,
 }
 
 struct Registered<'a> {
@@ -151,7 +153,28 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None, free_home: None }
+    }
+
+    /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
+    /// is read from there, never from the configured homes.
+    pub fn with_free_run(mut self, home: PathBuf) -> Engine {
+        self.free_home = Some(std::path::absolute(&home).unwrap_or(home));
+        self
+    }
+
+    /// The route table of a run: a delegation's route as the role `default`; else, for a run whose decider is a model, the daemon's
+    /// table; else none.
+    fn table_of(&self, request: &StartRequest, model_run: bool) -> Result<Option<(&Arc<crate::relay::Relay>, crate::relay::RouteTable)>, RuntimeFailure> {
+        match (&self.routes, &request.model_route) {
+            (Some((relay, table)), Some(name)) => {
+                let route = table.route(name).ok_or_else(|| failure(format!("the delegation's route {name} is not one this daemon declares")))?;
+                Ok(Some((relay, crate::relay::RouteTable::default().with("default", route.clone(), "delegation"))))
+            }
+            (None, Some(name)) => Err(failure(format!("the delegation's route {name} is not one this daemon declares: it declares none"))),
+            (Some((relay, table)), None) if model_run => Ok(Some((relay, table.clone()))),
+            _ => Ok(None),
+        }
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
@@ -227,7 +250,10 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
+        let home = match (&self.free_home, &request.model_route) {
+            (Some(free), Some(_)) if request.runbook == crate::delegation::FREE_RUNBOOK => free.clone(),
+            _ => layout::home_of(&self.homes, &request.runbook).map_err(failure)?,
+        };
         let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
         let mut runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
@@ -251,9 +277,9 @@ impl Engine {
         // A run whose decider is a model is on the daemon's route: the run's place on the relay and its route file,
         // whose path every bound program and the decider get (`engine::route`). It goes when the run ends.
         let model_run = terms.decider.as_deref() == Some("model") && terms.autonomy.is_some_and(|l| l != Autonomy::A0);
-        let route = match &self.routes {
-            Some((relay, table)) if model_run => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
-            _ => None,
+        let route = match self.table_of(request, model_run)? {
+            Some((relay, table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, &table).map_err(failure)?),
+            None => None,
         };
         if let Some(r) = &route {
             runner = route::RouteEnv::wrap(runner, r.file());
@@ -791,6 +817,19 @@ impl Runtime for Engine {
             .into_iter()
             .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
             .collect())
+    }
+
+    fn routes(&self) -> Vec<String> {
+        self.routes.as_ref().map(|(_, table)| table.names()).unwrap_or_default()
+    }
+
+    fn route_unready(&self, route: &str) -> Option<String> {
+        let found = self.routes.as_ref().and_then(|(_, table)| table.route(route))?;
+        crate::relay::ready(found).err()
+    }
+
+    fn free_run(&self) -> bool {
+        self.free_home.is_some()
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

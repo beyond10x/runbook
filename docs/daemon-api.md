@@ -50,6 +50,7 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
 | `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
+| `delegate` | `IntakeTooLarge`, `RouteRefused` (the route is not one the daemon declares; the payload lists the declared `routes`), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `SessionClosedToRuns`; and `503` `route-unavailable` outside the language (below) |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
@@ -132,6 +133,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
+| `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -151,6 +153,46 @@ rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
+
+### A delegation
+
+`POST /daemon/commands/delegate` asks for a piece of agent work on a named model route
+(`docs/model-routes.md`, section 8):
+`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "settings": {}, "session_id": "<id>", "idempotency_key": "<key>"}`,
+every member but `request` optional. A delegation is a run, at the daemon's default confinement level (a daemon
+with none refuses it `400` and writes nothing), with the request as its intake; `cancel-run`, the run views, the
+events and the web UI work on it unchanged.
+
+- With `protocol`, that runbook runs (the path `named`). Without, the free run (the path `free`): the daemon's own
+  runbook `delegation-free`, one agent node (`sdc-node delegation.free` on the claude-cli adapter, the instruction
+  `instructions/delegation.free.md`) whose instruction is the request, with the files of the workspace as its inputs,
+  writing `result.md`. The daemon writes that runbook under its state directory at every start
+  (`runbook/src/delegation.rs`); a `submit-run` does not find it.
+- The route: `model_route`, by the name the daemon declares it under. Until the daemon declares routes of its own
+  the one route is `default`, the `[gateway]` with the model of `[deciders.model]`; a daemon without them declares
+  none. A route the daemon does not declare, or none named (the daemon has no default route yet), is refused
+  `RouteRefused` (422) with the declared routes in `payload.routes`; nothing is written. Every model process of the
+  run reaches the route through the relay as the role `default` (below, "The relay of a run's model calls").
+- Before anything is written the daemon asks the route's gateway `GET <base_url>/ready` (3 s to connect, 3 s for
+  the answer). Any answer but `200` refuses the delegation `503` with `{"refused": "route-unavailable", "message":
+  "route <name> is not ready: ..."}`, naming the route and never its address or token. A replay of an
+  idempotency key is not asked about.
+- The accepted answer, `202` outcome `delegated`, publishes `RunSubmitted` (`published[0].payload.run_id` is the
+  run) and `RunDelegated` (`route`, `path`, `protocol`), and the `Location` header names the run's result:
+  `/daemon/views/delegation-result?run_id=<id>`. The run holds two events before the runtime records any:
+  `runbook.submitted` and `runbook.delegated` (`route`, `path`, `protocol`).
+
+`GET /daemon/views/delegation-result?run_id=<id>` answers one row: `run_state`, and once the run ended its
+`outcome` (and `failure`); `route`, `path`, `protocol`; `confidence` (`null`: no classifier yet); `result_text`,
+the text of `result.md` of the run's `work/` directory read as the view `product` reads a file (absent while there
+is none, and for a file that is not text), `result_truncated` and `result_limit` (1,048,576 bytes); `products`, the
+paths the view `products` lists; `calls`, `input_tokens`, `output_tokens` and `cost_micro_usd`, the sum of the
+run's events `runbook.model-call`; `cost_known`, false when any call was booked at its reservation. A run id the
+daemon does not know is `404` `no such run`; a run no delegation created is `404` `not a delegation`.
+
+`runbook delegate [--route <r>] [--protocol <p>] [--workspace <dir>] [--set K=V] <request-file|->` sends one
+delegation and prints the run's id (`--json`: the route's answer); the MCP tools `delegate` and
+`delegation_result` are in [`mcp.md`](mcp.md).
 
 ### The products of a run
 
@@ -757,7 +799,8 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
 ## The relay of a run's model calls
 
 A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener when that is loopback, the relay of
-the model calls of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
+the model calls of its runs whose kind is `model` and of every delegation's run (above, "A delegation"; `docs/engine.md`,
+"A gateway"; `docs/model-routes.md`, section 11).
 On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
 a run whose kind is `model` does not start. On a loopback listener:
 
@@ -794,6 +837,10 @@ a run whose kind is `model` does not start. On a loopback listener:
   scenario-tested; the checks themselves are tested in the same story. The intake size limit is in
   the specification as a character count, the weaker bound; the handler holds the limit in bytes
   (1,048,576 bytes of UTF-8).
+- The readiness of a delegation's route: `route-unavailable` (503) is the daemon's `{refused, message}` answer, as a
+  draining daemon's refusal is; the facts `route_declared`, `runbook_known` and `context_inside_roots` of `Delegate`
+  are read from the host as those of `submit-run` are. `delegation-result`'s two refusals are the daemon's answers
+  too (a view has no outcome).
 - The refusals of the views `products`, `product` and `cases`: a view has no outcome in the language, so the
   refusals are the daemon's answers, written in the views' summaries, in "The products of a run" and in "The case
   tree of a run". Where a case stands (`case_state`) is read from the runtime, not moved by a command.

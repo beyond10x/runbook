@@ -176,6 +176,21 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             inp.notes(&notes);
             Ok(Built::new("aep", None, c.render_part("task", &[("epic", &c.names().0)])?))
         }
+        "delegation.free" => {
+            // The free run of a delegation: the request is the task, and every file of the workspace an input.
+            let request = yaml::load(&work.join("request.yaml")).map(|d| yaml::text(yaml::get(&d, "text"))).unwrap_or_default();
+            if request.trim().is_empty() {
+                return Err(die(format!("llm-node: {} could not run: the workspace holds no request (request.yaml with a text)", c.node), 126));
+            }
+            let mut entries: Vec<String> = fs::read_dir(work)
+                .map(|d| d.flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|n| !n.starts_with('.') && n != "request.yaml" && n != "result.md").collect())
+                .unwrap_or_default();
+            entries.sort();
+            for e in &entries {
+                inp.input(e);
+            }
+            Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request)])?))
+        }
         "change.review" => crate::review::inputs(c, rec, cwd, inp),
         "change.implement" => crate::implement::inputs(c, rec, cwd, inp),
         "test.reproduce" => {

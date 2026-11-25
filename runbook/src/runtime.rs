@@ -154,6 +154,9 @@ pub struct StartRequest {
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
     pub workspace_dir: PathBuf,
+    /// The route of a delegation (`Daemon::delegate`), by name: every model process of the run reaches it through the daemon's relay
+    /// as the role `default`. None: the run is on a route only when its decider is a model.
+    pub model_route: Option<String>,
 }
 
 /// A question the runtime raised for a run.
@@ -347,5 +350,21 @@ pub trait Runtime: Send + Sync + 'static {
     /// has a run whose tree is not written yet.
     fn cases(&self, _run_id: &str) -> Result<Vec<CaseRow>, String> {
         Ok(Vec::new())
+    }
+
+    /// The model routes a delegation may name, in order of name. None (the stub): every delegation is refused.
+    fn routes(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Why the route `route` cannot take a run now (its gateway is not ready), naming the route and never its address or
+    /// token; `None`: it can. Asked at a delegation, before anything is written; it may block a few seconds.
+    fn route_unready(&self, _route: &str) -> Option<String> {
+        None
+    }
+
+    /// Whether the runtime runs the free run of a delegation (`crate::delegation`).
+    fn free_run(&self) -> bool {
+        false
     }
 }
