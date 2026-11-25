@@ -1,9 +1,13 @@
 //! The `runbook` plugin (`plugin/`, `.claude-plugin/marketplace.json`): its manifests carry the
 //! repository version, its marketplace entry points at `./plugin`, every skill has a description
 //! that says when to use it and when not, and every repository path a `SKILL.md` names exists.
+//! Its delegation parts (story `claude-plugin-serves-delegation`): the hook script that denies
+//! every Agent call, run on recorded hook input, and the hook and MCP configuration that start it.
 
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
@@ -150,7 +154,7 @@ fn the_plugin_directory_is_the_one_home_of_the_skills() {
 fn every_skill_has_a_name_and_a_description_with_use_and_not() {
     let dirs = skills();
     let names: Vec<String> = dirs.iter().map(|d| d.file_name().unwrap().to_string_lossy().into()).collect();
-    assert_eq!(names, ["harden", "record", "workflow-builder"]);
+    assert_eq!(names, ["delegation", "harden", "record", "workflow-builder"]);
     for d in dirs {
         let text = fs::read_to_string(d.join("SKILL.md")).unwrap();
         let fm = frontmatter(&text);
@@ -246,4 +250,178 @@ fn leaks_are_found() {
     assert_eq!(leaks(&home), ["home path"]);
     assert_eq!(leaks(&mail), ["email address"]);
     assert!(leaks(&neither).is_empty());
+}
+
+// The delegation hook: `plugin/hooks/delegation.sh <event>`, fed the JSON Claude Code writes on its
+// standard input (the documented `PreToolUse` and `SessionStart` input, recorded under
+// `tests/fixtures/plugin/`).
+
+const HOOK: &str = "plugin/hooks/delegation.sh";
+
+fn fixture(name: &str) -> Vec<u8> {
+    let p = root().join("driver/tests/fixtures/plugin").join(name);
+    fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+}
+
+/// The first `name` found in a directory of `PATH`.
+fn on_path(name: &str) -> PathBuf {
+    let path = std::env::var_os("PATH").expect("PATH");
+    std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file()).unwrap_or_else(|| panic!("{name} not on PATH"))
+}
+
+/// A directory holding only `sed` and `tr`: the hook runs with it as its whole `PATH`, so a call
+/// to any other program (a network client among them) fails.
+fn narrow_path() -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("plugin-hook-path-{}", std::process::id()));
+    if !dir.is_dir() {
+        fs::create_dir_all(&dir).unwrap();
+        for tool in ["sed", "tr"] {
+            std::os::unix::fs::symlink(on_path(tool), dir.join(tool)).unwrap();
+        }
+    }
+    dir
+}
+
+/// Runs the hook with an empty environment but `PATH` (`narrow_path`) and `RUNBOOK_MODEL_ROUTE`
+/// when given: its exit code and standard output.
+fn hook(event: &str, input: &[u8], route: Option<&str>) -> (i32, String) {
+    let mut cmd = Command::new(on_path("sh"));
+    cmd.arg(root().join(HOOK)).arg(event).env_clear().env("PATH", narrow_path());
+    if let Some(r) = route {
+        cmd.env("RUNBOOK_MODEL_ROUTE", r);
+    }
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    let out = child.wait_with_output().unwrap();
+    (out.status.code().unwrap_or(-1), String::from_utf8(out.stdout).expect("the hook writes UTF-8"))
+}
+
+/// The deny answer's reason; panics unless the output is exactly one `PreToolUse` deny object.
+fn denied(out: &str) -> String {
+    let v: Value = serde_json::from_str(out).unwrap_or_else(|e| panic!("the hook's output is not JSON ({e}): {out}"));
+    let h = &v["hookSpecificOutput"];
+    assert_eq!(h["hookEventName"], "PreToolUse", "{out}");
+    assert_eq!(h["permissionDecision"], "deny", "{out}");
+    h["permissionDecisionReason"].as_str().unwrap_or_else(|| panic!("no reason: {out}")).to_string()
+}
+
+#[test]
+fn hook_denies_an_agent_call_naming_delegate_the_prompt_and_the_route() {
+    let (code, out) = hook("pre-tool-use", &fixture("pre-tool-use-agent.json"), Some("qwen-local"));
+    assert_eq!(code, 0, "{out}");
+    let reason = denied(&out);
+    assert!(reason.contains("`delegate`"), "{reason}");
+    assert!(reason.contains("Find every caller of \"route_for\" in runbook/src \\ the daemon (prüfe)."), "{reason}");
+    assert!(!reason.contains("Then list each"), "only the prompt's first line: {reason}");
+    assert!(reason.contains("`qwen-local`") && reason.contains("RUNBOOK_MODEL_ROUTE"), "{reason}");
+    assert!(!reason.contains("default route"), "{reason}");
+}
+
+#[test]
+fn hook_names_the_daemons_default_route_when_the_session_has_none() {
+    for route in [None, Some("")] {
+        let (code, out) = hook("pre-tool-use", &fixture("pre-tool-use-agent.json"), route);
+        assert_eq!(code, 0, "{out}");
+        let reason = denied(&out);
+        assert!(reason.contains("`delegate`"), "{reason}");
+        assert!(reason.contains("the daemon's default route"), "{route:?}: {reason}");
+        assert!(reason.contains("RUNBOOK_MODEL_ROUTE"), "{reason}");
+    }
+}
+
+#[test]
+fn hook_writes_a_route_with_quotes_and_backslashes_as_valid_json() {
+    let route = "odd\"route\\x";
+    let (_, out) = hook("pre-tool-use", &fixture("pre-tool-use-agent.json"), Some(route));
+    assert!(denied(&out).contains(route), "{out}");
+}
+
+#[test]
+fn hook_lets_a_call_of_another_tool_pass() {
+    let (code, out) = hook("pre-tool-use", &fixture("pre-tool-use-bash.json"), Some("qwen-local"));
+    assert_eq!((code, out.as_str()), (0, ""));
+}
+
+#[test]
+fn hook_denies_input_it_cannot_read() {
+    let agent = String::from_utf8(fixture("pre-tool-use-agent.json")).unwrap();
+    let cut = &agent[..agent.find("\"tool_name\"").unwrap() + 8];
+    let no_prompt = r#"{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"x"}}"#;
+    let bad_bytes: &[u8] = b"{\"tool_name\":\"Agent\",\"tool_input\":{\"prompt\":\"caf\xe9\nnext\"}}";
+    for input in [&b""[..], b"not json", cut.as_bytes(), no_prompt.as_bytes(), bad_bytes] {
+        let (code, out) = hook("pre-tool-use", input, Some("qwen-local"));
+        assert_eq!(code, 0, "{out}");
+        let reason = denied(&out);
+        assert!(reason.contains("`delegate`") && reason.contains("`qwen-local`"), "{reason}");
+    }
+}
+
+#[test]
+fn hook_cuts_a_long_first_line_at_200_characters() {
+    let input = serde_json::json!({"tool_name": "Agent", "tool_input": {"prompt": format!("{}\nrest", "ä".repeat(300))}});
+    let reason = denied(&hook("pre-tool-use", input.to_string().as_bytes(), None).1);
+    let shown = reason.rsplit_once("The prompt begins: ").expect("the prompt's line").1;
+    assert_eq!(shown, format!("{} ...", "ä".repeat(200)));
+}
+
+#[test]
+fn hook_reads_pretty_printed_input() {
+    let v: Value = serde_json::from_slice(&fixture("pre-tool-use-agent.json")).unwrap();
+    let pretty = serde_json::to_string_pretty(&v).unwrap();
+    let reason = denied(&hook("pre-tool-use", pretty.as_bytes(), None).1);
+    assert!(reason.contains("Find every caller of \"route_for\""), "{reason}");
+}
+
+#[test]
+fn session_start_says_delegate_the_route_and_the_catalog() {
+    for (route, names) in [(Some("qwen-local"), "`qwen-local`"), (None, "the daemon's default route")] {
+        let (code, out) = hook("session-start", &fixture("session-start.json"), route);
+        assert_eq!(code, 0, "{out}");
+        let v: Value = serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"));
+        assert_eq!(v["hookSpecificOutput"]["hookEventName"], "SessionStart", "{out}");
+        let text = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+        for want in ["`delegate`", "`describe_catalog`", names] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+    }
+}
+
+#[test]
+fn hook_names_no_network_program() {
+    let text = fs::read_to_string(root().join(HOOK)).unwrap();
+    let code: String = text.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n");
+    for word in ["curl", "wget", "nc ", "ncat", "socat", "/dev/tcp", "/dev/udp", "ssh", "telnet", "http:", "https:"] {
+        assert!(!code.contains(word), "{HOOK} names `{word}`");
+    }
+}
+
+#[test]
+fn hooks_deny_agent_and_block_when_the_hook_fails() {
+    let h = json(&root().join("plugin/hooks/hooks.json"));
+    for (event, matcher, arg) in [("PreToolUse", Some("Agent"), "pre-tool-use"), ("SessionStart", None, "session-start")] {
+        let groups = h["hooks"][event].as_array().unwrap_or_else(|| panic!("hooks.{event}"));
+        assert_eq!(groups.len(), 1, "{event}");
+        if let Some(m) = matcher {
+            assert_eq!(groups[0]["matcher"], m, "{event}");
+        }
+        let one = &groups[0]["hooks"][0];
+        assert_eq!(one["type"], "command", "{event}");
+        assert_eq!(one["command"], "sh", "{event}");
+        assert_eq!(one["args"], serde_json::json!(["${CLAUDE_PLUGIN_ROOT}/hooks/delegation.sh", arg]), "{event}");
+        if event == "PreToolUse" {
+            assert_eq!(one["onFailure"], "block");
+        }
+    }
+    assert!(root().join(HOOK).is_file());
+}
+
+#[test]
+fn mcp_configuration_starts_runbook_mcp_on_the_sessions_daemon() {
+    let m = json(&root().join("plugin/.mcp.json"));
+    let s = &m["mcpServers"]["runbook"];
+    assert_eq!(s["command"], "runbook");
+    assert_eq!(s["args"], serde_json::json!(["mcp"]));
+    assert_eq!(s["env"]["RUNBOOK_DAEMON"], "${RUNBOOK_DAEMON}");
+    let timeout = s["timeout"].as_u64().expect("a per-server timeout in milliseconds");
+    assert!(timeout >= 1000, "Claude Code ignores a timeout under 1000 ms: {timeout}");
 }

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "runbook": {
+      "command": "runbook",
+      "args": ["mcp"],
+      "env": {
+        "RUNBOOK_DAEMON": "${RUNBOOK_DAEMON}"
+      },
+      "timeout": 3600000
+    }
+  }
+}
