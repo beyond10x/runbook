@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:4a2213790b46a9cc5c783c3690ac422938e0bcc89442893d170fb93634f72dc2
+# contract digest slice-sha256/2:578d7ec281f6a1574d3c3c8a4233d7444c1b02184677dd4c313eca461c8453e4
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:4a2213790b46a9cc5c783c3690ac422938e0bcc89442893d170fb93634f72dc2
+    contract_digest: slice-sha256/2:578d7ec281f6a1574d3c3c8a4233d7444c1b02184677dd4c313eca461c8453e4
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -550,6 +550,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.CasesOfRun.Response'
+  /daemon/views/catalog:
+    get:
+      operationId: sdc.daemon.Catalog
+      summary: What a delegation may name
+      description: 'What a client may pass to Delegate, in one row: GET /daemon/views/catalog (the MCP tool describe_catalog, the command runbook catalog). `routes`: each declared route with its kind, alias, gateway by name, wires, status and phase as the view Routes reads them (at most once every 15 seconds), its context length and tool calling as the gateway lists them, and the prices and wait of the daemon''s file. `runbooks`: each runbook of the view Runbooks with its purpose in one line, its description, its inputs and its route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) with the daemon''s admission of each; a runbook whose entries cannot be admitted is listed with the reason. `delegation`: the members of Delegate, the paths a delegation may take, the default and classifier routes, the level and the most bytes of a request. No address, token, token file or path of the host is in the row.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.Catalog`, a projection of `sdc.daemon.DaemonCatalog`. Contains every instance. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.Catalog.Response'
   /daemon/views/configuration:
     get:
       operationId: sdc.daemon.DaemonConfiguration
@@ -732,7 +747,7 @@ paths:
     get:
       operationId: sdc.daemon.Routes
       summary: Model routes
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -1294,6 +1309,136 @@ components:
       - case_id
       - protocol
       - case_state
+      additionalProperties: false
+    sdc.daemon.Catalog.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.Catalog`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.Catalog.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.Catalog.Row:
+      title: What a delegation may name row
+      description: 'What a client may pass to Delegate, in one row: GET /daemon/views/catalog (the MCP tool describe_catalog, the command runbook catalog). `routes`: each declared route with its kind, alias, gateway by name, wires, status and phase as the view Routes reads them (at most once every 15 seconds), its context length and tool calling as the gateway lists them, and the prices and wait of the daemon''s file. `runbooks`: each runbook of the view Runbooks with its purpose in one line, its description, its inputs and its route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) with the daemon''s admission of each; a runbook whose entries cannot be admitted is listed with the reason. `delegation`: the members of Delegate, the paths a delegation may take, the default and classifier routes, the level and the most bytes of a request. No address, token, token file or path of the host is in the row.'
+      x-ess-name: sdc.daemon.Catalog
+      x-ess-kind: view-row
+      type: object
+      properties:
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.CatalogRoute'
+        runbooks:
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.CatalogRunbook'
+        delegation:
+          $ref: '#/components/schemas/sdc.daemon.DelegationTerms'
+      required:
+      - routes
+      - runbooks
+      - delegation
+      additionalProperties: false
+    sdc.daemon.CatalogRoute:
+      title: CatalogRoute
+      description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait. No address, token or token file.'
+      x-ess-name: sdc.daemon.CatalogRoute
+      x-ess-kind: struct
+      type: object
+      properties:
+        route:
+          $ref: '#/components/schemas/sdc.daemon.RouteName'
+        gateway:
+          description: The name of the route's gateway in the daemon's file, never its address.
+          type: string
+        alias:
+          type: string
+        kind:
+          $ref: '#/components/schemas/sdc.daemon.ModelRouteKind'
+        wires:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/sdc.daemon.RouteStatus'
+        phase:
+          type: string
+        max_model_len:
+          description: The context length `GET /v1/models` gave for the alias; absent when the gateway gave none.
+          type: integer
+        tool_calling:
+          description: Whether the model calls tools, as `GET /v1/models` gave it for the alias; absent when the gateway gave nothing.
+          type: boolean
+        price_in_micro_usd_per_mtok:
+          description: 'What a call on the route books per million input tokens; absent when the file declares no price: the call books its reservation and its cost is not known.'
+          type: integer
+        price_out_micro_usd_per_mtok:
+          description: The same per million output tokens.
+          type: integer
+        start_wait_seconds:
+          description: How long a run waits for the route's model to be ready; absent when the file sets none.
+          type: integer
+        read_at:
+          description: When the daemon read the gateway for this route.
+          type: string
+          format: date-time
+      required:
+      - route
+      - gateway
+      - alias
+      - kind
+      - wires
+      - status
+      - read_at
+      additionalProperties: false
+    sdc.daemon.CatalogRunbook:
+      title: CatalogRunbook
+      description: 'A runbook a delegation may name as its protocol, as the catalog lists it: the name and version of the view Runbooks, its purpose in one line and its description as its root protocol gives them, the inputs a delegation''s request fills, and its route entries with the daemon''s admission of each. A runbook whose entries cannot be admitted is listed with the reason. No path of the host.'
+      x-ess-name: sdc.daemon.CatalogRunbook
+      x-ess-kind: struct
+      type: object
+      properties:
+        runbook_id:
+          $ref: '#/components/schemas/sdc.daemon.RunbookName'
+        runbook_version:
+          $ref: '#/components/schemas/sdc.daemon.RunbookVersion'
+        title:
+          description: 'Its purpose in one line: the root protocol''s title, else the first sentence of its description; absent when it has neither.'
+          type: string
+        description:
+          description: The root protocol's description, at most 2000 characters; absent when it has none.
+          type: string
+        inputs:
+          description: 'The artifacts a delegation''s request becomes: `idea` when the runbook''s root bindings place it (the request is the run''s intake); none when they place no idea, and such a runbook cannot take a request.'
+          type: array
+          items:
+            type: string
+        route_entries:
+          description: 'One per role of its route entries file, by role; none when it has no such file: every declared route may serve it.'
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.RouteEntry'
+        routes_allowed:
+          description: The routes the file allows to serve the runbook; absent when it narrows nothing.
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.RouteName'
+        admitted:
+          description: Whether every route entry is admitted and the file could be read.
+          type: boolean
+        refusal:
+          description: 'Why the runbook''s route entries cannot be admitted: the file''s own fault, else the reason of each entry that is not admitted, joined by `; `. Absent when admitted.'
+          type: string
+      required:
+      - runbook_id
+      - inputs
+      - route_entries
+      - admitted
       additionalProperties: false
     sdc.daemon.ClientLabel:
       title: ClientLabel
@@ -1931,6 +2076,27 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.DelegateMember:
+      title: DelegateMember
+      description: A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out).
+      x-ess-name: sdc.daemon.DelegateMember
+      x-ess-kind: struct
+      type: object
+      properties:
+        name:
+          type: string
+        required:
+          type: boolean
+        summary:
+          description: What the document says of it.
+          type: string
+        max_length:
+          description: The most characters it may hold, where the document bounds it.
+          type: integer
+      required:
+      - name
+      - required
+      additionalProperties: false
     sdc.daemon.DelegationPath:
       title: DelegationPath
       description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.'
@@ -2008,6 +2174,39 @@ components:
       - output_tokens
       - cost_micro_usd
       - cost_known
+      additionalProperties: false
+    sdc.daemon.DelegationTerms:
+      title: DelegationTerms
+      description: 'What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request.'
+      x-ess-name: sdc.daemon.DelegationTerms
+      x-ess-kind: struct
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.DelegateMember'
+        paths:
+          description: named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.daemon.DelegationPath'
+        default_route:
+          $ref: '#/components/schemas/sdc.daemon.RouteName'
+          description: '`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one.'
+        classifier_route:
+          $ref: '#/components/schemas/sdc.daemon.RouteName'
+          description: '`route_policy.classifier`: the route of a delegation''s classify and build calls; absent when the file names none.'
+        confinement:
+          $ref: '#/components/schemas/sdc.daemon.ConfinementLevel'
+          description: 'The daemon''s default level, the level of every delegation; absent: the daemon has none and refuses every delegation.'
+        request_limit:
+          description: 'The most bytes of a request: 1048576.'
+          type: integer
+      required:
+      - members
+      - paths
+      - request_limit
       additionalProperties: false
     sdc.daemon.EventId:
       title: EventId
@@ -2489,12 +2688,56 @@ components:
       - hidden
       - left_out
       additionalProperties: false
+    sdc.daemon.RouteEntry:
+      title: RouteEntry
+      description: 'One role of a runbook''s route entries (the file `bindings/<runbook>.routes.yaml` of its runbook directory, format runbook.routes/1) and what the daemon''s admission made of it: an entry that names a route is admitted when the daemon declares the route and the runbook''s routes_allowed, when it has one, holds it; an entry that states needs is admitted with the daemon''s default route when that meets them, else with the one allowed route that meets them, and none or several is a refusal.'
+      x-ess-name: sdc.daemon.RouteEntry
+      x-ess-kind: struct
+      type: object
+      properties:
+        role:
+          description: The role the entry is for (writer, review, default, ...).
+          type: string
+        route:
+          $ref: '#/components/schemas/sdc.daemon.RouteName'
+          description: 'The route that serves the role: the one the entry names, or the route that meets its needs; absent when none does.'
+        needs:
+          $ref: '#/components/schemas/sdc.daemon.RouteNeeds'
+          description: The requirements of an entry that names no route; absent for an entry that names one.
+        admitted:
+          type: boolean
+        reason:
+          description: Why the entry is not admitted, naming the role and the route or the requirement; absent when it is.
+          type: string
+      required:
+      - role
+      - admitted
+      additionalProperties: false
     sdc.daemon.RouteName:
       title: RouteName
       description: 'The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon''s file.'
       x-ess-name: sdc.daemon.RouteName
       x-ess-kind: newtype
       type: string
+    sdc.daemon.RouteNeeds:
+      title: RouteNeeds
+      description: 'What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route''s gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route''s kind in the daemon''s file. A fact the gateway did not give does not meet a requirement.'
+      x-ess-name: sdc.daemon.RouteNeeds
+      x-ess-kind: struct
+      type: object
+      properties:
+        wire:
+          description: 'A wire the gateway lists for the alias: chat, responses or messages.'
+          type: string
+        min_context:
+          description: The least max_model_len the gateway lists for the alias.
+          type: integer
+        tool_calling:
+          description: 'true: the gateway lists tool calling for the alias.'
+          type: boolean
+        kind:
+          $ref: '#/components/schemas/sdc.daemon.ModelRouteKind'
+      additionalProperties: false
     sdc.daemon.RouteRefused.Error:
       title: RouteRefused payload
       description: 'The delegation names a model route the daemon does not declare, or names none and the daemon has no default route: the run was not submitted. `routes` lists the routes the daemon declares, by name; no address, token or alias is in the answer. The handler looks the route up and reports the fact in `route_declared`.'
@@ -2543,7 +2786,7 @@ components:
       type: object
     sdc.daemon.Routes.Row:
       title: Model routes row
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       x-ess-name: sdc.daemon.Routes
       x-ess-kind: view-row
       type: object
@@ -2564,6 +2807,10 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RouteStatus'
         phase:
           type: string
+        max_model_len:
+          type: integer
+        tool_calling:
+          type: boolean
         read_at:
           type: string
           format: date-time
@@ -3774,6 +4021,108 @@ x-ess-entities:
     - AwaitingAuthority
     - Stuck
     - Ended
+  sdc.daemon.CatalogId:
+    title: CatalogId
+    description: 'The catalog as a row of DaemonCatalog: its text is the daemon''s id. A type of its own, not DaemonId, because the row is what the daemon reads of its file, its gateways and its runbooks when a client asks, and not the configuration row.'
+    x-ess-name: sdc.daemon.CatalogId
+    x-ess-kind: newtype
+    type: string
+  sdc.daemon.CatalogRoute:
+    title: CatalogRoute
+    description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait. No address, token or token file.'
+    x-ess-name: sdc.daemon.CatalogRoute
+    x-ess-kind: struct
+    type: object
+    properties:
+      route:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteName'
+      gateway:
+        description: The name of the route's gateway in the daemon's file, never its address.
+        type: string
+      alias:
+        type: string
+      kind:
+        $ref: '#/x-ess-entities/sdc.daemon.ModelRouteKind'
+      wires:
+        type: array
+        items:
+          type: string
+      status:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteStatus'
+      phase:
+        type: string
+      max_model_len:
+        description: The context length `GET /v1/models` gave for the alias; absent when the gateway gave none.
+        type: integer
+      tool_calling:
+        description: Whether the model calls tools, as `GET /v1/models` gave it for the alias; absent when the gateway gave nothing.
+        type: boolean
+      price_in_micro_usd_per_mtok:
+        description: 'What a call on the route books per million input tokens; absent when the file declares no price: the call books its reservation and its cost is not known.'
+        type: integer
+      price_out_micro_usd_per_mtok:
+        description: The same per million output tokens.
+        type: integer
+      start_wait_seconds:
+        description: How long a run waits for the route's model to be ready; absent when the file sets none.
+        type: integer
+      read_at:
+        description: When the daemon read the gateway for this route.
+        type: string
+        format: date-time
+    required:
+    - route
+    - gateway
+    - alias
+    - kind
+    - wires
+    - status
+    - read_at
+    additionalProperties: false
+  sdc.daemon.CatalogRunbook:
+    title: CatalogRunbook
+    description: 'A runbook a delegation may name as its protocol, as the catalog lists it: the name and version of the view Runbooks, its purpose in one line and its description as its root protocol gives them, the inputs a delegation''s request fills, and its route entries with the daemon''s admission of each. A runbook whose entries cannot be admitted is listed with the reason. No path of the host.'
+    x-ess-name: sdc.daemon.CatalogRunbook
+    x-ess-kind: struct
+    type: object
+    properties:
+      runbook_id:
+        $ref: '#/x-ess-entities/sdc.daemon.RunbookName'
+      runbook_version:
+        $ref: '#/x-ess-entities/sdc.daemon.RunbookVersion'
+      title:
+        description: 'Its purpose in one line: the root protocol''s title, else the first sentence of its description; absent when it has neither.'
+        type: string
+      description:
+        description: The root protocol's description, at most 2000 characters; absent when it has none.
+        type: string
+      inputs:
+        description: 'The artifacts a delegation''s request becomes: `idea` when the runbook''s root bindings place it (the request is the run''s intake); none when they place no idea, and such a runbook cannot take a request.'
+        type: array
+        items:
+          type: string
+      route_entries:
+        description: 'One per role of its route entries file, by role; none when it has no such file: every declared route may serve it.'
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.RouteEntry'
+      routes_allowed:
+        description: The routes the file allows to serve the runbook; absent when it narrows nothing.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.RouteName'
+      admitted:
+        description: Whether every route entry is admitted and the file could be read.
+        type: boolean
+      refusal:
+        description: 'Why the runbook''s route entries cannot be admitted: the file''s own fault, else the reason of each entry that is not admitted, joined by `; `. Absent when admitted.'
+        type: string
+    required:
+    - runbook_id
+    - inputs
+    - route_entries
+    - admitted
+    additionalProperties: false
   sdc.daemon.ClientLabel:
     title: ClientLabel
     description: 'A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token''s subject is not a member of any entity.'
@@ -3841,6 +4190,43 @@ x-ess-entities:
     type: string
     enum:
     - Up
+  sdc.daemon.DaemonCatalog:
+    title: DaemonCatalog
+    description: 'What a delegation may name on this daemon, read when a client asks for the view Catalog: one row with the declared model routes (the view Routes with the prices and the wait the file declares), the runbooks a delegation may name as its protocol (the view Runbooks with their purpose, their inputs and the admission of their route entries) and the terms of a delegation. The daemon reads its file when it starts, the gateways as the view Routes does and the runbooks'' files when the client asks; the language cannot read a file or a gateway, so no command creates or changes the row, as with Runbook.'
+    x-ess-name: sdc.daemon.DaemonCatalog
+    x-ess-kind: entity
+    type: object
+    properties:
+      catalog_id:
+        $ref: '#/x-ess-entities/sdc.daemon.CatalogId'
+      routes:
+        description: The declared routes, in order of name; none when the file declares none.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.CatalogRoute'
+      runbooks:
+        description: The runbooks of the view Runbooks, in order of name.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.CatalogRunbook'
+      delegation:
+        $ref: '#/x-ess-entities/sdc.daemon.DelegationTerms'
+      state:
+        $ref: '#/x-ess-entities/sdc.daemon.DaemonCatalog.State'
+    required:
+    - catalog_id
+    - routes
+    - runbooks
+    - delegation
+    - state
+    additionalProperties: false
+  sdc.daemon.DaemonCatalog.State:
+    title: State
+    x-ess-name: sdc.daemon.DaemonCatalog.State
+    x-ess-kind: enum
+    type: string
+    enum:
+    - Read
   sdc.daemon.DaemonId:
     title: DaemonId
     description: 'The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.'
@@ -3966,6 +4352,27 @@ x-ess-entities:
     x-ess-name: sdc.daemon.DecisionRequestId
     x-ess-kind: newtype
     type: string
+  sdc.daemon.DelegateMember:
+    title: DelegateMember
+    description: A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out).
+    x-ess-name: sdc.daemon.DelegateMember
+    x-ess-kind: struct
+    type: object
+    properties:
+      name:
+        type: string
+      required:
+        type: boolean
+      summary:
+        description: What the document says of it.
+        type: string
+      max_length:
+        description: The most characters it may hold, where the document bounds it.
+        type: integer
+    required:
+    - name
+    - required
+    additionalProperties: false
   sdc.daemon.Delegation:
     title: Delegation
     description: 'What a delegation''s run has come to, as the daemon reads it when a client asks for the view DelegationResult: one row per run that a Delegate created. The route, the path and the protocol are the run''s event `runbook.delegated`; the state, the outcome and the failure are the Run''s; the calls, the tokens and the cost are the sum of the run''s events `runbook.model-call` (one per call the relay booked); the result text is the file result.md of the run''s work/ directory, read through the reader of ProductOfRun (no link followed, at most `result_limit` bytes), and the products are the paths ProductsOfRun lists. The language cannot read a file system, so no command creates or changes a row, as with RunProducts.'
@@ -4073,6 +4480,39 @@ x-ess-entities:
     enum:
     - named
     - free
+  sdc.daemon.DelegationTerms:
+    title: DelegationTerms
+    description: 'What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request.'
+    x-ess-name: sdc.daemon.DelegationTerms
+    x-ess-kind: struct
+    type: object
+    properties:
+      members:
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.DelegateMember'
+      paths:
+        description: named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.daemon.DelegationPath'
+      default_route:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteName'
+        description: '`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one.'
+      classifier_route:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteName'
+        description: '`route_policy.classifier`: the route of a delegation''s classify and build calls; absent when the file names none.'
+      confinement:
+        $ref: '#/x-ess-entities/sdc.daemon.ConfinementLevel'
+        description: 'The daemon''s default level, the level of every delegation; absent: the daemon has none and refuses every delegation.'
+      request_limit:
+        description: 'The most bytes of a request: 1048576.'
+        type: integer
+    required:
+    - members
+    - paths
+    - request_limit
+    additionalProperties: false
   sdc.daemon.EventId:
     title: EventId
     description: The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.
@@ -4121,6 +4561,12 @@ x-ess-entities:
       phase:
         description: The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read.
         type: string
+      max_model_len:
+        description: The context length `GET /v1/models` gave for the alias; absent when the gateway gave none.
+        type: integer
+      tool_calling:
+        description: Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing.
+        type: boolean
       read_at:
         description: When the daemon read the gateway for this row.
         type: string
@@ -4190,12 +4636,56 @@ x-ess-entities:
     x-ess-name: sdc.daemon.ProductPath
     x-ess-kind: newtype
     type: string
+  sdc.daemon.RouteEntry:
+    title: RouteEntry
+    description: 'One role of a runbook''s route entries (the file `bindings/<runbook>.routes.yaml` of its runbook directory, format runbook.routes/1) and what the daemon''s admission made of it: an entry that names a route is admitted when the daemon declares the route and the runbook''s routes_allowed, when it has one, holds it; an entry that states needs is admitted with the daemon''s default route when that meets them, else with the one allowed route that meets them, and none or several is a refusal.'
+    x-ess-name: sdc.daemon.RouteEntry
+    x-ess-kind: struct
+    type: object
+    properties:
+      role:
+        description: The role the entry is for (writer, review, default, ...).
+        type: string
+      route:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteName'
+        description: 'The route that serves the role: the one the entry names, or the route that meets its needs; absent when none does.'
+      needs:
+        $ref: '#/x-ess-entities/sdc.daemon.RouteNeeds'
+        description: The requirements of an entry that names no route; absent for an entry that names one.
+      admitted:
+        type: boolean
+      reason:
+        description: Why the entry is not admitted, naming the role and the route or the requirement; absent when it is.
+        type: string
+    required:
+    - role
+    - admitted
+    additionalProperties: false
   sdc.daemon.RouteName:
     title: RouteName
     description: 'The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon''s file.'
     x-ess-name: sdc.daemon.RouteName
     x-ess-kind: newtype
     type: string
+  sdc.daemon.RouteNeeds:
+    title: RouteNeeds
+    description: 'What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route''s gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route''s kind in the daemon''s file. A fact the gateway did not give does not meet a requirement.'
+    x-ess-name: sdc.daemon.RouteNeeds
+    x-ess-kind: struct
+    type: object
+    properties:
+      wire:
+        description: 'A wire the gateway lists for the alias: chat, responses or messages.'
+        type: string
+      min_context:
+        description: The least max_model_len the gateway lists for the alias.
+        type: integer
+      tool_calling:
+        description: 'true: the gateway lists tool calling for the alias.'
+        type: boolean
+      kind:
+        $ref: '#/x-ess-entities/sdc.daemon.ModelRouteKind'
+    additionalProperties: false
   sdc.daemon.RouteStatus:
     title: RouteStatus
     description: 'Where a route stands as the daemon last read its gateway: gateway-unreachable (no answer from `GET /ready` or `GET /v1/models`, or an address the daemon does not speak, https), gateway-not-ready (`/ready` answered, not 200, or `/v1/models` gave no list), model-unknown (the gateway is ready and `GET /v1/models` does not list the route''s alias), ready or not-ready (the gateway read the route''s model: `callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route, ready only for the phase ready), listed (the gateway is ready and lists the alias, and no status of the model was read: a hosted route on a gateway without `/v1/status`, or a status route that did not answer). A read sends no model call and starts nothing.'

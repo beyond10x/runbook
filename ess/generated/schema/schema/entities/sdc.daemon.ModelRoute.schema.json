@@ -35,6 +35,14 @@
       "description": "The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read.",
       "type": "string"
     },
+    "max_model_len": {
+      "description": "The context length `GET /v1/models` gave for the alias; absent when the gateway gave none.",
+      "type": "integer"
+    },
+    "tool_calling": {
+      "description": "Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing.",
+      "type": "boolean"
+    },
     "read_at": {
       "description": "When the daemon read the gateway for this row.",
       "type": "string",
@@ -58,7 +66,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:b6af2bc282f42fde068cf4eac3453bec82651fbcc84dea222e59f66307dee7c5",
+    "contract_digest": "slice-sha256/2:956eeeea9cab6c32f19090a0bc03fbb1cfbd0b69f7b6b91dedc958b5d57b39de",
     "regenerate": "ess generate"
   },
   "$defs": {

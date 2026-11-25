@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RouteNeeds.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RouteNeeds",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:fcabcee31cf3114567e207af09a8a6a78ba96b43c8ecd11f7cb90d79c7f2e284",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ModelRouteKind": {
+      "title": "ModelRouteKind",
+      "description": "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it.",
+      "x-ess-name": "sdc.daemon.ModelRouteKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "managed",
+        "hosted",
+        "local"
+      ]
+    },
+    "sdc.daemon.RouteNeeds": {
+      "title": "RouteNeeds",
+      "description": "What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route's gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route's kind in the daemon's file. A fact the gateway did not give does not meet a requirement.",
+      "x-ess-name": "sdc.daemon.RouteNeeds",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "wire": {
+          "description": "A wire the gateway lists for the alias: chat, responses or messages.",
+          "type": "string"
+        },
+        "min_context": {
+          "description": "The least max_model_len the gateway lists for the alias.",
+          "type": "integer"
+        },
+        "tool_calling": {
+          "description": "true: the gateway lists tool calling for the alias.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/sdc.daemon.ModelRouteKind"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

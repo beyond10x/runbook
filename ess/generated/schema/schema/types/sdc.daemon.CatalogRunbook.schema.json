@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.CatalogRunbook.schema.json",
+  "$ref": "#/$defs/sdc.daemon.CatalogRunbook",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:fe7fbea74d582e10c6c5b712eb7f4ca45b8a459dd3ecbd07162c9526ae778aa8",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CatalogRunbook": {
+      "title": "CatalogRunbook",
+      "description": "A runbook a delegation may name as its protocol, as the catalog lists it: the name and version of the view Runbooks, its purpose in one line and its description as its root protocol gives them, the inputs a delegation's request fills, and its route entries with the daemon's admission of each. A runbook whose entries cannot be admitted is listed with the reason. No path of the host.",
+      "x-ess-name": "sdc.daemon.CatalogRunbook",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "runbook_id": {
+          "$ref": "#/$defs/sdc.daemon.RunbookName"
+        },
+        "runbook_version": {
+          "$ref": "#/$defs/sdc.daemon.RunbookVersion"
+        },
+        "title": {
+          "description": "Its purpose in one line: the root protocol's title, else the first sentence of its description; absent when it has neither.",
+          "type": "string"
+        },
+        "description": {
+          "description": "The root protocol's description, at most 2000 characters; absent when it has none.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "The artifacts a delegation's request becomes: `idea` when the runbook's root bindings place it (the request is the run's intake); none when they place no idea, and such a runbook cannot take a request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "route_entries": {
+          "description": "One per role of its route entries file, by role; none when it has no such file: every declared route may serve it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.daemon.RouteEntry"
+          }
+        },
+        "routes_allowed": {
+          "description": "The routes the file allows to serve the runbook; absent when it narrows nothing.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.daemon.RouteName"
+          }
+        },
+        "admitted": {
+          "description": "Whether every route entry is admitted and the file could be read.",
+          "type": "boolean"
+        },
+        "refusal": {
+          "description": "Why the runbook's route entries cannot be admitted: the file's own fault, else the reason of each entry that is not admitted, joined by `; `. Absent when admitted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runbook_id",
+        "inputs",
+        "route_entries",
+        "admitted"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.ModelRouteKind": {
+      "title": "ModelRouteKind",
+      "description": "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it.",
+      "x-ess-name": "sdc.daemon.ModelRouteKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "managed",
+        "hosted",
+        "local"
+      ]
+    },
+    "sdc.daemon.RouteEntry": {
+      "title": "RouteEntry",
+      "description": "One role of a runbook's route entries (the file `bindings/<runbook>.routes.yaml` of its runbook directory, format runbook.routes/1) and what the daemon's admission made of it: an entry that names a route is admitted when the daemon declares the route and the runbook's routes_allowed, when it has one, holds it; an entry that states needs is admitted with the daemon's default route when that meets them, else with the one allowed route that meets them, and none or several is a refusal.",
+      "x-ess-name": "sdc.daemon.RouteEntry",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "role": {
+          "description": "The role the entry is for (writer, review, default, ...).",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/sdc.daemon.RouteName",
+          "description": "The route that serves the role: the one the entry names, or the route that meets its needs; absent when none does."
+        },
+        "needs": {
+          "$ref": "#/$defs/sdc.daemon.RouteNeeds",
+          "description": "The requirements of an entry that names no route; absent for an entry that names one."
+        },
+        "admitted": {
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why the entry is not admitted, naming the role and the route or the requirement; absent when it is.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "admitted"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RouteNeeds": {
+      "title": "RouteNeeds",
+      "description": "What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route's gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route's kind in the daemon's file. A fact the gateway did not give does not meet a requirement.",
+      "x-ess-name": "sdc.daemon.RouteNeeds",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "wire": {
+          "description": "A wire the gateway lists for the alias: chat, responses or messages.",
+          "type": "string"
+        },
+        "min_context": {
+          "description": "The least max_model_len the gateway lists for the alias.",
+          "type": "integer"
+        },
+        "tool_calling": {
+          "description": "true: the gateway lists tool calling for the alias.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/sdc.daemon.ModelRouteKind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sdc.daemon.RunbookName": {
+      "title": "RunbookName",
+      "description": "The name of a runbook in the list the view Runbooks gives: the text a client puts into the runbook_id of a SubmitRun. A type of its own, not RunbookId, because a row of that list names a runbook the daemon can start and is not a reference of a run to it.",
+      "x-ess-name": "sdc.daemon.RunbookName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunbookVersion": {
+      "title": "RunbookVersion",
+      "description": "The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.",
+      "x-ess-name": "sdc.daemon.RunbookVersion",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

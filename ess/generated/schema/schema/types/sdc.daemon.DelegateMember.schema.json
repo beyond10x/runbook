@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DelegateMember.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DelegateMember",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:3af8538f011cd3c904fb39cd429e64c3d4ac1b5054680eeac05d69902e9bc9dd",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DelegateMember": {
+      "title": "DelegateMember",
+      "description": "A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out).",
+      "x-ess-name": "sdc.daemon.DelegateMember",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "summary": {
+          "description": "What the document says of it.",
+          "type": "string"
+        },
+        "max_length": {
+          "description": "The most characters it may hold, where the document bounds it.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "required"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.CatalogId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.CatalogId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:7ae869630274a4524f94d392f5dcd74336764f5e8bac289baf4c8810760d838f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CatalogId": {
+      "title": "CatalogId",
+      "description": "The catalog as a row of DaemonCatalog: its text is the daemon's id. A type of its own, not DaemonId, because the row is what the daemon reads of its file, its gateways and its runbooks when a client asks, and not the configuration row.",
+      "x-ess-name": "sdc.daemon.CatalogId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
