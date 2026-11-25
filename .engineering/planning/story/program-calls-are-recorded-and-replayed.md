@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:program-calls-are-recorded-and-replayed
 kind: story
-status: draft
+status: active
 title: Every external call of a program is logged, answers are redacted by one list, and a run replays from the log
 summary: A call helper logs route, input, try, exit and answer file of each external call; one redaction list applies to inputs, answers and log; a replay answers every call from the log and starts no external command.
 tags:
@@ -32,7 +32,10 @@ scope:
   path: runbook/src/loom_run/settings.rs
 - confidence: inferred
   path: runbook/tests/loom_run
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 

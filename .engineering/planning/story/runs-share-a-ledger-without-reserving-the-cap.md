@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:runs-share-a-ledger-without-reserving-the-cap
 kind: story
-status: draft
+status: active
 title: Runs on one ledger reserve what a call may cost, not the whole cap
 summary: A call whose bindings name no per-call budget reserves the whole cap, so a second run on the ledger is granted 0 and stops; the reservation gets a bound that is not the cap.
 tags:
@@ -27,7 +27,10 @@ scope:
   path: runbook/src/loom_run/run_loop.rs
 - confidence: inferred
   path: runbook/tests/loom_run
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:43Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 

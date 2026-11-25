@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:bugfix-hands-back-a-branch-and-a-merge-request
 kind: story
-status: draft
+status: active
 title: A fixed bug-fix run hands back a branch, a commit and a merge request
 summary: One tool of this repository takes work/impl of a run that ended fixed to a branch, a commit and a merge request on the forge of the repository, behind an approval.
 relations:
 - decomposes: epic:ticket-to-merge-request-on-a-real-repository
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 3}
 ---
 ## What is known
 

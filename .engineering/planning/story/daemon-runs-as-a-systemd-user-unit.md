@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-runs-as-a-systemd-user-unit
 kind: story
-status: draft
+status: active
 title: The daemon runs as an installed systemd user unit, restarted on failure, clearing old versioned exports at start
 summary: The install writes a unit template with Restart=on-failure and Delegate=yes and no secret; at start the daemon removes only superseded home-<sha12> exports inside its configured exports directory.
 tags:
@@ -26,7 +26,10 @@ scope:
   path: scripts/install.sh
 - confidence: inferred
   path: scripts/runbook-daemon.service.in
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 

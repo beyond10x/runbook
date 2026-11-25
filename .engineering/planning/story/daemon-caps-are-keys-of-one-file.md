@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-caps-are-keys-of-one-file
 kind: story
-status: draft
+status: active
 title: 'The daemon''s caps are keys of one file: per run, per day, one override per run, a stop that names the key'
 summary: A daemon ledger with a figure per run and per day; every cap a documented key of the daemon's configuration file; a stop outcome that names the key; never unbound without the operator writing none.
 tags:
@@ -35,7 +35,10 @@ scope:
   path: runbook/src/serve.rs
 - confidence: inferred
   path: runbook/tests/daemon
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 
