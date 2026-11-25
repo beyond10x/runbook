@@ -224,3 +224,19 @@ fn a_daemon_with_only_a_gateway_table_runs_a_model_run_on_the_route_default_and_
     let r = row(&l, &run);
     assert_eq!((r["model_route"].clone(), r["model_route_alias"].clone(), r["model_route_source"].clone()), (json!("default"), json!("a-model"), json!("default")), "{r}");
 }
+
+/// `ess/domains/daemon.yaml`: the entity `Run` has the relation `model_route` (`references`, cardinality one) to
+/// `ModelRoute` via `model_route`, and the view `routes` lists the `ModelRoute` rows. A run's `model_route` names a row
+/// of that view.
+#[test]
+fn the_model_route_of_a_run_on_a_lone_gateway_is_a_route_the_view_routes_lists() {
+    let h = home_calling("rr-lone-ref", r#""$model""#);
+    let gw = gateway(OK);
+    let file = format!("{}{}", super::gateway::gateway_table(&gw.base_url, &h.token_file), model_table(Some(&claude_cli())));
+    let l = serve("rr-lone-ref-d", &h, &file, true);
+    let run = submitted(&l, "model", json!({}));
+    ended(&l, &run);
+    let r = row(&l, &run);
+    let listed: Vec<Value> = rows(&l, "/daemon/views/routes").iter().map(|x| x["route"].clone()).collect();
+    assert!(listed.contains(&r["model_route"]), "the run references the route {} and the view routes lists {listed:?}", r["model_route"]);
+}

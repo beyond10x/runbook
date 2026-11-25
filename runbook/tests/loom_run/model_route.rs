@@ -177,3 +177,47 @@ fn an_undeclared_route_and_a_route_beside_a_gateway_of_the_settings_are_refused_
     refused(&w, &args(&w, Some("qwen")), &["models.writer.model", "--model-route"]);
     assert!(gw.lines.lock().unwrap().is_empty(), "a refused name or model read the gateway");
 }
+
+/// A world whose `runbook.toml` declares its gateway as a lone `[gateway]` table, the gateway `default` of the routes
+/// (`docs/model-routes.md`, section 1: "`[gateway]` stays accepted as `[gateways.default]`"), and the route `qwen` on
+/// it; the daemon reads the same file and puts a run that names `qwen` on that route.
+fn routed_on_the_lone_gateway(tag: &str, gw: &Standin, policy: &str) -> World {
+    let w = World::new(tag);
+    w.one_decision_tree();
+    let token_file = w.root.join("secret/gateway-token");
+    std::fs::create_dir_all(token_file.parent().unwrap()).unwrap();
+    std::fs::write(&token_file, format!("{TOKEN}\n")).unwrap();
+    std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut file = format!(
+        "[gateway]\nbase_url = \"{}\"\ntoken_file = \"{}\"\n[routes.qwen]\ngateway = \"default\"\nmodel = \"qwen-alias\"\nkind = \"managed\"\n",
+        gw.base_url,
+        token_file.display()
+    );
+    if !policy.is_empty() {
+        file.push_str(&format!("[route_policy]\n{policy}\n"));
+    }
+    std::fs::write(w.root.join("runbook.toml"), file).unwrap();
+    let v = json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0}]}});
+    std::fs::write(w.root.join("settings.toml"), toml_text(&v)).unwrap();
+    w
+}
+
+#[test]
+fn a_route_on_the_lone_gateway_of_runbook_toml_is_taken_by_model_route_as_the_daemon_takes_it() {
+    let gw = standin(200, listed("qwen-alias"), Some(status_of("qwen-alias", "ready", true)));
+    let w = routed_on_the_lone_gateway("route-run-lone-option", &gw, "");
+    let o = w.run(&args(&w, Some("qwen")));
+    assert_eq!(code(&o), 0, "--model-route qwen names a route runbook.toml declares on its own gateway: {}", stderr(&o));
+    let copy = std::fs::read_to_string(w.run_dir("r1/bindings/sdc.yaml")).unwrap();
+    assert!(copy.contains("qwen-alias"), "the run is not on the route qwen: {copy}");
+}
+
+#[test]
+fn the_default_route_on_the_lone_gateway_of_runbook_toml_is_the_route_of_a_run_that_names_none() {
+    let gw = standin(200, listed("qwen-alias"), Some(status_of("qwen-alias", "ready", true)));
+    let w = routed_on_the_lone_gateway("route-run-lone-default", &gw, "default = \"qwen\"");
+    let o = w.run(&args(&w, None));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let copy = std::fs::read_to_string(w.run_dir("r1/bindings/sdc.yaml")).unwrap();
+    assert!(copy.contains("qwen-alias"), "route_policy.default names qwen and the run did not take it (the daemon does, on the same file): {copy}");
+}
