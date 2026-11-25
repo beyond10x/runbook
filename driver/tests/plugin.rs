@@ -425,3 +425,93 @@ fn mcp_configuration_starts_runbook_mcp_on_the_sessions_daemon() {
     let timeout = s["timeout"].as_u64().expect("a per-server timeout in milliseconds");
     assert!(timeout >= 1000, "Claude Code ignores a timeout under 1000 ms: {timeout}");
 }
+
+// Adversarial cases (story `claude-plugin-serves-delegation`, first part).
+
+/// Runs the hook like `hook`, with `RUNBOOK_MODEL_ROUTE` as raw bytes: its exit code and the
+/// bytes of its standard output.
+fn hook_raw_route(event: &str, input: &[u8], route: &[u8]) -> (i32, Vec<u8>) {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut cmd = Command::new(on_path("sh"));
+    cmd.arg(root().join(HOOK)).arg(event).env_clear().env("PATH", narrow_path());
+    cmd.env("RUNBOOK_MODEL_ROUTE", std::ffi::OsStr::from_bytes(route));
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    let out = child.wait_with_output().unwrap();
+    (out.status.code().unwrap_or(-1), out.stdout)
+}
+
+/// The hook's own contract (`quote` in `delegation.sh`): text that is not UTF-8 becomes
+/// "(not UTF-8)". A UTF-16 surrogate encoded as three bytes, an overlong encoding and a code
+/// point above U+10FFFF are not UTF-8, and the hook copies all three into its answer.
+#[test]
+fn hook_answers_utf8_for_a_route_that_is_not_utf8() {
+    let routes: [&[u8]; 3] = [b"a\xed\xa0\x80b", b"a\xe0\x80\x80b", b"a\xf4\x90\x80\x80b"];
+    let mut bad = Vec::new();
+    for route in routes {
+        let (code, out) = hook_raw_route("pre-tool-use", &fixture("pre-tool-use-agent.json"), route);
+        assert_eq!(code, 0);
+        match String::from_utf8(out) {
+            Ok(text) => assert!(denied(&text).contains("(not UTF-8)"), "{route:?}: {text}"),
+            Err(_) => bad.push(format!("{route:?}")),
+        }
+    }
+    assert!(bad.is_empty(), "the hook wrote bytes that are not UTF-8 for the routes {bad:?}");
+}
+
+/// The design (Part two): with the plugin on, the session's sub-agent work never runs on the
+/// session's own model. Claude Code's `Workflow` tool "orchestrates many subagents in the
+/// background" and runs each on the session's model unless the script names another
+/// (code.claude.com/docs tools-reference and workflows). The `PreToolUse` matcher `Agent` is an
+/// exact name and does not match `Workflow`, and the script lets any tool other than Agent pass.
+#[test]
+fn workflow_calls_are_denied_like_agent_calls() {
+    let h = json(&root().join("plugin/hooks/hooks.json"));
+    let matched: Vec<String> = h["hooks"]["PreToolUse"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|g| g["matcher"].as_str())
+        .flat_map(|m| m.split(['|', ',']).map(|s| s.trim().to_string()).collect::<Vec<_>>())
+        .collect();
+    assert!(matched.iter().any(|m| m == "Workflow"), "no PreToolUse matcher names Workflow: {matched:?}");
+    let input = br#"{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Workflow","tool_input":{"script":"agent('review the routes')"},"tool_use_id":"t"}"#;
+    let (code, out) = hook("pre-tool-use", input, Some("qwen-local"));
+    assert_eq!(code, 0, "{out}");
+    assert!(denied(&out).contains("`delegate`"), "{out}");
+}
+
+/// Claude Code loads a `${VAR}` that is not set and has no `:-default` as its unexpanded text
+/// (code.claude.com/docs mcp, "Missing environment variable"). A session without
+/// `RUNBOOK_DAEMON` then starts `runbook mcp` with `RUNBOOK_DAEMON=${RUNBOOK_DAEMON}`, a URL it
+/// refuses, instead of its "no daemon named" message.
+#[test]
+fn mcp_configuration_names_no_variable_without_a_default() {
+    let m = json(&root().join("plugin/.mcp.json"));
+    let mut bare = Vec::new();
+    for (name, server) in m["mcpServers"].as_object().unwrap() {
+        for (k, v) in server["env"].as_object().into_iter().flatten() {
+            let v = v.as_str().unwrap_or("");
+            let mut rest = v;
+            while let Some(i) = rest.find("${") {
+                let inner = &rest[i + 2..];
+                let end = inner.find('}').unwrap_or(inner.len());
+                let var = &inner[..end];
+                if !var.contains(":-") && !var.starts_with("CLAUDE_") {
+                    bare.push(format!("{name}.env.{k} = {v}"));
+                }
+                rest = &inner[end..];
+            }
+        }
+    }
+    assert!(bare.is_empty(), "variables Claude Code passes unexpanded when unset: {bare:?}");
+}
+
+/// The design (Part two) fills in "the prompt's first line". A prompt that opens with a line
+/// break has a readable prompt, and the hook says it could not read it.
+#[test]
+fn hook_names_the_prompt_when_it_starts_with_a_line_break() {
+    let input = serde_json::json!({"tool_name": "Agent", "tool_input": {"description": "d", "prompt": "\nRead the routes and list them."}});
+    let reason = denied(&hook("pre-tool-use", input.to_string().as_bytes(), None).1);
+    assert!(reason.contains("Read the routes and list them."), "{reason}");
+}
