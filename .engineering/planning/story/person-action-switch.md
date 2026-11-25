@@ -4,7 +4,7 @@ id: story:person-action-switch
 kind: story
 status: draft
 title: A run switches a protocol's person-action steps on or off, and the run setting wins
-revision: 2
+revision: 3
 ---
 ## Outcome
 
@@ -47,14 +47,20 @@ engine that runs it (Loom). Filed there as drafts with the same title.
 
 ## Design (taken by the operator, 2026-11-25, reversible before release)
 
-- Canon protocol/1 as it is: a protocol declares one case input per switchable step (`CaseInput`, a closed list
-  such as `[required, none]`) and gates the person action with `runs_only_when: {input: <name>, in: [required]}`, with
-  the path taken without it; `canon check` proves both paths because an input is never unknown.
+- Canon protocol/1 as it is (no Canon change): a protocol declares one case input per switchable step (`CaseInput`,
+  values `[required, none]`, id `person_action.<action>`) and gates the person action with
+  `precondition: {input: person_action.<action>, in: [required]}`, with the path taken without it. `runs_only_when`
+  is not the gate (it only asserts, and the pinned Canon has no such key). `canon check` takes every declared value,
+  so both paths are proven. The protocol's default is the first listed value.
+- D814: a child case inherits its parent's inputs by id, so the root protocol declares every switch input of its
+  children.
+- D815: the daemon's own config names which switches a submit may set to `none` (empty by default); `runbook run`
+  reads the same list from runbook.toml; `person_actions` is refused inside a run's own tree. Turning an approval
+  off is the daemon operator's choice, never the client's.
 - Runbook maps `person_actions.<protocol>.<action>` and `person_actions.default` onto the declared inputs when the
-  case opens and records the source of each value; the run setting wins over the protocol's default.
-- An unknown key (one that names no declared input) or a value outside the input's list is refused before the run
-  starts.
-- Guarded steps (an external ticket system, a cloud account, a post a customer reads) declare no input, so no
-  setting can switch them.
-- Loom changes only if its tree open takes no case inputs from the caller (to be settled by scoping); Canon needs
-  no change.
+  case opens (keys matched against the declared protocol and action pairs), refuses an unknown key or an unlisted
+  value before the run starts, and records the source of each value in an own event `runbook.person-actions`.
+- Guarded steps (an external ticket system, a cloud account, a post a customer reads) declare no input.
+- A skipped step records no evidence. `runbook run --loom` (the child binary) refuses the switch.
+- Order: Loom change (`OpenRequest.inputs`, `tree open --input`, children inherit by input id), Loom tag, Runbook
+  pin bump, then this story.
