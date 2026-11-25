@@ -158,12 +158,11 @@ test('the option free sends its text with it, and its letter alone is never sent
   await card(page, 0).locator('button[data-answer="free"]').click();
   await expect(field).toHaveValue('free: ');
   await expect(field).toBeFocused();
-  await page.waitForTimeout(200);
-  expect(sentBodies, 'the letter free alone is not sent').toEqual([]);
   await field.fill('free: green tea');
   await card(page, 0).locator('button[data-answer="free"]').click();
-  await expect.poll(() => sentBodies.length).toBe(1);
-  expect(sentBodies[0]).toEqual({run_id: id, request_id: 'q-free', answer: 'free: green tea', answered_by: 'reviewer'});
+  // a letter sent by the first click would arrive before the text: the first body sent is the text
+  await expect.poll(() => sentBodies.length).toBeGreaterThan(0);
+  expect(sentBodies, 'the letter free alone is not sent').toEqual([{run_id: id, request_id: 'q-free', answer: 'free: green tea', answered_by: 'reviewer'}]);
 });
 
 // Invariant 8: a daemon that refuses every read (a token the cookie no longer proves, a Host the daemon
