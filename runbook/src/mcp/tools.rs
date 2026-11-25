@@ -1,5 +1,6 @@
-//! The seven tools and their calls. A tool names a route of the command layer: `submit_run`,
-//! `cancel_run` and `answer_decision` are the commands of the same names, `list_runs`, `read_run`,
+//! The nine tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
+//! names, `list_runs`, `read_run`,
 //! `read_events` and `read_open_decisions` are the views `runs*`, `run`, `events` and `open-decisions`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
 
@@ -38,7 +39,7 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 7] = [
+const TOOLS: [Tool; 9] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
@@ -88,6 +89,20 @@ const TOOLS: [Tool; 7] = [
         read_only: false,
         kind: Kind::Command("cancel-run"),
     },
+    Tool {
+        name: "open_session",
+        title: "Open a session",
+        description: "Open a session: a session_id the client chooses and a client label of at most 200 characters, which is stored and shown and grants nothing. A submit_run with that session_id belongs to the session, and list_runs with it lists those runs. An id the daemon already knows, open or closed, is refused as `session-exists` (HTTP status 422); a label over 200 characters is refused with the HTTP status 400.",
+        read_only: false,
+        kind: Kind::Command("open-session"),
+    },
+    Tool {
+        name: "close_session",
+        title: "Close a session",
+        description: "Close an open session: from then on a submit_run with its id is refused as `SessionClosedToRuns` (HTTP status 409). The runs of the session go on; closing it cancels none. An id the daemon does not know is refused as `no-session` (HTTP status 404), a session that is already closed as `wrong-state` (HTTP status 409).",
+        read_only: false,
+        kind: Kind::Command("close-session"),
+    },
 ];
 
 /// The members of a command's input the HTTP handler fills; a client never sends them.
@@ -127,7 +142,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the seven tools, in a fixed order.
+/// The result of `tools/list`: exactly the nine tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
