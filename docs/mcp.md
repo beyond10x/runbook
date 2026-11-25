@@ -82,7 +82,9 @@ error: a model that reads it can correct itself.
 
 A `submit_run` while the daemon drains after a stop signal is `isError` true with `503` and the body
 `{"refused": "draining", "message": ..., "live_runs": <n>}` of the route, and no run is made
-(`docs/daemon-api.md`, "Stopping the daemon").
+(`docs/daemon-api.md`, "Stopping the daemon"). A `submit_run` whose route's gateway is not ready is `isError` true with `503` and the
+body `{"refused": "route-unavailable", "message": ...}`, and no run is made (`docs/daemon-api.md`, "A run starts only
+on a route that can answer").
 
 Two tools are stricter than their route. `read_run` and `read_events` of a run id the daemon does not
 know answer `404` with `{"refused": "no such run", ...}`, where the views answer `200` with no row.

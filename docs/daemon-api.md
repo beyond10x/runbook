@@ -16,7 +16,7 @@ runtime.
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned` or `runtime-failure`), `FailedToStart` a `failure`. |
+| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure` or `stopped: route`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
@@ -242,6 +242,29 @@ a `[gateway]` and a model decider declares the interim route `default` on that g
 decider's model as its alias, no price) and takes it as its default: the view `routes` lists it, a model run that
 names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
 `declared` `["default"]`.
+
+#### A run starts only on a route that can answer
+
+Before anything is written, a submit whose run takes declared routes asks the gateway of each of them (`docs/model-routes.md`, section 3)
+`GET /ready`, `GET /v1/models` and the status of the route's model (`callable` of `GET /v1/status` when the gateway
+serves it, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route; a hosted route on a
+gateway without `/v1/status` is read no further), within 5 s, with `GET` requests only:
+
+| The gateway says | The submit |
+|---|---|
+| `/ready` not `200`, no list of models, no answer | refused `503` `{"refused": "route-unavailable", "message": ...}`, the message naming the route and `gateway not ready` (or that it does not answer); outside the specification, like the `503` of a drain; nothing is written |
+| it does not list the route's alias | refused `422 route-refused`, the `reason` naming the route and `the gateway serves no model <alias>`; nothing is written |
+| the model is not callable | accepted; the run is `WaitingForRoute` (command `WaitForRoute`, event `runbook.waiting-for-route`: route, phase, wait_seconds) and `route_phase` of the view `run` holds the phase |
+| every route can answer | accepted; the run starts as before |
+
+A run that waits sends no call to its routes and wakes nothing. The daemon reads their status again at most once
+every 5 s of its clock: once every route can answer, the runtime starts the run; when the route's
+`start_wait_seconds` (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
+(command `EndRouteWait`, event `runbook.route-wait-ended`: route, last phase), and `route_phase` holds the last
+phase. A gateway that does not answer, or no longer lists the alias, during the wait leaves the run waiting. A cancel
+ends the wait (`Cancelled`); a run that waits keeps a drain open until it starts or its wait is over; after a restart
+a run that was `WaitingForRoute` is `FailedToStart`. The interim route `default` of a daemon with only a `[gateway]`
+is not asked, as before routes.
 
 ### The products of a run
 
@@ -580,7 +603,7 @@ the daemon does not exit on its first stop signal while a run is live; it drains
   same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
   event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
   asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
-  (`Submitted`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  (`Submitted`, `WaitingForRoute`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
   UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
   inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
   `configuration` has no member for it.
@@ -671,7 +694,7 @@ State directory:
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
-After a restart a run that was `Submitted` and never started becomes `FailedToStart` (event
+After a restart a run that was `Submitted`, or `WaitingForRoute`, and never started becomes `FailedToStart` (event
 `runbook.start-failed`). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
 asks the runtime (`Runtime::recover`): `resumed` leaves the run as it is; `gone` ends it with the
 command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (the cause, readable in

@@ -1,6 +1,6 @@
 # Model routes and delegation: the architecture of the stack
 
-Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, and section 2 without the protocol's routes and admission). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
+Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, section 2 without the protocol's routes and admission, and section 3 without the wake). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
 2026-11-25 (end of the document).
 
 ## The goal

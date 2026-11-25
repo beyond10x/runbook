@@ -325,6 +325,7 @@ entities:
       - {name: model_route_alias, type: Optional<String>, summary: "The gateway's alias of the model behind model_route, as the daemon's file declared it at the submit: what every call of the role names at the gateway. Absent with model_route."}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>, summary: "The setting that chose model_route: run or default. Absent with model_route."}
       - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>, summary: "The routes of the other roles the submit named (`model_routes.<role>`), each chosen by the run; absent when it named none."}
+      - {name: route_phase, type: Optional<String>, summary: "The last phase the gateway gave of a route of the run that could not answer when the run was submitted: set when the run waits for its route (WaitingForRoute) and when it ends `stopped: route`; absent for a run that never waited."}
     relations:
       - name: session
         kind: references
@@ -348,15 +349,17 @@ entities:
         via: run_id
     lifecycle:
       initial: Submitted
-      states: [Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
+      states: [Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
       terminal: [Ended, Cancelled, FailedToStart]
       transitions:
-        - {name: start, from: [Submitted], to: Running, summary: "The runtime took the run up."}
-        - {name: fail_to_start, from: [Submitted], to: FailedToStart, summary: "The runtime could not take the run up."}
+        - {name: wait_for_route, from: [Submitted], to: WaitingForRoute, summary: "A route of the run could not answer when it was submitted (its model is not callable): the run waits for it, no call is sent and nothing is woken."}
+        - {name: start, from: [Submitted, WaitingForRoute], to: Running, summary: "The runtime took the run up (from WaitingForRoute: once every route of the run could answer)."}
+        - {name: fail_to_start, from: [Submitted, WaitingForRoute], to: FailedToStart, summary: "The runtime could not take the run up, or the daemon stopped before it did."}
+        - {name: stop_on_route, from: [WaitingForRoute], to: Ended, summary: "The run's wait for its route reached start_wait_seconds and a route still could not answer: the run ends `stopped: route`."}
         - {name: wait, from: [Running], to: WaitingOnDecision, summary: "The run stopped on a decision."}
         - {name: end, from: [Running], to: Ended, summary: "The run reached an outcome."}
         - {name: resume, from: [WaitingOnDecision], to: Running, summary: "Every decision the run waited on is answered and the runtime took the answers up."}
-        - {name: cancel, from: [Submitted, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
+        - {name: cancel, from: [Submitted, WaitingForRoute, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
         - {name: orphan, from: [Running, WaitingOnDecision], to: Ended, summary: "The daemon started again and the runtime holds no live run of this id: the run ends with the outcome orphaned."}
 
   - name: sdc.daemon.DecisionRequest
@@ -494,9 +497,11 @@ actors:
   - name: sdc.daemon.DaemonProcess
     naming:
       display: Daemon process
-      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone; that command withdraws the run's Open decision requests itself. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
+      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone (that command withdraws the run's Open decision requests itself), and it holds a run whose route cannot answer yet and ends it when its wait is over. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
     may:
       - sdc.daemon.EndOrphanedRun
+      - sdc.daemon.WaitForRoute
+      - sdc.daemon.EndRouteWait
 
   - name: sdc.daemon.Operator
     naming:
@@ -741,7 +746,7 @@ commands:
     naming:
       wire: submit-run
       display: Submit a run
-      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0) takes a model route (docs/model-routes.md, section 2): the one the submit names by name in `model_route` (and per role in `model_routes`), else the daemon's `route_policy.default`; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model."
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0) takes a model route (docs/model-routes.md, section 2): the one the submit names by name in `model_route` (and per role in `model_routes`), else the daemon's `route_policy.default`; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model. Before anything is written the handler also asks the gateway of each route of the run the daemon's file declares (`GET /ready`, `GET /v1/models` and the status of the model; docs/model-routes.md, section 3): a gateway that is not ready or does not answer refuses the submit with the HTTP status 503 `route-unavailable`, outside this specification like the 503 of a submit while the daemon drains (no outcome of the language has that status), and one that does not list the route's alias refuses it route-refused; a route whose model cannot answer yet leaves the run accepted, and the daemon holds it WaitingForRoute (WaitForRoute). The interim route `default` of a daemon with a lone `[gateway]` and no route of its own is not asked, as before routes. No wake is sent."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: runbook_id, type: sdc.daemon.RunbookId}
@@ -900,13 +905,13 @@ commands:
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict
-        summary: "The run is not Submitted."
+        summary: "The run is not Submitted or WaitingForRoute."
 
   - name: sdc.daemon.FailRunStart
     naming:
       wire: fail-run-start
       display: Report a run that could not start
-      summary: "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
+      summary: "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: reason, type: String}
@@ -932,7 +937,68 @@ commands:
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict
+        summary: "The run is not Submitted or WaitingForRoute."
+
+  - name: sdc.daemon.WaitForRoute
+    naming:
+      wire: wait-for-route
+      display: Hold a run until its route can answer
+      summary: "A route of a run the daemon accepted could not answer at the submit: the gateway is ready and lists the alias, and the status of the model (`callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route) says it cannot take a call now. The run is WaitingForRoute: no call goes to the route and nothing is woken. The daemon reads the status at most once every 5 seconds of its clock, up to the route's `start_wait_seconds` (none declared: no wait); once every route of the run can answer, the runtime starts it (StartRun); past the wait the daemon ends it (EndRouteWait). The daemon also writes the run event `runbook.waiting-for-route` (record: route, phase, wait_seconds); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: phase, type: Optional<String>, summary: "The phase the gateway gave of the route's model."}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: waiting-for-route
+        moves: sdc.daemon.Run.wait_for_route
+        instance: run_id
+        sets:
+          route_phase: input.phase
+        emits:
+          - sdc.daemon.RunWaitingForRoute
+        payload:
+          sdc.daemon.RunWaitingForRoute:
+            run_id: input.run_id
+        summary: "The run is WaitingForRoute."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
         summary: "The run is not Submitted."
+
+  - name: sdc.daemon.EndRouteWait
+    naming:
+      wire: end-route-wait
+      display: End a run whose route did not come up
+      summary: "A run waited for its route up to the route's `start_wait_seconds` and a route of it still could not answer: the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: phase, type: Optional<String>, summary: "The last phase the gateway gave of the route's model."}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: stopped
+        moves: sdc.daemon.Run.stop_on_route
+        instance: run_id
+        sets:
+          outcome: "stopped: route"
+          route_phase: input.phase
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunStoppedOnRoute
+        payload:
+          sdc.daemon.RunStoppedOnRoute:
+            run_id: input.run_id
+        summary: "The run is Ended with the outcome `stopped: route`."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not WaitingForRoute."
 
   - name: sdc.daemon.WaitOnDecision
     naming:
@@ -1252,6 +1318,12 @@ commands:
 
 events:
   - name: sdc.daemon.RunOrphaned
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunWaitingForRoute
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunStoppedOnRoute
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
   - name: sdc.daemon.SubmitReplayed
@@ -1588,6 +1660,7 @@ views:
       - {name: failure, type: Optional<String>}
       - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>}
       - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>}
+      - {name: route_phase, type: Optional<String>}
 
   - name: sdc.daemon.OpenDecisionsOfRun
     naming:

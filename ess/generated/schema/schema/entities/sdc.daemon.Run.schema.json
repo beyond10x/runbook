@@ -107,6 +107,10 @@
       "$ref": "#/$defs/sdc.daemon.RoleRoutes",
       "description": "The routes of the other roles the submit named (`model_routes.<role>`), each chosen by the run; absent when it named none."
     },
+    "route_phase": {
+      "description": "The last phase the gateway gave of a route of the run that could not answer when the run was submitted: set when the run waits for its route (WaitingForRoute) and when it ends `stopped: route`; absent for a run that never waited.",
+      "type": "string"
+    },
     "state": {
       "$ref": "#/$defs/sdc.daemon.Run.State"
     }
@@ -124,7 +128,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:21f1b71bceb8ce273a9555ebe0ecc55617ea738d9b4c09d707f1a1faca603573",
+    "contract_digest": "slice-sha256/2:f71403711bddd27185a2565a150856933565394a5af428083b71e59a56909017",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -221,6 +225,7 @@
         "FailedToStart",
         "Running",
         "Submitted",
+        "WaitingForRoute",
         "WaitingOnDecision"
       ]
     },

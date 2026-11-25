@@ -186,6 +186,8 @@ pub struct RouteTable {
     routes: BTreeMap<String, Route>,
     default: Option<String>,
     classifier: Option<String>,
+    /// Whether the route `default` is the interim route of a lone `[gateway]` ([`RouteTable::with_interim_default`]).
+    interim: bool,
 }
 
 /// A name of a gateway or a route: 1 to 64 letters, digits, `.`, `_` and `-`.
@@ -366,7 +368,7 @@ impl RouteTable {
                 }
             }
         }
-        Ok(RouteTable { gateways, routes, default, classifier })
+        Ok(RouteTable { gateways, routes, default, classifier, interim: false })
     }
 
     /// Reads the token file of every gateway that names one, once: every `[gateways.<name>]`, and a lone `[gateway]`
@@ -405,8 +407,15 @@ impl RouteTable {
         };
         self.routes.insert(DEFAULT_GATEWAY.to_owned(), route);
         self.default = Some(DEFAULT_GATEWAY.to_owned());
+        self.interim = true;
         self.read_token_of(DEFAULT_GATEWAY)?;
         Ok(self)
+    }
+
+    /// Whether `name` is the interim route of a lone `[gateway]`, which a run takes as before routes: its gateway is not
+    /// asked whether it can answer before the run starts.
+    pub fn is_interim(&self, name: &str) -> bool {
+        self.interim && name == DEFAULT_GATEWAY
     }
 
     /// Reads the token file of the gateway `name` alone, when it names one: `runbook run` reads the gateway of the one

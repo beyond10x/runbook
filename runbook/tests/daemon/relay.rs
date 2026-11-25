@@ -33,6 +33,20 @@ pub(super) struct Gateway {
 }
 
 pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
+    serving(answer, &[])
+}
+
+/// A gateway like [`gateway`] that is also ready and lists `aliases`: `GET /ready` answers 200, `GET /v1/models` the
+/// list and any other `GET` 404 (no status of a model: it is read no further), none of them kept. A daemon asks a
+/// declared route's gateway these before a run starts (`docs/model-routes.md`, section 3); every other request is
+/// kept and answered with `answer`.
+pub(super) fn gateway_listing(answer: &'static [u8], aliases: &[&str]) -> Gateway {
+    serving(answer, aliases)
+}
+
+fn serving(answer: &'static [u8], aliases: &[&str]) -> Gateway {
+    let reads = !aliases.is_empty();
+    let models = json!({"object": "list", "data": aliases.iter().map(|a| json!({"id": a, "wires": ["messages", "chat"]})).collect::<Vec<_>>()}).to_string();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
     let got = Arc::new(Mutex::new(Vec::new()));
@@ -50,6 +64,16 @@ pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
                 }
             }
             let head = String::from_utf8_lossy(&raw).into_owned();
+            let line = head.lines().next().unwrap_or("").to_owned();
+            if reads && line.starts_with("GET ") {
+                let (code, body) = match line.split_whitespace().nth(1).unwrap_or("") {
+                    "/ready" => (200, "{\"status\":\"ready\"}".to_owned()),
+                    "/v1/models" => (200, models.clone()),
+                    _ => (404, "{\"error\":{\"code\":\"not-found\"}}".to_owned()),
+                };
+                let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+                continue;
+            }
             let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
             let mut body = vec![0u8; length];
             let _ = stream.read_exact(&mut body);

@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "a367c2b9e695de57b53854a0ba4c7ff8ea770e5191ceeeea1afd2ca09b624224",
-    "contract_digest": "8624ccc32902f0d2da91ab34d33b7e01df438e956825d62951e540ff8842cc50",
+    "spec_digest": "8574a8eef0be2ae0e604b3c4120da9a456d15b1a914bb786790602a04d8f245b",
+    "contract_digest": "186450925d466483af24dcaf684e92c388306f4c4d8a0f7248803652df0d11e4",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -761,6 +761,540 @@
         {
           "kind": "actor",
           "name": "sdc.daemon.Operator"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-a-run-waits-for-its-route": {
+      "purpose": "A run whose route cannot answer at the submit waits for it: one starts once the route can answer, the other ends stopped: route when its wait is over, with the last phase the gateway gave.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Fix the failing build."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-comes-up"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.WaitForRoute",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "phase": {
+              "kind": "literal",
+              "value": "starting"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-comes-up"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.WaitForRoute",
+            "outcome": "waiting-for-route"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.daemon.RunWaitingForRoute",
+          "payload": {
+            "run_id": "run-comes-up"
+          },
+          "shape": {
+            "run_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:02:00Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-comes-up"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:03:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Fix the failing build."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-stays-down"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.WaitForRoute",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "phase": {
+              "kind": "literal",
+              "value": "stopped"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-stays-down"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.WaitForRoute",
+            "outcome": "waiting-for-route"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.EndRouteWait",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:13:01Z"
+            },
+            "phase": {
+              "kind": "literal",
+              "value": "stopped"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-stays-down"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.EndRouteWait",
+            "outcome": "stopped"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.daemon.RunStoppedOnRoute",
+          "payload": {
+            "run_id": "run-stays-down"
+          },
+          "shape": {
+            "run_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:14:00Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-stays-down"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-comes-up"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "route_phase": {
+                "kind": "literal",
+                "value": "starting"
+              },
+              "run_id": {
+                "kind": "literal",
+                "value": "run-comes-up"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Running"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-stays-down"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "outcome": {
+                "kind": "literal",
+                "value": "stopped: route"
+              },
+              "route_phase": {
+                "kind": "literal",
+                "value": "stopped"
+              },
+              "run_id": {
+                "kind": "literal",
+                "value": "run-stays-down"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Ended"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Run.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunOutcome"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.EndRouteWait"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.WaitForRoute"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.EndRouteWait",
+            "outcome": "stopped"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.WaitForRoute",
+            "outcome": "waiting-for-route"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunStoppedOnRoute"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaitingForRoute"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.RunDetail"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.DaemonProcess"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Runtime"
         }
       ]
     },

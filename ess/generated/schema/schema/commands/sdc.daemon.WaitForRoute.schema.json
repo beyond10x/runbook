@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.WaitForRoute.schema.json",
+  "title": "Hold a run until its route can answer input",
+  "description": "A route of a run the daemon accepted could not answer at the submit: the gateway is ready and lists the alias, and the status of the model (`callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route) says it cannot take a call now. The run is WaitingForRoute: no call goes to the route and nothing is woken. The daemon reads the status at most once every 5 seconds of its clock, up to the route's `start_wait_seconds` (none declared: no wait); once every route of the run can answer, the runtime starts it (StartRun); past the wait the daemon ends it (EndRouteWait). The daemon also writes the run event `runbook.waiting-for-route` (record: route, phase, wait_seconds); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "x-ess-name": "sdc.daemon.WaitForRoute",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "phase": {
+      "description": "The phase the gateway gave of the route's model.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:5b5227650dee3beb01ded9d3b2b27ea719c355c8020be108c439bbfecbf9818d",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
