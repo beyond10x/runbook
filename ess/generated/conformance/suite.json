@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "84f8bb5325ea21d66039d5e8bf3afe08b255eb96b40386f39dbe57a0702e2eb3",
-    "contract_digest": "4664a7620f39aa7c03663f4b75a0819351dd756042e2d043e8d1559645dc51e6",
+    "spec_digest": "a367c2b9e695de57b53854a0ba4c7ff8ea770e5191ceeeea1afd2ca09b624224",
+    "contract_digest": "8624ccc32902f0d2da91ab34d33b7e01df438e956825d62951e540ff8842cc50",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -1065,6 +1065,24 @@
               "kind": "literal",
               "value": "intake"
             },
+            "model_route": {
+              "kind": "literal",
+              "value": "model_route"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "model_routes": {
+              "kind": "literal",
+              "value": {
+                "model_routes": "model_routes.0"
+              }
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -1204,6 +1222,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -1402,6 +1432,24 @@
               "kind": "literal",
               "value": "intake"
             },
+            "model_route": {
+              "kind": "literal",
+              "value": "model_route"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "model_routes": {
+              "kind": "literal",
+              "value": {
+                "model_routes": "model_routes.0"
+              }
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -1534,6 +1582,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -1732,6 +1792,24 @@
               "kind": "literal",
               "value": "intake"
             },
+            "model_route": {
+              "kind": "literal",
+              "value": "model_route"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "model_routes": {
+              "kind": "literal",
+              "value": {
+                "model_routes": "model_routes.0"
+              }
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -1870,6 +1948,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -5182,6 +5272,24 @@
               "kind": "literal",
               "value": "intake"
             },
+            "model_route": {
+              "kind": "literal",
+              "value": "model_route"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "model_routes": {
+              "kind": "literal",
+              "value": {
+                "model_routes": "model_routes.0"
+              }
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -5239,6 +5347,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -5601,6 +5721,10 @@
               "kind": "literal",
               "value": "intake"
             },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused"
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -5768,6 +5892,10 @@
               "kind": "literal",
               "value": "intake-1"
             },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused-1"
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id-1"
@@ -5824,6 +5952,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -6317,6 +6457,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -6672,6 +6824,10 @@
               "kind": "literal",
               "value": "intake"
             },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused"
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -6839,6 +6995,10 @@
               "kind": "literal",
               "value": "intake-1"
             },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused-1"
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id-1"
@@ -6895,6 +7055,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -7209,6 +7381,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -7368,6 +7552,611 @@
         {
           "kind": "actor",
           "name": "sdc.daemon.Operator"
+        }
+      ]
+    },
+    "sdc.daemon.SubmitRun/outcome/route-refused": {
+      "absent_events": [
+        {
+          "before": 15,
+          "except": []
+        },
+        {
+          "before": 27,
+          "except": []
+        }
+      ],
+      "purpose": "`sdc.daemon.SubmitRun` answers `route-refused` for an input that satisfies that branch's guard",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-360360"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-360360"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-360361",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-28T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138599"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138599"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138600",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138600"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138600"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138601",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-02T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138601"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138601"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138602",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "instance",
+              "instance": "daemon-138601"
+            },
+            "idempotency_key": {
+              "kind": "literal",
+              "value": "idempotency_key"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake"
+            },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run_id"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "runbook_id"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "session_id": {
+              "kind": "instance",
+              "instance": "session-360361"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {
+                "settings": "settings.0"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "route-refused"
+          }
+        },
+        {
+          "step": "expect_error",
+          "error": "sdc.daemon.RouteRefused"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-05T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-360364"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-360364"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-360365",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-04T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-138603"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-138603"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-138604",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-06T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-138605"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-138605"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-138606",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-02T00:00:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "instance",
+              "instance": "daemon-360365"
+            },
+            "idempotency_key": {
+              "kind": "literal",
+              "value": "idempotency_key-1"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "intake-1"
+            },
+            "route_refused": {
+              "kind": "literal",
+              "value": "route_refused-1"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run_id-1"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "runbook_id-1"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {
+                "settings-1": "settings.0-1"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "route-refused"
+          }
+        },
+        {
+          "step": "expect_error",
+          "error": "sdc.daemon.RouteRefused"
+        }
+      ],
+      "source": [
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "entity",
+          "name": "sdc.daemon.Daemon"
+        },
+        {
+          "kind": "entity",
+          "name": "sdc.daemon.Session"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.OpenSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "route-refused"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DaemonStarted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionAnswered"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionRequestWithdrawn"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunCancelled"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunEnded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunEventRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunFailedToStart"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunOrphaned"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunResumed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunStarted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunSubmitted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaiting"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SessionClosed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SessionOpened"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SubmitReplayed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionEscalated"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionExpired"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionSuperseded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.ProducedRecordRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationWithheld"
+        },
+        {
+          "kind": "error",
+          "name": "sdc.daemon.RouteRefused"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
         }
       ]
     },
@@ -7561,6 +8350,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -7870,6 +8671,24 @@
               "kind": "literal",
               "value": "intake"
             },
+            "model_route": {
+              "kind": "literal",
+              "value": "model_route"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "model_routes": {
+              "kind": "literal",
+              "value": {
+                "model_routes": "model_routes.0"
+              }
+            },
             "run_id": {
               "kind": "literal",
               "value": "run_id"
@@ -7982,6 +8801,24 @@
                 "kind": "literal",
                 "value": "intake"
               },
+              "model_route": {
+                "kind": "literal",
+                "value": "model_route"
+              },
+              "model_route_alias": {
+                "kind": "literal",
+                "value": "model_route_alias"
+              },
+              "model_route_source": {
+                "kind": "literal",
+                "value": "run"
+              },
+              "model_routes": {
+                "kind": "literal",
+                "value": {
+                  "model_routes": "model_routes.0"
+                }
+              },
               "run_id": {
                 "kind": "instance",
                 "instance": "run"
@@ -8040,6 +8877,18 @@
               "decider": {
                 "kind": "literal",
                 "value": "decider"
+              },
+              "model_route": {
+                "kind": "literal",
+                "value": "model_route"
+              },
+              "model_route_alias": {
+                "kind": "literal",
+                "value": "model_route_alias"
+              },
+              "model_route_source": {
+                "kind": "literal",
+                "value": "run"
               },
               "run_id": {
                 "kind": "instance",
@@ -8100,6 +8949,18 @@
                 "kind": "literal",
                 "value": "decider"
               },
+              "model_route": {
+                "kind": "literal",
+                "value": "model_route"
+              },
+              "model_route_alias": {
+                "kind": "literal",
+                "value": "model_route_alias"
+              },
+              "model_route_source": {
+                "kind": "literal",
+                "value": "run"
+              },
               "run_id": {
                 "kind": "instance",
                 "instance": "run"
@@ -8152,6 +9013,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -8994,6 +9867,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -9082,6 +9967,305 @@
         {
           "kind": "view",
           "name": "sdc.daemon.Sessions"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-a-refused-route-submits-nothing": {
+      "purpose": "A submit whose model route the handler refuses (a route the daemon does not declare) creates no run; the same submit without the route is taken.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Fix the failing build."
+            },
+            "model_route": {
+              "kind": "literal",
+              "value": "no-such-route"
+            },
+            "route_refused": {
+              "kind": "literal",
+              "value": "model_route names no route the daemon declares"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-refused-route"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "route-refused"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:02:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Fix the failing build."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-without-route"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-without-route"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "run_id": {
+                "kind": "literal",
+                "value": "run-without-route"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Submitted"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Run.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunOutcome"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "route-refused"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.RunDetail"
         },
         {
           "kind": "actor",
@@ -9849,6 +11033,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Run.State"
         },
         {
@@ -10299,6 +11495,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -11121,6 +12329,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -11743,6 +12963,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -12465,6 +13697,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -13158,6 +14402,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Run.State"
         },
         {
@@ -13819,6 +15075,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Run.State"
         },
         {
@@ -14208,6 +15476,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -14881,6 +16161,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -15573,6 +16865,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.RunId"
         },
         {
@@ -16042,6 +17346,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -16711,6 +18027,18 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Run.State"
         },
         {
@@ -17098,6 +18426,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",
@@ -18224,6 +19564,18 @@
         {
           "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
         },
         {
           "kind": "type",

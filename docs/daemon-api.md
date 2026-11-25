@@ -50,7 +50,7 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 |---|---|
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
-| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
+| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `RouteRefused` (422 `route-refused`: below, "The route of a run"), `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
@@ -217,8 +217,31 @@ at most 5 s; a gateway that has not answered by then is `gateway-unreachable`. `
 | `ready`, `not-ready` | the gateway gave the model's status: `callable` of `/v1/status`, else the phase of the model's own status route (`ready` only for the phase `ready`); `phase` is the gateway's |
 | `listed` | the gateway lists the alias and gave no status of it: a hosted route on a gateway without `/v1/status`, or a status route that did not answer in time or answered anything but `200` with a phase. Today's gateway answers `404` for `/v1/status` and for the status route of a model it does not start (a local model): such a route is `listed`, not `gateway-unreachable` |
 
-A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none. A run does not take a
-route yet (`story:run-names-a-model-route`).
+A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none.
+
+#### The route of a run
+
+A `submit-run` names the route of its model calls by `model_route` (a declared route name) and, for a role that
+takes another, `model_routes` (a map from role to route name; the role `default` is the run's own). The run's
+word wins; a run that names none takes `[route_policy] default`. Only a run that makes model calls takes a route:
+its decider kind is `model` and its autonomy is above `A0`. The run record and the views `runs`, `run` and the
+other run views carry `model_route`, `model_route_alias` and `model_route_source` (`run` or `default`), and `run`
+also `model_routes`; the event `runbook.submitted` says the same. The relay's table of the run is built from them:
+the role `default` on the chosen route, each role of `model_routes` on its own, every call booked with the
+route, the alias and the setting that chose it (`run` for a route the submit named, `default` for the policy's).
+
+A submit is refused `422 route-refused` (error `RouteRefused`: `run_id`, `reason`, `declared`, the daemon's route
+names), and nothing is written, when it names a route the daemon does not declare, an alias of a gateway's model
+instead of a route, an address (a value with `/` or `:`), a value that is no route name (a token, or any other
+text that is not 1 to 64 letters, digits, `.`, `_` or `-`), an empty name, the role `default` or a role that is
+no name in `model_routes`, or a route at all for a run that makes no model call; and when a run that makes model
+calls names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
+(`model_route`, `model_routes.<role>`) and why, and never the value. `model_route_alias`, `model_route_source` and
+`route_refused` are filled by the daemon: a submit that sends one is refused `400` by its name. A daemon with only
+a `[gateway]` and a model decider declares the interim route `default` on that gateway (kind `hosted`, the
+decider's model as its alias, no price) and takes it as its default: the view `routes` lists it, a model run that
+names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
+`declared` `["default"]`.
 
 ### The products of a run
 
@@ -824,8 +847,8 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
 
 ## The relay of a run's model calls
 
-A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener when that is loopback, the relay of
-the model calls of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
+A daemon with declared routes, or with a `[gateway]` and the decider kind `model`, serves, on its own listener when that
+is loopback, the relay of the model calls of its runs on a route (above, "The route of a run") (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
 On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
 a run whose kind is `model` does not start. On a loopback listener:
 

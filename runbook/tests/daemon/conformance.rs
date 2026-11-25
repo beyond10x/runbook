@@ -25,7 +25,8 @@
 //!   a level (the handler fills the daemon's default) is asked of a daemon that states one;
 //! - facts the specification takes from the host (`runbook_known`, `context_inside_roots`) are made true
 //!   or false in the host: the runtime double knows the runbook or not, the context is a directory under
-//!   the context root or a path outside it;
+//!   the context root or a path outside it; `route_refused` is the refusal of the route the step names in
+//!   `model_route`, which the daemon (it declares no route) refuses;
 //! - time: the daemon reads one clock (`runbook::clock`); the runner builds it with a `SetClock` and moves it to
 //!   the `at` of each command step before the step runs, so the instants the daemon records are the ones the
 //!   scenario names and a claim of an exact instant is read like any other (compared as an instant, so
@@ -66,7 +67,7 @@ struct Gate {
 /// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
 const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
 
-const GATE: Gate = Gate { total: 15, executed: 15, passed: 15, skipped: 0 };
+const GATE: Gate = Gate { total: 16, executed: 16, passed: 16, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];
@@ -527,7 +528,7 @@ impl Scn {
             }
         }
         let mut body = Map::new();
-        for k in ["runbook_id", "runbook_version", "intake", "settings", "confinement", "session_id", "idempotency_key"] {
+        for k in ["runbook_id", "runbook_version", "intake", "settings", "confinement", "session_id", "idempotency_key", "model_route", "model_routes"] {
             if let Some(v) = input.get(k).filter(|v| !v.is_null()) {
                 body.insert(k.to_string(), v.clone());
             }

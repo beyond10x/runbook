@@ -7,7 +7,7 @@
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
 use crate::clock::{parse_instant, Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest, StartTarget, Started, Terms};
+use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, RouteSource, RunRoute, Runtime, StartRequest, StartTarget, Started, Terms};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -78,8 +78,12 @@ pub struct Policy {
     /// that answers for them is the engine's; none configured: no run takes a level or a kind.
     pub kinds: Vec<String>,
     /// The model routes of the daemon's `runbook.toml` (`[gateways.*]`, `[routes.*]`, `[route_policy]`), their
-    /// token files read; empty: no route. The view `routes` lists them.
+    /// token files read; empty: no route. The view `routes` lists them, and a run that makes model calls takes one of
+    /// them (`model_route`, else `route_policy.default`).
     pub routes: Arc<crate::routes::RouteTable>,
+    /// The route `default` of a lone `[gateway]` table (the model decider's model as its alias), the route of a model
+    /// run on a daemon whose file declares no route, as before routes; none without such a table.
+    pub gateway_route: Option<crate::relay::RouteTable>,
 }
 
 /// The configured kinds as a sentence part.
@@ -248,6 +252,7 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("submit-run", "intake-too-large", 422, Some("IntakeTooLarge")),
     o("submit-run", "no-runbook", 422, Some("NoSuchRunbook")),
     o("submit-run", "context-outside-roots", 422, Some("ContextOutsideRoots")),
+    o("submit-run", "route-refused", 422, Some("RouteRefused")),
     o("submit-run", "no-daemon", 409, Some("NoSuchDaemon")),
     o("submit-run", "no-session", 409, Some("NoSuchSession")),
     o("submit-run", "below-floor", 409, Some("BelowConfinementFloor")),
@@ -466,6 +471,98 @@ pub struct SubmitRun {
     pub session_id: Option<String>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    /// The route of the run's role `default`, by the name the daemon's file declares; absent: `route_policy.default`
+    /// for a run that makes model calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_route: Option<String>,
+    /// The route of each further role, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_routes: Option<BTreeMap<String, String>>,
+}
+
+/// The members of a submit the handler fills about the run's route: a client never sends them, and one that does is
+/// refused by the member's name (an alias in particular is the daemon's to fill, never a client's to name).
+const ROUTE_FILLED: [&str; 3] = ["model_route_alias", "model_route_source", "route_refused"];
+
+/// The members of a submit's body the handler fills about the route, refused by name before the body is read.
+pub fn refuse_route_members(body: &[u8]) -> Result<(), Fault> {
+    let Ok(Value::Object(members)) = serde_json::from_slice::<Value>(body) else { return Ok(()) };
+    match members.keys().find(|k| ROUTE_FILLED.contains(&k.as_str())) {
+        Some(name) => Err(Fault::Invalid(format!("the member {name} is refused: the daemon fills it from its runbook.toml; a submit names a route by its name in model_route (docs/model-routes.md, section 2)"))),
+        None => Ok(()),
+    }
+}
+
+/// Why `name`, given in the submit's member `member`, is no route the daemon declares; none when it is one. The
+/// reason names what the value is (empty, an address, a gateway's alias, a token or another text that is no route
+/// name, or a name the file does not declare) and never holds the value.
+fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &str) -> Option<String> {
+    if routes.route(name).is_some() {
+        return None;
+    }
+    let why = if name.is_empty() {
+        "is empty".to_owned()
+    } else if routes.routes().any(|r| r.alias == name) {
+        "names an alias of a gateway's model, not a route: a submit names the route by its name, and the daemon fills its alias".to_owned()
+    } else if name.contains(['/', ':']) {
+        "names an address: a submit names no address; the gateway's address is the daemon's".to_owned()
+    } else if !crate::routes::is_name(name) {
+        "is no route name (1 to 64 letters, digits, '.', '_' or '-'): a token or any other secret is refused, and its value is never shown".to_owned()
+    } else {
+        "names a route the daemon declares no route of".to_owned()
+    };
+    Some(format!("{member} {why}; name a declared route"))
+}
+
+/// The run's route as the handler resolves it at the submit (`docs/model-routes.md`, section 2): the route of each role
+/// and the record of it, or none for a run that takes no route; `Err` is the reason of `route-refused`. The run's
+/// word comes first (`model_route`, `model_routes.<role>`), then `route_policy.default`. A run that makes no model call
+/// takes no route and is refused when it names one; the default is not applied to it. A daemon whose file declares no
+/// route gives a model run the route `default` of its lone `[gateway]`, as before routes, and refuses any named route.
+fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
+    let routes = &policy.routes;
+    let roles = input.model_routes.clone().unwrap_or_default();
+    if let Some(name) = &input.model_route {
+        if let Some(why) = route_name_refusal(routes, "model_route", name) {
+            return Err(why);
+        }
+    }
+    for (role, name) in &roles {
+        if !crate::routes::is_name(role) {
+            return Err("model_routes: a role is 1 to 64 letters, digits, '.', '_' or '-'; this one is not, and is not shown".to_owned());
+        }
+        if role == "default" {
+            return Err("model_routes.default: the role default is the run's model_route; name it there".to_owned());
+        }
+        if let Some(why) = route_name_refusal(routes, &format!("model_routes.{role}"), name) {
+            return Err(why);
+        }
+    }
+    if !terms.makes_model_calls() {
+        if input.model_route.is_some() || !roles.is_empty() {
+            return Err("the submit names a route, and the run makes no model call (its decider is not the kind model at a level above A0): a submit for such a run names no route".to_owned());
+        }
+        return Ok(None);
+    }
+    if routes.names().is_empty() {
+        let Some(table) = policy.gateway_route.clone() else { return Ok(None) };
+        let Some((route, _)) = table.get("default") else { return Ok(None) };
+        let record = RunRoute { route: route.name.clone(), alias: route.alias.clone(), source: RouteSource::Default, roles: BTreeMap::new() };
+        return Ok(Some((record, table)));
+    }
+    let (name, source) = match (&input.model_route, routes.default_route()) {
+        (Some(named), _) => (named.clone(), RouteSource::Run),
+        (None, Some(default)) => (default.to_owned(), RouteSource::Default),
+        (None, None) => return Err("the run makes model calls and names no route, and the daemon's runbook.toml has no route_policy.default: name one in model_route".to_owned()),
+    };
+    let resolve = |name: &str| routes.resolve(name).map(crate::relay::ResolvedRoute::from).ok_or_else(|| format!("the route {name} has no gateway the daemon declares"));
+    let first = resolve(&name)?;
+    let record = RunRoute { route: first.name.clone(), alias: first.alias.clone(), source, roles: roles.clone() };
+    let mut table = crate::relay::RouteTable::default().with("default", first, source.as_str());
+    for (role, name) in &roles {
+        table = table.with(role, resolve(name)?, RouteSource::Run.as_str());
+    }
+    Ok(Some((record, table)))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -782,6 +879,12 @@ impl Daemon {
         if matches!(context, Some(None)) {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
+        // The run's model route: the submit's word, then the daemon's default; a refusal lists the declared routes.
+        let (model_route, route_table) = match route_of_run(&self.inner.policy, &input, &terms) {
+            Ok(Some((record, table))) => (Some(record), Some(table)),
+            Ok(None) => (None, None),
+            Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
+        };
         let context_dir = context.flatten();
         // The caps of the run: what the submit names within the runtime's ceilings, else its defaults.
         // They are part of the run's settings from here on, so a run taken up again has the same ones.
@@ -835,6 +938,7 @@ impl Daemon {
             confinement,
             confinement_source: Some(source),
             terms: terms.clone(),
+            model_route: model_route.clone(),
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
             submitted_at: st.now(),
@@ -853,6 +957,11 @@ impl Daemon {
         if let Some(kind) = &terms.decider {
             record["decider"] = json!(kind);
         }
+        if let Some(r) = &model_route {
+            record["model_route"] = json!(r.route);
+            record["model_route_alias"] = json!(r.alias);
+            record["model_route_source"] = json!(r.source);
+        }
         record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         drop(st);
 
@@ -867,6 +976,7 @@ impl Daemon {
             terms,
             state_dir: run_dir,
             workspace_dir: workspace,
+            routes: route_table,
         };
         self.spawn_run(request);
         let mut out = done("submit-run", "submitted", vec![("RunSubmitted", payload)]);
@@ -1067,6 +1177,9 @@ impl Daemon {
                 m.insert("settings".into(), json!(settings));
                 if let Some(c) = &r.context_path {
                     m.insert("context_path".into(), json!(c));
+                }
+                if let Some(roles) = r.model_route.as_ref().map(|route| &route.roles).filter(|roles| !roles.is_empty()) {
+                    m.insert("model_routes".into(), json!(roles));
                 }
                 if r.state == RunState::Running {
                     if let Some(step) = lock(&self.inner.steps).get(run_id) {
@@ -1645,6 +1758,11 @@ fn run_row(r: &Run) -> Value {
         m.insert("autonomy".into(), json!(level));
     }
     put(&mut m, "decider", &r.terms.decider);
+    if let Some(route) = &r.model_route {
+        m.insert("model_route".into(), json!(route.route));
+        m.insert("model_route_alias".into(), json!(route.alias));
+        m.insert("model_route_source".into(), json!(route.source));
+    }
     put(&mut m, "session_id", &r.session_id);
     m.insert("submitted_at".into(), json!(r.submitted_at));
     put(&mut m, "started_at", &r.started_at);

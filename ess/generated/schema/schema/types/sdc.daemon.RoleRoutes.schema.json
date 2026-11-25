@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RoleRoutes.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RoleRoutes",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:45a137fc4282b2b7eb87af3c05ffabe5af0ae815cf708d8b6d29ba4ff179f267",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RoleRoutes": {
+      "title": "RoleRoutes",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "x-ess-name": "sdc.daemon.RoleRoutes",
+      "x-ess-kind": "newtype",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/sdc.daemon.RouteName"
+      },
+      "x-ess-map-key": "String"
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

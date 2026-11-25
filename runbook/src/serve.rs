@@ -205,9 +205,11 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if let Some(arbiter) = &args.arbiter {
             engine = engine.with_arbiter(arbiter.clone());
         }
-        if let Some(table) = args.route_table.clone().filter(|t| !t.is_empty()) {
+        // The relay serves the runs on a route: those on a declared route, and those on the route `default` of a lone
+        // `[gateway]` table.
+        if args.route_table.as_ref().is_some_and(|t| !t.is_empty()) || !args.routes.names().is_empty() {
             let r = crate::relay::Relay::new();
-            engine = engine.with_routes(r.clone(), table);
+            engine = engine.with_relay(r.clone());
             relay = Some(r);
         }
         (Arc::new(engine), None)
@@ -220,7 +222,9 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone() };
+    // The route `default` of a lone `[gateway]` serves a model run only with the loom runtime, which has the relay.
+    let gateway_route = args.route_table.clone().filter(|t| !t.is_empty() && relay.is_some());
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon, relay })
 }

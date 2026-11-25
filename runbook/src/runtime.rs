@@ -115,6 +115,45 @@ pub struct Terms {
     pub decider: Option<String>,
 }
 
+impl Terms {
+    /// Whether a run with these terms makes model calls the daemon routes: its decider is the kind `model` at a level
+    /// above `A0`. Such a run takes a model route (`docs/model-routes.md`, section 2) and its model processes reach it
+    /// through the daemon's relay; any other run takes none, and a submit for it that names one is refused.
+    pub fn makes_model_calls(&self) -> bool {
+        self.decider.as_deref() == Some("model") && self.autonomy.is_some_and(|l| l != Autonomy::A0)
+    }
+}
+
+/// The setting that chose a run's route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RouteSource {
+    /// The submit named it (`model_route`, `model_routes.<role>`).
+    Run,
+    /// The daemon's `route_policy.default`, or the route `default` of a lone `[gateway]` table.
+    Default,
+}
+
+impl RouteSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteSource::Run => "run",
+            RouteSource::Default => "default",
+        }
+    }
+}
+
+/// The model route of a run as its record keeps it: the route of the role `default`, its alias at the gateway and the
+/// setting that chose it, and the route of each further role the submit named. No address and no token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRoute {
+    pub route: String,
+    pub alias: String,
+    pub source: RouteSource,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub roles: BTreeMap<String, String>,
+}
+
 /// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime
 /// has for it, when it names one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,6 +193,10 @@ pub struct StartRequest {
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
     pub workspace_dir: PathBuf,
+    /// The route of each role of a run that makes model calls (`Terms::makes_model_calls`), resolved by the daemon
+    /// at the submit: the run's model processes reach these routes through the daemon's relay. None: the run is on
+    /// no route.
+    pub routes: Option<crate::relay::RouteTable>,
 }
 
 /// A question the runtime raised for a run.

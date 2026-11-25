@@ -31,6 +31,7 @@ fn run(id: &str) -> Run {
         confinement: Confinement::Linux,
         confinement_source: None,
         terms: Default::default(),
+        model_route: None,
         session_id: None,
         idempotency_key: Some(format!("key-{id}")),
         submitted_at: "2026-01-01T00:00:00.000Z".into(),

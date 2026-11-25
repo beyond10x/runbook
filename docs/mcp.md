@@ -41,7 +41,7 @@ progress, resources, prompts. The server sends no request and no notification of
 
 | Tool | Calls | Input |
 |---|---|---|
-| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `autonomy`, `decider`, `session_id`, `idempotency_key` |
+| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `autonomy`, `decider`, `session_id`, `idempotency_key`, `model_route`, `model_routes` (`daemon-api.md`, "The route of a run": `route-refused`, 422) |
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id`; the row has `step_in_flight` (`action`, `case_id`, `started_at`, `seconds`) while a program of the run runs (`docs/daemon-api.md`, "The step in flight") |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
