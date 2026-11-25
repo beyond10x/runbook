@@ -34,10 +34,11 @@ pub fn start(cfg: Config, runtime: Arc<dyn Runtime>) -> std::io::Result<Daemon> 
     Daemon::start_with(cfg, Policy { default_confinement: Some(Confinement::Linux), routes: routes(), ..Policy::default() }, runtime)
 }
 
-/// The routes of these daemons: the route `default` on a gateway nothing reaches. The stub runtime has no gateway: every
-/// route is ready to it, and a delegation on it runs the stub's script.
+/// The routes of these daemons: the route `default` on a stand-in gateway on loopback that is ready and lists its alias,
+/// so a delegation on it passes the readiness check of a run and runs the stub's script; nothing calls the gateway's model.
 fn routes() -> Arc<RouteTable> {
-    let gateways = json!({"default": {"base_url": "http://gateway.invalid"}});
+    let gw = super::relay::gateway_listing(b"HTTP/1.1 500 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", &["a-model"]);
+    let gateways = json!({"default": {"base_url": gw.base_url}});
     let routes = json!({"default": {"gateway": "default", "model": "a-model", "kind": "hosted"}});
     Arc::new(RouteTable::declare(&Tables { gateways: Some(&gateways), routes: Some(&routes), ..Tables::default() }).unwrap())
 }

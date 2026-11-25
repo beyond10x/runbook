@@ -395,12 +395,6 @@ pub trait Runtime: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
-    /// Why the route `route` (a delegation's, as the daemon resolved it) cannot take a run now (its gateway is not ready), naming the route and never its address or
-    /// token; `None`: it can. Asked at a delegation, before anything is written; it may block a few seconds.
-    fn route_unready(&self, _route: &crate::relay::ResolvedRoute) -> Option<String> {
-        None
-    }
-
     /// Whether the runtime runs the free run of a delegation (`crate::delegation`).
     fn free_run(&self) -> bool {
         false

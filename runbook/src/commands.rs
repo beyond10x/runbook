@@ -684,6 +684,17 @@ fn declared_routes_of(routes: &crate::routes::RouteTable, record: &RunRoute) -> 
     names
 }
 
+/// Whether the declared routes of `record` can take a run now (`docs/model-routes.md`, section 3), read before anything
+/// is written, with no call and no wake: every one can answer (`Ok(None)`), a model cannot answer yet (`Ok(Some(wait))`, the
+/// wait up to the route's `start_wait_seconds`), or a route cannot take the run at all. A submit and a delegation ask it.
+fn route_wait(routes: &crate::routes::RouteTable, record: &RunRoute) -> Result<Option<RouteWait>, NotReady> {
+    let names = declared_routes_of(routes, record);
+    Ok(read_routes(routes, &names)?.map(|(route, phase)| {
+        let seconds = routes.route(&route).and_then(|r| r.start_wait_seconds).unwrap_or(0);
+        RouteWait { routes: names, route, phase, wait_millis: i64::try_from(seconds).unwrap_or(i64::MAX / 2).saturating_mul(1000) }
+    }))
+}
+
 /// What the gateways say of `names` now (`docs/model-routes.md`, section 3): every route can answer (`Ok(None)`), some
 /// cannot yet (`Ok(Some(wait))`, the first one with its phase), or a route cannot take the run at all.
 fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<Option<(String, Option<String>)>, NotReady> {
@@ -1034,13 +1045,8 @@ impl Daemon {
             None => None,
             Some((record, _)) => {
                 let routes = &self.inner.policy.routes;
-                let names = declared_routes_of(routes, record);
-                match read_routes(routes, &names) {
-                    Ok(None) => None,
-                    Ok(Some((route, phase))) => {
-                        let seconds = routes.route(&route).and_then(|r| r.start_wait_seconds).unwrap_or(0);
-                        Some(RouteWait { routes: names, route, phase, wait_millis: i64::try_from(seconds).unwrap_or(i64::MAX / 2).saturating_mul(1000) })
-                    }
+                match route_wait(routes, record) {
+                    Ok(wait) => wait,
                     Err(NotReady::Unavailable(message)) => return Err(Fault::Refused { status: 503, what: "route-unavailable", message }),
                     Err(NotReady::Refused(reason)) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": routes.names()})),
                 }
@@ -1239,11 +1245,17 @@ impl Daemon {
             self.inner.runtime.check_runbook(&runbook_id, None).map_err(Fault::Invalid)?;
         }
         let replay = input.idempotency_key.as_deref().is_some_and(|k| self.st().run_by_key(k).is_some());
-        if !replay {
-            if let Some(why) = table.get("default").and_then(|(resolved, _)| self.inner.runtime.route_unready(resolved)) {
-                return Err(Fault::Refused { status: 503, what: "route-unavailable", message: why });
+        // The delegation's route takes the readiness check of a run's (`route_wait`); a replay is not asked about.
+        let wait = if replay {
+            None
+        } else {
+            let routes = &self.inner.policy.routes;
+            match route_wait(routes, &record) {
+                Ok(wait) => wait,
+                Err(NotReady::Unavailable(message)) => return Err(Fault::Refused { status: 503, what: "route-unavailable", message }),
+                Err(NotReady::Refused(reason)) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": routes.names()})),
             }
-        }
+        };
 
         let st = self.st();
         draining_fault(&st)?;
@@ -1286,7 +1298,7 @@ impl Daemon {
             idempotency_key: input.idempotency_key,
             route: Some((record, table)),
             delegation: Some(route.clone()),
-            wait: None,
+            wait,
         };
         self.enter(st, admitted, Some(json!({"route": route, "path": path, "protocol": runbook_id})))?;
         let mut out = done("delegate", "delegated", vec![("RunSubmitted", submitted), ("RunDelegated", delegated)]);

@@ -10,7 +10,7 @@
 //! request line of everything it is sent.
 
 use runbook::clock::SetClock;
-use runbook::commands::{CancelRun, Daemon, Fault, Policy, SubmitRun};
+use runbook::commands::{CancelRun, Daemon, Delegate, Fault, Policy, SubmitRun};
 use runbook::routes::{RouteTable, Tables};
 use runbook::runtime::{Autonomy, Confinement};
 use runbook::stub::{Script, Step, StubRuntime};
@@ -108,6 +108,11 @@ fn daemon(tag: &str, gw: &Gateway, wait: u64) -> (Daemon, Arc<SetClock>) {
 
 fn submit(d: &Daemon, route: &str) -> Result<runbook::commands::Outcome, Fault> {
     d.submit_run(SubmitRun { runbook_id: "quick".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some(route.into()), ..SubmitRun::default() })
+}
+
+/// A delegation on `route` that names the runbook `quick` (a delegation always takes a route).
+fn delegate(d: &Daemon, route: &str) -> Result<runbook::commands::Outcome, Fault> {
+    d.delegate(Delegate { request: "x".into(), model_route: Some(route.into()), protocol: Some("quick".into()), ..Delegate::default() })
 }
 
 fn detail(d: &Daemon, run: &str) -> Value {
@@ -223,5 +228,48 @@ fn a_hosted_route_without_a_status_starts_at_once_and_a_cancel_ends_a_wait() {
     assert_eq!(d.cancel_run(CancelRun { run_id: waiting.clone() }).unwrap().name, "cancelled");
     let r = until_state(&d, &waiting, "Cancelled");
     assert!(r["started_at"].is_null(), "{r}");
+    gw.only_reads();
+}
+
+#[test]
+fn a_delegation_passes_the_readiness_check_of_a_run_refused_503_and_route_refused_and_held_until_its_model_can_answer() {
+    let gw = Gateway::start(503, vec!["qwen", "claude"], "ready");
+    let (d, clock) = daemon("ready-delegation", &gw, 600);
+    match delegate(&d, "claude") {
+        Err(Fault::Refused { status, what, message }) => {
+            assert_eq!((status, what), (503, "route-unavailable"), "{message}");
+            assert!(message.contains("claude") && message.contains("gateway not ready") && !message.contains(&gw.base_url), "{message}");
+        }
+        other => panic!("the delegation was not refused 503: {other:?}"),
+    }
+    assert!(d.runs().is_empty(), "a run was written: {:?}", d.runs());
+    assert_eq!(gw.lines(), vec!["GET /ready"], "after a gateway that is not ready nothing more is asked");
+
+    {
+        let mut said = gw.said.lock().unwrap();
+        said.ready = 200;
+        said.listed = vec!["claude"];
+    }
+    let o = delegate(&d, "qwen").unwrap();
+    assert_eq!((o.name, o.status), ("route-refused", 422), "{o:?}");
+    let p = o.payload.unwrap();
+    assert!(p["reason"].as_str().unwrap().contains("serves no model qwen"), "{p}");
+    assert_eq!(p["declared"], json!(["claude", "qwen"]));
+    assert!(d.runs().is_empty(), "a refused delegation wrote a run");
+
+    {
+        let mut said = gw.said.lock().unwrap();
+        said.listed = vec!["qwen", "claude"];
+        said.phase = "starting";
+    }
+    let o = delegate(&d, "qwen").unwrap();
+    assert_eq!(o.name, "delegated", "{o:?}");
+    let run = o.run_id.unwrap();
+    let r = until_state(&d, &run, "WaitingForRoute");
+    assert_eq!(r["route_phase"], "starting", "{r}");
+    gw.said.lock().unwrap().phase = "ready";
+    clock.set("2026-11-26T10:00:05Z");
+    let r = until_state(&d, &run, "Ended");
+    assert_eq!((r["outcome"].clone(), r["started_at"].clone()), (json!("done"), json!("2026-11-26T10:00:05.000Z")), "{r}");
     gw.only_reads();
 }

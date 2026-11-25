@@ -811,10 +811,6 @@ impl Runtime for Engine {
             .collect())
     }
 
-    fn route_unready(&self, route: &crate::relay::ResolvedRoute) -> Option<String> {
-        crate::relay::ready(route).err()
-    }
-
     fn free_run(&self) -> bool {
         self.free_home.is_some()
     }

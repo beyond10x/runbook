@@ -291,10 +291,11 @@ events and the web UI work on it unchanged.
   route. The run record, its views and `runbook.submitted` carry `model_route`, `model_route_alias` and
   `model_route_source` as a submit's do, and every model process of the run reaches the route through the relay as
   the role `default` (below, "The relay of a run's model calls").
-- Before anything is written the daemon asks the route's gateway `GET <base_url>/ready` (3 s to connect, 3 s for
-  the answer). Any answer but `200` refuses the delegation `503` with `{"refused": "route-unavailable", "message":
-  "route <name> is not ready: ..."}`, naming the route and never its address or token. A replay of an
-  idempotency key is not asked about.
+- The route takes the readiness check of a run (above, "A run starts only on a route that can answer"), before
+  anything is written: a gateway that is not ready or does not answer refuses the delegation `503`
+  `route-unavailable`, naming the route and never its address or token; an alias it does not list refuses it `422
+  route-refused`; a model that is not callable leaves the run `WaitingForRoute` until it can answer or its
+  `start_wait_seconds` are over. A replay of an idempotency key is not asked about.
 - A replay (`202` outcome `already-submitted`) names the first run with the key. Its `Location` is that run's
   `delegation-result`, or `/daemon/views/run?run_id=<id>` when the key was a `submit-run`'s.
 - A `result.md` that comes with the workspace is moved to `.result.from-workspace.md` before the run starts

@@ -11,7 +11,7 @@
 use super::default_confinement::{live_env, rows, Live};
 use super::gateway::{claude_cli, gateway_table, home, model_table, repo, write_exe, Home};
 use super::http::send;
-use super::relay::{gateway, got, Gateway};
+use super::relay::{gateway, gateway_listing, got, Gateway};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
-const DOWN: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 61\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"unavailable\",\"message\":\"not ready yet\"}}";
+const DOWN: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 58\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"unavailable\",\"message\":\"not ready yet\"}}";
 const ANSWER: &str = "The answer of the free run.";
 
 /// A `claude` in bash for the free run's agent node: it keeps the prompt it was given (`log/prompt`), sends one
@@ -109,7 +109,8 @@ fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
     let roots = h.log.join("roots");
     std::fs::create_dir_all(roots.join("project")).unwrap();
     std::fs::write(roots.join("project/notes.txt"), "a file of the workspace\n").unwrap();
-    let gw = gateway(answer);
+    // a gateway that answers DOWN is not ready; any other is ready and lists the aliases of the routes these cases declare
+    let gw = if answer == DOWN { gateway(answer) } else { gateway_listing(answer, &["a-model", "b-model"]) };
     let file = format!("{}{tables}", gateway_table(&gw.base_url, &h.token_file));
     let path = format!(
         "{}:{}:/usr/local/bin:/usr/bin:/bin",

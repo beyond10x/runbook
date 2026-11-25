@@ -148,36 +148,6 @@ impl RouteTable {
     }
 }
 
-/// How long the readiness probe of a route waits for a connection, and then for the answer's status line.
-const READY_WAIT: Duration = Duration::from_secs(3);
-
-/// Whether the gateway of `route` is ready: `GET <base_url>/ready` answers 200 within a few seconds (`docs/model-routes.md`,
-/// section 3). `Err` says why not, naming the route and never its address or token. It blocks: call it off the async workers.
-pub fn ready(route: &ResolvedRoute) -> Result<(), String> {
-    use std::io::{BufRead, Write};
-    use std::net::ToSocketAddrs;
-    let not_ready = |why: String| format!("route {} is not ready: {why}", route.name);
-    let (addr, host, base) = parts(&route.base_url).map_err(|e| not_ready(e.to_owned()))?;
-    let path = if base.is_empty() { "/ready".to_owned() } else { format!("/{base}/ready") };
-    let socket = addr.to_socket_addrs().ok().and_then(|mut a| a.next()).ok_or_else(|| not_ready("its gateway's address does not resolve".to_owned()))?;
-    let mut stream = std::net::TcpStream::connect_timeout(&socket, READY_WAIT).map_err(|e| not_ready(format!("its gateway took no connection ({})", e.kind())))?;
-    let _ = stream.set_read_timeout(Some(READY_WAIT));
-    let _ = stream.set_write_timeout(Some(READY_WAIT));
-    let mut head = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
-    if let Some(token) = &route.token {
-        head.push_str(&format!("Authorization: Bearer {token}\r\n"));
-    }
-    head.push_str("\r\n");
-    stream.write_all(head.as_bytes()).map_err(|e| not_ready(format!("the probe could not be sent to its gateway ({})", e.kind())))?;
-    let mut line = String::new();
-    std::io::BufReader::new(std::io::Read::take(stream, 1024)).read_line(&mut line).map_err(|e| not_ready(format!("its gateway did not answer GET /ready ({})", e.kind())))?;
-    match line.split_whitespace().nth(1).and_then(|s| s.parse::<u16>().ok()).filter(|_| line.starts_with("HTTP/")) {
-        Some(200) => Ok(()),
-        Some(status) => Err(not_ready(format!("its gateway answered {status} to GET /ready"))),
-        None => Err(not_ready("its gateway gave no status to GET /ready".to_owned())),
-    }
-}
-
 /// What the relay asks of the run a call belongs to: the run's caps and its spend ledger.
 pub trait Booking: Send + Sync {
     /// Takes one call against the run's caps; `Err` names the cap that is reached, and nothing is sent.
