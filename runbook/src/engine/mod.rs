@@ -119,6 +119,9 @@ pub struct Engine {
     routes: Option<(Arc<crate::relay::Relay>, crate::relay::RouteTable)>,
     /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
     free_home: Option<PathBuf>,
+    /// The daemon's relay and the model routes it declares (`crate::routes`): a delegation's route is one of them; none: the
+    /// daemon declares no route and the engine runs no delegation.
+    declared: Option<(Arc<crate::relay::Relay>, Arc<crate::routes::RouteTable>)>,
 }
 
 struct Registered<'a> {
@@ -153,7 +156,7 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None, free_home: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None, free_home: None, declared: None }
     }
 
     /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
@@ -163,15 +166,36 @@ impl Engine {
         self
     }
 
+    /// The model routes the daemon declares and the relay a delegation's run reaches its route through.
+    pub fn with_declared(mut self, relay: Arc<crate::relay::Relay>, routes: Arc<crate::routes::RouteTable>) -> Engine {
+        self.declared = Some((relay, routes));
+        self
+    }
+
+    /// The declared route `name` as the relay sends to it, and the relay; none: the daemon does not declare it.
+    fn declared_route(&self, name: &str) -> Option<(&Arc<crate::relay::Relay>, crate::relay::ResolvedRoute)> {
+        let (relay, table) = self.declared.as_ref()?;
+        let r = table.resolve(name)?;
+        let route = crate::relay::ResolvedRoute {
+            name: r.route.to_owned(),
+            base_url: r.base_url.to_owned(),
+            token: r.token.map(str::to_owned),
+            alias: r.alias.to_owned(),
+            kind: r.kind.as_str().to_owned(),
+            price_in_micro_usd_per_mtok: r.prices.in_micro_usd_per_mtok,
+            price_out_micro_usd_per_mtok: r.prices.out_micro_usd_per_mtok,
+        };
+        Some((relay, route))
+    }
+
     /// The route table of a run: a delegation's route as the role `default`; else, for a run whose decider is a model, the daemon's
     /// table; else none.
     fn table_of(&self, request: &StartRequest, model_run: bool) -> Result<Option<(&Arc<crate::relay::Relay>, crate::relay::RouteTable)>, RuntimeFailure> {
         match (&self.routes, &request.model_route) {
-            (Some((relay, table)), Some(name)) => {
-                let route = table.route(name).ok_or_else(|| failure(format!("the delegation's route {name} is not one this daemon declares")))?;
-                Ok(Some((relay, crate::relay::RouteTable::default().with("default", route.clone(), "delegation"))))
+            (_, Some(name)) => {
+                let (relay, route) = self.declared_route(name).ok_or_else(|| failure(format!("the delegation's route {name} is not one this daemon declares")))?;
+                Ok(Some((relay, crate::relay::RouteTable::default().with("default", route, "delegation"))))
             }
-            (None, Some(name)) => Err(failure(format!("the delegation's route {name} is not one this daemon declares: it declares none"))),
             (Some((relay, table)), None) if model_run => Ok(Some((relay, table.clone()))),
             _ => Ok(None),
         }
@@ -820,12 +844,12 @@ impl Runtime for Engine {
     }
 
     fn routes(&self) -> Vec<String> {
-        self.routes.as_ref().map(|(_, table)| table.names()).unwrap_or_default()
+        self.declared.as_ref().map(|(_, table)| table.names().into_iter().map(str::to_owned).collect()).unwrap_or_default()
     }
 
     fn route_unready(&self, route: &str) -> Option<String> {
-        let found = self.routes.as_ref().and_then(|(_, table)| table.route(route))?;
-        crate::relay::ready(found).err()
+        let (_, found) = self.declared_route(route)?;
+        crate::relay::ready(&found).err()
     }
 
     fn free_run(&self) -> bool {

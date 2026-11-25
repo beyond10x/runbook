@@ -209,9 +209,17 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if let Some(arbiter) = &args.arbiter {
             engine = engine.with_arbiter(arbiter.clone());
         }
-        if let Some(table) = args.route_table.clone().filter(|t| !t.is_empty()) {
+        // One relay serves the runs of a model decider and the delegations, when the daemon has either.
+        let table = args.route_table.clone().filter(|t| !t.is_empty());
+        let declared = Some(args.routes.clone()).filter(|t| !t.is_empty());
+        if table.is_some() || declared.is_some() {
             let r = crate::relay::Relay::new();
-            engine = engine.with_routes(r.clone(), table);
+            if let Some(table) = table {
+                engine = engine.with_routes(r.clone(), table);
+            }
+            if let Some(declared) = declared {
+                engine = engine.with_declared(r.clone(), declared);
+            }
             relay = Some(r);
         }
         let tools = args.assets_root.as_deref().and_then(crate::delegation::tools_of);

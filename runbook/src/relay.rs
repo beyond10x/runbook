@@ -131,17 +131,6 @@ impl RouteTable {
     pub fn is_empty(&self) -> bool {
         self.roles.is_empty()
     }
-
-    /// The names of the routes of the table, each once, in order of name.
-    pub fn names(&self) -> Vec<String> {
-        let names: std::collections::BTreeSet<&str> = self.roles.values().map(|(r, _)| r.name.as_str()).collect();
-        names.into_iter().map(str::to_owned).collect()
-    }
-
-    /// The route of the table named `name`, whatever role it serves.
-    pub fn route(&self, name: &str) -> Option<&ResolvedRoute> {
-        self.roles.values().map(|(r, _)| r).find(|r| r.name == name)
-    }
 }
 
 /// How long the readiness probe of a route waits for a connection, and then for the answer's status line.

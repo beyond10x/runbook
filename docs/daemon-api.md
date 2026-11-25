@@ -236,10 +236,10 @@ events and the web UI work on it unchanged.
   `instructions/delegation.free.md`) whose instruction is the request, with the files of the workspace as its inputs,
   writing `result.md`. The daemon writes that runbook under its state directory at every start
   (`runbook/src/delegation.rs`); a `submit-run` does not find it.
-- The route: `model_route`, by the name the daemon declares it under. Until the daemon declares routes of its own
-  the one route is `default`, the `[gateway]` with the model of `[deciders.model]`; a daemon without them declares
-  none. A route the daemon does not declare, or none named (the daemon has no default route yet), is refused
-  `RouteRefused` (422) with the declared routes in `payload.routes`; nothing is written. Every model process of the
+- The route: `model_route`, by the name the daemon declares it under (`[routes.<name>]`, above, "Model routes");
+  none named: the daemon's default route, `[route_policy] default`. A route the daemon does not declare, or none
+  named on a daemon without a default route, is refused `RouteRefused` (422) with the declared routes in
+  `payload.routes`; nothing is written. A delegation needs no model decider. Every model process of the
   run reaches the route through the relay as the role `default` (below, "The relay of a run's model calls").
 - Before anything is written the daemon asks the route's gateway `GET <base_url>/ready` (3 s to connect, 3 s for
   the answer). Any answer but `200` refuses the delegation `503` with `{"refused": "route-unavailable", "message":

@@ -483,7 +483,7 @@ pub struct SubmitRun {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Delegate {
     pub request: String,
-    /// The route by the name the daemon declares it under; none: the daemon's default route (none yet).
+    /// The route by the name the daemon declares it under; none: the daemon's default route (`[route_policy] default`).
     #[serde(default)]
     pub model_route: Option<String>,
     /// The runbook to run with the request as its intake; none: the free run (`crate::delegation`).
@@ -976,10 +976,11 @@ impl Daemon {
         })?;
         let run_id = uuid::Uuid::now_v7().to_string();
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("delegate", name, payload)) };
-        // The facts the specification takes from the host. The daemon has no default route yet: a delegation that names none is
-        // refused as one that names an undeclared route.
+        // The facts the specification takes from the host. A delegation that names no route takes the daemon's default route; one
+        // without either is refused as one that names an undeclared route.
         let routes = self.inner.runtime.routes();
-        let route = input.model_route.as_deref().filter(|r| routes.iter().any(|d| d == r));
+        let named = input.model_route.clone().or_else(|| self.inner.policy.routes.default_route().map(str::to_owned));
+        let route = named.as_deref().filter(|r| routes.iter().any(|d| d == r));
         let (runbook_id, path) = match &input.protocol {
             Some(p) => (p.clone(), "named"),
             None => (crate::delegation::FREE_RUNBOOK.to_owned(), "free"),
@@ -995,7 +996,7 @@ impl Daemon {
         }
         let Some(route) = route.map(str::to_owned) else {
             let mut payload = json!({"run_id": run_id, "routes": routes});
-            if let Some(named) = &input.model_route {
+            if let Some(named) = &named {
                 payload["route"] = json!(shown(named));
             }
             return refused("route-refused", payload);
