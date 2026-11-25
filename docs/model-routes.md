@@ -1,7 +1,7 @@
 # Model routes and delegation: the architecture of the stack
 
-Status: design, 2026-11-25. Nothing here is built. The operator settled D-1 to D-7 and the gateway's C1 to C4 on
-2026-11-25 (end of the document). No code starts before the operator accepts this design.
+Status: design, accepted by the operator 2026-11-25; being built. The operator settled D-1 to D-7 and the gateway's C1 to C4 on
+2026-11-25 (end of the document).
 
 ## The goal
 
@@ -641,7 +641,7 @@ wires, status. `Delegation` is the submit of section 8: request, route, named pr
 `Run` gains `model_route`, its source, the delegation path, the state `waiting-for-route` and the end
 `stopped: route`. The specification is written before the code (the repository's rule for a new noun).
 
-## The stories, per repository (drafts; none starts before the design is accepted)
+## The stories, per repository (accepted 2026-11-25)
 
 runbook, in build order. The order follows the consumer's first gap: a run's programs get no route today.
 

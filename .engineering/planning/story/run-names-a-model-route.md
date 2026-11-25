@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:run-names-a-model-route
 kind: story
-status: draft
+status: active
 title: A run names a model route
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T20:25:15Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T20:25:15Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:daemon-relays-and-books-model-calls
 kind: story
-status: draft
+status: active
 title: Every model call of a run goes through the daemon's relay and is booked
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T20:25:15Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-25T20:25:15Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 

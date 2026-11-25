@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:daemon-declares-model-routes
 kind: story
-status: draft
+status: active
 title: The daemon declares named model routes and lists them
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T20:25:14Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T20:25:15Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

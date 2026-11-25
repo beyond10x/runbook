@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:protocol-declares-the-routes-it-needs
 kind: story
-status: draft
+status: active
 title: A runbook declares the routes it needs and the daemon admits them
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T20:25:16Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T20:25:16Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

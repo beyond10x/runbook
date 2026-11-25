@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:claude-plugin-serves-delegation
 kind: story
-status: draft
+status: active
 title: A Claude Code session with the Runbook plugin delegates through Runbook
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T20:25:16Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-25T20:25:16Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
