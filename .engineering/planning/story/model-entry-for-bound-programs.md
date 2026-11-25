@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:model-entry-for-bound-programs
 kind: story
-status: draft
+status: active
 title: A bound program calls a model through one documented entry that books its cost
 summary: A program a runbook binds calls a model through the run's gateway by one documented entry; each call is recorded, counted against the call cap and booked against the spend cap.
 tags:
@@ -28,7 +28,10 @@ scope:
   path: runbook/src/loom_run
 - confidence: inferred
   path: runbook/tests/loom_run
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 

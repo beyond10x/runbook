@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:consumer-contract-test
 kind: story
-status: draft
+status: active
 title: Runbook publishes the interfaces a consumer uses, with a test run against the consumer's pinned version
 summary: One versioned contract file lists the CLI flags, intake file, work layout, call record, view file, daemon API and MCP tools; a command checks a binary against it; the gate fails when an interface changes and the file does not.
 tags:
@@ -26,7 +26,10 @@ scope:
   path: runbook/src/main.rs
 - confidence: inferred
   path: runbook/tests
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:40Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 

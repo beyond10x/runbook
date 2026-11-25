@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-start-list-shows-entry-runbooks
 kind: story
-status: draft
+status: active
 title: The daemon's list of runbooks to start shows entry runbooks, not protocols opened as children
 summary: GET /daemon/views/runbooks lists the protocols no other protocol opens as a child; the entry is read from data, not from a constant or a name prefix; runbook list and the start form agree.
 tags:
@@ -31,7 +31,10 @@ scope:
   path: runbook/tests/daemon
 - confidence: cited
   path: ui/daemon/start.js
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-25T12:41:41Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 
