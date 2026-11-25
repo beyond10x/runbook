@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:decision-options-come-from-a-case-artifact
 kind: story
-status: active
+status: implemented
 title: A person action's question, options, recommendation and grounds come from a case artifact
 summary: The engine builds fixed approve and deny options; a person action reads the contract's request from its case so the daemon shows the case's options, recommendation and grounds.
 tags:
@@ -36,10 +36,11 @@ scope:
   path: runbook/src/runtime.rs
 - confidence: inferred
   path: runbook/tests/daemon
-revision: 14
+revision: 15
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-25T03:11:22Z", actor: "human:operator", revision: 9, executor: "agent:runbook"}
 - {from: "proposed", to: "active", at: "2026-11-25T03:11:22Z", actor: "human:operator", revision: 10, executor: "agent:runbook"}
+- {from: "active", to: "implemented", at: "2026-11-25T10:12:03Z", actor: "agent:runbook", revision: 15, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## What is missing
 

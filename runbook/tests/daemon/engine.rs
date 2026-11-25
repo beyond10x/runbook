@@ -56,12 +56,15 @@ fn descendants() -> Vec<String> {
 }
 
 /// Ends every `sleep` below this process: a step whose program pauses (`pause.txt`) goes on at once, when the case has seen
-/// what it waited for, instead of after the pause.
-fn end_the_pauses() {
-    for (pid, _) in descendant_processes().into_iter().filter(|(_, c)| c == "sleep") {
+/// what it waited for, instead of after the pause. Whether it ended one: a case that waits to see the pause reads it
+/// here, from the scan that ends it, so no pause is ended without being seen.
+fn end_the_pauses() -> bool {
+    let pauses: Vec<u32> = descendant_processes().into_iter().filter(|(_, c)| c == "sleep").map(|(pid, _)| pid).collect();
+    for pid in &pauses {
         // SAFETY: a plain signal to a process id this case just read below its own process.
-        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
     }
+    !pauses.is_empty()
 }
 
 /// The process id and the command name of every process below this one.
@@ -555,16 +558,62 @@ fn a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends() {
     assert_eq!(step["started_at"], event["at"], "{row}");
     assert!(step["seconds"].as_u64().is_some_and(|s| s <= 3), "{row}");
     // it is gone once the run waits on the review: the writer and the check ended
-    until("the writer's pause to be seen and ended", 20, || {
-        let pausing = descendants().iter().any(|c| c == "sleep");
-        end_the_pauses();
-        pausing
-    });
+    until("the writer's pause to be seen and ended", 20, end_the_pauses);
     rig.wait_review(&run);
     let row = rig.run_view(&run);
     super::openapi::check_row("RunDetail", &row);
     assert!(row.get("step_in_flight").is_none(), "a step is shown while the run waits: {row}");
     assert!(rig.workspace(&run).join("draft.txt").exists());
+}
+
+/// Whether a process below this one other than itself has `lock` open.
+fn held_below(lock: &Path) -> bool {
+    descendant_processes().into_iter().any(|(pid, _)| {
+        std::fs::read_dir(format!("/proc/{pid}/fd")).into_iter().flatten().flatten().any(|fd| std::fs::read_link(fd.path()).is_ok_and(|t| t == lock))
+    })
+}
+
+#[test]
+#[ignore = "red until Loom releases its store lock explicitly; story:daemon-tests-back-when-loom-unlocks-the-store"]
+fn a_forked_copy_of_the_store_lock_held_past_the_step_does_not_end_the_run() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    let rig = Rig::new("engine-forked-hold", &[Confinement::Local]);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
+    rig.wait_started(&run, "draft.write");
+    // The writer runs inside Loom's step, which holds the lock of the run's store. A process forked now, as the
+    // daemon forks the program of another run, holds a copy of the lock's descriptor until it execs: this one
+    // execs when the case closes the write end of a pipe, after the run's next step was refused or went on.
+    let lock = rig.store(&run).join("tree.lock");
+    let mut fds = [0; 2];
+    // SAFETY: pipe2 writes two descriptors into the array it is given.
+    assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+    let (read_end, write_end) = fds.into();
+    // SAFETY: both descriptors were just opened by pipe2 and are owned here alone.
+    let (gate, release) = unsafe { (OwnedFd::from_raw_fd(read_end), OwnedFd::from_raw_fd(write_end)) };
+    let forked = std::thread::spawn(move || {
+        let mut command = std::process::Command::new("true");
+        // SAFETY: close and read are async-signal-safe and nothing is allocated between the fork and the exec.
+        unsafe {
+            command.pre_exec(move || {
+                libc::close(write_end);
+                let mut byte = 0u8;
+                while libc::read(read_end, (&mut byte as *mut u8).cast(), 1) < 0 && *libc::__errno_location() == libc::EINTR {}
+                Ok(())
+            })
+        };
+        command.status().unwrap()
+    });
+    until("a forked process to hold the run's store lock", 10, || held_below(&lock));
+    // the writer ends and the step lets go of the lock; the next step takes it while the forked copy is open
+    until("the writer's pause to be seen and ended", 20, end_the_pauses);
+    until("the run to wait on the review or end", 40, || rig.state_of(&run) == "Ended" || !rig.d().open_decisions_of_run(&run).is_empty());
+    drop(release);
+    assert!(forked.join().unwrap().success());
+    drop(gate);
+    let failed: Vec<Value> = rig.d().events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.runtime-failed").map(|e| e["record"]["reason"].clone()).collect();
+    assert!(failed.is_empty(), "{failed:?}");
+    rig.wait_review(&run);
 }
 
 #[test]

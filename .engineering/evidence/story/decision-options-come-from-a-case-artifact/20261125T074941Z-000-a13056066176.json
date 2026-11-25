@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-25T07:49:41Z",
+  "actor": "agent:runbook",
+  "artifact": "story:decision-options-come-from-a-case-artifact",
+  "kind": "story",
+  "revision": 14,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check on head 21578f1a (1691 tests passed) and the CI of pull request 94",
+    "reference": "https://github.com/beyond10x/runbook/pull/94"
+  }
+}
