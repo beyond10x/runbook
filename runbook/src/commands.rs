@@ -279,6 +279,12 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("fail-run-start", "no-run", 404, Some("NoSuchRun")),
     o("fail-run-start", "failed", 202, None),
     o("fail-run-start", "wrong-state", 409, Some("RunStateConflict")),
+    o("wait-for-route", "no-run", 404, Some("NoSuchRun")),
+    o("wait-for-route", "waiting-for-route", 202, None),
+    o("wait-for-route", "wrong-state", 409, Some("RunStateConflict")),
+    o("end-route-wait", "no-run", 404, Some("NoSuchRun")),
+    o("end-route-wait", "stopped", 202, None),
+    o("end-route-wait", "wrong-state", 409, Some("RunStateConflict")),
     o("wait-on-decision", "no-run", 404, Some("NoSuchRun")),
     o("wait-on-decision", "waiting", 202, None),
     o("wait-on-decision", "wrong-state", 409, Some("RunStateConflict")),
@@ -336,6 +342,8 @@ fn event_name(short: &'static str) -> &'static str {
         "RunEventRecorded" => "sdc.daemon.RunEventRecorded",
         "RunEnded" => "sdc.daemon.RunEnded",
         "RunOrphaned" => "sdc.daemon.RunOrphaned",
+        "RunWaitingForRoute" => "sdc.daemon.RunWaitingForRoute",
+        "RunStoppedOnRoute" => "sdc.daemon.RunStoppedOnRoute",
         other => panic!("no event {other}"),
     }
 }
@@ -638,6 +646,65 @@ struct Admitted {
     route: Option<(RunRoute, crate::relay::RouteTable)>,
     /// The route of a delegation, by name; none: the run is no delegation.
     delegation: Option<String>,
+    /// The wait for the run's routes when one could not answer at the submit (`read_routes`); none: the run starts at once.
+    wait: Option<RouteWait>,
+}
+
+/// How often a run that waits for its route reads the route's status, in milliseconds of the daemon's clock
+/// (`docs/model-routes.md`, section 3).
+pub const ROUTE_READ_EVERY_MILLIS: i64 = 5_000;
+
+/// A run whose routes could not all answer at the submit: the daemon holds it until they can, or its wait is over.
+#[derive(Clone, Debug)]
+struct RouteWait {
+    /// The declared routes of the run, each read again until all can answer.
+    routes: Vec<String>,
+    /// The first route that could not answer, and the phase its gateway gave.
+    route: String,
+    phase: Option<String>,
+    /// The wait: the least `start_wait_seconds` of the routes that could not answer (none declared: no wait).
+    wait_millis: i64,
+}
+
+/// Why a route of the run cannot take it at the submit.
+enum NotReady {
+    /// The gateway is not ready or does not answer: `503 route-unavailable`.
+    Unavailable(String),
+    /// The gateway is ready and does not list the route's alias: `route-refused`.
+    Refused(String),
+}
+
+/// The declared routes of the run's record: its route and the route of each role, each once, the interim route of a
+/// lone `[gateway]` left out (it is taken as before routes).
+fn declared_routes_of(routes: &crate::routes::RouteTable, record: &RunRoute) -> Vec<String> {
+    let mut names: Vec<String> = std::iter::once(record.route.clone()).chain(record.roles.values().cloned()).collect();
+    names.sort();
+    names.dedup();
+    names.retain(|n| !routes.is_interim(n));
+    names
+}
+
+/// What the gateways say of `names` now (`docs/model-routes.md`, section 3): every route can answer (`Ok(None)`), some
+/// cannot yet (`Ok(Some(wait))`, the first one with its phase), or a route cannot take the run at all.
+fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<Option<(String, Option<String>)>, NotReady> {
+    use crate::routes::Readiness;
+    let until = std::time::Instant::now() + crate::routes::READ_BOUND;
+    let mut first = None;
+    for name in names {
+        let Some(route) = routes.route(name) else { continue };
+        match routes.readiness(name, until) {
+            Some(Readiness::Callable) | None => {}
+            Some(Readiness::Unreachable) => return Err(NotReady::Unavailable(format!("route {name}: the gateway {} does not answer", route.gateway))),
+            Some(Readiness::NotReady) => return Err(NotReady::Unavailable(format!("route {name}: gateway not ready (the gateway {} answered GET /ready, not 200)", route.gateway))),
+            Some(Readiness::Unlisted) => return Err(NotReady::Refused(format!("route {name}: the gateway {} serves no model {}", route.gateway, route.alias))),
+            Some(Readiness::NotCallable { phase }) => {
+                if first.is_none() {
+                    first = Some((name.clone(), phase));
+                }
+            }
+        }
+    }
+    Ok(first)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -851,6 +918,8 @@ impl Daemon {
         for (run_id, state) in live {
             if state == RunState::Submitted {
                 fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped before the runtime took the run up")?;
+            } else if state == RunState::WaitingForRoute {
+                fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped while the run waited for its route")?;
             } else if self.inner.runtime.recover(&run_id) == Recovery::Gone {
                 self.end_orphaned_run(&run_id)?;
             }
@@ -959,6 +1028,24 @@ impl Daemon {
             Ok(route) => route,
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
         };
+        // Can the routes take the run (docs/model-routes.md, section 3)? Read before anything is written; no call, no
+        // wake. A gateway not ready is 503, an alias it does not list route-refused, a model not callable a wait.
+        let wait = match &route {
+            None => None,
+            Some((record, _)) => {
+                let routes = &self.inner.policy.routes;
+                let names = declared_routes_of(routes, record);
+                match read_routes(routes, &names) {
+                    Ok(None) => None,
+                    Ok(Some((route, phase))) => {
+                        let seconds = routes.route(&route).and_then(|r| r.start_wait_seconds).unwrap_or(0);
+                        Some(RouteWait { routes: names, route, phase, wait_millis: i64::try_from(seconds).unwrap_or(i64::MAX / 2).saturating_mul(1000) })
+                    }
+                    Err(NotReady::Unavailable(message)) => return Err(Fault::Refused { status: 503, what: "route-unavailable", message }),
+                    Err(NotReady::Refused(reason)) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": routes.names()})),
+                }
+            }
+        };
         let context_dir = context.flatten();
         // The caps of the run: what the submit names within the runtime's ceilings, else its defaults.
         // They are part of the run's settings from here on, so a run taken up again has the same ones.
@@ -1014,6 +1101,7 @@ impl Daemon {
             idempotency_key: input.idempotency_key,
             route,
             delegation: None,
+            wait,
         };
         self.enter(st, admitted, None)?;
         let mut out = done("submit-run", "submitted", vec![("RunSubmitted", payload)]);
@@ -1041,6 +1129,7 @@ impl Daemon {
             confinement_source: Some(a.source),
             terms: a.terms.clone(),
             model_route: a.route.as_ref().map(|(record, _)| record.clone()),
+            route_phase: None,
             session_id: a.session_id,
             idempotency_key: a.idempotency_key,
             submitted_at: st.now(),
@@ -1083,7 +1172,7 @@ impl Daemon {
             routes: a.route.map(|(_, table)| table),
             model_route: a.delegation,
         };
-        self.spawn_run(request);
+        self.spawn_run(request, a.wait);
         Ok(())
     }
 
@@ -1197,6 +1286,7 @@ impl Daemon {
             idempotency_key: input.idempotency_key,
             route: Some((record, table)),
             delegation: Some(route.clone()),
+            wait: None,
         };
         self.enter(st, admitted, Some(json!({"route": route, "path": path, "protocol": runbook_id})))?;
         let mut out = done("delegate", "delegated", vec![("RunSubmitted", submitted), ("RunDelegated", delegated)]);
@@ -1297,7 +1387,7 @@ impl Daemon {
         let mut st = self.st();
         match st.run(run_id).map(|r| r.state) {
             None => Ok(refuse("start-run", "no-run", json!({"run_id": run_id}))),
-            Some(RunState::Submitted) => {
+            Some(RunState::Submitted | RunState::WaitingForRoute) => {
                 let now = st.now();
                 st.commit(Fact::RunStarted { run_id: run_id.to_string(), at: now })?;
                 Ok(done("start-run", "started", vec![("RunStarted", json!({"run_id": run_id}))]))
@@ -1308,6 +1398,37 @@ impl Daemon {
 
     pub fn fail_run_start(&self, run_id: &str, reason: &str) -> Reply {
         fail_run_start_locked(&mut self.st(), run_id, reason)
+    }
+
+    /// `WaitForRoute`, issued by the daemon itself: a route of a Submitted run could not answer at the submit, and the
+    /// run waits for it. `phase` is what the gateway gave of the route's model.
+    pub fn wait_for_route(&self, run_id: &str, phase: Option<&str>) -> Reply {
+        let mut st = self.st();
+        match st.run(run_id).map(|r| r.state) {
+            None => Ok(refuse("wait-for-route", "no-run", json!({"run_id": run_id}))),
+            Some(RunState::Submitted) => {
+                st.commit(Fact::RunWaitingForRoute { run_id: run_id.to_string(), phase: phase.map(str::to_owned) })?;
+                Ok(done("wait-for-route", "waiting-for-route", vec![("RunWaitingForRoute", json!({"run_id": run_id}))]))
+            }
+            Some(_) => Ok(refuse("wait-for-route", "wrong-state", json!({"run_id": run_id}))),
+        }
+    }
+
+    /// `EndRouteWait`, issued by the daemon itself: the run's wait for its route is over and a route of it still could
+    /// not answer. The run ends `stopped: route`, with the last phase the gateway gave; the daemon writes the run event
+    /// `runbook.route-wait-ended` first, while the run still takes events.
+    pub fn end_route_wait(&self, run_id: &str, route: Option<&str>, phase: Option<&str>) -> Reply {
+        let mut st = self.st();
+        match st.run(run_id).map(|r| r.state) {
+            None => Ok(refuse("end-route-wait", "no-run", json!({"run_id": run_id}))),
+            Some(RunState::WaitingForRoute) => {
+                record_event_locked(&mut st, run_id, "runbook.route-wait-ended", json!({"route": route, "phase": phase}))?;
+                let now = st.now();
+                st.commit(Fact::RunStoppedOnRoute { run_id: run_id.to_string(), phase: phase.map(str::to_owned), at: now })?;
+                Ok(done("end-route-wait", "stopped", vec![("RunStoppedOnRoute", json!({"run_id": run_id}))]))
+            }
+            Some(_) => Ok(refuse("end-route-wait", "wrong-state", json!({"run_id": run_id}))),
+        }
     }
 
     pub fn wait_on_decision(&self, run_id: &str) -> Reply {
@@ -1400,6 +1521,9 @@ impl Daemon {
                 }
                 if let Some(roles) = r.model_route.as_ref().map(|route| &route.roles).filter(|roles| !roles.is_empty()) {
                     m.insert("model_routes".into(), json!(roles));
+                }
+                if let Some(phase) = &r.route_phase {
+                    m.insert("route_phase".into(), json!(phase));
                 }
                 if r.state == RunState::Running {
                     if let Some(step) = lock(&self.inner.steps).get(run_id) {
@@ -1688,12 +1812,56 @@ impl Daemon {
 
     // ---- the run's thread ----
 
-    fn spawn_run(&self, request: StartRequest) {
+    /// Holds a run whose routes could not all answer at the submit (`docs/model-routes.md`, section 3): the run is
+    /// WaitingForRoute, its routes are read again at most once every 5 s of the daemon's clock, and nothing is sent to
+    /// them and nothing is woken. True when every route can answer: the run starts. False when the wait is over (the
+    /// run ends `stopped: route` with the last phase), the run was cancelled or the daemon stops.
+    fn wait_for_routes(&self, run_id: &str, wait: &RouteWait, cancel: &AtomicBool) -> bool {
+        let wait_seconds = wait.wait_millis / 1000;
+        let record = json!({"route": wait.route, "phase": wait.phase, "wait_seconds": wait_seconds});
+        if self.record_run_event(run_id, "runbook.waiting-for-route", record).is_err() {
+            return false;
+        }
+        match self.wait_for_route(run_id, wait.phase.as_deref()) {
+            Ok(o) if !o.is_refusal() => {}
+            _ => return false,
+        }
+        let start = self.st().now_millis();
+        let deadline = start.saturating_add(wait.wait_millis);
+        let (mut route, mut phase, mut read_at) = (wait.route.clone(), wait.phase.clone(), start);
+        loop {
+            if cancel.load(Ordering::SeqCst) || self.is_stopping() {
+                return false;
+            }
+            let now = self.st().now_millis();
+            if now >= read_at.saturating_add(ROUTE_READ_EVERY_MILLIS) {
+                read_at = now;
+                match read_routes(&self.inner.policy.routes, &wait.routes) {
+                    Ok(None) => return !cancel.load(Ordering::SeqCst),
+                    Ok(Some((r, p))) => {
+                        route = r;
+                        if p.is_some() {
+                            phase = p;
+                        }
+                    }
+                    // a gateway that does not answer or no longer lists the alias while the run waits: it waits on
+                    Err(_) => {}
+                }
+            }
+            if now >= deadline {
+                let _ = self.end_route_wait(run_id, Some(&route), phase.as_deref());
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    fn spawn_run(&self, request: StartRequest, wait: Option<RouteWait>) {
         let flag = Arc::new(AtomicBool::new(false));
         lock(&self.inner.cancels).insert(request.run_id.clone(), flag.clone());
         let d = self.clone();
         let name = format!("run-{}", request.run_id);
-        let handle = std::thread::Builder::new().name(name).spawn(move || d.run_thread(request, &flag)).expect("spawn a thread for the run");
+        let handle = std::thread::Builder::new().name(name).spawn(move || d.run_thread(request, wait, &flag)).expect("spawn a thread for the run");
         let mut threads = lock(&self.inner.threads);
         threads.retain(|h| !h.is_finished());
         threads.push(handle);
@@ -1714,8 +1882,14 @@ impl Daemon {
         let _ = self.resume_run(run_id);
     }
 
-    fn run_thread(&self, request: StartRequest, cancel: &AtomicBool) {
+    fn run_thread(&self, request: StartRequest, wait: Option<RouteWait>, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
+        if let Some(wait) = &wait {
+            if !self.wait_for_routes(&run_id, wait, cancel) {
+                lock(&self.inner.cancels).remove(&run_id);
+                return;
+            }
+        }
         if let (Some(from), false) = (&request.context_dir, cancel.load(Ordering::SeqCst)) {
             if let Err(e) = copy_dir(from, &request.workspace_dir) {
                 if !self.is_stopping() {
@@ -1876,7 +2050,7 @@ fn draining_fault(st: &State) -> Result<(), Fault> {
 fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("fail-run-start", "no-run", json!({"run_id": run_id}))),
-        Some(RunState::Submitted) => {
+        Some(RunState::Submitted | RunState::WaitingForRoute) => {
             record_event_locked(st, run_id, "runbook.start-failed", json!({"reason": reason}))?;
             let now = st.now();
             st.commit(Fact::RunFailedToStart { run_id: run_id.to_string(), reason: reason.to_string(), at: now })?;

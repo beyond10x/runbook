@@ -67,7 +67,7 @@ struct Gate {
 /// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
 const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
 
-const GATE: Gate = Gate { total: 16, executed: 16, passed: 16, skipped: 0 };
+const GATE: Gate = Gate { total: 17, executed: 17, passed: 17, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];
@@ -223,7 +223,7 @@ fn granted_to(command: &str) -> &'static [&'static str] {
     match command {
         "OpenSession" | "CloseSession" | "SubmitRun" | "CancelRun" | "AnswerDecision" => &["sdc.daemon.Client"],
         "StartDaemon" => &["sdc.daemon.Operator"],
-        "EndOrphanedRun" => &["sdc.daemon.DaemonProcess"],
+        "EndOrphanedRun" | "WaitForRoute" | "EndRouteWait" => &["sdc.daemon.DaemonProcess"],
         "WithdrawDecision" => &["sdc.daemon.Runtime"],
         _ => &["sdc.daemon.Runtime"],
     }
@@ -454,6 +454,18 @@ impl Scn {
             "EndOrphanedRun" => {
                 let run = text(input, "run_id")?;
                 let r = self.live()?.daemon.end_orphaned_run(&run);
+                self.library(command, r)
+            }
+            "WaitForRoute" => {
+                let run = text(input, "run_id")?;
+                let phase = input.get("phase").and_then(Value::as_str).map(str::to_owned);
+                let r = self.live()?.daemon.wait_for_route(&run, phase.as_deref());
+                self.library(command, r)
+            }
+            "EndRouteWait" => {
+                let run = text(input, "run_id")?;
+                let phase = input.get("phase").and_then(Value::as_str).map(str::to_owned);
+                let r = self.live()?.daemon.end_route_wait(&run, None, phase.as_deref());
                 self.library(command, r)
             }
             "RequestDecision" => {

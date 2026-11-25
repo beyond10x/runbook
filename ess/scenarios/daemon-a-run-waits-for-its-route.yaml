@@ -1,0 +1,102 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-a-run-waits-for-its-route
+summary: "A run whose route cannot answer at the submit waits for it: one starts once the route can answer, the other ends stopped: route when its wait is over, with the last phase the gateway gave."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-comes-up"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:01:01Z
+    command: sdc.daemon.WaitForRoute
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-comes-up"
+      phase: "starting"
+    outcome: waiting-for-route
+    events:
+      - event: sdc.daemon.RunWaitingForRoute
+        payload:
+          run_id: "run-comes-up"
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-comes-up"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-stays-down"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:03:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:03:01Z
+    command: sdc.daemon.WaitForRoute
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-stays-down"
+      phase: "stopped"
+    outcome: waiting-for-route
+
+  - at: 2026-11-22T10:13:01Z
+    command: sdc.daemon.EndRouteWait
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-stays-down"
+      phase: "stopped"
+      at: 2026-11-22T10:13:01Z
+    outcome: stopped
+    events:
+      - event: sdc.daemon.RunStoppedOnRoute
+        payload:
+          run_id: "run-stays-down"
+
+  - at: 2026-11-22T10:14:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-stays-down"
+      at: 2026-11-22T10:14:00Z
+    outcome: wrong-state
+
+assert:
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-comes-up"}
+    contains: {run_id: "run-comes-up", state: Running, route_phase: "starting"}
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-stays-down"}
+    contains: {run_id: "run-stays-down", state: Ended, outcome: "stopped: route", route_phase: "stopped"}

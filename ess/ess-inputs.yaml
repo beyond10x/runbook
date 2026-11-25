@@ -32,3 +32,4 @@ scenarios:
   - scenarios/daemon-a-missing-session-is-refused-before-the-floor.yaml
   - scenarios/daemon-an-answer-that-names-no-option-of-a-case-request-is-refused.yaml
   - scenarios/daemon-a-refused-route-submits-nothing.yaml
+  - scenarios/daemon-a-run-waits-for-its-route.yaml

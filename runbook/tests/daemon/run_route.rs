@@ -11,13 +11,19 @@
 
 use super::default_confinement::{post, rows, Live};
 use super::gateway::{claude_calling, claude_cli, entries, home, model_table, serve, until_state, wait_until, write_exe, Home, TOKEN};
-use super::relay::{gateway, got, Gateway};
+use super::relay::{gateway_listing, got, Gateway};
 use serde_json::{json, Value};
 use std::path::Path;
 
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":13,\"output_tokens\":4}}";
 const STOPPED: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 61\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"model-stopped\",\"message\":\"the pod is off\"}}";
 const RULE: &str = "[deciders.rule]\nverdict = \"approve\"\n";
+
+/// A stand-in gateway that answers every call with `answer`, is ready and lists the aliases of the three routes: the
+/// daemon asks a declared route's gateway before a run starts (story `route-readiness-before-a-run`).
+fn gateway(answer: &'static [u8]) -> Gateway {
+    gateway_listing(answer, &["alias-a", "alias-b", "alias-c"])
+}
 
 /// Three routes on two gateways: `a` and `c` on the gateway `one`, `b` on `two`; `policy` is the `[route_policy]`
 /// table's body (empty: none).

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.FailRunStart.schema.json",
   "title": "Report a run that could not start input",
-  "description": "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here).",
+  "description": "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here).",
   "x-ess-name": "sdc.daemon.FailRunStart",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ee78201ffe60f6f2f61c4dc5386c58b3d357ec5f7bf5c919093b2f033ae9d965",
+    "contract_digest": "slice-sha256/2:ad99b55b9f0d9ffd8ab46ae8ee62ebdcba006f4805327c7ad0b713e15943e294",
     "regenerate": "ess generate"
   },
   "$defs": {

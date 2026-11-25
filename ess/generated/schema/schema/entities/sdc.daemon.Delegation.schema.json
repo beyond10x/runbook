@@ -118,7 +118,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c3946a651dba1f83bb20caff439b53f17df5f41c41d36ba5b4788a4d6e1bd0f8",
+    "contract_digest": "slice-sha256/2:fe329465a72313623e915a66608859f6efb3952acc25c7dfbd34efcc837bbdcd",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -167,6 +167,7 @@
         "FailedToStart",
         "Running",
         "Submitted",
+        "WaitingForRoute",
         "WaitingOnDecision"
       ]
     },
