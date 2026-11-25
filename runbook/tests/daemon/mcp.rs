@@ -531,6 +531,71 @@ fn a_session_tool_checks_client_as_the_route_does_and_takes_no_other_argument() 
     same_as_route("open_session without a client", &r, &http, &[]);
 }
 
+// ---- sessions: the adversary pass ----
+
+#[test]
+fn a_closed_session_is_not_opened_again_and_the_label_bound_is_the_documents() {
+    let d = Daemon::start("mcp-session-reopen", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    // The schema of `client` carries the document's bound, inlined.
+    let doc = super::openapi::doc();
+    let open = mcp::tools::list().iter().find(|t| t["name"] == "open_session").unwrap().clone();
+    assert_eq!(open["inputSchema"]["properties"]["client"]["maxLength"], doc["components"]["schemas"]["sdc.daemon.ClientLabel"]["maxLength"]);
+    assert_eq!(open["inputSchema"]["properties"]["client"]["maxLength"], 200);
+    // An id that was opened and closed is still known: a new open is `session-exists`, as the route says.
+    for (id, label) in [("s1", "mcp"), ("h1", "curl")] {
+        assert_eq!(d.command("open-session", &json!({"session_id": id, "client": label})).status, 202);
+        assert_eq!(d.command("close-session", &json!({"session_id": id})).status, 202);
+    }
+    let r = c.tool("open_session", json!({"session_id": "s1", "client": "another"}));
+    let http = d.command("open-session", &json!({"session_id": "h1", "client": "another"}));
+    assert_eq!((http.status, r["structuredContent"]["outcome"].clone()), (422, json!("session-exists")), "{r}");
+    same_as_route("open_session of a closed id", &r, &http, &["s1", "h1"]);
+    let rows = d.get("/daemon/views/sessions").json()["rows"].clone();
+    let s1 = rows.as_array().unwrap().iter().find(|r| r["session_id"] == "s1").unwrap();
+    assert_eq!((s1["state"].clone(), s1["client"].clone()), (json!("Closed"), json!("mcp")), "the session keeps its state and its label: {rows}");
+}
+
+#[test]
+fn the_endpoint_of_serve_guards_the_session_tools_with_the_token_and_the_routes_checks() {
+    let d = Daemon::start("mcp-session-token", Some("s3cret-token"), "0.0.0.0:0");
+    let call = |tool: &str, arguments: Value, bearer: Option<&str>| {
+        let auth = bearer.map(|t| format!("Bearer {t}"));
+        let mut h = vec![("MCP-Protocol-Version", MODERN), ("Mcp-Method", "tools/call"), ("Mcp-Name", tool)];
+        if let Some(a) = &auth {
+            h.push(("Authorization", a.as_str()));
+        }
+        d.mcp(&h, &modern_request(1, "tools/call", json!({"name": tool, "arguments": arguments})))
+    };
+    let route = |name: &str, body: &Value| send(d.addr, "POST", &format!("/daemon/commands/{name}"), &[("Content-Type", "application/json"), ("Authorization", "Bearer s3cret-token")], Some(body.to_string().as_bytes()));
+    let sessions = || send(d.addr, "GET", "/daemon/views/sessions", &[("Authorization", "Bearer s3cret-token")], None).json()["rows"].clone();
+    // No token, or the wrong one: the endpoint's 401, nothing opened, nothing closed.
+    for bearer in [None, Some("not-the-token")] {
+        for (tool, arguments) in [("open_session", json!({"session_id": "s1", "client": "mcp"})), ("close_session", json!({"session_id": "s1"}))] {
+            let r = call(tool, arguments, bearer);
+            assert_eq!(r.status, 401, "{tool} with {bearer:?}: {}", r.text());
+            assert!(!r.text().contains("s3cret-token"));
+        }
+    }
+    assert_eq!(sessions(), json!([]), "nothing was opened without the token");
+    // With the token: the route's checks, through the daemon of this process.
+    let long = "c".repeat(201);
+    let r = call("open_session", json!({"session_id": "s1", "client": long}), Some("s3cret-token")).json()["result"].clone();
+    let http = route("open-session", &json!({"session_id": "h1", "client": long}));
+    assert_eq!(http.status, 400);
+    same_as_route("open_session with a long client", &r, &http, &["s1", "h1"]);
+    let extra = call("open_session", json!({"session_id": "s1", "client": "mcp", "at": "2026-01-01T00:00:00Z"}), Some("s3cret-token"));
+    assert_eq!((extra.status, extra.json()["error"]["code"].clone()), (400, json!(-32602)), "{}", extra.text());
+    assert_eq!(sessions(), json!([]), "neither call opened a session");
+    let r = call("open_session", json!({"session_id": "s1", "client": "mcp"}), Some("s3cret-token")).json()["result"].clone();
+    let http = route("open-session", &json!({"session_id": "h1", "client": "mcp"}));
+    same_as_route("open_session", &r, &http, &["s1", "h1"]);
+    let r = call("close_session", json!({"session_id": "s1"}), Some("s3cret-token")).json()["result"].clone();
+    let http = route("close-session", &json!({"session_id": "h1"}));
+    assert_eq!((http.status, r["structuredContent"]["outcome"].clone()), (202, json!("closed")), "{r}");
+    same_as_route("close_session", &r, &http, &["s1", "h1"]);
+}
+
 // ---- acceptance 3: events after a sequence number ----
 
 #[test]
