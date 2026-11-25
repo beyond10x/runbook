@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.ModelRoute.schema.json",
+  "title": "ModelRoute",
+  "description": "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind, with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row.",
+  "x-ess-name": "sdc.daemon.ModelRoute",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName"
+    },
+    "gateway": {
+      "description": "The name of the route's gateway in the daemon's file, never its address.",
+      "type": "string"
+    },
+    "alias": {
+      "description": "The model's alias at the gateway: what the gateway's `GET /v1/models` lists and a model call names.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/sdc.daemon.ModelRouteKind"
+    },
+    "wires": {
+      "description": "The wires the gateway lists for the alias (chat, responses, messages), in its order; none when the gateway did not answer or does not list the alias.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "$ref": "#/$defs/sdc.daemon.RouteStatus"
+    },
+    "phase": {
+      "description": "The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read.",
+      "type": "string"
+    },
+    "read_at": {
+      "description": "When the daemon read the gateway for this row.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.ModelRoute.State"
+    }
+  },
+  "required": [
+    "route",
+    "gateway",
+    "alias",
+    "kind",
+    "wires",
+    "status",
+    "read_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a6d42147ca9f3931ec55d549268217648d45fa93ae9c128616e3c27288e3b943",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ModelRoute.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.ModelRoute.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Declared"
+      ]
+    },
+    "sdc.daemon.ModelRouteKind": {
+      "title": "ModelRouteKind",
+      "description": "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it.",
+      "x-ess-name": "sdc.daemon.ModelRouteKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "managed",
+        "hosted",
+        "local"
+      ]
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RouteStatus": {
+      "title": "RouteStatus",
+      "description": "Where a route stands as the daemon last read its gateway: gateway-unreachable (no answer from `GET /ready` or `GET /v1/models`, or an address the daemon does not speak, https), gateway-not-ready (`/ready` answered, not 200, or `/v1/models` gave no list), model-unknown (the gateway is ready and `GET /v1/models` does not list the route's alias), ready or not-ready (the gateway read the route's model: `callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route, ready only for the phase ready), listed (the gateway is ready and lists the alias, and no status of the model was read: a hosted route on a gateway without `/v1/status`, or a status route that did not answer). A read sends no model call and starts nothing.",
+      "x-ess-name": "sdc.daemon.RouteStatus",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "ready",
+        "not-ready",
+        "listed",
+        "model-unknown",
+        "gateway-not-ready",
+        "gateway-unreachable"
+      ]
+    }
+  }
+}

@@ -438,6 +438,8 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
 
 A run whose kind is `rule`, or that has no kind, is on no route and writes no route file.
 
+The daemon also declares named model routes, several gateways and routes side by side (`docs/model-routes.md`, section 1), and lists them in the view `routes` (`docs/daemon-api.md`, "Model routes"). A lone `[gateway]` is the gateway `default` there and stays the one route `default` of the relay above; a run takes no declared route yet.
+
 The token file is read once, when the daemon starts, and only when the `model` kind is configured. The daemon
 does not start (exit 2, naming the member and never a value or a path) when the token file cannot be read as
 one line of a token, when the gateway's shape is refused, and when the `model` kind's adapter is

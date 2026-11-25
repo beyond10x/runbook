@@ -64,6 +64,10 @@ pub struct ServeArgs {
     /// The deciders `runbook.toml` configures (`[deciders.<kind>]`). Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub arbiter: Option<Arc<dyn Arbiter>>,
+    /// The model routes `runbook.toml` declares (`[gateways.*]`, `[routes.*]`, `[route_policy]`), their token files
+    /// read. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub routes: Arc<crate::routes::RouteTable>,
     /// The route table of the runs whose decider kind is `model` (`crate::relay`): the daemon serves the relay and
     /// such a run's model calls go through it. Not an option: the binary fills it from the `[gateway]` of the file.
     #[arg(skip)]
@@ -216,7 +220,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds };
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone() };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon, relay })
 }

@@ -77,6 +77,9 @@ pub struct Policy {
     /// The decider kinds the operator configured, sorted: the only names a run may take. The runtime
     /// that answers for them is the engine's; none configured: no run takes a level or a kind.
     pub kinds: Vec<String>,
+    /// The model routes of the daemon's `runbook.toml` (`[gateways.*]`, `[routes.*]`, `[route_policy]`), their
+    /// token files read; empty: no route. The view `routes` lists them.
+    pub routes: Arc<crate::routes::RouteTable>,
 }
 
 /// The configured kinds as a sentence part.
@@ -501,6 +504,8 @@ struct Inner {
     steps: Mutex<HashMap<String, Step>>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     stopping: AtomicBool,
+    /// The view `routes` over `policy.routes`, with its last read of the gateways.
+    routes: crate::routes::Listing,
 }
 
 /// The daemon: its state, its runtime and the command layer over both. Cheap to clone.
@@ -555,11 +560,13 @@ impl Daemon {
         let state_dir = std::path::absolute(&cfg.state_dir).map_err(|_| io::Error::other("the state directory cannot be made absolute: the daemon has no current directory"))?;
         let cfg = Config { context_roots: roots, state_dir, ..cfg };
         let state = State::open_with_clock(&cfg.state_dir, clock)?;
+        let routes = crate::routes::Listing::new(policy.routes.clone());
         let d = Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
                 cfg,
                 policy,
+                routes,
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
@@ -1225,6 +1232,14 @@ impl Daemon {
             .map(|d| json!({"daemon_id": d.daemon_id, "confinement_floor": d.confinement_floor, "principal": d.principal, "started_at": d.started_at}))
             .into_iter()
             .collect()
+    }
+
+    /// The view `Routes` (wire name `routes`): the declared model routes, by name, with what their gateways said
+    /// at the last read, which is at most [`crate::routes::READ_EVERY_MILLIS`] of the daemon's clock old. A row
+    /// names the gateway by name and holds no address, token or price.
+    pub fn routes(&self) -> Vec<Value> {
+        let now = self.st().now_millis();
+        self.inner.routes.rows(now)
     }
 
     /// The view `Runbooks` (wire name `runbooks`): the runtime's own runbooks and the entries of

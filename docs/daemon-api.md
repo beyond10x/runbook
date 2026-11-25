@@ -21,6 +21,7 @@ runtime.
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
+| ModelRoute | Declared | A model route of the daemon's `runbook.toml` with what its gateway last said of it (below, "Model routes"). |
 
 Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
 `confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
@@ -132,6 +133,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
+| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `read_at` (below) |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -151,6 +153,72 @@ rows from the host when asked.
 
 One run with its open decision requests is two reads, `run` and `open-decisions`: a view has one
 source entity, so the language cannot join them in one row.
+
+### Model routes
+
+The daemon's `runbook.toml` (the file `--config` or `RUNBOOK_CONFIG` names, or the one the walk finds; a file a
+program of a run finds has none of these tables) declares its gateways, its model routes and its policy
+(`docs/model-routes.md`, section 1):
+
+```toml
+[gateways.default]
+base_url = "http://127.0.0.1:<port>"
+token_file = "gateway-token"         # optional; relative to the file
+
+[routes.qwen]
+gateway = "default"                  # a [gateways.<name>] table
+model = "qwen"                       # the gateway's alias, as its /v1/models lists it
+kind = "managed"                     # managed, hosted or local
+start_wait_seconds = 600             # optional
+price_in_micro_usd_per_mtok = 0      # optional
+price_out_micro_usd_per_mtok = 0     # optional
+wake_on_submit = false               # managed only; true is refused: the wake is not built
+wake_daily_cap_micro_usd = 0         # managed only, optional
+wake_cost_micro_usd = 0              # managed only, optional
+
+[routes.claude]
+gateway = "default"
+model = "claude"
+kind = "hosted"
+
+[route_policy]
+default = "claude"                   # optional: a declared route
+classifier = "claude"                # optional: a declared route
+```
+
+A lone `[gateway]` table (the one gateway of a daemon's model decider, `docs/engine.md`, "A gateway") is the
+gateway `default`: a route names it so, and the decider takes it as before. Both a `[gateway]` table and a
+`[gateways.default]` table are refused. The daemon reads the token file of every `[gateways.<name>]` once when it starts, and the one of a lone `[gateway]` only when a route names it (else the model decider reads it, as before). It refuses to
+start, exit 2, with a line that names the key and never its value, a part of it or a path: a route that names a
+gateway the file does not declare, a gateway without `base_url`, a `token` (or any key that is not one of the
+members above) in a gateway, a route or the policy, a `token`, `token_file`, `base_url` or `api_key` in a route,
+`wake_on_submit = true`, a wake key on a route that is not managed, a `kind` that is not one of the three, a
+`model` that is no alias (an address), a policy that names a route the file does not declare, a name that is not
+1 to 64 letters, digits, `.`, `_` or `-`, and a token file it cannot read. Nothing is written before.
+
+The view `routes` (and the MCP tool `list_routes`, [`mcp.md`](mcp.md)) lists the declared routes by name. The
+daemon reads each gateway a route names with `GET` requests only, with the gateway's token when it has one:
+`GET /ready`, then `GET /v1/models` (the wires of each alias), then `GET /v1/status`, and for a managed or a local
+route whose alias that does not cover, `GET /v1/models/{alias}/status`. It sends no model call and no wake, and
+reads nothing of a gateway no route names.
+
+Each `GET` ends within 3 s, its whole answer included, and one read of all gateways within 5 s (the gateways are
+read side by side); a request still open then counts as no answer. A read is kept for 15 s of the daemon's clock;
+`read_at` says when it was made. A request answers the rows of the last read at once and waits on no gateway: when
+they are 15 s old or older, it starts one read in the background (never a second while one runs) and still answers
+them; the next request after that read answers its rows. Only a request before the first read ended waits for it,
+at most 5 s; a gateway that has not answered by then is `gateway-unreachable`. `status` is:
+
+| Status | When |
+|---|---|
+| `gateway-unreachable` | `/ready` or `/v1/models` gave no answer, or the address is `https://` (the daemon speaks plain HTTP) |
+| `gateway-not-ready` | `/ready` answered, not `200`, or `/v1/models` gave no list |
+| `model-unknown` | the gateway lists no model of the route's alias |
+| `ready`, `not-ready` | the gateway gave the model's status: `callable` of `/v1/status`, else the phase of the model's own status route (`ready` only for the phase `ready`); `phase` is the gateway's |
+| `listed` | the gateway lists the alias and gave no status of it: a hosted route on a gateway without `/v1/status`, or a status route that did not answer in time or answered anything but `200` with a phase. Today's gateway answers `404` for `/v1/status` and for the status route of a model it does not start (a local model): such a route is `listed`, not `gateway-unreachable` |
+
+A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none. A run does not take a
+route yet (`story:run-names-a-model-route`).
 
 ### The products of a run
 
