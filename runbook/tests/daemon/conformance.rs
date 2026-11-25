@@ -66,7 +66,7 @@ struct Gate {
 /// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
 const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
 
-const GATE: Gate = Gate { total: 13, executed: 13, passed: 13, skipped: 0 };
+const GATE: Gate = Gate { total: 15, executed: 15, passed: 15, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];
@@ -464,6 +464,7 @@ impl Scn {
                     capability: text(input, "capability")?,
                     question: text(input, "question")?,
                     options: input.get("options").and_then(Value::as_array).cloned().unwrap_or_default(),
+                    artifact: input.get("artifact").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v.clone()).ok()),
                 };
                 let r = self.live()?.daemon.request_decision(&run, request);
                 self.library(command, r)

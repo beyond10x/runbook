@@ -118,6 +118,10 @@ pub struct DecisionRequest {
     pub capability: String,
     pub question: String,
     pub options: Vec<Value>,
+    /// What the request read from its case; absent in a fact of a request that read nothing, and in a
+    /// fact written before the member existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<crate::runtime::RequestArtifact>,
     pub opened_at: String,
     pub state: DecisionState,
     pub answer: Option<String>,

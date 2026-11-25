@@ -76,6 +76,7 @@ pub fn ask(id: &str) -> Ask {
         capability: "approve".to_string(),
         question: "Approve?".to_string(),
         options: vec![json!({"letter": "A", "does": "yes", "cost": "none", "consequence": {"admits": [], "blocks": []}})],
+        artifact: None,
     }
 }
 

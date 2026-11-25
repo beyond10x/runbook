@@ -1,7 +1,7 @@
 //! The stub runtime: a scripted run described by data. The table of scripts is filled by the caller
 //! (the tests, or `runbook serve` for the presets) and chosen by the runbook name of the submit.
 
-use crate::runtime::{AnswerFailure, DecisionRequest, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, DecisionRequest, EventSink, Finish, Recovery, RequestArtifact, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +18,8 @@ pub struct Ask {
     pub capability: String,
     pub question: String,
     pub options: Vec<Value>,
+    /// The recommendation, grounds and free answer of a request read from a case; none for most asks.
+    pub artifact: Option<RequestArtifact>,
 }
 
 /// The most characters of the intake the stub puts into one text it makes: a script that names `{intake}`
@@ -50,6 +52,7 @@ impl Ask {
             capability: self.capability.clone(),
             question: fill(&self.question, request),
             options: self.options.iter().map(|o| fill_value(o, request)).collect(),
+            artifact: self.artifact.clone(),
         }
     }
 }
@@ -142,6 +145,7 @@ impl StubRuntime {
             capability: "approve".into(),
             question: question.into(),
             options: vec![option("A", "yes: {intake}"), option("B", "no: {intake}")],
+            artifact: None,
         };
         Script::new(vec![
             Step::Emit { kind: "stub.note".into(), body: serde_json::json!({"note": "scripted run of the stub runtime, waiting on two decisions"}) },
@@ -176,6 +180,7 @@ impl StubRuntime {
                 capability: a.capability,
                 question: a.question,
                 options: a.options,
+                artifact: a.artifact,
             });
         }
         let mut go_on = true;

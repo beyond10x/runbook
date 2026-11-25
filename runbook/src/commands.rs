@@ -258,6 +258,7 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("withdraw-decision", "no-request", 404, Some("NoSuchDecisionRequest")),
     o("withdraw-decision", "withdrawn", 202, None),
     o("withdraw-decision", "not-open", 409, Some("DecisionNotOpen")),
+    o("answer-decision", "unknown-option", 422, Some("UnknownOption")),
     o("answer-decision", "no-request", 404, Some("NoSuchDecisionRequest")),
     o("answer-decision", "not-of-run", 409, Some("DecisionNotOfRun")),
     o("answer-decision", "withdrawn", 409, Some("DecisionWithdrawn")),
@@ -897,6 +898,13 @@ impl Daemon {
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
         }
+        // A request read from its case takes one of its options, or the free answer where it takes one;
+        // anything else is refused before it is committed or handed on (`answer_offered` of the
+        // specification, which the handler fills).
+        let offered = st.decision(&request_id).and_then(|r| r.artifact.as_ref().map(|a| a.takes(&r.options, &input.answer))).unwrap_or(true);
+        if !offered {
+            return Ok(refuse("answer-decision", "unknown-option", json!({"request_id": request_id})));
+        }
         let principal = self.inner.cfg.principal.clone();
         // The runtime is given the daemon's principal; the label a client typed is a label and nothing else.
         // The answer is on the journal before the run is handed it (a journal that cannot take the line
@@ -1057,11 +1065,7 @@ impl Daemon {
     }
 
     pub fn open_decisions_of_run(&self, run_id: &str) -> Vec<Value> {
-        self.st()
-            .open_decisions_of(run_id)
-            .into_iter()
-            .map(|d| json!({"request_id": d.request_id, "run_id": d.run_id, "case_id": d.case_id, "action": d.action, "capability": d.capability, "question": d.question, "options": d.options, "opened_at": d.opened_at}))
-            .collect()
+        self.st().open_decisions_of(run_id).into_iter().map(open_decision_row).collect()
     }
 
     pub fn decisions_of_run(&self, run_id: &str) -> Vec<Value> {
@@ -1075,6 +1079,7 @@ impl Daemon {
                 m.insert("state".into(), json!(d.state));
                 m.insert("question".into(), json!(d.question));
                 m.insert("options".into(), json!(d.options));
+                put_artifact(&mut m, d);
                 m.insert("opened_at".into(), json!(d.opened_at));
                 put(&mut m, "answer", &d.answer);
                 put(&mut m, "answered_by", &d.answered_by);
@@ -1413,6 +1418,7 @@ fn request_decision_locked(st: &mut State, run_id: &str, request: RuntimeRequest
         capability: request.capability,
         question: request.question,
         options: request.options,
+        artifact: request.artifact,
         opened_at: now,
         state: DecisionState::Open,
         answer: None,
@@ -1477,6 +1483,29 @@ fn record_numbered_locked(st: &mut State, run_id: &str, sequence: u64, position:
 }
 
 // ---- rows ----
+
+/// The row of an open decision request (view `open-decisions`): what it asks, of which step, and, for a
+/// request read from its case, the recommendation and the grounds beside the options.
+pub fn open_decision_row(d: &DecisionRequest) -> Value {
+    let mut m = Map::new();
+    m.insert("request_id".into(), json!(d.request_id));
+    m.insert("run_id".into(), json!(d.run_id));
+    m.insert("case_id".into(), json!(d.case_id));
+    m.insert("action".into(), json!(d.action));
+    m.insert("capability".into(), json!(d.capability));
+    m.insert("question".into(), json!(d.question));
+    m.insert("options".into(), json!(d.options));
+    put_artifact(&mut m, d);
+    m.insert("opened_at".into(), json!(d.opened_at));
+    Value::Object(m)
+}
+
+/// The member `artifact` of a request read from its case; a request that read nothing has none.
+fn put_artifact(m: &mut Map<String, Value>, d: &DecisionRequest) {
+    if let Some(a) = &d.artifact {
+        m.insert("artifact".into(), json!(a));
+    }
+}
 
 fn put(m: &mut Map<String, Value>, key: &str, value: &Option<String>) {
     if let Some(v) = value {

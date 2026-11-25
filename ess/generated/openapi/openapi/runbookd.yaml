@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:8268a6dfea928e77fa368244879af5e3b0bebbcc171960b01149e0b1b9d1ab03
+# contract digest slice-sha256/2:ddbe651c42249ec3fbc7851f1ddaef32b0ee6322a45426e6592fb5d057ff0594
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:8268a6dfea928e77fa368244879af5e3b0bebbcc171960b01149e0b1b9d1ab03
+    contract_digest: slice-sha256/2:ddbe651c42249ec3fbc7851f1ddaef32b0ee6322a45426e6592fb5d057ff0594
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -92,6 +92,12 @@ paths:
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.run-not-waiting.Response'
+        '422':
+          description: 'Outcome `unknown-option`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.AnswerDecision.unknown-option.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -711,6 +717,9 @@ components:
         principal:
           $ref: '#/components/schemas/sdc.decision.Principal'
           description: The daemon's own principal (runbook serve --principal). The handler fills it from the daemon's configuration; a client never sends it, no HTTP body member or MCP argument sets it, and the HTTP/MCP schema of the client's input has no such member.
+        answer_offered:
+          description: 'Whether the request takes the answer: false only for an Open request of the named run, while that run is WaitingOnDecision, that carries an artifact (DecisionArtifact), when the answer is neither the letter of one of its options, alone or followed by a colon and text, nor a free answer of a request that takes one. The handler fills it from the request, because the language cannot read the text of an answer; a client never sends it.'
+          type: boolean
         at:
           type: string
           format: date-time
@@ -720,6 +729,7 @@ components:
       - answer
       - answered_by
       - principal
+      - answer_offered
       - at
       additionalProperties: false
     sdc.daemon.AnswerDecision.already-answered.Response:
@@ -856,6 +866,29 @@ components:
           description: Which declared outcome the command took.
         payload:
           $ref: '#/components/schemas/sdc.daemon.RunNotWaiting.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.AnswerDecision.unknown-option.Response:
+      additionalProperties: false
+      description: 'The request was read from its case and the answer names none of its options: nothing was committed and the runtime was handed nothing; the request stays Open. Declared first because it reads the input only; the handler fills answer_offered false only where every other refusal below does not hold, so a client meets it after the request''s state and the run''s. Taken when `answer_offered == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.UnknownOption
+          description: 'The answer names none of the options of a request read from its case (and the request takes no free answer): the request stays Open and nothing was handed to the runtime.'
+          type: string
+        outcome:
+          const: unknown-option
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.UnknownOption.Error'
         published:
           description: 'Every event this branch published, in publication order: its qualified name and its payload.'
           maxItems: 0
@@ -1222,6 +1255,35 @@ components:
       - answered_by
       - principal
       additionalProperties: false
+    sdc.daemon.DecisionArtifact:
+      title: DecisionArtifact
+      description: 'What a decision request read from its case carries beside its question and its options: the recommendation, its grounds and whether the request takes a free answer (docs/engine.md, ''A request read from the case''). The runtime reads it from the case and never writes it; a request the runtime built itself has none, and only a request that has one refuses an answer that names none of its options (AnswerDecision, unknown-option).'
+      x-ess-name: sdc.daemon.DecisionArtifact
+      x-ess-kind: struct
+      type: object
+      properties:
+        recommended_option:
+          $ref: '#/components/schemas/sdc.decision.OptionLetter'
+          description: The letter of the option the case recommends.
+        recommended_answer:
+          description: A free answer the case recommends in place of an option, for a question.
+          type: string
+        recommendation_strength:
+          $ref: '#/components/schemas/sdc.decision.Strength'
+          description: How strongly the grounds support the recommendation; none where the request carries no recommendation.
+        grounds:
+          description: The grounds of the recommendation, each with a citation the runtime checked before the request opened.
+          type: array
+          items:
+            $ref: '#/components/schemas/sdc.decision.Ground'
+        free_answer:
+          description: Whether an answer that names no option is taken as a free answer (a question request).
+          type: boolean
+      required:
+      - recommendation_strength
+      - grounds
+      - free_answer
+      additionalProperties: false
     sdc.daemon.DecisionNotOfRun.Error:
       title: DecisionNotOfRun payload
       description: The decision request belongs to another run than the one named; nothing changed.
@@ -1294,6 +1356,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/sdc.decision.DecisionOption'
+        artifact:
+          $ref: '#/components/schemas/sdc.daemon.DecisionArtifact'
+          description: As in OpenDecisionsOfRun.
         opened_at:
           type: string
           format: date-time
@@ -1576,6 +1641,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/sdc.decision.DecisionOption'
+        artifact:
+          $ref: '#/components/schemas/sdc.daemon.DecisionArtifact'
+          description: The recommendation, its grounds and the free answer of a request read from its case; absent for a request the runtime built itself.
         opened_at:
           type: string
           format: date-time
@@ -2519,12 +2587,53 @@ components:
       - outcome
       - published
       type: object
+    sdc.daemon.UnknownOption.Error:
+      title: UnknownOption payload
+      description: 'The answer names none of the options of a request read from its case (and the request takes no free answer): the request stays Open and nothing was handed to the runtime.'
+      x-ess-name: sdc.daemon.UnknownOption
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        request_id:
+          $ref: '#/components/schemas/sdc.daemon.DecisionRequestId'
+      required:
+      - request_id
+      additionalProperties: false
     sdc.decision.ActionId:
       title: ActionId
       description: A protocol action id, such as roadmap.approve.
       x-ess-name: sdc.decision.ActionId
       x-ess-kind: newtype
       type: string
+    sdc.decision.ArtifactId:
+      title: ArtifactId
+      description: A case artifact id (canon-case/1 artifacts key), such as roadmap.
+      x-ess-name: sdc.decision.ArtifactId
+      x-ess-kind: newtype
+      type: string
+    sdc.decision.ArtifactRevisionCitation:
+      title: ArtifactRevisionCitation
+      x-ess-name: sdc.decision.ArtifactRevisionCitation
+      x-ess-kind: struct
+      type: object
+      properties:
+        artifact:
+          $ref: '#/components/schemas/sdc.decision.ArtifactId'
+        revision:
+          $ref: '#/components/schemas/sdc.decision.Revision'
+        case:
+          $ref: '#/components/schemas/sdc.decision.CaseId'
+          description: The case whose snapshot holds the artifact; absent means the request's case.
+        entry:
+          description: 'One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the current goals layers, apply at the check''s instant (inside its validity window, not overridden by a lower layer) and still have the digest. A revision that moved since is noted (revision_moved), not refused (docs/requester.md decision 3).'
+          type: string
+        digest:
+          description: sha256:<hex> of the cited entry as sdc-goals digest prints it; written by the grounding check when absent, so a later check sees a change.
+          type: string
+      required:
+      - artifact
+      - revision
+      additionalProperties: false
     sdc.decision.AutonomyLevel:
       title: AutonomyLevel
       description: 'The run''s autonomy level, docs/autonomy-levels.md:36-42 and :205-213: A0 Manual, A1 Advised, A2 Internal, A3 To merge, A4 To release, A5 Unattended (eval runs, :41-42). The level does not decide eligibility by itself: with the request''s decision class it gives the holder (:241-256, overrides :297-320), and the guards read the holder.'
@@ -2538,6 +2647,55 @@ components:
       - A3
       - A4
       - A5
+    sdc.decision.CaseId:
+      title: CaseId
+      description: A Canon case id (canon-case/1 id), such as IDEA-1.direction.
+      x-ess-name: sdc.decision.CaseId
+      x-ess-kind: newtype
+      type: string
+    sdc.decision.Citation:
+      title: Citation
+      description: 'Where a ground is: path:line, a record id, artifact@revision, or one entry of an artifact (goals@<revision>#<entry id>). A program checks that each resolves (tools/decision-grounds.sh; a goals entry through sdc-goals ground).'
+      x-ess-name: sdc.decision.Citation
+      x-ess-kind: union
+      oneOf:
+      - title: artifact_revision
+        type: object
+        properties:
+          form:
+            type: string
+            const: artifact_revision
+          value:
+            $ref: '#/components/schemas/sdc.decision.ArtifactRevisionCitation'
+        required:
+        - form
+        - value
+        additionalProperties: false
+      - title: path_line
+        type: object
+        properties:
+          form:
+            type: string
+            const: path_line
+          value:
+            $ref: '#/components/schemas/sdc.decision.PathLineCitation'
+        required:
+        - form
+        - value
+        additionalProperties: false
+      - title: record_id
+        type: object
+        properties:
+          form:
+            type: string
+            const: record_id
+          value:
+            $ref: '#/components/schemas/sdc.decision.RecordCitation'
+        required:
+        - form
+        - value
+        additionalProperties: false
+      x-ess-union-tag: form
     sdc.decision.Consequence:
       title: Consequence
       description: What choosing the option does to the protocol.
@@ -2600,12 +2758,72 @@ components:
       enum:
       - granted
       - denied
+    sdc.decision.Ground:
+      title: Ground
+      description: 'One ground of a recommendation: its source kind, a citation that resolves, the option it supports (or the free answer) and how.'
+      x-ess-name: sdc.decision.Ground
+      x-ess-kind: struct
+      type: object
+      properties:
+        source:
+          $ref: '#/components/schemas/sdc.decision.GroundSource'
+        citation:
+          $ref: '#/components/schemas/sdc.decision.Citation'
+        supports:
+          $ref: '#/components/schemas/sdc.decision.OptionLetter'
+          description: 'The option the ground supports; absent: it supports the recommended free answer.'
+        how:
+          description: How the cited text supports the option, one sentence.
+          type: string
+      required:
+      - source
+      - citation
+      - how
+      additionalProperties: false
+    sdc.decision.GroundSource:
+      title: GroundSource
+      description: 'The kind of source a ground cites. idea: the person''s own input and its dissection items (work/idea.yaml, work/dissection.yaml), which the decider cites (d1 to d4 in runs/trial-todo-1/decisions.jsonl). goals: one entry of the requester''s goals document (sdc.goals/1, docs/requester.md § 2), cited as artifact_revision of artifact goals with its entry id and the entry''s digest, displayed goals@<revision>#<entry id>.'
+      x-ess-name: sdc.decision.GroundSource
+      x-ess-kind: enum
+      type: string
+      enum:
+      - idea
+      - vision
+      - requirement
+      - prior_decision
+      - prd
+      - story
+      - spec
+      - policy
+      - evidence_record
+      - autonomy_rule
+      - goals
     sdc.decision.OptionLetter:
       title: OptionLetter
       description: 'The letter of an option: A, B, C, in the order presented.'
       x-ess-name: sdc.decision.OptionLetter
       x-ess-kind: newtype
       type: string
+    sdc.decision.PathLineCitation:
+      title: PathLineCitation
+      x-ess-name: sdc.decision.PathLineCitation
+      x-ess-kind: struct
+      type: object
+      properties:
+        path:
+          description: A file path relative to the repository root.
+          type: string
+        line:
+          type: integer
+        line_end:
+          type: integer
+        digest:
+          description: sha256:<hex> of the cited lines when the ground was checked; a different digest later means the ground changed.
+          type: string
+      required:
+      - path
+      - line
+      additionalProperties: false
     sdc.decision.Principal:
       title: Principal
       description: 'Who decides: a person''s name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).'
@@ -2623,6 +2841,49 @@ components:
       - canon_decisions
       - canon_evidence
       - artifact_revision
+    sdc.decision.RecordCitation:
+      title: RecordCitation
+      x-ess-name: sdc.decision.RecordCitation
+      x-ess-kind: struct
+      type: object
+      properties:
+        store:
+          $ref: '#/components/schemas/sdc.decision.RecordStore'
+        record_id:
+          type: string
+      required:
+      - store
+      - record_id
+      additionalProperties: false
+    sdc.decision.RecordStore:
+      title: RecordStore
+      description: 'Where a cited record id is looked up: the decision request log, a case''s evidence/ (canon-evidence/1 id), authority.json, decisions.json, or an AEP planning store (kind:name).'
+      x-ess-name: sdc.decision.RecordStore
+      x-ess-kind: enum
+      type: string
+      enum:
+      - sdc_decisions
+      - canon_evidence
+      - canon_authority
+      - canon_decisions
+      - aep_artifact
+    sdc.decision.Revision:
+      title: Revision
+      description: An artifact or case revision as the case snapshot writes it.
+      x-ess-name: sdc.decision.Revision
+      x-ess-kind: newtype
+      type: string
+    sdc.decision.Strength:
+      title: Strength
+      description: 'How strongly the grounds support the recommended option. none: the request carries no recommendation (stored before Recommend and after a withheld one; a Recommend sending none is refused). strong: a vision, requirement, PRD, story or spec states it, or a prior decision on the same question and subject stands with its grounds unchanged. moderate: a policy, an autonomy rule or an evidence record supports it by inference. weak: the grounds make it plausible only.'
+      x-ess-name: sdc.decision.Strength
+      x-ess-kind: enum
+      type: string
+      enum:
+      - none
+      - weak
+      - moderate
+      - strong
 x-ess-entities:
   sdc.daemon.ClientLabel:
     title: ClientLabel
@@ -2708,6 +2969,35 @@ x-ess-entities:
     x-ess-invariants:
     - value.count >= 1
     - value.count <= 63
+  sdc.daemon.DecisionArtifact:
+    title: DecisionArtifact
+    description: 'What a decision request read from its case carries beside its question and its options: the recommendation, its grounds and whether the request takes a free answer (docs/engine.md, ''A request read from the case''). The runtime reads it from the case and never writes it; a request the runtime built itself has none, and only a request that has one refuses an answer that names none of its options (AnswerDecision, unknown-option).'
+    x-ess-name: sdc.daemon.DecisionArtifact
+    x-ess-kind: struct
+    type: object
+    properties:
+      recommended_option:
+        $ref: '#/x-ess-entities/sdc.decision.OptionLetter'
+        description: The letter of the option the case recommends.
+      recommended_answer:
+        description: A free answer the case recommends in place of an option, for a question.
+        type: string
+      recommendation_strength:
+        $ref: '#/x-ess-entities/sdc.decision.Strength'
+        description: How strongly the grounds support the recommendation; none where the request carries no recommendation.
+      grounds:
+        description: The grounds of the recommendation, each with a citation the runtime checked before the request opened.
+        type: array
+        items:
+          $ref: '#/x-ess-entities/sdc.decision.Ground'
+      free_answer:
+        description: Whether an answer that names no option is taken as a free answer (a question request).
+        type: boolean
+    required:
+    - recommendation_strength
+    - grounds
+    - free_answer
+    additionalProperties: false
   sdc.daemon.DecisionRequest:
     title: DecisionRequest
     description: 'A question a waiting run raised, as a mirror of the runtime''s decision request: the daemon copies id, case, action, capability, question and options from the runtime''s record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook''s decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request is Withdrawn when its run is cancelled or ended as orphaned (CancelRun and EndOrphanedRun move every Open request of the run in their own step) or when the runtime withdraws it (WithdrawDecision): it stays on record, shows no more as open, and takes no answer.'
@@ -2737,9 +3027,13 @@ x-ess-entities:
       question:
         type: string
       options:
+        description: The options of a request read from its case (DecisionArtifact) are the case's, in the contract's shape; a request the runtime built itself names each option by the answer that takes it and its effect.
         type: array
         items:
           $ref: '#/x-ess-entities/sdc.decision.DecisionOption'
+      artifact:
+        $ref: '#/x-ess-entities/sdc.daemon.DecisionArtifact'
+        description: What the request read from its case; absent for a request the runtime built itself.
       opened_at:
         type: string
         format: date-time
@@ -3104,6 +3398,35 @@ x-ess-entities:
     x-ess-name: sdc.decision.ActionId
     x-ess-kind: newtype
     type: string
+  sdc.decision.ArtifactId:
+    title: ArtifactId
+    description: A case artifact id (canon-case/1 artifacts key), such as roadmap.
+    x-ess-name: sdc.decision.ArtifactId
+    x-ess-kind: newtype
+    type: string
+  sdc.decision.ArtifactRevisionCitation:
+    title: ArtifactRevisionCitation
+    x-ess-name: sdc.decision.ArtifactRevisionCitation
+    x-ess-kind: struct
+    type: object
+    properties:
+      artifact:
+        $ref: '#/x-ess-entities/sdc.decision.ArtifactId'
+      revision:
+        $ref: '#/x-ess-entities/sdc.decision.Revision'
+      case:
+        $ref: '#/x-ess-entities/sdc.decision.CaseId'
+        description: The case whose snapshot holds the artifact; absent means the request's case.
+      entry:
+        description: 'One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the current goals layers, apply at the check''s instant (inside its validity window, not overridden by a lower layer) and still have the digest. A revision that moved since is noted (revision_moved), not refused (docs/requester.md decision 3).'
+        type: string
+      digest:
+        description: sha256:<hex> of the cited entry as sdc-goals digest prints it; written by the grounding check when absent, so a later check sees a change.
+        type: string
+    required:
+    - artifact
+    - revision
+    additionalProperties: false
   sdc.decision.AutonomyLevel:
     title: AutonomyLevel
     description: 'The run''s autonomy level, docs/autonomy-levels.md:36-42 and :205-213: A0 Manual, A1 Advised, A2 Internal, A3 To merge, A4 To release, A5 Unattended (eval runs, :41-42). The level does not decide eligibility by itself: with the request''s decision class it gives the holder (:241-256, overrides :297-320), and the guards read the holder.'
@@ -3117,6 +3440,55 @@ x-ess-entities:
     - A3
     - A4
     - A5
+  sdc.decision.CaseId:
+    title: CaseId
+    description: A Canon case id (canon-case/1 id), such as IDEA-1.direction.
+    x-ess-name: sdc.decision.CaseId
+    x-ess-kind: newtype
+    type: string
+  sdc.decision.Citation:
+    title: Citation
+    description: 'Where a ground is: path:line, a record id, artifact@revision, or one entry of an artifact (goals@<revision>#<entry id>). A program checks that each resolves (tools/decision-grounds.sh; a goals entry through sdc-goals ground).'
+    x-ess-name: sdc.decision.Citation
+    x-ess-kind: union
+    oneOf:
+    - title: artifact_revision
+      type: object
+      properties:
+        form:
+          type: string
+          const: artifact_revision
+        value:
+          $ref: '#/x-ess-entities/sdc.decision.ArtifactRevisionCitation'
+      required:
+      - form
+      - value
+      additionalProperties: false
+    - title: path_line
+      type: object
+      properties:
+        form:
+          type: string
+          const: path_line
+        value:
+          $ref: '#/x-ess-entities/sdc.decision.PathLineCitation'
+      required:
+      - form
+      - value
+      additionalProperties: false
+    - title: record_id
+      type: object
+      properties:
+        form:
+          type: string
+          const: record_id
+        value:
+          $ref: '#/x-ess-entities/sdc.decision.RecordCitation'
+      required:
+      - form
+      - value
+      additionalProperties: false
+    x-ess-union-tag: form
   sdc.decision.Consequence:
     title: Consequence
     description: What choosing the option does to the protocol.
@@ -3179,12 +3551,72 @@ x-ess-entities:
     enum:
     - granted
     - denied
+  sdc.decision.Ground:
+    title: Ground
+    description: 'One ground of a recommendation: its source kind, a citation that resolves, the option it supports (or the free answer) and how.'
+    x-ess-name: sdc.decision.Ground
+    x-ess-kind: struct
+    type: object
+    properties:
+      source:
+        $ref: '#/x-ess-entities/sdc.decision.GroundSource'
+      citation:
+        $ref: '#/x-ess-entities/sdc.decision.Citation'
+      supports:
+        $ref: '#/x-ess-entities/sdc.decision.OptionLetter'
+        description: 'The option the ground supports; absent: it supports the recommended free answer.'
+      how:
+        description: How the cited text supports the option, one sentence.
+        type: string
+    required:
+    - source
+    - citation
+    - how
+    additionalProperties: false
+  sdc.decision.GroundSource:
+    title: GroundSource
+    description: 'The kind of source a ground cites. idea: the person''s own input and its dissection items (work/idea.yaml, work/dissection.yaml), which the decider cites (d1 to d4 in runs/trial-todo-1/decisions.jsonl). goals: one entry of the requester''s goals document (sdc.goals/1, docs/requester.md § 2), cited as artifact_revision of artifact goals with its entry id and the entry''s digest, displayed goals@<revision>#<entry id>.'
+    x-ess-name: sdc.decision.GroundSource
+    x-ess-kind: enum
+    type: string
+    enum:
+    - idea
+    - vision
+    - requirement
+    - prior_decision
+    - prd
+    - story
+    - spec
+    - policy
+    - evidence_record
+    - autonomy_rule
+    - goals
   sdc.decision.OptionLetter:
     title: OptionLetter
     description: 'The letter of an option: A, B, C, in the order presented.'
     x-ess-name: sdc.decision.OptionLetter
     x-ess-kind: newtype
     type: string
+  sdc.decision.PathLineCitation:
+    title: PathLineCitation
+    x-ess-name: sdc.decision.PathLineCitation
+    x-ess-kind: struct
+    type: object
+    properties:
+      path:
+        description: A file path relative to the repository root.
+        type: string
+      line:
+        type: integer
+      line_end:
+        type: integer
+      digest:
+        description: sha256:<hex> of the cited lines when the ground was checked; a different digest later means the ground changed.
+        type: string
+    required:
+    - path
+    - line
+    additionalProperties: false
   sdc.decision.Principal:
     title: Principal
     description: 'Who decides: a person''s name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).'
@@ -3202,3 +3634,46 @@ x-ess-entities:
     - canon_decisions
     - canon_evidence
     - artifact_revision
+  sdc.decision.RecordCitation:
+    title: RecordCitation
+    x-ess-name: sdc.decision.RecordCitation
+    x-ess-kind: struct
+    type: object
+    properties:
+      store:
+        $ref: '#/x-ess-entities/sdc.decision.RecordStore'
+      record_id:
+        type: string
+    required:
+    - store
+    - record_id
+    additionalProperties: false
+  sdc.decision.RecordStore:
+    title: RecordStore
+    description: 'Where a cited record id is looked up: the decision request log, a case''s evidence/ (canon-evidence/1 id), authority.json, decisions.json, or an AEP planning store (kind:name).'
+    x-ess-name: sdc.decision.RecordStore
+    x-ess-kind: enum
+    type: string
+    enum:
+    - sdc_decisions
+    - canon_evidence
+    - canon_authority
+    - canon_decisions
+    - aep_artifact
+  sdc.decision.Revision:
+    title: Revision
+    description: An artifact or case revision as the case snapshot writes it.
+    x-ess-name: sdc.decision.Revision
+    x-ess-kind: newtype
+    type: string
+  sdc.decision.Strength:
+    title: Strength
+    description: 'How strongly the grounds support the recommended option. none: the request carries no recommendation (stored before Recommend and after a withheld one; a Recommend sending none is refused). strong: a vision, requirement, PRD, story or spec states it, or a prior decision on the same question and subject stands with its grounds unchanged. moderate: a policy, an autonomy rule or an evidence record supports it by inference. weak: the grounds make it plausible only.'
+    x-ess-name: sdc.decision.Strength
+    x-ess-kind: enum
+    type: string
+    enum:
+    - none
+    - weak
+    - moderate
+    - strong

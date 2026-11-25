@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 const RUNBOOK: &str = "engine-demo";
 const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", concat!("sdc-dr", "ive")];
 
-fn copy_tree(from: &Path, to: &Path) {
+pub(super) fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
@@ -85,7 +85,7 @@ fn descendant_processes() -> Vec<(u32, String)> {
     table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(p, _, c)| (p, c)).collect()
 }
 
-fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
+pub(super) fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
     let limit = Instant::now() + Duration::from_secs(secs);
     while !done() {
         assert!(Instant::now() < limit, "gave up waiting for {what}");
@@ -864,7 +864,7 @@ fn a_run_that_waits_on_a_decision_shows_no_step() {
     g.start(&run, st(1, "program", Some("c1"), Some("a.one"), Some(1)));
     assert!(g.view(&run).get("step_in_flight").is_some());
     g.rt.on_thread(&run, |_, sink| {
-        sink.decision_requested(DecisionRequest { request_id: "q1".into(), case_id: "c1".into(), action: "a.review".into(), capability: "person".into(), question: "ok?".into(), options: vec![] });
+        sink.decision_requested(DecisionRequest { request_id: "q1".into(), case_id: "c1".into(), action: "a.review".into(), capability: "person".into(), question: "ok?".into(), options: vec![], artifact: None });
         None
     });
     let row = g.view(&run);

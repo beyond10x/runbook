@@ -46,7 +46,7 @@ impl Runtime for Rt {
         self.0.started.lock().unwrap().push(request);
         sink.started();
         for (id, _, _) in &self.0.tries {
-            sink.decision_requested(DecisionRequest { request_id: (*id).into(), case_id: "c".into(), action: "notes.stage".into(), capability: "notes.stage".into(), question: "q".into(), options: vec![] });
+            sink.decision_requested(DecisionRequest { request_id: (*id).into(), case_id: "c".into(), action: "notes.stage".into(), capability: "notes.stage".into(), question: "q".into(), options: vec![], artifact: None });
         }
         for (id, by, principal) in &self.0.tries {
             let taken = sink.decision_answered(id, "approve", by, principal);

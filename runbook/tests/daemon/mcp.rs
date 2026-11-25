@@ -342,6 +342,27 @@ fn stdio_reads_the_open_decisions_of_a_run_with_the_step_that_asks_as_the_view_h
 }
 
 #[test]
+fn stdio_reads_the_recommendation_and_the_grounds_of_a_request_read_from_its_case_as_the_view_has_them() {
+    let d = Daemon::start("mcp-art", None, "127.0.0.1:0");
+    d.fx.stub.script("art", Script::new(vec![Step::Ask(vec![super::decision_artifact::ask_with(false)]), Step::End("approved".into())]));
+    let mut c = Stdio1::to(&d);
+    let run = run_of(&c.tool("submit_run", json!({"runbook_id": "art", "intake": "x"}))["structuredContent"]);
+    d.fx.wait_open_decisions(&run, 1);
+    let read = c.tool("read_open_decisions", json!({"run_id": run}));
+    let http = d.get(&format!("/daemon/views/open-decisions?run_id={run}")).json();
+    assert_eq!(read["structuredContent"], http, "the body of the route");
+    let row = &read["structuredContent"]["rows"][0];
+    assert_eq!((row["question"].clone(), row["options"].as_array().map(Vec::len)), (json!("Which draft goes out?"), Some(3)), "{row}");
+    assert_eq!((row["artifact"]["recommended_option"].clone(), row["artifact"]["grounds"].as_array().map(Vec::len)), (json!("B"), Some(2)), "{row}");
+    super::openapi::check_row("OpenDecisionsOfRun", row);
+    let refused = c.tool("answer_decision", json!({"run_id": run, "request_id": format!("{run}-q"), "answer": "approve", "answered_by": "operator"}));
+    assert_eq!((refused["isError"].clone(), refused["_meta"]["runbook/http-status"].clone(), refused["structuredContent"]["outcome"].clone()), (json!(true), json!(422), json!("unknown-option")), "{refused}");
+    let a = c.tool("answer_decision", json!({"run_id": run, "request_id": format!("{run}-q"), "answer": "B", "answered_by": "operator"}));
+    assert_eq!(a["structuredContent"]["outcome"], "answered", "{a}");
+    d.wait_state(&run, "Ended");
+}
+
+#[test]
 fn an_answer_through_mcp_reaches_the_runtime_with_the_daemons_principal_and_no_argument_sets_it() {
     let d = Daemon::start("mcp-principal", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);

@@ -151,6 +151,48 @@ pub struct DecisionRequest {
     pub capability: String,
     pub question: String,
     pub options: Vec<Value>,
+    /// What a request read from its case carries beside its question and its options (`docs/engine.md`,
+    /// "A request read from the case"); none for a request the runtime built itself. Only a request that
+    /// has one refuses an answer that names none of its options.
+    pub artifact: Option<RequestArtifact>,
+}
+
+/// The option of `options` that `answer` names, and the text after it: its letter alone, or its letter,
+/// a colon and text (`B: too short`; the text trimmed, none when empty). None when it names no option.
+pub fn named_option<'a>(options: &'a [Value], answer: &'a str) -> Option<(&'a Value, Option<&'a str>)> {
+    options.iter().find_map(|o| {
+        let letter = o.get("letter")?.as_str().filter(|l| !l.is_empty())?;
+        if answer == letter {
+            return Some((o, None));
+        }
+        let text = answer.strip_prefix(letter)?.strip_prefix(':')?.trim();
+        Some((o, (!text.is_empty()).then_some(text)))
+    })
+}
+
+impl RequestArtifact {
+    /// Whether a request with this artifact and `options` takes `answer`: it names an option, or the
+    /// request takes a free answer.
+    pub fn takes(&self, options: &[Value], answer: &str) -> bool {
+        self.free_answer || named_option(options, answer).is_some()
+    }
+}
+
+/// The recommendation, the grounds and the free answer of a request read from its case: the members of
+/// the decision contract (`sdc.decision.DecisionRequest`) the daemon shows beside the options.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct RequestArtifact {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_option: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_answer: Option<String>,
+    /// `none`, `weak`, `moderate` or `strong` (`sdc.decision.Strength`).
+    pub recommendation_strength: String,
+    #[serde(default)]
+    pub grounds: Vec<Value>,
+    /// Whether an answer that names no option is taken as a free answer.
+    #[serde(default)]
+    pub free_answer: bool,
 }
 
 /// A program of a run that is about to start (or has ended): what the runtime knows of it before

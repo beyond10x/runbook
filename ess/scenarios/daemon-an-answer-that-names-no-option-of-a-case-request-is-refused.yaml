@@ -1,0 +1,104 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-an-answer-that-names-no-option-of-a-case-request-is-refused
+summary: "A request read from its case carries its artifact; an answer that names none of its options is refused by name, the request stays Open, and a letter of its options is taken."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.WaitOnDecision
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: waiting
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.RequestDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+      run_id: "run-1"
+      question: "Which draft goes out?"
+      case_id: "IDEA-1"
+      action: "draft.review"
+      capability: ""
+      options:
+        - letter: "A"
+          does: "Ship the draft."
+          cost: "None."
+          consequence: {admits: ["draft.review"], blocks: [], answer: "performed"}
+        - letter: "B"
+          does: "Send it back."
+          cost: "One more round."
+          consequence: {admits: [], blocks: ["draft.review"], answer: "rejected"}
+      artifact:
+        recommended_option: "B"
+        recommendation_strength: moderate
+        grounds: []
+        free_answer: false
+      at: 2026-11-22T10:04:00Z
+    outcome: requested
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "approve"
+      answered_by: "operator"
+      principal: "agent:conformance"
+      answer_offered: false
+      at: 2026-11-22T10:05:00Z
+    outcome: unknown-option
+
+  - at: 2026-11-22T10:06:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "B"
+      answered_by: "operator"
+      principal: "agent:conformance"
+      answer_offered: true
+      at: 2026-11-22T10:06:00Z
+    outcome: answered
+
+assert:
+  - view: sdc.daemon.DecisionsOfRun
+    params: {run_id: "run-1"}
+    contains: {request_id: "dr-1", state: Answered, answer: "B", answered_by: "operator", answered_at: 2026-11-22T10:06:00Z}

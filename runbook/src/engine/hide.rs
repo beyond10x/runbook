@@ -4,7 +4,7 @@
 //! read it at; this is the one place that takes those paths out: an entry of the run's copy, of the
 //! run's directory or of the home is named relative to it, and a directory itself is named `.`.
 
-use crate::runtime::{DecisionRequest, EventSink};
+use crate::runtime::{DecisionRequest, EventSink, RequestArtifact};
 use super::clean;
 use serde_json::Value;
 use std::path::Path;
@@ -86,6 +86,17 @@ impl Hide {
             other => other,
         }
     }
+
+    /// The members a request read from its case, with every text taken through `text`.
+    pub fn artifact(&self, artifact: RequestArtifact) -> RequestArtifact {
+        RequestArtifact {
+            recommended_option: artifact.recommended_option.map(|t| self.text(&t)),
+            recommended_answer: artifact.recommended_answer.map(|t| self.text(&t)),
+            recommendation_strength: artifact.recommendation_strength,
+            grounds: artifact.grounds.into_iter().map(|g| self.value(g)).collect(),
+            free_answer: artifact.free_answer,
+        }
+    }
 }
 
 /// The texts that spell `path`: as the file system names it (lossy where it is not UTF-8), with each
@@ -133,6 +144,7 @@ impl EventSink for HidingSink<'_> {
         self.inner.decision_requested(DecisionRequest {
             question: hide.text(&request.question),
             options: request.options.into_iter().map(|o| hide.value(o)).collect(),
+            artifact: request.artifact.map(|a| hide.artifact(a)),
             ..request
         })
     }
@@ -238,12 +250,32 @@ mod tests {
             capability: "approve".into(),
             question: "is /s/runs/r1/out right".into(),
             options: vec![serde_json::json!({"answer": "approve", "label": "keep /h/home/bindings/a"}), serde_json::json!("/s/runs/r1")],
+            artifact: None,
         });
         assert_eq!(*catch.records.lock().unwrap(), vec![("note".to_string(), serde_json::json!({"file": "protocol/x.yaml", "list": ["bindings/a"], "n": 2}))]);
         let requests = catch.requests.lock().unwrap();
         assert_eq!(requests[0].question, "is out right");
         assert_eq!(requests[0].options, vec![serde_json::json!({"answer": "approve", "label": "keep bindings/a"}), serde_json::json!(".")]);
         assert_eq!((requests[0].request_id.as_str(), requests[0].action.as_str()), ("q1", "act"));
+    }
+
+    #[test]
+    fn the_recommendation_and_the_grounds_of_a_request_read_from_its_case_reach_the_sink_without_the_directory() {
+        let hide = Hide::new(&[&PathBuf::from("/s/runs/r1"), &PathBuf::from("/h/home")]);
+        let catch = Catch::default();
+        let sink = HidingSink { inner: &catch, hide: &hide };
+        let artifact = RequestArtifact {
+            recommended_option: Some("B".into()),
+            recommended_answer: Some("as /s/runs/r1/notes says".into()),
+            recommendation_strength: "weak".into(),
+            grounds: vec![serde_json::json!({"source": "idea", "citation": {"form": "path_line", "value": {"path": "/h/home/bindings/a", "line": 1}}, "how": "see /s/runs/r1/x"})],
+            free_answer: true,
+        };
+        sink.decision_requested(DecisionRequest { request_id: "q1".into(), case_id: "c".into(), action: "act".into(), capability: "".into(), question: "q".into(), options: vec![], artifact: Some(artifact) });
+        let got = catch.requests.lock().unwrap()[0].artifact.clone().unwrap();
+        assert_eq!(got.recommended_answer.as_deref(), Some("as notes says"));
+        assert_eq!(got.grounds, vec![serde_json::json!({"source": "idea", "citation": {"form": "path_line", "value": {"path": "bindings/a", "line": 1}}, "how": "see x"})]);
+        assert_eq!((got.recommended_option.as_deref(), got.recommendation_strength.as_str(), got.free_answer), (Some("B"), "weak", true));
     }
 
     #[test]

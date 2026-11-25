@@ -211,6 +211,7 @@ fn a_decision_request_keeps_its_record_through_answer_and_withdrawal() {
             capability: "cap".into(),
             question: "?".into(),
             options: vec![],
+            artifact: None,
             opened_at: "t".into(),
             state: DecisionState::Open,
             answer: None,

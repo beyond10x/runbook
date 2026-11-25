@@ -70,14 +70,14 @@ const TOOLS: [Tool; 7] = [
     Tool {
         name: "read_open_decisions",
         title: "Read the open decisions of a run",
-        description: "The decision requests of one run that no one has answered yet, in the `rows` of the result: the request id, the case, the action and the capability that ask, the question, the options and when it opened. A run with none, or a run id the daemon does not know, has no rows.",
+        description: "The decision requests of one run that no one has answered yet, in the `rows` of the result: the request id, the case, the action and the capability that ask, the question, the options and when it opened, and, for a request read from its case, the member `artifact`: the recommended option or answer, the strength, the grounds and whether a free answer is taken. A run with none, or a run id the daemon does not know, has no rows.",
         read_only: true,
         kind: Kind::ReadOpenDecisions,
     },
     Tool {
         name: "answer_decision",
         title: "Answer a decision",
-        description: "Answer an open decision request of a run that waits: the run id, the request id (read it with read_open_decisions), the answer and a label for who answers. The label is stored and shown; the daemon's own principal is what the runtime records. The first answer stands.",
+        description: "Answer an open decision request of a run that waits: the run id, the request id (read it with read_open_decisions), the answer and a label for who answers. A request read from its case (it has the member `artifact`) takes the letter of one of its options, alone or followed by a colon and text, or a free answer where it takes one; any other answer is refused as `unknown-option` (HTTP status 422). The label is stored and shown; the daemon's own principal is what the runtime records. The first answer stands.",
         read_only: false,
         kind: Kind::Command("answer-decision"),
     },
@@ -93,9 +93,9 @@ const TOOLS: [Tool; 7] = [
 /// The members of a command's input the HTTP handler fills; a client never sends them.
 pub const SUBMIT_FILLED: [&str; 6] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source"];
 
-/// The members of the input of `answer-decision` the handler fills: the instant and the daemon's own
-/// principal, which no tool argument sets.
-pub const ANSWER_FILLED: [&str; 2] = ["at", "principal"];
+/// The members of the input of `answer-decision` the handler fills: the instant, the daemon's own
+/// principal and whether the request takes the answer (`answer_offered`), which no tool argument sets.
+pub const ANSWER_FILLED: [&str; 3] = ["at", "principal", "answer_offered"];
 
 /// The members of a command's input the daemon defaults when the client leaves them out.
 pub const SUBMIT_DEFAULTED: [&str; 1] = ["settings"];

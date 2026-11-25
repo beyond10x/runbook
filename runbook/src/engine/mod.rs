@@ -23,7 +23,7 @@ use crate::runtime::{AnswerFailure, Autonomy, Confinement, EventSink, Finish, Re
 use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
-use decision::{parse_answer, plan, Planned};
+use decision::{parse_answer, parse_option, plan_with, read_case, Planned};
 use hide::{Hide, HidingSink};
 use pin::Pin;
 use serde_json::Value;
@@ -326,7 +326,8 @@ impl Engine {
                     std::thread::sleep(POLL);
                 }
             });
-            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge);
+            let asking = Asking { workspace: workspace.clone(), bindings: resolved.bindings.parent().map(Path::to_path_buf) };
+            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking);
             done.store(true, Ordering::SeqCst);
             result
         });
@@ -367,6 +368,7 @@ impl Engine {
         tail: &mut LogTail<'_>,
         gate: &mut Gate,
         judge: &mut Option<Box<dyn RunArbiter>>,
+        asking: &Asking,
     ) -> Result<Finish, RuntimeFailure> {
         // The programs of the steps and those the answers of a wait start go through the gate's runner,
         // which reserves the budget of each before it starts; each is booked after.
@@ -431,7 +433,7 @@ impl Engine {
                     }));
                 }
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    let waited = Waited { local, cancel, slot };
+                    let waited = Waited { local, cancel, slot, asking };
                     match self.round(&ran, pinned, store, catalog, &reserving, sink, &waited, tail, gate, judge)? {
                         RoundEnd::Resumed => new_round = true,
                         RoundEnd::Halted => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
@@ -487,7 +489,16 @@ impl Engine {
             closed: BTreeSet::new(),
             replaced: 0,
         };
-        let plans: Vec<Planned> = ran.decisions.iter().enumerate().map(|(n, d)| plan(format!("d{:x}-{}-{n}", self.epoch, wait.round), d, None)).collect();
+        // Each request reads its case first: an artifact that fails the check ends the run by its cause, and a
+        // question member that gave no question is recorded and the request asks the generated one.
+        let mut plans: Vec<Planned> = Vec::new();
+        for (n, d) in ran.decisions.iter().enumerate() {
+            let found = read_case(d, &waited.asking.workspace, waited.asking.bindings.as_deref()).map_err(failure)?;
+            if let Some(cause) = &found.unread {
+                sink.record(decision::QUESTION_UNREAD, serde_json::json!({"case": d.case, "action": d.action, "cause": cause}));
+            }
+            plans.push(plan_with(format!("d{:x}-{}-{n}", self.epoch, wait.round), d, None, &found));
+        }
         let stuck = plans.iter().any(|p| p.unanswerable.is_some());
         match judge.as_mut() {
             // What the level gives to the decider: judged in the order Loom printed the decisions, each
@@ -588,7 +599,7 @@ impl Wait<'_> {
         } else {
             // An answer is a library call that reads the bindings and may run a program of them.
             check_copy(self.pinned)?;
-            let applied = parse_answer(answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
+            let applied = parsed_answer(planned, answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
             (applied, gate.book(self.sink))
         };
         tail.sync_all().map_err(failure)?;
@@ -601,13 +612,13 @@ impl Wait<'_> {
         }
         match result {
             Ok(()) => {
-                if d.kind == DecisionKind::Close && !self.closed.contains(&d.case) && parse_answer(answer).is_ok_and(|p| !p.deny) {
+                if d.kind == DecisionKind::Close && !self.closed.contains(&d.case) && parsed_answer(planned, answer).is_ok_and(|p| !p.deny) {
                     self.closed.insert(d.case.clone());
                 }
             }
             Err(why) => {
                 self.replaced += 1;
-                let again = plan(format!("d{:x}-{}-{}r{}", self.epoch, self.round, request_id.rsplit('-').next().unwrap_or("0"), self.replaced), d, Some(&why));
+                let again = plan_with(format!("d{:x}-{}-{}r{}", self.epoch, self.round, request_id.rsplit('-').next().unwrap_or("0"), self.replaced), d, Some(&why), &planned.found);
                 let id = again.request.request_id.clone();
                 lock(&self.slot.state).open.insert(id.clone());
                 self.unanswered.insert(id.clone());
@@ -625,6 +636,13 @@ struct Waited<'a> {
     local: &'a AtomicBool,
     cancel: &'a AtomicBool,
     slot: &'a Slot,
+    asking: &'a Asking,
+}
+
+/// Where a request is read from: the run's workspace (the cases' `work/`) and the run's bindings directory.
+struct Asking {
+    workspace: PathBuf,
+    bindings: Option<PathBuf>,
 }
 
 /// How a wait ended.
@@ -653,6 +671,15 @@ fn stop_end(stopped: Option<Stopped>, cancelled: bool) -> Option<StopEnd> {
         Stopped::Spend(_) if cancelled => StopEnd::Cancelled,
         Stopped::Spend(detail) => StopEnd::Spend(detail),
     })
+}
+
+/// What `answer` is for the request it answers: a letter of its options for a request read from its case
+/// (`decision::parse_option`), else an answer as `decision::parse_answer` reads it.
+fn parsed_answer(planned: &Planned, answer: &str) -> Result<Parsed, String> {
+    match &planned.request.artifact {
+        Some(_) => parse_option(&planned.request, planned.decision.kind, answer),
+        None => parse_answer(answer),
+    }
 }
 
 /// The run's copy of the runbook is what it was at the submit, or the run ends with the refusal.
