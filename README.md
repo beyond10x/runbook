@@ -170,11 +170,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.11.0`; nothing is published to crates.io. The latest is 0.11.0 (2026-11-24).
+`0.12.0`; nothing is published to crates.io. The latest is 0.12.0 (2026-11-25).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.11.0 over 0.10.0 (nothing is unreleased): `runbook` links Loom 0.61.0, so a program step may run up to
+- New in 0.12.0 over 0.11.0 (nothing is unreleased): a bug fix hands back only with a spec reference, as a check
+  program says; the model programs of `runbook run` and of a daemon run with a `model` decider reach a model through
+  a `[gateway]` address and token instead of a login; the forge runs the driver tests, and the UI test step costs
+  less. One change is breaking: a bug-fix run ends `fixed` only when the check program says the description
+  references a spec (a runbook of another repository binds its own check after `--` of `handback-check`). No
+  evaluation run was made on this code ([docs/releases/0.12.0.md](docs/releases/0.12.0.md)).
+- New in 0.11.0 over 0.10.0: `runbook` links Loom 0.61.0, so a program step may run up to
   14400 s (`timeout_seconds`), `runbook check` names a `timeout_seconds` out of its executor's range, a bug-fix check
   runs in a git tree and a check whose command is not found is a program error of the step, and the cycles suite
   answers build and test commands from recordings. One change is breaking: a `*` row of a binding's result table no
