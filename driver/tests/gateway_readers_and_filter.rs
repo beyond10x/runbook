@@ -216,20 +216,23 @@ fn guard_a_token_that_is_a_prefix_of_the_replacement_text_cannot_make_the_filter
 
 // ---- A(3): a filter that dies midway ----
 
-fn dying_jq(case: &Case, victim: u32) {
-    let counter = case.base.join("log/rawfile-starts");
+/// A stand-in `jq` that kills the token filter whose output is the file `victim` (`events.jsonl` or `stderr.txt`)
+/// after that filter wrote the first line it read, and writes the name of the file to `log/died`. The adapter starts
+/// its two filters at the same time, so the stand-in picks its filter by the file the filter's standard output is,
+/// never by the order the two start in.
+fn dying_jq(case: &Case, victim: &str) {
     let jq = real("jq");
     case.program(
         "jq",
         &format!(
-            "#!/bin/sh\ncase \" $* \" in *\" --rawfile \"*)\n  if mkdir '{c}.lock' 2>/dev/null; then n=1; else n=2; fi\n  if [ \"$n\" = {victim} ]; then\n    IFS= read -r first\n    printf '%s\\n' \"$first\" | '{jq}' \"$@\"\n    kill -9 $$\n  fi ;;\nesac\nexec '{jq}' \"$@\"\n",
-            c = counter.display(),
+            "#!/bin/sh\ncase \" $* \" in *\" --rawfile \"*)\n  f=$(readlink /proc/$$/fd/1)\n  if [ \"${{f##*/}}\" = '{victim}' ]; then\n    printf '%s\\n' \"${{f##*/}}\" >> '{died}'\n    IFS= read -r first\n    printf '%s\\n' \"$first\" | '{jq}' \"$@\"\n    kill -9 $$\n  fi ;;\nesac\nexec '{jq}' \"$@\"\n",
+            died = case.base.join("log/died").display(),
             jq = jq.display()
         ),
     );
 }
 
-fn filter_death(victim: u32, tag: &str) {
+fn filter_death(victim: &str, tag: &str) {
     let case = Case::new(tag);
     dying_jq(&case, victim);
     case.program(
@@ -237,6 +240,8 @@ fn filter_death(victim: u32, tag: &str) {
         &format!("#!/bin/sh\nfor i in 1 2 3; do echo \"out $i $ANTHROPIC_AUTH_TOKEN\"; echo \"err $i $ANTHROPIC_AUTH_TOKEN\" >&2; done\necho '{RESULT}'\n"),
     );
     let o = case.adapter(TOKEN, true);
+    let died = fs::read_to_string(case.base.join("log/died")).unwrap_or_default();
+    assert_eq!(died, format!("{victim}\n"), "the filter killed is not the one the case names: {}", said(&o));
     assert_eq!(o.status.code(), Some(127), "{}", said(&o));
     let rec = case.base.join("work/rec");
     let mut left: Vec<String> = fs::read_dir(&rec).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
@@ -255,12 +260,12 @@ fn filter_death(victim: u32, tag: &str) {
 
 #[test]
 fn guard_the_events_filter_that_dies_after_writing_leaves_no_file() {
-    filter_death(1, "die-events");
+    filter_death("events.jsonl", "die-events");
 }
 
 #[test]
 fn guard_the_stderr_filter_that_dies_after_writing_leaves_no_file() {
-    filter_death(2, "die-stderr");
+    filter_death("stderr.txt", "die-stderr");
 }
 
 // ---- B: the environment of the call ----
