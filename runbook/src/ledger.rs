@@ -4,6 +4,8 @@
 //!
 //! Format `runbook.spend-ledger/1`:
 //! `{"format", "spent_micro_usd", "reserved": {"<id>": micro_usd}, "entries": [{"run", "what", "micro_usd"}]}`.
+//! The entry of a model call of a run on a route (`what` `model call`, [`Ledger::book_line`]) carries the relay's
+//! members besides: step, role, route, alias, gateway call id, tokens, `cost_known` (`crate::relay`).
 //! A call reserves its most before it starts and commits its real cost after; the reservations of
 //! all runs count against the cap, so two runs never both get the same remainder.
 
@@ -175,6 +177,19 @@ impl Ledger {
             if actual_micro_usd > 0 {
                 s.entries.push(json!({"run": run, "what": what, "micro_usd": actual_micro_usd}));
             }
+            Ok(())
+        })
+    }
+
+    /// Under the lock: adds `micro_usd` as spent by `run` with the entry `line` (its members, then `run` and
+    /// `micro_usd`), whatever the amount: one entry per model call of a run on a route (`crate::relay`).
+    pub fn book_line(&self, run: &str, line: &Value, micro_usd: u64) -> Result<(), String> {
+        self.with_state(|s| {
+            let mut entry = line.as_object().cloned().unwrap_or_default();
+            entry.insert("run".to_owned(), json!(run));
+            entry.insert("micro_usd".to_owned(), json!(micro_usd));
+            s.spent = s.spent.saturating_add(micro_usd);
+            s.entries.push(Value::Object(entry));
             Ok(())
         })
     }

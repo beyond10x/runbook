@@ -15,6 +15,10 @@
 //! One call directory is no call: the step ended before it started any adapter (no `request.json`,
 //! `status.json` with its exit). It costs nothing, books nothing and does not end the run; the
 //! run goes on with what Loom says of the step's exit.
+//!
+//! A run on a route ([`CostReader::routed`]) books every model call where it is relayed: the relay's
+//! line is the call's cost (`crate::relay`). Its cost lines are read for what they say and carry no
+//! cost: a `cost_usd` is not booked, and a line without one is no reason to end the run.
 
 use crate::record_write;
 use serde_json::Value;
@@ -49,6 +53,8 @@ pub struct CostReader {
     recorded_dirs: HashSet<String>,
     checked_dirs: HashSet<String>,
     home: Option<String>,
+    /// The run is on a route: the relay books its calls, so no line carries a cost here.
+    routed: bool,
 }
 
 /// USD as a JSON number to micro USD: finite, not negative.
@@ -102,6 +108,13 @@ impl CostReader {
         CostReader { home, ..CostReader::default() }
     }
 
+    /// This reader for a run on a route: a cost line is booked at 0 and needs no `cost_usd`, because the relay's
+    /// line of the call is its cost.
+    pub fn routed(mut self) -> CostReader {
+        self.routed = true;
+        self
+    }
+
     /// The call directory of a cost line: its name below `<workspace>/.sdc/llm/`.
     fn call_dir(dir: &Path, line: &Value) -> Option<std::path::PathBuf> {
         let name = line.get("record").and_then(Value::as_str).and_then(|p| p.rsplit('/').next())?;
@@ -145,7 +158,7 @@ impl CostReader {
                 // A dry call (`--dry`, adapter `dry`) calls no model: it has no cost and costs 0.
                 let dry = v.get("dry") == Some(&Value::Bool(true)) && v.get("cost_usd").is_none_or(Value::is_null);
                 let micro = match v.get("cost_usd") {
-                    _ if dry => Ok(0),
+                    _ if dry || self.routed => Ok(0),
                     Some(usd) => usd_to_micro(usd),
                     None => Err("a cost record has no cost_usd".to_owned()),
                 };

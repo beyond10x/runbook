@@ -48,6 +48,10 @@ pub trait Decider {
     /// address and the token are in the file, never in what this is given). The runner calls it once, before
     /// the first decision, when the settings name a gateway. A decider that starts no model does nothing.
     fn use_gateway(&self, _file: &Path) {}
+    /// Tells a decider that starts a model program where the run's route file is (a daemon run on a route,
+    /// `runbook::engine::route`: the relay's address and the run's own token; never the gateway's). The daemon's
+    /// arbiter calls it once, before the first decision. A decider that starts no model does nothing.
+    fn use_route_file(&self, _file: &Path) {}
     /// The most one call can cost, micro USD (0 for a rule). The ledger reserves it before the call.
     fn max_call_micro_usd(&self) -> u64;
     /// Whether this decider can start a model program or reserve an amount for one. A run whose

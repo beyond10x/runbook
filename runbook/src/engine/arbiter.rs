@@ -25,6 +25,9 @@ pub struct Opening<'a> {
     pub terms: &'a Terms,
     /// The run has a store already: its bindings copy was made when it started and is read, not made again.
     pub resume: bool,
+    /// The run's route file when the run is on a route (`engine::route`): the decider's model program gets its path
+    /// and nothing else of the route.
+    pub route_file: Option<&'a Path>,
 }
 
 /// What opening a run's arbiter gives.
@@ -66,4 +69,10 @@ pub trait Arbiter: std::fmt::Debug + Send + Sync + 'static {
 pub trait RunArbiter: Send {
     /// `decision` is the entry of `decisions[]` as Loom printed it.
     fn judge(&mut self, decision: &Value) -> Judgement;
+
+    /// What one call of the decider may cost, micro USD (its `max_budget_usd`; `u64::MAX` when it names none): what a
+    /// call of the decider through the relay books when its cost is not known.
+    fn max_call_micro_usd(&self) -> u64 {
+        u64::MAX
+    }
 }

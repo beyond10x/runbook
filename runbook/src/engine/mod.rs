@@ -13,6 +13,7 @@ pub mod layout;
 pub mod pin;
 pub mod products;
 pub mod refusal;
+pub mod route;
 pub mod shape;
 mod tail;
 
@@ -43,6 +44,8 @@ pub const STORE_DIR: &str = "tree";
 pub const PINNED_EVENT: &str = "runbook.pinned";
 
 const POLL: Duration = Duration::from_millis(20);
+/// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
+const ROUTE_DRAIN: Duration = Duration::from_secs(5);
 
 /// What a run's store on disk is, as a restarted daemon finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +115,8 @@ pub struct Engine {
     arbiter: Option<Arc<dyn Arbiter>>,
     /// What the wall caps of its runs are held against: the host's clock unless a test gave another.
     wall: WallClock,
+    /// The daemon's relay and the route table of the runs whose decider kind is `model`; none: no run is on a route.
+    routes: Option<(Arc<crate::relay::Relay>, crate::relay::RouteTable)>,
 }
 
 struct Registered<'a> {
@@ -146,13 +151,21 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default() }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None }
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
     /// (`arbiter.rs`). Without one, a run that asks for a kind is refused when it starts.
     pub fn with_arbiter(mut self, arbiter: Arc<dyn Arbiter>) -> Engine {
         self.arbiter = Some(arbiter);
+        self
+    }
+
+    /// The daemon's relay and the route table it hands every run whose decider kind is `model` (with a level above
+    /// `A0`): such a run's model processes reach their model through `relay` and the run's route file
+    /// (`engine::route`), and its model calls are taken and booked there.
+    pub fn with_routes(mut self, relay: Arc<crate::relay::Relay>, table: crate::relay::RouteTable) -> Engine {
+        self.routes = Some((relay, table));
         self
     }
 
@@ -216,7 +229,7 @@ impl Engine {
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
         let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
         let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
-        let runner = calls::runner(request.confinement).map_err(failure)?;
+        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
@@ -234,15 +247,31 @@ impl Engine {
         // anywhere is refused here.
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
+        let terms = &request.terms;
+        // A run whose decider is a model is on the daemon's route: the run's place on the relay and its route file,
+        // whose path every bound program and the decider get (`engine::route`). It goes when the run ends.
+        let model_run = terms.decider.as_deref() == Some("model") && terms.autonomy.is_some_and(|l| l != Autonomy::A0);
+        let route = match &self.routes {
+            Some((relay, table)) if model_run => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
+            _ => None,
+        };
+        if let Some(r) = &route {
+            runner = route::RouteEnv::wrap(runner, r.file());
+        }
         // Every program the runner starts is told to the sink before it starts: the daemon records the step in
         // flight. The actions are read from the bindings the run reads, those of its own copy.
         let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
-            (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
+            (Some(target), Some(dir)) => {
+                let target = match &route {
+                    Some(r) => route::StepNote::wrap(target, r.step.clone()),
+                    None => target,
+                };
+                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()))
+            }
             _ => runner,
         };
         // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
         // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
-        let terms = &request.terms;
         let mut judge: Option<Box<dyn RunArbiter>> = None;
         let mut tree_bindings = resolved.bindings.clone();
         if let (Some(level), Some(kind)) = (terms.autonomy, terms.decider.as_deref()) {
@@ -252,7 +281,7 @@ impl Engine {
                     return Err(failure(format!("the decider kind {kind} is not configured in this engine")));
                 }
                 let opened = arbiter
-                    .open(&ArbiterOpening { run_dir: &request.state_dir, workspace: &workspace, bindings: &resolved.bindings, terms, resume })
+                    .open(&ArbiterOpening { run_dir: &request.state_dir, workspace: &workspace, bindings: &resolved.bindings, terms, resume, route_file: route.as_ref().map(route::RunRoute::file) })
                     .map_err(failure)?;
                 tree_bindings = opened.bindings;
                 judge = Some(opened.judge);
@@ -307,6 +336,13 @@ impl Engine {
         let meter = Arc::new(Meter::on(before, self.wall.clone()));
         *lock(&slot.meter) = Some(meter.clone());
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
+        if let Some(r) = &route {
+            let booking = gate.route(r.step.clone());
+            if let Some(j) = &judge {
+                booking.set_max_call(j.max_call_micro_usd());
+            }
+            r.ticket.take_calls(booking);
+        }
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.
@@ -332,6 +368,10 @@ impl Engine {
             done.store(true, Ordering::SeqCst);
             result
         });
+        // The run's token is void and its route file gone before the last calls are recorded; a call still in flight
+        // is waited for a while, and one that outlasts that is said in the run's record.
+        drop(route);
+        gate.close_route(sink, ROUTE_DRAIN);
         gate.persist();
         result
     }
@@ -541,6 +581,8 @@ impl Engine {
                 }
             }
         }
+        // The calls of a judge that left a request open are in the run's record before the run waits.
+        gate.record_calls(sink);
         while !wait.unanswered.is_empty() {
             let Some(answered) = next_answer(slot, cancel) else { return Ok(RoundEnd::Halted) };
             lock(&slot.state).open.remove(&answered.request_id);
