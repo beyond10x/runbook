@@ -76,10 +76,14 @@ Notes for a caller:
   leave, so a client does not meet it).
 - A request read from its case (it has the member `artifact`, below) takes the letter of one of its
   options, alone or followed by a colon and text (`B: too short`: the text goes with the option as its
-  reasons), or any text where `artifact.free_answer` is true. Any other answer is refused
+  reasons), or any text where `artifact.free_answer` is true. The option `free` (a declared result) takes
+  text: it is answered `free: <text>`, and its letter alone or with nothing after the colon names no
+  option. Any other answer is refused
   `UnknownOption` (status 422, outcome `unknown-option`, payload `request_id`) after the request's and
   the run's state are judged and before anything is committed or handed to the runtime; the request
-  stays Open. A request without `artifact` takes any answer, as before. The specification states the
+  stays Open. The run's own decider is held to the same rule: its answer that names no option is not
+  saved, and the request stays Open for a person. A request without `artifact` takes any answer, as
+  before. The specification states the
   check as the input `answer_offered`, which the handler fills (`ess/domains/daemon.yaml`,
   `AnswerDecision`); a client never sends it.
 - An answer carries two names. `answered_by` is the label the client typed. `principal` is the daemon's

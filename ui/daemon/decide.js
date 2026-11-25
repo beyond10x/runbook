@@ -94,7 +94,21 @@ function build(el) {
     const b = e.target.closest('button[data-answer], button[data-send]');
     if (!b) return;
     const art = b.closest('.dcard');
-    const text = b.dataset.send ? art.querySelector('input.tin').value.trim() : b.dataset.answer;
+    const input = art.querySelector('input.tin');
+    // The option `free` takes text (`free: <text>`): its button sends the text of the field with it, or puts
+    // `free: ` in the empty field to be completed; the daemon refuses the letter alone.
+    if (b.dataset.answer === 'free') {
+      const typed = input.value.trim().replace(/^free:\s*/, '');
+      if (!typed) {
+        input.value = 'free: ';
+        D.other[art.dataset.request] = input.value;
+        input.focus();
+        return;
+      }
+      answer(art.dataset.run, art.dataset.request, `free: ${typed}`);
+      return;
+    }
+    const text = b.dataset.send ? input.value.trim() : b.dataset.answer;
     answer(art.dataset.run, art.dataset.request, text);
   });
   el.addEventListener('input', (e) => { if (e.target.dataset?.request) D.other[e.target.dataset.request] = e.target.value; });

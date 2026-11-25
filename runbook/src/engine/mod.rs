@@ -519,6 +519,11 @@ impl Engine {
                     wait.raise(planned.clone());
                     let Some(printed) = printed.and_then(|p| p.get(n)) else { continue };
                     let Judgement::Answer { answer, by, principal } = judge.judge(printed) else { continue };
+                    // A request read from its case takes only an answer that names one of its options (or a free
+                    // answer where it takes one); any other judgement is not saved and leaves it open for a person.
+                    if planned.request.artifact.as_ref().is_some_and(|a| !a.takes(&planned.request.options, &answer)) {
+                        continue;
+                    }
                     if !sink.decision_answered(&id, &answer, &by, &principal) {
                         continue;
                     }

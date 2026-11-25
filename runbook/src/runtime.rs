@@ -159,16 +159,24 @@ pub struct DecisionRequest {
 
 /// The option of `options` that `answer` names, and the text after it: its letter alone, or its letter,
 /// a colon and text (`B: too short`; the text trimmed, none when empty). None when it names no option.
+/// The option [`FREE`] takes text: its letter alone, or with nothing after the colon, names no option.
 pub fn named_option<'a>(options: &'a [Value], answer: &'a str) -> Option<(&'a Value, Option<&'a str>)> {
     options.iter().find_map(|o| {
         let letter = o.get("letter")?.as_str().filter(|l| !l.is_empty())?;
         if answer == letter {
-            return Some((o, None));
+            return (letter != FREE).then_some((o, None));
         }
         let text = answer.strip_prefix(letter)?.strip_prefix(':')?.trim();
-        Some((o, (!text.is_empty()).then_some(text)))
+        match (letter == FREE, text.is_empty()) {
+            (true, true) => None,
+            (_, empty) => Some((o, (!empty).then_some(text))),
+        }
     })
 }
+
+/// The letter of the option that takes text (`free: <text>`): a declared result `free` of an action is
+/// offered as this option.
+pub const FREE: &str = "free";
 
 impl RequestArtifact {
     /// Whether a request with this artifact and `options` takes `answer`: it names an option, or the

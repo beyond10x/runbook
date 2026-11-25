@@ -162,14 +162,19 @@ Before a request opens the engine reads the decision's case (`runbook/src/engine
 - **The artifact.** `decision-request.json`, a decision request in the contract's shape
   (`sdc.decision.DecisionRequest`), written by the case's bound program into the case's `work/` (the run's
   workspace), in the directory of the decision's `path` (its subject's file). A decision whose `path` is
-  absent or outside the workspace reads none. The file is read without following a link, at most 1 MiB,
-  and is the request of the decision whose action its `unblocks.action` names (for a close, whose outcome
+  absent or outside the workspace reads none. The file is read without following a link, at most 1 MiB;
+  each directory from the workspace down to it is opened without following a link, and a directory
+  reached through one reads no artifact. It is the request of the decision whose action its `unblocks.action` names (for a close, whose outcome
   `unblocks.outcome` names); any other decision does not take it. No file: the request is the one of
   before, byte for byte.
-- **The check.** The artifact has a question and options, each with a letter of its own, `does`, `cost`
-  and `consequence`; its `subject_revision` is the decision's `revision` (Loom's revision of the subject:
+- **The check.** The artifact has a question and at least two options (the contract's `too-few-options`;
+  an artifact of none is taken for its question alone where the declared results below give the
+  options), each with a letter of its own, `does`, `cost` and `consequence`; an option of an action's
+  approval whose `consequence.blocks` names the action has a `consequence.answer` (taken without one it
+  would perform the action it blocks); its `subject_revision` is the decision's `revision` (Loom's revision of the subject:
   `t` and the first 16 hex digits of the SHA-256 of its bytes); a `recommended_option` is one of the
-  letters; every `path_line` citation of its `grounds` names a file below the workspace, lines inside it,
+  letters; every `path_line` citation of its `grounds` names a file below the workspace (each component
+  opened without following a link, so a citation below a link resolves nowhere), lines inside it,
   and, where it names a digest, the lines still have it (the digest `tools/decision-grounds.sh` writes).
   The other citation forms are not checked here; `tools/decision-grounds.sh` stays the full check of the
   producer. An artifact that fails ends the run (`runtime-failure`) by the cause
@@ -180,10 +185,13 @@ Before a request opens the engine reads the decision's case (`runbook/src/engine
   "<member>"}}`. For a person action it names, the request's `question` is the text of that top-level
   member of the subject (read as JSON or YAML), and, where no artifact gives options, its `options` are
   the results the action declares (`shape::declared_results`), each `{letter: <result>, does, cost: "",
-  consequence: {admits: [], blocks: [], answer: <result>}}`; the option `free` says that it takes text.
-  A subject that cannot be read, has no such member or an empty one leaves the generated question, the
-  request opens, and the run event `runbook.question-field-unread` (record `case`, `action`, `cause`)
-  says why. An artifact with options wins, and the declared results are never added to it.
+  consequence: {admits: [], blocks: [], answer: <result>}}`; the option `free` takes text and is answered
+  `free: <text>` (its letter alone, or with nothing after the colon, names no option). A subject that
+  cannot be read below the workspace, has no such member or an empty one leaves the generated question,
+  the request opens, and the run event `runbook.question-field-unread` (record `case`, `action`, `cause`)
+  says why. A member name in the file that is empty or not a text, and an action that declares no result
+  (or whose declared results cannot be read), are recorded the same way, and the request is the one of
+  before, byte for byte. An artifact with options wins, and the declared results are never added to it.
 - **What an answer is.** The request carries `artifact` (`docs/daemon-api.md`, "A request read from its
   case"), and an answer names an option by its letter, alone or followed by a colon and text that goes
   with it as the reasons. The letter's effect is the option's (`parse_option`):
@@ -199,7 +207,8 @@ Before a request opens the engine reads the decision's case (`runbook/src/engine
   reasons of an approval. The daemon refuses anything else before it is committed. A request that Loom
   refuses an answer of is asked again with the options and members of the first, not read again; an open
   request keeps what it opened with when the file changes. A rule or decider of the run answers through
-  the same reading, so its `approve` to a request read from its case is asked again of a person.
+  the same reading: its answer that names no option of a request read from its case (`approve`,
+  `performed`) is not saved, and the request stays open for a person.
 
 ## Confinement
 

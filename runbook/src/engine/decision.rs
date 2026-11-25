@@ -73,41 +73,56 @@ pub struct Contract {
 pub fn read_case(decision: &NextDecision, workspace: &Path, bindings: Option<&Path>) -> Result<Found, String> {
     let subject = subject_of(decision, workspace);
     let mut found = Found::default();
-    if let Some(dir) = subject.as_deref().and_then(Path::parent) {
-        let file = dir.join(ARTIFACT_FILE);
-        let shown = relative(&file, workspace);
+    let mut options_read: Option<usize> = None;
+    if let Some(dir) = subject.as_deref().map(|s| s.parent().unwrap_or(Path::new(""))) {
+        let shown = dir.join(ARTIFACT_FILE).display().to_string();
         let refused = |why: String| format!("{REFUSED}: {shown}: {why}");
-        if std::fs::symlink_metadata(&file).is_ok() {
-            let bytes = crate::record_write::read_regular_within(&file, READ_MAX).map_err(|_| refused("not a regular file of one name of at most 1 MiB".into()))?;
-            let doc: Value = serde_json::from_slice(&bytes).map_err(|e| refused(format!("not JSON: {e}")))?;
-            if meant_for(&doc, decision) {
-                found.contract = Some(contract(&doc, decision, workspace).map_err(refused)?);
+        // The subject's directory is opened below the workspace without following a link: a directory reached through
+        // one is not the workspace's, and no artifact is read from it.
+        if let Ok(held) = crate::record_write::Held::open_beneath(workspace, dir) {
+            if held.holds(ARTIFACT_FILE) {
+                let bytes = held.read_within(ARTIFACT_FILE, READ_MAX).map_err(|_| refused("not a regular file of one name of at most 1 MiB".into()))?;
+                let doc: Value = serde_json::from_slice(&bytes).map_err(|e| refused(format!("not JSON: {e}")))?;
+                if meant_for(&doc, decision) {
+                    let c = contract(&doc, decision, workspace).map_err(refused)?;
+                    options_read = Some(c.options.len());
+                    found.contract = Some(c);
+                }
             }
         }
     }
     let action = decision.action.as_deref().filter(|_| decision.kind == DecisionKind::ApproveAction);
     if let (Some(action), Some(bindings)) = (action, bindings) {
-        if let Some(member) = question_member(bindings, action)? {
-            found.declared = Some(super::shape::declared_results(bindings, action).map_err(|e| format!("{REFUSED}: the declared results of {action}: {e}"))?.unwrap_or_default());
-            match subject_text(subject.as_deref(), workspace, &member) {
-                Ok(text) => found.question = Some(text),
-                Err(why) => found.unread = Some(why),
-            }
+        match question_member(bindings, action)? {
+            None => {}
+            Some(Err(why)) => found.unread = Some(why),
+            Some(Ok(member)) => match super::shape::declared_results(bindings, action) {
+                Ok(Some(results)) if !results.is_empty() => {
+                    found.declared = Some(results);
+                    match subject_text(subject.as_deref(), workspace, &member) {
+                        Ok(text) => found.question = Some(text),
+                        Err(why) => found.unread = Some(why),
+                    }
+                }
+                Ok(_) => found.unread = Some(format!("the action {action} declares no result to offer as an option; the request of before is asked")),
+                Err(e) => found.unread = Some(format!("the declared results of {action} cannot be read ({e}); the request of before is asked")),
+            },
         }
+    }
+    // The contract opens no request of fewer than two options (`sdc.decision.TooFewOptions`); an artifact of none is
+    // taken only for its question, where the declared results give the options.
+    if let Some(n) = options_read.filter(|n| *n < 2 && !(*n == 0 && found.declared.is_some())) {
+        let shown = subject.as_deref().map(|s| s.parent().unwrap_or(Path::new("")).join(ARTIFACT_FILE).display().to_string()).unwrap_or_default();
+        return Err(format!("{REFUSED}: {shown}: it offers {n} option{}, and a request offers at least two (too-few-options)", if n == 1 { "" } else { "s" }));
     }
     Ok(found)
 }
 
-/// The decision's subject file, where it lies inside `workspace`.
+/// The decision's subject file, relative to `workspace`, where it lies inside it.
 fn subject_of(decision: &NextDecision, workspace: &Path) -> Option<std::path::PathBuf> {
     let path = Path::new(decision.path.as_deref()?);
-    let path = if path.is_absolute() { path.to_path_buf() } else { workspace.join(path) };
-    let inside = path.strip_prefix(workspace).ok()?;
-    inside.components().all(|c| matches!(c, std::path::Component::Normal(_))).then_some(path)
-}
-
-fn relative(path: &Path, workspace: &Path) -> String {
-    path.strip_prefix(workspace).unwrap_or(path).display().to_string()
+    let inside = if path.is_absolute() { path.strip_prefix(workspace).ok()? } else { path };
+    (inside.components().count() > 0 && inside.components().all(|c| matches!(c, std::path::Component::Normal(_)))).then(|| inside.to_path_buf())
 }
 
 /// Whether the artifact `doc` is the request of `decision`: its `unblocks.action` is the decision's
@@ -133,6 +148,14 @@ fn contract(doc: &Value, decision: &NextDecision, workspace: &Path) -> Result<Co
         }
         if !(o["does"].is_string() && o["cost"].is_string() && o["consequence"].is_object()) {
             return Err(format!("option {letter} lacks does, cost or consequence"));
+        }
+        // An option of an action's approval is taken with its `consequence.answer` as the result, else as `performed`:
+        // one that blocks the action names the result it records, or the action would be performed by it.
+        if let (DecisionKind::ApproveAction, Some(action)) = (decision.kind, decision.action.as_deref()) {
+            let blocks = o["consequence"]["blocks"].as_array().is_some_and(|b| b.iter().any(|x| x.as_str() == Some(action)));
+            if blocks && !o["consequence"]["answer"].as_str().is_some_and(|a| !a.trim().is_empty()) {
+                return Err(format!("option {letter} blocks {action} and names no answer, so taking it would perform {action}"));
+            }
         }
         letters.push(letter);
     }
@@ -182,7 +205,9 @@ fn path_line(v: &Value, workspace: &Path) -> Result<(), String> {
     }
     let line = v["line"].as_i64().ok_or(format!("the citation of {path} has no line"))?;
     let end = v["line_end"].as_i64().unwrap_or(line);
-    let bytes = crate::record_write::read_regular_within(&workspace.join(rel), READ_MAX).map_err(|_| format!("no file {path}"))?;
+    // Every component is opened below the workspace without following a link: a citation below a link the program
+    // left resolves nowhere, whatever the link names.
+    let bytes = crate::record_write::read_regular_beneath(workspace, rel, READ_MAX).map_err(|_| format!("no file {path} below the workspace (a missing name, a link or not a regular file of one name)"))?;
     let lines: Vec<&[u8]> = bytes.split_inclusive(|b| *b == b'\n').collect();
     let n = bytes.iter().filter(|b| **b == b'\n').count() as i64;
     if !(line >= 1 && end >= line && end <= n) {
@@ -198,8 +223,9 @@ fn path_line(v: &Value, workspace: &Path) -> Result<(), String> {
 }
 
 /// The member of the subject that [`QUESTIONS_FILE`] in `bindings` names as the question of `action`;
-/// none when the file is absent or names no member for it.
-fn question_member(bindings: &Path, action: &str) -> Result<Option<String>, String> {
+/// none when the file is absent or names no member for it, and why no member can be read where it names
+/// one that is not a text or an empty text (recorded like a member the subject lacks).
+fn question_member(bindings: &Path, action: &str) -> Result<Option<Result<String, String>>, String> {
     let refused = |why: String| format!("{REFUSED}: bindings/{QUESTIONS_FILE}: {why}");
     let held = crate::record_write::Held::open(bindings).map_err(|_| refused("the bindings directory cannot be read".into()))?;
     if !held.exists(QUESTIONS_FILE) {
@@ -212,16 +238,16 @@ fn question_member(bindings: &Path, action: &str) -> Result<Option<String>, Stri
     }
     match &doc["actions"][action] {
         Value::Null => Ok(None),
-        Value::String(m) if !m.is_empty() => Ok(Some(m.clone())),
-        _ => Err(refused(format!("the member it names for {action} is not a text"))),
+        Value::String(m) if !m.trim().is_empty() => Ok(Some(Ok(m.clone()))),
+        _ => Ok(Some(Err(format!("bindings/{QUESTIONS_FILE} names for {action} a member that is not a text of a name")))),
     }
 }
 
 /// The text of the top-level `member` of the subject (JSON or YAML), or why there is none.
 fn subject_text(subject: Option<&Path>, workspace: &Path, member: &str) -> Result<String, String> {
     let subject = subject.ok_or(format!("the decision names no subject file inside the workspace to read the member {member} of"))?;
-    let shown = relative(subject, workspace);
-    let bytes = crate::record_write::read_regular_within(subject, READ_MAX).map_err(|_| format!("the subject {shown} cannot be read"))?;
+    let shown = subject.display();
+    let bytes = crate::record_write::read_regular_beneath(workspace, subject, READ_MAX).map_err(|_| format!("the subject {shown} cannot be read below the workspace"))?;
     let doc: serde_yaml::Value = serde_yaml::from_slice(&bytes).map_err(|_| format!("the subject {shown} is not a JSON or YAML document"))?;
     let text = doc.get(member).and_then(serde_yaml::Value::as_str).ok_or(format!("the subject {shown} has no member {member} that is text"))?;
     if text.trim().is_empty() {
@@ -668,5 +694,75 @@ mod tests {
         // Bindings that name no member for the action read nothing of the subject.
         let other = format!(r#"{{"format": "{QUESTIONS_FORMAT}", "actions": {{"b": "question"}}}}"#);
         assert_eq!(read_case(&on(&w, "ask.yaml"), &w, Some(&bindings("unread-b2", Some(&other)))).unwrap(), Found::default());
+        // A member name that is empty or not a text is recorded the same way, and the run goes on.
+        for (tag, member) in [("unread-b3", "\"\""), ("unread-b4", "3"), ("unread-b5", "\"  \"")] {
+            let q = format!(r#"{{"format": "{QUESTIONS_FORMAT}", "actions": {{"a": {member}}}}}"#);
+            let found = read_case(&on(&w, "ask.yaml"), &w, Some(&bindings(tag, Some(&q)))).unwrap();
+            assert!(found.unread.as_deref().is_some_and(|u| u.contains("not a text of a name")) && found.declared.is_none(), "{member}: {found:?}");
+            assert!(plan_with("r".into(), &on(&w, "ask.yaml"), None, &found).request.artifact.is_none(), "{member}: the request of before");
+        }
+    }
+
+    /// Adversary pass on f26206e3: no request is opened that no answer can take, no citation resolves through a
+    /// link, an option never performs an action it blocks, and `free` takes text only.
+    #[test]
+    fn no_request_opens_that_no_answer_can_take_and_no_option_performs_what_it_blocks() {
+        // Fewer than two options: refused by the contract's cause; none is taken for the question alone where the
+        // declared results give the options.
+        for (tag, n) in [("few-0", 0), ("few-1", 1)] {
+            let mut a = contract("r1");
+            let cut = a["options"].as_array().unwrap()[..n].to_vec();
+            a["options"] = json!(cut);
+            a.as_object_mut().unwrap().remove("recommended_option");
+            let w = workspace(tag, &a);
+            let e = read_case(&on(&w, "draft.txt"), &w, None).unwrap_err();
+            assert!(e.starts_with(REFUSED) && e.contains("too-few-options"), "{tag}: {e}");
+        }
+        let mut a = contract("r1");
+        a["options"] = json!([]);
+        a.as_object_mut().unwrap().remove("recommended_option");
+        let w = workspace("few-declared", &a);
+        std::fs::write(w.join("draft.txt"), "question: Which tea goes in?\n").unwrap();
+        let mut d = on(&w, "draft.txt");
+        d.revision = Some("r1".into());
+        let named = format!(r#"{{"format": "{QUESTIONS_FORMAT}", "actions": {{"a": "question"}}}}"#);
+        let found = read_case(&d, &w, Some(&bindings("few-declared-b", Some(&named)))).unwrap();
+        assert_eq!(plan_with("r".into(), &d, None, &found).request.options.len(), 3, "the declared results give the options");
+        // An action that declares no result: the request of before, and the cause recorded.
+        let b = dir("no-result-b");
+        std::fs::write(b.join("a.yaml"), "actions:\n  - action: a\n    executor: {kind: person, principal: x}\n").unwrap();
+        std::fs::write(b.join(QUESTIONS_FILE), &named).unwrap();
+        let w = dir("no-result-w");
+        std::fs::write(w.join("ask.yaml"), "question: Which tea goes in?\n").unwrap();
+        let found = read_case(&on(&w, "ask.yaml"), &w, Some(&b)).unwrap();
+        assert!(found.declared.is_none() && found.unread.as_deref().is_some_and(|u| u.contains("declares no result")), "{found:?}");
+        assert!(plan_with("r".into(), &on(&w, "ask.yaml"), None, &found).request.artifact.is_none());
+        // A citation below a directory link resolves nowhere, whatever the link names.
+        let outside = dir("link-outside");
+        std::fs::write(outside.join("secret.txt"), "secret\n").unwrap();
+        let mut a = contract("r1");
+        a["grounds"][0]["citation"]["value"] = json!({"path": "out/secret.txt", "line": 1});
+        let w = workspace("dir-link", &a);
+        std::os::unix::fs::symlink(&outside, w.join("out")).unwrap();
+        let e = read_case(&on(&w, "draft.txt"), &w, None).unwrap_err();
+        assert!(e.starts_with(REFUSED) && e.contains("no file out/secret.txt below the workspace"), "{e}");
+        // A subject reached through a directory link reads no artifact from there.
+        let elsewhere = dir("link-subject");
+        std::fs::write(elsewhere.join("draft.txt"), "draft\n").unwrap();
+        std::fs::write(elsewhere.join(ARTIFACT_FILE), contract("r1").to_string()).unwrap();
+        let w = dir("link-subject-w");
+        std::os::unix::fs::symlink(&elsewhere, w.join("in")).unwrap();
+        assert_eq!(read_case(&on(&w, "in/draft.txt"), &w, None).unwrap(), Found::default());
+        // An option of an action's approval that blocks the action and names no answer would perform it.
+        let mut a = contract("r1");
+        a["options"][1]["consequence"] = json!({"admits": [], "blocks": ["a"]});
+        let w = workspace("blocks", &a);
+        let e = read_case(&on(&w, "draft.txt"), &w, None).unwrap_err();
+        assert!(e.starts_with(REFUSED) && e.contains("option B blocks a and names no answer"), "{e}");
+        // `free` takes text: its letter alone, or with nothing after the colon, names no option.
+        let opts = declared_options(&["A".into(), "free".into()]);
+        assert!(crate::runtime::named_option(&opts, "free").is_none() && crate::runtime::named_option(&opts, "free:  ").is_none());
+        assert_eq!(crate::runtime::named_option(&opts, "free: green tea").map(|(o, t)| (o["letter"].clone(), t)), Some((json!("free"), Some("green tea"))));
+        assert!(crate::runtime::named_option(&opts, "A").is_some());
     }
 }

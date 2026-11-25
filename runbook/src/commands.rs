@@ -1335,7 +1335,9 @@ impl EventSink for RunSink {
         }
         let mut st = self.daemon.st();
         match st.decision(request_id) {
-            Some(d) if d.run_id == self.run_id && d.state == DecisionState::Open => {}
+            // An answer that names no option of a request read from its case is not taken from a decider either:
+            // the request stays open for a person.
+            Some(d) if d.run_id == self.run_id && d.state == DecisionState::Open && d.artifact.as_ref().is_none_or(|a| a.takes(&d.options, answer)) => {}
             _ => return false,
         }
         let now = st.now();
