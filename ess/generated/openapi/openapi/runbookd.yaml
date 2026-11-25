@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:e7880958abb5f7ff250d3603eaa1db70d68d4d66c3d8e4254568df6ecca8e1f9
+# contract digest slice-sha256/2:1049970461efff443d6a157eb9cdbfd81716206f762f5c4d7d9fb8f94e105186
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:e7880958abb5f7ff250d3603eaa1db70d68d4d66c3d8e4254568df6ecca8e1f9
+    contract_digest: slice-sha256/2:1049970461efff443d6a157eb9cdbfd81716206f762f5c4d7d9fb8f94e105186
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -244,6 +244,106 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.CloseSession.wrong-state.Response'
+        '501':
+          description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
+          content:
+            application/json:
+              schema:
+                additionalProperties: false
+                properties:
+                  committed:
+                    description: '`true` when the command''s effect and events were committed and delivering what it published failed; `false` when an unmet obligation stopped the command before anything was written.'
+                    type: boolean
+                  refused:
+                    description: What was left unfinished, in words.
+                    type: string
+                required:
+                - refused
+                - committed
+                type: object
+  /daemon/commands/delegate:
+    post:
+      operationId: sdc.daemon.Delegate
+      summary: Delegate agent work
+      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); without, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway whether it is ready (`GET /ready`, a few seconds at most); a gateway that does not answer 200 refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is.'
+      tags:
+      - daemon
+      x-ess-may-invoke:
+      - sdc.daemon.Client
+      requestBody:
+        description: The input `sdc.daemon.Delegate` declares.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/sdc.daemon.Delegate.Input'
+      responses:
+        '202':
+          description: 'Outcomes `already-submitted` and `delegated`: the branch the specification declares for this input. Events this branch emits are listed under `published`: `SubmitReplayed`, `RunSubmitted` and `RunDelegated` are not published and stay inside the component.'
+          content:
+            application/json:
+              schema:
+                discriminator:
+                  mapping:
+                    already-submitted: '#/components/schemas/sdc.daemon.Delegate.already-submitted.Response'
+                    delegated: '#/components/schemas/sdc.daemon.Delegate.delegated.Response'
+                  propertyName: outcome
+                oneOf:
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.already-submitted.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.delegated.Response'
+        '403':
+          description: 'No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.'
+          content:
+            application/json:
+              schema:
+                additionalProperties: false
+                properties:
+                  actor:
+                    description: The qualified name of the actor the request was authenticated as, or null where it was authenticated as none.
+                    type:
+                    - string
+                    - 'null'
+                  refused:
+                    description: The standard refusal for an actor no grant admits.
+                    enum:
+                    - not granted
+                    type: string
+                required:
+                - refused
+                - actor
+                type: object
+        '409':
+          description: 'Outcomes `no-daemon`, `no-session` and `session-closed`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          content:
+            application/json:
+              schema:
+                discriminator:
+                  mapping:
+                    no-daemon: '#/components/schemas/sdc.daemon.Delegate.no-daemon.Response'
+                    no-session: '#/components/schemas/sdc.daemon.Delegate.no-session.Response'
+                    session-closed: '#/components/schemas/sdc.daemon.Delegate.session-closed.Response'
+                  propertyName: outcome
+                oneOf:
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.no-daemon.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.no-session.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.session-closed.Response'
+        '422':
+          description: 'Outcomes `intake-too-large`, `route-refused`, `no-runbook` and `context-outside-roots`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'
+          content:
+            application/json:
+              schema:
+                discriminator:
+                  mapping:
+                    context-outside-roots: '#/components/schemas/sdc.daemon.Delegate.context-outside-roots.Response'
+                    intake-too-large: '#/components/schemas/sdc.daemon.Delegate.intake-too-large.Response'
+                    no-runbook: '#/components/schemas/sdc.daemon.Delegate.no-runbook.Response'
+                    route-refused: '#/components/schemas/sdc.daemon.Delegate.route-refused.Response'
+                  propertyName: outcome
+                oneOf:
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.intake-too-large.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.route-refused.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.no-runbook.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.context-outside-roots.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -507,6 +607,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.DecisionsOfRun.Response'
+  /daemon/views/delegation-result:
+    get:
+      operationId: sdc.daemon.DelegationResult
+      summary: The result of a delegation
+      description: 'What a delegation''s run has come to, in one row: GET /daemon/views/delegation-result?run_id=... (the MCP tool delegation_result; the tool delegate answers the same row when the run ends within its wait). The run''s state, and once it Ended its outcome, the text of its result.md (at most 1048576 bytes; the MCP tools hold the text to 40000 characters), its products, its route, path and protocol, the classifier''s confidence (null for named and free), and the calls, tokens and cost the relay booked. A view has no outcome in the language, so the refusal is the daemon''s {refused, message} answer: 404 `no such run` for a run id the daemon does not know, and 404 `not a delegation` for a run that no Delegate created.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      parameters:
+      - name: run_id
+        in: query
+        description: Read by the view's filter as `param.run_id`; it selects which rows the view holds.
+        required: true
+        schema:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.DelegationResult`, a projection of `sdc.daemon.Delegation`. Contains the instances where `run_id == param.run_id` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.DelegationResult.Response'
   /daemon/views/events:
     get:
       operationId: sdc.daemon.EventsAfter
@@ -1500,6 +1622,378 @@ components:
       - options
       - opened_at
       additionalProperties: false
+    sdc.daemon.Delegate.Input:
+      title: Delegate agent work input
+      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); without, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway whether it is ready (`GET /ready`, a few seconds at most); a gateway that does not answer 200 refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is.'
+      x-ess-name: sdc.daemon.Delegate
+      x-ess-kind: command-input
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        request:
+          description: 'The work asked for, as text: the run''s intake, at most 1 MiB.'
+          type: string
+        model_route:
+          description: 'The route the run''s model calls take, by the name the daemon declares it under; absent: the daemon''s default route, and a daemon with none refuses the delegation as route-refused. Never an address, a token or an alias.'
+          type: string
+        protocol:
+          $ref: '#/components/schemas/sdc.daemon.RunbookId'
+          description: 'The runbook to run with the request as its intake; absent: the free run.'
+        workspace:
+          $ref: '#/components/schemas/sdc.daemon.ContextPath'
+          description: 'A directory under one of the daemon''s context roots: its files are copied into the run''s workspace before the run starts.'
+        settings:
+          $ref: '#/components/schemas/sdc.daemon.RunSettings'
+        session_id:
+          $ref: '#/components/schemas/sdc.daemon.SessionId'
+        idempotency_key:
+          $ref: '#/components/schemas/sdc.daemon.IdempotencyKey'
+        runbook_id:
+          $ref: '#/components/schemas/sdc.daemon.RunbookId'
+          description: 'The runbook the run takes: the protocol, else delegation-free. The handler fills it.'
+        confinement:
+          $ref: '#/components/schemas/sdc.daemon.ConfinementLevel'
+          description: 'The daemon''s default level: a delegation names none. The handler fills it; a daemon with no default refuses the delegation by name (400) and writes nothing.'
+        route:
+          description: 'The route the run takes, by name: model_route, else the daemon''s default route. The handler fills it.'
+          type: string
+        path:
+          $ref: '#/components/schemas/sdc.daemon.DelegationPath'
+          description: named when the delegation names a protocol, else free. The handler fills it.
+        route_declared:
+          type: boolean
+        runbook_known:
+          type: boolean
+        context_inside_roots:
+          type: boolean
+        daemon_id:
+          $ref: '#/components/schemas/sdc.daemon.DaemonId'
+        at:
+          type: string
+          format: date-time
+      required:
+      - run_id
+      - request
+      - settings
+      - runbook_id
+      - confinement
+      - route
+      - path
+      - route_declared
+      - runbook_known
+      - context_inside_roots
+      - daemon_id
+      - at
+      additionalProperties: false
+    sdc.daemon.Delegate.already-submitted.Response:
+      additionalProperties: false
+      description: 'A run was submitted with this idempotency key: nothing is created and the answer is that first run. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
+      properties:
+        outcome:
+          const: already-submitted
+          description: Which declared outcome the command took.
+        published:
+          description: 'Every event this branch emitted, in the order it emits them: its qualified name and its payload. `sdc.daemon.SubmitReplayed` is listed too, although this component does not publish it to consumers.'
+          items: false
+          maxItems: 1
+          minItems: 1
+          prefixItems:
+          - additionalProperties: false
+            properties:
+              event:
+                const: sdc.daemon.SubmitReplayed
+                type: string
+              payload:
+                $ref: '#/components/schemas/sdc.daemon.SubmitReplayed.Event'
+            required:
+            - event
+            - payload
+            type: object
+          type: array
+      required:
+      - outcome
+      - published
+      type: object
+    sdc.daemon.Delegate.context-outside-roots.Response:
+      additionalProperties: false
+      description: 'The workspace lies under no context root of the daemon: nothing was submitted. Taken when `context_inside_roots == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.ContextOutsideRoots
+          description: 'The context directory does not lie under any of the daemon''s context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`.'
+          type: string
+        outcome:
+          const: context-outside-roots
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.ContextOutsideRoots.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.delegated.Response:
+      additionalProperties: false
+      description: 'The run is Submitted on the route and holds its first two events, `runbook.submitted` and `runbook.delegated`. The answer names the run (`run_id` of RunSubmitted, and the `Location` header: the view DelegationResult of the run), the route and the path (RunDelegated). Taken when no other outcome''s condition matched. A `sdc.daemon.Run` now exists, in `Submitted`. Its identity is published as `run_id` on `sdc.daemon.RunSubmitted`. Emits `RunSubmitted` and `RunDelegated`, listed under `published`. `RunSubmitted` and `RunDelegated` are not published and stay inside the component.'
+      properties:
+        outcome:
+          const: delegated
+          description: Which declared outcome the command took.
+        published:
+          description: 'Every event this branch emitted, in the order it emits them: its qualified name and its payload. `sdc.daemon.RunSubmitted` and `sdc.daemon.RunDelegated` are listed too, although this component does not publish them to consumers.'
+          items: false
+          maxItems: 2
+          minItems: 2
+          prefixItems:
+          - additionalProperties: false
+            properties:
+              event:
+                const: sdc.daemon.RunSubmitted
+                type: string
+              payload:
+                $ref: '#/components/schemas/sdc.daemon.RunSubmitted.Event'
+            required:
+            - event
+            - payload
+            type: object
+          - additionalProperties: false
+            properties:
+              event:
+                const: sdc.daemon.RunDelegated
+                type: string
+              payload:
+                $ref: '#/components/schemas/sdc.daemon.RunDelegated.Event'
+            required:
+            - event
+            - payload
+            type: object
+          type: array
+      required:
+      - outcome
+      - published
+      type: object
+    sdc.daemon.Delegate.intake-too-large.Response:
+      additionalProperties: false
+      description: 'The request is larger than 1 MiB: nothing was submitted. Taken when `request.count > 1048576` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.IntakeTooLarge
+          description: 'The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.'
+          type: string
+        outcome:
+          const: intake-too-large
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.IntakeTooLarge.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.no-daemon.Response:
+      additionalProperties: false
+      description: 'No daemon was started under this id: nothing was submitted. Taken when no `sdc.daemon.Daemon` carries the identity `input.daemon_id` names.'
+      properties:
+        error:
+          const: sdc.daemon.NoSuchDaemon
+          description: No daemon was started under this id.
+          type: string
+        outcome:
+          const: no-daemon
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.NoSuchDaemon.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.no-runbook.Response:
+      additionalProperties: false
+      description: 'The protocol is no runbook the daemon can run: nothing was submitted. Taken when `runbook_known == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.NoSuchRunbook
+          description: 'No preset and no runbook of the daemon''s --runbook-dir has this name (and version): the run was not submitted. The handler looks the runbook up and reports the fact in `runbook_known`.'
+          type: string
+        outcome:
+          const: no-runbook
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.NoSuchRunbook.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.no-session.Response:
+      additionalProperties: false
+      description: 'A session was named and none has that name: nothing was submitted. Taken when `input.session_id`, checked only when present, names an identity no `sdc.daemon.Session` carries.'
+      properties:
+        error:
+          const: sdc.daemon.NoSuchSession
+          description: No session has this name.
+          type: string
+        outcome:
+          const: no-session
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.NoSuchSession.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.route-refused.Response:
+      additionalProperties: false
+      description: 'The delegation names a route the daemon does not declare, or names none and the daemon has no default route: nothing was submitted, and the answer lists the declared routes. Taken when `route_declared == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.RouteRefused
+          description: 'The delegation names a model route the daemon does not declare, or names none and the daemon has no default route: the run was not submitted. `routes` lists the routes the daemon declares, by name; no address, token or alias is in the answer. The handler looks the route up and reports the fact in `route_declared`.'
+          type: string
+        outcome:
+          const: route-refused
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.RouteRefused.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.Delegate.session-closed.Response:
+      additionalProperties: false
+      description: 'The named session is Closed and takes no new run: nothing was submitted. Taken when `input.session_id`, checked only when present, names a `sdc.daemon.Session` that exists and whose stored fields satisfy `state == Closed`.'
+      properties:
+        error:
+          const: sdc.daemon.SessionClosedToRuns
+          description: The session is Closed and takes no new run; the run was not submitted.
+          type: string
+        outcome:
+          const: session-closed
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.SessionClosedToRuns.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.DelegationPath:
+      title: DelegationPath
+      description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.'
+      x-ess-name: sdc.daemon.DelegationPath
+      x-ess-kind: enum
+      type: string
+      enum:
+      - named
+      - free
+    sdc.daemon.DelegationResult.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.DelegationResult`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.DelegationResult.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.DelegationResult.Row:
+      title: The result of a delegation row
+      description: 'What a delegation''s run has come to, in one row: GET /daemon/views/delegation-result?run_id=... (the MCP tool delegation_result; the tool delegate answers the same row when the run ends within its wait). The run''s state, and once it Ended its outcome, the text of its result.md (at most 1048576 bytes; the MCP tools hold the text to 40000 characters), its products, its route, path and protocol, the classifier''s confidence (null for named and free), and the calls, tokens and cost the relay booked. A view has no outcome in the language, so the refusal is the daemon''s {refused, message} answer: 404 `no such run` for a run id the daemon does not know, and 404 `not a delegation` for a run that no Delegate created.'
+      x-ess-name: sdc.daemon.DelegationResult
+      x-ess-kind: view-row
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        run_state:
+          $ref: '#/components/schemas/sdc.daemon.Run.State'
+        outcome:
+          $ref: '#/components/schemas/sdc.daemon.RunOutcome'
+        failure:
+          type: string
+        route:
+          type: string
+        path:
+          $ref: '#/components/schemas/sdc.daemon.DelegationPath'
+        protocol:
+          $ref: '#/components/schemas/sdc.daemon.RunbookId'
+        confidence: {}
+        result_text:
+          type: string
+        result_truncated:
+          type: boolean
+        result_limit:
+          type: integer
+        products:
+          type: array
+          items:
+            type: string
+        calls:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cost_micro_usd:
+          type: integer
+        cost_known:
+          type: boolean
+      required:
+      - run_id
+      - run_state
+      - route
+      - path
+      - protocol
+      - result_truncated
+      - result_limit
+      - products
+      - calls
+      - input_tokens
+      - output_tokens
+      - cost_micro_usd
+      - cost_known
+      additionalProperties: false
     sdc.daemon.EventId:
       title: EventId
       description: The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.
@@ -1970,6 +2464,27 @@ components:
       - hidden
       - left_out
       additionalProperties: false
+    sdc.daemon.RouteRefused.Error:
+      title: RouteRefused payload
+      description: 'The delegation names a model route the daemon does not declare, or names none and the daemon has no default route: the run was not submitted. `routes` lists the routes the daemon declares, by name; no address, token or alias is in the answer. The handler looks the route up and reports the fact in `route_declared`.'
+      x-ess-name: sdc.daemon.RouteRefused
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        route:
+          description: The route the delegation named; absent when it named none.
+          type: string
+        routes:
+          description: The routes the daemon declares, in order of name.
+          type: array
+          items:
+            type: string
+      required:
+      - run_id
+      - routes
+      additionalProperties: false
     sdc.daemon.Run.State:
       title: State
       x-ess-name: sdc.daemon.Run.State
@@ -2004,6 +2519,28 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunId'
       required:
       - run_id
+      additionalProperties: false
+    sdc.daemon.RunDelegated.Event:
+      title: RunDelegated payload
+      x-ess-name: sdc.daemon.RunDelegated
+      x-ess-kind: event-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        route:
+          description: The route the run's model calls take, by name.
+          type: string
+        path:
+          $ref: '#/components/schemas/sdc.daemon.DelegationPath'
+        protocol:
+          $ref: '#/components/schemas/sdc.daemon.RunbookId'
+          description: 'The runbook the run runs: the named one, or delegation-free.'
+      required:
+      - run_id
+      - route
+      - path
+      - protocol
       additionalProperties: false
     sdc.daemon.RunDetail.Response:
       additionalProperties: false
@@ -3338,6 +3875,113 @@ x-ess-entities:
     x-ess-name: sdc.daemon.DecisionRequestId
     x-ess-kind: newtype
     type: string
+  sdc.daemon.Delegation:
+    title: Delegation
+    description: 'What a delegation''s run has come to, as the daemon reads it when a client asks for the view DelegationResult: one row per run that a Delegate created. The route, the path and the protocol are the run''s event `runbook.delegated`; the state, the outcome and the failure are the Run''s; the calls, the tokens and the cost are the sum of the run''s events `runbook.model-call` (one per call the relay booked); the result text is the file result.md of the run''s work/ directory, read through the reader of ProductOfRun (no link followed, at most `result_limit` bytes), and the products are the paths ProductsOfRun lists. The language cannot read a file system, so no command creates or changes a row, as with RunProducts.'
+    x-ess-name: sdc.daemon.Delegation
+    x-ess-kind: entity
+    type: object
+    properties:
+      delegation_id:
+        $ref: '#/x-ess-entities/sdc.daemon.DelegationId'
+      run_id:
+        $ref: '#/x-ess-entities/sdc.daemon.RunId'
+        x-ess-relation:
+          name: run
+          kind: references
+          source: sdc.daemon.Delegation
+          target: sdc.daemon.Run
+          cardinality: one
+          via: run_id
+          $ref: '#/x-ess-entities/sdc.daemon.Run'
+      run_state:
+        $ref: '#/x-ess-entities/sdc.daemon.Run.State'
+        description: 'Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one.'
+      outcome:
+        $ref: '#/x-ess-entities/sdc.daemon.RunOutcome'
+        description: The run's outcome once it Ended.
+      failure:
+        description: Why the run failed to start, or what failed it after it started (the runtime's reason); absent otherwise.
+        type: string
+      route:
+        description: The model route of the run, by name.
+        type: string
+      path:
+        $ref: '#/x-ess-entities/sdc.daemon.DelegationPath'
+      protocol:
+        $ref: '#/x-ess-entities/sdc.daemon.RunbookId'
+        description: 'The runbook the run runs: the named one, or delegation-free.'
+      confidence:
+        description: The classifier's confidence, a number from 0 to 1, for a classified delegation; null for the paths named and free.
+      result_text:
+        description: The text of result.md in the run's work/ directory, at most `result_limit` bytes; absent while the run has written none, and for a file that is not text.
+        type: string
+      result_truncated:
+        description: 'True when result.md holds more than `result_limit` bytes: `result_text` is its start.'
+        type: boolean
+      result_limit:
+        description: 'The most bytes of result.md the view answers: 1048576.'
+        type: integer
+      products:
+        description: The paths of the files of the run's work/ directory, as ProductsOfRun lists them.
+        type: array
+        items:
+          type: string
+      calls:
+        description: The model calls the relay booked for the run.
+        type: integer
+      input_tokens:
+        description: The input tokens those calls reported; a call that reported none adds 0.
+        type: integer
+      output_tokens:
+        type: integer
+      cost_micro_usd:
+        description: 'What the calls booked: the route''s declared price times the tokens, else the reservation of a call of unknown cost.'
+        type: integer
+      cost_known:
+        description: False when any call was booked at its reservation because its cost was not known.
+        type: boolean
+      state:
+        $ref: '#/x-ess-entities/sdc.daemon.Delegation.State'
+    required:
+    - delegation_id
+    - run_id
+    - run_state
+    - route
+    - path
+    - protocol
+    - result_truncated
+    - result_limit
+    - products
+    - calls
+    - input_tokens
+    - output_tokens
+    - cost_micro_usd
+    - cost_known
+    - state
+    additionalProperties: false
+  sdc.daemon.Delegation.State:
+    title: State
+    x-ess-name: sdc.daemon.Delegation.State
+    x-ess-kind: enum
+    type: string
+    enum:
+    - Read
+  sdc.daemon.DelegationId:
+    title: DelegationId
+    description: 'A delegation as a row of Delegation: its text is the run''s id. A type of its own, not RunId, because a row is what the daemon reads of the run''s record and files, not the run.'
+    x-ess-name: sdc.daemon.DelegationId
+    x-ess-kind: newtype
+    type: string
+  sdc.daemon.DelegationPath:
+    title: DelegationPath
+    description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake) or free (it named none: the free run, one agent node whose instruction is the request, writing result.md). The paths classified and generated come with classify and build and are not in the set until the daemon takes them.'
+    x-ess-name: sdc.daemon.DelegationPath
+    x-ess-kind: enum
+    type: string
+    enum:
+    - named
+    - free
   sdc.daemon.EventId:
     title: EventId
     description: The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.

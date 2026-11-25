@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.RouteRefused.schema.json",
+  "title": "RouteRefused payload",
+  "description": "The delegation names a model route the daemon does not declare, or names none and the daemon has no default route: the run was not submitted. `routes` lists the routes the daemon declares, by name; no address, token or alias is in the answer. The handler looks the route up and reports the fact in `route_declared`.",
+  "x-ess-name": "sdc.daemon.RouteRefused",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "route": {
+      "description": "The route the delegation named; absent when it named none.",
+      "type": "string"
+    },
+    "routes": {
+      "description": "The routes the daemon declares, in order of name.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "run_id",
+    "routes"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ef605e71ff23a77004190d70fe951f5bafffe8b3103b5dd31e9f8dd45feaaec5",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
