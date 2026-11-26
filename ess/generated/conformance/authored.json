@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "c3ad7240bc41741573efa3805f53ea01b208ca10d733bbbe43aa715f2bdf2107",
-    "contract_digest": "54295449a74e2e9da59a2037d8ef30f01c9001a0cdc26cb2e235d418e0de5abb",
+    "spec_digest": "0199455424a3cb29f3040caed07097b4ee9d86310a65f32c96fb802b0a7cfa36",
+    "contract_digest": "6b207a74cdf566902bc128ac966433dd6170a0f5298511e9b890cec815a61127",
     "scenario_initial_state": "empty"
   },
   "scenarios": {

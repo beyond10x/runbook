@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:429c1bf2ce7b79de3353b087bd3deaa74aa02ffaf20a1600b7a4e522b3983c0c
+# contract digest slice-sha256/2:a42633405ada790973c7bc1c9872e10d15b3dccdc46961b5760ad01c36f18d58
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:429c1bf2ce7b79de3353b087bd3deaa74aa02ffaf20a1600b7a4e522b3983c0c
+    contract_digest: slice-sha256/2:a42633405ada790973c7bc1c9872e10d15b3dccdc46961b5760ad01c36f18d58
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -119,7 +119,7 @@ paths:
     post:
       operationId: sdc.daemon.CancelRun
       summary: Cancel a run
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
+      description: 'Cancel a run that has not ended: Submitted, WaitingForRoute, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -1174,7 +1174,7 @@ components:
       additionalProperties: false
     sdc.daemon.CancelRun.Input:
       title: Cancel a run input
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
+      description: 'Cancel a run that has not ended: Submitted, WaitingForRoute, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
       x-ess-name: sdc.daemon.CancelRun
       x-ess-kind: command-input
       type: object
