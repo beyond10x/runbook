@@ -1626,11 +1626,12 @@ html.daemon .fd-c { overflow-wrap: anywhere; }
 .ds-table .ds-n { width: 1%; text-align: right; color: var(--text-3); }
 .ds-act { font: 500 12.5px var(--mono); color: var(--text); overflow-wrap: anywhere; }
 .ds-calls { margin-left: 8px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
-.ds-at, .ds-took, .ds-try, .ds-st { white-space: nowrap; }
+.ds-at, .ds-took, .ds-try { white-space: nowrap; }
+/* a state of more than one word (`ended by a signal`, a check's `checked: the writer goes on`) wraps in its column */
 html.daemon #live { font-variant-numeric: tabular-nums; }
 /* the columns keep their widths when a step starts (its running state and ticking duration do not move the others) */
 html:not(.phone) .ds-table .ds-role { width: 6em; }
-html:not(.phone) .ds-table .ds-st { width: 7em; }
+html:not(.phone) .ds-table .ds-st { width: 9em; }
 html:not(.phone) .ds-table .ds-at { width: 7.5em; }
 html:not(.phone) .ds-table .ds-took { width: 6.5em; }
 html:not(.phone) .ds-table .ds-try { width: 3em; }
@@ -1640,9 +1641,11 @@ html:not(.phone) .ds-table .ds-try { width: 3em; }
 .ds-table tr[data-state=running] td { color: var(--text); }
 .ds-table tr[data-state=running] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .ds-table tr[data-state=running] .ds-st { color: var(--accent-2); font-weight: 600; }
-.ds-table tr[data-state=exit] .ds-st { color: var(--appr); }
+.ds-table tr[data-state=exit] .ds-st, .ds-table tr[data-state=ended] .ds-st { color: var(--appr); }
 .ds-table tr[data-state=unfinished] .ds-st { color: var(--text-3); font-style: italic; }
 .ds-empty { margin: 12px 19px; }
+.ds-left { margin: 6px 19px; font-size: 12px; }
+.fd-left { padding: 8px 4px; font-size: 12px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* the closed drawer is not laid out (it slid off the window's right edge, 2073 px at 1366 wide) */
 body:not(.drawer-open) #drawer { display: none; }
@@ -1670,7 +1673,7 @@ body:not(.drawer-open) #drawer { display: none; }
 :where(html.phone.daemon) .ds-table td { display: block; padding: 0; border: 0; font-size: 14px; }
 :where(html.phone.daemon) .ds-table .ds-n { order: 1; width: 22px; }
 :where(html.phone.daemon) .ds-table .ds-act-c { order: 2; flex: 1 0 calc(100% - 140px); min-width: 0; }
-:where(html.phone.daemon) .ds-table .ds-st { order: 3; }
+:where(html.phone.daemon) .ds-table .ds-st { order: 3; max-width: 96px; text-align: right; }
 :where(html.phone.daemon) .ds-table .ds-role { order: 4; margin-left: 32px; }
 :where(html.phone.daemon) .ds-table .ds-case { order: 5; }
 :where(html.phone.daemon) .ds-table .ds-at { order: 6; }

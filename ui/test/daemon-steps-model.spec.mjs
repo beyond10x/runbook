@@ -2,7 +2,7 @@
 // synthetic run of daemon-live-fixture.mjs: no server, no browser. Story run-page-watches-a-live-run.
 import {test, expect} from '@playwright/test';
 import {fixture, LIVE, DONE, RUNNING_SINCE} from './daemon-live-fixture.mjs';
-import {runSteps, stepEnds, eventWords, runSay, fmtTook, renderStepsTable, runStateWord} from '../web/runsteps.js';
+import {runSteps, stepEnds, eventWords, runSay, fmtTook, renderStepsTable, renderStepsHead, runStateWord, eventsFeed, eventsPane} from '../web/runsteps.js';
 import {clockTime, zoneName} from '../web/clock.js';
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
@@ -151,4 +151,136 @@ test('durations in words; clock times 24 h with the zone\'s name, a date in ISO 
   expect(clockTime(t, t, 'America/New_York')).toBe('13:54:50 EST');
   expect(clockTime(t, t, 'UTC')).toBe('18:54:50 UTC');
   expect(zoneName(new Date(t), 'Asia/Tokyo')).toBe('GMT+9');
+});
+
+// A program the runtime ended (Loom's `ActionFinished` with a `refusal` and no `exit`; runbook/src/engine/refusal.rs
+// `failed_step_in`): the step ended with the refusal's cause, never "done", and the counts say it apart.
+const finished = (record, s) => at('ActionFinished', {kind: 'ActionFinished', action: 'note.write', ...record}, s);
+const program = (action, s, role = 'program') => at('runbook.action-started', {case: 'c', action, role, ...(role === 'program' ? {try: 1} : {})}, s);
+const REFUSALS = [
+  ['ProgramSignalled: action note.write: t.sh was ended by a signal: exit 137', 'ended by a signal'],
+  ['timed out', 'ended: timed out'],
+  ['ended with no exit', 'ended: no exit status'],
+  ['ProgramError: action note.write: exit 3 is listed as an error', 'ended: an error exit'],
+  ['RunsSpent: action note.write: no run left', 'refused: runs spent'],
+  ['something Loom has not said before', 'refused'],
+];
+
+test('a program ended with a refusal and no exit: the step is ended with its cause, not done, in the list, the counts and the words', () => {
+  for (const [refusal, word] of REFUSALS) {
+    const m = runSteps([program('note.write', 0), finished({refusal}, 4)]);
+    expect(m.steps.map((s) => [s.state, s.exit, s.cause, s.end]), refusal).toEqual([['ended', null, word, Date.parse(T(4))]]);
+    expect(m.inFlight).toBeNull();
+    const table = renderStepsTable({state: 'Running'}, m, Date.parse(T(9)));
+    expect(table).toContain('data-state="ended"');
+    expect(table).toContain(`<td class="ds-st">${word}</td>`);
+    const head = renderStepsHead({state: 'Running'}, m, Date.parse(T(9)));
+    expect(head, 'an ended step is not a step done').toContain('<span>0 steps done</span>');
+    expect(head).toContain('<span>1 ended with no exit</span>');
+    expect(runSay({state: 'Running'}, m, Date.parse(T(9)))).toBe(`Between steps: 1 ended, the last note.write ${word}`);
+    const w = eventWords(finished({refusal}, 4));
+    expect(w.name).toBe('Step refused');
+    expect(w.detail).toBe(`note.write · ${word}`);
+    expect(w.detail).not.toContain('ProgramSignalled');
+  }
+  // an exit wins: the line holds exactly one of the two
+  expect(runSteps([program('note.write', 0), finished({exit: 0}, 4)]).steps[0].state).toBe('done');
+  expect(runSteps([program('note.write', 0), finished({exit: 2}, 4)]).steps[0].state).toBe('exit');
+  // a refusal of a step with no start of its own is a step too, ended
+  expect(runSteps([finished({refusal: 'timed out'}, 4)]).steps.map((s) => [s.action, s.state, s.cause])).toEqual([['note.write', 'ended', 'ended: timed out']]);
+  // a step-budget stop after it leaves it ended
+  expect(runSteps([program('note.write', 0), finished({refusal: 'timed out'}, 4), budgetStop(3, 5)]).steps[0].state).toBe('ended');
+});
+
+// A handoff check (role `check`, runbook/src/engine/announce.rs `describe`) ends at Loom's `HandoffChecked` with its own
+// exit; `ActionFinished` is the writer's and ends no check (runbook/src/run_metrics.rs reads the two the same way).
+const checked = (exit, s, action = 'amend.upstream') => at('HandoffChecked', {kind: 'HandoffChecked', action, exit}, s);
+
+test('a handoff check ends at its own HandoffChecked line with its exit; ActionFinished ends only a program', () => {
+  const m = runSteps([program('amend.upstream', 0, 'check'), checked(1, 1), program('amend.upstream', 2), finished({action: 'amend.upstream', exit: 0}, 9)]);
+  expect(m.steps.map((s) => [s.role, s.state, s.exit, s.end])).toEqual([['check', 'done', 1, Date.parse(T(1))], ['program', 'done', 0, Date.parse(T(9))]]);
+  // with no HandoffChecked line yet, the writer's end leaves the check running (the writer had no start: a step of no role)
+  const open = runSteps([program('amend.upstream', 0, 'check'), finished({action: 'amend.upstream', exit: 0}, 3)]);
+  expect(open.steps.map((s) => [s.role, s.state])).toEqual([['check', 'running'], [null, 'done']]);
+  // the newest running check of that action ends, not an older one of another action
+  const two = runSteps([program('a', 0, 'check'), program('b', 1, 'check'), checked(0, 2, 'a')]);
+  expect(two.steps.map((s) => [s.action, s.state, s.exit])).toEqual([['a', 'done', 0], ['b', 'running', null]]);
+  // a check with no start of its own (an older runtime) is a check step, ended
+  expect(runSteps([checked(0, 2)]).steps.map((s) => [s.role, s.state, s.exit])).toEqual([['check', 'done', 0]]);
+  // in words: what the check's exit does
+  expect(eventWords(checked(0, 1))).toEqual({name: 'Check finished', detail: 'amend.upstream · exit 0 · the run waits on a person', engine: false});
+  expect(eventWords(checked(1, 1))).toEqual({name: 'Check finished', detail: 'amend.upstream · exit 1 · the writer goes on', engine: false});
+  const waits = runSteps([program('amend.upstream', 0, 'check'), checked(0, 1), at('Stopped', {stop: 'AwaitingPerson', next: ['amend.upstream']}, 1)]);
+  const table = renderStepsTable({state: 'WaitingOnDecision'}, waits, Date.parse(T(50)));
+  expect(table).toContain('<td class="ds-st">checked: the run waits on a person</td>');
+  expect(table).not.toContain('data-took-since');
+  expect(renderStepsTable({state: 'Running'}, m, Date.parse(T(50)))).toContain('<td class="ds-st">checked: the writer goes on</td>');
+});
+
+// The bound of one render of the run below: about 50 ms measured on this host (2026-11-26; 1.9 s before the lists were
+// bounded), five times that as the margin for a loaded host. The case prints its time.
+const RENDER_MS = 250;
+// A run of 5000 steps (30,000 events) renders a bounded page: the latest 200 steps and the step in flight, the latest
+// 200 events in the feed and in the Events tab, each list saying how many it left out; one render's model and markup
+// stay under a time measured on this host with a wide margin.
+function longRun(n, {firstRuns = false} = {}) {
+  const ev = [];
+  let t = Date.parse('2026-11-26T10:00:00Z');
+  const push = (kind, record) => ev.push({position: ev.length + 1, sequence: ev.length + 1, run_id: 'r', kind, at: new Date(t++).toISOString(), record});
+  if (firstRuns) push('runbook.action-started', {case: 'c', action: 'watch.all', role: 'program', try: 1});
+  for (let i = 0; i < n; i++) {
+    const a = `step.${i % 40}`;
+    push('Evaluated', {case_revision: 1});
+    push('runbook.action-started', {case: 'c', action: a, role: 'program', try: 1});
+    push('ActionFinished', {action: a, exit: 0});
+    push('Stopped', {seq: i, stop: 'BudgetSpent', next: [], budget: 'MaxSteps'});
+    push('runbook.model-call', {step: a, input_tokens: 1, output_tokens: 1, cost_known: true, micro_usd: 1});
+    push('runbook.step-ended', {case: 'c', seq: i});
+  }
+  return {ev, now: t};
+}
+const rowsOf = (html, re) => (html.match(re) || []).length;
+
+test('a run of 5000 steps: the step table, the feed and the Events tab each draw a bounded list and say what they left out', () => {
+  const {ev, now} = longRun(5000);
+  const m = runSteps(ev);
+  expect(m.steps).toHaveLength(5000);
+  const table = renderStepsTable({state: 'Running'}, m, now);
+  expect(rowsOf(table, /<tr data-key="st:/g)).toBe(200);
+  expect(table).toMatch(/4,?800 earlier steps left out/);
+  expect(table).toContain('data-key="st:5000"');
+  expect(table).not.toContain('data-key="st:4800"');
+  expect(renderStepsHead({state: 'Running'}, m, now), 'the counts are of every step').toMatch(/<span>5,?000 steps done<\/span>/);
+  // the step in flight is always drawn, also when it started before every step in the window
+  const old = longRun(5000, {firstRuns: true});
+  const mo = runSteps(old.ev);
+  expect(mo.inFlight).toMatchObject({n: 1, action: 'watch.all'});
+  const tableOld = renderStepsTable({state: 'Running'}, mo, old.now);
+  expect(rowsOf(tableOld, /<tr data-key="st:/g)).toBe(201);
+  expect(tableOld).toContain('data-key="st:1" data-state="running"');
+  // the feed (newest first, engine lines folded or shown) and the Events tab (oldest first)
+  for (const all of [false, true]) {
+    const feed = eventsFeed(ev, 'r', {all, now});
+    expect(rowsOf(feed, /class="fd-row[ "]/g), `feed all=${all}`).toBe(200);
+    expect(feed).toMatch(/\d[\d,]* earlier events left out/);
+    // the newest event drawn: the runtime's step-ended line when all are shown, the model call before it when folded
+    expect(feed).toContain(`data-key="ev:${all ? ev.length : ev.length - 1}"`);
+  }
+  const pane = eventsPane(ev, now);
+  expect(rowsOf(pane, /class="ev-row /g)).toBe(200);
+  expect(pane).toMatch(/29,?800 earlier events left out/);
+  expect(pane).toContain(`data-key="ev:${ev.length}"`);
+  expect(pane).not.toContain(`data-key="ev:${ev.length - 200}"`);
+  // one render: the model of the run, the head, the table, the feed and the Events tab
+  const once = () => {
+    const t0 = performance.now();
+    const mm = runSteps(ev);
+    const html = renderStepsHead({state: 'Running'}, mm, now) + renderStepsTable({state: 'Running'}, mm, now) + eventsFeed(ev, 'r', {now}) + eventsPane(ev, now);
+    return {ms: performance.now() - t0, bytes: html.length};
+  };
+  once();
+  const best = [once(), once(), once()].sort((a, b) => a.ms - b.ms)[0];
+  console.log(`a run of 5000 steps: one render ${best.ms.toFixed(1)} ms, ${best.bytes} bytes of markup`);
+  expect(best.bytes).toBeLessThan(400000);
+  expect(best.ms).toBeLessThan(RENDER_MS);
 });

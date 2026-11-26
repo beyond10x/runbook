@@ -2,13 +2,13 @@
 // (GET /daemon/views/run-metrics?run_id=...; docs/daemon-api.md, "The metrics of a run") drawn as a pane: the run's
 // state, outcome, start, end or time running, duration and the totals of its model calls, then each step as a row of
 // the columns step, role, state, took, calls and cost and a line under it with the rest (its case when that is not the
-// run's own, tries, exit, start and end, tokens, calls of unknown cost and what it booked). Times, counts and costs are
-// in the words of the page's step list (web/clock.js, web/runsteps.js): `19:53:00 CET`, `1,200 in, 800 out`,
-// `$0.0042`. A number the daemon left out of the row is said as "unknown", never as 0: the daemon writes no number its
+// run's own, tries, exit, start and end, tokens, calls of unknown cost and what it booked). Times, durations, counts and
+// costs are in the words of the page's step list (web/clock.js, web/runsteps.js): `19:53:00 CET`, `2.8 s`,
+// `1,200 in, 800 out`, `$0.0042`. A number the daemon left out of the row is said as "unknown", never as 0: the daemon writes no number its
 // record does not hold; a count of calls without tokens or of unknown cost that is 0 is not said. Every value from the
 // daemon is set as a text node, never as markup. This file is served by the daemon only; the page wires it.
 import {clockTime, fullTime} from './clock.js';
-import {usd as usdWords, fmtCount} from './runsteps.js';
+import {usd as usdWords, fmtCount, fmtTook} from './runsteps.js';
 
 export const VIEW = '/daemon/views/run-metrics';
 
@@ -28,15 +28,11 @@ const UNKNOWN = 'unknown';
 const word = (v) => (typeof v === 'string' ? v : '');
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
 
-// Milliseconds in words: `850 ms`, `2.75 s`, `3 min 5 s`, `2 h 4 min`.
-export function duration(ms) {
+// Milliseconds in the step list's words (fmtTook of web/runsteps.js): `0.8 s`, `2.8 s`, `3 min 5 s`, `2 h 4 min`; whole
+// seconds under a minute for a time still running (`whole`), as the list says a step in flight.
+export function duration(ms, whole = false) {
   const n = count(ms);
-  if (n == null) return UNKNOWN;
-  if (n < 1000) return `${n} ms`;
-  if (n < 60000) return `${(n / 1000).toFixed(2).replace(/\.?0+$/, '')} s`;
-  const s = Math.floor(n / 1000);
-  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
-  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+  return n == null ? UNKNOWN : fmtTook(n, whole);
 }
 
 // Micro USD in the step list's words: 4200 is `$0.0042`.
@@ -65,7 +61,7 @@ export const shortCase = (id, run) => (UUID.test(id) ? id.slice(-8) : run && id.
 // What a run or a step has run: its duration once it ended, the time running while it runs, else unknown.
 function took(o) {
   if (count(o?.duration_ms) != null) return duration(o.duration_ms);
-  if (count(o?.running_ms) != null) return `running for ${duration(o.running_ms)}`;
+  if (count(o?.running_ms) != null) return `running for ${duration(o.running_ms, true)}`;
   return UNKNOWN;
 }
 

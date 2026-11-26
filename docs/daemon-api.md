@@ -602,7 +602,7 @@ of the event that recorded Loom's line. A run id the daemon does not know is `40
 `run_id` is `400`. The page's pane for the row is `ui/daemon/metrics.js` (embedded like every file of `ui/daemon/`):
 the run page has the tab Metrics when the view answers a row for the run on screen, and none when it refuses or answers
 no row (`tabsOf` in `ui/web/source.js`); the pane says the row's times in the page's clock words (`ui/web/clock.js`)
-and its counts and costs in the step list's (`ui/web/runsteps.js`). The page's step list takes a step's model calls, tokens and cost from the row
+and its durations, counts and costs in the step list's (`ui/web/runsteps.js`). The page's step list takes a step's model calls, tokens and cost from the row
 where the run's events name none (a run on no route books them in `runbook.cost-booked`; `withViewCalls` in
 `ui/web/runsteps.js`) and says a count the row leaves out as not known, never 0. The view gives no count per route:
 the daemon still serves no count of today's calls or booked spend per route (the ledger's entries hold no instant).
@@ -1029,12 +1029,16 @@ Without `--ui`, `GET /` is `404`.
   `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced"); the
   inspector's hostile cases run against this page too (`ui/test/daemon-run-tree-security.spec.mjs`).
 - A run. The centre lists the run's steps in the order they started, read from the run's events (`runbook.action-started`,
-  `ActionFinished`, `runbook.model-call`; `ui/web/runsteps.js`): step, role, state, start, duration and try, the step
-  in flight marked and its duration counting. A line above says what runs now or how the run ended, and the counts
-  (steps done, exits other than 0, model calls, tokens, cost). A step ends at the run's `runbook.step-ended`, never the
+  `ActionFinished`, `HandoffChecked`, `runbook.model-call`; `ui/web/runsteps.js`): step, role, state, start, duration
+  and try, the step in flight marked and its duration counting. A line above says what runs now or how the run ended,
+  and the counts (steps done, exits other than 0, steps ended with no exit, model calls, tokens, cost). A program whose
+  `ActionFinished` holds a refusal and no exit is `ended` with the refusal's cause (`ended by a signal`, `ended: timed
+  out`), never done; a handoff check (role `check`) ends at its own `HandoffChecked` with its exit, and
+  `ActionFinished` ends no check. A step ends at the run's `runbook.step-ended`, never the
   run; a `Stopped` with `BudgetSpent`/`MaxSteps` that no `runbook.step-ended` names is said as a wait or the end of the
   tree and ends no step. A run with no `runbook.step-ended` at all (a runtime before it) has its steps ended by that
-  `Stopped` line (`stepEnds` in `ui/web/runsteps.js`). The side panel has only the tabs the daemon serves data for
+  `Stopped` line (`stepEnds` in `ui/web/runsteps.js`). The list draws the latest 200 steps and the step in flight, the
+  feed and the Events tab the latest 200 events, each saying how many earlier ones it left out. The side panel has only the tabs the daemon serves data for
   (`tabsOf` in `ui/web/source.js`): Products and Events, every event of the run in words, and Metrics when the view
   `run-metrics` answers a row for the run ("The metrics of a run"). Times are the browser's local time, 24 h, with the
   zone's name (`19:54:50 CET`), the ISO date in front when not of today (`ui/web/clock.js`).

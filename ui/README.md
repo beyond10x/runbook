@@ -23,13 +23,19 @@ legend, the timeline). Its centre lists the run's steps read from the run's even
 state, start, duration and try, the step in flight marked with its duration counting, a line that says what runs now
 or how the run ended, and the counts (steps done, model calls, tokens, cost). A step ends at the run's
 `runbook.step-ended`, not the run; a `Stopped` with `BudgetSpent`/`MaxSteps` none names is a wait or the end of the
-tree, and in a run with no `runbook.step-ended` (an older runtime) that `Stopped` line ends the step (`stepEnds`). The
-run events are said in words, the engine's own lines folded.
+tree, and in a run with no `runbook.step-ended` (an older runtime) that `Stopped` line ends the step (`stepEnds`). A
+program whose `ActionFinished` holds a refusal and no exit (a signal, its timeout, no exit status, another refusal) is
+`ended` with the cause (`ended by a signal`, `ended: timed out`), not done, and counted apart. A handoff check (role
+`check`) ends at its own `HandoffChecked` line with its exit (0: the run waits on a person; another: the writer goes
+on); `ActionFinished` ends only the steps that are not checks. The
+run events are said in words, the engine's own lines folded. The step table draws the latest 200 steps and the step
+in flight, the feed and the Events tab the latest 200 events, each with a line that says how many earlier ones are left
+out (`STEP_ROWS`, `EVENT_ROWS`; a run of 5000 steps renders in about 50 ms, `test/daemon-steps-model.spec.mjs`).
 The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`), and
 Metrics when the daemon's view `run-metrics` answers a row for the run (`daemon/metrics.js` draws it; a step's model
 calls whose events name none are taken from that row, `withViewCalls` in `web/runsteps.js`, and an unknown count is
-said as not known, never 0; `test/daemon-metrics-tab.spec.mjs`). The Metrics pane says times, token counts and costs
-in the step list's words (`19:53:00 CET`, `1,200 in, 800 out`, `$0.0042`), names a step's case only when it is not the
+said as not known, never 0; `test/daemon-metrics-tab.spec.mjs`). The Metrics pane says times, durations, token counts
+and costs in the step list's words (`19:53:00 CET`, `2.8 s`, `1,200 in, 800 out`, `$0.0042`), names a step's case only when it is not the
 run's own, by its short id, and draws a step as six columns (step, role, state, took, calls, cost) that fit the panel at
 1280 px with a line under them for the rest; no pane says what is missing in place of showing
 something. Times on the page are 24 h local time of the browser with the

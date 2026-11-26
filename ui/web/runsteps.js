@@ -1,8 +1,15 @@
 // The steps of a daemon's run, read from the run's events (the stream the page already reads; docs/daemon-api.md, "The
-// step in flight" and "Event streams"), and the words for each event. Story run-page-watches-a-live-run.
-//   runbook.action-started  a bound program starts: case, action, role, try. A step begins.
-//   ActionFinished          Loom's line when an action ends: action, exit. The last open step of that action ends; an
-//                           action that ran no program (open, person) is a step with no start.
+// step in flight" and "Event streams"), the words for each event, and the bounded lists the page draws of both (the step
+// table, the feed and the Events tab: the latest STEP_ROWS steps and EVENT_ROWS events). Story run-page-watches-a-live-run.
+//   runbook.action-started  a bound program starts: case, action, role, try. A step begins. Role `check`: the handoff
+//                           check of a binding (runbook/src/engine/announce.rs), which runs before the writer.
+//   ActionFinished          Loom's line when an action ends: action and an exit or a refusal. The open steps of that
+//                           action that are not checks end; an action that ran no program (open, person) is a step
+//                           with no start. A refusal and no exit (a signal, a timeout, no exit status, another refusal;
+//                           runbook/src/engine/refusal.rs `failed_step_in`): the step is `ended` with the refusal's
+//                           cause, never done.
+//   HandoffChecked          Loom's line when a handoff check ends: action, exit. The newest running check of that
+//                           action ends with that exit (0: the run waits on a person; another: the writer goes on).
 //   runbook.model-call      a model call of a step: step, input_tokens, output_tokens, micro_usd, cost_known.
 //   Evaluated, Stopped      the engine's own lines around each step: the runtime runs each step as one engine call
 //                           that stops on its step budget, so every step is followed by `Stopped` with
@@ -45,32 +52,69 @@ export function stepEnds(events) {
   return {present, named};
 }
 
+// The cause of a program's end that Loom wrote as a refusal (`ActionFinished` with `refusal` and no `exit`), in the
+// step list's words: the texts runbook/src/engine/refusal.rs reads (`PROGRAM_REFUSALS`, `TIMED_OUT`, `NO_EXIT`), any
+// other refusal by its lead word (`RunsSpent: ...` → `refused: runs spent`), else `refused`.
+const REFUSED = [[/^ProgramSignalled:/, 'ended by a signal'], [/^timed out$/, 'ended: timed out'], [/^ended with no exit$/, 'ended: no exit status'], [/^ProgramError:/, 'ended: an error exit']];
+export function refusalCause(text) {
+  const t = String(text);
+  for (const [re, word] of REFUSED) if (re.test(t)) return word;
+  const lead = /^([A-Z][A-Za-z]+):/.exec(t);
+  return lead ? `refused: ${lead[1].replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()}` : 'refused';
+}
+// a check's exit in words: 0 stops the run for a person, any other hands on to the writer of the same action
+const checkWords = (exit) => (exit === 0 ? 'the run waits on a person' : 'the writer goes on');
+
 // {steps, cases, inFlight, calls, tokens, tokensKnown, micro, costKnown, ended, stop, failed} of one run's events, in
-// their order. tokens and micro: the sum of the counts the calls report; tokensKnown, costKnown: every call reported one.
-// cases: the ids of the cases the run opened (`CaseOpened`).
+// their order. A step's state: running, done, exit (another exit than 0) or ended (a refusal and no exit; `cause` says
+// it). tokens and micro: the sum of the counts the calls report; tokensKnown, costKnown: every call reported one.
+// cases: the ids of the cases the run opened (`CaseOpened`). One walk over the events with an index per action and per
+// case, so a run of thousands of steps costs one pass.
 export function runSteps(events) {
   const steps = [];
   // a step-budget stop ends a step only in a run whose runtime names no step's end (stepEnds)
   const ends = stepEnds(events);
   const m = {steps, cases: new Set(), inFlight: null, calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true, ended: null, stop: null, failed: null};
-  const open = (action) => steps.filter((s) => s.state === 'running' && s.action === action);
+  // the running steps of an action: programs (ended by ActionFinished) and checks (ended by HandoffChecked) apart
+  const running = {program: new Map(), check: new Map()};
+  const open = (kind, action) => { const l = (running[kind].get(action) || []).filter((s) => s.state === 'running'); running[kind].set(action, l); return l; };
+  // the newest step of an action (a model call's), of a case, and of no case
+  const lastOfAction = new Map(), lastOfCase = new Map();
+  let lastNoCase = null;
+  const add = (s) => {
+    steps.push(s);
+    lastOfAction.set(s.action, s);
+    if (s.case == null) lastNoCase = s; else lastOfCase.set(s.case, s);
+    if (s.state === 'running') open(s.role === 'check' ? 'check' : 'program', s.action).push(s);
+  };
+  const step = (o) => ({n: steps.length + 1, case: null, role: null, try: null, at: null, end: null, exit: null, cause: null, state: 'running', calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true, ...o});
   // the end of a step: the last step started (of the case named, when one is) ends here if it still runs
   const stepEnd = (kase, at) => {
-    const s = [...steps].reverse().find((x) => kase == null || x.case == null || x.case === kase);
+    const own = kase == null ? steps[steps.length - 1] : lastOfCase.get(kase);
+    const s = kase == null ? own : [own, lastNoCase].filter(Boolean).sort((a, b) => b.n - a.n)[0];
     if (s?.state === 'running') Object.assign(s, {end: at, state: 'done'});
   };
   for (const e of events || []) {
     const r = e?.record && typeof e.record === 'object' ? e.record : {};
     const at = ms(e?.at);
     if (e?.kind === 'runbook.action-started') {
-      steps.push({n: steps.length + 1, action: str(r.action) ?? 'a step', case: str(r.case), role: str(r.role), try: num(r.try), at, end: null, exit: null, state: 'running', calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true});
+      add(step({action: str(r.action) ?? 'a step', case: str(r.case), role: str(r.role), try: num(r.try), at}));
     } else if (e?.kind === 'ActionFinished') {
       const action = str(r.action) ?? 'a step';
       const exit = num(r.exit);
-      const state = exit == null || exit === 0 ? 'done' : 'exit';
-      const ends = open(action);
-      if (!ends.length) steps.push({n: steps.length + 1, action, case: null, role: null, try: null, at: null, end: at, exit, state, calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true});
-      for (const s of ends) Object.assign(s, {end: at, exit, state});
+      const cause = exit == null && str(r.refusal) ? refusalCause(r.refusal) : null;
+      const state = cause ? 'ended' : exit == null || exit === 0 ? 'done' : 'exit';
+      const list = open('program', action);
+      if (!list.length) add(step({action, end: at, exit, cause, state}));
+      for (const s of list) Object.assign(s, {end: at, exit, cause, state});
+      running.program.set(action, []);
+    } else if (e?.kind === 'HandoffChecked') {
+      const action = str(r.action) ?? 'a step';
+      const exit = num(r.exit);
+      const list = open('check', action);
+      const s = list[list.length - 1];
+      if (s) Object.assign(s, {end: at, exit, state: 'done'});
+      else add(step({action, role: 'check', end: at, exit, state: 'done'}));
     } else if (e?.kind === 'runbook.model-call') {
       // a token count or a cost the call does not report is not known: it adds nothing and says so (tokensKnown, costKnown)
       const counted = num(r.input_tokens) != null && num(r.output_tokens) != null;
@@ -80,7 +124,7 @@ export function runSteps(events) {
       m.calls++; m.tokens += tokens; m.micro += micro;
       if (!counted) m.tokensKnown = false;
       if (!costKnown) m.costKnown = false;
-      const s = [...steps].reverse().find((x) => x.action === r.step);
+      const s = lastOfAction.get(r.step);
       if (s) { s.calls++; s.tokens += tokens; s.micro += micro; if (!counted) s.tokensKnown = false; if (!costKnown) s.costKnown = false; }
     } else if (e?.kind === 'CaseOpened') { if (str(r.case)) m.cases.add(r.case); }
     else if (e?.kind === 'Terminated') m.ended = {reason: str(r.reason)};
@@ -88,7 +132,8 @@ export function runSteps(events) {
     else if (e?.kind === 'runbook.step-ended') stepEnd(str(r.case), at);
     else if (e?.kind === 'runbook.step-failed') m.failed = r;
   }
-  m.inFlight = [...steps].reverse().find((s) => s.state === 'running') ?? null;
+  m.inFlight = null;
+  for (let i = steps.length - 1; i >= 0 && !m.inFlight; i--) if (steps[i].state === 'running') m.inFlight = steps[i];
   return m;
 }
 
@@ -100,11 +145,13 @@ export function runSteps(events) {
 // never 0. No row: `m` as it is.
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
 export function withViewCalls(m, row) {
+  const byAction = new Map();
+  for (const s of m.steps) { if (!byAction.has(s.action)) byAction.set(s.action, []); byAction.get(s.action).push(s); }
   for (const v of Array.isArray(row?.steps) ? row.steps : []) {
     const c = v?.calls;
     const calls = count(c?.model_calls);
     if (!calls) continue;
-    const mine = m.steps.filter((s) => s.action === v.action && (s.case == null || s.case === v.case_id) && (s.role == null || s.role === v.role));
+    const mine = (byAction.get(v.action) || []).filter((s) => (s.case == null || s.case === v.case_id) && (s.role == null || s.role === v.role));
     if (!mine.length || mine.some((s) => s.calls)) continue;
     const input = count(c.input_tokens), output = count(c.output_tokens);
     const tokensKnown = input != null && output != null && count(c.calls_without_tokens) === 0;
@@ -159,7 +206,10 @@ export function eventWords(e, ends = null) {
     case 'runbook.pinned': return {name: 'Runbook pinned', detail: join(str(r.runbook), num(r.revision) != null && `revision ${r.revision}`), engine: false};
     case 'CaseOpened': return {name: 'Case opened', detail: str(r.protocol) ?? '', engine: false};
     case 'runbook.action-started': return {name: 'Step started', detail: join(str(r.action), str(r.role), num(r.try) != null && `try ${r.try}`), engine: false};
-    case 'ActionFinished': return {name: 'Step finished', detail: join(str(r.action), num(r.exit) != null && `exit ${r.exit}`), engine: false};
+    case 'ActionFinished':
+      if (num(r.exit) == null && str(r.refusal)) return {name: 'Step refused', detail: join(str(r.action), refusalCause(r.refusal)), engine: false};
+      return {name: 'Step finished', detail: join(str(r.action), num(r.exit) != null && `exit ${r.exit}`), engine: false};
+    case 'HandoffChecked': return {name: 'Check finished', detail: join(str(r.action), num(r.exit) != null && `exit ${r.exit}`, num(r.exit) != null && checkWords(r.exit)), engine: false};
     case 'Evaluated': return {name: 'Case evaluated', detail: num(r.case_revision) != null ? `case revision ${r.case_revision}` : '', engine: true};
     case 'Stopped': {
       if (STEP_END(r) && ends?.present) return ends.named.has(e) ? {name: 'Step budget spent', detail: 'the engine call of one step ended', engine: true} : {name: 'Engine stopped', detail: 'step budget spent, no step ended: a wait or the end of the tree', engine: false};
@@ -180,15 +230,22 @@ export function eventWords(e, ends = null) {
 
 // What the run does now, in words: {head, since} (since: the start of the step in flight, for a duration that ticks).
 const STATE_SAY = {Submitted: 'Submitted: not started yet', WaitingOnDecision: 'Waiting on a decision: nothing runs until it is answered', WaitingForRoute: 'Waiting for the model route', Cancelled: 'Cancelled'};
+// A step that is over in words: `done`, `ended with exit 3`, the cause of a refusal (`ended by a signal`), or what a
+// check's exit does (`checked: the writer goes on`).
+const overWords = (s) => (s.state === 'exit' ? `ended with exit ${s.exit}` : s.state === 'ended' ? s.cause ?? 'ended' : s.role === 'check' && s.exit != null ? `checked: ${checkWords(s.exit)}` : 'done');
 export function runSayParts(run, m, now, {clock = (t) => clockTime(t, now)} = {}) {
   const state = run?.state;
   const done = m.steps.filter((s) => s.state !== 'running');
   const last = done[done.length - 1];
-  const lastWords = last ? `, the last ${last.action} ${last.state === 'exit' ? `ended with exit ${last.exit}` : 'done'}` : '';
+  const lastWords = last ? `, the last ${last.action} ${overWords(last)}` : '';
+  // the steps that are over: done (an exit of their own) apart from ended (a refusal and no exit)
+  const cut = done.filter((s) => s.state === 'ended').length;
+  const own = done.length - cut;
+  const tally = (steps) => [own > 0 && `${own}${steps ? ` ${own === 1 ? 'step' : 'steps'}` : ''} done`, cut > 0 && `${cut} ended`].filter(Boolean).join(', ');
   if (state === 'Running' || (state === 'Submitted' && m.steps.length)) {
     const s = m.inFlight;
     if (s) return {head: `Running step ${s.n}: ${join(s.action, s.role, s.try != null && `try ${s.try}`).replaceAll(' · ', ', ')}${s.at != null ? `, since ${clock(s.at)}` : ''}`, since: s.at, running: true};
-    if (done.length) return {head: `Between steps: ${done.length} done${lastWords}`, since: null};
+    if (done.length) return {head: `Between steps: ${tally(false)}${lastWords}`, since: null};
     return {head: 'Running: no step started yet', since: null};
   }
   if (state === 'Ended') {
@@ -199,7 +256,7 @@ export function runSayParts(run, m, now, {clock = (t) => clockTime(t, now)} = {}
   if (state === 'FailedToStart') return {head: `Failed to start: ${run.failure ?? 'no reason named'}`, since: null};
   if (state === 'WaitingOnKey') return {head: `Waiting for its serial key${str(run.serial_key) ? ` ${run.serial_key}` : ''}: nothing of it starts before the runs ahead of it end`, since: null};
   if (state === 'WaitingForRoute') return {head: `Waiting for the model route${run.route_phase ? ` (${run.route_phase})` : ''}`, since: null};
-  return {head: `${STATE_SAY[state] ?? state ?? 'State not read'}${done.length ? `: ${done.length} ${done.length === 1 ? 'step' : 'steps'} done${lastWords}` : ''}`, since: null};
+  return {head: `${STATE_SAY[state] ?? state ?? 'State not read'}${done.length ? `: ${tally(true)}${lastWords}` : ''}`, since: null};
 }
 export function runSay(run, m, now, opts) {
   const p = runSayParts(run, m, now, opts);
@@ -216,9 +273,9 @@ const costWords = (x) => (x.costKnown !== false ? usd(x.micro) : x.micro ? `${us
 
 // The counts the run's events hold (and the view's row, withViewCalls).
 function counts(m) {
-  const done = m.steps.filter((s) => s.state === 'done' || s.state === 'exit').length;
-  const exits = m.steps.filter((s) => s.state === 'exit').length;
-  return [`${done} ${done === 1 ? 'step' : 'steps'} done`, exits && `${exits} ended with an exit other than 0`,
+  let done = 0, exits = 0, cut = 0;
+  for (const s of m.steps) { if (s.state === 'done' || s.state === 'exit') done++; if (s.state === 'exit') exits++; if (s.state === 'ended') cut++; }
+  return [`${done} ${done === 1 ? 'step' : 'steps'} done`, exits && `${exits} ended with an exit other than 0`, cut && `${cut} ended with no exit`,
     `${m.calls} model ${m.calls === 1 ? 'call' : 'calls'}`, m.calls && tokenWords(m), m.calls && costWords(m)].filter(Boolean);
 }
 
@@ -230,16 +287,25 @@ export function renderStepsHead(run, m, now) {
     + `<p class="ds-counts" data-key="dcounts">${counts(m).map((c) => `<span>${esc(c)}</span>`).join('')}</p>`;
 }
 
-// The steps in order, one row each. `caseName(id)`: the name of a case of the tree (a column only when steps name more
-// than one case). A step still open in a run that is over is not running: it is "not finished".
+// The steps in order, one row each: the latest STEP_ROWS of them and the step in flight when it started before those,
+// with a line that says how many earlier steps are left out (the counts above are of every step). `caseName(id)`: the
+// name of a case of the tree (a column only when steps name more than one case). A step still open in a run that is
+// over is not running: it is "not finished".
+export const STEP_ROWS = 200;
 export function renderStepsTable(run, m, now, caseName = () => null) {
   if (!m.steps.length) return `<p class="ds-empty muted" data-key="dempty">${run && LIVE_STATES.includes(run.state) ? 'No step has started yet. The steps show here as the run takes them.' : 'This run took no step.'}</p>`;
   const live = run && LIVE_STATES.includes(run.state);
   // a run of more than one case names each step's case (— where its events name none: a step with no program)
-  const many = new Set([...(m.cases ?? []), ...m.steps.map((s) => s.case).filter(Boolean)]).size > 1;
-  const rows = m.steps.map((s) => {
+  const named = new Set(m.cases ?? []);
+  for (const s of m.steps) if (s.case) named.add(s.case);
+  const many = named.size > 1;
+  const latest = m.steps.slice(-STEP_ROWS);
+  const shown = m.inFlight && m.inFlight.n <= m.steps.length - latest.length ? [m.inFlight, ...latest] : latest;
+  const left = m.steps.length - shown.length;
+  const note = left > 0 ? `<p class="ds-left muted" data-key="dleft">${fmtCount(left)} earlier ${left === 1 ? 'step' : 'steps'} left out: the list shows the latest ${STEP_ROWS}${shown.length > latest.length ? ' and the step in flight' : ''}.</p>` : '';
+  const rows = shown.map((s) => {
     const state = s.state === 'running' && !live ? 'unfinished' : s.state;
-    const word = {running: 'running', done: 'done', exit: `exit ${s.exit}`, unfinished: 'not finished'}[state];
+    const word = state === 'unfinished' ? 'not finished' : state === 'running' ? 'running' : state === 'exit' ? `exit ${s.exit}` : overWords(s);
     const took = state === 'running' && s.at != null ? `<span data-took-since="${s.at}">${esc(fmtTook(now - s.at, true))}</span>` : s.at != null && s.end != null ? esc(fmtTook(s.end - s.at)) : '—';
     const calls = s.calls ? ` <span class="ds-calls" title="${esc([tokenWords(s), (s.micro || s.costKnown === false) && costWords(s)].filter(Boolean).join(', '))}">${s.calls} model ${s.calls === 1 ? 'call' : 'calls'}</span>` : '';
     return `<tr data-key="st:${s.n}" data-state="${state}"><td class="ds-n">${s.n}</td><td class="ds-act-c"><span class="ds-act">${esc(s.action)}</span>${calls}</td>`
@@ -247,7 +313,7 @@ export function renderStepsTable(run, m, now, caseName = () => null) {
       + `<td class="ds-role">${esc(s.role ?? '—')}</td><td class="ds-st">${esc(word)}</td>`
       + `<td class="ds-at"${s.at != null ? ` title="${esc(fullTime(s.at))}"` : ''}>${s.at != null ? esc(clockTime(s.at, now)) : '—'}</td><td class="ds-took">${took}</td><td class="ds-try">${s.try ?? '—'}</td></tr>`;
   }).join('');
-  return `<table class="ds-table" data-key="dtable"><caption class="sr">Steps of the run, in the order they started</caption><thead><tr><th scope="col" class="ds-n">#</th><th scope="col">Step</th>${many ? '<th scope="col">Case</th>' : ''}<th scope="col">Role</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Took</th><th scope="col">Try</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `${note}<table class="ds-table" data-key="dtable"><caption class="sr">Steps of the run, in the order they started</caption><thead><tr><th scope="col" class="ds-n">#</th><th scope="col">Step</th>${many ? '<th scope="col">Case</th>' : ''}<th scope="col">Role</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Took</th><th scope="col">Try</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // The phone's sticky bar: the run's state in a word and the step in flight (or how the run stands).
@@ -259,3 +325,45 @@ export function renderStepsBar(run, m, now) {
   const cls = {running: 'm-running', ended: 'm-closed', bad: 'm-stuck', waiting: 'm-waiting', between: 'm-between'}[stateCls(run, m)];
   return `<span class="nb-state ${cls}" data-key="nbs"><i></i>${esc(runStateWord(run))}</span><span class="nb-step" data-key="nbp">${step}</span>`;
 }
+
+// One event of a run as a row: its name and what it says in words, its place in the run with the kind the runtime
+// wrote, and its time on the page's clock (the date and time in full on hover).
+export function eventRow(e, now = Date.now(), cls = 'fd-row', ends = null) {
+  const w = eventWords(e, ends);
+  const position = Number(e.position), sequence = Number(e.sequence), at = ms(e.at);
+  return `<div class="${cls}${w.engine ? ' fd-engine' : ''}" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
+    + `<div class="fd-1"><span class="fd-s">${esc(w.name)}</span></div>`
+    + (w.detail ? `<div class="fd-m">${esc(w.detail)}</div>` : '')
+    + `<div class="fd-2"><span class="fd-c">event ${sequence} · ${esc(e.kind)}</span><span class="fd-t" title="${esc(fullTime(at))}">${esc(clockTime(at, now))}</span></div></div>`;
+}
+
+// The most event rows a list of a run's events draws (the feed, the Events tab): the latest ones, and a line saying how
+// many earlier ones are left out. The counts in the head are of every event.
+export const EVENT_ROWS = 200;
+const leftOut = (n) => (n > 0 ? `<div class="fd-left muted" data-key="evleft">${n.toLocaleString()} earlier ${n === 1 ? 'event' : 'events'} left out: the list shows the latest ${EVENT_ROWS}.</div>` : '');
+
+// The run's own events as the feed, newest first, in words (`list`: the events in their order, `id`: the run). The
+// engine's own lines around each step (an evaluation before it, the step-budget stop after it and, from a runtime that
+// names a step's end, runbook.step-ended) are folded unless `all`; the head says how many and has the control that
+// shows them.
+export function eventsFeed(list, id, {all = false, now = Date.now()} = {}) {
+  const ends = stepEnds(list);
+  const engine = list.map((e) => eventWords(e, ends).engine);
+  const folded = all ? 0 : engine.filter(Boolean).length;
+  const count = list.length - folded;
+  const rows = [];
+  for (let i = list.length - 1; i >= 0 && rows.length < EVENT_ROWS; i--) if (all || !engine[i]) rows.push(eventRow(list[i], now, 'fd-row', ends));
+  const fold = all ? (engine.some(Boolean) ? '<button type="button" class="fd-fold" data-dfold="0">Fold engine lines</button>' : '')
+    : folded ? `<button type="button" class="fd-fold" data-dfold="1">Show all ${list.length}</button>` : '';
+  return `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${count}${folded ? ` of ${list.length}` : ''}, newest first${folded ? ` · ${folded} engine lines folded` : ''}</span>${fold}</div>`
+    + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows.join('')}${leftOut(count - rows.length)}</div>`;
+}
+
+// The Events tab: every event of the run, oldest first, the engine's lines too; the latest EVENT_ROWS of them drawn.
+export function eventsPane(list, now = Date.now()) {
+  const ends = stepEnds(list);
+  const from = Math.max(0, list.length - EVENT_ROWS);
+  const rows = list.slice(from).map((e) => eventRow(e, now, 'ev-row fd-row', ends)).join('');
+  return `<div class="tabpane" data-key="pane:events"><div class="sect">Run events <span class="muted">${list.length}, oldest first</span></div><div class="ev-list">${leftOut(from)}${rows}</div></div>`;
+}
+

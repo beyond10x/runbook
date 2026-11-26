@@ -79,7 +79,7 @@ test('the pane says the run, each step and the totals, and a number the row leav
   });
   await expect(sum(page, 'state')).toHaveText('Ended');
   await expect(sum(page, 'outcome')).toHaveText('answered');
-  await expect(sum(page, 'duration')).toHaveText('9 s');
+  await expect(sum(page, 'duration')).toHaveText('9.0 s');
   await expect(sum(page, 'calls')).toHaveText('6');
   // tokens and costs in the words of the step list: `1,200 in, 800 out`, `$0.0042` (usd of web/runsteps.js)
   await expect(sum(page, 'tokens')).toHaveText('145 in, 31 out');
@@ -97,7 +97,7 @@ test('the pane says the run, each step and the totals, and a number the row leav
   await expect(cell(page, 0, 'tokens_in')).toHaveText('140');
   await expect(cell(page, 0, 'booked')).toHaveText('$0.0072');
   await expect(cell(page, 0, 'tries')).toHaveText('2');
-  await expect(cell(page, 0, 'duration')).toHaveText('2.75 s');
+  await expect(cell(page, 0, 'duration')).toHaveText('2.8 s');
   await expect(cell(page, 0, 'exit')).toHaveText('0');
   await expect(cell(page, 0, 'cost')).toHaveText('$0.0002');
   // the second step runs: no end, no exit, its tokens are not known
@@ -166,4 +166,17 @@ test('text from the daemon stays text: a case, an action, an outcome and a state
   await expect(cell(page, 0, 'action')).toHaveText(HOSTILE);
   expect(await page.locator('#metrics-pane img').count()).toBe(0);
   expect(await page.evaluate(() => window.__owned)).toBeUndefined();
+});
+
+test('a duration in the pane is said as the step list says it: one form for an ended step, one for a running one', async ({page}) => {
+  await page0(page, () => { throw new Error('no view read'); });
+  const pairs = await page.evaluate(async () => {
+    const m = await import('/metrics.js');
+    const r = await import('/runsteps.js');
+    return [0, 60, 120, 850, 2750, 4000, 9500, 59999, 61000, 132000, 3725000].map((v) => [v, m.duration(v), r.fmtTook(v), m.duration(v, true), r.fmtTook(v, true)]);
+  });
+  for (const [v, ended, list, running, listRunning] of pairs) {
+    expect(ended, `${v} ms ended`).toBe(list);
+    expect(running, `${v} ms running`).toBe(listRunning);
+  }
 });

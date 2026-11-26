@@ -10,8 +10,8 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
-import {api, openEvents, daemonView, daemon, missingRun, runEvents, eventRow, tabsOf} from './source.js';
-import {runSteps, stepEnds, withViewCalls, renderStepsHead, renderStepsTable, renderStepsBar, runStateWord, fmtTook} from './runsteps.js';
+import {api, openEvents, daemonView, daemon, missingRun, runEvents, tabsOf} from './source.js';
+import {runSteps, withViewCalls, renderStepsHead, renderStepsTable, renderStepsBar, runStateWord, fmtTook, eventsPane} from './runsteps.js';
 import {clockTime} from './clock.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
@@ -438,9 +438,7 @@ function renderDaemon(src) {
   if (S.panel && tab === 'metrics') return mountMetrics(metrics);
   if (p.dataset.tab === 'metrics') p.dataset.tab = '';
   // the Events tab: every event of the run, oldest first, the engine's lines too
-  const list = run && S.panel && tab === 'events' ? runEvents(run.run_id) : [];
-  const ends = stepEnds(list);
-  patch(p, S.panel && tab === 'events' ? `<div class="tabpane" data-key="pane:events"><div class="sect">Run events <span class="muted">${list.length}, oldest first</span></div><div class="ev-list">${list.map((e) => eventRow(e, now, 'ev-row fd-row', ends)).join('')}</div></div>` : '');
+  patch(p, S.panel && tab === 'events' ? eventsPane(run ? runEvents(run.run_id) : [], now) : '');
 }
 
 function renderTree(cases, st, now) {
