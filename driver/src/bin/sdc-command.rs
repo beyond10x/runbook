@@ -61,6 +61,7 @@ struct Options {
 }
 
 fn main() {
+    sdc_tools::answer_version("sdc-command");
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         print!("{}", usage());
