@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.SerialKey.schema.json",
+  "$ref": "#/$defs/sdc.daemon.SerialKey",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:98b24f0e9430ba3ac3984aaebfceb80191f434c5a3f3ff4f261076c4170fd32f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.SerialKey": {
+      "title": "SerialKey",
+      "description": "Optional text, 1 to 200 characters, that the submitter names (the daemon never derives one): runs with one key run one at a time, in the order they were submitted. A run whose key a live run submitted before it holds is WaitingOnKey until no such run is live; runs with another key or none are not held. A key that is empty or longer is refused before anything is written (400).",
+      "x-ess-name": "sdc.daemon.SerialKey",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count >= 1",
+        "value.count <= 200"
+      ]
+    }
+  }
+}

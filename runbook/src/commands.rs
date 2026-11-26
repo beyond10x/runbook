@@ -287,6 +287,12 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("fail-run-start", "no-run", 404, Some("NoSuchRun")),
     o("fail-run-start", "failed", 202, None),
     o("fail-run-start", "wrong-state", 409, Some("RunStateConflict")),
+    o("wait-on-key", "no-run", 404, Some("NoSuchRun")),
+    o("wait-on-key", "waiting-on-key", 202, None),
+    o("wait-on-key", "wrong-state", 409, Some("RunStateConflict")),
+    o("take-key", "no-run", 404, Some("NoSuchRun")),
+    o("take-key", "took-key", 202, None),
+    o("take-key", "wrong-state", 409, Some("RunStateConflict")),
     o("wait-for-route", "no-run", 404, Some("NoSuchRun")),
     o("wait-for-route", "waiting-for-route", 202, None),
     o("wait-for-route", "wrong-state", 409, Some("RunStateConflict")),
@@ -352,6 +358,8 @@ fn event_name(short: &'static str) -> &'static str {
         "RunOrphaned" => "sdc.daemon.RunOrphaned",
         "RunWaitingForRoute" => "sdc.daemon.RunWaitingForRoute",
         "RunStoppedOnRoute" => "sdc.daemon.RunStoppedOnRoute",
+        "RunWaitingOnKey" => "sdc.daemon.RunWaitingOnKey",
+        "RunTookKey" => "sdc.daemon.RunTookKey",
         other => panic!("no event {other}"),
     }
 }
@@ -501,6 +509,10 @@ pub struct SubmitRun {
     pub session_id: Option<String>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    /// The serial key of the run: runs with one key run one at a time, in submit order; the submitter names it, the
+    /// daemon never derives one. None: the run waits for no other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_key: Option<String>,
     /// The route of the run's role `default`, by the name the daemon's file declares; absent: `route_policy.default`
     /// for a run that makes model calls.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -611,7 +623,7 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
     if routes.names().is_empty() {
         let Some(table) = policy.gateway_route.clone() else { return Ok(None) };
         let Some((route, _)) = table.get("default") else { return Ok(None) };
-        let record = RunRoute { route: route.name.clone(), alias: route.alias.clone(), source: RouteSource::Default, roles: BTreeMap::new() };
+        let record = RunRoute { route: route.name.clone(), alias: route.alias.clone(), source: RouteSource::Default, roles: BTreeMap::new(), sources: BTreeMap::new() };
         return Ok(Some((record, table)));
     }
     let chosen = match protocol {
@@ -659,12 +671,35 @@ fn table_of(routes: &crate::routes::RouteTable, mut chosen: BTreeMap<String, (St
     let (name, source) = chosen.remove("default").ok_or_else(|| no_default.to_owned())?;
     let resolve = |name: &str| routes.resolve(name).map(crate::relay::ResolvedRoute::from).ok_or_else(|| format!("the route {name} has no gateway the daemon declares"));
     let first = resolve(&name)?;
-    let record = RunRoute { route: first.name.clone(), alias: first.alias.clone(), source, roles: chosen.iter().map(|(role, (name, _))| (role.clone(), name.clone())).collect() };
+    let record = RunRoute {
+        route: first.name.clone(),
+        alias: first.alias.clone(),
+        source,
+        roles: chosen.iter().map(|(role, (name, _))| (role.clone(), name.clone())).collect(),
+        sources: chosen.iter().map(|(role, (_, source))| (role.clone(), *source)).collect(),
+    };
     let mut table = crate::relay::RouteTable::default().with("default", first, source.as_str());
     for (role, (name, source)) in &chosen {
         table = table.with(role, resolve(name)?, source.as_str());
     }
     Ok((record, table))
+}
+
+/// The relay's table of a run from its record (`table_of` made it at the admission): a run that waited on its serial key
+/// across a restart is taken up again on the routes it was admitted with, resolved against the routes the daemon declares
+/// now. `Err` is why the record cannot be resolved.
+fn table_of_record(policy: &Policy, record: &RunRoute) -> Result<crate::relay::RouteTable, String> {
+    let routes = &policy.routes;
+    if routes.names().is_empty() {
+        // the interim route `default` of a lone [gateway]
+        return policy.gateway_route.clone().filter(|t| t.get("default").is_some()).ok_or_else(|| "the daemon declares no route and no [gateway]: the run's route default is gone".to_owned());
+    }
+    let mut chosen = BTreeMap::from([("default".to_owned(), (record.route.clone(), record.source))]);
+    for (role, name) in &record.roles {
+        let source = record.sources.get(role).copied().ok_or_else(|| format!("the run's record does not say what chose the route of its role {role}"))?;
+        chosen.insert(role.clone(), (name.clone(), source));
+    }
+    table_of(routes, chosen, "the run's record names no route of its role default").map(|(_, table)| table)
 }
 
 /// A delegation's route, chosen as a run's (`route_of_run`): the route it names (`model_route`), else the daemon's
@@ -708,6 +743,9 @@ pub struct Delegate {
     pub session_id: Option<String>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    /// The serial key of the run, as a submit's (`SubmitRun::serial_key`).
+    #[serde(default)]
+    pub serial_key: Option<String>,
     /// Who asked: the MCP client's name (`runbook mcp` sends `clientInfo.name`), recorded in `runbook.delegated`.
     #[serde(default)]
     pub caller: Option<String>,
@@ -730,6 +768,8 @@ struct Admitted {
     terms: Terms,
     session_id: Option<String>,
     idempotency_key: Option<String>,
+    /// The serial key the submit named; none: the run waits for no other.
+    serial_key: Option<String>,
     /// The run's model route as its record keeps it and the route of each of its roles (`route_of_run`, `route_of_delegation`);
     /// none: the run is on no route.
     route: Option<(RunRoute, crate::relay::RouteTable)>,
@@ -759,6 +799,24 @@ struct RouteWait {
 
 /// The run event that books a wake of a route, or says the day's wake cap does not cover one.
 pub const ROUTE_WAKE: &str = "runbook.route-wake";
+/// The run event of a run that waits behind the runs of its serial key (record: serial_key, behind).
+pub const KEY_WAIT_EVENT: &str = "runbook.waiting-on-key";
+/// The run event of a run that took its serial key after a wait (record: serial_key).
+pub const KEY_TAKEN_EVENT: &str = "runbook.key-taken";
+
+/// How often a run that waits on its serial key looks at the runs ahead of it.
+const KEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// What the wait of a run on its serial key came to (`Daemon::wait_for_key`).
+enum Keyed {
+    /// The run names no key, or no live run with it was submitted before it: it waited for nothing.
+    Free,
+    /// It waited and took the key: what was read at its submit is old, and its routes are read again.
+    Took,
+    /// It was cancelled while it waited, or the daemon stops: it keeps the state it has.
+    Left,
+}
+
 /// The run event of the gateway's answer to a wake.
 pub const ROUTE_WAKE_ANSWERED: &str = "runbook.route-wake-answered";
 /// The reason of a wake that was not sent.
@@ -937,6 +995,15 @@ fn long_enough(text: &str) -> bool {
     text.chars().count() <= MAX_LABEL_CHARS
 }
 
+/// A serial key is 1 to `MAX_LABEL_CHARS` characters; another is refused before anything is written.
+fn check_serial_key(key: Option<&str>) -> Result<(), Fault> {
+    match key {
+        Some("") => Err(Fault::Invalid("serial_key is empty: name a key of 1 to 200 characters, or none".to_owned())),
+        Some(k) if !long_enough(k) => Err(Fault::Invalid(format!("serial_key is longer than {MAX_LABEL_CHARS} characters"))),
+        _ => Ok(()),
+    }
+}
+
 impl Daemon {
     /// Open the state directory, record the configuration row (`StartDaemon`) and deal with the runs
     /// whose runtime is gone because the daemon stopped.
@@ -996,6 +1063,7 @@ impl Daemon {
             other => return Err(io::Error::other(format!("StartDaemon: {other:?}"))),
         }
         d.mark_orphans().map_err(|f| io::Error::other(format!("{f:?}")))?;
+        d.requeue();
         Ok(d)
     }
 
@@ -1075,10 +1143,14 @@ impl Daemon {
     /// reporting for them, and each run that is `Running` or `WaitingOnDecision` ends as `orphaned` with an
     /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn; a run that is
     /// `WaitingForRoute` never started and fails to start (`runbook.start-failed`, [`ROUTE_WAIT_AT_STOP`]).
+    /// A run that is `WaitingOnKey` keeps its place: the queue of its key holds across the restart (`requeue`).
     /// No thread is joined: `stop` does that. The number of runs that were live and are ended now.
     pub fn orphan_live_runs(&self) -> usize {
         self.inner.stopping.store(true, Ordering::SeqCst);
-        let live = self.live_runs();
+        let live: Vec<String> = {
+            let st = self.st();
+            st.live_run_ids().into_iter().filter(|id| st.run(id).is_some_and(|r| r.state != RunState::WaitingOnKey)).collect()
+        };
         for run_id in &live {
             // a run that waits for its route never started: it fails to start, as after a restart (`mark_orphans`)
             let waiting = self.st().run(run_id).is_some_and(|r| r.state == RunState::WaitingForRoute);
@@ -1103,6 +1175,8 @@ impl Daemon {
                 fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped before the runtime took the run up")?;
             } else if state == RunState::WaitingForRoute {
                 fail_run_start_locked(&mut self.st(), &run_id, ROUTE_WAIT_AT_STOP)?;
+            } else if state == RunState::WaitingOnKey {
+                // the queue of its key holds across the restart: `requeue` takes it up again
             } else if self.inner.runtime.recover(&run_id) == Recovery::Gone {
                 self.end_orphaned_run(&run_id)?;
             }
@@ -1179,6 +1253,7 @@ impl Daemon {
         if let Some(name) = input.settings.keys().find_map(|k| gateway_name(k)) {
             return Err(gateway_refusal("the setting", &name));
         }
+        check_serial_key(input.serial_key.as_deref())?;
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
@@ -1283,6 +1358,7 @@ impl Daemon {
             terms,
             session_id: input.session_id,
             idempotency_key: input.idempotency_key,
+            serial_key: input.serial_key,
             route,
             delegation: None,
             wait,
@@ -1316,6 +1392,7 @@ impl Daemon {
             route_phase: None,
             session_id: a.session_id,
             idempotency_key: a.idempotency_key,
+            serial_key: a.serial_key.clone(),
             submitted_at: st.now(),
             started_at: None,
             ended_at: None,
@@ -1331,6 +1408,9 @@ impl Daemon {
         if let Some(kind) = &a.terms.decider {
             record["decider"] = json!(kind);
         }
+        if let Some(key) = &a.serial_key {
+            record["serial_key"] = json!(key);
+        }
         if let Some((r, _)) = &a.route {
             record["model_route"] = json!(r.route);
             record["model_route_alias"] = json!(r.alias);
@@ -1345,21 +1425,7 @@ impl Daemon {
         // A delegation the run classifies takes the route entries of the runbook the classifier picks as one that names it
         // does (`route_of_delegation`): the route the delegation named stays the run's word. Its routes pass the readiness
         // check of a run's before the runbook's first call, and the run's record names them.
-        let admit = (a.delegation.is_some() && a.runbook_id == crate::delegation::CLASSIFY_RUNBOOK).then(|| {
-            // the run holds the daemon weakly: a run that outlives it gets a refusal, and no cycle keeps the daemon alive
-            let inner = Arc::downgrade(&self.inner);
-            let named = a.route.as_ref().filter(|(record, _)| record.source == RouteSource::Run).map(|(record, _)| record.route.clone());
-            let run = run_id.clone();
-            crate::runtime::Admit(Arc::new(move |runbook: &str| {
-                let refused = |why: String| format!("route-refused: {why}");
-                let daemon = Daemon { inner: inner.upgrade().ok_or_else(|| refused("the daemon stopped before the run took its runbook's routes".to_owned()))? };
-                let word = daemon.protocol_word(runbook, None).map_err(refused)?;
-                let (record, table) = route_of_delegation(&daemon.inner.policy, named.as_deref(), word.as_ref()).map_err(refused)?;
-                daemon.ready_routes(&run, &record)?;
-                daemon.st().commit(Fact::RunRouted { run_id: run.clone(), model_route: record }).map_err(|e| refused(format!("the run's record could not take its routes: {e}")))?;
-                Ok(table)
-            }))
-        });
+        let admit = (a.delegation.is_some() && a.runbook_id == crate::delegation::CLASSIFY_RUNBOOK).then(|| self.admit_of(&run_id, a.route.as_ref().map(|(record, _)| record)));
         let request = StartRequest {
             run_id,
             runbook: a.runbook_id,
@@ -1379,6 +1445,74 @@ impl Daemon {
         Ok(())
     }
 
+    /// The admission of the route entries of the runbook the classifier picks for the delegation `run_id` (`crate::runtime::Admit`):
+    /// the route the delegation named (its record's route when the run chose it) stays the run's word.
+    fn admit_of(&self, run_id: &str, record: Option<&RunRoute>) -> crate::runtime::Admit {
+        // the run holds the daemon weakly: a run that outlives it gets a refusal, and no cycle keeps the daemon alive
+        let inner = Arc::downgrade(&self.inner);
+        let named = record.filter(|record| record.source == RouteSource::Run).map(|record| record.route.clone());
+        let run = run_id.to_owned();
+        crate::runtime::Admit(Arc::new(move |runbook: &str| {
+            let refused = |why: String| format!("route-refused: {why}");
+            let daemon = Daemon { inner: inner.upgrade().ok_or_else(|| refused("the daemon stopped before the run took its runbook's routes".to_owned()))? };
+            let word = daemon.protocol_word(runbook, None).map_err(refused)?;
+            let (record, table) = route_of_delegation(&daemon.inner.policy, named.as_deref(), word.as_ref()).map_err(refused)?;
+            daemon.ready_routes(&run, &record)?;
+            daemon.st().commit(Fact::RunRouted { run_id: run.clone(), model_route: record }).map_err(|e| refused(format!("the run's record could not take its routes: {e}")))?;
+            Ok(table)
+        }))
+    }
+
+    /// The runs the journal holds as WaitingOnKey when the daemon starts: the queue of each key is the journal's order, so
+    /// each is taken up again (its own thread waits for its key) in that order. A run whose context or routes the daemon
+    /// refuses now fails to start, with the reason, and frees its place.
+    fn requeue(&self) {
+        let waiting: Vec<String> = self.st().runs().iter().filter(|r| r.state == RunState::WaitingOnKey).map(|r| r.run_id.clone()).collect();
+        for run_id in waiting {
+            match self.request_of(&run_id) {
+                Ok(request) => self.spawn_run(request, None),
+                Err(reason) => {
+                    let _ = self.fail_run_start(&run_id, &reason);
+                }
+            }
+        }
+    }
+
+    /// The start request of a run from its record, as `enter` made it at the admission: the context is resolved under the
+    /// daemon's roots again, the routes against the routes it declares now (`table_of_record`), and a delegation's route
+    /// is the one its event `runbook.delegated` names.
+    fn request_of(&self, run_id: &str) -> Result<StartRequest, String> {
+        let st = self.st();
+        let r = st.run(run_id).cloned().ok_or_else(|| format!("no run {run_id}"))?;
+        let delegated = st.events_after(Some(run_id), None, 0).iter().find(|e| e.kind == crate::delegation::DELEGATED_EVENT).map(|e| e.record.get("route").and_then(Value::as_str).unwrap_or_default().to_owned());
+        let (state_dir, workspace_dir) = (st.run_dir(run_id), st.workspace_dir(run_id));
+        drop(st);
+        let context_dir = match &r.context_path {
+            None => None,
+            Some(p) => Some(self.context_under_roots(p).ok_or_else(|| "the run's context lies under no context root of the daemon now".to_owned())?),
+        };
+        let routes = match &r.model_route {
+            None => None,
+            Some(record) => Some(table_of_record(&self.inner.policy, record).map_err(|why| format!("route-refused: {why}"))?),
+        };
+        let admit = (delegated.is_some() && r.runbook_id == crate::delegation::CLASSIFY_RUNBOOK).then(|| self.admit_of(run_id, r.model_route.as_ref()));
+        Ok(StartRequest {
+            run_id: r.run_id,
+            runbook: r.runbook_id,
+            version: r.runbook_version,
+            intake: r.intake,
+            context_dir,
+            settings: r.settings,
+            confinement: r.confinement,
+            terms: r.terms,
+            state_dir,
+            workspace_dir,
+            routes,
+            model_route: delegated,
+            admit,
+        })
+    }
+
     /// `Delegate` (`docs/model-routes.md`, section 8): a piece of agent work on a named route, as a run. The guards run in the
     /// specification's order; the gateway of the route is asked whether it is ready after the guards that need no lock and before
     /// anything is written (a replay of an idempotency key is not asked about).
@@ -1393,6 +1527,7 @@ impl Daemon {
         if let Some(name) = input.settings.keys().find_map(|k| gateway_name(k)) {
             return Err(gateway_refusal("the setting", &name));
         }
+        check_serial_key(input.serial_key.as_deref())?;
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
@@ -1523,6 +1658,7 @@ impl Daemon {
             terms,
             session_id: input.session_id,
             idempotency_key: input.idempotency_key,
+            serial_key: input.serial_key,
             route: Some((record, table)),
             delegation: Some(route.clone()),
             wait,
@@ -1653,6 +1789,17 @@ impl Daemon {
         }
     }
 
+    /// `WaitOnKey`, issued by the daemon itself: a Submitted run whose serial key a live run submitted before it holds
+    /// waits.
+    pub fn wait_on_key(&self, run_id: &str) -> Reply {
+        wait_on_key_locked(&mut self.st(), run_id)
+    }
+
+    /// `TakeKey`, issued by the daemon itself: no live run of the key was submitted before the waiting run any more.
+    pub fn take_key(&self, run_id: &str) -> Reply {
+        take_key_locked(&mut self.st(), run_id)
+    }
+
     /// `EndRouteWait`, issued by the daemon itself: the run's wait for its route is over and a route of it still could
     /// not answer. The run ends `stopped: route`, with the last phase the gateway gave; the daemon writes the run event
     /// `runbook.route-wait-ended` first, while the run still takes events.
@@ -1729,21 +1876,25 @@ impl Daemon {
     // ---- views ----
 
     pub fn runs(&self) -> Vec<Value> {
-        run_rows(self.st().runs().iter().rev())
+        let st = self.st();
+        run_rows(&st, st.runs().iter().rev())
     }
 
     pub fn runs_of_session(&self, session_id: &str) -> Vec<Value> {
-        run_rows(self.st().runs().iter().rev().filter(|r| r.session_id.as_deref() == Some(session_id)))
+        let st = self.st();
+        run_rows(&st, st.runs().iter().rev().filter(|r| r.session_id.as_deref() == Some(session_id)))
     }
 
     pub fn runs_in_state(&self, state: &str) -> Result<Vec<Value>, Fault> {
         let state = parse_state(state)?;
-        Ok(run_rows(self.st().runs().iter().rev().filter(|r| r.state == state)))
+        let st = self.st();
+        Ok(run_rows(&st, st.runs().iter().rev().filter(|r| r.state == state)))
     }
 
     pub fn runs_of_session_in_state(&self, session_id: &str, state: &str) -> Result<Vec<Value>, Fault> {
         let state = parse_state(state)?;
-        Ok(run_rows(self.st().runs().iter().rev().filter(|r| r.session_id.as_deref() == Some(session_id) && r.state == state)))
+        let st = self.st();
+        Ok(run_rows(&st, st.runs().iter().rev().filter(|r| r.session_id.as_deref() == Some(session_id) && r.state == state)))
     }
 
     /// The view `RunDetail` (wire name `run`): zero or one row.
@@ -1753,7 +1904,7 @@ impl Daemon {
         let st = self.st();
         st.run(run_id)
             .map(|r| {
-                let mut row = run_row(r);
+                let mut row = run_row(&st, r);
                 let m = row.as_object_mut().unwrap();
                 m.insert("intake".into(), json!(r.intake));
                 let mut settings = r.settings.clone();
@@ -2380,8 +2531,77 @@ impl Daemon {
         let _ = self.resume_run(run_id);
     }
 
+    /// Holds a run whose serial key a live run submitted before it holds (`State::ahead_on_key`): the run is WaitingOnKey
+    /// (`WaitOnKey`) and looks again every [`KEY_LOOK_EVERY`] until no such run is live, then takes the key (`TakeKey`).
+    /// The order is the journal's, so the runs of a key start in submit order, also after a restart. A cancel or the
+    /// daemon's stop ends the wait and leaves the run's state as it is.
+    fn wait_for_key(&self, run_id: &str, cancel: &AtomicBool) -> Keyed {
+        loop {
+            if cancel.load(Ordering::SeqCst) || self.is_stopping() {
+                return Keyed::Left;
+            }
+            {
+                let mut st = self.st();
+                let Some(run) = st.run(run_id) else { return Keyed::Left };
+                if run.serial_key.is_none() {
+                    return Keyed::Free;
+                }
+                let state = run.state;
+                let ahead = st.ahead_on_key(run_id).is_some();
+                match (state, ahead) {
+                    (RunState::Submitted, false) => return Keyed::Free,
+                    (RunState::WaitingOnKey, false) => {
+                        return match take_key_locked(&mut st, run_id) {
+                            Ok(o) if !o.is_refusal() => Keyed::Took,
+                            _ => Keyed::Left,
+                        };
+                    }
+                    (RunState::Submitted, true) => {
+                        if !matches!(wait_on_key_locked(&mut st, run_id), Ok(o) if !o.is_refusal()) {
+                            return Keyed::Left;
+                        }
+                    }
+                    (RunState::WaitingOnKey, true) => {}
+                    // cancelled (or moved by anything else) while it waited
+                    _ => return Keyed::Left,
+                }
+            }
+            std::thread::sleep(KEY_LOOK_EVERY);
+        }
+    }
+
+    /// The wait for the routes of a run that took its serial key after a wait: they are read again now (`route_wait`), as a
+    /// submit reads them; a delegation the run classifies reads the classifier route with them. `Err` is the run's failure to
+    /// start: `route-unavailable: ...` or `route-refused: ...`.
+    fn routes_after_key(&self, request: &StartRequest) -> Result<Option<RouteWait>, String> {
+        let Some(record) = self.st().run(&request.run_id).and_then(|r| r.model_route.clone()) else { return Ok(None) };
+        let routes = &self.inner.policy.routes;
+        let classifier = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK { routes.classifier() } else { None };
+        route_wait(routes, &record, classifier).map_err(|e| match e {
+            NotReady::Unavailable(message) => format!("route-unavailable: {message}"),
+            NotReady::Refused(reason) => format!("route-refused: {reason}"),
+        })
+    }
+
     fn run_thread(&self, request: StartRequest, wait: Option<RouteWait>, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
+        let wait = match self.wait_for_key(&run_id, cancel) {
+            Keyed::Free => wait,
+            Keyed::Took => match self.routes_after_key(&request) {
+                Ok(wait) => wait,
+                Err(reason) => {
+                    if !self.is_stopping() {
+                        let _ = self.fail_run_start(&run_id, &reason);
+                    }
+                    lock(&self.inner.cancels).remove(&run_id);
+                    return;
+                }
+            },
+            Keyed::Left => {
+                lock(&self.inner.cancels).remove(&run_id);
+                return;
+            }
+        };
         if let Some(wait) = &wait {
             if !self.wait_for_routes(&run_id, wait, cancel) {
                 lock(&self.inner.cancels).remove(&run_id);
@@ -2557,13 +2777,44 @@ fn draining_fault(st: &State) -> Result<(), Fault> {
 fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("fail-run-start", "no-run", json!({"run_id": run_id}))),
-        Some(RunState::Submitted | RunState::WaitingForRoute) => {
+        Some(RunState::Submitted | RunState::WaitingOnKey | RunState::WaitingForRoute) => {
             record_event_locked(st, run_id, "runbook.start-failed", json!({"reason": reason}))?;
             let now = st.now();
             st.commit(Fact::RunFailedToStart { run_id: run_id.to_string(), reason: reason.to_string(), at: now })?;
             Ok(done("fail-run-start", "failed", vec![("RunFailedToStart", json!({"run_id": run_id, "reason": reason}))]))
         }
         Some(_) => Ok(refuse("fail-run-start", "wrong-state", json!({"run_id": run_id}))),
+    }
+}
+
+/// `WaitOnKey`: a Submitted run waits behind the live runs of its serial key submitted before it. The run event
+/// `runbook.waiting-on-key` names the key and the run ahead of it now.
+fn wait_on_key_locked(st: &mut State, run_id: &str) -> Reply {
+    match st.run(run_id).map(|r| r.state) {
+        None => Ok(refuse("wait-on-key", "no-run", json!({"run_id": run_id}))),
+        Some(RunState::Submitted) => {
+            let key = st.run(run_id).and_then(|r| r.serial_key.clone());
+            let behind = st.ahead_on_key(run_id).map(|r| r.run_id.clone());
+            record_event_locked(st, run_id, KEY_WAIT_EVENT, json!({"serial_key": key, "behind": behind}))?;
+            st.commit(Fact::RunWaitingOnKey { run_id: run_id.to_string() })?;
+            Ok(done("wait-on-key", "waiting-on-key", vec![("RunWaitingOnKey", json!({"run_id": run_id}))]))
+        }
+        Some(_) => Ok(refuse("wait-on-key", "wrong-state", json!({"run_id": run_id}))),
+    }
+}
+
+/// `TakeKey`: a run that waited on its serial key takes it and is Submitted again. The run event `runbook.key-taken`
+/// names the key.
+fn take_key_locked(st: &mut State, run_id: &str) -> Reply {
+    match st.run(run_id).map(|r| r.state) {
+        None => Ok(refuse("take-key", "no-run", json!({"run_id": run_id}))),
+        Some(RunState::WaitingOnKey) => {
+            let key = st.run(run_id).and_then(|r| r.serial_key.clone());
+            record_event_locked(st, run_id, KEY_TAKEN_EVENT, json!({"serial_key": key}))?;
+            st.commit(Fact::RunTookKey { run_id: run_id.to_string() })?;
+            Ok(done("take-key", "took-key", vec![("RunTookKey", json!({"run_id": run_id}))]))
+        }
+        Some(_) => Ok(refuse("take-key", "wrong-state", json!({"run_id": run_id}))),
     }
 }
 
@@ -2711,7 +2962,7 @@ fn parse_state(text: &str) -> Result<RunState, Fault> {
     RunState::parse(text).ok_or_else(|| Fault::Invalid(format!("state {text:?} is not one of {}", RunState::ALL.map(RunState::as_str).join(", "))))
 }
 
-fn run_row(r: &Run) -> Value {
+fn run_row(st: &State, r: &Run) -> Value {
     let mut m = Map::new();
     m.insert("run_id".into(), json!(r.run_id));
     m.insert("runbook_id".into(), json!(r.runbook_id));
@@ -2731,6 +2982,10 @@ fn run_row(r: &Run) -> Value {
         m.insert("model_route_source".into(), json!(route.source));
     }
     put(&mut m, "session_id", &r.session_id);
+    put(&mut m, "serial_key", &r.serial_key);
+    if let Some(wait) = key_wait(st, r) {
+        m.insert("key_wait".into(), json!(wait));
+    }
     m.insert("submitted_at".into(), json!(r.submitted_at));
     put(&mut m, "started_at", &r.started_at);
     put(&mut m, "ended_at", &r.ended_at);
@@ -2759,8 +3014,19 @@ fn delegation_of(events: &[&RunEvent]) -> Option<Map<String, Value>> {
     Some(m)
 }
 
-fn run_rows<'a>(runs: impl Iterator<Item = &'a Run>) -> Vec<Value> {
-    runs.map(run_row).collect()
+fn run_rows<'a>(st: &State, runs: impl Iterator<Item = &'a Run>) -> Vec<Value> {
+    runs.map(|r| run_row(st, r)).collect()
+}
+
+/// What a run that waits on its serial key says: `waiting on key <k> behind run <id>`, the run ahead of it now
+/// (`State::ahead_on_key`). None for a run in any other state.
+fn key_wait(st: &State, r: &Run) -> Option<String> {
+    if r.state != RunState::WaitingOnKey {
+        return None;
+    }
+    let key = r.serial_key.as_deref()?;
+    let ahead = st.ahead_on_key(&r.run_id)?;
+    Some(format!("waiting on key {key} behind run {}", ahead.run_id))
 }
 
 pub(crate) fn event_rows(events: Vec<&RunEvent>) -> Vec<Value> {

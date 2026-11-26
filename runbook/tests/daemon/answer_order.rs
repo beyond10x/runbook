@@ -54,6 +54,7 @@ fn submitted(id: &str) -> Run {
         terms: Default::default(),
         model_route: None,
         route_phase: None,
+        serial_key: None,
         session_id: None,
         idempotency_key: None,
         submitted_at: "t".into(),

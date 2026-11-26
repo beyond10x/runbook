@@ -129,7 +129,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:f251598623d4bff47b2d48a02d40ab8a30b168b6ed0168d055c208b616386487",
+    "contract_digest": "slice-sha256/2:0137872e5375b2967a187774ff964a31994dd2280af55a4a85799d7091b490c4",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -181,7 +181,8 @@
         "Running",
         "Submitted",
         "WaitingForRoute",
-        "WaitingOnDecision"
+        "WaitingOnDecision",
+        "WaitingOnKey"
       ]
     },
     "sdc.daemon.RunId": {

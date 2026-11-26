@@ -67,7 +67,7 @@ struct Gate {
 /// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
 const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
 
-const GATE: Gate = Gate { total: 17, executed: 17, passed: 17, skipped: 0 };
+const GATE: Gate = Gate { total: 18, executed: 18, passed: 18, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];
@@ -223,7 +223,7 @@ fn granted_to(command: &str) -> &'static [&'static str] {
     match command {
         "OpenSession" | "CloseSession" | "SubmitRun" | "CancelRun" | "AnswerDecision" => &["sdc.daemon.Client"],
         "StartDaemon" => &["sdc.daemon.Operator"],
-        "EndOrphanedRun" | "WaitForRoute" | "EndRouteWait" => &["sdc.daemon.DaemonProcess"],
+        "EndOrphanedRun" | "WaitForRoute" | "EndRouteWait" | "WaitOnKey" | "TakeKey" => &["sdc.daemon.DaemonProcess"],
         "WithdrawDecision" => &["sdc.daemon.Runtime"],
         _ => &["sdc.daemon.Runtime"],
     }
@@ -462,6 +462,16 @@ impl Scn {
                 let r = self.live()?.daemon.wait_for_route(&run, phase.as_deref());
                 self.library(command, r)
             }
+            "WaitOnKey" => {
+                let run = text(input, "run_id")?;
+                let r = self.live()?.daemon.wait_on_key(&run);
+                self.library(command, r)
+            }
+            "TakeKey" => {
+                let run = text(input, "run_id")?;
+                let r = self.live()?.daemon.take_key(&run);
+                self.library(command, r)
+            }
             "EndRouteWait" => {
                 let run = text(input, "run_id")?;
                 let phase = input.get("phase").and_then(Value::as_str).map(str::to_owned);
@@ -540,7 +550,7 @@ impl Scn {
             }
         }
         let mut body = Map::new();
-        for k in ["runbook_id", "runbook_version", "intake", "settings", "confinement", "session_id", "idempotency_key", "model_route", "model_routes"] {
+        for k in ["runbook_id", "runbook_version", "intake", "settings", "confinement", "session_id", "idempotency_key", "serial_key", "model_route", "model_routes"] {
             if let Some(v) = input.get(k).filter(|v| !v.is_null()) {
                 body.insert(k.to_string(), v.clone());
             }

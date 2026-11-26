@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.TakeKey.schema.json",
+  "title": "Let a run take its serial key input",
+  "description": "No live run with the serial key of a WaitingOnKey run was submitted before it any more: each of them ended, was cancelled, failed to start, ended on its route or was orphaned at a restart. The run is Submitted again and is taken up as a submitted run is (its routes are read again first: WaitForRoute). The daemon also writes the run event `runbook.key-taken` (record: serial_key); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "x-ess-name": "sdc.daemon.TakeKey",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:14ee5d51c048496ac1226442e3b08b227eccd7585fc23e102807d504bb832ec9",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
