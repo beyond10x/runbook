@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 mod notcalled_neighbours;
 mod amend;
+mod long_step;
 mod notcalled;
 mod options;
 mod workers;

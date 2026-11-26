@@ -25,7 +25,7 @@ scope:
   path: runbook/src/loom_run/run_dir.rs
 - confidence: inferred
   path: tools
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 4}
 - {from: "proposed", to: "active", at: "2026-11-25T12:41:42Z", actor: "agent:runbook", revision: 5}
@@ -87,3 +87,31 @@ With sh stand-ins and times of a second or two (no test over 5 s):
 
 - A wait for the build pool (`slot`), which the pool bounds.
 - Changing `timeout_seconds` of an action.
+
+## Poll until done
+
+Order of 2026-11-26 (wave 6, on the operator's word through the host operator): the consumer that builds the first
+runbook protocol of the host operator's jobs, merge-on-green of a pull request, needs a bound step that polls a
+command until it says done, with no agent between. That shape is part of this story:
+
+- Interval and deadline per step, from the binding (the argv of the step's program), never a global setting.
+- Exit-code mapping per binding, for example for `gh pr checks <pr> --repo <owner/repo> --required`: 0 continues
+  (the step succeeds), 8 polls again, 1 stops the step with its own outcome name (`red-checks`), any other exit
+  fails the step.
+- A guard command runs before each poll (a cheap check: the pull request's head still equals the intake's head); a
+  guard that exits non-zero stops the step with its own outcome name (`head-moved`).
+- At the deadline the step ends with an outcome whose text says `deadline after <s> s, last state pending` (the last
+  state named from the last poll's mapping).
+- Every try is recorded in the run's record (time, exit code, mapped state), bounded in count.
+- `docs/loom-bindings.md` states the binding keys with the merge-on-green example (an example only, no real
+  repository).
+
+Acceptance of this part, with sh stand-ins and times of a second or two:
+
+- A poll whose stand-in exits 8, 8, 0 ends done after three tries; 8 then 1 ends `red-checks` with exit 1; 8 then 5
+  ends `failed` with exit 5.
+- A guard that exits non-zero ends the step `head-moved` before the command runs again; the try records the
+  guard's exit.
+- A poll that stays pending ends at its deadline (exit 124) with the text `deadline after 1 s, last state pending`.
+- The record keeps the last tries up to its bound and counts the others.
+- The example runbook's cycles end `green`, `deadline`, `red-checks` and `head-moved` from the poll's report.
