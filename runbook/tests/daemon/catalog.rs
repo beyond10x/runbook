@@ -224,7 +224,7 @@ fn a_runbook_whose_route_entries_cannot_be_admitted_is_listed_with_the_reason() 
     // the command line prints the same: its JSON is the view's, its text names each runbook's refusal
     let cli = |json: bool| {
         let mut c = Command::new(BIN);
-        c.args(["catalog", "--daemon", &format!("http://{}", l.addr)]).env_remove("RUNBOOK_DAEMON").env_remove("RUNBOOK_TOKEN_FILE").stdin(Stdio::null());
+        c.args(["catalog", "--daemon", &format!("http://{}", l.addr)]).env("RUNBOOK_NO_CONFIG", "1").env_remove("RUNBOOK_DAEMON").env_remove("RUNBOOK_TOKEN_FILE").stdin(Stdio::null());
         if json {
             c.arg("--json");
         }

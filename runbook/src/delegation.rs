@@ -382,6 +382,31 @@ mod tests {
         assert_eq!(protocol["protocol"]["id"].as_str(), Some(FREE_RUNBOOK));
     }
 
+    /// The prompts of the classify, build and retry calls on stub inputs are their goldens under
+    /// `instructions/golden/delegation/` byte for byte (`SDC_BLESS_PROMPTS=1` writes them); the driver's check that every
+    /// instruction file is reached by a golden reads them.
+    #[test]
+    fn the_prompts_of_classify_build_and_retry_are_their_goldens_byte_for_byte() {
+        let catalog = vec![CatalogEntry { id: "answer-demo".into(), title: "Answers a question in result.md".into(), description: "One program answers the idea in result.md.".into() }];
+        let request = "Write one sentence about tea.";
+        let prompts = [
+            ("delegation.classify", classify_prompt(request, &catalog)),
+            ("delegation.build", build_prompt(request, &catalog)),
+            ("delegation.retry", retry_prompt("the answer is not one JSON object (expected value at line 1 column 1)")),
+        ];
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../instructions/golden/delegation");
+        for (name, text) in prompts {
+            let golden = dir.join(format!("{name}.md"));
+            if std::env::var_os("SDC_BLESS_PROMPTS").is_some() {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(&golden, &text).unwrap();
+                continue;
+            }
+            let want = std::fs::read_to_string(&golden).unwrap_or_else(|_| panic!("no golden {}", golden.display()));
+            assert!(text == want, "{name}: the prompt differs from {}\n--- got\n{text}\n--- want\n{want}", golden.display());
+        }
+    }
+
     fn catalog() -> Vec<CatalogEntry> {
         vec![CatalogEntry { id: "answer-demo".into(), title: "t".into(), description: "d".into() }]
     }

@@ -286,6 +286,7 @@ fn every_instruction_file_is_reached_by_a_golden() {
         "feedback",
         "requester-request",
         "node-log",
+        "delegation",
     ] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());

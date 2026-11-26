@@ -264,6 +264,8 @@ fn headless(tag: &str, l: &Live, gw: &Standin, prompt: &str) -> Option<Value> {
     let mut cmd = Command::new(bin.join("claude"));
     cmd.current_dir("/")
         .env_clear()
+        // the `runbook mcp` the plugin starts reads no runbook.toml of the host
+        .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .env("HOME", &home)
         .env("CLAUDE_CONFIG_DIR", home.join(".claude"))
