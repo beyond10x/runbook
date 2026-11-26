@@ -1475,3 +1475,60 @@ fn a_tree_eight_levels_deep_is_answered_whole_with_each_case_under_its_parent() 
     want.push(format!("{}draft engine-draft AwaitingPerson", "  ".repeat(7)));
     assert_eq!(tree_lines(&cases(&rig, &run)), want);
 }
+
+/// The run event that names a Loom `Stopped` line the engine took as the end of one step.
+const STEP_ENDED: &str = "runbook.step-ended";
+
+/// What a reader of a run's events sees of each Loom `Stopped` line: its stop, its `seq`, and the
+/// `runbook.step-ended` records between it and the next run-log line.
+fn stops_and_step_ends(events: &[Value]) -> Vec<(String, i64, Vec<Value>)> {
+    let mut out: Vec<(String, i64, Vec<Value>)> = Vec::new();
+    let mut after_stop = false;
+    for e in events {
+        let kind = e["kind"].as_str().unwrap();
+        if kind == STEP_ENDED {
+            assert!(after_stop, "a {STEP_ENDED} with no Stopped line before it: {e}");
+            out.last_mut().unwrap().2.push(e["record"].clone());
+        } else if !kind.starts_with("runbook.") {
+            after_stop = kind == "Stopped";
+            if after_stop {
+                out.push((e["record"]["stop"].as_str().unwrap().to_owned(), e["record"]["seq"].as_i64().unwrap(), Vec::new()));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_stopped_line_that_ends_one_step_is_named_so_and_one_that_ends_or_holds_the_run_is_not() {
+    // The engine runs the tree one step at a time; Loom ends each call with `Stopped` `BudgetSpent`. A reader of the
+    // events tells that end of a step from a wait and from the run's end by the event `runbook.step-ended`.
+    let rig = Rig::new("engine-step-ended", &[Confinement::Local]);
+    let run = rig.submit();
+    rig.settle(&run, &["rejected", "performed"]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    let seen = stops_and_step_ends(&rig.d().events_after(&run, 0));
+    let steps = seen.iter().filter(|(stop, ..)| stop == "BudgetSpent").count();
+    assert!(steps >= 2, "the run took fewer than two steps that a budget stop ended: {seen:?}");
+    assert!(seen.iter().any(|(stop, ..)| stop == "AwaitingPerson"), "the run never waited on the review: {seen:?}");
+    for (stop, seq, ends) in &seen {
+        if stop != "BudgetSpent" {
+            assert!(ends.is_empty(), "a {stop} line is named as a step's end: {ends:?}");
+            continue;
+        }
+        assert_eq!(ends.len(), 1, "the BudgetSpent line {seq} has not exactly one {STEP_ENDED}: {seen:?}");
+        assert_eq!(ends[0]["seq"], json!(seq), "{ends:?}");
+        let case = ends[0]["case"].as_str().expect("the event names its case");
+        let log = std::fs::read_to_string(rig.store(&run).join(b10x_loom_tree::log_file_name(case))).unwrap();
+        let line: Value = log.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|l| l["seq"] == json!(seq)).expect("the named line is in the case's log");
+        assert_eq!((line["kind"].as_str(), line["stop"].as_str(), line["budget"].as_str()), (Some("Stopped"), Some("BudgetSpent"), Some("MaxSteps")), "{line}");
+    }
+
+    // A run whose tree is left with no move ends on a `Stuck` line: no step's end is named for it.
+    let rig = Rig::build_with("engine-step-ended-stuck", &[Confinement::Local], false, true);
+    let run = rig.submit();
+    until("the run to end", 40, || rig.state_of(&run) == "Ended");
+    let seen = stops_and_step_ends(&rig.d().events_after(&run, 0));
+    let (stop, _, ends) = seen.last().expect("the run has a Stopped line");
+    assert_eq!((stop.as_str(), ends.len()), ("Stuck", 0), "{seen:?}");
+}

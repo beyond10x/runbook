@@ -607,7 +607,15 @@ in the specification by the command that writes it, in its summary: the language
 run event from a command, so no row of the interpreted target stands for them. The runtime
 `--runtime loom` writes one more of its own, `runbook.pinned` (record `runbook`, `protocol`,
 `revision`, `bindings_sha256`, `copy_sha256`: the runbook the run copied at its submit,
-`docs/engine.md`, "The run's copy of the runbook"); the specification does not declare it.
+`docs/engine.md`, "The run's copy of the runbook"); the specification does not declare it. It writes
+`runbook.step-ended` too, also undeclared (record `case`, `seq`): the engine runs the tree one step
+at a time, so Loom ends every step with a run-log line `Stopped` whose `stop` is `BudgetSpent` and
+whose `budget` is `MaxSteps`, written to the log of the case named by `case`, at `seq`; the engine
+takes that stop as the end of one step and goes on, and records `runbook.step-ended` after the line
+and before the next run-log line. A `Stopped` line with no `runbook.step-ended` after it is a wait or
+the end of the tree. A run ends by its state and outcome (`Ended`, `Cancelled`), never by a
+`Stopped` line: a run that a cap ends after a step has the step's `runbook.step-ended` and then its
+outcome (`docs/engine.md`, "Caps").
 
 ### Event streams
 
