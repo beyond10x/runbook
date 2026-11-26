@@ -130,6 +130,7 @@ export const SIZE_EXCEPTIONS = {
   'autopilot.spec.mjs': 'sets both gating sizes itself',
   'daemon-decide.spec.mjs': 'phone test sets size',
   'daemon-live.spec.mjs': 'sets the gating sizes itself',
+  'daemon-metrics-tab.spec.mjs': 'sets 1366 and 1280 itself',
   'daemon-run-tree-security.spec.mjs': 'presence, not layout',
   'daemon-run-tree.spec.mjs': 'presence; screenshot is a file',
   'daemon-start.spec.mjs': 'presence, not layout',

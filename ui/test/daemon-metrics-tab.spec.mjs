@@ -50,10 +50,12 @@ test('a run the view answers a row for has a Metrics tab with the view\'s number
   await page.locator('#tabs button[data-tab=metrics]').click();
   const sum = (f) => page.locator(`#panel #metrics-pane .metrics-sum dd[data-field="${f}"]`);
   await expect(sum('calls')).toHaveText('3');
-  await expect(sum('tokens')).toHaveText('1200 / 800');
-  await expect(sum('cost')).toHaveText('$0.004200');
+  // the tokens and the cost in the step list's words: the counts above the steps say the same cost
+  await expect(sum('tokens')).toHaveText('1,200 in, 800 out');
+  await expect(sum('cost')).toHaveText('$0.0042');
+  await expect(page.locator('#dsteps .ds-counts')).toContainText(`${await sum('cost').textContent()} and calls of unknown cost`);
   await expect(sum('unknown_cost')).toHaveText('2');
-  await expect(sum('booked')).toHaveText('$0.007200');
+  await expect(sum('booked')).toHaveText('$0.0072');
   await expect(page.locator('#panel #metrics-pane .metrics-steps tbody tr td[data-field="action"]')).toHaveText(['evidence.repo', 'report.write']);
 });
 
@@ -81,3 +83,29 @@ test('a run the view refuses, and a run it answers no row for, have no Metrics t
   await expect(page.locator('#dsteps tbody tr').nth(3).locator('.ds-calls')).toHaveCount(0);
   await expect(page.locator('#dsteps .ds-counts')).toContainText('1 model call');
 });
+
+// The pane at the laptop sizes (1366x768, and 1280x800 of the laptop project; this file sets both itself): a step's
+// columns (step, role, state, took, calls, cost) are inside the panel with no horizontal scroll, the times are in the
+// page's clock words (web/clock.js), never the daemon's ISO form, and the run's own case is named by no id.
+for (const [width, height] of [[1366, 768], [1280, 800]]) {
+  test(`at ${width}x${height} the Metrics pane fits the panel, says times as the page does and names no case id`, async ({page}) => {
+    await page.setViewportSize({width, height});
+    await open(page, fx, LIVE);
+    await page.locator('#tabs button[data-tab=metrics]').click();
+    const pane = page.locator('#panel #metrics-pane');
+    await expect(pane.locator('.metrics-steps thead th')).toHaveText(['Step', 'Role', 'State', 'Took', 'Calls', 'Cost']);
+    const fit = await page.evaluate(() => {
+      const over = (e) => e.scrollWidth - e.clientWidth;
+      const pane = document.querySelector('#metrics-pane');
+      const right = pane.getBoundingClientRect().right;
+      const out = [...pane.querySelectorAll('th, td')].filter((e) => e.getBoundingClientRect().right > right + 0.5).map((e) => e.textContent);
+      return {panel: over(document.querySelector('#panel')), pane: over(pane), wrap: over(pane.querySelector('.metrics-wrap')), out};
+    });
+    expect(fit).toEqual({panel: 0, pane: 0, wrap: 0, out: []});
+    await expect(pane).not.toContainText(/\d{4}-\d{2}-\d{2}T\d|\d:\d{2}(\.\d+)?Z\b/);
+    const started = await page.evaluate(async (t) => (await import('/clock.js')).clockTime(Date.parse(t)), ROW.started_at);
+    await expect(pane.locator('.metrics-sum dd[data-field="started_at"]')).toHaveText(started);
+    await expect(pane).not.toContainText(LIVE);
+    await expect(pane.locator('[data-field="case"]')).toHaveCount(0);
+  });
+}

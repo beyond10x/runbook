@@ -601,7 +601,8 @@ The times are the daemon's: a start is the `at` of `runbook.action-started` (bef
 of the event that recorded Loom's line. A run id the daemon does not know is `404` `no such run`; a query without
 `run_id` is `400`. The page's pane for the row is `ui/daemon/metrics.js` (embedded like every file of `ui/daemon/`):
 the run page has the tab Metrics when the view answers a row for the run on screen, and none when it refuses or answers
-no row (`tabsOf` in `ui/web/source.js`). The page's step list takes a step's model calls, tokens and cost from the row
+no row (`tabsOf` in `ui/web/source.js`); the pane says the row's times in the page's clock words (`ui/web/clock.js`)
+and its counts and costs in the step list's (`ui/web/runsteps.js`). The page's step list takes a step's model calls, tokens and cost from the row
 where the run's events name none (a run on no route books them in `runbook.cost-booked`; `withViewCalls` in
 `ui/web/runsteps.js`) and says a count the row leaves out as not known, never 0. The view gives no count per route:
 the daemon still serves no count of today's calls or booked spend per route (the ledger's entries hold no instant).

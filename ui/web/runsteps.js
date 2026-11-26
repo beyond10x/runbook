@@ -129,8 +129,11 @@ export function fmtTook(t, whole = false) {
   return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
 }
 
-const n = (v) => Number(v).toLocaleString();
-export const usd = (micro) => `$${(micro / 1e6).toFixed(micro > 0 && micro < 10000 ? 4 : 2)}`;
+// a count in the browser's digits (`1,200`) and micro USD in dollars (`$0.0042`): the step list's words, also of the
+// daemon's Metrics pane (ui/daemon/metrics.js)
+export const fmtCount = (v) => Number(v).toLocaleString();
+const n = fmtCount;
+export const usd =(micro) => `$${(micro / 1e6).toFixed(micro > 0 && micro < 10000 ? 4 : 2)}`;
 const STOP = {AwaitingPerson: ['Waiting', 'on a person'], AwaitingAuthority: ['Waiting', 'on an authority'], Stuck: ['Stuck', 'no step can be taken'], Cancelled: ['Cancelled', '']};
 const OWN = {'runbook.cancel-requested': 'Cancel requested', 'runbook.start-failed': 'Start failed', 'runbook.run-orphaned': 'Run orphaned', 'runbook.answer-undeliverable': 'Answer not delivered',
   'runbook.runtime-failed': 'Runtime failed', 'runbook.step-failed': 'Step failed', 'runbook.waiting-for-route': 'Waiting for the route'};

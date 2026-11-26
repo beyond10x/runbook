@@ -1,9 +1,14 @@
 // The metrics of a run on a page served by the daemon (`runbook serve --ui`): the row of the daemon's view run-metrics
 // (GET /daemon/views/run-metrics?run_id=...; docs/daemon-api.md, "The metrics of a run") drawn as a pane: the run's
-// state, outcome, start, end or time running, duration and the totals of its model calls, then a row per step (case,
-// action, role, tries, state, start, end, exit, duration, calls, tokens and cost). A number the daemon left out of the
-// row is said as "unknown", never as 0: the daemon writes no number its record does not hold. Every value from the
+// state, outcome, start, end or time running, duration and the totals of its model calls, then each step as a row of
+// the columns step, role, state, took, calls and cost and a line under it with the rest (its case when that is not the
+// run's own, tries, exit, start and end, tokens, calls of unknown cost and what it booked). Times, counts and costs are
+// in the words of the page's step list (web/clock.js, web/runsteps.js): `19:53:00 CET`, `1,200 in, 800 out`,
+// `$0.0042`. A number the daemon left out of the row is said as "unknown", never as 0: the daemon writes no number its
+// record does not hold; a count of calls without tokens or of unknown cost that is 0 is not said. Every value from the
 // daemon is set as a text node, never as markup. This file is served by the daemon only; the page wires it.
+import {clockTime, fullTime} from './clock.js';
+import {usd as usdWords, fmtCount} from './runsteps.js';
 
 export const VIEW = '/daemon/views/run-metrics';
 
@@ -34,18 +39,28 @@ export function duration(ms) {
   return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
 }
 
-// Micro USD as dollars with six places: 210 is `$0.000210`.
+// Micro USD in the step list's words: 4200 is `$0.0042`.
 export function usd(micro) {
   const n = count(micro);
-  if (n == null) return UNKNOWN;
-  const whole = Math.floor(n / 1e6);
-  return `$${whole}.${String(n - whole * 1e6).padStart(6, '0')}`;
+  return n == null ? UNKNOWN : usdWords(n);
 }
 
 const num = (v) => {
   const n = count(v);
-  return n == null ? UNKNOWN : String(n);
+  return n == null ? UNKNOWN : fmtCount(n);
 };
+
+// An ISO time of the daemon as {text, title}: the page's clock words (`19:53:00 CET`, the date in front when not of
+// today) and the full moment for a tooltip; null for no time or one that does not read as a time.
+function moment(v) {
+  const t = typeof v === 'string' && v ? Date.parse(v) : NaN;
+  return Number.isNaN(t) ? null : {text: clockTime(t), title: fullTime(t)};
+}
+
+// A case id short, as the page names ids elsewhere: the last 8 characters of a UUID, a child id without its parent's
+// `<run>.` in front, else the id.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const shortCase = (id, run) => (UUID.test(id) ? id.slice(-8) : run && id.startsWith(`${run}.`) ? id.slice(run.length + 1) : id);
 
 // What a run or a step has run: its duration once it ended, the time running while it runs, else unknown.
 function took(o) {
@@ -55,58 +70,68 @@ function took(o) {
 }
 
 // The words of a block of calls: the calls, the tokens, the known cost, the calls of unknown cost and what was booked.
+// without_tokens and unknown_cost are null when the count is 0 (not said).
 function callWords(c) {
+  const zero = (v) => (count(v) === 0 ? null : num(v));
   return {
     calls: num(c?.model_calls),
     tokens_in: num(c?.input_tokens),
     tokens_out: num(c?.output_tokens),
-    without_tokens: num(c?.calls_without_tokens),
+    without_tokens: zero(c?.calls_without_tokens),
     cost: usd(c?.cost_micro_usd),
-    unknown_cost: num(c?.unknown_cost_calls),
+    unknown_cost: zero(c?.unknown_cost_calls),
     booked: usd(c?.booked_micro_usd),
   };
 }
 
 function summary(row) {
   const t = callWords(row.totals);
+  const started = moment(row.started_at), ended = moment(row.ended_at);
   const items = [
     ['state', 'State', word(row.run_state) || UNKNOWN],
     ['outcome', 'Outcome', word(row.outcome) || (row.run_state === 'Ended' ? UNKNOWN : 'none yet')],
-    ['started_at', 'Started', word(row.started_at) || 'not started'],
-    ['ended_at', 'Ended', word(row.ended_at) || 'not ended'],
+    ['started_at', 'Started', started?.text ?? (word(row.started_at) ? UNKNOWN : 'not started'), started?.title],
+    ['ended_at', 'Ended', ended?.text ?? (word(row.ended_at) ? UNKNOWN : 'not ended'), ended?.title],
     ['duration', 'Duration', took(row)],
     ['calls', 'Model calls', t.calls],
-    ['tokens', 'Tokens in / out', `${t.tokens_in} / ${t.tokens_out}`],
+    ['tokens', 'Tokens', `${t.tokens_in} in, ${t.tokens_out} out`],
     ['without_tokens', 'Calls without tokens', t.without_tokens],
     ['cost', 'Known cost', t.cost],
     ['unknown_cost', 'Calls of unknown cost', t.unknown_cost],
     ['booked', 'Booked in the ledger', t.booked],
-  ];
-  return h('dl', {class: 'metrics-sum'}, ...items.flatMap(([f, label, value]) => [h('dt', {text: label}), h('dd', {'data-field': f, text: value})]));
+  ].filter(([, , value]) => value != null);
+  return h('dl', {class: 'metrics-sum'}, ...items.flatMap(([f, label, value, title]) => [h('dt', {text: label}), h('dd', {'data-field': f, title, text: value})]));
 }
 
-const COLUMNS = [['case', 'Case'], ['action', 'Action'], ['role', 'Role'], ['tries', 'Tries'], ['state', 'State'], ['started_at', 'Started'], ['ended_at', 'Ended'], ['exit', 'Exit'], ['duration', 'Duration'], ['calls', 'Calls'], ['tokens_in', 'Tokens in'], ['tokens_out', 'Tokens out'], ['cost', 'Known cost'], ['unknown_cost', 'Unknown cost'], ['booked', 'Booked']];
+const COLUMNS = [['action', 'Step'], ['role', 'Role'], ['state', 'State'], ['duration', 'Took'], ['calls', 'Calls'], ['cost', 'Cost']];
 
-function stepRow(s) {
+// A step: the row of its columns and the line under it with the rest, both marked with the step's index.
+function stepRows(s, i, run) {
   const c = callWords(s?.calls);
-  const v = {
-    case: word(s?.case_id) || UNKNOWN,
-    action: word(s?.action) || UNKNOWN,
-    role: word(s?.role),
-    tries: num(s?.tries),
-    state: word(s?.step_state),
-    started_at: word(s?.started_at),
-    ended_at: word(s?.ended_at) || (s?.step_state === 'running' ? 'running' : 'no end recorded'),
-    exit: Number.isSafeInteger(s?.exit) ? String(s.exit) : UNKNOWN,
-    duration: took(s),
-    calls: c.calls,
-    tokens_in: c.tokens_in,
-    tokens_out: c.tokens_out,
-    cost: c.cost,
-    unknown_cost: c.unknown_cost,
-    booked: c.booked,
-  };
-  return h('tr', {}, ...COLUMNS.map(([f]) => h('td', {'data-field': f, text: v[f]})));
+  const v = {action: word(s?.action) || UNKNOWN, role: word(s?.role), state: word(s?.step_state), duration: took(s), calls: c.calls, cost: c.cost};
+  // an action breaks after its dots when the column is narrow (`evidence.` / `tickets`): text nodes and <wbr> only
+  const cellOf = (f) => (f === 'action' ? h('td', {'data-field': f}, ...v[f].split(/(?<=\.)/).flatMap((p, k) => (k ? [h('wbr'), p] : [p]))) : h('td', {'data-field': f, text: v[f]}));
+  const main = h('tr', {class: 'metrics-step', 'data-step': i}, ...COLUMNS.map(([f]) => cellOf(f)));
+  const field = (f, text, title) => h('span', {'data-field': f, title, text});
+  const parts = [];
+  const id = word(s?.case_id);
+  if (id && id !== run) parts.push(['case ', field('case', shortCase(id, run), id)]);
+  parts.push(['try ', field('tries', num(s?.tries))]);
+  parts.push(['exit ', field('exit', Number.isSafeInteger(s?.exit) ? String(s.exit) : UNKNOWN)]);
+  const started = moment(s?.started_at), ended = moment(s?.ended_at);
+  const from = field('started_at', started?.text ?? UNKNOWN, started?.title);
+  if (ended) parts.push(['from ', from, ' to ', field('ended_at', ended.text, ended.title)]);
+  else if (s?.step_state === 'running') parts.push(['from ', from, ', still ', field('ended_at', 'running')]);
+  else parts.push(['from ', from, ', ', field('ended_at', 'no end recorded')]);
+  // a step that made no model call has no tokens, cost or booking to say
+  if (count(s?.calls?.model_calls) !== 0) {
+    parts.push([field('tokens_in', c.tokens_in), ' in, ', field('tokens_out', c.tokens_out), ' out']);
+    if (c.unknown_cost != null) parts.push([field('unknown_cost', c.unknown_cost), ' of unknown cost']);
+    parts.push(['booked ', field('booked', c.booked)]);
+  }
+  const line = h('td', {colspan: COLUMNS.length});
+  parts.forEach((p, k) => { if (k) line.append(' · '); line.append(...p); });
+  return [main, h('tr', {class: 'metrics-more', 'data-step': i}, line)];
 }
 
 // The pane of one row of the view, or of the reason it could not be read (`error`, a text).
@@ -118,8 +143,9 @@ export function metricsPane(row, error) {
   }
   const steps = Array.isArray(row.steps) ? row.steps : [];
   pane.append(summary(row));
-  const head = h('tr', {}, ...COLUMNS.map(([, t]) => h('th', {scope: 'col', text: t})));
-  pane.append(h('div', {class: 'metrics-wrap'}, h('table', {class: 'metrics-steps'}, h('thead', {}, head), h('tbody', {}, ...steps.map(stepRow)))));
+  const head = h('tr', {}, ...COLUMNS.map(([f, t]) => h('th', {scope: 'col', 'data-field': f, text: t})));
+  const body = h('tbody', {}, ...steps.flatMap((s, i) => stepRows(s, i, word(row.run_id))));
+  pane.append(h('div', {class: 'metrics-wrap'}, h('table', {class: 'metrics-steps'}, h('thead', {}, head), body)));
   const notes = [];
   if (!steps.length) notes.push('No step of the run has started a program.');
   const left = count(row.steps_left_out);

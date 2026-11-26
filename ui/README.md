@@ -28,7 +28,10 @@ run events are said in words, the engine's own lines folded.
 The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`), and
 Metrics when the daemon's view `run-metrics` answers a row for the run (`daemon/metrics.js` draws it; a step's model
 calls whose events name none are taken from that row, `withViewCalls` in `web/runsteps.js`, and an unknown count is
-said as not known, never 0; `test/daemon-metrics-tab.spec.mjs`); no pane says what is missing in place of showing
+said as not known, never 0; `test/daemon-metrics-tab.spec.mjs`). The Metrics pane says times, token counts and costs
+in the step list's words (`19:53:00 CET`, `1,200 in, 800 out`, `$0.0042`), names a step's case only when it is not the
+run's own, by its short id, and draws a step as six columns (step, role, state, took, calls, cost) that fit the panel at
+1280 px with a line under them for the rest; no pane says what is missing in place of showing
 something. Times on the page are 24 h local time of the browser with the
 zone's name (`web/clock.js`). Specs: `test/daemon-live.spec.mjs` over the synthetic daemon `test/daemon-live-fixture.mjs`
 (`node test/daemon-live-fixture.mjs --live` serves it to look at), `test/daemon-steps-model.spec.mjs`.
