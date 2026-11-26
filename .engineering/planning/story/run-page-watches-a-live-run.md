@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:run-page-watches-a-live-run
 kind: story
-status: draft
+status: active
 title: The run page watches a live run
 summary: The daemon's run page shows the steps of a live run, readable and without clutter
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-26T20:23:13Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-26T20:23:13Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
