@@ -263,9 +263,11 @@ sink does). Before a program starts the target is told its case, action, role an
 ended it is told that; the daemon records the run event `runbook.action-started` and keeps the step
 for the view `run` (`docs/daemon-api.md`, "The step in flight"). On a run on a route the same action is the step the
 relay books each model call of the program under (`engine::route::StepNote`), so a step whose program fails finds its
-own failed calls; the wrapper reads the run's store to tell the action apart when two runbooks of the home bind the
-program with the same arguments (`docs/loom-run-directory.md`, the `action_started` line; the gate tests in
-`runbook/tests/daemon/bound_step.rs`). The gate tests of the step in flight are
+own failed calls. The wrapper matches the program against the bindings the tree runs with: the decider's copy when a
+decider opened one (its agent nodes carry `--tools-dir`), else the run's own copy, also on a resume. It reads the run's
+store to tell the action apart when two runbooks of the home bind the program with the same arguments
+(`docs/loom-run-directory.md`, the `action_started` line; the gate tests in
+`runbook/tests/daemon/bound_step.rs` and `adversary_w5.rs`). The gate tests of the step in flight are
 `a_step_is_recorded_and_shown_while_its_program_runs_and_gone_when_it_ends`,
 `actions_in_turn_give_one_event_each_in_the_order_they_started`,
 `a_handoff_check_is_recorded_as_a_check_of_its_action` and
