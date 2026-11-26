@@ -110,6 +110,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "sdc-protocol-site", kind: Kind::Helper, needs: RUN_OPT, by: "optional: the documentation site's data", hint: BUILD_HELPERS },
     Spec { name: "sdc-free-agent", kind: Kind::Helper, needs: RUN_OPT, by: "optional: free-agent runs", hint: BUILD_HELPERS },
     Spec { name: "sdc-check-unreferenced", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the check for files nothing refers to (task check:unreferenced)", hint: BUILD_HELPERS },
+    Spec { name: "sdc-check-names", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the check for added lines that name a person, an organisation or a session (task check:names)", hint: BUILD_HELPERS },
     Spec { name: "sdc-recorded-pool", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the recorded build and test results of the cycles suite (task test:cycles-loom, docs/cycles-suite.md)", hint: BUILD_HELPERS },
     Spec { name: "sdc-answers", kind: Kind::Helper, needs: RUN_OPT, by: "optional: runbook run with a decider at A5 (bindings/tools/answers.yaml)", hint: BUILD_HELPERS },
     Spec { name: "sdc-command", kind: Kind::Helper, needs: RUN_OPT, by: "optional: a bound program's command with a deadline, a retry or a poll (docs/loom-bindings.md)", hint: BUILD_HELPERS },

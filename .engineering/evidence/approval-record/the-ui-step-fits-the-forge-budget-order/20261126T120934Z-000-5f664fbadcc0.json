@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-26T12:09:34Z",
+  "actor": "agent:runbook",
+  "artifact": "approval-record:the-ui-step-fits-the-forge-budget-order",
+  "kind": "approval-record",
+  "revision": 3,
+  "change": {
+    "change": "redaction",
+    "literal_sha256": "105ddfc5a2fa2ae001ece71513be820294affcaee82ce42c5c9d19b02f02a272",
+    "literal_chars": 13,
+    "replacement": "the operator",
+    "count": 2,
+    "reason": "public repository: no session names"
+  }
+}
