@@ -180,8 +180,10 @@ its fields are derived, not read from Loom:
 - `case` is the `LOOM_CASE` variable of the command's environment (the case Loom runs it for); `null` when absent.
 - `action` is the action of the bindings copy of the run (`bindings/*.yaml`, `executor.kind: program`, or the
   `handoff_when` check) whose `argv` the command runs (the program is argv[0] by name or by its path's end, and the
-  arguments are argv[1..]); `null` when no binding or more than one binding matches. It is a match by command line, not
-  Loom's own naming.
+  arguments are argv[1..]). When bindings of more than one action match (two runbooks of one home that run the same
+  program with the same arguments), only those of the bindings file whose `protocol` is the protocol of the case count:
+  the `protocol` of the `CaseOpened` line that opens the case's run log in the run's store. `null` when no binding
+  matches, or more than one action still does. It is a match by command line, not Loom's own naming.
 - `try` is counted by the runner: the number of `program_start` events of the same case and action so far, this one
   included, for a program that is not a check (a check does not count a try); `null` when case or action is `null`.
 
