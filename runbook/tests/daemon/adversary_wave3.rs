@@ -240,3 +240,73 @@ fn adversary_wave3_a_classified_delegation_records_the_route_its_runbook_gave_it
     assert_eq!(calls, vec![(json!("other"), json!("protocol"))], "the classified run's call of the role default");
     assert_eq!(route_of(&l, &run), (json!("other"), json!("b-model"), json!("protocol")), "the run record names a route the run's calls did not take");
 }
+
+// ---- the late call's answer after its step was booked (adversary of the test-budget change) ----
+
+/// [`late_runbook_with`] whose program first writes the path of its route file (`RUNBOOK_ROUTE_FILE`) to `route_note`.
+/// The daemon removes that file once the run's steps have ended and were booked, before it waits for the calls still
+/// in flight (`Engine::run`, `drop(route)` before `close_route`).
+fn late_runbook_noting_the_route(home: &std::path::Path, agent_call: bool, pid_file: &std::path::Path, route_note: &std::path::Path) {
+    late_runbook_with(home, agent_call, pid_file);
+    let program = home.join("bindings/tools/late.sh");
+    let text = std::fs::read_to_string(&program).unwrap();
+    let (shebang, rest) = text.split_once('\n').unwrap();
+    write_exe(&program, &format!("{shebang}\nprintf '%s' \"$RUNBOOK_ROUTE_FILE\" > '{}'\n{rest}", route_note.display()));
+}
+
+/// A stand-in gateway that answers each model call [`OK`] once the run's route file, whose path `route_note` holds, is
+/// gone, at most 20 s after the call came: the step whose program was killed at its timeout with the call in flight has
+/// ended and was booked before the answer comes, the order the two late-call cases above name. Their gateway
+/// ([`gateway_after_the_program`]) answers 10 ms after the program's process is gone or a zombie, which is before the
+/// engine has booked the step (`Gate::book` runs once Loom's `run_tree` returned) and may be before the step ended.
+fn gateway_after_the_steps(route_note: std::path::PathBuf) -> super::relay::Gateway {
+    gateway_answering(
+        move |g| {
+            if g.head.starts_with("POST ") {
+                let limit = Instant::now() + Duration::from_secs(20);
+                let gone = || std::fs::read_to_string(&route_note).is_ok_and(|p| !p.is_empty() && !std::path::Path::new(&p).exists());
+                while !gone() && Instant::now() < limit {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            OK.to_vec()
+        },
+        &["a-model", "b-model"],
+    )
+}
+
+/// [`adversary_wave3_an_agent_step_killed_at_its_timeout_with_its_call_in_flight_ends_naming_the_step`] with its call
+/// still in flight when the engine books the step: the relay took the call and has not booked it, the program left its
+/// call directory without a cost line, and the step's booking counts the taken call (`Gate::book`, `taken`).
+#[test]
+fn adversary_budget_an_agent_step_whose_call_is_still_in_flight_when_the_step_is_booked_ends_naming_the_step() {
+    let notes = super::state::scratch("advbud-late-agent-notes");
+    let (pid_file, route_note) = (notes.join("late.pid"), notes.join("route.path"));
+    let gw = gateway_after_the_steps(route_note.clone());
+    let (h, l, _) = daemon_at("advbud-late-agent", &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
+    late_runbook_noting_the_route(&h.home, true, &pid_file, &route_note);
+    let (end, events) = late_run(&l);
+    let why: Vec<Value> = events.iter().filter(|e| e["kind"] == "runbook.runtime-failed" || e["kind"] == "runbook.step-failed").map(|e| e["record"]["reason"].clone()).collect();
+    assert_eq!(
+        (end["state"].clone(), end["outcome"].clone()),
+        (json!("Ended"), json!("failed: step late.write timed out after 1 s")),
+        "a step whose call was still in flight when the step was booked does not end the run naming it: reasons {why:?}"
+    );
+}
+
+/// [`adversary_wave3_a_call_of_unknown_cost_that_ends_after_its_step_was_killed_books_the_steps_reservation`] with the
+/// answer after the step ended and was booked: the call books the reservation it was admitted with (12,300 micro USD)
+/// and names its step, not what the run's cap has left nor no step.
+#[test]
+fn adversary_budget_a_call_of_unknown_cost_answered_after_its_step_was_booked_books_the_steps_reservation() {
+    let notes = super::state::scratch("advbud-late-notes");
+    let (pid_file, route_note) = (notes.join("late.pid"), notes.join("route.path"));
+    let gw = gateway_after_the_steps(route_note.clone());
+    let (h, l, _) = daemon_at("advbud-late", &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
+    late_runbook_noting_the_route(&h.home, false, &pid_file, &route_note);
+    let (end, events) = late_run(&l);
+    let calls: Vec<Value> = events.iter().filter(|e| e["kind"] == "runbook.model-call").map(|e| e["record"].clone()).collect();
+    assert_eq!(calls.len(), 1, "the late call is not booked once as an event of the run: {end} {events:?}");
+    assert_eq!((calls[0]["step"].clone(), calls[0]["cost_known"].clone()), (json!("late.write"), json!(false)), "{:?}", calls[0]);
+    assert_eq!(calls[0]["micro_usd"], 12_300, "the call answered after its step was booked was not booked at the step's reservation: {:?}", calls[0]);
+}
