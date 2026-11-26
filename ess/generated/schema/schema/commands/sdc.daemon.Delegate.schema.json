@@ -103,7 +103,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:9655af47f189f079ee5459fe94a3a93931f4bcea8e564e9470801a9c16d7b432",
+    "contract_digest": "slice-sha256/2:ee2e3d6fbca701ad12fec5761a96748e3e693392fbf6b0bc43a5474757d0d04b",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -165,12 +165,13 @@
     },
     "sdc.daemon.RouteSource": {
       "title": "RouteSource",
-      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`), protocol (the runbook's route entries, the file `bindings/<runbook>.routes.yaml` of format runbook.routes/1: the route its entry for the role names, or the route that meets the entry's needs; docs/model-routes.md section 2) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The run's word comes first, then the protocol's, then the default.",
       "x-ess-name": "sdc.daemon.RouteSource",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
         "run",
+        "protocol",
         "default"
       ]
     },

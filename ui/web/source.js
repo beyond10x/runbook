@@ -19,7 +19,7 @@ const events = new Map();
 const ms = (t) => { const v = Date.parse(t); return Number.isNaN(v) ? null : v; };
 const lastAt = (id, fallback) => ms(events.get(id)?.at(-1)?.at) ?? ms(fallback);
 
-const DAEMON_STATE = {Submitted: 'run', Running: 'run', WaitingOnDecision: 'run', Ended: 'idle', Cancelled: 'idle', FailedToStart: 'bad'};
+const DAEMON_STATE = {Submitted: 'run', Running: 'run', WaitingOnDecision: 'run', WaitingForRoute: 'run', Ended: 'idle', Cancelled: 'idle', FailedToStart: 'bad'};
 
 function sourceRow(r, index) {
   const words = [r.state, r.outcome, r.failure].filter(Boolean).join(' · ');
@@ -182,10 +182,23 @@ export const refresh = () => again();
 const when = (t) => { const v = ms(t); return v == null ? '' : new Date(v).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}); };
 const short = (rec) => { const t = JSON.stringify(rec ?? null); return t === '{}' || t === 'null' ? '' : t.length > 160 ? `${t.slice(0, 159)}…` : t; };
 
-// What the left side shows for a daemon's run: a line naming the run above its case tree, the note of a run with no
-// case, and in place of the feed of changes the run's own events, newest first, each with its place in the run and the
-// record the runtime wrote.
-export function daemonView(src) {
+// The model route of a daemon's run in its header (docs/model-routes.md, section 6): `route qwen · managed · ready`,
+// then the alias and the setting that chose the route. The route, the alias and the setting are the run's (the view
+// runs); the kind and the status are the daemon's view routes, which `words` (ui/daemon/routes.js) reads.
+const ROUTE_SOURCE = {run: 'named by the run', default: 'the daemon default', protocol: 'named by the runbook'};
+function routeLine(r, words) {
+  if (typeof r.model_route !== 'string' || !r.model_route) return '';
+  const w = words ? words(r.model_route) : null;
+  const known = w && !w.missing ? [w.kind, w.status].filter(Boolean) : [w?.missing ?? 'status not read'];
+  const chosen = ROUTE_SOURCE[r.model_route_source] ?? (r.model_route_source ? `source ${r.model_route_source}` : '');
+  const parts = [`route ${r.model_route}`, ...known, r.model_route_alias ? `alias ${r.model_route_alias}` : '', chosen].filter(Boolean);
+  return ` · <span class="droute" data-key="droute">${esc(parts.join(' · '))}</span>`;
+}
+
+// What the left side shows for a daemon's run: a line naming the run (and its model route) above its case tree, the
+// note of a run with no case, and in place of the feed of changes the run's own events, newest first, each with its
+// place in the run and the record the runtime wrote.
+export function daemonView(src, words = null) {
   if (!daemon || !src?.daemonRun) return null;
   const id = src.daemonRun.run_id;
   const list = [...(events.get(id) || [])].reverse();
@@ -196,7 +209,7 @@ export function daemonView(src) {
   return {
     feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${list.length} from the daemon, newest first</span></div>`
       + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows}</div>`,
-    head: `<div class="dhead muted" data-key="dhead">${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}${src.daemonRun.autonomy ? ` · autonomy ${esc(src.daemonRun.autonomy)}` : ''}${src.daemonRun.decider ? ` · decider ${esc(src.daemonRun.decider)}` : ''}</div>`,
+    head: `<div class="dhead muted" data-key="dhead">${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}${src.daemonRun.autonomy ? ` · autonomy ${esc(src.daemonRun.autonomy)}` : ''}${src.daemonRun.decider ? ` · decider ${esc(src.daemonRun.decider)}` : ''}${routeLine(src.daemonRun, words)}</div>`,
     tree: `<div class="empty" data-key="dnote"><p>${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}</p>`
       + '<p class="muted">This run has no case tree: a run of the stub runtime has none, and a run of the Loom runtime shows its cases once its tree is written.</p></div>',
   };

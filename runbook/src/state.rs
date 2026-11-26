@@ -170,6 +170,8 @@ pub enum Fact {
     RunFailedToStart { run_id: String, reason: String, at: String },
     RunWaiting { run_id: String },
     RunWaitingForRoute { run_id: String, phase: Option<String> },
+    /// A delegation the run classified took the routes of the runbook the classifier picked: the run's record names them.
+    RunRouted { run_id: String, model_route: crate::runtime::RunRoute },
     RunStoppedOnRoute { run_id: String, phase: Option<String>, at: String },
     RunResumed { run_id: String },
     RunEnded { run_id: String, outcome: String, at: String },
@@ -410,6 +412,7 @@ impl State {
                 r.state = RunState::WaitingForRoute;
                 r.route_phase = phase.clone();
             }
+            Fact::RunRouted { run_id, model_route } => self.run_mut(run_id)?.model_route = Some(model_route.clone()),
             Fact::RunStoppedOnRoute { run_id, phase, at } => {
                 let r = self.run_mut(run_id)?;
                 r.state = RunState::Ended;

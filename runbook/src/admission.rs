@@ -9,7 +9,9 @@
 //! listed (`crate::routes`, the view `routes`): a named route must be declared and allowed; needs are met by the daemon's
 //! default route when it meets them, else by the one allowed route that meets them, and none or several is a refusal.
 //! Every refusal names the role and the route or the requirement; a text that is not a name (an address, a token) is
-//! never echoed. The catalog (`Daemon::catalog`) lists the result; nothing here reads a gateway or writes a file.
+//! never echoed. The catalog (`Daemon::catalog`) lists the result. A submit and a delegation that names the runbook ask
+//! [`check`] and [`for_run`], which add the run's word (it comes first) and name the runbook in every refusal; nothing here
+//! reads a gateway or writes a file.
 
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -220,7 +222,11 @@ pub fn parse(runbook: &str, text: &str) -> Result<Declared, String> {
             }
             for (k, v) in m {
                 let role = k.as_str().filter(|r| is_name(r)).ok_or_else(|| format!("{named}: a role is 1 to 64 letters, digits, '.', '_' or '-'"))?;
-                entries.insert(role.to_owned(), entry_of(role, v));
+                let entry = match crate::relay::prefixed_role_refusal(role, &format!("model_routes.{role}")) {
+                    Some(why) => Entry::Invalid(why),
+                    None => entry_of(role, v),
+                };
+                entries.insert(role.to_owned(), entry);
             }
         }
         Some(_) => return Err(format!("{named}: model_routes is a mapping of roles")),
@@ -235,6 +241,149 @@ pub fn parse(runbook: &str, text: &str) -> Result<Declared, String> {
         Some(_) => Some(Err("routes_allowed is a list of route names".to_owned())),
     };
     Ok(Declared { entries, allowed })
+}
+
+impl Declared {
+    /// Whether the file has an entry for `role`.
+    pub fn has_role(&self, role: &str) -> bool {
+        self.entries.contains_key(role)
+    }
+}
+
+/// The setting that chose the route of a role of a run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum By {
+    /// The submit named it (`model_route`, `model_routes.<role>`).
+    Run,
+    /// The runbook's entry for the role: the route it names, or the route that meets its needs.
+    Protocol,
+    /// The daemon's `route_policy.default`.
+    Default,
+}
+
+/// What a submit names of its routes, and the daemon's default route.
+#[derive(Clone, Copy, Debug)]
+pub struct Asked<'a> {
+    /// The route of the role `default` (`model_route`).
+    pub route: Option<&'a str>,
+    /// The route of each further role (`model_routes`).
+    pub roles: &'a BTreeMap<String, String>,
+    /// The daemon's `route_policy.default`.
+    pub default: Option<&'a str>,
+}
+
+/// The `routes_allowed` of `declared`, each name a declared route; `Err` names the runbook and what is wrong with it.
+fn allowed_of<'d>(runbook: &str, declared: &'d Declared, names: &[&str]) -> Result<Option<&'d Vec<String>>, String> {
+    match &declared.allowed {
+        None => Ok(None),
+        Some(Err(why)) => Err(format!("runbook {runbook}: {why}")),
+        Some(Ok(list)) => match list.iter().find(|r| !names.contains(&r.as_str())) {
+            Some(r) => Err(format!("runbook {runbook}: routes_allowed names the route {r}, which the daemon does not declare (declared: {})", listed(names))),
+            None => Ok(Some(list)),
+        },
+    }
+}
+
+fn listed(names: &[&str]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+fn may(allowed: Option<&Vec<String>>, route: &str) -> bool {
+    allowed.is_none_or(|a| a.iter().any(|r| r == route))
+}
+
+/// Whether the file of `runbook` can be admitted against the declared routes `routes`, whatever a run names: `Err` is the
+/// first reason it cannot, naming the runbook and the role and the route or the requirement. An entry that is not one, a
+/// named route the daemon does not declare or `routes_allowed` does not hold, needs that no allowed route meets and a
+/// `routes_allowed` that names an undeclared route are refused; needs that several routes meet are left to the run
+/// ([`for_run`]).
+pub fn check(runbook: &str, declared: &Declared, routes: &[Facts]) -> Result<(), String> {
+    let names: Vec<&str> = routes.iter().map(|f| f.route.as_str()).collect();
+    let allowed = allowed_of(runbook, declared, &names)?;
+    for (role, entry) in &declared.entries {
+        match entry {
+            Entry::Invalid(why) => return Err(format!("runbook {runbook}: {why}")),
+            Entry::Named(r) if !names.contains(&r.as_str()) => return Err(format!("runbook {runbook}: role {role}: the route {r} is not one the daemon declares (declared: {})", listed(&names))),
+            Entry::Named(r) if !may(allowed, r) => return Err(format!("runbook {runbook}: role {role}: the route {r} is not in routes_allowed ({})", allowed.map(|a| a.join(", ")).unwrap_or_default())),
+            Entry::Needs(n) if !routes.iter().any(|f| may(allowed, &f.route) && n.met_by(f)) => return Err(format!("runbook {runbook}: role {role}: no declared route meets {}", n.words())),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// The route of each role of a run of `runbook` and the setting that chose it (`docs/model-routes.md`, section 2): the
+/// run's word first (`asked.route` for the role `default`, `asked.roles` for the others), then the runbook's entry (a
+/// named route, or for needs the run's route or the daemon's default when it meets them, else the one allowed route that
+/// does), then the daemon's default for the role `default`. Every route must be in `routes_allowed`, and a route the run
+/// names for a role with needs must meet them. `Err` is the reason of `route-refused`: it names the runbook, and the role,
+/// the route and the member or the setting that chose it, or the requirement. The role `default` is absent when neither
+/// the run, the runbook nor the daemon names one.
+pub fn for_run(runbook: &str, declared: &Declared, routes: &[Facts], asked: Asked<'_>) -> Result<BTreeMap<String, (String, By)>, String> {
+    check(runbook, declared, routes)?;
+    let names: Vec<&str> = routes.iter().map(|f| f.route.as_str()).collect();
+    let allowed = allowed_of(runbook, declared, &names)?;
+    let narrows = |route: &str, said: &str| -> Result<(), String> {
+        if may(allowed, route) {
+            Ok(())
+        } else {
+            Err(format!("runbook {runbook}: the route {route} ({said}) is not in routes_allowed ({})", allowed.map(|a| a.join(", ")).unwrap_or_default()))
+        }
+    };
+    let mut out = BTreeMap::new();
+    for (role, entry) in &declared.entries {
+        let (member, word) = if role == "default" { ("model_route".to_owned(), asked.route) } else { (format!("model_routes.{role}"), asked.roles.get(role).map(String::as_str)) };
+        let chosen = match (word, entry) {
+            (Some(w), Entry::Needs(n)) => {
+                narrows(w, &member)?;
+                if !routes.iter().any(|f| f.route == w && n.met_by(f)) {
+                    return Err(format!("runbook {runbook}: role {role}: the route {w} ({member}) does not meet {}", n.words()));
+                }
+                (w.to_owned(), By::Run)
+            }
+            (Some(w), _) => {
+                narrows(w, &member)?;
+                (w.to_owned(), By::Run)
+            }
+            (None, Entry::Named(r)) => (r.clone(), By::Protocol),
+            (None, Entry::Needs(n)) => {
+                let meet: Vec<&str> = routes.iter().filter(|f| may(allowed, &f.route) && n.met_by(f)).map(|f| f.route.as_str()).collect();
+                // the run's route when it meets them, else the daemon's default when it does, else the one route that does
+                match ([asked.route, asked.default].into_iter().flatten().find(|d| meet.contains(d)), meet.as_slice()) {
+                    (Some(d), _) => (d.to_owned(), By::Protocol),
+                    (None, [one]) => ((*one).to_owned(), By::Protocol),
+                    (None, []) => return Err(format!("runbook {runbook}: role {role}: no declared route meets {}", n.words())),
+                    (None, several) => return Err(format!("runbook {runbook}: role {role}: several routes meet {}: {}; the runbook names one with `route`, or the submit in {member}", n.words(), several.join(", "))),
+                }
+            }
+            (None, Entry::Invalid(why)) => return Err(format!("runbook {runbook}: {why}")),
+        };
+        out.insert(role.clone(), chosen);
+    }
+    if !out.contains_key("default") {
+        match (asked.route, asked.default) {
+            (Some(w), _) => {
+                narrows(w, "model_route")?;
+                out.insert("default".to_owned(), (w.to_owned(), By::Run));
+            }
+            (None, Some(d)) => {
+                narrows(d, "route_policy.default")?;
+                out.insert("default".to_owned(), (d.to_owned(), By::Default));
+            }
+            (None, None) => {}
+        }
+    }
+    for (role, w) in asked.roles {
+        if !out.contains_key(role) {
+            narrows(w, &format!("model_routes.{role}"))?;
+            out.insert(role.clone(), (w.clone(), By::Run));
+        }
+    }
+    Ok(out)
 }
 
 /// What the admission made of a file: one JSON entry per role (the view's `RouteEntry`), the `routes_allowed` as given, and
@@ -329,6 +478,44 @@ mod tests {
         assert_eq!((a.entries[0]["route"].clone(), a.routes_allowed), (json!("claude"), Some(vec!["claude".to_owned()])), "the default is not allowed");
     }
 
+    fn for_run_of(text: &str, route: Option<&str>, roles: &[(&str, &str)], default: Option<&str>) -> Result<BTreeMap<String, (String, By)>, String> {
+        let roles: BTreeMap<String, String> = roles.iter().map(|(r, n)| ((*r).to_owned(), (*n).to_owned())).collect();
+        for_run("r", &parse("r", text).unwrap(), &two(), Asked { route, roles: &roles, default })
+    }
+
+    fn chosen(pairs: &[(&str, &str, By)]) -> BTreeMap<String, (String, By)> {
+        pairs.iter().map(|(role, route, by)| ((*role).to_owned(), ((*route).to_owned(), *by))).collect()
+    }
+
+    #[test]
+    fn a_run_takes_its_own_word_then_the_protocols_then_the_default_and_every_route_must_be_allowed() {
+        let file = "format: runbook.routes/1\nmodel_routes:\n  writer: {route: qwen}\n  review: {needs: {wire: messages, tool_calling: true}}\n";
+        assert_eq!(for_run_of(file, None, &[], Some("qwen")), Ok(chosen(&[("default", "qwen", By::Default), ("review", "claude", By::Protocol), ("writer", "qwen", By::Protocol)])));
+        assert_eq!(for_run_of(file, Some("claude"), &[("writer", "claude"), ("extra", "qwen")], None), Ok(chosen(&[("default", "claude", By::Run), ("extra", "qwen", By::Run), ("review", "claude", By::Protocol), ("writer", "claude", By::Run)])));
+        assert_eq!(for_run_of(file, None, &[("review", "qwen")], None), Err("runbook r: role review: the route qwen (model_routes.review) does not meet wire messages, tool_calling".to_owned()));
+        assert_eq!(for_run_of("format: runbook.routes/1\nmodel_routes:\n  default: {route: claude}\n", None, &[], Some("qwen")), Ok(chosen(&[("default", "claude", By::Protocol)])));
+        let narrow = "format: runbook.routes/1\nroutes_allowed: [claude]\n";
+        assert_eq!(for_run_of(narrow, None, &[], Some("qwen")), Err("runbook r: the route qwen (route_policy.default) is not in routes_allowed (claude)".to_owned()));
+        assert_eq!(for_run_of(narrow, Some("qwen"), &[], None), Err("runbook r: the route qwen (model_route) is not in routes_allowed (claude)".to_owned()));
+        assert_eq!(for_run_of(narrow, None, &[("w", "qwen")], Some("claude")), Err("runbook r: the route qwen (model_routes.w) is not in routes_allowed (claude)".to_owned()));
+        assert_eq!(for_run_of(narrow, None, &[], None), Ok(BTreeMap::new()), "no route named anywhere: the caller decides");
+        let several = "format: runbook.routes/1\nmodel_routes:\n  w: {needs: {wire: messages}}\n";
+        assert!(for_run_of(several, None, &[], None).is_err_and(|e| e.contains("role w: several routes meet wire messages: claude, qwen")));
+        assert_eq!(for_run_of(several, Some("claude"), &[], None), Ok(chosen(&[("default", "claude", By::Run), ("w", "claude", By::Protocol)])), "the run's route meets the needs");
+    }
+
+    #[test]
+    fn check_refuses_what_no_run_can_admit_and_leaves_several_routes_to_the_run() {
+        let ok = |text: &str| check("r", &parse("r", text).unwrap(), &two());
+        assert_eq!(ok("format: runbook.routes/1\nmodel_routes:\n  w: {needs: {wire: messages}}\n"), Ok(()));
+        assert_eq!(ok("format: runbook.routes/1\nmodel_routes:\n  w: {route: gpt}\n"), Err("runbook r: role w: the route gpt is not one the daemon declares (declared: claude, qwen)".to_owned()));
+        assert_eq!(ok("format: runbook.routes/1\nmodel_routes:\n  w: {needs: {kind: local}}\n"), Err("runbook r: role w: no declared route meets kind local".to_owned()));
+        assert_eq!(ok("format: runbook.routes/1\nmodel_routes:\n  w: {needs: {kind: managed}}\nroutes_allowed: [claude]\n"), Err("runbook r: role w: no declared route meets kind managed".to_owned()));
+        assert_eq!(ok("format: runbook.routes/1\nroutes_allowed: [nope]\n"), Err("runbook r: routes_allowed names the route nope, which the daemon does not declare (declared: claude, qwen)".to_owned()));
+        let none = check("r", &parse("r", "format: runbook.routes/1\nmodel_routes:\n  w: {route: qwen}\n").unwrap(), &[]);
+        assert_eq!(none, Err("runbook r: role w: the route qwen is not one the daemon declares (declared: none)".to_owned()));
+    }
+
     #[test]
     fn a_fact_the_gateway_did_not_give_meets_no_requirement() {
         let unread = vec![facts("qwen", "managed", &[], None, None)];
@@ -363,5 +550,17 @@ mod tests {
         }
         let a = admitted("format: runbook.routes/1\nroutes_allowed: [\"http://h\"]\n", None);
         assert_eq!(a.reasons, ["routes_allowed holds an entry that is not a route name"]);
+    }
+
+    /// The relay takes the model `runbook-<role>` for the role `<role>`: a role whose name starts with `runbook-` would be
+    /// taken for another, and the entry is refused naming its member.
+    #[test]
+    fn a_role_whose_name_starts_with_runbook_dash_is_refused_naming_its_member() {
+        let declared = parse("r", "format: runbook.routes/1\nmodel_routes:\n  runbook-x: {route: claude}\n  x: {route: qwen}\n").unwrap();
+        let a = admit(&declared, &two(), None);
+        assert_eq!(a.reasons.len(), 1, "{:?}", a.reasons);
+        assert!(a.reasons[0].contains("model_routes.runbook-x") && a.reasons[0].contains("`runbook-`"), "{:?}", a.reasons);
+        let why = check("r", &declared, &two()).unwrap_err();
+        assert!(why.starts_with("runbook r: ") && why.contains("model_routes.runbook-x"), "{why}");
     }
 }

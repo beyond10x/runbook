@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "8301ea51b6ad590ac0ba29fad7218f1733d63389d07a743b7fbfe459491b67f4",
-    "contract_digest": "9f692a78acb6b926776721bdb28a26a9e817169714f87b0a7a441aff46be523e",
+    "spec_digest": "9a5901667813962c6543f54005a1f812637f93fc546cb58e9777ad5761376a2f",
+    "contract_digest": "9d34521df09fba48a6cc852d4f2bff78348dfb0bf8d1e3c9f8bda34a24300622",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -2839,7 +2839,7 @@
             },
             "model_route_source": {
               "kind": "literal",
-              "value": "default"
+              "value": "protocol"
             },
             "request": {
               "kind": "literal",
@@ -4629,7 +4629,7 @@
             },
             "model_route_source": {
               "kind": "literal",
-              "value": "default"
+              "value": "protocol"
             },
             "request": {
               "kind": "literal",
@@ -5578,7 +5578,7 @@
             },
             "model_route_source": {
               "kind": "literal",
-              "value": "default"
+              "value": "protocol"
             },
             "request": {
               "kind": "literal",

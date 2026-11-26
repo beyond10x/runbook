@@ -73,10 +73,10 @@
     },
     "outcome": {
       "$ref": "#/$defs/sdc.daemon.RunOutcome",
-      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take; the event runbook.step-failed says why)."
+      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take; the event runbook.step-failed says why)."
     },
     "failure": {
-      "description": "Why the run failed to start; absent in every other state.",
+      "description": "Why the run failed to start; absent in every other state of the row. The view `run` also gives here what failed a run after it started: the reason of its run event `runbook.runtime-failed` or `runbook.step-failed`.",
       "type": "string"
     },
     "step_in_flight": {
@@ -85,7 +85,7 @@
     },
     "model_route": {
       "$ref": "#/$defs/sdc.daemon.RouteName",
-      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit.",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook's first model call.",
       "x-ess-relation": {
         "name": "model_route",
         "kind": "references",
@@ -101,11 +101,11 @@
     },
     "model_route_source": {
       "$ref": "#/$defs/sdc.daemon.RouteSource",
-      "description": "The setting that chose model_route: run or default. Absent with model_route."
+      "description": "The setting that chose model_route: run, protocol or default. Absent with model_route."
     },
     "model_routes": {
       "$ref": "#/$defs/sdc.daemon.RoleRoutes",
-      "description": "The routes of the other roles the submit named (`model_routes.<role>`), each chosen by the run; absent when it named none."
+      "description": "The routes of the other roles of the run: those the submit named (`model_routes.<role>`) and those the runbook's route entries give; absent when there are none."
     },
     "route_phase": {
       "description": "The last phase the gateway gave of a route of the run that could not answer when the run was submitted: set when the run waits for its route (WaitingForRoute) and when it ends `stopped: route`; absent for a run that never waited.",
@@ -147,7 +147,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:34d3492de42d5ffda05b1d9fce9b84b1b78fd0cad3a9c5ba1d943349e8fba5ff",
+    "contract_digest": "slice-sha256/2:af8dc85bdfe94b3957b9fa740dcf103477106cdb5b016d8b62dbb26659268c43",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -219,7 +219,7 @@
     },
     "sdc.daemon.RoleRoutes": {
       "title": "RoleRoutes",
-      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`; a role does not start with `runbook-`, the prefix of the model the run's route file gives a role.",
       "x-ess-name": "sdc.daemon.RoleRoutes",
       "x-ess-kind": "newtype",
       "type": "object",
@@ -237,12 +237,13 @@
     },
     "sdc.daemon.RouteSource": {
       "title": "RouteSource",
-      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`), protocol (the runbook's route entries, the file `bindings/<runbook>.routes.yaml` of format runbook.routes/1: the route its entry for the role names, or the route that meets the entry's needs; docs/model-routes.md section 2) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The run's word comes first, then the protocol's, then the default.",
       "x-ess-name": "sdc.daemon.RouteSource",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
         "run",
+        "protocol",
         "default"
       ]
     },

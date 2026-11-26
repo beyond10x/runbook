@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.EndRun.schema.json",
   "title": "Report a run ended input",
-  "description": "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own. When the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take, the daemon issues it with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) and, just before, writes the run event `runbook.step-failed` (record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason).",
+  "description": "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own. When the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take, the daemon issues it with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) and, just before, writes the run event `runbook.step-failed` (record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason).",
   "x-ess-name": "sdc.daemon.EndRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ed95c02f0dce17b6b1f86e5fd9daf4dd059e12c026090f8d710669e22fa06cc4",
+    "contract_digest": "slice-sha256/2:43b84d246d075efedf0ef538f44801afce1093e9d3ae6cd7fc0687be98ac1324",
     "regenerate": "ess generate"
   },
   "$defs": {

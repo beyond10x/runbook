@@ -140,7 +140,7 @@ fn the_route_file_holds_the_relays_address_and_the_runs_token_and_no_process_of_
     let route: Value = serde_json::from_str(&r("route-file")).unwrap();
     assert_eq!(route["format"], "runbook.route/1");
     assert!(route["base_url"].as_str().unwrap().starts_with(&format!("http://{}", l.addr)) && route["base_url"].as_str().unwrap().ends_with(&format!("/daemon/relay/{run}")), "{route}");
-    assert_eq!(route["routes"], json!({"default": {"route": "default"}}), "{route}");
+    assert_eq!(route["routes"], json!({"default": {"route": "default", "model": "runbook-default"}}), "{route}");
     let run_token = route["token"].as_str().unwrap().to_owned();
     assert!(run_token.len() >= 32 && run_token != TOKEN, "the route file holds no token of the run's own");
     // the bound program of the run was given the same file and nothing else of the route

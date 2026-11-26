@@ -33,7 +33,7 @@ pub(super) struct Gateway {
 }
 
 pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
-    serving(move |_| answer.to_vec(), &[])
+    serving(move |_| answer.to_vec(), &[], None)
 }
 
 /// A gateway like [`gateway`] that is also ready and lists `aliases`: `GET /ready` answers 200, `GET /v1/models` the
@@ -41,16 +41,21 @@ pub(super) fn gateway(answer: &'static [u8]) -> Gateway {
 /// declared route's gateway these before a run starts (`docs/model-routes.md`, section 3); every other request is
 /// kept and answered with `answer`.
 pub(super) fn gateway_listing(answer: &'static [u8], aliases: &[&str]) -> Gateway {
-    serving(move |_| answer.to_vec(), aliases)
+    serving(move |_| answer.to_vec(), aliases, None)
 }
 
 /// A gateway on a loopback port that keeps every request and answers each with what `answer` makes of it, and is ready
 /// and lists `aliases` as [`gateway_listing`] is (none: every request is kept and answered by `answer`).
 pub(super) fn gateway_answering(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static, aliases: &[&str]) -> Gateway {
-    serving(answer, aliases)
+    serving(answer, aliases, None)
 }
 
-fn serving(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static, aliases: &[&str]) -> Gateway {
+/// A gateway like [`gateway_answering`] whose `GET /v1/status` answers `status` (the status of every model, by alias).
+pub(super) fn gateway_with_status(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static, aliases: &[&str], status: Value) -> Gateway {
+    serving(answer, aliases, Some(status.to_string()))
+}
+
+fn serving(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static, aliases: &[&str], status: Option<String>) -> Gateway {
     let reads = !aliases.is_empty();
     let models = json!({"object": "list", "data": aliases.iter().map(|a| json!({"id": a, "wires": ["messages", "chat"]})).collect::<Vec<_>>()}).to_string();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -75,6 +80,7 @@ fn serving(answer: impl Fn(&Got) -> Vec<u8> + Send + 'static, aliases: &[&str]) 
                 let (code, body) = match line.split_whitespace().nth(1).unwrap_or("") {
                     "/ready" => (200, "{\"status\":\"ready\"}".to_owned()),
                     "/v1/models" => (200, models.clone()),
+                    "/v1/status" if status.is_some() => (200, status.clone().unwrap_or_default()),
                     _ => (404, "{\"error\":{\"code\":\"not-found\"}}".to_owned()),
                 };
                 let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
@@ -224,6 +230,30 @@ fn a_role_without_a_route_a_call_past_the_cap_and_a_call_without_the_runs_token_
     assert_eq!(got(&review).len(), 1);
 }
 
+/// A call names its role bare (`review`) or as the route file's model of the role (`runbook-review`); a client that adds
+/// a bracketed suffix of its own (`runbook-review[1m]`, as Claude Code does to a name it takes for an alias of its own) is
+/// taken for the same role. A name of no role is refused naming the role.
+#[test]
+fn a_call_names_its_role_bare_or_as_runbook_role_and_a_bracketed_suffix_is_dropped() {
+    let s = served("relay-role-names");
+    let review = gateway(OK_ANSWER);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+    let ticket = s.relay.open("run-role-names", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let names = ["review", "runbook-review", "runbook-review[1m]", "review[1m]"];
+    for name in names {
+        let r = call(&s, ticket.base_url(), "messages", ticket.token(), &json!({"model": name, "max_tokens": 5, "messages": []}));
+        assert_eq!(r.status, 200, "{name}: {}", r.text());
+    }
+    let r = call(&s, ticket.base_url(), "messages", ticket.token(), &json!({"model": "runbook-writer[1m]", "messages": []}));
+    assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!("route-refused")), "{}", r.text());
+    assert!(r.json()["error"]["message"].as_str().unwrap_or_default().contains("the role \"writer\""), "the refusal does not name the role: {}", r.text());
+    let lines = wait_for_lines(&book, names.len());
+    assert!(lines.iter().all(|(l, _)| l["role"] == "review"), "a line names another role: {lines:?}");
+    assert!(got(&review).iter().all(|g| g.body["model"] == "claude-alias") && got(&review).len() == names.len(), "{:?}", got(&review));
+}
+
 #[test]
 fn a_gateway_refusal_is_passed_back_and_booked_route_unavailable_with_its_code_and_the_setting_and_no_other_route_is_called() {
     let s = served("relay-down");
@@ -269,6 +299,39 @@ fn a_streamed_chat_call_asks_for_its_usage_and_is_passed_back_as_it_came() {
     let lines = wait_for_lines(&book, 1);
     let (line, micro) = &lines[0];
     assert_eq!((line["input_tokens"].clone(), line["output_tokens"].clone(), line["cost_known"].clone(), *micro), (json!(40), json!(2), json!(false), 7_000), "no price: the reservation is booked: {line}");
+}
+
+const CACHED_ANSWER: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 124\r\nConnection: close\r\n\r\n{\"id\":\"msg\",\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":30000,\"cache_creation_input_tokens\":1000,\"output_tokens\":7}}";
+const NO_USAGE_ANSWER: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\nConnection: close\r\n\r\n{\"id\":\"msg\",\"content\":[]}";
+
+/// The ledger line of a call counts the input read from and written to the prompt cache in fields of its own beside
+/// `input_tokens`, and a declared input price takes them; a call answered with no usage on a route without prices books
+/// its reservation with `cost_known: false`, on a route with prices 0 at those prices.
+#[test]
+fn a_calls_line_counts_the_cached_input_and_a_call_with_no_usage_books_its_reservation_on_an_unpriced_route() {
+    let s = served("relay-cached");
+    let (cached, bare, priced) = (gateway(CACHED_ANSWER), gateway(NO_USAGE_ANSWER), gateway(NO_USAGE_ANSWER));
+    let local = ResolvedRoute { kind: "local".to_owned(), ..route("local", &bare.base_url, "local-alias", None) };
+    let table = RouteTable::default()
+        .with("default", route("claude", &cached.base_url, "claude-alias", Some((1_000_000, 2_000_000))), "run")
+        .with("bare", local, "run")
+        .with("priced", route("priced", &priced.base_url, "priced-alias", Some((3_000_000, 15_000_000))), "run");
+    let ticket = s.relay.open("run-cached", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    for (n, role) in ["default", "bare", "priced"].into_iter().enumerate() {
+        let r = call(&s, ticket.base_url(), "messages", ticket.token(), &json!({"model": role, "max_tokens": 5, "messages": []}));
+        assert_eq!(r.status, 200, "{role}: {}", r.text());
+        wait_for_lines(&book, n + 1);
+    }
+    let lines = book.lines.lock().unwrap().clone();
+    let of = |i: usize| -> (Value, Value, Value, Value, Value, u64) {
+        let (l, m) = &lines[i];
+        (l["input_tokens"].clone(), l["cache_read_input_tokens"].clone(), l["cache_creation_input_tokens"].clone(), l["output_tokens"].clone(), l["cost_known"].clone(), *m)
+    };
+    assert_eq!(of(0), (json!(2), json!(30_000), json!(1_000), json!(7), json!(true), 31_002 + 14), "{:?}", lines[0]);
+    assert_eq!(of(1), (Value::Null, Value::Null, Value::Null, Value::Null, json!(false), 7_000), "no usage on an unpriced local route: {:?}", lines[1]);
+    assert_eq!(of(2), (Value::Null, Value::Null, Value::Null, Value::Null, json!(true), 0), "no usage on a priced route: {:?}", lines[2]);
 }
 
 /// A gateway on a loopback port that reads one whole call, keeps it, and answers `answer` only once the test sends on

@@ -613,6 +613,13 @@ table.ctx tr.editing td { background: var(--accent-bg); }
 #startdlg .st-f { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 #startdlg p { margin: 8px 0 0; font-size: 12px; }
 #st-msg:empty { display: none; }
+#routesdlg p { margin: 8px 0 0; font-size: 12px; }
+#routesdlg .routes-wrap { margin-top: 12px; overflow-x: auto; }
+#routesdlg table.routes { width: 100%; border-collapse: collapse; font-size: 12px; }
+#routesdlg .routes th, #routesdlg .routes td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+#routesdlg .routes th { color: var(--text-2); font-weight: 600; }
+#routesdlg .routes td[data-field=route] { font-family: var(--mono); }
+#routes-msg:empty { display: none; }
 .dd-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 10px; }
 .dd-other { display: flex; gap: 8px; margin-top: 14px; }
 .dd-other .tin { flex: 1; }

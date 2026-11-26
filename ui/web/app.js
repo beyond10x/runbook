@@ -18,6 +18,8 @@ import {renderProducts, renderProductBar, bindProducts, showProduct} from './pro
 const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
 // the same for the start form (ui/daemon/start.js): it names the mode "operate" and hands the run it started to openRun
 const initStart = daemon ? (await import('./start.js')).initStart : null;
+// and for the Routes view (ui/daemon/routes.js): the daemon's model routes, and the kind and status of a run's route
+const {initRoutes, routeWords} = daemon ? await import('./routes.js') : {};
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -219,6 +221,7 @@ async function openRun(id) {
   if (s) await selectSource(s.index);
 }
 if (initStart) initStart(openRun);
+if (initRoutes) initRoutes(schedule);
 document.addEventListener('click', (ev) => {
   const t = ev.target;
   if (t.closest('#runpick')) { if (PK.open) closePicker(); else openPicker(); return; }
@@ -355,7 +358,7 @@ const DAEMON_TABS = {explain: 'explanation', autonomy: 'autonomy view', security
 function renderDaemon(src) {
   for (const id of ['#view-note', '#phases', '#now', '#nowbar', '#kpis', '#timeline']) patch($(id), '');
   const cases = S.missingRun == null ? ordered() : [];
-  const dv = S.missingRun == null ? daemonView(src) : null;
+  const dv = S.missingRun == null ? daemonView(src, routeWords) : null;
   patch($('#feed'), dv?.feed ?? '');
   if (cases.length && (!S.sel || !S.cases.has(S.sel))) S.sel = cases[0].rel;
   const c = cases.length ? current() : null;

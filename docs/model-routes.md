@@ -1,6 +1,6 @@
 # Model routes and delegation: the architecture of the stack
 
-Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, section 2 without the protocol's routes and admission, and section 3 without the wake). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
+Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, section 2, and section 3 with the wake, which ships off). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
 2026-11-25 (end of the document).
 
 ## The goal
@@ -189,7 +189,7 @@ kind = "managed"              # "managed" (gateway-owned pod), "hosted" (fixed u
 start_wait_seconds = 600      # how long a run waits for phase ready before it ends `stopped: route`
 price_in_micro_usd_per_mtok = 0   # optional: what the ledger books per million input tokens
 price_out_micro_usd_per_mtok = 0  # optional: per million output tokens
-wake_on_submit = false        # managed only; true is refused unless wake_daily_cap_micro_usd is set (D-5)
+wake_on_submit = false        # managed only; true is refused unless the cap and the cost below are above 0 (D-5)
 wake_daily_cap_micro_usd = 0  # managed only; the most wakes may book per day
 wake_cost_micro_usd = 0       # managed only; what one wake books against that cap
 
@@ -244,6 +244,16 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   with the reason and refused at submit: 422 `route-refused`, naming the runbook, the role and the unmet requirement.
   The facts a requirement is checked against come from `/v1/models` (`wires`, `max_model_len`) and the route's
   declaration.
+
+  Built (`story:protocol-declares-the-routes-it-needs`; `docs/daemon-api.md`, "The route of a run"): the file is
+  `bindings/<runbook>.routes.yaml`, read at each `submit-run`, each delegation that names the runbook as its
+  protocol, and each delegation whose runbook the classifier picks, once it is picked and before its first model call
+  (a refusal there ends the run `FailedToStart` with `route-refused: ` and the same reason; the routes the entries give
+  then take the readiness check of section 3, a route that cannot answer within its wait ends the run `FailedToStart`
+  with `route-unavailable: `, and the run record names the routes it took). Requirements the run's route misses are
+  met by `route_policy.default` when it meets them. No role's name starts with `runbook-` (section 11). A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
+  not name takes the entry's route; an entry for the role `default` comes before `route_policy.default`. A call of a
+  role the runbook chose is booked with the source `protocol`.
 - **Per run:** a submit may name `model_route = "<name>"` and per role `model_routes.<role>`. It names a declared
   route by name only; an address, a token or an alias is refused by name.
 - **Precedence:** the run's word, then the protocol's, then `route_policy.default`. A route outside the protocol's
@@ -275,12 +285,13 @@ At submit, after the route is resolved and before anything is written:
 4. **Wake (D-5: built, off).** With `wake_on_submit = true` the daemon sends one `POST /v1/models/{alias}/wake`
    when it accepts a run on a stopped managed route, and books `wake_cost_micro_usd` against
    `wake_daily_cap_micro_usd` for the day. `wake_on_submit = true` without a cap above 0 is refused at start by
-   name. A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
-   "wake cap reached". A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling. The shipped
-   default is off; the pod is started by a person until the operator sets the cap.
+   name, and so is one without a `wake_cost_micro_usd` above 0 (a wake that books nothing never meets the cap). A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
+   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name. The shipped
+   default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
-   upstream shows as a failed call (section 4). Once the gateway serves `/v1/status`, a hosted route's `callable`
-   is read as in 3 (the gateway probes the upstream's model list, which costs nothing).
+   upstream shows as a failed call (section 4). A hosted route's `callable` of `/v1/status` is shown in the view `routes`
+   and holds no run: the gateway reads it from the upstream's model list, and an upstream that answers 404 there reads
+   not callable though its calls work.
 6. `waiting-for-route` is a new state of the run and `stopped: route` a new end: both enter the daemon's ESS
    lifecycle, and its conformance suites are regenerated.
 7. `runbook run --model-route` does not wait: a managed or local route that is not callable refuses the run with
@@ -304,9 +315,11 @@ At submit, after the route is resolved and before anything is written:
   (once the gateway sends one), input and output tokens, and its cost. The relay's line replaces the adapter's own
   `cost_usd` for a routed run: today a call that ended 0 with no `cost_usd` ends the run (`runbook/src/cost.rs`),
   and a gateway alias has no price in the model client's table.
-- Cost (D-3): with prices declared on the route, tokens times price; without, `cost_known: false` and the call books
-  its reservation (`max_call_micro_usd`), as the ledger does today for a call of unknown cost. A local route costs 0
-  unless prices are declared. A managed pod's hourly cost is the gateway's (its daily and total spend ceilings);
+- Cost (D-3): with prices declared on the route, tokens times price (the input price takes the input read from and
+  written to the prompt cache, booked in fields of their own beside `input_tokens`); without, `cost_known: false` and
+  the call books its reservation (the step's largest while its step runs, else `max_call_micro_usd`), fixed as the
+  call is admitted, as the ledger does today for a call of unknown cost. A local route costs 0 unless prices are
+  declared; an answer with no usage costs 0 at declared prices and books the reservation on a route without them. A managed pod's hourly cost is the gateway's (its daily and total spend ceilings);
   Runbook books wakes only (section 3).
 - The run's `max_llm_calls` and `cap_micro_usd`, and the daemon's daily spend ledger, count these lines. A cap that
   is reached stops the run as today.
@@ -322,6 +335,9 @@ At submit, after the route is resolved and before anything is written:
   alias, kind, the gateway's readiness and the model's phase (read at most once every 15 s and cached), and today's
   calls and booked spend from the ledger.
 - The run record names the route, the alias and the route's source (run, protocol or default).
+- Built (story `daemon-page-shows-the-route`; `docs/daemon-api.md`, "The web UI"): the run's header and the Routes
+  view of the daemon's page, which reads the view `routes` at most once every 15 s. Today's calls and booked spend
+  per route are not in the view `routes` yet, and the page says so.
 
 ### 7. Confinement
 
@@ -385,7 +401,7 @@ only delegations that name a protocol).
 Built (`story:daemon-catalog-lists-what-a-delegation-may-name`; `docs/daemon-api.md`, "The catalog"): the view, the MCP
 tool and `runbook catalog`. A runbook's route entries are read from `bindings/<runbook>.routes.yaml`; the catalog
 lists their admission against the declared routes and what the gateways listed (`wires`, `max_model_len`,
-`tool_calling`); the refusal at submit is `story:protocol-declares-the-routes-it-needs`. The paths a delegation may
+`tool_calling`); a submit and a delegation that names the runbook are refused by the same admission (`story:protocol-declares-the-routes-it-needs`, section 2). The paths a delegation may
 take are listed: `named` and `free`, and on a daemon with a classifier route `classified` and `generated`
 (section 9).
 
@@ -397,8 +413,9 @@ gateway"); only the decider does. A delegation is agent work, so its agent nodes
 entry `story:model-entry-for-bound-programs` asked for, and the place every call is booked.
 
 - **The relay.** runbookd serves, on its own loopback listener, `/daemon/relay/<run>/v1/messages`,
-  `/v1/chat/completions` and `/v1/responses`. A call names its route by role in `model` (`writer`, `review`, or
-  `default`); the relay looks up the run's route table, refuses a role the run has no route for (`400
+  `/v1/chat/completions` and `/v1/responses`. A call names its route by role in `model`: the model the route file
+  gives the role (`runbook-writer`, `runbook-default`) or the bare role (`writer`, `review`, or
+  `default`), a trailing bracketed suffix a client adds (`runbook-default[1m]`) dropped; the relay looks up the run's route table, refuses a role the run has no route for (`400
   route-refused`), checks the run's caps (`429 cap-reached`, nothing sent), sets `model` to the route's alias, adds
   the gateway's credential, sends the call, streams the answer back unchanged, reads the usage from it (the JSON
   `usage` object, or the usage events of a stream), and writes the ledger line.
@@ -408,14 +425,16 @@ entry `story:model-entry-for-bound-programs` asked for, and the place every call
 
   ```json
   {"format": "runbook.route/1", "base_url": "http://127.0.0.1:<daemon port>/daemon/relay/<run>",
-   "token": "<a token minted for this run>", "routes": {"default": {"route": "qwen", "wires": ["chat", "messages"]},
-   "review": {"route": "claude", "wires": ["messages"]}}}
+   "token": "<a token minted for this run>", "routes": {"default": {"route": "qwen", "model": "runbook-default"},
+   "review": {"route": "claude", "model": "runbook-review"}}}
   ```
 
   The token is the run's own, minted at start and void when the run ends; the gateway's credential never leaves
   runbookd. The `claude-cli` adapter sets `ANTHROPIC_BASE_URL` to `base_url` and `ANTHROPIC_AUTH_TOKEN` to the
-  token for the `claude` it starts, and the model to the role; a program that starts another model client does the
-  same with its own client's settings.
+  token for the `claude` it starts, and the model to the role's `model` (`runbook-<role>`: Claude Code takes a bare
+  `default` for an alias of its own and asks for `default[1m]`); a program that starts another model client does the
+  same with its own client's settings. The relay takes `runbook-<role>` for the role `<role>` first, else a bare role
+  name; a role whose name starts with `runbook-` is refused in a submit and in a runbook's route entries.
 - **Who gets the file:** the decider, every agent node (`sdc-node`) and every bound program of a run on a route.
   A program that never calls a model ignores it. The file and its directory go when the run ends.
 - `[gateway]` today gives the decider the gateway's own address and token; with routes, the decider takes the

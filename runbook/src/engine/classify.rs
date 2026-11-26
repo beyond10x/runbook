@@ -22,7 +22,6 @@ use crate::delegation::{self as dlg, Built, CatalogEntry};
 use crate::relay::{RouteTable, Ticket, ROUTE_UNAVAILABLE};
 use crate::runtime::{EventSink, StartRequest};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -151,22 +150,17 @@ fn put(dir: &Path, name: &str, text: &str) -> Result<(), String> {
     std::fs::write(dir.join(name), text).map_err(|e| format!("{}: {e}", dir.join(name).display()))
 }
 
-/// The runbooks a person can start from the engine's homes, each with its title, description and inputs.
+/// The runbooks of the engine's homes, each with its title, description and inputs: the list of the view `catalog`
+/// (`Runtime::runbooks`, which is `layout::list_in`), so a runbook another runbook opens as a child is in it, as it is in the
+/// view and for a delegation that names it (`Runtime::knows_runbook`, `layout::resolve_in`).
 fn catalog_of(engine: &Engine) -> Vec<CatalogEntry> {
     use crate::runtime::Runtime;
-    let homes = &engine.homes;
-    let names: BTreeSet<String> = layout::list_in(homes).into_iter().map(|r| r.name).collect();
-    let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    for home in homes {
-        for entry in crate::runbooks::read_protocols(&home.join("protocol")).unwrap_or_default() {
-            if !entry.startable || !names.contains(&entry.id) || !seen.insert(entry.id.clone()) {
-                continue;
-            }
-            let file = home.join("protocol").join(format!("{}.protocol.yaml", entry.id));
-            let doc: serde_yaml::Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
-            out.push(CatalogEntry::of(&entry.id, &doc, engine.runbook_facts(&entry.id).inputs));
-        }
+    for info in engine.runbooks() {
+        let Ok(found) = layout::resolve_in(&engine.homes, &info.name, None) else { continue };
+        let file = found.protocol_dir.join(format!("{}.protocol.yaml", info.name));
+        let doc: serde_yaml::Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
+        out.push(CatalogEntry::of(&info.name, &doc, engine.runbook_facts(&info.name).inputs));
     }
     out
 }

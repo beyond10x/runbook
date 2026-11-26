@@ -130,6 +130,9 @@ impl Terms {
 pub enum RouteSource {
     /// The submit named it (`model_route`, `model_routes.<role>`).
     Run,
+    /// The runbook's route entries (`bindings/<runbook>.routes.yaml`): the route its entry for the role names, or the route
+    /// that meets the entry's needs (`crate::admission`).
+    Protocol,
     /// The daemon's `route_policy.default`, or the route `default` of a lone `[gateway]` table.
     Default,
 }
@@ -138,6 +141,7 @@ impl RouteSource {
     pub fn as_str(self) -> &'static str {
         match self {
             RouteSource::Run => "run",
+            RouteSource::Protocol => "protocol",
             RouteSource::Default => "default",
         }
     }
@@ -212,6 +216,26 @@ pub struct StartRequest {
     /// The route of a delegation (`Daemon::delegate`), by name: the run is a delegation, on that route as the role
     /// `default` (`routes`). None: the run is no delegation.
     pub model_route: Option<String>,
+    /// For a delegation the run classifies: the daemon's admission of the route entries of the runbook the classifier picks,
+    /// asked once that runbook is chosen and before its first model call. None: the run takes `routes` as they are.
+    pub admit: Option<Admit>,
+}
+
+/// The daemon's admission of a runbook's route entries (`crate::admission`) for a delegation whose runbook is chosen when its
+/// run starts: given the runbook's name, the routes of the run's roles, chosen as for a delegation that names the runbook,
+/// once each of them can answer (the readiness check of a run's routes, waiting as a submitted run waits); or why not, as
+/// the run's failure: `route-refused: <reason>` (the refusal that delegation would get, naming the runbook and the role)
+/// or `route-unavailable: <reason>`. The daemon's record of the run names the routes it took.
+#[derive(Clone)]
+pub struct Admit(pub std::sync::Arc<AdmitFn>);
+
+/// The function of an [`Admit`]: the runbook's name in, the run's route table or the run's failure out.
+pub type AdmitFn = dyn Fn(&str) -> Result<crate::relay::RouteTable, String> + Send + Sync;
+
+impl std::fmt::Debug for Admit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Admit")
+    }
 }
 
 /// A question the runtime raised for a run.
@@ -380,6 +404,13 @@ pub trait Runtime: Send + Sync + 'static {
     /// whose runbooks are scripts): nothing.
     fn runbook_facts(&self, _runbook: &str) -> RunbookFacts {
         RunbookFacts::default()
+    }
+
+    /// The text of the route entries file of the runbook `runbook` (and version), as `RunbookFacts::routes_file` holds it:
+    /// none when it has none. Asked at submit and at a delegation that names the runbook (`crate::admission`). The default
+    /// (the stub): none.
+    fn routes_file(&self, _runbook: &str, _version: Option<&str>) -> Option<Result<String, String>> {
+        None
     }
 
     /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that

@@ -67,7 +67,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:06065fdd77ee7bc80ea4ff15259d5606b46379e4d29fa1cfd79febd6edfda531",
+    "contract_digest": "slice-sha256/2:3e15965c9b30a279dbd9da44e88ae78d16acd7173ee6c8bcee48e6860c71e111",
     "regenerate": "ess generate"
   },
   "$defs": {

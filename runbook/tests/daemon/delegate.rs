@@ -35,6 +35,7 @@ model=''
 prev=''
 for a in "$@"; do [ "$prev" = -p ] && prompt=$a; [ "$prev" = --model ] && model=$a; prev=$a; done
 printf '%s' "$prompt" > "$log/prompt"
+printf '%s\n' "$model" >> "$log/models"
 rest=${{ANTHROPIC_BASE_URL#http://}}
 hostport=${{rest%%/*}}
 base=''
@@ -1063,4 +1064,142 @@ fn a_classifier_answer_that_is_not_the_expected_json_is_asked_again_twice_then_e
     assert!(asked[1].body.to_string().contains("red, I think"), "the second call does not hold the first answer: {:?}", asked[1].body);
     assert_eq!(end["calls"], json!(3), "{end}");
     assert!(posted_to(&d.gw, "a-model").is_empty());
+}
+
+/// A runbook that opens `answer-demo` as a child case: `answer-demo` is a child runbook of the home after this.
+fn parent_runbook(h: &Home) {
+    let protocol = "format: protocol/1\nprotocol:\n  id: answer-parent\n  revision: 1\n  description: >-\n    A delegation test's parent runbook: it opens answer-demo as a child case.\nartifacts:\n  idea: {}\nevidence_kinds:\n  case_outcome: {}\n  child_opened: {}\nclaims:\n  child.opened:\n    true_when:\n      evidence: {kind: child_opened, subject: idea, result: opened}\n  child.passed:\n    true_when:\n      children: {in: [answered]}\nactions:\n  child.open:\n    effect: write\n    case_open: {protocol: answer-demo, subject: idea}\n    may_produce:\n      - evidence: child_opened\noutcomes:\n  delivered:\n    requires:\n      all:\n        - {claim: child.opened}\n        - {claim: child.passed}\n";
+    let bindings = "format: loom.bindings/1\nprotocol: answer-parent@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\nactions:\n  - action: child.open\n    executor:\n      kind: open\n      name: child\n      bindings: answer-demo.yaml\n    evidence:\n      - kind: child_opened\n        subject: idea\n        producer: loom\n        from: effect\n        results: {performed: opened}\n";
+    std::fs::write(h.home.join("protocol/answer-parent.protocol.yaml"), protocol).unwrap();
+    std::fs::write(h.home.join("bindings/answer-parent.yaml"), bindings).unwrap();
+}
+
+/// The ids of the runbooks a classify call's prompt lists: its lines that are JSON objects with an `id`.
+fn catalog_ids_of(asked: &Got) -> std::collections::BTreeSet<String> {
+    let prompt = asked.body["messages"][0]["content"].as_str().unwrap_or_default().to_owned();
+    prompt.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| v["id"].as_str().map(str::to_owned)).collect()
+}
+
+/// The classifier's catalog lists the runbooks the catalog view lists, a runbook another runbook opens as a child among
+/// them: a classify answer that picks the child runbook runs it, and a delegation that names it runs it too.
+#[test]
+fn the_classifier_takes_a_child_runbook_the_catalog_view_lists_and_a_delegation_may_name_it() {
+    let d = daemon_on("dlg-classify-child", classifying_gateway(vec![classified("answer-demo", 0.9)]), &format!("{ROUTE}{CLASSIFY}"));
+    parent_runbook(&d.h);
+    let view: std::collections::BTreeSet<String> =
+        rows(&d.l, "/daemon/views/catalog")[0]["runbooks"].as_array().unwrap().iter().filter_map(|r| r["runbook_id"].as_str().map(str::to_owned)).collect();
+    assert!(view.contains("answer-demo") && view.contains("answer-parent"), "the catalog view does not list the parent and its child: {view:?}");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!(
+        (end["run_state"].clone(), end["outcome"].clone(), end["path"].clone(), end["protocol"].clone()),
+        (json!("Ended"), json!("answered"), json!("classified"), json!("answer-demo")),
+        "a classify answer naming a runbook of the catalog view did not run it: {end}"
+    );
+    let asked = posted_to(&d.gw, "c-model");
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(catalog_ids_of(&asked[0]), view, "the classifier's catalog is not the catalog view's list");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "x", "model_route": "default", "protocol": "answer-demo"}));
+    assert_eq!((status, delegated(&body, "path")), (202, json!("named")), "{body}");
+    assert_eq!(until_ended(&d.l, &run_of(&body))["outcome"], json!("answered"));
+}
+
+/// The routes `default` (alias `a-model`, the daemon's default) and `other` (alias `b-model`) on the lone gateway, and the
+/// classifier route `classify` (alias `c-model`).
+const ROUTES_AND_CLASSIFY: &str = "[routes.default]\ngateway = \"default\"\nmodel = \"a-model\"\nkind = \"hosted\"\n[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"hosted\"\n[routes.classify]\ngateway = \"default\"\nmodel = \"c-model\"\nkind = \"hosted\"\n[route_policy]\ndefault = \"default\"\nclassifier = \"classify\"\n";
+
+/// The route entries of the runbook `answer-demo`: `text`, written over the last one (the daemon reads it at each start).
+fn answer_routes(h: &Home, text: &str) {
+    std::fs::write(h.home.join("bindings/answer-demo.routes.yaml"), format!("format: runbook.routes/1\n{text}")).unwrap();
+}
+
+/// The routes of the `runbook.model-call` events of the run `run`: role, route and the setting that chose it.
+fn calls_of(l: &Live, run: &str) -> Vec<(Value, Value, Value)> {
+    rows(l, &format!("/daemon/views/events?run_id={run}&after_position=0"))
+        .into_iter()
+        .filter(|e| e["kind"] == "runbook.model-call")
+        .map(|e| (e["record"]["role"].clone(), e["record"]["route"].clone(), e["record"]["source"].clone()))
+        .collect()
+}
+
+/// A delegation whose runbook the classifier picks takes that runbook's route entries once the runbook is chosen and before its
+/// first model call, as a delegation that names the runbook does: an entry for a role is its route (before the daemon's
+/// default), and an entry the daemon cannot admit ends the run `FailedToStart` with the refusal a delegation naming the
+/// runbook gets, naming the runbook and the role, and the runbook's step makes no call.
+#[test]
+fn a_classified_delegation_takes_the_route_entries_of_the_runbook_the_classifier_picked() {
+    let gw = gateway_answering(
+        |g| if g.body["model"] == "c-model" { messages(&classified("answer-demo", 0.9)) } else { OK.to_vec() },
+        &["a-model", "b-model", "c-model"],
+    );
+    let d = daemon_on("dlg-classify-routes", gw, ROUTES_AND_CLASSIFY);
+
+    // the entry of the role default names the route other: the runbook's call goes there, not to the daemon's default
+    answer_routes(&d.h, "model_routes:\n  default: {route: other}\n");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    assert_eq!((end["outcome"].clone(), end["path"].clone(), end["protocol"].clone()), (json!("answered"), json!("classified"), json!("answer-demo")), "{end}");
+    let said: Vec<_> = calls_of(&d.l, &run).into_iter().filter(|(role, _, _)| role != "classifier").collect();
+    assert_eq!(said, vec![(json!("default"), json!("other"), json!("protocol"))], "the runbook's call did not take its route entry");
+    assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0));
+
+    // an entry naming a route the daemon does not declare: refused before the runbook's first call, in the words of a
+    // delegation that names the runbook
+    answer_routes(&d.h, "model_routes:\n  default: {route: gpt}\n");
+    let (status, named, _) = delegate(&d.l, &json!({"request": "green or black", "protocol": "answer-demo"}));
+    assert_eq!((status, named["outcome"].clone()), (422, json!("route-refused")), "{named}");
+    let reason = named["payload"]["reason"].as_str().unwrap_or_default().to_owned();
+    assert!(reason.contains("runbook answer-demo") && reason.contains("role default") && reason.contains("gpt"), "{reason}");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!((end["run_state"].clone(), end["path"].clone(), end["protocol"].clone()), (json!("FailedToStart"), json!("classified"), json!("answer-demo")), "{end}");
+    assert_eq!(failure, format!("route-refused: {reason}"), "the refusal is not the one of a delegation naming the runbook: {end}");
+    assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0), "the refused runbook's step made a call");
+}
+
+/// The routes of a classified run that its runbook's route entries give pass the readiness check of a run's routes before
+/// the runbook's first call (`docs/model-routes.md`, section 3): the entry of the role default names the managed route
+/// `other`, whose model the gateway's status gives as not callable. The run waits up to the route's `start_wait_seconds`
+/// of 1 s and then ends `FailedToStart` naming the route; no call goes to it.
+#[test]
+fn a_classified_delegation_waits_for_the_routes_its_runbook_gave_it_and_fails_to_start_on_one_that_cannot_answer() {
+    let status = json!({"models": [{"model": "b-model", "callable": false, "phase": "stopped"}]});
+    let gw = super::relay::gateway_with_status(
+        |g| if g.body["model"] == "c-model" { messages(&classified("answer-demo", 0.9)) } else { OK.to_vec() },
+        &["a-model", "b-model", "c-model"],
+        status,
+    );
+    let tables = ROUTES_AND_CLASSIFY.replace("[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"hosted\"\n", "[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"managed\"\nstart_wait_seconds = 1\n");
+    let d = daemon_on("dlg-classify-ready", gw, &tables);
+    answer_routes(&d.h, "model_routes:\n  default: {route: other}\n");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!((end["run_state"].clone(), end["path"].clone()), (json!("FailedToStart"), json!("classified")), "{end}");
+    assert!(failure.starts_with("route-unavailable: ") && failure.contains("route other") && failure.contains("stopped"), "{failure}");
+    let waited: Vec<Value> = rows(&d.l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == "runbook.waiting-for-route").map(|e| e["record"].clone()).collect();
+    assert_eq!(waited, vec![json!({"route": "other", "phase": "stopped", "wait_seconds": 1})]);
+    assert!(posted_to(&d.gw, "b-model").is_empty(), "a call went to the route that cannot answer");
+}
+
+/// The claude-cli adapter of a run on a route gives `claude` the model the route file names for the role,
+/// `runbook-<role>`, which no client takes for an alias of its own, and the relay takes it for the role.
+#[test]
+fn the_free_runs_claude_asks_for_runbook_default_and_the_relay_takes_it_for_the_role_default() {
+    let d = daemon("dlg-role-model", OK);
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let models = std::fs::read_to_string(d.h.log.join("models")).unwrap_or_default();
+    assert_eq!(models, "runbook-default\n", "the adapter did not give claude the route file's model of the role: {end}");
+    assert_eq!((end["outcome"].clone(), end["calls"].clone()), (json!("delivered"), json!(1)), "{end}");
+    let sent = posted(&d.gw);
+    assert_eq!(sent.iter().map(|g| g.body["model"].clone()).collect::<Vec<_>>(), vec![json!("a-model")], "the relay did not send the route's alias");
 }

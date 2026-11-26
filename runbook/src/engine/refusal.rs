@@ -302,13 +302,13 @@ const NO_EXIT: &str = "ended with no exit";
 ///
 /// - an `ActionFinished` with an `exit`: that exit, failed when it is not 0;
 /// - one Loom wrote for a program killed at its timeout, or one that ended with no exit status: failed;
-/// - a refusal of [`PROGRAM_REFUSALS`] (an exit `exits.error` lists, a signal) of an agent node (`agent_node` of its
-///   action): failed, with the observed exit or signal. Of any other program it is no failed step here:
-///   [`program_refused`] names it and the run ends `runtime-failure` as before;
+/// - a refusal of [`PROGRAM_REFUSALS`] (an exit `exits.error` lists, a signal) of a program `agent_node` takes (the
+///   engine passes one that takes every program, an agent node or not): failed, with the observed exit or signal. Of a
+///   program `agent_node` does not take it is no failed step here, and [`program_refused`] names it;
 /// - a refusal of another kind (`RunsSpent` of an action whose program failed every run it had, `ResultNotInTable`,
 ///   a runner's refusal, ...) ended no program of its own and is passed over.
 ///
-/// `None` when the last program ended 0, was refused as above but is no agent node, or none ran.
+/// `None` when the last program ended 0, was refused as above by a program `agent_node` does not take, or none ran.
 pub fn failed_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&str) -> bool) -> Option<FailedStep> {
     let lines: Vec<Value> = log.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect();
     let case = lines.iter().find(|l| l.get("kind").and_then(Value::as_str) == Some("CaseOpened")).and_then(|l| l.get("case")).and_then(Value::as_str);

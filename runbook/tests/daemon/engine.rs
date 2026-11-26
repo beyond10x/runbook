@@ -376,16 +376,19 @@ fn a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_
 
 #[test]
 fn a_run_left_without_a_move_by_a_refused_action_says_which_action_and_exit() {
-    // The daemon ends a run the engine could not go on with as `runtime-failure` and keeps the
-    // engine's reason in `runbook.runtime-failed`: the reason names Loom's refusal of the action
-    // (`ProgramError`, its exit), not only that the tree is stuck.
+    // A bound program that is no agent node and whose exit Loom refuses (`ProgramError`, exit 69) left the tree with
+    // nothing to do: the run ends naming the step and its exit, as an agent node's step does, the reason is kept in
+    // `runbook.step-failed`, and the view `run` says it in `failure`. It is no `runtime-failure` with no reason.
     let rig = Rig::build_with("engine-program-error", &[Confinement::Local], false, true);
     let run = rig.submit();
     until("the run to end", 40, || rig.state_of(&run) == "Ended");
-    assert_eq!(rig.row(&run)["outcome"], "runtime-failure");
-    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let row = rig.row(&run);
+    assert_eq!(row["outcome"], "failed: step draft.write exit 69", "{row}");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.step-failed").expect("no runbook.step-failed event");
     let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
-    assert!(reason.contains("ProgramError: action draft.write: ") && reason.contains("exit status 69"), "{reason}");
+    assert!(reason.contains("draft.write") && reason.contains("exit 69"), "{reason}");
+    assert_eq!((failed["record"]["action"].clone(), failed["record"]["exit"].clone()), (json!("draft.write"), json!(69)), "{failed}");
+    assert_eq!(row["failure"], json!(reason), "the view run does not say why the run failed: {row}");
 }
 
 #[test]
@@ -393,10 +396,10 @@ fn the_runtime_failed_reason_of_a_refused_action_names_no_state_or_home_path() {
     let rig = Rig::build_with("fix1-engine-path", &[Confinement::Local], false, true);
     let run = rig.submit();
     until("the run to end", 40, || rig.state_of(&run) == "Ended");
-    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.runtime-failed").expect("no runbook.runtime-failed event");
+    let failed = rig.d().events_after(&run, 0).into_iter().find(|e| e["kind"] == "runbook.step-failed").expect("no runbook.step-failed event");
     let reason = failed["record"]["reason"].as_str().unwrap().to_owned();
     let (dir, home) = (rig.dir.display().to_string(), rig.home.display().to_string());
-    assert!(reason.contains("ProgramError: action draft.write: "), "{reason}");
+    assert!(reason.contains("the step draft.write failed") && reason.contains("exit 69"), "{reason}");
     assert!(!reason.contains(&dir) && !reason.contains(&home), "the reason names a path of the state directory or the home: {reason}");
 }
 
@@ -1367,7 +1370,7 @@ fn a_tree_left_without_a_move_shows_its_case_stuck() {
     let rig = Rig::build_with("cases-stuck", &[Confinement::Local], false, true);
     let run = rig.submit();
     rig.wait_state(&run, "Ended");
-    assert_eq!(rig.row(&run)["outcome"], "runtime-failure", "{}", rig.row(&run));
+    assert_eq!(rig.row(&run)["outcome"], "failed: step draft.write exit 69", "{}", rig.row(&run));
     let lines = tree_lines(&cases(&rig, &run));
     assert_eq!(lines[1], "  draft engine-draft Stuck", "{lines:?}");
 }

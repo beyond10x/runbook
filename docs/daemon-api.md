@@ -176,9 +176,9 @@ kind = "managed"                     # managed, hosted or local
 start_wait_seconds = 600             # optional
 price_in_micro_usd_per_mtok = 0      # optional
 price_out_micro_usd_per_mtok = 0     # optional
-wake_on_submit = false               # managed only; true is refused: the wake is not built
-wake_daily_cap_micro_usd = 0         # managed only, optional
-wake_cost_micro_usd = 0              # managed only, optional
+wake_on_submit = false               # managed only; true needs the two keys below above 0
+wake_daily_cap_micro_usd = 0         # managed only, optional: the most the route's wakes book per day
+wake_cost_micro_usd = 0              # managed only, optional: what one wake books
 
 [routes.claude]
 gateway = "default"
@@ -203,7 +203,9 @@ gateway `default`: a route names it so, and the decider takes it as before. Both
 start, exit 2, with a line that names the key and never its value, a part of it or a path: a route that names a
 gateway the file does not declare, a gateway without `base_url`, a `token` (or any key that is not one of the
 members above) in a gateway, a route or the policy, a `token`, `token_file`, `base_url` or `api_key` in a route,
-`wake_on_submit = true`, a wake key on a route that is not managed, a `kind` that is not one of the three, a
+`wake_on_submit = true` without a `wake_daily_cap_micro_usd` above 0 or without a `wake_cost_micro_usd` above 0
+(the line names `routes.<name>.wake_on_submit` and the key it lacks), a `wake_cost_micro_usd` above the route's
+`wake_daily_cap_micro_usd` (no wake would ever be sent; the line names both keys), a wake key on a route that is not managed, a `kind` that is not one of the three, a
 `model` that is no alias (an address), a policy that names a route the file does not declare, a name that is not
 1 to 64 letters, digits, `.`, `_` or `-`, and a token file it cannot read. Nothing is written before.
 
@@ -262,6 +264,26 @@ decider's model as its alias, no price) and takes it as its default: the view `r
 names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
 `declared` `["default"]`.
 
+A runbook may declare the routes it needs in its route entries, `bindings/<runbook>.routes.yaml` (below, "The
+catalog"), which the daemon reads at each submit of the runbook and each delegation that names it as its protocol
+(`docs/model-routes.md`, section 2). The precedence per role is the run's word, then the runbook's, then the default:
+a role the submit names (`model_route` for the role `default`, `model_routes.<role>`) takes that route; a role it
+does not name takes its entry's route, the one it names or, for `needs`, the run's `model_route` or
+`[route_policy] default` when that meets them (the run's first, then the default: a run's route that misses them
+leaves them to the default), else the one allowed route that does; the role `default` with no
+entry takes `[route_policy] default`. The run's `model_routes` holds every role besides `default` with its route,
+and the relay books a call of a role the runbook chose with the source `protocol` (`model_route_source` is
+`protocol` when the runbook's entry for the role `default` chose it). The submit or delegation is refused `422
+route-refused`, and nothing is written, when the file cannot be read or is not `runbook.routes/1`, an entry is not
+one, a role's name starts with `runbook-` (the relay would take the model `runbook-<role>` for another role; the
+reason names `model_routes.<role>`, and a submit's `model_routes` refuses such a role the same way), an entry names a route the daemon does not declare or that `routes_allowed` does not hold, no allowed route
+meets an entry's `needs`, several do and neither the run's route nor the default is one of them, a route the
+submit names for a role misses the role's `needs`, or any route of the run (the submit's, an entry's or the
+default) is outside `routes_allowed`. The `reason` starts with `runbook <id>:` and names the role and the route or
+the requirement, or the route and the member or setting that chose it (`model_route`, `model_routes.<role>`,
+`route_policy.default`); an address, a token or another text of the file that is not a name is never echoed. A
+runbook with no such file takes routes as above, unchanged.
+
 #### A run starts only on a route that can answer
 
 Before anything is written, a submit whose run takes declared routes asks the gateway of each of them (`docs/model-routes.md`, section 3)
@@ -276,7 +298,7 @@ gateway without `/v1/status` is read no further), within 5 s, with `GET` request
 | the model is not callable | accepted; the run is `WaitingForRoute` (command `WaitForRoute`, event `runbook.waiting-for-route`: route, phase, wait_seconds) and `route_phase` of the view `run` holds the phase |
 | every route can answer | accepted; the run starts as before |
 
-A run that waits sends no call to its routes and wakes nothing. The daemon reads their status again at most once
+A run that waits sends no call to its routes, and wakes nothing unless a route's wake is on (below). The daemon reads their status again at most once
 every 5 s of its clock: once every route can answer, the runtime starts the run; when the least
 `start_wait_seconds` of the routes that cannot answer (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
 (command `EndRouteWait`, event `runbook.route-wait-ended`: route, last phase), and `route_phase` holds the last
@@ -286,6 +308,36 @@ still waits when the daemon ends (a second stop signal, the drain bound) or that
 `FailedToStart`. The interim route `default` of a daemon with only a `[gateway]`
 is not asked, as before routes. A submit that repeats an idempotency key already used is not asked either: it answers
 the first run (`already-submitted`) whatever the gateway says.
+
+#### The wake of a managed route
+
+The wake ships off (`docs/model-routes.md`, section 3 point 4, D-5): a pod is started by a person until the operator
+sets `wake_on_submit = true` on a managed route, and that is accepted only with `wake_daily_cap_micro_usd` and
+`wake_cost_micro_usd` both above 0 (else the daemon refuses to start, above). With the wake on, a run the daemon
+holds `WaitingForRoute` on that route while the gateway gives the phase `stopped` sends one
+`POST /v1/models/{alias}/wake` with the gateway's token, once for the run, before its first read of the wait, unless
+it joins a wake already sent:
+
+- A wake of the same route sent less than the route's `start_wait_seconds` before (by any run, also before a restart
+  of the daemon: the journal holds it) is still starting the model: the run joins it, sends nothing and books nothing.
+  Its event `runbook.route-wake` says `{"route", "sent": false, "reason": "joined a wake sent within the wait",
+  "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits. The
+  answer to that wake is its answer too: when the gateway answered it (or answers it while the run waits)
+  `spend-ceiling`, the run ends `stopped: route` at once, its `runbook.route-wait-ended` naming the ceiling.
+- The wake is booked before it is sent, under the lock of the daemon's state, in the run event `runbook.route-wake`:
+  `{"route", "sent": true, "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`. `day` is the date (UTC) of
+  the daemon's clock; `booked_micro_usd` is what the route's sent wakes of that day add up to with this one. The
+  booking is the journal's, so a daemon started again counts the wakes of the day it booked before.
+- A wake the rest of the day's cap does not cover is not sent: the event says `"sent": false, "reason": "wake cap
+  reached"` with what the day booked so far, and the run waits as any run that waits.
+- The gateway's answer is the run event `runbook.route-wake-answered`: `{"route", "status"}` (`status` null when it
+  did not answer within 5 s) and `code`, the gateway's error code, when it gave one. A wake that was sent stays
+  booked, whatever the answer.
+- The answer `spend-ceiling` (a pod start would pass a cap of the gateway) ends the run at once: `Ended`, outcome
+  `stopped: route` (command `EndRouteWait`), and its `runbook.route-wait-ended` names the ceiling:
+  `{"route", "phase", "ceiling": "spend-ceiling"}`. Any other answer leaves the run waiting for its route.
+- A model in another phase (`starting`, `stopping`), a hosted or a local route, and a route without the wake are not
+  woken.
 
 ### A delegation
 
@@ -307,7 +359,7 @@ events and the web UI work on it unchanged.
   (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
   the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title, description and
-  inputs of each runbook a person can start: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of
+  inputs of each runbook of the view `catalog`, a runbook another runbook opens as a child included: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of
   `[delegation] classify_threshold` (default 0.8) or above, when that runbook takes every input the answer's `inputs` names, it runs with the request as its intake
   (`classified`); an answer whose inputs it does not take goes on to the build call. Below it a second call
   (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
@@ -409,7 +461,14 @@ whose entries cannot be admitted is listed with `admitted: false` and `refusal`,
 is wrong with the file as a whole: not `runbook.routes/1`, an unknown member, a link, more than 64 KiB). A reason
 names the role and the route or the requirement; an address, a token or another text that is not a name is never
 echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
-lists the admission only; a submit or a delegation does not check it yet (`story:protocol-declares-the-routes-it-needs`).
+admits against the default route; a submit, a delegation that names the runbook and a delegation whose runbook the
+classifier picks (once it is picked, before its first model call) admit against the run's own
+word first and refuse what cannot be admitted (above, "The route of a run"). The routes a picked runbook's entries
+give take the readiness check of a run's routes before its first call: a model that cannot answer yet holds the
+run up to the route's `start_wait_seconds` (the run event `runbook.waiting-for-route`; the run stays `Running`), and
+past it, or on a gateway that does not answer or is not ready, the run ends `FailedToStart` with
+`route-unavailable: ` and the route (an alias the gateway does not list: `route-refused: `). The run's record then
+names the routes it took (`model_route`, `model_route_alias`, `model_route_source`, `model_routes`).
 No address, token, token file or path of the host is in the row.
 
 ### The products of a run
@@ -540,8 +599,8 @@ itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's f
 `runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
 `runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`),
 `runbook.step-failed` (record `case`, `action`, `end`, `exit`, `signal` and `timeout_seconds` (each of the last three
-when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take. Of a program that is no agent node,
-Loom's refusal for such an exit or a signal ends the run `runtime-failure` with Loom's text, as before; the view `delegation-result` gives its `reason` as `failure`) and
+when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node or any other program) and the tree has no other action to take;
+the views `run` and `delegation-result` give its `reason` as `failure`, as they give the reason of `runbook.runtime-failed`) and
 `runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime
@@ -727,7 +786,8 @@ unbound in money:
 
 After a step or such an answer the cost records are booked at their cost; a failed call with no
 cost is booked at the largest reservation it held (nothing when it held none), and a record that
-cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+cannot be read books the reservations and ends the run as a runtime failure, unless the run is on a route and the
+relay booked or still takes calls of the step: then the step costs those calls ("The relay of a run's model calls"). A cap sent as a JSON
 number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
 and through `submit_run`.
 
@@ -974,6 +1034,19 @@ Without `--ui`, `GET /` is `404`.
   run writes its id there; an id the daemon does not have shows a note naming it and no other run. Served by
   `ui/server.mjs`, the page reads that server as before (its `?run=` names a run directory), and the inspector
   has no route to the daemon.
+- Model routes (`docs/model-routes.md`, section 6; `ui/daemon/routes.js`, loaded only when the daemon named
+  itself). The header line of a run on a route names it after the runbook, the state (`WaitingForRoute` while the
+  run waits for its route), the level and the kind: `route qwen · managed · starting · alias qwen · named by the
+  run` (`the daemon default` for a route of `[route_policy] default`). The route, the alias and the setting are the
+  run's row of the view `runs`; the kind and the status are the route's row of the view `routes` (the model's
+  `phase` when the gateway gave one, else the row's `status` in words), or "status not read yet", or the reason the
+  read failed. The button "Routes" opens the Routes view: each route of the view `routes` with its alias, kind,
+  gateway, status, phase, wires and `read_at`, as text nodes. The page reads the view `routes` at most once every
+  15 s, whatever the answer, and only while it shows a run on a route or the Routes view is open (every 15 s
+  while it is open); a read that fails keeps the rows of the last read that answered and says so. The daemon
+  serves no count of today's calls or booked spend per route, and the view says so. With the Routes view open, a
+  daemon that answers `403` to every request is asked at most 4 times a second, as without it
+  (`ui/test/daemon-routes.spec.mjs`).
 
 ## MCP
 
@@ -1031,7 +1104,9 @@ On a loopback listener:
   `Authorization: Bearer <token>` or `x-api-key`, and never the daemon's token: the daemon's guard checks `Host`
   and `Origin` of these paths and leaves the token to the relay. A run that is not live, or another token, is
   `401`.
-- The call's `model` names a role of the run. The relay answers in the gateway's shape,
+- The call's `model` names a role of the run: the role's `model` of the route file (`runbook-<role>`, taken for the
+  role `<role>` first) or the bare role, a trailing bracketed suffix (`runbook-default[1m]`) dropped. No role's name
+  starts with `runbook-` (above, "The route of a run"). The relay answers in the gateway's shape,
   `{"error": {"code", "message"}}`: `400 route-refused` for a role the run has no route for (the message names
   the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent),
   `400 bad-request` for a body that is no JSON object, `503 run-not-ready` before the run takes calls, and
@@ -1041,7 +1116,15 @@ On a loopback listener:
 - The relay sets `model` to the route's alias, sets `stream_options.include_usage` on a streamed chat call,
   adds the gateway's token and sends the call, one request per connection, to `<base_url>/v1/<wire>`. It reads
   the tokens from the answer's `usage` (or the usage of a stream's events) and books the call before the caller
-  sees the end of the answer. A `stream_options` that is `null` or no object is replaced by
+  sees the end of the answer. The line has `input_tokens` and `output_tokens`, and `cache_read_input_tokens` and
+  `cache_creation_input_tokens` when the answer counts input read from or written to the prompt cache (the
+  messages wire counts that input beside `input_tokens`); a declared input price takes all three. A call whose
+  cost is not known (no price, or no tokens reported) books its reservation with `cost_known: false`: the step's
+  largest reservation while its step runs, else what one call of the decider may cost, at most what the cap has
+  left, fixed as the call is admitted, so a call answered after its step's program was killed books what its step
+  held. An answer with no usage at all costs 0 at the route's declared prices, and on a route without prices, of
+  any kind, books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
+  reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
   booked once.
 

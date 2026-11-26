@@ -21,8 +21,8 @@
 # credential, and its output is not filtered. A file that cannot be read ends the
 # call with exit 127 before `claude` starts, naming the variable and no value. With RUNBOOK_ROUTE_FILE (a daemon run on a
 # route: `runbook.route/1`, the daemon's relay and the run's own token; docs/model-routes.md, section 11) the route file
-# takes the place of a gateway file the same way, before it, and `claude` asks for the run's role (the request's model
-# when the file names a route for it, else `default`), not a model; RUNBOOK_ROUTE_FILE is not in `claude`'s environment.
+# takes the place of a gateway file the same way, before it, and `claude` asks for the model the file gives the run's role (`runbook-<role>`; the role is the request's model
+# when the file names a route for it, else `default`), not a model alias; RUNBOOK_ROUTE_FILE is not in `claude`'s environment.
 # `claude` and what it starts get no descriptor of the two filters beyond their stdout and stderr (descriptors 4 and 5
 # are closed for the start), and no descriptor above 2 that the caller left open.
 # A call
@@ -46,11 +46,12 @@ if [[ -n $route_file ]]; then
   # A route (docs/model-routes.md, section 11): the run's route file names the daemon's relay and the run's own
   # token, never a gateway's credential. It takes the place of a gateway file, before any gateway file, key or
   # login of the environment: the address and the token go to the one start of `claude` as a gateway's do. The
-  # model `claude` asks for is a role of the run: the request's model when the file names a route for it, else
+  # model `claude` asks for is the one the file gives a role of the run (`runbook-<role>`, a name `claude` does not
+  # take for an alias of its own): the role is the request's model when the file names a route for it, else
   # `default`; the relay sets the route's alias.
   SDC_GATEWAY_BASE_URL=$(jq -er 'select(.format == "runbook.route/1") | .base_url | strings' "$route_file" 2>/dev/null) &&
     SDC_GATEWAY_TOKEN=$(jq -er 'select(.format == "runbook.route/1") | .token | strings' "$route_file" 2>/dev/null) &&
-    model=$(jq -er --arg m "$model" 'if ((.routes // {}) | has($m)) then $m else "default" end' "$route_file" 2>/dev/null) ||
+    model=$(jq -er --arg m "$model" '(.routes // {}) as $r | (if ($r | has($m)) then $m else "default" end) as $role | ($r[$role].model // ("runbook-" + $role))' "$route_file" 2>/dev/null) ||
     { echo "llm-adapter-claude-cli.sh: RUNBOOK_ROUTE_FILE does not name a route file that can be read" >&2; exit 127; }
   SDC_GATEWAY_FILE=$route_file
   export -n SDC_GATEWAY_FILE

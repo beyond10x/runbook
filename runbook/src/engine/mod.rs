@@ -281,6 +281,18 @@ impl Engine {
         if taken.is_some() && Self::cancelled(cancel, slot) {
             return Ok(Finish::Cancelled);
         }
+        // The runbook the classifier picked brings its route entries: the daemon admits them as for a delegation that names
+        // it, now, before the runbook's first model call, and its routes pass the readiness check of a run's; a refusal
+        // ends the start with the words of that delegation's (`route-refused: ...`, `route-unavailable: ...`).
+        let admitted = match (&taken, &request.admit) {
+            (Some(t), Some(admit)) if !t.whole_text => match (admit.0)(&t.runbook) {
+                Ok(table) => Some(table),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            },
+            _ => None,
+        };
+        let routes = admitted.as_ref().or(request.routes.as_ref());
         let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
         let generated = taken.as_ref().is_some_and(|t| t.generated);
         let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
@@ -312,7 +324,7 @@ impl Engine {
         // node of its runbook, or a delegation): the run's place on the relay and its route file, whose path every bound
         // program and the decider get (`engine::route`). It goes when the run ends. A run with a route table and no relay
         // to take it does not start: it would reach no model. A run with no route table gets no route file.
-        let route = match (&self.relay, request.routes.as_ref()) {
+        let route = match (&self.relay, routes) {
             (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
             (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
             (_, None) => None,
@@ -530,8 +542,9 @@ impl Engine {
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
                     // A step whose program failed left the tree with nothing it can do: the run ends naming that step and
-                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime.
-                    if let Some(step) = refusal::failed_step(store, &ran.case, |action| programs.get(action).is_some_and(|p| p.agent_node)) {
+                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime. Every bound
+                    // program counts, an agent node or not: a refusal of its exit or its signal is a failed step too.
+                    if let Some(step) = refusal::failed_step(store, &ran.case, |_| true) {
                         let timeout = programs.get(&step.action).and_then(|p| p.timeout_seconds).unwrap_or(b10x_loom_intake_slice::bindings::DEFAULT_TIMEOUT_SECONDS);
                         let said = step.end.said(timeout);
                         let outcome = format!("failed: step {} {said}", step.action);
@@ -862,8 +875,14 @@ impl Runtime for Engine {
             Ok(Some(_)) => vec!["idea".to_owned()],
             _ => Vec::new(),
         };
-        let routes_file = crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook);
+        let routes_file = self.routes_file(runbook, None);
         crate::runtime::RunbookFacts { title, description, inputs, routes_file }
+    }
+
+    /// `bindings/<runbook>.routes.yaml` beside the bindings of the home `layout::resolve_in` finds the runbook (and version) in.
+    fn routes_file(&self, runbook: &str, version: Option<&str>) -> Option<Result<String, String>> {
+        let resolved = layout::resolve_in(&self.homes, runbook, version).ok()?;
+        crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook)
     }
 
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
