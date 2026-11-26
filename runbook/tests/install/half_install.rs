@@ -54,7 +54,7 @@ fn stopped_prefix() -> PathBuf {
             .arg("--prefix")
             .arg(&prefix)
             .args(["--from-built", "debug"])
-            .env_clear().envs(NO_SYSTEM_GIT)
+            .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
             .env("PATH", format!("{}:{SYSTEM_PATH}", partial.join("stub-bin").display()))
             .env("HOME", partial.join("home"))
             .env("FAIL_COUNT", partial.join("cp-calls"))

@@ -48,7 +48,7 @@ fn an_installed_run_started_without_path_gives_its_programs_no_working_directory
     let run = |tag: &str, program: PathBuf| -> (String, String, String) {
         let w = world(tag);
         fs::write(w.join("bindings/tools/note-write.sh"), writer).unwrap();
-        let with = |cwd: &Path, args: &[&str]| Command::new(&program).args(args).env_clear().env("HOME", cwd).env("RUNBOOK_NO_CONFIG", "1").current_dir(cwd).stdin(Stdio::null()).output().unwrap();
+        let with = |cwd: &Path, args: &[&str]| Command::new(&program).args(args).env_clear().envs(crate::kept()).env("HOME", cwd).env("RUNBOOK_NO_CONFIG", "1").current_dir(cwd).stdin(Stdio::null()).output().unwrap();
         run_example(&with, &w);
         let read = |n: &str| fs::read_to_string(w.join("runs/r1/work").join(n)).unwrap_or_default().trim_end().to_owned();
         (read("path.txt"), read("planted.txt"), read("ls.txt"))
@@ -90,7 +90,7 @@ fn a_manifest_path_through_a_link_whose_name_is_a_pattern_removes_nothing_outsid
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", sandbox.join("home"))
         .current_dir(&root)
@@ -155,7 +155,7 @@ fn a_group_writable_file_of_the_checkout_is_not_group_writable_in_the_prefix() {
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", prefix.parent().unwrap().join("home"))
         .stdin(Stdio::null())
@@ -250,7 +250,7 @@ fn stale_release_install(tag: &str, env: &[(&str, &str)]) {
     cmd.arg(root.join("scripts/install.sh"))
         .arg("--prefix")
         .arg(&prefix)
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", format!("{}:{SYSTEM_PATH}", stub_dir.display()))
         .env("HOME", sandbox.join("home"))
         .stdin(Stdio::null());
@@ -362,7 +362,7 @@ fn guard_two_installs_write_the_same_manifest_and_version_and_the_manifest_is_th
         .arg("--prefix")
         .arg(&second)
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", sandbox.join("home"))
         .env("LC_ALL", "en_US.UTF-8")
@@ -388,6 +388,7 @@ fn guard_two_installs_write_the_same_manifest_and_version_and_the_manifest_is_th
         "libexec/runbook/sdc-answers",
         "libexec/runbook/sdc-bugfix",
         "libexec/runbook/sdc-check-routes",
+        "libexec/runbook/sdc-command",
         "libexec/runbook/sdc-conform",
         "libexec/runbook/sdc-conform-adapter",
         "libexec/runbook/sdc-decision-request",
@@ -475,7 +476,7 @@ fn guard_a_prefix_inside_the_directory_the_cargo_link_points_to_is_refused() {
         .arg("--prefix")
         .arg(real.join("bin"))
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", sandbox.join("home"))
         .stdin(Stdio::null())

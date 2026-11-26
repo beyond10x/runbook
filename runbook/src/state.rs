@@ -10,7 +10,7 @@ use crate::clock::{format_instant, Clock, SystemClock};
 use crate::runtime::{Confinement, ConfinementSource, Terms};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +19,9 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunState {
     Submitted,
+    /// The run names a serial key and a live run with that key was submitted before it: the daemon holds the run until
+    /// none is left.
+    WaitingOnKey,
     /// A route of the run could not answer at the submit: the daemon holds the run until it can, or its wait is over.
     WaitingForRoute,
     Running,
@@ -29,12 +32,21 @@ pub enum RunState {
 }
 
 impl RunState {
-    pub const ALL: [RunState; 7] =
-        [RunState::Submitted, RunState::WaitingForRoute, RunState::Running, RunState::WaitingOnDecision, RunState::Ended, RunState::Cancelled, RunState::FailedToStart];
+    pub const ALL: [RunState; 8] = [
+        RunState::Submitted,
+        RunState::WaitingOnKey,
+        RunState::WaitingForRoute,
+        RunState::Running,
+        RunState::WaitingOnDecision,
+        RunState::Ended,
+        RunState::Cancelled,
+        RunState::FailedToStart,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             RunState::Submitted => "Submitted",
+            RunState::WaitingOnKey => "WaitingOnKey",
             RunState::WaitingForRoute => "WaitingForRoute",
             RunState::Running => "Running",
             RunState::WaitingOnDecision => "WaitingOnDecision",
@@ -48,9 +60,9 @@ impl RunState {
         RunState::ALL.into_iter().find(|s| s.as_str() == text)
     }
 
-    /// Not terminal: Submitted, WaitingForRoute, Running or WaitingOnDecision.
+    /// Not terminal: Submitted, WaitingOnKey, WaitingForRoute, Running or WaitingOnDecision.
     pub fn is_live(self) -> bool {
-        matches!(self, RunState::Submitted | RunState::WaitingForRoute | RunState::Running | RunState::WaitingOnDecision)
+        matches!(self, RunState::Submitted | RunState::WaitingOnKey | RunState::WaitingForRoute | RunState::Running | RunState::WaitingOnDecision)
     }
 }
 
@@ -112,6 +124,10 @@ pub struct Run {
     pub route_phase: Option<String>,
     pub session_id: Option<String>,
     pub idempotency_key: Option<String>,
+    /// The serial key the submit named: the run waits while a live run with the same key submitted before it has not
+    /// ended. None for a run that named none, and in a journal line of a run submitted before the daemon kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_key: Option<String>,
     pub submitted_at: String,
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
@@ -170,6 +186,10 @@ pub enum Fact {
     RunFailedToStart { run_id: String, reason: String, at: String },
     RunWaiting { run_id: String },
     RunWaitingForRoute { run_id: String, phase: Option<String> },
+    /// The run waits behind the live runs of its serial key submitted before it.
+    RunWaitingOnKey { run_id: String },
+    /// No live run of the run's serial key was submitted before it any more: the run is Submitted again.
+    RunTookKey { run_id: String },
     /// A delegation the run classified took the routes of the runbook the classifier picked: the run's record names them.
     RunRouted { run_id: String, model_route: crate::runtime::RunRoute },
     RunStoppedOnRoute { run_id: String, phase: Option<String>, at: String },
@@ -221,6 +241,10 @@ pub struct State {
     decision_index: HashMap<String, usize>,
     events: Vec<RunEvent>,
     events_of_run: HashMap<String, Vec<usize>>,
+    /// The runs this process took up (past the wait for their serial key) whose run thread has not
+    /// returned yet: the runtime may still run one of them after it left the live states (a cancel
+    /// moves the run at once). Not journaled: a new start has none.
+    taken_up: HashSet<String>,
     /// A version that grows with every commit: what an event stream waits on.
     changes: tokio::sync::watch::Sender<u64>,
     clock: Arc<dyn Clock>,
@@ -269,6 +293,7 @@ impl State {
             decision_index: HashMap::new(),
             events: vec![],
             events_of_run: HashMap::new(),
+            taken_up: HashSet::new(),
             changes: tokio::sync::watch::channel(0).0,
             clock,
         };
@@ -412,6 +437,8 @@ impl State {
                 r.state = RunState::WaitingForRoute;
                 r.route_phase = phase.clone();
             }
+            Fact::RunWaitingOnKey { run_id } => self.run_mut(run_id)?.state = RunState::WaitingOnKey,
+            Fact::RunTookKey { run_id } => self.run_mut(run_id)?.state = RunState::Submitted,
             Fact::RunRouted { run_id, model_route } => self.run_mut(run_id)?.model_route = Some(model_route.clone()),
             Fact::RunStoppedOnRoute { run_id, phase, at } => {
                 let r = self.run_mut(run_id)?;
@@ -504,6 +531,26 @@ impl State {
     /// Oldest first.
     pub fn runs(&self) -> &[Run] {
         &self.runs
+    }
+
+    /// The run a run with a serial key waits behind: the newest run with the same key that was submitted before it (the
+    /// journal's order is the submit order) and holds the key: a live run, or one this process took up whose run thread
+    /// has not returned (a cancelled run whose runtime has not let it go). None for a run with no key, and for the first
+    /// such run of its key.
+    pub fn ahead_on_key(&self, run_id: &str) -> Option<&Run> {
+        let i = *self.run_index.get(run_id)?;
+        let key = self.runs[i].serial_key.as_deref()?;
+        self.runs[..i].iter().rev().find(|r| r.serial_key.as_deref() == Some(key) && (r.state.is_live() || self.taken_up.contains(&r.run_id)))
+    }
+
+    /// The run thread of `run_id` took the run up: it holds its serial key until [`State::let_go`].
+    pub fn take_up(&mut self, run_id: &str) {
+        self.taken_up.insert(run_id.to_owned());
+    }
+
+    /// The run thread of `run_id` returned: the runtime let the run go.
+    pub fn let_go(&mut self, run_id: &str) {
+        self.taken_up.remove(run_id);
     }
 
     pub fn run_by_key(&self, key: &str) -> Option<&Run> {

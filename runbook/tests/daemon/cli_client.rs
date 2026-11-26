@@ -20,7 +20,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 /// `runbook <args>` with a clean environment (plus `env`), in `dir`.
 fn cli_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> Output {
     let mut c = Command::new(BIN);
-    c.args(args).env_clear().env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.args(args).env_clear().envs(crate::kept()).env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::isolate(&mut c);
     for (k, v) in env {
         c.env(k, v);
@@ -141,6 +141,24 @@ fn detach_without_a_daemon_exits_64_and_says_a_daemon_is_needed() {
     assert_eq!(out(&o), "");
     let o = cli_in(&dir, &["runs", "list"], &[("RUNBOOK_DAEMON", "")], None);
     assert_eq!(code(&o), 64, "an empty RUNBOOK_DAEMON names no daemon");
+}
+
+#[test]
+fn detach_sends_the_serial_key_and_a_second_run_of_the_key_waits() {
+    let f = Fixture::new("detach-key");
+    std::fs::write(f.dir.join("i"), "x").unwrap();
+    let first = f.cli(&["run", "hold", "--intake", "i", "--serial-key", "repo-a", "--detach"]);
+    assert_eq!(code(&first), 0, "{}", err(&first));
+    let second = f.cli(&["run", "quick", "--intake", "i", "--serial-key", "repo-a", "--detach"]);
+    assert_eq!(code(&second), 0, "{}", err(&second));
+    let (first, second) = (out(&first).trim().to_string(), out(&second).trim().to_string());
+    f.server.wait_state(&second, "WaitingOnKey");
+    let rows = f.server.view("run", &format!("run_id={second}"));
+    assert_eq!(rows[0]["serial_key"], "repo-a");
+    assert_eq!(rows[0]["key_wait"], json!(format!("waiting on key repo-a behind run {first}")));
+    let o = cli_in(&f.dir, &["run", "quick", "--intake", "i", "--serial-key", "k"], &[], None);
+    assert_eq!(code(&o), 64, "--serial-key belongs to --detach: {}", err(&o));
+    assert!(err(&o).contains("--serial-key"), "{}", err(&o));
 }
 
 #[test]
@@ -317,7 +335,7 @@ fn runs_events_follows_a_live_run_until_it_ends() {
     f.server.fx.wait_open_decisions(&run, 1);
     let mut child = Command::new(BIN)
         .args(["runs", "events", &run, "--daemon", &f.url])
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

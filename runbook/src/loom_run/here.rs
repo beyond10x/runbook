@@ -97,6 +97,8 @@ pub struct HereOptions {
 fn detach_only(base: &RunArgs) -> Option<&'static str> {
     if base.context.is_some() {
         Some("--context")
+    } else if base.serial_key.is_some() {
+        Some("--serial-key")
     } else if base.json {
         Some("--json")
     } else if base.remote.daemon.is_some() {

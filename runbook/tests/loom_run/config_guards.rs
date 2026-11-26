@@ -440,7 +440,7 @@ fn bound_at_mnt(rig: &Rig, work: &str, args: &[&str]) -> Output {
         .arg(rig.p(work))
         .args(["/mnt", "--chdir", "/mnt", super::core::BIN])
         .args(args)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", rig.p("home"))
         .env("XDG_CONFIG_HOME", rig.p("xdg"))

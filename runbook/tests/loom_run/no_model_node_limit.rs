@@ -227,7 +227,7 @@ fn the_code_of_a_ticket_repository_runs_with_the_reach_of_any_bound_program_and_
     .to_vec();
     let o: Output = Command::new(super::core::BIN)
         .args(&args)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:{}", r("bin"), std::env::var("PATH").unwrap_or_default()))
         .env("HOME", "/marker-home-dir")

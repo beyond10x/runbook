@@ -190,6 +190,121 @@ whose argv and member name two different budgets; a member on an action that run
 not know (`UndeclaredMember`), so a run takes the members out of its copy of the bindings and keeps
 them beside it (`bindings/.call-budgets.json`, `budget::seal`); the files of the home keep them.
 
+## A command's deadline, retry and poll (`sdc-command`)
+
+A bound program runs one command with a deadline, a retry or a poll through the helper `sdc-command`
+(`driver/src/bin/sdc-command.rs`). It is built with the driver and installed in `libexec/runbook/` beside the
+other helpers, which the `runbook` of an installed prefix puts first on the `PATH` of the programs it starts
+(`scripts/install.sh`, `runbook/src/assets.rs`, `path_with_libexec`); in a checkout it is `driver/target/debug/sdc-command`.
+A binding names it as the first word of a program's argv, so its keys are that step's own; nothing of it is a
+setting of the run or the daemon.
+
+| Key | What it says |
+|---|---|
+| `--deadline <time>` | the time of the whole step from the helper's start: the read of its standard input, every try and every wait between. At the deadline the try that runs is ended together with every process it started (SIGTERM to every process below the helper, SIGKILL 1 s later) and the helper exits 124. Under Loom with no `--deadline`, the step's time less 2 s |
+| `--retry <n>` | at most `n` tries after the first |
+| `--retry-delay <time>` | the wait before the next try: the poll interval (default 0) |
+| `--retry-on <code>[,<code>...]` | the exits that are tried again (state `pending`); without it, with `--retry`, every exit other than 0. With `--retry-on` and no `--retry` the tries go on until the deadline, and `--deadline` is required |
+| `--stop <code>=<name>` | an exit that ends the step at once with the outcome `<name>` (repeatable) |
+| `--guard <program> [<argument>...]` | a command run before each try, up to the `--` before the command; an exit other than 0 ends the step before the command runs |
+| `--guard-stop <name>` | the outcome of a step the guard ended (default `guard-stopped`) |
+| `--keep-tries <n>` | how many tries the report holds, the last ones, 1 to 1000 (default 100); the others are counted |
+| `-- <program> [<argument>...]` | the command |
+
+A time is `<n>ms`, `<n>s`, `<n>m` or `<n>h`; a plain number is seconds. A name is `a-z`, `0-9`, `-` and `_`,
+and none of the helper's own states (`done`, `pending`, `failed`, `deadline`, `refused`, `none`,
+`guard-not-started`).
+
+Each try gets a state from its exit: `done` (0), `pending` (tried again), the name `--stop` gives the exit, else
+`failed`; a try ended at the deadline is `deadline`, a try the guard ended has the guard's name and the guard's
+exit, and a try whose guard could not be started is `guard-not-started`. The helper's exit:
+
+| Exit | Outcome |
+|---|---|
+| 0 | `done` |
+| the command's own | a `--stop` name, `failed`, or `failed` with the text `retries spent after <n> tries, last state pending` |
+| 1 | as the line above, for a command whose own exit is 64, 124, 125 or 127: the helper never passes on one of its own exits. The try keeps the command's exit, and the text adds `the helper exits 1, as <code> is one of its own exits` |
+| 124 | `deadline`, with the text `deadline after <s> s, last state <state>`: the state of the last try that ended (`none` when none did, also when the deadline came while the helper still read its standard input) |
+| 125 | the `--guard-stop` name |
+| 127 | `failed`: the command could not be started; `guard-not-started`: the guard could not be started (the command did not run) |
+| 64 | `refused`: a command line the helper does not take; nothing ran |
+
+Standard output is one JSON object, the report: `format` (`runbook.command/1`), `outcome`, `text`, `exit`,
+`deadline_s`, `elapsed_ms`, `tries_total`, `tries_dropped` and `tries`, one object per kept try with `try`, `at`
+(seconds since the Unix epoch), `ms`, `exit` (null when the command did not end by itself or did not run),
+`state`, `deadline`, and `guard` on a try the guard ended. What the command and the guard print goes to standard
+error. Loom keeps a program's standard output and standard error as the step's blob in the run's store (the
+`ActionFinished` line of the run log names it), so the report is the step's record of its tries. A binding reads
+the outcome with `from: /outcome`, the pointer into the program's report. Under Loom's program contract the helper
+reads its standard input (Loom's argument object, at most 1 MiB) once and gives it to every try and every guard;
+a standard input that does not end before the deadline ends the step at the deadline with no try.
+
+The deadline is held under the step's own time: Loom tells a bound program its limit in `LOOM_TIMEOUT_SECONDS`
+(the binding's `timeout_seconds`), and a `--deadline` that leaves less than 2 s of it (the time to end a command
+and write the report) is refused by name, exit 64, before anything runs: `--deadline 10s is longer than this
+step's 5 s (LOOM_TIMEOUT_SECONDS) less the 2 s ...`. It is never cut to fit. With no `--deadline` the helper takes
+the step's time less those 2 s as its deadline (`deadline_s` of the report names it); a step of 2 s or less leaves
+none and is refused, exit 64.
+
+What a try starts ends with it. The guard and the command run in the helper's own process group, and the helper is
+the child subreaper of what they start (`PR_SET_CHILD_SUBREAPER`): when a try ends, by itself or at the deadline,
+the helper kills every process still below it, also one that made a group or a session of its own (`setsid`).
+When the runner ends the step by killing the helper's process group (Loom under `local`), that kill reaches the
+try, which is in the group, and the program the helper started gets SIGKILL when the helper ends
+(`PR_SET_PDEATHSIG`). A process that the command moved out of the group and that outlives the command is not
+reached by a SIGKILL of the helper itself: only the helper's own end of a try kills it.
+
+A program the helper runs, the command or the guard, is found on `PATH` or by an absolute path. Loom resolves
+only the first word of a binding's argv beside the bindings file (`program_root: bindings`); a `tools/<file>`
+further on is a path in the workspace, where the program starts. A command of a runbook's own `bindings/tools/`
+behind the helper needs Loom to resolve such a word too, or to tell a program the directory of its bindings; it is
+not built.
+
+The cases: `driver/tests/command_helper.rs` (the deadline that leaves no process, the retry, `--retry-on`, the
+refusal, the poll, the guard, the bound of the record, the refused command lines, the helper's own exits, a guard
+that cannot start, the deadline a step limit gives) and `driver/tests/adversary_w6_command.rs` (a kill of the
+helper's group, no deadline under a step limit, a process in a session of its own, a standard input left open).
+
+### A long step
+
+One action starts the work and records that it did; a second action polls the work with `sdc-command` under its
+own `--deadline`, and the binding's `timeout_seconds` is the total bound above it (at least the deadline and 2 s);
+the protocol names an outcome for each state the poll can end in. A poll that never passes ends at its deadline
+with the outcome `deadline`, and the evidence of the first action stays.
+
+The example is the runbook directory `examples/long-step/` (protocol `long-step@1`, its bindings, and the four
+cycles of `examples/long-step/long-step.suite.yaml`: a poll that passes on its third try ends `green`, one that
+stays pending ends `deadline` after 2 s, one that exits 1 ends `red-checks`, and a guard that fails ends
+`head-moved`). The poll command there is a sh stand-in that a seeded `checks-plan.txt` steers. The cycles run in
+`runbook/tests/test_suite/long_step.rs`, with the built helper first on `PATH`; by hand:
+`PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME=examples/long-step runbook test
+examples/long-step/long-step.suite.yaml --confinement local`. `runbook check --for long-step` accepts the
+directory as a configured runbook (`runbooks = ["examples/long-step"]` in `runbook.toml`).
+
+### Merge on green (an example)
+
+A step that waits for the required checks of a pull request and merges nothing itself; the repository and the
+head are placeholders. `gh pr checks --required` exits 0 when every required check passed, 8 while one is
+pending and 1 when one failed.
+
+```yaml
+  - action: checks.wait
+    timeout_seconds: 1900
+    executor:
+      kind: program
+      argv: [sdc-command, --deadline, 30m, --retry-on, "8", --retry-delay, 30s, --stop, 1=red-checks,
+             --guard-stop, head-moved,
+             --guard, sh, -c, 'test "$(gh pr view 123 --repo example/repo --json headRefOid --jq .headRefOid)" = "<head of the intake>"',
+             --, gh, pr, checks, "123", --repo, example/repo, --required]
+    exits: {error: [75, 126, 127]}
+    evidence:
+      - kind: checks_result
+        subject: pull_request
+        producer: checks-wait
+        from: /outcome
+        results: {done: green, red-checks: red, head-moved: moved, deadline: late, failed: failed, timeout: failed, "*": failed}
+```
+
 ## Written in the YAML, carried out by Loom later
 
 These constructs load today; Loom runs them once the story named lands (waves as in Runbook's
