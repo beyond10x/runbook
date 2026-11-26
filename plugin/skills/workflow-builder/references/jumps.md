@@ -22,7 +22,7 @@ the norm in this record, so each delta is a single observation, not an establish
   10:45Z after 13 `spec.author` calls; `trial-3-opus-1` (Opus work, Haiku decider) was in the story
   stage. One sample each: the decider is the likelier factor, *inferred*.
 - The Opus decider approved all 22 of its decisions. No reject route ran in either pass
-  (`host-operator`, 10:35:46Z). The Haiku decider rejected 1 to 3 times in each of six runs
+  (the operator session, 10:35:46Z). The Haiku decider rejected 1 to 3 times in each of six runs
   (`decisions.jsonl` of `trial-3-haiku-{3,4,5}`, `trial-3-mixed-{2,3,5}`); one of those rejects
   (`trial-3-haiku-3`, release) was a correct product judgement, one (`trial-3-mixed-3`, release)
   a false refusal from its input.

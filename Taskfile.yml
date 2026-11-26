@@ -19,12 +19,13 @@ tasks:
       - scripts/evaluate-cases.sh
 
   check:steps:
-    desc: "The steps of task check that need no result of a test step and write nothing a test reads, one after another, beside the test steps: the CI change classifier, the ESS specification and its generated output, the cycles suite, the unreferenced files, build and clippy (warnings denied) of driver, watch, goals and runbook, the tests of watch and goals, and the planning store."
+    desc: "The steps of task check that need no result of a test step and write nothing a test reads, one after another, beside the test steps: the CI change classifier, the ESS specification and its generated output, the cycles suite, the unreferenced files, the names a change adds, build and clippy (warnings denied) of driver, watch, goals and runbook, the tests of watch and goals, and the planning store."
     cmds:
       - task: check:ci-paths
       - task: check:ess-generated
       - task: check:cycles-suite
       - task: check:unreferenced
+      - task: check:names
       - task: check:task-output
       - task: check:crates:lint
       - task: check:crates:test
@@ -519,6 +520,12 @@ tasks:
     cmds:
       - cd driver && cargo build --locked --quiet --bin sdc-check-unreferenced
       - driver/target/debug/sdc-check-unreferenced
+
+  check:names:
+    desc: "Refuse a line this change adds (the working tree against the merge base with origin/main) that names a person, an organisation or a session: each word's lower-cased SHA-256 against driver/refused-names.txt, which holds digests, never the words; a finding names the file and line, never the word. The rules: `sdc-check-names --help`. The forge runs the same check in the driver test `names::this_repository_adds_no_refused_word`. FULL=1 checks every line of every tracked file."
+    cmds:
+      - cd driver && cargo build --locked --quiet --bin sdc-check-names
+      - driver/target/debug/sdc-check-names{{if .FULL}} --full{{end}}
 
   check:ess-generated:
     desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.98.0`); from the repository root the ess dispatcher does not switch to it."

@@ -54,6 +54,10 @@ name = "sdc-check-unreferenced"
 path = "src/bin/sdc-check-unreferenced.rs"
 
 [[bin]]
+name = "sdc-check-names"
+path = "src/bin/sdc-check-names.rs"
+
+[[bin]]
 name = "sdc-run-metrics"
 path = "src/bin/sdc-run-metrics.rs"
 

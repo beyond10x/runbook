@@ -1,0 +1,8 @@
+# Words no line of this repository may hold: names of persons, organisations and sessions (sdc-check-names).
+# Never the words: one line per word, the SHA-256 (hex) of the word lower-cased with its parts joined by "-", then its class.
+# Add one: printf '%s' '<word>' | tr '[:upper:]' '[:lower:]' | sha256sum
+105ddfc5a2fa2ae001ece71513be820294affcaee82ce42c5c9d19b02f02a272 session
+078bdd7ce519403c99d993799fedcc9e133cfff70cd68cb6f2a1fb508881f5e6 session
+85ee877a32d85a6178900edb730f4fad69d85d9e33ccb42f9ddd61e6d75d9f4b person
+604d410ff5f18aae89cf081b901806cb3202195a568d3aaf6a81a2e09f4fe498 person
+163d29aee26b0fbf709f0eadf072636282611012e67ef14002242b4682386bd4 organisation

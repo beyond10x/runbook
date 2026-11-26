@@ -29,7 +29,7 @@ scope:
   path: ui/server.mjs
 - confidence: cited
   path: ui/test
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-24T18:28:47Z", actor: "human:operator", revision: 4, executor: "agent:runbook", correlation: "approval-record.the-ui-step-fits-the-forge-budget-order"}
 - {from: "proposed", to: "active", at: "2026-11-24T18:28:47Z", actor: "human:operator", revision: 5, executor: "agent:runbook", correlation: "approval-record.the-ui-step-fits-the-forge-budget-order"}
@@ -45,7 +45,7 @@ every test step of `task check`.
 
 Rules served: `../AGENTS.md` § "Tests stay fast" (a step over the budget is a defect, fixed before the next feature;
 raising a timeout, adding shards or waiting longer is not a fix) and § "The local gate equals the forge". Order:
-host-operator, 2026-11-24 11:17 CET: "The local gate equals CI: put them into the CI gate, or write in the repository
+the operator, 2026-11-24 11:17 CET: "The local gate equals CI: put them into the CI gate, or write in the repository
 what the runner does differently and why".
 
 ## Measured before any change
