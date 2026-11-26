@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.TakeKey.schema.json",
   "title": "Let a run take its serial key input",
-  "description": "No live run with the serial key of a WaitingOnKey run was submitted before it any more: each of them ended, was cancelled, failed to start, ended on its route or was orphaned at a restart. The run is Submitted again and is taken up as a submitted run is (its routes are read again first: WaitForRoute). The daemon also writes the run event `runbook.key-taken` (record: serial_key); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "description": "No run with the serial key of a WaitingOnKey run submitted before it holds the key any more: each of them ended, was cancelled, failed to start, ended on its route or was orphaned at a restart, and the runtime let go each one it had taken up (its run thread in the daemon returned). The run is Submitted again and is taken up as a submitted run is (its routes are read again first: WaitForRoute). The daemon also writes the run event `runbook.key-taken` (record: serial_key); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
   "x-ess-name": "sdc.daemon.TakeKey",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -18,7 +18,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:14ee5d51c048496ac1226442e3b08b227eccd7585fc23e102807d504bb832ec9",
+    "contract_digest": "slice-sha256/2:a2e8dfbc5da5a5904c9c64bf4e677421f27cd7f84a417a0658b3a759958e2ef8",
     "regenerate": "ess generate"
   },
   "$defs": {

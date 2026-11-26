@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.WaitOnKey.schema.json",
   "title": "Hold a run behind the runs of its serial key input",
-  "description": "A Submitted run names a serial key and a live run with that key was submitted before it: the run is WaitingOnKey, and nothing of it is started or copied. The view of the run says `waiting on key <k> behind run <id>` (key_wait). The daemon looks again whenever a run of the key leaves its live states and issues TakeKey once no live run with the key was submitted before this one; a cancel takes the run out of the queue. A restarted daemon keeps the run WaitingOnKey: the queue is the runs of the key in the journal's order. The daemon also writes the run event `runbook.waiting-on-key` (record: serial_key, behind: the run ahead at that moment); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "description": "A Submitted run names a serial key and a run with that key submitted before it holds the key: the run is WaitingOnKey, and nothing of it is started or copied. The view of the run says `waiting on key <k> behind run <id>` (key_wait). A run holds its key while it is live and, once the runtime took it up, until its run thread in the daemon has returned: a cancelled holder is Cancelled at once, but its key is free only once the runtime ended its program in flight and its model call (the engine waits up to 5 s for one); a run cancelled while it waited was never taken up and holds nothing. The daemon looks again whenever a run of the key leaves its live states or is let go, and issues TakeKey once no run with the key submitted before this one holds it; a cancel takes the run out of the queue. A restarted daemon keeps the run WaitingOnKey: the queue is the runs of the key in the journal's order. The daemon also writes the run event `runbook.waiting-on-key` (record: serial_key, behind: the run ahead at that moment); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
   "x-ess-name": "sdc.daemon.WaitOnKey",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -18,7 +18,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:b1c2b7312d83008eaa4425ac3c3e082d6774a42cee58b2b0bf9b3eed39499087",
+    "contract_digest": "slice-sha256/2:26b4a1bf20e8d1df1f8f3a6192e13d11fca97ba695809f57c3e2427738b10e74",
     "regenerate": "ess generate"
   },
   "$defs": {

@@ -60,10 +60,10 @@
     },
     "serial_key": {
       "$ref": "#/$defs/sdc.daemon.SerialKey",
-      "description": "The serial key the submit or the delegation named, when it named one: the run waits (WaitingOnKey) while a live run with the same key submitted before it has not ended. Fixed at the submit."
+      "description": "The serial key the submit or the delegation named, when it named one: the run waits (WaitingOnKey) while a run with the same key submitted before it holds the key: it is live, or the runtime took it up and has not let it go yet. Fixed at the submit."
     },
     "key_wait": {
-      "description": "While the run is WaitingOnKey: `waiting on key <k> behind run <id>`, naming the newest live run with the key that was submitted before it; absent in every other state. No command of the language sets it: the daemon derives it from the live runs of the key when the view is read, so it names the run ahead of it now (after a cancel of that run, the one ahead of that).",
+      "description": "While the run is WaitingOnKey: `waiting on key <k> behind run <id>`, naming the newest run with the key submitted before it that holds the key (a live run, or a run the runtime took up and has not let go yet); absent in every other state. No command of the language sets it: the daemon derives it from the runs of the key when the view is read, so it names the run ahead of it now (a cancelled holder until the runtime let it go, then the one ahead of that).",
       "type": "string"
     },
     "submitted_at": {
@@ -155,7 +155,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:e9b283336d28fa88e4c86559ce2dbe61e30903990b10729c474b7dde7d204b9e",
+    "contract_digest": "slice-sha256/2:a77f3a2d75af8ff6767694fb72542030f650ef8535abef4e068d124d0b939014",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -312,7 +312,7 @@
     },
     "sdc.daemon.SerialKey": {
       "title": "SerialKey",
-      "description": "Optional text, 1 to 200 characters, that the submitter names (the daemon never derives one): runs with one key run one at a time, in the order they were submitted. A run whose key a live run submitted before it holds is WaitingOnKey until no such run is live; runs with another key or none are not held. A key that is empty or longer is refused before anything is written (400).",
+      "description": "Optional text, 1 to 200 characters, that the submitter names (the daemon never derives one): runs with one key run one at a time, in the order they were submitted. A run whose key a run submitted before it holds is WaitingOnKey until no such run holds it: a live run holds it, and a run that was taken up holds it until its run thread in the daemon has returned, also after it was Cancelled; runs with another key or none are not held. A key that is empty or longer is refused before anything is written (400).",
       "x-ess-name": "sdc.daemon.SerialKey",
       "x-ess-kind": "newtype",
       "type": "string",
