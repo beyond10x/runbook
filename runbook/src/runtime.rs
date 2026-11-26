@@ -156,6 +156,11 @@ pub struct RunRoute {
     pub source: RouteSource,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub roles: BTreeMap<String, String>,
+    /// The setting that chose the route of each role of `roles`: the record holds what the relay's table of the run needs, so a
+    /// run taken up again after a restart (one that waited on its serial key) gets the table it was admitted with. Empty in a
+    /// journal line written before the daemon kept it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sources: BTreeMap<String, RouteSource>,
 }
 
 /// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime

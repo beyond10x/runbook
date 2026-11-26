@@ -38,6 +38,8 @@ mod producer_ids;
 mod progress;
 mod questions_check;
 mod recorded_pool;
+mod command_helper;
+mod adversary_w6_command;
 mod reply_bytes;
 mod rework_numbering;
 mod capture_buffer_bound;

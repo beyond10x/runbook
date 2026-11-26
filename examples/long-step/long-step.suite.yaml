@@ -1,0 +1,32 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: long-step@1
+  bindings: bindings/long-step.yaml
+cycles:
+  - name: passes-on-third-try
+    seed: [{from: seeds/passes-on-third-try.txt, to: checks-plan.txt}]
+    expect:
+      exit: 0
+      outcome: green
+      checks:
+        - {check: contains, name: three-tries, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: work.poll}}, {pick: last}, {follow: blob}], is: '"tries_total":3'}
+        - {check: contains, name: done-on-third, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: work.poll}}, {pick: last}, {follow: blob}], is: done on try 3}
+  - name: never-passes
+    seed: [{from: seeds/never-passes.txt, to: checks-plan.txt}]
+    expect:
+      exit: 0
+      outcome: deadline
+      checks:
+        - {check: contains, name: deadline-text, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: work.poll}}, {pick: last}, {follow: blob}], is: "deadline after 2 s, last state pending"}
+        - {check: count, name: start-evidence-stays, select: [{records: {case: ".", kind: [work_started]}}], is: 1}
+        - {check: contains, name: work-stays, select: [{doc: {in: work, path: work.txt}}], is: started}
+  - name: red-checks
+    seed: [{from: seeds/red-checks.txt, to: checks-plan.txt}]
+    expect:
+      exit: 0
+      outcome: red-checks
+  - name: head-moved
+    seed: [{from: seeds/passes-on-third-try.txt, to: checks-plan.txt}, {from: seeds/head-moved.txt, to: head-moved}]
+    expect:
+      exit: 0
+      outcome: head-moved

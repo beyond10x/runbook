@@ -1,0 +1,140 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-a-run-waits-for-its-serial-key
+summary: "A run held behind the runs of its serial key waits, takes the key, starts; a cancel takes it out of the queue."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      principal: "agent:conformance"
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-holds-the-key"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Merge the pull request once its checks are green."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      serial_key: "repo-a"
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:01:01Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-holds-the-key"
+      at: 2026-11-22T10:01:01Z
+    outcome: started
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-waits"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Merge the next pull request once its checks are green."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:02:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:01Z
+    command: sdc.daemon.WaitOnKey
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-waits"
+    outcome: waiting-on-key
+    events:
+      - event: sdc.daemon.RunWaitingOnKey
+        payload:
+          run_id: "run-waits"
+
+  - at: 2026-11-22T10:02:02Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-waits"
+      at: 2026-11-22T10:02:02Z
+    outcome: wrong-state
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.TakeKey
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-waits"
+    outcome: took-key
+    events:
+      - event: sdc.daemon.RunTookKey
+        payload:
+          run_id: "run-waits"
+
+  - at: 2026-11-22T10:03:01Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-waits"
+      at: 2026-11-22T10:03:01Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:02Z
+    command: sdc.daemon.TakeKey
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-waits"
+    outcome: wrong-state
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-leaves-the-queue"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Merge a third pull request."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:04:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:04:01Z
+    command: sdc.daemon.WaitOnKey
+    actor: sdc.daemon.DaemonProcess
+    input:
+      run_id: "run-leaves-the-queue"
+    outcome: waiting-on-key
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.CancelRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-leaves-the-queue"
+      at: 2026-11-22T10:05:00Z
+    outcome: cancelled
+
+assert:
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-holds-the-key"}
+    contains: {run_id: "run-holds-the-key", state: Running, serial_key: "repo-a"}
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-waits"}
+    contains: {run_id: "run-waits", state: Running}
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-leaves-the-queue"}
+    contains: {run_id: "run-leaves-the-queue", state: Cancelled}

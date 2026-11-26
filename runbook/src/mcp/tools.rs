@@ -95,7 +95,7 @@ const TOOLS: [Tool; 15] = [
     Tool {
         name: "cancel_run",
         title: "Cancel a run",
-        description: "Cancel a run that has not ended (Submitted, WaitingForRoute, Running, WaitingOnDecision). It withdraws the run's open decision requests. A run id the daemon does not know is an error with the HTTP status 404.",
+        description: "Cancel a run that has not ended (Submitted, WaitingOnKey, WaitingForRoute, Running, WaitingOnDecision). It withdraws the run's open decision requests. A run id the daemon does not know is an error with the HTTP status 404.",
         read_only: false,
         kind: Kind::Command("cancel-run"),
     },
@@ -384,6 +384,7 @@ fn delegation_answer(a: &Answer) -> Value {
     let body = match row["result_text"].as_str() {
         Some(text) => text.to_owned(),
         None if state == "WaitingForRoute" => format!("The run has not ended: it waits for its route {} to answer; read its result with delegation_result.", text_of(&row["route"])),
+        None if state == "WaitingOnKey" => "The run has not ended: it waits for the runs of its serial key submitted before it; read its result with delegation_result.".to_owned(),
         None if ["Submitted", "Running", "WaitingOnDecision"].contains(&state.as_str()) => "The run has not ended: read its result with delegation_result.".to_owned(),
         None if row["products"].as_array().is_some_and(|p| p.iter().any(|f| f == crate::delegation::RESULT_FILE)) => {
             "The run's result.md is not text: read it with read_product.".to_owned()

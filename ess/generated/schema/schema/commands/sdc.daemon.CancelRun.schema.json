@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.CancelRun.schema.json",
   "title": "Cancel a run input",
-  "description": "Cancel a run that has not ended: Submitted, WaitingForRoute, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.",
+  "description": "Cancel a run that has not ended: Submitted, WaitingOnKey, WaitingForRoute, Running or WaitingOnDecision (a cancel of a run that waits on its serial key takes it out of the key's queue; a cancel of the run that holds the key lets the next take it once the runtime let the cancelled run go: its program in flight and its model call ended). The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.",
   "x-ess-name": "sdc.daemon.CancelRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -23,7 +23,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:88c0130e859ee16ef4a3b69266420f84f36e05ec6caa62a05ade63014e141bf0",
+    "contract_digest": "slice-sha256/2:3e67eeffa77e435e7c1211e07b6fce0d9e0c92dc3b9cea5630d0b10de8ce3ed9",
     "regenerate": "ess generate"
   },
   "$defs": {

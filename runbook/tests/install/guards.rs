@@ -388,6 +388,7 @@ fn guard_two_installs_write_the_same_manifest_and_version_and_the_manifest_is_th
         "libexec/runbook/sdc-answers",
         "libexec/runbook/sdc-bugfix",
         "libexec/runbook/sdc-check-routes",
+        "libexec/runbook/sdc-command",
         "libexec/runbook/sdc-conform",
         "libexec/runbook/sdc-conform-adapter",
         "libexec/runbook/sdc-decision-request",

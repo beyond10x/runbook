@@ -63,3 +63,5 @@ mod failed_call;
 mod adversary_w4;
 mod bound_step;
 mod adversary_w5;
+mod serial_key;
+mod adversary_w6;

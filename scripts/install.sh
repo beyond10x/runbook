@@ -110,11 +110,12 @@ refuse() {
     exit 2
 }
 
-# The programs of driver/ a run starts, one per line (bindings/tools, `runbook run`, `runbook doctor`).
+# The programs of driver/ a run starts, one per line (bindings/tools, a runbook's bindings, `runbook run`, `runbook doctor`).
 DRIVER_HELPERS='
 sdc-answers
 sdc-bugfix
 sdc-check-routes
+sdc-command
 sdc-conform
 sdc-conform-adapter
 sdc-decision-request
