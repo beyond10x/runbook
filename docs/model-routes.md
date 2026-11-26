@@ -1,6 +1,6 @@
 # Model routes and delegation: the architecture of the stack
 
-Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, section 2 without the protocol's routes and admission, and section 3 without the wake). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
+Status: design, accepted by the operator 2026-11-25; being built (built: section 1, the relay of sections 4, 5 and 11, section 2, and section 3 without the wake). The operator settled D-1 to D-7 and the gateway's C1 to C4 on
 2026-11-25 (end of the document).
 
 ## The goal
@@ -244,6 +244,12 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   with the reason and refused at submit: 422 `route-refused`, naming the runbook, the role and the unmet requirement.
   The facts a requirement is checked against come from `/v1/models` (`wires`, `max_model_len`) and the route's
   declaration.
+
+  Built (`story:protocol-declares-the-routes-it-needs`; `docs/daemon-api.md`, "The route of a run"): the file is
+  `bindings/<runbook>.routes.yaml`, read at each `submit-run` and each delegation that names the runbook as its
+  protocol. A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
+  not name takes the entry's route; an entry for the role `default` comes before `route_policy.default`. A call of a
+  role the runbook chose is booked with the source `protocol`.
 - **Per run:** a submit may name `model_route = "<name>"` and per role `model_routes.<role>`. It names a declared
   route by name only; an address, a token or an alias is refused by name.
 - **Precedence:** the run's word, then the protocol's, then `route_policy.default`. A route outside the protocol's
@@ -385,7 +391,7 @@ only delegations that name a protocol).
 Built (`story:daemon-catalog-lists-what-a-delegation-may-name`; `docs/daemon-api.md`, "The catalog"): the view, the MCP
 tool and `runbook catalog`. A runbook's route entries are read from `bindings/<runbook>.routes.yaml`; the catalog
 lists their admission against the declared routes and what the gateways listed (`wires`, `max_model_len`,
-`tool_calling`); the refusal at submit is `story:protocol-declares-the-routes-it-needs`. The paths a delegation may
+`tool_calling`); a submit and a delegation that names the runbook are refused by the same admission (`story:protocol-declares-the-routes-it-needs`, section 2). The paths a delegation may
 take are listed: `named` and `free`, and on a daemon with a classifier route `classified` and `generated`
 (section 9).
 

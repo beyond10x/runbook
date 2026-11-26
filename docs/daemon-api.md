@@ -262,6 +262,24 @@ decider's model as its alias, no price) and takes it as its default: the view `r
 names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
 `declared` `["default"]`.
 
+A runbook may declare the routes it needs in its route entries, `bindings/<runbook>.routes.yaml` (below, "The
+catalog"), which the daemon reads at each submit of the runbook and each delegation that names it as its protocol
+(`docs/model-routes.md`, section 2). The precedence per role is the run's word, then the runbook's, then the default:
+a role the submit names (`model_route` for the role `default`, `model_routes.<role>`) takes that route; a role it
+does not name takes its entry's route, the one it names or, for `needs`, the run's `model_route` or
+`[route_policy] default` when that meets them, else the one allowed route that does; the role `default` with no
+entry takes `[route_policy] default`. The run's `model_routes` holds every role besides `default` with its route,
+and the relay books a call of a role the runbook chose with the source `protocol` (`model_route_source` is
+`protocol` when the runbook's entry for the role `default` chose it). The submit or delegation is refused `422
+route-refused`, and nothing is written, when the file cannot be read or is not `runbook.routes/1`, an entry is not
+one, an entry names a route the daemon does not declare or that `routes_allowed` does not hold, no allowed route
+meets an entry's `needs`, several do and neither the run's route nor the default is one of them, a route the
+submit names for a role misses the role's `needs`, or any route of the run (the submit's, an entry's or the
+default) is outside `routes_allowed`. The `reason` starts with `runbook <id>:` and names the role and the route or
+the requirement, or the route and the member or setting that chose it (`model_route`, `model_routes.<role>`,
+`route_policy.default`); an address, a token or another text of the file that is not a name is never echoed. A
+runbook with no such file takes routes as above, unchanged.
+
 #### A run starts only on a route that can answer
 
 Before anything is written, a submit whose run takes declared routes asks the gateway of each of them (`docs/model-routes.md`, section 3)
@@ -409,7 +427,8 @@ whose entries cannot be admitted is listed with `admitted: false` and `refusal`,
 is wrong with the file as a whole: not `runbook.routes/1`, an unknown member, a link, more than 64 KiB). A reason
 names the role and the route or the requirement; an address, a token or another text that is not a name is never
 echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
-lists the admission only; a submit or a delegation does not check it yet (`story:protocol-declares-the-routes-it-needs`).
+admits against the default route; a submit and a delegation that names the runbook admit against the run's own
+word first and refuse what cannot be admitted (above, "The route of a run").
 No address, token, token file or path of the host is in the row.
 
 ### The products of a run

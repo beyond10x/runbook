@@ -130,6 +130,9 @@ impl Terms {
 pub enum RouteSource {
     /// The submit named it (`model_route`, `model_routes.<role>`).
     Run,
+    /// The runbook's route entries (`bindings/<runbook>.routes.yaml`): the route its entry for the role names, or the route
+    /// that meets the entry's needs (`crate::admission`).
+    Protocol,
     /// The daemon's `route_policy.default`, or the route `default` of a lone `[gateway]` table.
     Default,
 }
@@ -138,6 +141,7 @@ impl RouteSource {
     pub fn as_str(self) -> &'static str {
         match self {
             RouteSource::Run => "run",
+            RouteSource::Protocol => "protocol",
             RouteSource::Default => "default",
         }
     }
@@ -380,6 +384,13 @@ pub trait Runtime: Send + Sync + 'static {
     /// whose runbooks are scripts): nothing.
     fn runbook_facts(&self, _runbook: &str) -> RunbookFacts {
         RunbookFacts::default()
+    }
+
+    /// The text of the route entries file of the runbook `runbook` (and version), as `RunbookFacts::routes_file` holds it:
+    /// none when it has none. Asked at submit and at a delegation that names the runbook (`crate::admission`). The default
+    /// (the stub): none.
+    fn routes_file(&self, _runbook: &str, _version: Option<&str>) -> Option<Result<String, String>> {
+        None
     }
 
     /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that

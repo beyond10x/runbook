@@ -554,8 +554,11 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
 /// file declares one and the relay serves runs (`serves_routes`); else it takes none and runs as before routes. A
 /// daemon whose file declares no route gives a model run the route `default` of its lone `[gateway]`, as before
 /// routes, and refuses any other named route; a run whose model calls come from its programs only does not take it, and
-/// one that names it is refused naming the member.
-fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs: bool, serves_routes: bool) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
+/// one that names it is refused naming the member. A runbook with route entries (`protocol`, a daemon that declares
+/// routes) adds its word between the run's and the default (`crate::admission::for_run`): its entry for a role the run
+/// names none for, its entry for the role `default` before `route_policy.default`, and every route of the run within its
+/// `routes_allowed`.
+fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs: bool, serves_routes: bool, protocol: Option<&ProtocolWord>) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
     let routes = &policy.routes;
     let roles = input.model_routes.clone().unwrap_or_default();
     if let Some(name) = &input.model_route {
@@ -594,9 +597,11 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
             }
         }
     }
+    let protocol = protocol.filter(|_| !routes.names().is_empty());
     if !decider_calls && input.model_route.is_none() && roles.is_empty() {
         let declared = routes.default_route().filter(|name| !routes.is_interim(name));
-        if declared.is_none() || !serves_routes {
+        let protocol_default = protocol.is_some_and(|p| p.declared.has_role("default"));
+        if (declared.is_none() && !protocol_default) || !serves_routes {
             return Ok(None);
         }
     }
@@ -606,37 +611,78 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
         let record = RunRoute { route: route.name.clone(), alias: route.alias.clone(), source: RouteSource::Default, roles: BTreeMap::new() };
         return Ok(Some((record, table)));
     }
-    let (name, source) = match (&input.model_route, routes.default_route()) {
-        (Some(named), _) => (named.clone(), RouteSource::Run),
-        (None, Some(default)) => (default.to_owned(), RouteSource::Default),
-        (None, None) => return Err("the run makes model calls and names no route, and the daemon's runbook.toml has no route_policy.default: name one in model_route".to_owned()),
+    let chosen = match protocol {
+        Some(p) => p.for_run(input.model_route.as_deref(), &roles, routes.default_route())?,
+        None => {
+            let (name, source) = match (&input.model_route, routes.default_route()) {
+                (Some(named), _) => (named.clone(), RouteSource::Run),
+                (None, Some(default)) => (default.to_owned(), RouteSource::Default),
+                (None, None) => return Err(NO_DEFAULT.to_owned()),
+            };
+            std::iter::once(("default".to_owned(), (name, source))).chain(roles.iter().map(|(role, name)| (role.clone(), (name.clone(), RouteSource::Run)))).collect()
+        }
     };
+    table_of(routes, chosen, NO_DEFAULT).map(Some)
+}
+
+/// The refusal of a run that makes model calls and that nothing gives a route.
+const NO_DEFAULT: &str = "the run makes model calls and names no route, and the daemon's runbook.toml has no route_policy.default: name one in model_route";
+
+/// The route entries of the runbook a run or a delegation names (`crate::admission`), read at its submit, with the facts of
+/// the declared routes (the view `routes`) the entries are admitted against.
+struct ProtocolWord {
+    runbook: String,
+    declared: crate::admission::Declared,
+    facts: Vec<crate::admission::Facts>,
+}
+
+impl ProtocolWord {
+    /// The route of each role of the run (`crate::admission::for_run`) and the setting that chose it.
+    fn for_run(&self, route: Option<&str>, roles: &BTreeMap<String, String>, default: Option<&str>) -> Result<BTreeMap<String, (String, RouteSource)>, String> {
+        use crate::admission::{for_run, Asked, By};
+        let chosen = for_run(&self.runbook, &self.declared, &self.facts, Asked { route, roles, default })?;
+        let source = |by: By| match by {
+            By::Run => RouteSource::Run,
+            By::Protocol => RouteSource::Protocol,
+            By::Default => RouteSource::Default,
+        };
+        Ok(chosen.into_iter().map(|(role, (name, by))| (role, (name, source(by)))).collect())
+    }
+}
+
+/// The record and the relay's table of a run whose role `default` and further roles are on the routes of `chosen`; with no
+/// role `default` the run is refused with `no_default`.
+fn table_of(routes: &crate::routes::RouteTable, mut chosen: BTreeMap<String, (String, RouteSource)>, no_default: &str) -> Result<(RunRoute, crate::relay::RouteTable), String> {
+    let (name, source) = chosen.remove("default").ok_or_else(|| no_default.to_owned())?;
     let resolve = |name: &str| routes.resolve(name).map(crate::relay::ResolvedRoute::from).ok_or_else(|| format!("the route {name} has no gateway the daemon declares"));
     let first = resolve(&name)?;
-    let record = RunRoute { route: first.name.clone(), alias: first.alias.clone(), source, roles: roles.clone() };
+    let record = RunRoute { route: first.name.clone(), alias: first.alias.clone(), source, roles: chosen.iter().map(|(role, (name, _))| (role.clone(), name.clone())).collect() };
     let mut table = crate::relay::RouteTable::default().with("default", first, source.as_str());
-    for (role, name) in &roles {
-        table = table.with(role, resolve(name)?, RouteSource::Run.as_str());
+    for (role, (name, source)) in &chosen {
+        table = table.with(role, resolve(name)?, source.as_str());
     }
-    Ok(Some((record, table)))
+    Ok((record, table))
 }
 
 /// A delegation's route, chosen as a run's (`route_of_run`): the route it names (`model_route`), else the daemon's
 /// `route_policy.default`, as the role `default`; `Err` is the reason of `route-refused`, with the same refusals of a named
-/// route. A delegation always makes model calls, so a daemon with no default route refuses one that names none.
-fn route_of_delegation(policy: &Policy, named: Option<&str>) -> Result<(RunRoute, crate::relay::RouteTable), String> {
+/// route. A delegation always makes model calls, so a daemon with no default route refuses one that names none. The
+/// runbook a delegation names as its protocol adds its route entries as a run's runbook does (`protocol`).
+fn route_of_delegation(policy: &Policy, named: Option<&str>, protocol: Option<&ProtocolWord>) -> Result<(RunRoute, crate::relay::RouteTable), String> {
+    const NO_ROUTE: &str = "the delegation names no route, and the daemon's runbook.toml has no route_policy.default: name one in model_route";
     let routes = &policy.routes;
     if let Some(why) = named.and_then(|name| route_name_refusal(routes, "model_route", name)) {
         return Err(why);
     }
-    let (name, source) = match (named, routes.default_route()) {
-        (Some(named), _) => (named.to_owned(), RouteSource::Run),
-        (None, Some(default)) => (default.to_owned(), RouteSource::Default),
-        (None, None) => return Err("the delegation names no route, and the daemon's runbook.toml has no route_policy.default: name one in model_route".to_owned()),
+    let chosen = match protocol {
+        Some(p) => p.for_run(named, &BTreeMap::new(), routes.default_route())?,
+        None => match (named, routes.default_route()) {
+            (Some(named), _) => BTreeMap::from([("default".to_owned(), (named.to_owned(), RouteSource::Run))]),
+            (None, Some(default)) => BTreeMap::from([("default".to_owned(), (default.to_owned(), RouteSource::Default))]),
+            (None, None) => return Err(NO_ROUTE.to_owned()),
+        },
     };
-    let route = routes.resolve(&name).map(crate::relay::ResolvedRoute::from).ok_or_else(|| format!("the route {name} has no gateway the daemon declares"))?;
-    let record = RunRoute { route: route.name.clone(), alias: route.alias.clone(), source, roles: BTreeMap::new() };
-    Ok((record, crate::relay::RouteTable::default().with("default", route, source.as_str())))
+    table_of(routes, chosen, NO_ROUTE)
 }
 
 /// The input of `Delegate` a client sends; the handler fills the rest (`run_id`, `runbook_id`, `confinement`, `route`, `path`, the
@@ -1088,9 +1134,11 @@ impl Daemon {
         if matches!(context, Some(None)) {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
-        // The run's model route: the submit's word, then the daemon's default; a refusal lists the declared routes.
+        // The run's model route: the submit's word, then the runbook's route entries, then the daemon's default; a refusal
+        // lists the declared routes.
         let runs_programs = self.inner.runtime.runs_programs(&input.runbook_id, input.runbook_version.as_deref());
-        let route = match route_of_run(&self.inner.policy, &input, &terms, runs_programs, self.inner.runtime.serves_routes()) {
+        let route = self.protocol_word(&input.runbook_id, input.runbook_version.as_deref()).and_then(|word| route_of_run(&self.inner.policy, &input, &terms, runs_programs, self.inner.runtime.serves_routes(), word.as_ref()));
+        let route = match route {
             Ok(route) => route,
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
         };
@@ -1270,9 +1318,6 @@ impl Daemon {
         })?;
         let run_id = uuid::Uuid::now_v7().to_string();
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("delegate", name, payload)) };
-        // The facts the specification takes from the host. The delegation's route is chosen as a run's (`route_of_delegation`): the
-        // one it names, else the daemon's `route_policy.default`; a route that is not declared, or none, is refused.
-        let route = route_of_delegation(&self.inner.policy, input.model_route.as_deref());
         // The path (docs/model-routes.md, section 9): a named runbook; the free run, asked for by its name or taken by a delegation
         // that names none on a daemon without a classifier route; else none yet: the run classifies the request when it starts.
         use crate::delegation::{CLASSIFY_RUNBOOK, FREE_RUNBOOK};
@@ -1288,6 +1333,14 @@ impl Daemon {
             (None, _) => true,
         };
         let context = input.workspace.as_deref().map(|p| self.context_under_roots(p));
+        // The facts the specification takes from the host. The delegation's route is chosen as a run's (`route_of_delegation`): the
+        // one it names, then the route entries of the runbook it names, else the daemon's `route_policy.default`; a route that is
+        // not declared, or none, is refused.
+        let word = match (path, input.protocol.as_deref()) {
+            (Some("named"), Some(p)) if runbook_known => self.protocol_word(p, None),
+            _ => Ok(None),
+        };
+        let route = word.and_then(|word| route_of_delegation(&self.inner.policy, input.model_route.as_deref(), word.as_ref()));
 
         if input.request.len() > MAX_INTAKE_BYTES {
             return refused("intake-too-large", json!({"run_id": run_id}));
@@ -1853,6 +1906,18 @@ impl Daemon {
     pub fn routes(&self) -> Vec<Value> {
         let now = self.st().now_millis();
         self.inner.routes.rows(now)
+    }
+
+    /// The route entries of the runbook `runbook` (and version) a submit or a delegation names (`crate::admission`), with
+    /// the facts of the declared routes as the view `routes` read them last: none when it has no file. `Err` is the reason
+    /// of `route-refused`, naming the runbook: a file that cannot be read, or one no run can admit (`admission::check`).
+    fn protocol_word(&self, runbook: &str, version: Option<&str>) -> Result<Option<ProtocolWord>, String> {
+        use crate::admission::{check, parse, Facts};
+        let Some(text) = self.inner.runtime.routes_file(runbook, version) else { return Ok(None) };
+        let declared = text.and_then(|t| parse(runbook, &t)).map_err(|why| format!("runbook {runbook}: {why}"))?;
+        let facts: Vec<Facts> = self.routes().iter().map(Facts::of_row).collect();
+        check(runbook, &declared, &facts)?;
+        Ok(Some(ProtocolWord { runbook: runbook.to_owned(), declared, facts }))
     }
 
     /// The view `Catalog` (wire name `catalog`, `docs/model-routes.md` section 10): one row with what a delegation may name.

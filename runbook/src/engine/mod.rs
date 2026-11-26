@@ -862,8 +862,14 @@ impl Runtime for Engine {
             Ok(Some(_)) => vec!["idea".to_owned()],
             _ => Vec::new(),
         };
-        let routes_file = crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook);
+        let routes_file = self.routes_file(runbook, None);
         crate::runtime::RunbookFacts { title, description, inputs, routes_file }
+    }
+
+    /// `bindings/<runbook>.routes.yaml` beside the bindings of the home `layout::resolve_in` finds the runbook (and version) in.
+    fn routes_file(&self, runbook: &str, version: Option<&str>) -> Option<Result<String, String>> {
+        let resolved = layout::resolve_in(&self.homes, runbook, version).ok()?;
+        crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook)
     }
 
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
