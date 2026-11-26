@@ -30,6 +30,9 @@ pub const ORPHANED_AT_START: &str = "the daemon started again and the runtime ho
 /// The reason of `runbook.run-orphaned` when the daemon ends while the run lives (a second stop signal,
 /// or the drain bound): the run does not wait for the next start to be orphaned.
 pub const ORPHANED_AT_STOP: &str = "the daemon was stopped while the run was live";
+/// The reason of `runbook.start-failed` for a run that was WaitingForRoute when the daemon ended (at the stop, or
+/// at the next start).
+pub const ROUTE_WAIT_AT_STOP: &str = "the daemon stopped while the run waited for its route";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
 /// The kind of the run event the daemon records when a program of a run is about to start.
@@ -917,13 +920,20 @@ impl Daemon {
 
     /// The daemon ends now with runs still live (a second stop signal, or the drain bound): it stops
     /// reporting for them, and each run that is `Running` or `WaitingOnDecision` ends as `orphaned` with an
-    /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn.
+    /// event that says the daemon was stopped while it ran, and its Open decision requests are withdrawn; a run that is
+    /// `WaitingForRoute` never started and fails to start (`runbook.start-failed`, [`ROUTE_WAIT_AT_STOP`]).
     /// No thread is joined: `stop` does that. The number of runs that were live and are ended now.
     pub fn orphan_live_runs(&self) -> usize {
         self.inner.stopping.store(true, Ordering::SeqCst);
         let live = self.live_runs();
         for run_id in &live {
-            let _ = self.end_orphaned_run_because(run_id, ORPHANED_AT_STOP);
+            // a run that waits for its route never started: it fails to start, as after a restart (`mark_orphans`)
+            let waiting = self.st().run(run_id).is_some_and(|r| r.state == RunState::WaitingForRoute);
+            if waiting {
+                let _ = fail_run_start_locked(&mut self.st(), run_id, ROUTE_WAIT_AT_STOP);
+            } else {
+                let _ = self.end_orphaned_run_because(run_id, ORPHANED_AT_STOP);
+            }
         }
         live.len()
     }
@@ -939,7 +949,7 @@ impl Daemon {
             if state == RunState::Submitted {
                 fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped before the runtime took the run up")?;
             } else if state == RunState::WaitingForRoute {
-                fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped while the run waited for its route")?;
+                fail_run_start_locked(&mut self.st(), &run_id, ROUTE_WAIT_AT_STOP)?;
             } else if self.inner.runtime.recover(&run_id) == Recovery::Gone {
                 self.end_orphaned_run(&run_id)?;
             }

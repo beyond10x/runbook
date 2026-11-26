@@ -273,3 +273,21 @@ fn a_delegation_passes_the_readiness_check_of_a_run_refused_503_and_route_refuse
     assert_eq!((r["outcome"].clone(), r["started_at"].clone()), (json!("done"), json!("2026-11-26T10:00:05.000Z")), "{r}");
     gw.only_reads();
 }
+
+/// A daemon that ends with a run still waiting for its route (a second stop signal, or the drain bound) ends that run
+/// `FailedToStart` ("the daemon stopped before it did"), as a start after a crash does: the run is not left live in the
+/// journal while the count of ended runs names it.
+#[test]
+fn a_run_waiting_for_its_route_when_the_daemon_ends_fails_to_start_and_is_not_left_live() {
+    let gw = Gateway::start(200, vec!["qwen", "claude"], "stopped");
+    let (d, _) = daemon("ready-orphan-waiting", &gw, 600);
+    let run = submit(&d, "qwen").unwrap().run_id.unwrap();
+    until_state(&d, &run, "WaitingForRoute");
+    assert_eq!(d.orphan_live_runs(), 1);
+    let r = detail(&d, &run);
+    assert_eq!(r["state"], "FailedToStart", "{r}");
+    assert!(d.live_runs().is_empty(), "a run is still live: {:?}", d.live_runs());
+    let failed: Vec<Value> = d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.start-failed").map(|e| e["record"].clone()).collect();
+    assert_eq!(failed, vec![json!({"reason": "the daemon stopped while the run waited for its route"})]);
+    gw.only_reads();
+}
