@@ -53,6 +53,8 @@ pub const ROUTE_REFUSED: &str = "route-refused";
 pub const CAP_REACHED: &str = "cap-reached";
 /// The cause of a call the gateway refused or did not answer.
 pub const ROUTE_UNAVAILABLE: &str = "route-unavailable";
+/// The kind of the run event that records one call the relay booked.
+pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 /// The code of a call whose gateway did not answer: nothing ran.
 const CONNECTION_FAILED: &str = "connection-failed";
 /// The code of a call whose answer broke off after its head: the call ran and is booked at its cost.
@@ -99,6 +101,21 @@ impl std::fmt::Debug for ResolvedRoute {
             .field("price_in_micro_usd_per_mtok", &self.price_in_micro_usd_per_mtok)
             .field("price_out_micro_usd_per_mtok", &self.price_out_micro_usd_per_mtok)
             .finish()
+    }
+}
+
+impl From<crate::routes::Resolved<'_>> for ResolvedRoute {
+    /// A declared route as a run uses it: its gateway's address and token, its alias, its kind and its prices.
+    fn from(r: crate::routes::Resolved<'_>) -> ResolvedRoute {
+        ResolvedRoute {
+            name: r.route.to_owned(),
+            base_url: r.base_url.to_owned(),
+            token: r.token.map(str::to_owned),
+            alias: r.alias.to_owned(),
+            kind: r.kind.as_str().to_owned(),
+            price_in_micro_usd_per_mtok: r.prices.in_micro_usd_per_mtok,
+            price_out_micro_usd_per_mtok: r.prices.out_micro_usd_per_mtok,
+        }
     }
 }
 
@@ -512,13 +529,19 @@ impl Call {
 
 /// The address of `base_url` and the path of `wire` below it. Only `http://` is served.
 fn target(base_url: &str, wire: &str) -> Result<(String, String, String), String> {
+    let (addr, authority, path) = parts(base_url)?;
+    let path = if path.is_empty() { format!("/v1/{wire}") } else { format!("/{path}/v1/{wire}") };
+    Ok((addr, authority, path))
+}
+
+/// The address (`host:port`), the authority and the path (no leading or trailing `/`) of an `http://` base URL.
+fn parts(base_url: &str) -> Result<(String, String, String), &'static str> {
     let rest = base_url.strip_prefix("http://").ok_or("the relay sends to an http:// gateway only")?;
     let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
     let path = path.trim_end_matches('/');
     let has_port = if authority.starts_with('[') { authority.contains("]:") } else { authority.contains(':') };
     let addr = if has_port { authority.to_owned() } else { format!("{authority}:80") };
-    let path = if path.is_empty() { format!("/v1/{wire}") } else { format!("/{path}/v1/{wire}") };
-    Ok((addr, authority.to_owned(), path))
+    Ok((addr, authority.to_owned(), path.to_owned()))
 }
 
 /// The gateway's answer as it comes in: its status, its headers and its body.

@@ -3,7 +3,7 @@
 //! `GET /daemon/views/<name>` with its parameters in the query.
 
 use super::json_response;
-use crate::commands::{AnswerDecision, CancelRun, CloseSession, Daemon, Fault, OpenSession, Outcome, SubmitRun};
+use crate::commands::{AnswerDecision, CancelRun, CloseSession, Daemon, Delegate, Fault, OpenSession, Outcome, SubmitRun};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use serde::de::DeserializeOwned;
@@ -11,10 +11,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 /// The client commands, by wire name.
-pub const COMMANDS: [&str; 5] = ["open-session", "close-session", "submit-run", "cancel-run", "answer-decision"];
+pub const COMMANDS: [&str; 6] = ["open-session", "close-session", "submit-run", "delegate", "cancel-run", "answer-decision"];
 
 /// The views, by wire name.
-pub const VIEWS: [&str; 17] = [
+pub const VIEWS: [&str; 19] = [
     "runs",
     "runs-of-session",
     "runs-in-state",
@@ -32,13 +32,15 @@ pub const VIEWS: [&str; 17] = [
     "products",
     "product",
     "cases",
+    "delegation-result",
+    "catalog",
 ];
 
 /// The views that page events by position: asked with `Accept: text/event-stream` they are streams.
 pub const EVENT_VIEWS: [&str; 3] = ["events", "session-events", "daemon-events"];
 /// The views whose answer may wait on the network (the first read of the gateways): they are answered off the
 /// workers of the daemon.
-pub const WAITING_VIEWS: [&str; 1] = ["routes"];
+pub const WAITING_VIEWS: [&str; 2] = ["routes", "catalog"];
 
 pub fn command_path(name: &str) -> String {
     format!("/daemon/commands/{name}")
@@ -90,7 +92,10 @@ fn fault(f: Fault) -> Answer {
 fn outcome(o: Outcome) -> Answer {
     // The answer of a submit names the run in the event it publishes; a replay has no run in its
     // body, so the first run is also named in the `Location`.
-    let location = o.run_id.as_ref().map(|run_id| format!("{}?run_id={run_id}", view_path("run")));
+    // A delegation's run is read from its result view.
+    // A delegate that replays the key of a submit-run names that run in the view run.
+    let view = o.location_view.unwrap_or(if o.command == "delegate" { "delegation-result" } else { "run" });
+    let location = o.run_id.as_ref().map(|run_id| format!("{}?run_id={run_id}", view_path(view)));
     Answer { status: StatusCode::from_u16(o.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body: o.body(), location }
 }
 
@@ -102,7 +107,8 @@ pub fn command_answer(name: &str, daemon: &Daemon, body: &[u8]) -> Answer {
     let reply = match name {
         "open-session" => parse::<OpenSession>(body).and_then(|i| daemon.open_session(i)),
         "close-session" => parse::<CloseSession>(body).and_then(|i| daemon.close_session(i)),
-        "submit-run" => crate::commands::refuse_gateway_members(body).and_then(|()| parse::<SubmitRun>(body)).and_then(|i| daemon.submit_run(i)),
+        "submit-run" => crate::commands::refuse_gateway_members(body).and_then(|()| crate::commands::refuse_route_members(body)).and_then(|()| parse::<SubmitRun>(body)).and_then(|i| daemon.submit_run(i)),
+        "delegate" => crate::commands::refuse_gateway_members(body).and_then(|()| crate::commands::refuse_route_members(body)).and_then(|()| parse::<Delegate>(body)).and_then(|i| daemon.delegate(i)),
         "cancel-run" => parse::<CancelRun>(body).and_then(|i| daemon.cancel_run(i)),
         "answer-decision" => parse::<AnswerDecision>(body).and_then(|i| daemon.answer_decision(i)),
         other => unreachable!("no command {other}"),
@@ -157,6 +163,8 @@ pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>)
             "products" => daemon.products_of_run(text(query, "run_id")?)?,
             "product" => daemon.product_of_run(text(query, "run_id")?, text(query, "path")?)?,
             "cases" => daemon.cases_of_run(text(query, "run_id")?)?,
+            "delegation-result" => daemon.delegation_result(text(query, "run_id")?)?,
+            "catalog" => daemon.catalog(),
             other => unreachable!("no view {other}"),
         })
     })();

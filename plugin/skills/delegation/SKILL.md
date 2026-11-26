@@ -19,9 +19,11 @@ daemon's default route applies. A `delegate` call may name another route; the da
 1. Call `delegate` with `request` = the full task text, the text an Agent call's prompt would have held, and
    `model_route` = the session's route when it has one. Name a `protocol` only when `describe_catalog` lists a
    runbook for the task.
-2. The call answers with the run's result: a first line with the run id, route, path, protocol, calls and cost,
-   then the run's final text. A call that runs past two minutes moves to a background task, and its result
-   arrives as a task notification.
+2. The call answers with the run's result, the row of `delegation_result`: `run_id`, `run_state`, `outcome`,
+   `route`, `path`, `protocol`, `calls`, `cost_micro_usd` and the run's final text in `result_text` (at most
+   40,000 characters; `result_truncated` says it was cut). Claude Code shows that row; a client that reads the
+   tool's text gets a first line with the run id, route, path, protocol, calls and cost, then the final text.
+   A call that runs past two minutes moves to a background task, and its result arrives as a task notification.
 3. When `delegate` answered a run id and a state without a result, read the result with `delegation_result` and
    that run id.
 
@@ -29,9 +31,11 @@ This step is done when the task's result is in the conversation, or a tool error
 
 ## A refusal
 
-- A route that is not declared or not callable comes back as a tool error naming the route and the daemon's list
-  of routes: pick a route from that list or from `describe_catalog`, or report the error. The Agent and Workflow tools stay
-  denied; the session's own model takes no sub-agent work.
+- A route the daemon does not declare comes back as the tool error `route-refused` with the declared routes; a
+  route whose gateway is not ready as `route-unavailable` naming the route (HTTP status 503); a route that fails
+  the run's call ends the run `runtime-failure`, a tool error whose `failure` names `route-unavailable` and the
+  route. Pick a route from `list_routes` or `describe_catalog`, or report the error. The Agent and Workflow tools
+  stay denied; the session's own model takes no sub-agent work.
 - `daemon unreachable` (status 502): the daemon named by `RUNBOOK_DAEMON` does not answer. Report it.
 
 ## The catalog

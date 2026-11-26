@@ -5,6 +5,7 @@
 pub mod announce;
 pub mod arbiter;
 pub mod calls;
+mod classify;
 pub mod copy;
 mod decision;
 mod gate;
@@ -46,6 +47,8 @@ pub const PINNED_EVENT: &str = "runbook.pinned";
 const POLL: Duration = Duration::from_millis(20);
 /// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
 const ROUTE_DRAIN: Duration = Duration::from_secs(5);
+/// The most characters of a runbook's description the catalog answers.
+const DESCRIPTION_CHARS: usize = 2000;
 
 /// What a run's store on disk is, as a restarted daemon finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,8 +118,16 @@ pub struct Engine {
     arbiter: Option<Arc<dyn Arbiter>>,
     /// What the wall caps of its runs are held against: the host's clock unless a test gave another.
     wall: WallClock,
-    /// The daemon's relay and the route table of the runs whose decider kind is `model`; none: no run is on a route.
-    routes: Option<(Arc<crate::relay::Relay>, crate::relay::RouteTable)>,
+    /// The daemon's relay; none: no run is on a route. The route table of a run is its own, resolved by the daemon at
+    /// the submit (`StartRequest::routes`).
+    relay: Option<Arc<crate::relay::Relay>>,
+    /// The daemon's classifier route (`[route_policy] classifier`), the route of a delegation's classify and build calls
+    /// (`classify`); none: the engine classifies no delegation.
+    classifier: Option<crate::relay::ResolvedRoute>,
+    /// The confidence at or above which the runbook the classifier picked runs (`[delegation] classify_threshold`).
+    classify_threshold: f64,
+    /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
+    free_home: Option<PathBuf>,
 }
 
 struct Registered<'a> {
@@ -151,7 +162,14 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), routes: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None, classifier: None, classify_threshold: crate::delegation::CLASSIFY_THRESHOLD, free_home: None }
+    }
+
+    /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
+    /// is read from there, never from the configured homes.
+    pub fn with_free_run(mut self, home: PathBuf) -> Engine {
+        self.free_home = Some(std::path::absolute(&home).unwrap_or(home));
+        self
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
@@ -161,11 +179,25 @@ impl Engine {
         self
     }
 
-    /// The daemon's relay and the route table it hands every run whose decider kind is `model` (with a level above
-    /// `A0`): such a run's model processes reach their model through `relay` and the run's route file
-    /// (`engine::route`), and its model calls are taken and booked there.
-    pub fn with_routes(mut self, relay: Arc<crate::relay::Relay>, table: crate::relay::RouteTable) -> Engine {
-        self.routes = Some((relay, table));
+    /// The daemon's relay: a run that makes model calls (`Terms::makes_model_calls`) or is a delegation and comes with a route table
+    /// (`StartRequest::routes`) is taken onto it, its model processes reach their model through it and the run's route
+    /// file (`engine::route`), and its model calls are taken and booked there.
+    pub fn with_relay(mut self, relay: Arc<crate::relay::Relay>) -> Engine {
+        self.relay = Some(relay);
+        self
+    }
+
+    /// The daemon's classifier route: a delegation that names no protocol is classified on it through the relay
+    /// (`with_relay`) when its run starts.
+    pub fn with_classifier(mut self, route: crate::relay::ResolvedRoute) -> Engine {
+        self.classifier = Some(route);
+        self
+    }
+
+    /// The confidence at or above which a classified delegation runs the runbook the classifier picked (`[delegation]
+    /// classify_threshold` of `runbook.toml`, 0 to 1; without it [`crate::delegation::CLASSIFY_THRESHOLD`]).
+    pub fn with_classify_threshold(mut self, threshold: f64) -> Engine {
+        self.classify_threshold = threshold;
         self
     }
 
@@ -227,33 +259,61 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
-        let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
-        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
+        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
+        let meter = Arc::new(Meter::on(before, self.wall.clone()));
+        *lock(&slot.meter) = Some(meter.clone());
+        // A delegation the daemon classifies takes its path now: the runbook the classifier picked, or a generated protocol
+        // (`classify`). Its ledger stays the one of the runbook it was submitted under.
+        let taken = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK && self.classifies() {
+            // the cancel is asked before every classify, retry and build call; a run cancelled meanwhile ends Cancelled
+            match classify::resolve(self, request, sink, caps, &workspace, &meter, &|| Self::cancelled(cancel, slot)) {
+                Ok(taken) => Some(taken),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            }
+        } else {
+            None
+        };
+        // a cancel that came while the classifier answered: nothing of the run is opened
+        if taken.is_some() && Self::cancelled(cancel, slot) {
+            return Ok(Finish::Cancelled);
+        }
+        let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
+        let generated = taken.as_ref().is_some_and(|t| t.generated);
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
+        let home = match (&taken, &self.free_home, &request.model_route) {
+            (Some(t), _, _) => t.home.clone(),
+            (None, Some(free), Some(_)) if free_run => free.clone(),
+            _ => layout::home_of(&self.homes, runbook).map_err(failure)?,
+        };
+        let in_home = layout::resolve(&home, runbook, request.version.as_deref()).map_err(failure)?;
+        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         // The run takes its runbook now: it reads the copy in its own directory until it ends.
         let (resolved, pin) = if resume {
             let pin = Pin::load(&request.state_dir).map_err(failure)?;
             (in_home, pin)
         } else {
-            let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            let (pin, copied) = Pin::take(&home, &request.state_dir, runbook, request.version.as_deref()).map_err(failure)?;
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
         // What each program reserves, from the bindings the run reads (the copy's members are kept
         // beside it, `budget::seal`); a runbook whose programs could call a model with no budget
         // anywhere is refused here.
-        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
+        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{runbook}.yaml")));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         let terms = &request.terms;
-        // A run whose decider is a model is on the daemon's route: the run's place on the relay and its route file,
-        // whose path every bound program and the decider get (`engine::route`). It goes when the run ends.
-        let model_run = terms.decider.as_deref() == Some("model") && terms.autonomy.is_some_and(|l| l != Autonomy::A0);
-        let route = match &self.routes {
-            Some((relay, table)) if model_run => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
-            _ => None,
+        // A run whose decider is a model is on the route the daemon resolved for it at the submit: the run's place on
+        // the relay and its route file, whose path every bound program and the decider get (`engine::route`). It goes
+        // when the run ends. A run with a route table and no relay to take it does not start: it would reach no model.
+        // A delegation is on its route whatever its decider (`StartRequest::model_route`).
+        let route = match (&self.relay, request.routes.as_ref().filter(|_| terms.makes_model_calls() || request.model_route.is_some())) {
+            (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
+            (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
+            (_, None) => None,
         };
         if let Some(r) = &route {
             runner = route::RouteEnv::wrap(runner, r.file());
@@ -312,11 +372,15 @@ impl Engine {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
-                    std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| format!("{}: {e}", path.display()))?;
+                    // the free run's agent node reads the request whole, never a member of it, and so does a generated protocol's
+                    let whole = free_run || taken.as_ref().is_some_and(|t| t.whole_text);
+                    let document = if whole { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
+                    std::fs::write(path, document).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
                 Ok(())
             })
-            .map_err(failure)?;
+            // a generated protocol's tree is opened by the loader of a runbook: what it refuses is the protocol's refusal
+            .map_err(|e| failure(if generated { format!("protocol-refused: {e}") } else { e }))?;
         }
         let catalog = calls::catalog(&store).map_err(failure)?;
 
@@ -332,9 +396,6 @@ impl Engine {
             tail.sync_all().map_err(failure)?;
         }
 
-        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
-        let meter = Arc::new(Meter::on(before, self.wall.clone()));
-        *lock(&slot.meter) = Some(meter.clone());
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         if let Some(r) = &route {
             let booking = gate.route(r.step.clone());
@@ -768,6 +829,21 @@ impl Runtime for Engine {
         "loom"
     }
 
+    /// The root protocol's title and description, `idea` when the root bindings place it, and the route entries file
+    /// `bindings/<runbook>.routes.yaml` beside the bindings, of the home `layout::resolve_in` finds the runbook in.
+    fn runbook_facts(&self, runbook: &str) -> crate::runtime::RunbookFacts {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, None) else { return Default::default() };
+        let doc: serde_yaml::Value = std::fs::read_to_string(resolved.protocol_dir.join(format!("{runbook}.protocol.yaml"))).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
+        let title = Some(crate::runbooks::title_of(&doc)).filter(|t| !t.is_empty());
+        let description = doc["protocol"]["description"].as_str().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.chars().take(DESCRIPTION_CHARS).collect());
+        let inputs = match layout::idea_path(&resolved.bindings) {
+            Ok(Some(_)) => vec!["idea".to_owned()],
+            _ => Vec::new(),
+        };
+        let routes_file = crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook);
+        crate::runtime::RunbookFacts { title, description, inputs, routes_file }
+    }
+
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
         self.caps.resolve(settings).map(Some)
     }
@@ -791,6 +867,14 @@ impl Runtime for Engine {
             .into_iter()
             .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
             .collect())
+    }
+
+    fn free_run(&self) -> bool {
+        self.free_home.is_some()
+    }
+
+    fn classifies(&self) -> bool {
+        self.relay.is_some() && self.classifier.is_some()
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

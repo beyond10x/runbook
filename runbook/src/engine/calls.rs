@@ -106,6 +106,17 @@ pub fn open(o: &Opening<'_>, before_open: impl FnOnce() -> Result<(), String>) -
     .map_err(|e| e.to_string())
 }
 
+/// Loom's reader of a protocol directory, as [`open`] reads it, and the root protocol `id`@`revision` in it: the loader's
+/// refusal, before anything is written.
+pub fn check_protocols(protocols: &Path, id: &str, revision: i64) -> Result<(), String> {
+    let read = read_protocols_directory(protocols).map_err(|e| e.to_string())?;
+    if read.kept.iter().any(|k| k.protocol.protocol == id && k.protocol.revision == revision) {
+        Ok(())
+    } else {
+        Err(format!("the protocol directory registers no {id}@{revision}"))
+    }
+}
+
 /// The catalog the tree in `store` keeps.
 pub fn catalog(store: &Path) -> Result<loom_protocols::ProtocolCatalog, String> {
     stored_catalog(store).map_err(|e| e.to_string())?.ok_or_else(|| "the tree keeps no protocols: it was not opened by the library".to_owned())

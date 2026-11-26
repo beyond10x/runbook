@@ -186,6 +186,8 @@ pub struct RouteTable {
     routes: BTreeMap<String, Route>,
     default: Option<String>,
     classifier: Option<String>,
+    /// Whether the route `default` is the interim route of a lone `[gateway]` ([`RouteTable::with_interim_default`]).
+    interim: bool,
 }
 
 /// A name of a gateway or a route: 1 to 64 letters, digits, `.`, `_` and `-`.
@@ -366,7 +368,7 @@ impl RouteTable {
                 }
             }
         }
-        Ok(RouteTable { gateways, routes, default, classifier })
+        Ok(RouteTable { gateways, routes, default, classifier, interim: false })
     }
 
     /// Reads the token file of every gateway that names one, once: every `[gateways.<name>]`, and a lone `[gateway]`
@@ -384,6 +386,70 @@ impl RouteTable {
             }
         }
         Ok(())
+    }
+
+    /// The table of a daemon that declares no route and has a lone `[gateway]` (the gateway `default`) and a model
+    /// decider: the interim route `default` on that gateway, kind hosted, with `alias` (the decider's model) and no
+    /// price, and the policy's default on it, so that the route a model run takes is one the view `routes` lists.
+    /// Unchanged when the table declares a route or has no gateway `default`.
+    pub fn with_interim_default(mut self, alias: &str) -> Result<RouteTable, String> {
+        if !self.routes.is_empty() || !self.gateways.contains_key(DEFAULT_GATEWAY) {
+            return Ok(self);
+        }
+        let route = Route {
+            name: DEFAULT_GATEWAY.to_owned(),
+            gateway: DEFAULT_GATEWAY.to_owned(),
+            alias: alias.to_owned(),
+            kind: RouteKind::Hosted,
+            start_wait_seconds: None,
+            prices: Prices::default(),
+            wake: Wake::default(),
+        };
+        self.routes.insert(DEFAULT_GATEWAY.to_owned(), route);
+        self.default = Some(DEFAULT_GATEWAY.to_owned());
+        self.interim = true;
+        self.read_token_of(DEFAULT_GATEWAY)?;
+        Ok(self)
+    }
+
+    /// Whether `name` is the interim route of a lone `[gateway]`, which a run takes as before routes: its gateway is not
+    /// asked whether it can answer before the run starts.
+    pub fn is_interim(&self, name: &str) -> bool {
+        self.interim && name == DEFAULT_GATEWAY
+    }
+
+    /// Reads the token file of the gateway `name` alone, when it names one: `runbook run` reads the gateway of the one
+    /// route it takes. A refusal names the member, never the path or the content.
+    pub fn read_token_of(&mut self, name: &str) -> Result<(), String> {
+        if let Some(gateway) = self.gateways.get_mut(name) {
+            if let Some(path) = &gateway.token_file {
+                gateway.token = Some(read_token_file(path, &format!("{}.token_file", gateway.member))?);
+            }
+        }
+        Ok(())
+    }
+
+    /// What the gateway of the route `name` says of it now (`docs/model-routes.md`, section 3): `GET /ready`, `GET
+    /// /v1/models` and the status of the route's model, every request done by `until`. None for a name that is not
+    /// declared. A read sends no model call and starts nothing.
+    pub fn readiness(&self, name: &str, until: Instant) -> Option<Readiness> {
+        let route = self.routes.get(name)?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        Some(match read_gateway(self, &route.gateway, gateway, until) {
+            Reach::Unreachable => Readiness::Unreachable,
+            Reach::NotReady => Readiness::NotReady,
+            Reach::Ready { models, of_all, of_model } => {
+                if !models.contains_key(&route.alias) {
+                    Readiness::Unlisted
+                } else {
+                    let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias).filter(|_| route.kind.has_model_status()));
+                    match status {
+                        Some(s) if !s.callable.unwrap_or(s.phase.as_deref() == Some("ready")) => Readiness::NotCallable { phase: s.phase.clone() },
+                        _ => Readiness::Callable,
+                    }
+                }
+            }
+        })
     }
 
     /// Whether the file declares no gateway and no route.
@@ -427,6 +493,23 @@ impl RouteTable {
     }
 }
 
+/// What a route's gateway says of it when a run is about to take it ([`RouteTable::readiness`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    /// The gateway is ready and lists the alias, and the status of the model, when one was read, says it can answer
+    /// (`callable` of `GET /v1/status`, else the phase `ready` of `GET /v1/models/{alias}/status` for a managed or a
+    /// local route). A hosted route on a gateway without `/v1/status` is read no further: no model call probes it.
+    Callable,
+    /// No answer from `GET /ready` or `GET /v1/models` in time, or an address the daemon does not speak (https).
+    Unreachable,
+    /// `GET /ready` answered, not 200, or `GET /v1/models` gave no list.
+    NotReady,
+    /// The gateway is ready and does not list the route's alias.
+    Unlisted,
+    /// The status of the model says it cannot answer now, with the phase the gateway gave.
+    NotCallable { phase: Option<String> },
+}
+
 // ---- the view `routes`: what the gateways say ----
 
 /// How a gateway answered `GET /ready` and `GET /v1/models`.
@@ -435,9 +518,23 @@ enum Reach {
     Unreachable,
     /// An answer that is not 200, or no list of models.
     NotReady,
-    /// Ready, with its models and their wires; the status of each model `GET /v1/status` gave (`of_all`) and of
-    /// each model whose own status route answered (`of_model`), by alias.
-    Ready { models: BTreeMap<String, Vec<String>>, of_all: BTreeMap<String, ModelStatus>, of_model: BTreeMap<String, ModelStatus> },
+    /// Ready, with its models as `GET /v1/models` lists them; the status of each model `GET /v1/status` gave (`of_all`)
+    /// and of each model whose own status route answered (`of_model`), by alias.
+    Ready { models: BTreeMap<String, Listed>, of_all: BTreeMap<String, ModelStatus>, of_model: BTreeMap<String, ModelStatus> },
+}
+
+/// One model of `GET /v1/models`: its wires, and its context length and tool calling when the gateway gives them.
+#[derive(Clone, Default)]
+struct Listed {
+    wires: Vec<String>,
+    max_model_len: Option<u64>,
+    tool_calling: Option<bool>,
+}
+
+impl Listed {
+    fn of(m: &Value) -> Listed {
+        Listed { wires: wires(&m["wires"]), max_model_len: m["max_model_len"].as_u64(), tool_calling: m["tool_calling"].as_bool() }
+    }
 }
 
 /// The status of one model as the gateway gives it.
@@ -499,9 +596,9 @@ fn read_gateway(table: &RouteTable, name: &str, gateway: &Gateway, until: Instan
         Some((200, _)) => {}
         Some(_) => return Reach::NotReady,
     }
-    let models: BTreeMap<String, Vec<String>> = match get(&client, &prefix, "/v1/models", until) {
+    let models: BTreeMap<String, Listed> = match get(&client, &prefix, "/v1/models", until) {
         None => return Reach::Unreachable,
-        Some((200, body)) if body["data"].is_array() => body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), wires(&m["wires"])))).collect(),
+        Some((200, body)) if body["data"].is_array() => body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_owned(), Listed::of(m)))).collect(),
         Some(_) => return Reach::NotReady,
     };
     let listed: Vec<&Route> = table.routes.values().filter(|r| r.gateway == name && models.contains_key(&r.alias)).collect();
@@ -559,19 +656,19 @@ fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -
         .routes
         .values()
         .map(|route| {
-            let (status, wires, phase) = match reads.get(route.gateway.as_str()) {
-                None | Some(Reach::Unreachable) => ("gateway-unreachable", Vec::new(), None),
-                Some(Reach::NotReady) => ("gateway-not-ready", Vec::new(), None),
+            let (status, listed, phase) = match reads.get(route.gateway.as_str()) {
+                None | Some(Reach::Unreachable) => ("gateway-unreachable", Listed::default(), None),
+                Some(Reach::NotReady) => ("gateway-not-ready", Listed::default(), None),
                 Some(Reach::Ready { models, of_all, of_model }) => match models.get(&route.alias) {
-                    None => ("model-unknown", Vec::new(), None),
-                    Some(wires) => {
+                    None => ("model-unknown", Listed::default(), None),
+                    Some(listed) => {
                         let of_model = || of_model.get(&route.alias).filter(|_| route.kind.has_model_status());
                         match of_all.get(&route.alias).or_else(of_model).cloned() {
                             Some(s) => {
                                 let ready = s.callable.unwrap_or(s.phase.as_deref() == Some("ready"));
-                                (if ready { "ready" } else { "not-ready" }, wires.clone(), s.phase)
+                                (if ready { "ready" } else { "not-ready" }, listed.clone(), s.phase)
                             }
-                            None => ("listed", wires.clone(), None),
+                            None => ("listed", listed.clone(), None),
                         }
                     }
                 },
@@ -581,10 +678,16 @@ fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -
             row.insert("gateway".into(), json!(route.gateway));
             row.insert("alias".into(), json!(route.alias));
             row.insert("kind".into(), json!(route.kind.as_str()));
-            row.insert("wires".into(), json!(wires));
+            row.insert("wires".into(), json!(listed.wires));
             row.insert("status".into(), json!(status));
             if let Some(phase) = phase {
                 row.insert("phase".into(), json!(phase));
+            }
+            if let Some(len) = listed.max_model_len {
+                row.insert("max_model_len".into(), json!(len));
+            }
+            if let Some(tools) = listed.tool_calling {
+                row.insert("tool_calling".into(), json!(tools));
             }
             row.insert("read_at".into(), json!(read_at));
             Value::Object(row)

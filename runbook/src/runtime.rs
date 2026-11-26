@@ -115,12 +115,63 @@ pub struct Terms {
     pub decider: Option<String>,
 }
 
+impl Terms {
+    /// Whether a run with these terms makes model calls the daemon routes: its decider is the kind `model` at a level
+    /// above `A0`. Such a run takes a model route (`docs/model-routes.md`, section 2) and its model processes reach it
+    /// through the daemon's relay; any other run takes none, and a submit for it that names one is refused.
+    pub fn makes_model_calls(&self) -> bool {
+        self.decider.as_deref() == Some("model") && self.autonomy.is_some_and(|l| l != Autonomy::A0)
+    }
+}
+
+/// The setting that chose a run's route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RouteSource {
+    /// The submit named it (`model_route`, `model_routes.<role>`).
+    Run,
+    /// The daemon's `route_policy.default`, or the route `default` of a lone `[gateway]` table.
+    Default,
+}
+
+impl RouteSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteSource::Run => "run",
+            RouteSource::Default => "default",
+        }
+    }
+}
+
+/// The model route of a run as its record keeps it: the route of the role `default`, its alias at the gateway and the
+/// setting that chose it, and the route of each further role the submit named. No address and no token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRoute {
+    pub route: String,
+    pub alias: String,
+    pub source: RouteSource,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub roles: BTreeMap<String, String>,
+}
+
 /// A runbook a runtime can start, as the view `runbooks` lists it: a name and the version the runtime
 /// has for it, when it names one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunbookInfo {
     pub name: String,
     pub version: Option<String>,
+}
+
+/// What the catalog (`Daemon::catalog`) says of a runbook beside its name and version, as the runtime's runbook
+/// directories hold it: its purpose in one line and its description (the root protocol's), the inputs a delegation's
+/// request fills, and the text of its route entries file (`crate::admission`), or why that file cannot be read. No path.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RunbookFacts {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub inputs: Vec<String>,
+    /// None: the runbook has no route entries file.
+    pub routes_file: Option<Result<String, String>>,
 }
 
 /// One case of a run's tree as the runtime reads it (`Runtime::cases`): what the view `cases` shows, and the last
@@ -154,6 +205,13 @@ pub struct StartRequest {
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
     pub workspace_dir: PathBuf,
+    /// The route of each role of a run that makes model calls (`Terms::makes_model_calls`) or is a delegation, resolved by
+    /// the daemon at the submit: the run's model processes reach these routes through the daemon's relay. None: the run
+    /// is on no route.
+    pub routes: Option<crate::relay::RouteTable>,
+    /// The route of a delegation (`Daemon::delegate`), by name: the run is a delegation, on that route as the role
+    /// `default` (`routes`). None: the run is no delegation.
+    pub model_route: Option<String>,
 }
 
 /// A question the runtime raised for a run.
@@ -313,6 +371,12 @@ pub trait Runtime: Send + Sync + 'static {
     /// The runtime's name as the view `runbooks` gives it: `stub` or `loom`.
     fn kind(&self) -> &'static str;
 
+    /// What the catalog says of the runbook `runbook` (a name `runbooks` lists) beside its name. The default (the stub,
+    /// whose runbooks are scripts): nothing.
+    fn runbook_facts(&self, _runbook: &str) -> RunbookFacts {
+        RunbookFacts::default()
+    }
+
     /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that
     /// is a run that could not start. The `cancel` flag is checked between steps.
     fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure>;
@@ -347,5 +411,17 @@ pub trait Runtime: Send + Sync + 'static {
     /// has a run whose tree is not written yet.
     fn cases(&self, _run_id: &str) -> Result<Vec<CaseRow>, String> {
         Ok(Vec::new())
+    }
+
+    /// Whether the runtime runs the free run of a delegation (`crate::delegation`).
+    fn free_run(&self) -> bool {
+        false
+    }
+
+    /// Whether the runtime classifies a delegation that names no protocol when its run starts, on the daemon's classifier
+    /// route (`[route_policy] classifier`; `crate::delegation`, `docs/model-routes.md` section 9). None (the stub): such a
+    /// delegation is the free run.
+    fn classifies(&self) -> bool {
+        false
     }
 }

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.RouteRefused.schema.json",
+  "title": "RouteRefused payload",
+  "description": "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call; or the run makes model calls, names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.",
+  "x-ess-name": "sdc.daemon.RouteRefused",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "declared": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.daemon.RouteName"
+      }
+    }
+  },
+  "required": [
+    "run_id",
+    "reason",
+    "declared"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d4e41d73c04424fccbf33e8a93e084d3764794c4097c7203b9b637da800ba42e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

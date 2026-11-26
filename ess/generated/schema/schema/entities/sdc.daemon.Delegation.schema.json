@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.Delegation.schema.json",
+  "title": "Delegation",
+  "description": "What a delegation's run has come to, as the daemon reads it when a client asks for the view DelegationResult: one row per run that a Delegate created. The route, the path and the protocol are the run's event `runbook.delegated`, and for a delegation the daemon classified its event `runbook.delegation-resolved` (path, protocol, confidence, classifier route and the digest of a generated protocol, recorded when the run started); the state, the outcome and the failure are the Run's; the calls, the tokens and the cost are the sum of the run's events `runbook.model-call` (one per call the relay booked); the result text is the file result.md of the run's work/ directory, read through the reader of ProductOfRun (no link followed, at most `result_limit` bytes), and the products are the paths ProductsOfRun lists. The language cannot read a file system, so no command creates or changes a row, as with RunProducts.",
+  "x-ess-name": "sdc.daemon.Delegation",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "delegation_id": {
+      "$ref": "#/$defs/sdc.daemon.DelegationId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "run",
+        "kind": "references",
+        "source": "sdc.daemon.Delegation",
+        "target": "sdc.daemon.Run",
+        "cardinality": "one",
+        "via": "run_id"
+      }
+    },
+    "run_state": {
+      "$ref": "#/$defs/sdc.daemon.Run.State",
+      "description": "Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one."
+    },
+    "outcome": {
+      "$ref": "#/$defs/sdc.daemon.RunOutcome",
+      "description": "The run's outcome once it Ended."
+    },
+    "failure": {
+      "description": "Why the run failed to start, or what failed it after it started (the runtime's reason); absent otherwise.",
+      "type": "string"
+    },
+    "route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName",
+      "description": "The model route of the run, by name.",
+      "x-ess-relation": {
+        "name": "route",
+        "kind": "references",
+        "source": "sdc.daemon.Delegation",
+        "target": "sdc.daemon.ModelRoute",
+        "cardinality": "one",
+        "via": "route"
+      }
+    },
+    "route_phase": {
+      "description": "The last phase the gateway gave of a route of the run that could not answer: set while the run waits for its route and when it ended `stopped: route`; absent for a run that never waited.",
+      "type": "string"
+    },
+    "path": {
+      "$ref": "#/$defs/sdc.daemon.DelegationPath",
+      "description": "Absent while the daemon classifies the delegation (from its submit until its run starts, or fails to)."
+    },
+    "protocol": {
+      "description": "The protocol the run runs, by the id its document declares: the named runbook, delegation-free, the runbook the classifier picked, or the id of the generated protocol; absent while the path is.",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "The classifier's confidence, a number from 0 to 1, for a classified or generated delegation; null for the paths named and free."
+    },
+    "classifier_route": {
+      "description": "The route of the classify and build calls, by name, for a delegation the daemon classified.",
+      "type": "string"
+    },
+    "protocol_digest": {
+      "description": "sha256:<hex> of the protocol document the builder wrote, for a generated delegation.",
+      "type": "string"
+    },
+    "result_text": {
+      "description": "The text of result.md in the run's work/ directory, at most `result_limit` bytes; absent while the run has written none, and for a file that is not text.",
+      "type": "string"
+    },
+    "result_truncated": {
+      "description": "True when result.md holds more than `result_limit` bytes: `result_text` is its start.",
+      "type": "boolean"
+    },
+    "result_limit": {
+      "description": "The most bytes of result.md the view answers: 1048576.",
+      "type": "integer"
+    },
+    "products": {
+      "description": "The paths of the files of the run's work/ directory, as ProductsOfRun lists them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "calls": {
+      "description": "The model calls the relay booked for the run.",
+      "type": "integer"
+    },
+    "input_tokens": {
+      "description": "The input tokens those calls reported; a call that reported none adds 0.",
+      "type": "integer"
+    },
+    "output_tokens": {
+      "type": "integer"
+    },
+    "cost_micro_usd": {
+      "description": "What the calls booked: the route's declared price times the tokens, else the reservation of a call of unknown cost.",
+      "type": "integer"
+    },
+    "cost_known": {
+      "description": "False when any call was booked at its reservation because its cost was not known.",
+      "type": "boolean"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.Delegation.State"
+    }
+  },
+  "required": [
+    "delegation_id",
+    "run_id",
+    "run_state",
+    "route",
+    "result_truncated",
+    "result_limit",
+    "products",
+    "calls",
+    "input_tokens",
+    "output_tokens",
+    "cost_micro_usd",
+    "cost_known",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:98274973b2d1b0cb1b7237ed1ae6c8d3be1968d35ef200151cd72287b718645b",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.Delegation.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Delegation.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Read"
+      ]
+    },
+    "sdc.daemon.DelegationId": {
+      "title": "DelegationId",
+      "description": "A delegation as a row of Delegation: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's record and files, not the run.",
+      "x-ess-name": "sdc.daemon.DelegationId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free",
+        "classified",
+        "generated"
+      ]
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.Run.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Run.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Cancelled",
+        "Ended",
+        "FailedToStart",
+        "Running",
+        "Submitted",
+        "WaitingForRoute",
+        "WaitingOnDecision"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

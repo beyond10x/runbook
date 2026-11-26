@@ -1,8 +1,12 @@
-//! The twelve tools and their calls. A tool names a route of the command layer: `submit_run`,
+//! The fifteen tools and their calls. A tool names a route of the command layer: `submit_run`,
 //! `cancel_run`, `answer_decision`, `open_session` and `close_session` are the commands of the same
 //! names, `list_runs`, `read_run`,
 //! `read_events`, `read_open_decisions`, `list_products`, `read_product` and `list_routes` are the views `runs*`, `run`, `events`, `open-decisions`, `products`, `product` and `routes`. The result of a call is the body of the
 //! route; nothing is computed here but the choice of view and the existence check of the two reads.
+//!
+//! `delegate` and `delegation_result` are the command `delegate` and the view `delegation-result`: `delegate` waits for the run's
+//! end, reading that view, with a progress notification per step; both answer the view's row with the result text held to
+//! `RESULT_CHARS` and a text whose first line names the run. `describe_catalog` is the view `catalog`.
 
 use super::schema;
 use super::{refused, Backend};
@@ -32,6 +36,9 @@ enum Kind {
     ListProducts,
     ReadProduct,
     ListRoutes,
+    Delegate,
+    DelegationResult,
+    DescribeCatalog,
 }
 
 struct Tool {
@@ -42,11 +49,11 @@ struct Tool {
     kind: Kind,
 }
 
-const TOOLS: [Tool; 12] = [
+const TOOLS: [Tool; 15] = [
     Tool {
         name: "submit_run",
         title: "Submit a run",
-        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none.",
+        description: "Submit a run of a runbook: the runbook by name, its intake as inline text, optionally a context directory under one of the daemon's context roots, settings and a confinement level (none named: the daemon's default level; a daemon with none refuses the submit by name). Every setting is a string; the caps of the run are settings too (max_wall_seconds, max_llm_calls, cap_micro_usd), each a string of a whole number of 1 or more such as \"50\", at most the daemon's ceiling. The daemon mints the run id and returns it in published[0].payload.run_id of the result; a repeated idempotency_key returns the first run and creates none. A run whose decider kind is model names its model route by model_route (a route name list_routes lists; none named: the daemon's default route) and a route per role by model_routes; an undeclared route, an alias, an address or a token is refused as `route-refused` (HTTP status 422) naming the declared routes.",
         read_only: false,
         kind: Kind::Command("submit-run"),
     },
@@ -88,7 +95,7 @@ const TOOLS: [Tool; 12] = [
     Tool {
         name: "cancel_run",
         title: "Cancel a run",
-        description: "Cancel a run that has not ended (Submitted, Running, WaitingOnDecision). It withdraws the run's open decision requests. A run id the daemon does not know is an error with the HTTP status 404.",
+        description: "Cancel a run that has not ended (Submitted, WaitingForRoute, Running, WaitingOnDecision). It withdraws the run's open decision requests. A run id the daemon does not know is an error with the HTTP status 404.",
         read_only: false,
         kind: Kind::Command("cancel-run"),
     },
@@ -127,10 +134,42 @@ const TOOLS: [Tool; 12] = [
         read_only: true,
         kind: Kind::ListRoutes,
     },
+    Tool {
+        name: "delegate",
+        title: "Delegate agent work",
+        description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (none: the daemon's default route; a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken (over stdio only: the HTTP endpoint sends none), and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then, for a run that failed, a line `failed: ` with what failed it (a route that did not serve the run's call is named there with `route-unavailable`), then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
+        read_only: false,
+        kind: Kind::Delegate,
+    },
+    Tool {
+        name: "delegation_result",
+        title: "Read the result of a delegation",
+        description: "What a delegation's run has come to, by its run id: the state, the outcome once it ended, what failed it (`failure`: why it failed to start, or the runtime's reason), the text of its result.md (at most 40000 characters here; `result_truncated` says it was cut), its products, the route, the path, the protocol, the calls, the tokens and the cost (`cost_known` false when a call was booked at its reservation). The text starts with the same line as the answer of delegate. A run id the daemon does not know is an error with the HTTP status 404, and so is a run no delegation created.",
+        read_only: true,
+        kind: Kind::DelegationResult,
+    },
+    Tool {
+        name: "describe_catalog",
+        title: "Describe what a delegation may name",
+        description: "What a delegate call may name on this daemon, in one row (`rows[0]` of the result): `routes`, each declared model route with `route` (the name a delegation names), `kind`, `alias`, `gateway` (by name), `wires`, `status` and `phase` as list_routes reads them, `max_model_len` and `tool_calling` when the gateway lists them, and the prices per million tokens and the wait the daemon's file declares; `runbooks`, each runbook a delegation may name as its `protocol`, with `title` (its purpose in one line), `description`, `inputs`, its `route_entries` (per role the route that serves it, or the reason it cannot be admitted), `routes_allowed`, `admitted` and the `refusal` of one that is not; `delegation`, the members of delegate (`name`, `required`, `summary`, `max_length`), the `paths` a delegation may take (named, free), the `default_route`, the `classifier_route`, the `confinement` it runs at and the `request_limit` in bytes. No address, token or path is in it.",
+        read_only: true,
+        kind: Kind::DescribeCatalog,
+    },
 ];
 
+/// The members of the input of `delegate` the handler fills, and the two the MCP server fills (`caller`, `caller_label`):
+/// none of them is an argument of the tool.
+pub const DELEGATE_FILLED: [&str; 14] = ["run_id", "runbook_id", "confinement", "route", "model_route_alias", "model_route_source", "path", "route_declared", "runbook_known", "context_inside_roots", "daemon_id", "at", "caller", "caller_label"];
+/// How long `delegate` waits for the run's end when the call names no `wait_seconds`, and the most it names.
+pub const DEFAULT_WAIT_SECONDS: u64 = 600;
+pub const MAX_WAIT_SECONDS: u64 = 3600;
+/// The most characters of a delegation's result.md a tool answers.
+pub const RESULT_CHARS: usize = 40_000;
+/// How often `delegate` reads the run while it waits.
+const POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
 /// The members of a command's input the HTTP handler fills; a client never sends them.
-pub const SUBMIT_FILLED: [&str; 6] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source"];
+pub const SUBMIT_FILLED: [&str; 9] = ["run_id", "runbook_known", "context_inside_roots", "daemon_id", "at", "confinement_source", "model_route_alias", "model_route_source", "route_refused"];
 
 /// The members of the input of `answer-decision` the handler fills: the instant, the daemon's own
 /// principal and whether the request takes the answer (`answer_offered`), which no tool argument sets.
@@ -152,7 +191,13 @@ fn input_schema(tool: &Tool) -> Value {
         Kind::ReadOpenDecisions => schema::object(vec![("run_id", schema::view_param("open-decisions", "run_id"))], &["run_id"]),
         Kind::ListProducts => schema::object(vec![("run_id", schema::view_param("products", "run_id"))], &["run_id"]),
         Kind::ReadProduct => schema::object(vec![("run_id", schema::view_param("product", "run_id")), ("path", schema::view_param("product", "path"))], &["run_id", "path"]),
-        Kind::ListRoutes => schema::object(Vec::new(), &[]),
+        Kind::ListRoutes | Kind::DescribeCatalog => schema::object(Vec::new(), &[]),
+        Kind::Delegate => {
+            let mut s = schema::command_input("delegate", &DELEGATE_FILLED, &SUBMIT_DEFAULTED);
+            s["properties"]["wait_seconds"] = json!({"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "description": format!("How long the tool waits for the run's end before it answers the run id and its state. Default {DEFAULT_WAIT_SECONDS}.")});
+            s
+        }
+        Kind::DelegationResult => schema::object(vec![("run_id", schema::view_param("delegation-result", "run_id"))], &["run_id"]),
         Kind::ReadEvents => schema::object(
             vec![
                 ("run_id", schema::view_param("events", "run_id")),
@@ -169,7 +214,7 @@ fn input_schema(tool: &Tool) -> Value {
     }
 }
 
-/// The result of `tools/list`: exactly the twelve tools, in a fixed order.
+/// The result of `tools/list`: exactly the fifteen tools, in a fixed order.
 pub fn list() -> &'static Vec<Value> {
     static LIST: OnceLock<Vec<Value>> = OnceLock::new();
     LIST.get_or_init(|| {
@@ -225,8 +270,8 @@ fn known(be: &dyn Backend, run_id: &str) -> Result<bool, Answer> {
     Ok(a.body["rows"].as_array().is_some_and(|r| !r.is_empty()))
 }
 
-/// Call a tool. The answer is the route's.
-pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, Invalid> {
+/// The tool `name` and its arguments, each one the tool takes.
+fn arguments(name: &str, arguments: &Value) -> Result<(&'static Tool, Map<String, Value>), Invalid> {
     let tool = TOOLS.iter().find(|t| t.name == name).ok_or_else(|| Invalid::UnknownTool(name.to_string()))?;
     let args = match arguments {
         Value::Null => Map::new(),
@@ -237,6 +282,133 @@ pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, I
     if let Some(k) = args.keys().find(|k| !allowed.contains(k)) {
         return Err(Invalid::Arguments(format!("{name} takes no argument {k}; it takes: {}", allowed.join(", "))));
     }
+    Ok((tool, args))
+}
+
+/// Where `delegate` sends its progress notifications: the client's progress token and the sink of messages.
+pub struct Progress<'a> {
+    pub token: Value,
+    pub send: &'a mut dyn FnMut(Value),
+}
+
+/// Call a tool and answer the `result` of its `tools/call`. `progress`: the call's progress token and where its notifications
+/// go, when the call carried one.
+pub fn run(be: &dyn Backend, name: &str, arguments_given: &Value, progress: Option<Progress>) -> Result<Value, Invalid> {
+    let (tool, args) = arguments(name, arguments_given)?;
+    match tool.kind {
+        Kind::Delegate => delegate(be, args, progress),
+        Kind::DelegationResult => {
+            let a = be.view("delegation-result", &query_of(&args)?);
+            Ok(delegation_answer(&a))
+        }
+        _ => call(be, name, arguments_given).map(|a| result(&a)),
+    }
+}
+
+/// `delegate`: the command, then the run read until it ends or the wait is over.
+fn delegate(be: &dyn Backend, mut args: Map<String, Value>, mut progress: Option<Progress>) -> Result<Value, Invalid> {
+    let wait = match args.remove("wait_seconds") {
+        None | Some(Value::Null) => DEFAULT_WAIT_SECONDS,
+        Some(v) => v.as_u64().filter(|w| *w <= MAX_WAIT_SECONDS).ok_or_else(|| Invalid::Arguments(format!("wait_seconds must be a whole number from 0 to {MAX_WAIT_SECONDS}")))?,
+    };
+    // who calls: the server sends it, never the model (the members are no argument of the tool)
+    let (client, label) = be.caller();
+    if let Some(c) = client {
+        args.insert("caller".into(), json!(c));
+    }
+    if let Some(l) = label {
+        args.insert("caller_label".into(), json!(l));
+    }
+    let a = be.command("delegate", Value::Object(args).to_string().as_bytes());
+    let Some(run_id) = a.body["published"][0]["payload"]["run_id"].as_str().filter(|_| a.status == StatusCode::ACCEPTED).map(str::to_owned) else {
+        return Ok(result(&a));
+    };
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(wait);
+    let (mut after, mut steps) = (0u64, 0u64);
+    loop {
+        let r = be.view("delegation-result", &HashMap::from([("run_id".to_owned(), run_id.clone())]));
+        let row = match r.body["rows"].get(0) {
+            Some(row) if r.status == StatusCode::OK => row.clone(),
+            _ => return Ok(result(&r)),
+        };
+        if let Some(p) = progress.as_mut() {
+            let q = HashMap::from([("run_id".to_owned(), run_id.clone()), ("after_position".to_owned(), after.to_string())]);
+            let events = be.view("events", &q);
+            for e in events.body["rows"].as_array().into_iter().flatten() {
+                after = after.max(e["position"].as_u64().unwrap_or(0));
+                if e["kind"] == crate::commands::ACTION_STARTED {
+                    steps += 1;
+                    let step = e["record"]["action"].as_str().or_else(|| e["record"]["case"].as_str()).unwrap_or("a step");
+                    let message = format!("step {step} of run {run_id} on route {}: {} call(s), {} micro USD booked so far", text_of(&row["route"]), row["calls"], row["cost_micro_usd"]);
+                    (p.send)(json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progressToken": p.token, "progress": steps, "message": message}}));
+                }
+            }
+        }
+        let ended = ["Ended", "FailedToStart", "Cancelled"].iter().any(|s| row["run_state"] == *s);
+        let now = std::time::Instant::now();
+        if ended || now >= until {
+            return Ok(delegation_answer(&Answer { status: StatusCode::OK, body: json!({"rows": [row]}), location: None }));
+        }
+        std::thread::sleep(POLL.min(until - now));
+    }
+}
+
+/// A member's text, or `?`.
+fn text_of(v: &Value) -> &str {
+    v.as_str().unwrap_or("?")
+}
+
+/// The `result` of `delegate` and `delegation_result` for an answer of the view `delegation-result`: its row with the result text
+/// held to `RESULT_CHARS`, and a text that starts with one line naming the run, then a line `failed:` with the row's `failure` when it has one, then the result. A refusal of the view is its
+/// answer, as for every tool. A run that failed to start, was cancelled or failed in its runtime is an error.
+fn delegation_answer(a: &Answer) -> Value {
+    let Some(row) = a.body["rows"].get(0).filter(|_| a.status == StatusCode::OK) else {
+        return result(a);
+    };
+    let mut row = row.clone();
+    if let Some(text) = row["result_text"].as_str() {
+        if text.chars().count() > RESULT_CHARS {
+            row["result_text"] = json!(text.chars().take(RESULT_CHARS).collect::<String>());
+            row["result_truncated"] = json!(true);
+        }
+    }
+    let state = text_of(&row["run_state"]).to_owned();
+    let outcome = row["outcome"].as_str().map(|o| format!(" ({o})")).unwrap_or_default();
+    let cost = if row["cost_known"] == json!(true) { format!("{} micro USD", row["cost_micro_usd"]) } else { format!("{} micro USD booked, the cost of a call not known", row["cost_micro_usd"]) };
+    // the last phase the gateway gave of a route that could not answer (a run that waited for its route, or ended `stopped: route`)
+    let phase = row["route_phase"].as_str().map(|p| format!(" (phase {p})")).unwrap_or_default();
+    let mut head = format!("run {} on route {}{phase}: {state}{outcome}, path {}, protocol {}, {} call(s), {cost}", text_of(&row["run_id"]), text_of(&row["route"]), text_of(&row["path"]), text_of(&row["protocol"]), row["calls"]);
+    if let Some(failure) = row["failure"].as_str() {
+        head.push_str(&format!("\nfailed: {failure}"));
+    }
+    let body = match row["result_text"].as_str() {
+        Some(text) => text.to_owned(),
+        None if state == "WaitingForRoute" => format!("The run has not ended: it waits for its route {} to answer; read its result with delegation_result.", text_of(&row["route"])),
+        None if ["Submitted", "Running", "WaitingOnDecision"].contains(&state.as_str()) => "The run has not ended: read its result with delegation_result.".to_owned(),
+        None if row["products"].as_array().is_some_and(|p| p.iter().any(|f| f == crate::delegation::RESULT_FILE)) => {
+            "The run's result.md is not text: read it with read_product.".to_owned()
+        }
+        None => "The run wrote no result.md.".to_owned(),
+    };
+    let failed = matches!(state.as_str(), "FailedToStart" | "Cancelled") || row["outcome"].as_str().is_some_and(failure_outcome);
+    json!({
+        "content": [{"type": "text", "text": format!("{head}\n\n{body}")}],
+        "structuredContent": {"rows": [row]},
+        "isError": failed,
+        "_meta": {STATUS_KEY: a.status.as_u16()},
+    })
+}
+
+/// Whether an outcome of an `Ended` run is a failure of the daemon's own, not one the protocol reached: the runtime failed it
+/// (`runtime-failure`), the daemon ended it at a stop or a restart (`orphaned`), or its route never could answer (`stopped:
+/// route`, and any other `stopped: ...` or `failed...` outcome).
+fn failure_outcome(outcome: &str) -> bool {
+    outcome == "runtime-failure" || outcome == crate::commands::ORPHANED || outcome.starts_with("stopped:") || outcome.starts_with("failed")
+}
+
+/// Call a tool. The answer is the route's.
+pub fn call(be: &dyn Backend, name: &str, arguments_given: &Value) -> Result<Answer, Invalid> {
+    let (tool, args) = arguments(name, arguments_given)?;
     match &tool.kind {
         Kind::Command(command) => Ok(be.command(command, Value::Object(args).to_string().as_bytes())),
         Kind::ListRuns => {
@@ -262,6 +434,9 @@ pub fn call(be: &dyn Backend, name: &str, arguments: &Value) -> Result<Answer, I
         Kind::ListProducts => Ok(be.view("products", &query_of(&args)?)),
         Kind::ReadProduct => Ok(be.view("product", &query_of(&args)?)),
         Kind::ListRoutes => Ok(be.view("routes", &HashMap::new())),
+        Kind::Delegate => Ok(be.command("delegate", Value::Object(args).to_string().as_bytes())),
+        Kind::DelegationResult => Ok(be.view("delegation-result", &query_of(&args)?)),
+        Kind::DescribeCatalog => Ok(be.view("catalog", &HashMap::new())),
         Kind::ReadEvents => {
             let mut q = query_of(&args)?;
             let after_sequence = match q.remove("after_sequence") {
@@ -296,4 +471,18 @@ pub fn result(a: &Answer) -> Value {
         "isError": a.status.as_u16() >= 400,
         "_meta": {STATUS_KEY: a.status.as_u16()},
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A run that ended with a result.md that is not text has a result file: the head says so instead of "wrote no result.md".
+    #[test]
+    fn a_result_md_that_is_not_text_is_named_as_such() {
+        let row = json!({"run_id": "r", "run_state": "Ended", "outcome": "delivered", "route": "default", "path": "free", "protocol": "delegation-free", "calls": 1, "cost_micro_usd": 0, "cost_known": true, "result_truncated": false, "products": ["result.md"]});
+        let a = delegation_answer(&Answer { status: StatusCode::OK, body: json!({"rows": [row]}), location: None });
+        let text = a["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("wrote no result.md") && text.contains("result.md is not text"), "{text}");
+    }
 }

@@ -68,10 +68,18 @@ pub struct ServeArgs {
     /// read. Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub routes: Arc<crate::routes::RouteTable>,
+    /// `[delegation] classify_threshold` of `runbook.toml`: the confidence at or above which a classified delegation runs
+    /// the runbook the classifier picked. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub classify_threshold: Option<f64>,
     /// The route table of the runs whose decider kind is `model` (`crate::relay`): the daemon serves the relay and
     /// such a run's model calls go through it. Not an option: the binary fills it from the `[gateway]` of the file.
     #[arg(skip)]
     pub route_table: Option<crate::relay::RouteTable>,
+    /// The root of the daemon's assets (`assets::Lookup`), whose `bindings/tools` the free run of a delegation hands to
+    /// `sdc-node` (`crate::delegation`). Not an option: the binary fills it.
+    #[arg(skip)]
+    pub assets_root: Option<PathBuf>,
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
@@ -205,11 +213,23 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if let Some(arbiter) = &args.arbiter {
             engine = engine.with_arbiter(arbiter.clone());
         }
-        if let Some(table) = args.route_table.clone().filter(|t| !t.is_empty()) {
+        // The relay serves the runs on a route: those on a declared route (a delegation's among them), and those on the
+        // route `default` of a lone `[gateway]` table.
+        if args.route_table.as_ref().is_some_and(|t| !t.is_empty()) || !args.routes.names().is_empty() {
             let r = crate::relay::Relay::new();
-            engine = engine.with_routes(r.clone(), table);
+            engine = engine.with_relay(r.clone());
+            // a delegation that names no protocol is classified on the classifier route, when the daemon declares one
+            if let Some(route) = args.routes.classifier().and_then(|name| args.routes.resolve(name)) {
+                engine = engine.with_classifier(crate::relay::ResolvedRoute::from(route));
+                if let Some(threshold) = args.classify_threshold {
+                    engine = engine.with_classify_threshold(threshold);
+                }
+            }
             relay = Some(r);
         }
+        let tools = args.assets_root.as_deref().and_then(crate::delegation::tools_of);
+        let free = crate::delegation::install(&state, tools.as_deref()).map_err(|e| format!("state directory: the free run of a delegation could not be written: {e}"))?;
+        engine = engine.with_free_run(free);
         (Arc::new(engine), None)
     } else {
         let stub = StubRuntime::new();
@@ -220,7 +240,9 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         (Arc::new(stub), args.runbook_dir.clone())
     };
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
-    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone() };
+    // The route `default` of a lone `[gateway]` serves a model run only with the loom runtime, which has the relay.
+    let gateway_route = args.route_table.clone().filter(|t| !t.is_empty() && relay.is_some());
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon, relay })
 }

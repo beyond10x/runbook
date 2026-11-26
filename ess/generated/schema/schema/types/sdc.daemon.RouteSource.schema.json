@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RouteSource.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RouteSource",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:31b6f3421f04593eb489d3edf956d8b1ac286d78a74d89937c0072ee5684688e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RouteSource": {
+      "title": "RouteSource",
+      "description": "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The protocol's own word comes with its story.",
+      "x-ess-name": "sdc.daemon.RouteSource",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "run",
+        "default"
+      ]
+    }
+  }
+}

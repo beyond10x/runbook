@@ -16,12 +16,13 @@ runtime.
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned` or `runtime-failure`), `FailedToStart` a `failure`. |
+| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure` or `stopped: route`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
 | Daemon | Up | What the daemon was started with: its confinement floor and its principal. |
 | ModelRoute | Declared | A model route of the daemon's `runbook.toml` with what its gateway last said of it (below, "Model routes"). |
+| DaemonCatalog | Read | What a delegation may name, read when a client asks: the routes, the runbooks with the admission of their route entries, the terms of a delegation (below, "The catalog"). |
 
 Confinement levels, weakest first: `local` (not confined), `linux`. A submit may leave out
 `confinement`: it then runs at the daemon's default level (`--default-confinement`, else the
@@ -50,7 +51,8 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 |---|---|
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
-| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
+| `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `RouteRefused` (422 `route-refused`: below, "The route of a run"), `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
+| `delegate` | `IntakeTooLarge`, `RouteRefused` (422 `route-refused`, as `submit-run`'s: below, "A delegation"), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `SessionClosedToRuns`; and `503` `route-unavailable` outside the language (below) |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
@@ -133,7 +135,9 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
-| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `read_at` (below) |
+| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at` (below) |
+| `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
+| `catalog` | none | one row: the declared routes with their prices, the runbooks with their purpose, inputs and the admission of their route entries, and the terms of a delegation (below, "The catalog") |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
 command accepts (`no-runbook` is its refusal for any other name). Under `--runtime loom` the rows are
@@ -184,7 +188,14 @@ kind = "hosted"
 [route_policy]
 default = "claude"                   # optional: a declared route
 classifier = "claude"                # optional: a declared route
+
+[delegation]
+classify_threshold = 0.8             # optional: 0 to 1
 ```
+
+`[delegation] classify_threshold` is the confidence at or above which a classified delegation runs the runbook the
+classifier picked (below, "A delegation"); without it 0.8. A value that is no number from 0 to 1, or another key of
+the table, refuses the start, exit 2, naming the key.
 
 A lone `[gateway]` table (the one gateway of a daemon's model decider, `docs/engine.md`, "A gateway") is the
 gateway `default`: a route names it so, and the decider takes it as before. Both a `[gateway]` table and a
@@ -217,8 +228,180 @@ at most 5 s; a gateway that has not answered by then is `gateway-unreachable`. `
 | `ready`, `not-ready` | the gateway gave the model's status: `callable` of `/v1/status`, else the phase of the model's own status route (`ready` only for the phase `ready`); `phase` is the gateway's |
 | `listed` | the gateway lists the alias and gave no status of it: a hosted route on a gateway without `/v1/status`, or a status route that did not answer in time or answered anything but `200` with a phase. Today's gateway answers `404` for `/v1/status` and for the status route of a model it does not start (a local model): such a route is `listed`, not `gateway-unreachable` |
 
-A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none. A run does not take a
-route yet (`story:run-names-a-model-route`).
+A row names the gateway by name; no address, port, token, token file or price is in it. Of what a gateway answers, only words reach a row: a wire or a phase that is not 1 to 64 visible ASCII characters is left out, at most 16 wires are kept, and a status with neither such a phase nor a boolean `callable` counts as none.
+
+#### The route of a run
+
+A `submit-run` names the route of its model calls by `model_route` (a declared route name) and, for a role that
+takes another, `model_routes` (a map from role to route name; the role `default` is the run's own). The run's
+word wins; a run that names none takes `[route_policy] default`. Only a run that makes model calls takes a route:
+its decider kind is `model` and its autonomy is above `A0`. The run record and the views `runs`, `run` and the
+other run views carry `model_route`, `model_route_alias` and `model_route_source` (`run` or `default`), and `run`
+also `model_routes`; the event `runbook.submitted` says the same. The relay's table of the run is built from them:
+the role `default` on the chosen route, each role of `model_routes` on its own, every call booked with the
+route, the alias and the setting that chose it (`run` for a route the submit named, `default` for the policy's).
+
+A submit is refused `422 route-refused` (error `RouteRefused`: `run_id`, `reason`, `declared`, the daemon's route
+names), and nothing is written, when it names a route the daemon does not declare, an alias of a gateway's model
+instead of a route, an address (a value with `/` or `:`), a value that is no route name (a token, or any other
+text that is not 1 to 64 letters, digits, `.`, `_` or `-`), an empty name, the role `default` or a role that is
+no name in `model_routes`, or a route at all for a run that makes no model call; and when a run that makes model
+calls names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
+(`model_route`, `model_routes.<role>`) and why, and never the value. `model_route_alias`, `model_route_source` and
+`route_refused` are filled by the daemon: a submit that sends one is refused `400` by its name. A daemon with only
+a `[gateway]` and a model decider declares the interim route `default` on that gateway (kind `hosted`, the
+decider's model as its alias, no price) and takes it as its default: the view `routes` lists it, a model run that
+names none is on it (source `default`), `model_route: "default"` names it, and any other name is refused with
+`declared` `["default"]`.
+
+#### A run starts only on a route that can answer
+
+Before anything is written, a submit whose run takes declared routes asks the gateway of each of them (`docs/model-routes.md`, section 3)
+`GET /ready`, `GET /v1/models` and the status of the route's model (`callable` of `GET /v1/status` when the gateway
+serves it, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route; a hosted route on a
+gateway without `/v1/status` is read no further), within 5 s, with `GET` requests only:
+
+| The gateway says | The submit |
+|---|---|
+| `/ready` not `200`, no list of models, no answer | refused `503` `{"refused": "route-unavailable", "message": ...}`, the message naming the route and `gateway not ready` (or that it does not answer); outside the specification, like the `503` of a drain; nothing is written |
+| it does not list the route's alias | refused `422 route-refused`, the `reason` naming the route and `the gateway serves no model <alias>`; nothing is written |
+| the model is not callable | accepted; the run is `WaitingForRoute` (command `WaitForRoute`, event `runbook.waiting-for-route`: route, phase, wait_seconds) and `route_phase` of the view `run` holds the phase |
+| every route can answer | accepted; the run starts as before |
+
+A run that waits sends no call to its routes and wakes nothing. The daemon reads their status again at most once
+every 5 s of its clock: once every route can answer, the runtime starts the run; when the least
+`start_wait_seconds` of the routes that cannot answer (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
+(command `EndRouteWait`, event `runbook.route-wait-ended`: route, last phase), and `route_phase` holds the last
+phase. A gateway that does not answer, or no longer lists the alias, during the wait leaves the run waiting. A cancel
+ends the wait (`Cancelled`); a run that waits keeps a drain open until it starts or its wait is over; a run that
+still waits when the daemon ends (a second stop signal, the drain bound) or that was `WaitingForRoute` at a restart is
+`FailedToStart`. The interim route `default` of a daemon with only a `[gateway]`
+is not asked, as before routes. A submit that repeats an idempotency key already used is not asked either: it answers
+the first run (`already-submitted`) whatever the gateway says.
+
+### A delegation
+
+`POST /daemon/commands/delegate` asks for a piece of agent work on a named model route
+(`docs/model-routes.md`, section 8):
+`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "settings": {}, "session_id": "<id>", "idempotency_key": "<key>"}`,
+every member but `request` optional. A delegation is a run, at the daemon's default confinement level (a daemon
+with none refuses it `400` and writes nothing), with the request as its intake; `cancel-run`, the run views, the
+events and the web UI work on it unchanged.
+
+- With `protocol`, that runbook runs (the path `named`). With `protocol` `delegation-free`, or without one on a
+  daemon that has no classifier route, the free run (the path `free`): the daemon's own
+  runbook `delegation-free`, one agent node (`sdc-node delegation.free` on the claude-cli adapter, the instruction
+  `instructions/delegation.free.md`) whose instruction is the request, with the files of the workspace as its inputs,
+  writing `result.md`. The daemon writes that runbook under its state directory at every start
+  (`runbook/src/delegation.rs`); a `submit-run` does not find it. The free run's agent node reads the request
+  whole, as the session wrote it, also when it reads as YAML.
+- Without `protocol` on a daemon with `[route_policy] classifier`, the run takes its path when it starts
+  (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
+  `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
+  the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title, description and
+  inputs of each runbook a person can start: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of
+  `[delegation] classify_threshold` (default 0.8) or above, when that runbook takes every input the answer's `inputs` names, it runs with the request as its intake
+  (`classified`); an answer whose inputs it does not take goes on to the build call. Below it a second call
+  (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
+  `{"free": true}`, the free run): the daemon runs it (`generated`) only when every action is the agent node
+  `sdc-node delegation.free`, every evidence is read from the exit, and nothing but `format`, `artifacts` and
+  `actions` is named (an action may carry `instruction`, the text of its own step: the daemon writes it to
+  `work/delegation/steps/<action>.md` and runs the agent node with `--step` on it and
+  `instructions/delegation.step.md`); it writes each executor's arguments, exits, budget and timeout from the free run's, puts the
+  artifact `idea` at `request.yaml`, and checks the result with the loader of a runbook (the layout, the budgets,
+  Loom's reader of the protocol directory, the opening of the tree). Both calls are the run's: taken against its
+  caps, booked in its ledger and recorded as its events `runbook.model-call`. An answer that is not the JSON asked
+  for is asked again, with the validator's error, at most twice. A cancel is read before every classify, retry and
+  build call: none goes out after it, and the run ends `Cancelled`; a call in flight at the cancel is booked in the
+  ledger and, the run being closed, is said on the daemon's standard error rather than as an event. The run then fails to start with `failure`
+  `classifier-answer: ...`; a call the route does not serve `route-unavailable: ...` (`cap-reached: ...` past a
+  cap); a generated protocol the loader refuses `protocol-refused: <the loader's line>`. The run event
+  `runbook.delegation-resolved` records `path`, `protocol` (the id the protocol declares), `confidence`,
+  `classifier_route` and, for a generated protocol, `protocol_digest` (`sha256:<hex>` of the document); the
+  classifier's answer (`classify.json`) and the generated documents (`protocol.yaml`, `bindings.yaml`) are products
+  of the run under `work/delegation/`. The view `run` (and the MCP tool `read_run`) shows those members for every
+  delegation's run.
+- The route is chosen as a run's (above, "The route of a run"): `model_route`, by the name the daemon declares it
+  under (`[routes.<name>]`, above, "Model routes"); none named: `[route_policy] default` (source `default`). The
+  refusals of a named route are the run's: `RouteRefused` (422 `route-refused`, `run_id`, `reason`, `declared`) for
+  a route the daemon does not declare, an alias, an address, a token or an empty name, and for none named on a
+  daemon without a default route; nothing is written. A delegation needs no model decider: it always takes a
+  route. The run record, its views and `runbook.submitted` carry `model_route`, `model_route_alias` and
+  `model_route_source` as a submit's do, and every model process of the run reaches the route through the relay as
+  the role `default` (below, "The relay of a run's model calls").
+- The route takes the readiness check of a run (above, "A run starts only on a route that can answer"), before
+  anything is written: a gateway that is not ready or does not answer refuses the delegation `503`
+  `route-unavailable`, naming the route and never its address or token; an alias it does not list refuses it `422
+  route-refused`; a model that is not callable leaves the run `WaitingForRoute` until it can answer or its
+  `start_wait_seconds` are over. A delegation whose path is still open (it names no protocol on a daemon with a
+  classifier route) takes the same check for the classifier route: no classify call goes to it before it can answer.
+  A replay of an idempotency key is not asked about.
+- `caller` and `caller_label` (each at most 200 characters, else `400`) say who asked: `runbook mcp` fills them
+  with the name the MCP client gave in `initialize` and the session's `RUNBOOK_CALLER`; they are no argument of
+  the MCP tool. The run records them in its event `runbook.delegated` (not in `RunDelegated`).
+- A replay (`202` outcome `already-submitted`) names the first run with the key. Its `Location` is that run's
+  `delegation-result`, or `/daemon/views/run?run_id=<id>` when the key was a `submit-run`'s.
+- A `result.md` that comes with the workspace is moved to `.result.from-workspace.md` before the run starts
+  (a dot name, which the products leave out): the result is only a `result.md` the run writes.
+- The accepted answer, `202` outcome `delegated`, publishes `RunSubmitted` (`published[0].payload.run_id` is the
+  run) and `RunDelegated` (`route`, `path`, `protocol`), and the `Location` header names the run's result:
+  `/daemon/views/delegation-result?run_id=<id>`. The run holds two events before the runtime records any:
+  `runbook.submitted` and `runbook.delegated` (`route`, `path`, `protocol`).
+
+`GET /daemon/views/delegation-result?run_id=<id>` answers one row: `run_state`, and once the run ended its
+`outcome` (and `failure`); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
+(`null` for `named` and `free`), `classifier_route` and `protocol_digest`; `result_text`,
+the text of `result.md` of the run's `work/` directory read as the view `product` reads a file (absent while there
+is none, and for a file that is not text), `result_truncated` and `result_limit` (1,048,576 bytes); `products`, the
+paths the view `products` lists; `calls`, `input_tokens`, `output_tokens` and `cost_micro_usd`, the sum of the
+run's events `runbook.model-call`; `cost_known`, false when any call was booked at its reservation. A run id the
+daemon does not know is `404` `no such run`; a run no delegation created is `404` `not a delegation`.
+
+`runbook delegate [--route <r>] [--protocol <p>] [--workspace <dir>] [--set K=V] <request-file|->` sends one
+delegation and prints the run's id (`--json`: the route's answer); the MCP tools `delegate` and
+`delegation_result` are in [`mcp.md`](mcp.md).
+
+### The catalog
+
+`GET /daemon/views/catalog` (the MCP tool `describe_catalog`, the command `runbook catalog [--json]`) answers one row
+with what a delegation may name on this daemon (`docs/model-routes.md`, section 10):
+
+- `routes`: each declared route, in order of name, as the view `routes` reads it (`route`, `gateway` by name,
+  `alias`, `kind`, `wires`, `status`, `phase`, `read_at`, and `max_model_len` and `tool_calling` when the gateway's
+  `GET /v1/models` gives them for the alias), with what the daemon's file declares beside the address:
+  `price_in_micro_usd_per_mtok`, `price_out_micro_usd_per_mtok` and `start_wait_seconds`, each when declared.
+- `runbooks`: each row of the view `runbooks`, with `title` (the root protocol's title, else the first sentence of its
+  description), `description` (at most 2000 characters), `inputs` (`idea` when the root bindings place it: the request
+  is the run's intake), and the admission of its route entries.
+- `delegation`: `members`, the members of `delegate` a client sends as the OpenAPI document gives them (`name`,
+  `required`, `summary`, `max_length`); `paths` (`named` when a runbook is listed, `free` when the daemon runs the free
+  run, and on a daemon with a classifier route `classified` when a runbook is listed and `generated` when it runs
+  the free run); `default_route` and `classifier_route` (`[route_policy]`); `confinement`, the daemon's default level, which
+  every delegation runs at; `request_limit`, 1,048,576 bytes.
+
+A runbook's route entries are the file `bindings/<runbook>.routes.yaml` beside its bindings (format
+`runbook.routes/1`, Runbook's own file, not part of Loom's bindings):
+
+```yaml
+format: runbook.routes/1
+model_routes:
+  writer: {route: qwen}
+  review: {needs: {wire: messages, min_context: 100000, tool_calling: true}}
+routes_allowed: [qwen, claude]
+```
+
+An entry that names a route is admitted when the daemon declares it and `routes_allowed`, when given, holds it. An
+entry with `needs` (`wire`, `min_context`, `tool_calling`, `kind`, each optional) is admitted with the daemon's
+default route when that is allowed and meets them, else with the one allowed route that meets them; none or several
+is a refusal. A need is checked against what the gateway listed for the route's alias (`wires`, `max_model_len`,
+`tool_calling`) and the route's `kind`; a fact the gateway did not give meets no requirement. Each entry is listed
+with `role`, `route` (the one that serves it), `needs`, `admitted` and the `reason` of one that is not; a runbook
+whose entries cannot be admitted is listed with `admitted: false` and `refusal`, every reason joined by `; ` (or what
+is wrong with the file as a whole: not `runbook.routes/1`, an unknown member, a link, more than 64 KiB). A reason
+names the role and the route or the requirement; an address, a token or another text that is not a name is never
+echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
+lists the admission only; a submit or a delegation does not check it yet (`story:protocol-declares-the-routes-it-needs`).
+No address, token, token file or path of the host is in the row.
 
 ### The products of a run
 
@@ -557,7 +740,7 @@ the daemon does not exit on its first stop signal while a run is live; it drains
   same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
   event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
   asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
-  (`Submitted`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  (`Submitted`, `WaitingForRoute`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
   UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
   inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
   `configuration` has no member for it.
@@ -648,7 +831,7 @@ State directory:
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
-After a restart a run that was `Submitted` and never started becomes `FailedToStart` (event
+After a restart a run that was `Submitted`, or `WaitingForRoute`, and never started becomes `FailedToStart` (event
 `runbook.start-failed`). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
 asks the runtime (`Runtime::recover`): `resumed` leaves the run as it is; `gone` ends it with the
 command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (the cause, readable in
@@ -824,8 +1007,9 @@ The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`)
 
 ## The relay of a run's model calls
 
-A daemon with a `[gateway]` and the decider kind `model` serves, on its own listener when that is loopback, the relay of
-the model calls of its runs whose kind is `model` (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
+A daemon with declared routes, or with a `[gateway]` and the decider kind `model`, serves, on its own listener when that
+is loopback, the relay of the model calls of its runs on a route (above, "The route of a run") and of every
+delegation's run (above, "A delegation") (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
 On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
 a run whose kind is `model` does not start. On a loopback listener:
 
@@ -862,6 +1046,10 @@ a run whose kind is `model` does not start. On a loopback listener:
   scenario-tested; the checks themselves are tested in the same story. The intake size limit is in
   the specification as a character count, the weaker bound; the handler holds the limit in bytes
   (1,048,576 bytes of UTF-8).
+- The readiness of a delegation's route: `route-unavailable` (503) is the daemon's `{refused, message}` answer, as a
+  draining daemon's refusal is; the facts `route_declared`, `runbook_known` and `context_inside_roots` of `Delegate`
+  are read from the host as those of `submit-run` are. `delegation-result`'s two refusals are the daemon's answers
+  too (a view has no outcome).
 - The refusals of the views `products`, `product` and `cases`: a view has no outcome in the language, so the
   refusals are the daemon's answers, written in the views' summaries, in "The products of a run" and in "The case
   tree of a run". Where a case stands (`case_state`) is read from the runtime, not moved by a command.

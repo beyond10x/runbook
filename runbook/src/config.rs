@@ -35,7 +35,9 @@ pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 7] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY];
+const OWN_KEYS: [&str; 8] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION];
+/// The table of the daemon's delegations (`classify_threshold`).
+const DELEGATION: &str = "delegation";
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
@@ -389,6 +391,9 @@ pub struct File {
     /// the model routes `runbook serve` declares. Checked here, its token files not read: the daemon reads them when
     /// it starts. `runbook run` does not read them yet.
     pub routes: runbook::routes::RouteTable,
+    /// `[delegation] classify_threshold`: the confidence, from 0 to 1, at or above which a classified delegation runs the
+    /// runbook the classifier picked (`docs/model-routes.md`, section 9.1). `runbook serve` reads it.
+    pub classify_threshold: Option<f64>,
 }
 
 impl File {
@@ -403,6 +408,7 @@ impl File {
             && self.runbooks.is_empty()
             && self.members.is_empty()
             && self.routes.is_empty()
+            && self.classify_threshold.is_none()
     }
 
     /// What `runbook run` says on standard error before anything starts: the file and how it was found.
@@ -612,6 +618,20 @@ fn runbook_dirs(top: &mut Map<String, Value>, dir: &Path) -> Result<Vec<PathBuf>
         .collect()
 }
 
+/// The table `[delegation]` of the file: its one key `classify_threshold`, a number from 0 to 1. A refusal names the key.
+fn delegation_table(table: Option<Value>) -> Result<Option<f64>, String> {
+    let Some(table) = table else { return Ok(None) };
+    let table = table.as_object().ok_or_else(|| format!("{DELEGATION}: a table with the key classify_threshold"))?;
+    if let Some(k) = table.keys().find(|k| k.as_str() != "classify_threshold") {
+        let k = if runbook::routes::is_name(k) { k.as_str() } else { "<key>" };
+        return Err(format!("{DELEGATION}.{k}: not a key of the table; it takes classify_threshold"));
+    }
+    match table.get("classify_threshold") {
+        None => Ok(None),
+        Some(v) => v.as_f64().filter(|t| (0.0..=1.0).contains(t)).map(Some).ok_or_else(|| format!("{DELEGATION}.classify_threshold: a number from 0 to 1")),
+    }
+}
+
 fn whole(top: &mut Map<String, Value>, key: &str) -> Result<Option<u64>, String> {
     match top.shift_remove(key) {
         None => Ok(None),
@@ -713,10 +733,11 @@ fn read_text(found: &Found) -> Result<File, String> {
     }
     let routes = top.shift_remove(runbook::routes::ROUTES);
     let route_policy = top.shift_remove(runbook::routes::POLICY);
+    let classify_threshold = delegation_table(top.shift_remove(DELEGATION)).map_err(fail)?;
     check_members(&top).map_err(fail)?;
     let tables = runbook::routes::Tables { gateway: top.get(crate::loom_run::gateway::KEY), gateways: gateways.as_ref(), routes: routes.as_ref(), route_policy: route_policy.as_ref() };
     let routes = runbook::routes::RouteTable::declare(&tables).map_err(|e| fail(mask(&e)))?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -1150,6 +1171,28 @@ mod tests {
         let lone = parse(&found("[gateway]\nbase_url = \"http://127.0.0.1:8080\"\n[routes.r]\ngateway = \"default\"\nmodel = \"m\"\nkind = \"local\"\n", false, Via::Option)).unwrap();
         assert_eq!(lone.routes.resolve("r").map(|r| r.base_url), Some("http://127.0.0.1:8080"), "a lone [gateway] is the gateway default");
         assert_eq!(lone.members["gateway"]["base_url"], "http://127.0.0.1:8080", "and stays the run setting it was");
+    }
+
+    /// `[delegation] classify_threshold` is a number from 0 to 1 (`docs/model-routes.md`, section 9.1); a value out of
+    /// range, of another type, or another key of the table is refused by name, never by its value.
+    #[test]
+    fn the_classify_threshold_of_runbook_toml_is_a_number_from_0_to_1_and_a_refusal_names_the_key() {
+        let found = |text: &str| Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: text.to_owned(), nested: false };
+        let f = parse(&found("[delegation]\nclassify_threshold = 0.95\n")).unwrap();
+        assert_eq!(f.classify_threshold, Some(0.95));
+        assert!(!f.states_nothing() && f.members.is_empty(), "the table is the file's own key, not a run setting");
+        assert_eq!(parse(&found("[delegation]\nclassify_threshold = 0\n")).unwrap().classify_threshold, Some(0.0));
+        assert_eq!(parse(&found("runs_dir = \"r\"\n")).unwrap().classify_threshold, None);
+        for (text, said) in [
+            ("[delegation]\nclassify_threshold = 1.5\n", "delegation.classify_threshold: a number from 0 to 1"),
+            ("[delegation]\nclassify_threshold = -0.1\n", "delegation.classify_threshold: a number from 0 to 1"),
+            ("[delegation]\nclassify_threshold = \"high\"\n", "delegation.classify_threshold: a number from 0 to 1"),
+            ("[delegation]\nthreshold = 0.5\n", "delegation.threshold: not a key of the table; it takes classify_threshold"),
+            ("delegation = 0.5\n", "delegation: a table with the key classify_threshold"),
+        ] {
+            let e = parse(&found(text)).unwrap_err();
+            assert!(e.contains(said) && !e.contains("1.5") && !e.contains("high"), "{text}: {e}");
+        }
     }
 
     #[test]

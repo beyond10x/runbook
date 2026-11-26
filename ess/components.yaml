@@ -11,4 +11,5 @@ components:
         - sdc.daemon.SubmitRun
         - sdc.daemon.CancelRun
         - sdc.daemon.AnswerDecision
+        - sdc.daemon.Delegate
     reached_by: network

@@ -65,6 +65,8 @@ pub fn request(run: &str, runbook: &str) -> StartRequest {
         terms: Default::default(),
         state_dir: "state".into(),
         workspace_dir: "workspace".into(),
+        routes: None,
+        model_route: None,
     }
 }
 

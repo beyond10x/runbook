@@ -19,6 +19,8 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunState {
     Submitted,
+    /// A route of the run could not answer at the submit: the daemon holds the run until it can, or its wait is over.
+    WaitingForRoute,
     Running,
     WaitingOnDecision,
     Ended,
@@ -27,12 +29,13 @@ pub enum RunState {
 }
 
 impl RunState {
-    pub const ALL: [RunState; 6] =
-        [RunState::Submitted, RunState::Running, RunState::WaitingOnDecision, RunState::Ended, RunState::Cancelled, RunState::FailedToStart];
+    pub const ALL: [RunState; 7] =
+        [RunState::Submitted, RunState::WaitingForRoute, RunState::Running, RunState::WaitingOnDecision, RunState::Ended, RunState::Cancelled, RunState::FailedToStart];
 
     pub fn as_str(self) -> &'static str {
         match self {
             RunState::Submitted => "Submitted",
+            RunState::WaitingForRoute => "WaitingForRoute",
             RunState::Running => "Running",
             RunState::WaitingOnDecision => "WaitingOnDecision",
             RunState::Ended => "Ended",
@@ -45,9 +48,9 @@ impl RunState {
         RunState::ALL.into_iter().find(|s| s.as_str() == text)
     }
 
-    /// Not terminal: Submitted, Running or WaitingOnDecision.
+    /// Not terminal: Submitted, WaitingForRoute, Running or WaitingOnDecision.
     pub fn is_live(self) -> bool {
-        matches!(self, RunState::Submitted | RunState::Running | RunState::WaitingOnDecision)
+        matches!(self, RunState::Submitted | RunState::WaitingForRoute | RunState::Running | RunState::WaitingOnDecision)
     }
 }
 
@@ -99,6 +102,14 @@ pub struct Run {
     /// submitted before the daemon kept them has neither.
     #[serde(default)]
     pub terms: Terms,
+    /// The model route of a run that makes model calls, fixed at the submit; none for any other run, and in a journal
+    /// line of a run submitted before the daemon kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_route: Option<crate::runtime::RunRoute>,
+    /// The last phase the gateway gave of a route of the run that could not answer at the submit: set while the run
+    /// waits for it and when it ends `stopped: route`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_phase: Option<String>,
     pub session_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub submitted_at: String,
@@ -144,6 +155,9 @@ pub struct RunEvent {
     pub at: String,
 }
 
+/// The outcome of a run whose wait for its route is over (`EndRouteWait`).
+pub const STOPPED_ON_ROUTE: &str = "stopped: route";
+
 /// One change of the state, as the journal keeps it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "fact", rename_all = "snake_case")]
@@ -155,6 +169,8 @@ pub enum Fact {
     RunStarted { run_id: String, at: String },
     RunFailedToStart { run_id: String, reason: String, at: String },
     RunWaiting { run_id: String },
+    RunWaitingForRoute { run_id: String, phase: Option<String> },
+    RunStoppedOnRoute { run_id: String, phase: Option<String>, at: String },
     RunResumed { run_id: String },
     RunEnded { run_id: String, outcome: String, at: String },
     RunCancelled { run_id: String, at: String },
@@ -389,6 +405,18 @@ impl State {
                 r.ended_at = Some(at.clone());
             }
             Fact::RunWaiting { run_id } => self.run_mut(run_id)?.state = RunState::WaitingOnDecision,
+            Fact::RunWaitingForRoute { run_id, phase } => {
+                let r = self.run_mut(run_id)?;
+                r.state = RunState::WaitingForRoute;
+                r.route_phase = phase.clone();
+            }
+            Fact::RunStoppedOnRoute { run_id, phase, at } => {
+                let r = self.run_mut(run_id)?;
+                r.state = RunState::Ended;
+                r.outcome = Some(STOPPED_ON_ROUTE.to_owned());
+                r.route_phase = phase.clone();
+                r.ended_at = Some(at.clone());
+            }
             Fact::RunResumed { run_id } => self.run_mut(run_id)?.state = RunState::Running,
             Fact::RunEnded { run_id, outcome, at } => {
                 let r = self.run_mut(run_id)?;
