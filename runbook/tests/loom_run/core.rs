@@ -148,7 +148,7 @@ impl World {
     pub fn command(&self, args: &[String]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", self.path())
             .env("HOME", "/marker-home-dir")
             .env("XDG_RUNTIME_DIR", self.root.join("xdg"))

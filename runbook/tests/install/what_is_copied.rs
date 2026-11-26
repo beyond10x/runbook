@@ -23,7 +23,7 @@ fn a_git_checkout_whose_git_cannot_be_asked_never_gives_its_untracked_files_to_t
         fs::write(root.join("protocol/notes-of-a-run.txt"), "left by a person\n").unwrap();
         stubs(&root, None, &stub_version("unknown"));
         let mut cmd = Command::new("sh");
-        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
+        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
         if case.starts_with("another") {
             cmd.env("PATH", SYSTEM_PATH).env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
         } else {
@@ -131,7 +131,7 @@ fn a_git_checkout_whose_git_cannot_be_asked_is_refused_with_the_reason_and_what_
         fs::write(root.join("tools/id_ed25519"), "a key\n").unwrap();
         stubs(&root, None, &stub_version("unknown"));
         let mut cmd = Command::new("sh");
-        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
+        cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(&prefix).args(["--from-built", "debug"]).env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT).env("HOME", sandbox.join("home")).stdin(Stdio::null());
         match case {
             "owner" => {
                 cmd.env("PATH", SYSTEM_PATH).env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
@@ -175,7 +175,7 @@ fn a_checkout_of_another_owner_that_the_system_git_configuration_trusts_is_insta
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("HOME", sandbox.join("home"))
         .env("PATH", SYSTEM_PATH)
         .env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
@@ -552,7 +552,7 @@ fn a_tracked_link_whose_target_begins_with_a_dash_is_installed_with_that_target_
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", sandbox.join("home"))
         .current_dir(&cwd)

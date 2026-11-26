@@ -72,8 +72,15 @@ thread as long as one that computes. This host's disk is slower to sync than the
 |---|---|---|---|
 | End the runner before the stand-in's shell; 1 s to prove an ignored HUP | 5 of `gateway_*` | 38.7 s | 2.9 s, 2.9 s |
 | End the pauses once all runs' programs pause (`end_pauses_together`) | 5 of `drain`, 3 of `caps` | 22.9 s | 12.7 s, 34.3 s |
-| Stand-in gateways answer once the program ended or the cancel returned | 5 of `adversary_wave3`, 1 of `adversary_b` | 10.3 s | 5.5 s, 6.6 s |
-| Stand-ins of a delegation wait for each other, not 3 s | 1 of `delegate` | 3.5 s | 0.8 s, 1.0 s |
+| Stand-in gateways answer once the event their case names happened (the run's steps booked, the cancel returned) | 5 of `adversary_wave3`, 1 of `adversary_b` | 10.3 s | 5.5 s, 6.6 s |
+| Stand-ins of a delegation wait for each other, at most 10 s by the clock, under the delegate's wait of 30 s | 1 of `delegate` | 3.5 s | 0.8 s, 1.0 s |
+
+A stand-in that answers on an earlier event than the one its case names lets a wrong product pass: the two late-call
+cases of `adversary_wave3` first answered once the program's process was gone, before the engine booked the step, and
+passed against a `Gate::book` that ignored the calls in flight (10 of 10) and a relay that read the reservation as it
+booked the call (9 of 10); they answer once the run's route file is gone, and both go red 10 of 10. The delegation
+stand-ins counted 2000 sleeps of 10 ms (22 s idle), and on one CPU under load a server that takes one call at a time
+passed in 33 s, past the delegate's wait of 30 s; they wait 10 s by bash's clock, and that server is red in 11 s.
 
 The helpers that look for the processes below a test walk `/proc/<pid>/task/<tid>/children`: a scan of every process
 of a host with thousands of them cost the tests that poll every 10 ms more CPU than their runs. The `runbook` crate
@@ -83,6 +90,36 @@ builds at `opt-level = 1` like its dependencies: a run of all tests on 2 CPUs he
 What stays: about 1450 calls of the pinned Loom's `run_tree` with a cancel flag each return up to 100 ms after their
 run ended (its watcher sleeps in steps of 100 ms), about 72 s of the summed time, about 18 s of the forge's step.
 That is a change of Loom.
+
+## The runbook step's syncs, 2026-11-26
+
+The forge ran the step of one head (`f9f27125`, the waits above cut) twice: 154.5 s (612.8 s summed) and 92.8 s
+(367.5 s summed), load 4.8 and 4.9 at the start. The tests that compute took the same on both runners (the decider's
+unit tests and `loom_run::decisions` 1.02 times); the tests that write the product's durable state took 1.8 to 3.7
+times as long on the slower one (`daemon::caps` 55.1 s against 17.2 s, `daemon::copy_integrity` 49.6 against 17.1,
+`daemon::autonomy` 45.2 against 14.9, `daemon::engine` 48.0 against 26.6, `loom_run::inproc` 74.7 against 42.4):
+203 s of the 247 s between the two runs. Those writes sync: Loom's run store (it syncs each file it replaces and its
+directory), the run's directory, the spend ledgers. Traced here, one test of `loom_run::inproc` made 373 `fsync` calls
+(203 in the run's store, 135 in its directory), one of `daemon::autonomy` 209 (112 in the run's tree, 80 in its
+directory, 13 in the ledgers), and none with the preload below.
+
+A sync of a file in a test's home under `target/` proves nothing a test can observe (a killed process leaves its
+writes in the page cache), so the step runs its tests with the preload `runbook/tests/nosync` (`LD_PRELOAD`, built
+by `task test:runbook`): `fsync`, `fdatasync`, `syncfs`, `sync_file_range` and `sync` return at once; the write, the
+rename and every error of an open or a write are the product's. A child whose environment a case clears keeps it
+(`.env_clear().envs(crate::kept())`; `every_cleared_environment_of_a_test_child_keeps_the_preload` fails on a clear
+without it).
+
+| Local forge way (2 CPUs, 4 threads) | Step | Summed | Load at the start |
+|---|---|---|---|
+| Without the preload | 165.1 s, 199.4 s, 280.6 s | 655.8 s, 794.4 s, 1118.9 s | 20.5, 5.6, 31.2 |
+| With it, children of a cleared environment without it | 138.9 s | 550.9 s | 7.2 |
+| With it everywhere | 114.1 s, 112.9 s | 453.7 s, 449.1 s | 6.5, 21.4 |
+
+Projected on the forge, each module's time times the share the preload left of it here (the first two runs without
+it, the two with it everywhere): 61 s on the faster runner; on the slower one 72 s when its modules that sync take
+the faster runner's time, 93 s when they keep the slower runner's extra time except that share. The forge's run is
+the measurement of record.
 
 ## Why `test:ui` stays out
 

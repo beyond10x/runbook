@@ -106,7 +106,7 @@ impl Rig {
     fn command(&self, args: &[String]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", "/marker-home-dir")
             .env("RUNBOOK_MARKER_VARIABLE", "marker-value-8842")
@@ -1165,7 +1165,7 @@ fn guard_a_runner_whose_file_name_holds_a_closing_parenthesis_records_its_own_st
         std::fs::copy(BIN, &odd).unwrap();
     }
     let mut command = Command::new(&odd);
-    command.args(rig.args("r1", 1_000_000)).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.args(rig.args("r1", 1_000_000)).env_clear().envs(crate::kept()).env("PATH", std::env::var("PATH").unwrap_or_default()).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut child = command.spawn().unwrap();
     let pid = child.id();
     let limit = Instant::now() + Duration::from_secs(40);
