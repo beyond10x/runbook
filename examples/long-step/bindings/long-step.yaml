@@ -1,0 +1,51 @@
+format: loom.bindings/1
+protocol: long-step@1
+program_root: bindings
+artifacts:
+  work: work.txt
+actions:
+  - action: work.start
+    executor:
+      kind: program
+      argv: [tools/work-start.sh]
+    exits: {error: [75, 126, 127]}
+    evidence:
+      - kind: work_started
+        subject: work
+        producer: work-start
+        from: exit
+        results: {"0": started, timeout: not-started, "*": not-started}
+  - action: work.poll
+    timeout_seconds: 10
+    executor:
+      kind: program
+      argv:
+        - sdc-command
+        - --deadline
+        - 2s
+        - --retry-on
+        - "8"
+        - --retry-delay
+        - 200ms
+        - --stop
+        - 1=red-checks
+        - --guard-stop
+        - head-moved
+        - --guard
+        - sh
+        - -c
+        - test ! -e head-moved
+        - --
+        - sh
+        - -c
+        - >-
+          n=$(( $(cat .poll-tries 2>/dev/null || echo 0) + 1 )); echo "$n" > .poll-tries;
+          code=$(sed -n "${n}p" checks-plan.txt); [ -n "$code" ] || code=$(tail -n 1 checks-plan.txt);
+          echo "checks, try $n: exit $code"; exit "$code"
+    exits: {error: [75, 126, 127]}
+    evidence:
+      - kind: work_poll
+        subject: work
+        producer: work-poll
+        from: /outcome
+        results: {done: done, red-checks: red-checks, head-moved: head-moved, deadline: deadline, failed: failed, timeout: failed, "*": failed}
