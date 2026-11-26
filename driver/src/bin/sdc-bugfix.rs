@@ -64,6 +64,7 @@ const FIELDS: [(&str, &str); 4] = [
 type R<T> = Result<T, String>;
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-bugfix");
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     // `--pool-wait <seconds>`: the step's bound for waiting in the build pool's queue, as for
     // sdc-tool.sh (SDC_POOL_WAIT in the environment wins over it). Read before a `--` only: what

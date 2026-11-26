@@ -332,18 +332,6 @@ impl Engine {
         if let Some(r) = &route {
             runner = route::RouteEnv::wrap(runner, r.file());
         }
-        // Every program the runner starts is told to the sink before it starts: the daemon records the step in
-        // flight. The actions are read from the bindings the run reads, those of its own copy.
-        let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
-            (Some(target), Some(dir)) => {
-                let target = match &route {
-                    Some(r) => route::StepNote::wrap(target, r.step.clone()),
-                    None => target,
-                };
-                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()))
-            }
-            _ => runner,
-        };
         // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
         // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
         let mut judge: Option<Box<dyn RunArbiter>> = None;
@@ -361,6 +349,21 @@ impl Engine {
                 judge = Some(opened.judge);
             }
         }
+        // Every program the runner starts is told to the sink before it starts: the daemon records the step in
+        // flight. The actions are read from the bindings the tree runs with, whose argv the programs are started with:
+        // the decider's copy when a decider opened one (its agent nodes carry `--tools-dir`), else the run's own copy,
+        // also on a resume, where `resolved` is the home's.
+        let announced = if judge.is_none() && resume { read_bindings.clone() } else { tree_bindings.clone() };
+        let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), announced.parent()) {
+            (Some(target), Some(dir)) => {
+                let target = match &route {
+                    Some(r) => route::StepNote::wrap(target, r.step.clone()),
+                    None => target,
+                };
+                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()).reading_cases(store.clone()))
+            }
+            _ => runner,
+        };
         let idea = if resume || request.intake.is_empty() {
             None
         } else {

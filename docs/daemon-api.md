@@ -562,7 +562,8 @@ nothing while it runs: Loom writes a line when an action finishes. So the runtim
 `runbook run` too (`runbook/src/engine/announce.rs`, the `run_child` of the runner), and the daemon
 records the run event `runbook.action-started` before the program starts. The record has `case`
 (Loom's `LOOM_CASE` of the program), `action` (the action whose argv is the program's, when exactly
-one is), `role` (`program`, or `check` for a `handoff_when` check of the action) and `try` (the nth
+one is; when the bindings files of two runbooks of the home bind that argv, the one of the file whose `protocol` is the
+protocol of the case), `role` (`program`, or `check` for a `handoff_when` check of the action) and `try` (the nth
 start of the action in the case, for a program); a member that is not known is absent. One event
 for each program, in the order the programs start, between the `ActionFinished` lines of the run
 log; an action that runs no program (an `open` or a `person` action) has none.

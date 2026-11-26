@@ -435,6 +435,7 @@ fn build(args: &Args) -> R<Value> {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-decision-request");
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {

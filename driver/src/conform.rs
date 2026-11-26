@@ -1230,7 +1230,7 @@ fn aep_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, Stri
 /// The binary of a pinned release of `tool` unpacked to `dest`: the archive from `archive`, else
 /// downloaded from the tool's release on the forge; both digests checked.
 fn install_pinned(tool: &str, pin: &J, dest: PathBuf, archive: Option<PathBuf>) -> Result<String, String> {
-    let target = conformance::target_triple();
+    let target = conformance::target_triple(pin);
     let p = &pin["platforms"][&target];
     let asset = s(&p["asset"]).to_string();
     if asset.is_empty() {

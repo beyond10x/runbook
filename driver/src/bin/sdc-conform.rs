@@ -18,5 +18,6 @@
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-conform");
     sdc_tools::conform::cli()
 }

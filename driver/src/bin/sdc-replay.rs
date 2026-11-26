@@ -1890,6 +1890,7 @@ fn normalise_paths(text: &str, roots: &[String]) -> String {
 // --- main ----------------------------------------------------------------------------------------
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-replay");
     let args: Vec<String> = std::env::args().collect();
     // As an adapter it takes a response schema: the recorded reply is the schema document, written
     // to structured-output.json (sdc-reply asks every adapter program `--capabilities`).
