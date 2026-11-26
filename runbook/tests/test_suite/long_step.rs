@@ -27,7 +27,7 @@ fn the_long_step_example_runs_its_four_cycles_as_expected() {
     let mut c = Command::new(BIN);
     c.arg("test")
         .arg(example().join("long-step.suite.yaml"))
-        .args(["--scratch", d.join("scratch").to_str().unwrap(), "--confinement", "local"])
+        .args(["--scratch", d.join("scratch").to_str().unwrap(), "--confinement", "local", "--workers", "4"])
         .env("RUNBOOK_HOME", example())
         .env("XDG_RUNTIME_DIR", d.join("run"))
         .env("PATH", format!("{}:{}", helpers.display(), std::env::var("PATH").unwrap_or_default()))
