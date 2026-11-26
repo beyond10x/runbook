@@ -163,6 +163,7 @@ fn a_delegation_waits_for_its_key_too() {
     let run = fx.submit_with(keyed("quick", Some("k")));
     fx.wait_state(&first, "Running");
     fx.wait_state(&second, "WaitingOnKey");
+    fx.wait_state(&run, "WaitingOnKey");
     assert_eq!(key_wait(&fx, &second), behind("k", &first));
     assert_eq!(
         key_wait(&fx, &run),
