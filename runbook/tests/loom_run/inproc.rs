@@ -106,7 +106,7 @@ impl Rig {
     fn command(&self, args: &[String]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", "/marker-home-dir")
             .env("RUNBOOK_MARKER_VARIABLE", "marker-value-8842")
@@ -158,25 +158,28 @@ fn approve() -> Value {
     json!({"approve": true, "cost_micro_usd": 0})
 }
 
-/// The command names of every process below `root`.
+/// The command names of every process below `root`, walked down through the `children` file of each thread
+/// (`/proc/<pid>/task/<tid>/children`): a sample reads the processes below `root`, not every process of the host.
 fn descendants(root: u32) -> Vec<String> {
-    let mut table: Vec<(u32, u32, String)> = Vec::new();
-    for e in std::fs::read_dir("/proc").unwrap().flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
-        let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
-        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
-        let ppid = stat[close + 1..].split_whitespace().nth(1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
-        table.push((pid, ppid, stat[open + 1..close].to_string()));
-    }
-    let mut below: BTreeSet<u32> = BTreeSet::from([root]);
-    loop {
-        let more: Vec<u32> = table.iter().filter(|(p, pp, _)| below.contains(pp) && !below.contains(p)).map(|(p, _, _)| *p).collect();
-        if more.is_empty() {
-            break;
+    let mut found = Vec::new();
+    let mut seen: BTreeSet<u32> = BTreeSet::from([root]);
+    let mut todo = vec![root];
+    while let Some(pid) = todo.pop() {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
+        for task in tasks.flatten() {
+            let Ok(children) = std::fs::read_to_string(task.path().join("children")) else { continue };
+            for child in children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()) {
+                if !seen.insert(child) {
+                    continue;
+                }
+                let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
+                let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
+                found.push(stat[open + 1..close].to_string());
+                todo.push(child);
+            }
         }
-        below.extend(more);
     }
-    table.into_iter().filter(|(p, _, _)| *p != root && below.contains(p)).map(|(_, _, c)| c).collect()
+    found
 }
 
 /// The commit `Cargo.lock` pins for `b10x-loom-tree`, read here by line, independently of `build.rs`.
@@ -1162,7 +1165,7 @@ fn guard_a_runner_whose_file_name_holds_a_closing_parenthesis_records_its_own_st
         std::fs::copy(BIN, &odd).unwrap();
     }
     let mut command = Command::new(&odd);
-    command.args(rig.args("r1", 1_000_000)).env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.args(rig.args("r1", 1_000_000)).env_clear().envs(crate::kept()).env("PATH", std::env::var("PATH").unwrap_or_default()).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut child = command.spawn().unwrap();
     let pid = child.id();
     let limit = Instant::now() + Duration::from_secs(40);

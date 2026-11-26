@@ -278,7 +278,7 @@ fn modes_come_from_the_index_whatever_the_work_tree_or_the_umask_say() {
         .arg("--prefix")
         .arg(&prefix)
         .args(["--from-built", "debug"])
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", prefix.parent().unwrap().join("home"))
         .stdin(Stdio::null())
@@ -400,7 +400,7 @@ fn first_path_entry(shell: &str, line: &str, home: &Path) -> Option<String> {
     };
     let o = match cmd
         .arg(&script)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", SYSTEM_PATH)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("config"))
@@ -625,7 +625,7 @@ fn an_empty_value_and_a_repeated_option_are_refused_as_usage_errors() {
         let o = Command::new("sh")
             .arg(script())
             .args(&args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", SYSTEM_PATH)
             .env("HOME", &w)
             .current_dir(&w)

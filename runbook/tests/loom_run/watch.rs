@@ -72,7 +72,7 @@ impl Rig {
     /// The runner with `PATH` = `path`; the assets are the fixture's, so nothing else is looked up.
     fn command(&self, args: &[String], path: &str) -> Command {
         let mut c = Command::new(BIN);
-        c.args(args).env_clear().env("PATH", path).env("RUNBOOK_HOME", self.root.join("fx")).stdin(Stdio::null());
+        c.args(args).env_clear().envs(crate::kept()).env("PATH", path).env("RUNBOOK_HOME", self.root.join("fx")).stdin(Stdio::null());
         crate::isolate(&mut c);
         c
     }

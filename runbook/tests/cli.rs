@@ -20,6 +20,51 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
+/// What a child whose environment a case cleared (`env_clear`) still gets: the `LD_PRELOAD` of the test step, when it
+/// set one (`tests/nosync`, the task `test:runbook`), so the child's syncs of its files under `target/` return at once
+/// as the test process's do. The case's own environment is unchanged otherwise.
+fn kept() -> Option<(&'static str, std::ffi::OsString)> {
+    std::env::var_os("LD_PRELOAD").map(|p| ("LD_PRELOAD", p))
+}
+
+/// Every child whose environment a test of this binary clears keeps the step's preload ([`kept`]): each clear in the
+/// sources under `tests/` (but `tests/nosync`, the preload itself) is followed by `.envs(crate::kept())`. A clear without
+/// it lets its child sync each write to the disk, which cost the forge's step more than half its time on a slow runner.
+#[test]
+fn every_cleared_environment_of_a_test_child_keeps_the_preload() {
+    fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if !path.ends_with("nosync") {
+                    sources(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let clear = [".env_", "clear()"].concat();
+    let keep = ".envs(crate::kept())";
+    let mut files = Vec::new();
+    sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"), &mut files);
+    let mut bare = Vec::new();
+    let mut seen = 0;
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            for (at, _) in line.match_indices(&clear) {
+                seen += 1;
+                if !line[at + clear.len()..].starts_with(keep) {
+                    bare.push(format!("{}:{}", file.strip_prefix(env!("CARGO_MANIFEST_DIR")).unwrap().display(), n + 1));
+                }
+            }
+        }
+    }
+    assert!(seen > 0, "no cleared environment found under tests/: the scan reads nothing");
+    assert!(bare.is_empty(), "a child whose environment is cleared without {keep}: {bare:?}");
+}
+
 /// A `runbook.toml` that holds nothing, shared by every test process (written once, renamed into
 /// place). A test binary that names it in `RUNBOOK_CONFIG` reads no file of the host: neither the
 /// walk over the parents of its working directory nor the user's configuration directory is read.
@@ -98,7 +143,7 @@ impl World {
     fn run(&self, args: &[&str], extra: &[(&str, &str)]) -> Output {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", self.root.join("bin"))
             .env("HOME", self.root.join("home"))
             .env("RUNBOOK_HOME", self.root.join("assets"))

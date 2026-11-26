@@ -101,7 +101,7 @@ impl Rig {
     pub fn command(&self, cwd: &Path, args: &[&str]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", self.p("home"))
             .env("XDG_CONFIG_HOME", self.p("xdg"))

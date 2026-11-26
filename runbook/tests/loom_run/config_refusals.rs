@@ -215,7 +215,7 @@ fn program_of_a_run(rig: &Rig, cwd: &Path, body: &str) -> Output {
     executable(&script);
     Command::new("sh")
         .arg(&script)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", rig.p("home"))
         .env("XDG_CONFIG_HOME", rig.p("xdg"))
