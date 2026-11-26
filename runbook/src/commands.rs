@@ -1324,6 +1324,18 @@ impl Daemon {
         }
         drop(st);
 
+        // A delegation the run classifies takes the route entries of the runbook the classifier picks as one that names it
+        // does (`route_of_delegation`): the route the delegation named stays the run's word.
+        let admit = (a.delegation.is_some() && a.runbook_id == crate::delegation::CLASSIFY_RUNBOOK).then(|| {
+            // the run holds the daemon weakly: a run that outlives it gets a refusal, and no cycle keeps the daemon alive
+            let inner = Arc::downgrade(&self.inner);
+            let named = a.route.as_ref().filter(|(record, _)| record.source == RouteSource::Run).map(|(record, _)| record.route.clone());
+            crate::runtime::Admit(Arc::new(move |runbook: &str| {
+                let daemon = Daemon { inner: inner.upgrade().ok_or("the daemon stopped before the run took its runbook's routes")? };
+                let word = daemon.protocol_word(runbook, None)?;
+                route_of_delegation(&daemon.inner.policy, named.as_deref(), word.as_ref()).map(|(_, table)| table)
+            }))
+        });
         let request = StartRequest {
             run_id,
             runbook: a.runbook_id,
@@ -1337,6 +1349,7 @@ impl Daemon {
             workspace_dir: workspace,
             routes: a.route.map(|(_, table)| table),
             model_route: a.delegation,
+            admit,
         };
         self.spawn_run(request, a.wait);
         Ok(())

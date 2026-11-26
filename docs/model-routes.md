@@ -246,8 +246,9 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   declaration.
 
   Built (`story:protocol-declares-the-routes-it-needs`; `docs/daemon-api.md`, "The route of a run"): the file is
-  `bindings/<runbook>.routes.yaml`, read at each `submit-run` and each delegation that names the runbook as its
-  protocol. A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
+  `bindings/<runbook>.routes.yaml`, read at each `submit-run`, each delegation that names the runbook as its
+  protocol, and each delegation whose runbook the classifier picks, once it is picked and before its first model call
+  (a refusal there ends the run `FailedToStart` with `route-refused: ` and the same reason). A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
   not name takes the entry's route; an entry for the role `default` comes before `route_policy.default`. A call of a
   role the runbook chose is booked with the source `protocol`.
 - **Per run:** a submit may name `model_route = "<name>"` and per role `model_routes.<role>`. It names a declared

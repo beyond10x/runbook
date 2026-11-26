@@ -456,7 +456,8 @@ whose entries cannot be admitted is listed with `admitted: false` and `refusal`,
 is wrong with the file as a whole: not `runbook.routes/1`, an unknown member, a link, more than 64 KiB). A reason
 names the role and the route or the requirement; an address, a token or another text that is not a name is never
 echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
-admits against the default route; a submit and a delegation that names the runbook admit against the run's own
+admits against the default route; a submit, a delegation that names the runbook and a delegation whose runbook the
+classifier picks (once it is picked, before its first model call) admit against the run's own
 word first and refuse what cannot be admitted (above, "The route of a run").
 No address, token, token file or path of the host is in the row.
 

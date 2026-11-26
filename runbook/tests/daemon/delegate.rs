@@ -1103,3 +1103,60 @@ fn the_classifier_takes_a_child_runbook_the_catalog_view_lists_and_a_delegation_
     assert_eq!((status, delegated(&body, "path")), (202, json!("named")), "{body}");
     assert_eq!(until_ended(&d.l, &run_of(&body))["outcome"], json!("answered"));
 }
+
+/// The routes `default` (alias `a-model`, the daemon's default) and `other` (alias `b-model`) on the lone gateway, and the
+/// classifier route `classify` (alias `c-model`).
+const ROUTES_AND_CLASSIFY: &str = "[routes.default]\ngateway = \"default\"\nmodel = \"a-model\"\nkind = \"hosted\"\n[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"hosted\"\n[routes.classify]\ngateway = \"default\"\nmodel = \"c-model\"\nkind = \"hosted\"\n[route_policy]\ndefault = \"default\"\nclassifier = \"classify\"\n";
+
+/// The route entries of the runbook `answer-demo`: `text`, written over the last one (the daemon reads it at each start).
+fn answer_routes(h: &Home, text: &str) {
+    std::fs::write(h.home.join("bindings/answer-demo.routes.yaml"), format!("format: runbook.routes/1\n{text}")).unwrap();
+}
+
+/// The routes of the `runbook.model-call` events of the run `run`: role, route and the setting that chose it.
+fn calls_of(l: &Live, run: &str) -> Vec<(Value, Value, Value)> {
+    rows(l, &format!("/daemon/views/events?run_id={run}&after_position=0"))
+        .into_iter()
+        .filter(|e| e["kind"] == "runbook.model-call")
+        .map(|e| (e["record"]["role"].clone(), e["record"]["route"].clone(), e["record"]["source"].clone()))
+        .collect()
+}
+
+/// A delegation whose runbook the classifier picks takes that runbook's route entries once the runbook is chosen and before its
+/// first model call, as a delegation that names the runbook does: an entry for a role is its route (before the daemon's
+/// default), and an entry the daemon cannot admit ends the run `FailedToStart` with the refusal a delegation naming the
+/// runbook gets, naming the runbook and the role, and the runbook's step makes no call.
+#[test]
+fn a_classified_delegation_takes_the_route_entries_of_the_runbook_the_classifier_picked() {
+    let gw = gateway_answering(
+        |g| if g.body["model"] == "c-model" { messages(&classified("answer-demo", 0.9)) } else { OK.to_vec() },
+        &["a-model", "b-model", "c-model"],
+    );
+    let d = daemon_on("dlg-classify-routes", gw, ROUTES_AND_CLASSIFY);
+
+    // the entry of the role default names the route other: the runbook's call goes there, not to the daemon's default
+    answer_routes(&d.h, "model_routes:\n  default: {route: other}\n");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    assert_eq!((end["outcome"].clone(), end["path"].clone(), end["protocol"].clone()), (json!("answered"), json!("classified"), json!("answer-demo")), "{end}");
+    let said: Vec<_> = calls_of(&d.l, &run).into_iter().filter(|(role, _, _)| role != "classifier").collect();
+    assert_eq!(said, vec![(json!("default"), json!("other"), json!("protocol"))], "the runbook's call did not take its route entry");
+    assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0));
+
+    // an entry naming a route the daemon does not declare: refused before the runbook's first call, in the words of a
+    // delegation that names the runbook
+    answer_routes(&d.h, "model_routes:\n  default: {route: gpt}\n");
+    let (status, named, _) = delegate(&d.l, &json!({"request": "green or black", "protocol": "answer-demo"}));
+    assert_eq!((status, named["outcome"].clone()), (422, json!("route-refused")), "{named}");
+    let reason = named["payload"]["reason"].as_str().unwrap_or_default().to_owned();
+    assert!(reason.contains("runbook answer-demo") && reason.contains("role default") && reason.contains("gpt"), "{reason}");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!((end["run_state"].clone(), end["path"].clone(), end["protocol"].clone()), (json!("FailedToStart"), json!("classified"), json!("answer-demo")), "{end}");
+    assert_eq!(failure, format!("route-refused: {reason}"), "the refusal is not the one of a delegation naming the runbook: {end}");
+    assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0), "the refused runbook's step made a call");
+}

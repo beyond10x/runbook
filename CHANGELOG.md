@@ -30,6 +30,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Fixed
 - The classifier of a delegation is given the runbooks of the view `catalog`, a runbook that another runbook opens as a child among them (`docs/daemon-api.md`, "A delegation"). Before, it was given only the runbooks no protocol of their home opens, and its answer naming a child runbook that the view lists and a delegation may name ended the run `FailedToStart` with `classifier-answer: ... is no runbook of the catalog`.
+- A delegation whose runbook the classifier picks takes that runbook's route entries (`bindings/<runbook>.routes.yaml`: its roles, requirements and `routes_allowed`) as a delegation that names the runbook does, once the runbook is picked and before its first model call (`docs/daemon-api.md`, "The catalog"; `docs/model-routes.md` section 2). An entry the daemon cannot admit ends the run `FailedToStart` with `route-refused: ` and the reason a delegation naming the runbook gets, which names the runbook and the role. Before, the runbook ran on the delegation's route alone.
 
 ## [0.12.0] - 2026-11-25
 

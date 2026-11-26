@@ -216,6 +216,24 @@ pub struct StartRequest {
     /// The route of a delegation (`Daemon::delegate`), by name: the run is a delegation, on that route as the role
     /// `default` (`routes`). None: the run is no delegation.
     pub model_route: Option<String>,
+    /// For a delegation the run classifies: the daemon's admission of the route entries of the runbook the classifier picks,
+    /// asked once that runbook is chosen and before its first model call. None: the run takes `routes` as they are.
+    pub admit: Option<Admit>,
+}
+
+/// The daemon's admission of a runbook's route entries (`crate::admission`) for a delegation whose runbook is chosen when its
+/// run starts: given the runbook's name, the routes of the run's roles, chosen as for a delegation that names the runbook,
+/// or the refusal (`route-refused`) that delegation would get, naming the runbook and the role.
+#[derive(Clone)]
+pub struct Admit(pub std::sync::Arc<AdmitFn>);
+
+/// The function of an [`Admit`]: the runbook's name in, the run's route table or the refusal out.
+pub type AdmitFn = dyn Fn(&str) -> Result<crate::relay::RouteTable, String> + Send + Sync;
+
+impl std::fmt::Debug for Admit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Admit")
+    }
 }
 
 /// A question the runtime raised for a run.

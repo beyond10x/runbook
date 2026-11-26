@@ -281,6 +281,13 @@ impl Engine {
         if taken.is_some() && Self::cancelled(cancel, slot) {
             return Ok(Finish::Cancelled);
         }
+        // The runbook the classifier picked brings its route entries: the daemon admits them as for a delegation that names
+        // it, now, before the runbook's first model call; a refusal ends the start with the words of that delegation's.
+        let admitted = match (&taken, &request.admit) {
+            (Some(t), Some(admit)) if !t.whole_text => Some((admit.0)(&t.runbook).map_err(|why| failure(format!("route-refused: {why}")))?),
+            _ => None,
+        };
+        let routes = admitted.as_ref().or(request.routes.as_ref());
         let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
         let generated = taken.as_ref().is_some_and(|t| t.generated);
         let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
@@ -312,7 +319,7 @@ impl Engine {
         // node of its runbook, or a delegation): the run's place on the relay and its route file, whose path every bound
         // program and the decider get (`engine::route`). It goes when the run ends. A run with a route table and no relay
         // to take it does not start: it would reach no model. A run with no route table gets no route file.
-        let route = match (&self.relay, request.routes.as_ref()) {
+        let route = match (&self.relay, routes) {
             (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
             (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
             (_, None) => None,

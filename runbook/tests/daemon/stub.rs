@@ -67,6 +67,7 @@ pub fn request(run: &str, runbook: &str) -> StartRequest {
         workspace_dir: "workspace".into(),
         routes: None,
         model_route: None,
+        admit: None,
     }
 }
 
