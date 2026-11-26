@@ -232,6 +232,89 @@ types:
     naming:
       summary: "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`."
 
+  - name: sdc.daemon.CatalogId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The catalog as a row of DaemonCatalog: its text is the daemon's id. A type of its own, not DaemonId, because the row is what the daemon reads of its file, its gateways and its runbooks when a client asks, and not the configuration row."
+
+  - name: sdc.daemon.CatalogRoute
+    kind: struct
+    naming:
+      summary: "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait. No address, token or token file."
+    fields:
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: gateway, type: String, summary: "The name of the route's gateway in the daemon's file, never its address."}
+      - {name: alias, type: String}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>"}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>}
+      - {name: max_model_len, type: Optional<Integer>, summary: "The context length `GET /v1/models` gave for the alias; absent when the gateway gave none."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "Whether the model calls tools, as `GET /v1/models` gave it for the alias; absent when the gateway gave nothing."}
+      - {name: price_in_micro_usd_per_mtok, type: Optional<Integer>, summary: "What a call on the route books per million input tokens; absent when the file declares no price: the call books its reservation and its cost is not known."}
+      - {name: price_out_micro_usd_per_mtok, type: Optional<Integer>, summary: "The same per million output tokens."}
+      - {name: start_wait_seconds, type: Optional<Integer>, summary: "How long a run waits for the route's model to be ready; absent when the file sets none."}
+      - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this route."}
+
+  - name: sdc.daemon.RouteNeeds
+    kind: struct
+    naming:
+      summary: "What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route's gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route's kind in the daemon's file. A fact the gateway did not give does not meet a requirement."
+    fields:
+      - {name: wire, type: Optional<String>, summary: "A wire the gateway lists for the alias: chat, responses or messages."}
+      - {name: min_context, type: Optional<Integer>, summary: "The least max_model_len the gateway lists for the alias."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "true: the gateway lists tool calling for the alias."}
+      - {name: kind, type: Optional<sdc.daemon.ModelRouteKind>}
+
+  - name: sdc.daemon.RouteEntry
+    kind: struct
+    naming:
+      summary: "One role of a runbook's route entries (the file `bindings/<runbook>.routes.yaml` of its runbook directory, format runbook.routes/1) and what the daemon's admission made of it: an entry that names a route is admitted when the daemon declares the route and the runbook's routes_allowed, when it has one, holds it; an entry that states needs is admitted with the daemon's default route when that meets them, else with the one allowed route that meets them, and none or several is a refusal."
+    fields:
+      - {name: role, type: String, summary: "The role the entry is for (writer, review, default, ...)."}
+      - {name: route, type: Optional<sdc.daemon.RouteName>, summary: "The route that serves the role: the one the entry names, or the route that meets its needs; absent when none does."}
+      - {name: needs, type: Optional<sdc.daemon.RouteNeeds>, summary: "The requirements of an entry that names no route; absent for an entry that names one."}
+      - {name: admitted, type: Boolean}
+      - {name: reason, type: Optional<String>, summary: "Why the entry is not admitted, naming the role and the route or the requirement; absent when it is."}
+
+  - name: sdc.daemon.CatalogRunbook
+    kind: struct
+    naming:
+      summary: "A runbook a delegation may name as its protocol, as the catalog lists it: the name and version of the view Runbooks, its purpose in one line and its description as its root protocol gives them, the inputs a delegation's request fills, and its route entries with the daemon's admission of each. A runbook whose entries cannot be admitted is listed with the reason. No path of the host."
+    fields:
+      - {name: runbook_id, type: sdc.daemon.RunbookName}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: title, type: Optional<String>, summary: "Its purpose in one line: the root protocol's title, else the first sentence of its description; absent when it has neither."}
+      - {name: description, type: Optional<String>, summary: "The root protocol's description, at most 2000 characters; absent when it has none."}
+      - {name: inputs, type: "List<String>", summary: "The artifacts a delegation's request becomes: `idea` when the runbook's root bindings place it (the request is the run's intake); none when they place no idea, and such a runbook cannot take a request."}
+      - {name: route_entries, type: "List<sdc.daemon.RouteEntry>", summary: "One per role of its route entries file, by role; none when it has no such file: every declared route may serve it."}
+      - {name: routes_allowed, type: "Optional<List<sdc.daemon.RouteName>>", summary: "The routes the file allows to serve the runbook; absent when it narrows nothing."}
+      - {name: admitted, type: Boolean, summary: "Whether every route entry is admitted and the file could be read."}
+      - {name: refusal, type: Optional<String>, summary: "Why the runbook's route entries cannot be admitted: the file's own fault, else the reason of each entry that is not admitted, joined by `; `. Absent when admitted."}
+
+  - name: sdc.daemon.DelegateMember
+    kind: struct
+    naming:
+      summary: "A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out)."
+    fields:
+      - {name: name, type: String}
+      - {name: required, type: Boolean}
+      - {name: summary, type: Optional<String>, summary: "What the document says of it."}
+      - {name: max_length, type: Optional<Integer>, summary: "The most characters it may hold, where the document bounds it."}
+
+  - name: sdc.daemon.DelegationTerms
+    kind: struct
+    naming:
+      summary: "What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request."
+    fields:
+      - {name: members, type: "List<sdc.daemon.DelegateMember>"}
+      - {name: paths, type: "List<sdc.daemon.DelegationPath>", summary: "named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation."}
+      - {name: default_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one."}
+      - {name: classifier_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.classifier`: the route of a delegation's classify and build calls; absent when the file names none."}
+      - {name: confinement, type: Optional<sdc.daemon.ConfinementLevel>, summary: "The daemon's default level, the level of every delegation; absent: the daemon has none and refuses every delegation."}
+      - {name: request_limit, type: Integer, summary: "The most bytes of a request: 1048576."}
+
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
     to: sdc.daemon.ConfinementLevel
@@ -303,11 +386,28 @@ entities:
       - {name: wires, type: "List<String>", summary: "The wires the gateway lists for the alias (chat, responses, messages), in its order; none when the gateway did not answer or does not list the alias."}
       - {name: status, type: sdc.daemon.RouteStatus}
       - {name: phase, type: Optional<String>, summary: "The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read."}
+      - {name: max_model_len, type: Optional<Integer>, summary: "The context length `GET /v1/models` gave for the alias; absent when the gateway gave none."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing."}
       - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this row."}
     lifecycle:
       initial: Declared
       states: [Declared]
       terminal: [Declared]
+
+  - name: sdc.daemon.DaemonCatalog
+    naming:
+      summary: "What a delegation may name on this daemon, read when a client asks for the view Catalog: one row with the declared model routes (the view Routes with the prices and the wait the file declares), the runbooks a delegation may name as its protocol (the view Runbooks with their purpose, their inputs and the admission of their route entries) and the terms of a delegation. The daemon reads its file when it starts, the gateways as the view Routes does and the runbooks' files when the client asks; the language cannot read a file or a gateway, so no command creates or changes the row, as with Runbook."
+    identity:
+      name: catalog_id
+      type: sdc.daemon.CatalogId
+    fields:
+      - {name: routes, type: "List<sdc.daemon.CatalogRoute>", summary: "The declared routes, in order of name; none when the file declares none."}
+      - {name: runbooks, type: "List<sdc.daemon.CatalogRunbook>", summary: "The runbooks of the view Runbooks, in order of name."}
+      - {name: delegation, type: sdc.daemon.DelegationTerms}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
 
   - name: sdc.daemon.Run
     naming:
@@ -1585,7 +1685,7 @@ views:
     naming:
       wire: routes
       display: Model routes
-      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
+      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
     source: sdc.daemon.ModelRoute
     consistency: read_your_writes
     order_by:
@@ -1598,7 +1698,21 @@ views:
       - {name: wires, type: "List<String>"}
       - {name: status, type: sdc.daemon.RouteStatus}
       - {name: phase, type: Optional<String>}
+      - {name: max_model_len, type: Optional<Integer>}
+      - {name: tool_calling, type: Optional<Boolean>}
       - {name: read_at, type: Timestamp}
+
+  - name: sdc.daemon.Catalog
+    naming:
+      wire: catalog
+      display: What a delegation may name
+      summary: "What a client may pass to Delegate, in one row: GET /daemon/views/catalog (the MCP tool describe_catalog, the command runbook catalog). `routes`: each declared route with its kind, alias, gateway by name, wires, status and phase as the view Routes reads them (at most once every 15 seconds), its context length and tool calling as the gateway lists them, and the prices and wait of the daemon's file. `runbooks`: each runbook of the view Runbooks with its purpose in one line, its description, its inputs and its route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) with the daemon's admission of each; a runbook whose entries cannot be admitted is listed with the reason. `delegation`: the members of Delegate, the paths a delegation may take, the default and classifier routes, the level and the most bytes of a request. No address, token, token file or path of the host is in the row."
+    source: sdc.daemon.DaemonCatalog
+    consistency: read_your_writes
+    fields:
+      - {name: routes, type: "List<sdc.daemon.CatalogRoute>"}
+      - {name: runbooks, type: "List<sdc.daemon.CatalogRunbook>"}
+      - {name: delegation, type: sdc.daemon.DelegationTerms}
 
   - name: sdc.daemon.ProductsOfRun
     naming:

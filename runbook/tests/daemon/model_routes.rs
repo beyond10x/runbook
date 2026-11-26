@@ -24,17 +24,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const TOKEN: &str = "gw-routes-5d0c8e17a2b4";
+pub(super) const TOKEN: &str = "gw-routes-5d0c8e17a2b4";
 
 /// A gateway on a loopback port: it answers `<METHOD> <path>` from its table (404 for any other) and keeps the head
 /// of every request.
-struct Standin {
-    base_url: String,
+pub(super) struct Standin {
+    pub(super) base_url: String,
     heads: Arc<Mutex<Vec<String>>>,
 }
 
 impl Standin {
-    fn start(table: Vec<(&str, u16, Value)>) -> Standin {
+    pub(super) fn start(table: Vec<(&str, u16, Value)>) -> Standin {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
         let heads = Arc::new(Mutex::new(Vec::new()));
@@ -67,7 +67,7 @@ impl Standin {
     }
 
     /// The request lines (`GET /ready`) in the order they came.
-    fn lines(&self) -> Vec<String> {
+    pub(super) fn lines(&self) -> Vec<String> {
         self.heads().iter().map(|h| h.lines().next().unwrap_or("").rsplit_once(' ').map(|(l, _)| l.to_owned()).unwrap_or_default()).collect()
     }
 
@@ -89,7 +89,7 @@ fn todays_gateway() -> Standin {
     ])
 }
 
-fn token_file(dir: &Path) -> PathBuf {
+pub(super) fn token_file(dir: &Path) -> PathBuf {
     let secret = dir.join("secret");
     std::fs::create_dir_all(&secret).unwrap();
     let file = secret.join("gateway-token");

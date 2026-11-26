@@ -47,6 +47,8 @@ pub const PINNED_EVENT: &str = "runbook.pinned";
 const POLL: Duration = Duration::from_millis(20);
 /// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
 const ROUTE_DRAIN: Duration = Duration::from_secs(5);
+/// The most characters of a runbook's description the catalog answers.
+const DESCRIPTION_CHARS: usize = 2000;
 
 /// What a run's store on disk is, as a restarted daemon finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -811,6 +813,21 @@ impl Runtime for Engine {
 
     fn kind(&self) -> &'static str {
         "loom"
+    }
+
+    /// The root protocol's title and description, `idea` when the root bindings place it, and the route entries file
+    /// `bindings/<runbook>.routes.yaml` beside the bindings, of the home `layout::resolve_in` finds the runbook in.
+    fn runbook_facts(&self, runbook: &str) -> crate::runtime::RunbookFacts {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, None) else { return Default::default() };
+        let doc: serde_yaml::Value = std::fs::read_to_string(resolved.protocol_dir.join(format!("{runbook}.protocol.yaml"))).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
+        let title = Some(crate::runbooks::title_of(&doc)).filter(|t| !t.is_empty());
+        let description = doc["protocol"]["description"].as_str().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.chars().take(DESCRIPTION_CHARS).collect());
+        let inputs = match layout::idea_path(&resolved.bindings) {
+            Ok(Some(_)) => vec!["idea".to_owned()],
+            _ => Vec::new(),
+        };
+        let routes_file = crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook);
+        crate::runtime::RunbookFacts { title, description, inputs, routes_file }
     }
 
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {

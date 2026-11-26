@@ -14,7 +14,7 @@ use std::collections::HashMap;
 pub const COMMANDS: [&str; 6] = ["open-session", "close-session", "submit-run", "delegate", "cancel-run", "answer-decision"];
 
 /// The views, by wire name.
-pub const VIEWS: [&str; 18] = [
+pub const VIEWS: [&str; 19] = [
     "runs",
     "runs-of-session",
     "runs-in-state",
@@ -33,13 +33,14 @@ pub const VIEWS: [&str; 18] = [
     "product",
     "cases",
     "delegation-result",
+    "catalog",
 ];
 
 /// The views that page events by position: asked with `Accept: text/event-stream` they are streams.
 pub const EVENT_VIEWS: [&str; 3] = ["events", "session-events", "daemon-events"];
 /// The views whose answer may wait on the network (the first read of the gateways): they are answered off the
 /// workers of the daemon.
-pub const WAITING_VIEWS: [&str; 1] = ["routes"];
+pub const WAITING_VIEWS: [&str; 2] = ["routes", "catalog"];
 
 pub fn command_path(name: &str) -> String {
     format!("/daemon/commands/{name}")
@@ -163,6 +164,7 @@ pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>)
             "product" => daemon.product_of_run(text(query, "run_id")?, text(query, "path")?)?,
             "cases" => daemon.cases_of_run(text(query, "run_id")?)?,
             "delegation-result" => daemon.delegation_result(text(query, "run_id")?)?,
+            "catalog" => daemon.catalog(),
             other => unreachable!("no view {other}"),
         })
     })();

@@ -50,3 +50,4 @@ mod relay;
 mod relay_daemon;
 mod route_ready;
 mod run_route;
+mod catalog;

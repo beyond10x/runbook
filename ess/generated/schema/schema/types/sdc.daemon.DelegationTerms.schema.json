@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DelegationTerms.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DelegationTerms",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:2ee245a9d8a46f1aa97ca65be0f70480b19f6318998c2a9cb4cdd4f912444b27",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. A submit that names no level runs at the daemon's default level (runbook serve --default-confinement, or `confinement` of runbook.toml); a daemon with none refuses the submit by name and writes nothing, as the binary has no built-in default; the handler fills it. The daemon's floor is linux unless it is started lower; the default is never below the floor, and a daemon whose default is below its floor does not start. local must be asked for by name or set as the default, and is refused under a linux floor.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "local",
+        "linux"
+      ]
+    },
+    "sdc.daemon.DelegateMember": {
+      "title": "DelegateMember",
+      "description": "A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out).",
+      "x-ess-name": "sdc.daemon.DelegateMember",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "summary": {
+          "description": "What the document says of it.",
+          "type": "string"
+        },
+        "max_length": {
+          "description": "The most characters it may hold, where the document bounds it.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "required"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free",
+        "classified",
+        "generated"
+      ]
+    },
+    "sdc.daemon.DelegationTerms": {
+      "title": "DelegationTerms",
+      "description": "What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request.",
+      "x-ess-name": "sdc.daemon.DelegationTerms",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.daemon.DelegateMember"
+          }
+        },
+        "paths": {
+          "description": "named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.daemon.DelegationPath"
+          }
+        },
+        "default_route": {
+          "$ref": "#/$defs/sdc.daemon.RouteName",
+          "description": "`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one."
+        },
+        "classifier_route": {
+          "$ref": "#/$defs/sdc.daemon.RouteName",
+          "description": "`route_policy.classifier`: the route of a delegation's classify and build calls; absent when the file names none."
+        },
+        "confinement": {
+          "$ref": "#/$defs/sdc.daemon.ConfinementLevel",
+          "description": "The daemon's default level, the level of every delegation; absent: the daemon has none and refuses every delegation."
+        },
+        "request_limit": {
+          "description": "The most bytes of a request: 1048576.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "members",
+        "paths",
+        "request_limit"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

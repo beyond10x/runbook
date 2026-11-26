@@ -24,21 +24,21 @@ served as `2026-07-28`; `initialize` selects the legacy shape.
 | `initialize` | 2025-11-25, 2025-06-18 | `protocolVersion` (the client's, when it is one of the two; else `2025-11-25`), `capabilities.tools`, `serverInfo` (`runbook` and the version), `instructions` |
 | `notifications/initialized`, any other notification | legacy | accepted, no answer |
 | `ping` | both | `{}` |
-| `tools/list` | both | the fourteen tools below |
+| `tools/list` | both | the fifteen tools below |
 | `tools/call` | both | the result of the tool |
 
 A request of another protocol version is the error `-32022` (`UnsupportedProtocolVersion`) with
 `data.supported` and `data.requested`. A modern request without `clientCapabilities` is `-32602`; so
 is any other request before a legacy client has sent `initialize`. An unknown method is `-32601`, an
 unknown tool or an argument the tool does not take `-32602`. A modern result carries
-`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has fourteen tools),
+`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has fifteen tools),
 `ttlMs` and `cacheScope`, `subscriptions/listen`, multi round-trip requests, cancellation of a call,
 resources, prompts. The server sends no request of its own; the one notification it sends is the progress of `delegate`
 (`notifications/progress`, over stdio only, when the call carries `_meta.progressToken`).
 
 ## The tools
 
-`tools/list` prints exactly these fourteen, in this order:
+`tools/list` prints exactly these fifteen, in this order:
 
 | Tool | Calls | Input |
 |---|---|---|
@@ -56,6 +56,7 @@ resources, prompts. The server sends no request of its own; the one notification
 | `list_routes` | view `routes` | none; the rows: each model route the daemon declares, by name, with `gateway` (its name), `alias`, `kind` (`managed`, `hosted`, `local`), `wires`, `status`, `phase` when the gateway gave one, and `read_at`; the gateways are read at most once every 15 s (`docs/daemon-api.md`, "Model routes") |
 | `delegate` | command `delegate`, then view `delegation-result` | `request`; optional `model_route` (none: the daemon's default route), `protocol`, `workspace`, `settings`, `session_id`, `idempotency_key` and the tool's own `wait_seconds` (default 600, at most 3600). The tool waits for the run's end, reading the view, and sends a progress notification at each step of the run (the step, the route, the calls and the cost booked so far) when the call carries a progress token; past `wait_seconds` it answers the row as it stands (the run id and its state). A refusal of the command is its answer (`route-refused` 422 with the declared routes, `route-unavailable` 503, the refusals of `submit_run`) |
 | `delegation_result` | view `delegation-result` | `run_id`; the row of the view, the result text held to 40000 characters (`result_truncated` says it was cut); an unknown run `no such run` (404), a run no delegation created `not a delegation` (404) |
+| `describe_catalog` | view `catalog` | none; one row: `routes` (each declared route as `list_routes` lists it, with `max_model_len`, `tool_calling`, the prices and the wait), `runbooks` (each runbook a delegation may name as `protocol`, with `title`, `description`, `inputs`, `route_entries`, `routes_allowed`, `admitted` and the `refusal` of one whose route entries cannot be admitted) and `delegation` (the members of `delegate`, the `paths`, `default_route`, `classifier_route`, `confinement`, `request_limit`) (`docs/daemon-api.md`, "The catalog") |
 
 Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
