@@ -32,6 +32,7 @@ mod answer_order;
 mod default_confinement;
 mod default_level;
 mod delegate;
+mod plugin_session;
 mod autonomy;
 mod autonomy_guards;
 mod gateway;

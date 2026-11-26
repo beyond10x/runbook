@@ -86,9 +86,12 @@ error: a model that reads it can correct itself.
 
 `delegate` and `delegation_result` answer the row of the view `delegation-result` in
 `structuredContent.rows[0]`, its `result_text` held to 40000 characters, and a text whose first line names
-the run, the route, its state and outcome, the path, the protocol, the calls and the cost, followed by
-the run's `result.md` (`docs/model-routes.md`, "What is recorded"). `isError` is true for a run that
-failed to start, was cancelled or ended `runtime-failure`; a refusal of the command or the view is its
+the run, the route, its state and outcome, the path, the protocol, the calls and the cost, then, for a run
+that failed, a line `failed: ` with the row's `failure`, followed by the run's `result.md`
+(`docs/model-routes.md`, "What is recorded"). `failure` is why the run failed to start or, for a run that
+ended `runtime-failure`, the runtime's reason: a step whose route did not serve its call names
+`route-unavailable`, the route, the setting that chose it and the gateway's code. `isError` is true for a run
+that failed to start, was cancelled or ended `runtime-failure`; a refusal of the command or the view is its
 answer, as for every tool. A run whose `result.md` is not text says so in the text (read it with
 `read_product`). Over stdio each `tools/call` is answered on a thread of its own, at most 16 side by side,
 so the `delegate`, `delegation_result` and `cancel_run` calls of one session do not wait on each other; the

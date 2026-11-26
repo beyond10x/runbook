@@ -21,12 +21,12 @@ use std::time::{Duration, Instant};
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
 const DOWN: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 58\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"unavailable\",\"message\":\"not ready yet\"}}";
-const ANSWER: &str = "The answer of the free run.";
+pub(super) const ANSWER: &str = "The answer of the free run.";
 
 /// A `claude` in bash for the free run's agent node: it keeps the prompt it was given (`log/prompt`), sends one
 /// Messages call to `ANTHROPIC_BASE_URL` with the model it was given, and when that call was answered 200 writes
 /// `out/result.md` in its working directory, as an agent that did the work would.
-fn claude_answering(log: &Path) -> String {
+pub(super) fn claude_answering(log: &Path) -> String {
     format!(
         r#"#!/bin/bash
 log='{log}'
@@ -90,7 +90,7 @@ struct Delegating {
 }
 
 /// The table that declares the route `default` on the lone `[gateway]`.
-const ROUTE: &str = "[routes.default]\ngateway = \"default\"\nmodel = \"a-model\"\nkind = \"hosted\"\n";
+pub(super) const ROUTE: &str = "[routes.default]\ngateway = \"default\"\nmodel = \"a-model\"\nkind = \"hosted\"\n";
 
 /// `runbook serve` with the Loom runtime, the route `default` on a stand-in gateway answering `answer`, the stand-in
 /// `claude` of [`claude_answering`] and the built `sdc-node` first on its `PATH`, the level `local` as its default and a
@@ -108,6 +108,12 @@ fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
 
 /// [`daemon_with`] on the stand-in gateway `gw`.
 fn daemon_on(tag: &str, gw: Gateway, tables: &str) -> Delegating {
+    let (h, l, roots) = daemon_at(tag, &gw.base_url, tables);
+    Delegating { h, gw, l, roots }
+}
+
+/// [`daemon_with`] on a gateway of the caller's at `base_url`: the home, the daemon and its context root.
+pub(super) fn daemon_at(tag: &str, base_url: &str, tables: &str) -> (Home, Live, std::path::PathBuf) {
     let h = home(tag);
     answer_runbook(&h);
     let bin = h.log.join("bin");
@@ -116,7 +122,7 @@ fn daemon_on(tag: &str, gw: Gateway, tables: &str) -> Delegating {
     let roots = h.log.join("roots");
     std::fs::create_dir_all(roots.join("project")).unwrap();
     std::fs::write(roots.join("project/notes.txt"), "a file of the workspace\n").unwrap();
-    let file = format!("{}{tables}", gateway_table(&gw.base_url, &h.token_file));
+    let file = format!("{}{tables}", gateway_table(base_url, &h.token_file));
     let path = format!(
         "{}:{}:/usr/local/bin:/usr/bin:/bin",
         bin.display(),
@@ -149,7 +155,7 @@ fn daemon_on(tag: &str, gw: Gateway, tables: &str) -> Delegating {
             ("PATH", Some(&path)),
         ],
     );
-    Delegating { h, gw, l, roots }
+    (h, l, roots)
 }
 
 fn delegate(l: &Live, body: &Value) -> (u16, Value, Option<String>) {
@@ -188,7 +194,7 @@ fn result(l: &Live, run: &str) -> Value {
     rows[0].clone()
 }
 
-fn until_ended(l: &Live, run: &str) -> Value {
+pub(super) fn until_ended(l: &Live, run: &str) -> Value {
     let limit = Instant::now() + Duration::from_secs(40);
     loop {
         let r = result(l, run);
@@ -499,14 +505,14 @@ fn the_refusals_of_submit_run_apply_to_a_delegation() {
 
 // ---- MCP and the command line ----
 
-struct Mcp {
+pub(super) struct Mcp {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
     out: BufReader<std::process::ChildStdout>,
 }
 
 impl Mcp {
-    fn to(l: &Live) -> Mcp {
+    pub(super) fn to(l: &Live) -> Mcp {
         let mut child = Command::new(BIN)
             .args(["mcp", "--daemon", &format!("http://{}", l.addr)])
             .env_remove("RUNBOOK_DAEMON")
@@ -526,13 +532,13 @@ impl Mcp {
         m
     }
 
-    fn send(&mut self, v: &Value) {
+    pub(super) fn send(&mut self, v: &Value) {
         writeln!(self.stdin, "{v}").unwrap();
         self.stdin.flush().unwrap();
     }
 
     /// The messages up to and with the answer to `id`.
-    fn until(&mut self, id: u64) -> Vec<Value> {
+    pub(super) fn until(&mut self, id: u64) -> Vec<Value> {
         let mut seen = Vec::new();
         loop {
             let mut line = String::new();

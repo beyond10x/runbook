@@ -54,9 +54,22 @@ model. The Claude Code documentation (code.claude.com/docs, workflows and hooks,
 that an `agent()` call inside a workflow fires a `PreToolUse` hook for `Agent`; it says only that the workflow
 agents' own tool calls go through the session's permission checks. So the hook denies the `Workflow` call itself.
 
-The MCP tools `delegate`, `delegation_result` and `describe_catalog` are not built yet (a later story of the
-same design); until they are, the hook denies Agent and Workflow calls and the session has no `delegate` to
-call.
+`runbook mcp` serves `delegate` and `delegation_result` (`docs/mcp.md`, "The tools"): `delegate` runs the task
+as a run on the route, waits for its end and answers the row of the view `delegation-result`, with the run's
+`result.md` as `result_text`. Claude Code (2.1) hands the model that row, the tool's structured content, rather
+than the text whose first line names the run. A route that is down is a tool error that names it: refused at the
+submit as `route-unavailable` (HTTP status 503), or, when the route fails the run's call, a run that ended
+`runtime-failure` whose `failure` names `route-unavailable` and the route. The Agent and Workflow tools stay
+denied either way. `describe_catalog` comes with the story `daemon-catalog-lists-what-a-delegation-may-name`.
+
+A headless session delegates end to end in `runbook/tests/daemon/plugin_session.rs`: `claude -p` with
+`--plugin-dir plugin` against a stand-in Messages server on loopback that answers the session's model calls (an
+Agent call, then `delegate` as the deny reason says) and, as the daemon's gateway, the run's call through the
+relay. The session runs with a fresh `HOME` and `CLAUDE_CONFIG_DIR`, `/` as its working directory,
+`--setting-sources user`, an invented token and an HTTP proxy that refuses every connection: a `.claude`
+directory above a working directory is read as the project's (its `settings.local.json` `env` can move
+`ANTHROPIC_BASE_URL`), so the working directory is one with no such parent. Without a `claude` on `PATH` the two
+cases print why and pass.
 
 Enable it for one session only; nothing is installed and other sessions do not see it:
 
@@ -102,4 +115,5 @@ Not built yet, because they need a released `runbook` binary and commands that d
 - `plugin/skills/<skill>/SKILL.md`: the skills, loaded by both hosts.
 - `plugin/.mcp.json`, `plugin/hooks/hooks.json` and `plugin/hooks/delegation.sh`: the delegation parts,
   Claude Code only. Their tests are in `driver/tests/plugin.rs`, run on the recorded hook input of
-  `driver/tests/fixtures/plugin/`.
+  `driver/tests/fixtures/plugin/`, and in `runbook/tests/daemon/plugin_session.rs` (a headless session, and
+  the check that every tool, argument and result member the plugin names is one `runbook mcp` serves).

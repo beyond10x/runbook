@@ -34,6 +34,8 @@ pub const ORPHANED_AT_STOP: &str = "the daemon was stopped while the run was liv
 pub const MAX_LABEL_CHARS: usize = 200;
 /// The kind of the run event the daemon records when a program of a run is about to start.
 pub const ACTION_STARTED: &str = "runbook.action-started";
+/// The kind of the run event the daemon records, with the runtime's reason, just before it ends a run that failed after it started.
+pub const RUNTIME_FAILED: &str = "runbook.runtime-failed";
 
 /// Whether `text` is a principal: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`.
 pub fn check_principal(text: &str) -> Result<(), String> {
@@ -1701,7 +1703,10 @@ impl Daemon {
             m.insert("run_id".into(), json!(run_id));
             m.insert("run_state".into(), json!(run.state));
             put(&mut m, "outcome", &run.outcome);
-            put(&mut m, "failure", &run.failure);
+            // Why the run failed to start, or what failed it after it started: the reason of its event `runbook.runtime-failed`
+            // (a step whose route did not serve its call names the route, the gateway's code and the setting).
+            let failed_after_start = events.iter().rev().find(|e| e.kind == RUNTIME_FAILED).and_then(|e| e.record["reason"].as_str()).map(str::to_owned);
+            put(&mut m, "failure", &run.failure.clone().or(failed_after_start));
             m.insert("route".into(), delegated.record["route"].clone());
             m.insert("confidence".into(), Value::Null);
             m.extend(delegation_of(&events).unwrap_or_default());
@@ -2051,7 +2056,7 @@ impl Daemon {
                 // CancelRun moved the run already.
                 Ok(Finish::Cancelled) => {}
                 Err(f) if sink.started.load(Ordering::SeqCst) => {
-                    let _ = self.record_run_event(&run_id, "runbook.runtime-failed", json!({"reason": f.reason}));
+                    let _ = self.record_run_event(&run_id, RUNTIME_FAILED, json!({"reason": f.reason}));
                     self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, "runtime-failure");
                 }

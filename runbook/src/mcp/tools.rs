@@ -137,14 +137,14 @@ const TOOLS: [Tool; 15] = [
     Tool {
         name: "delegate",
         title: "Delegate agent work",
-        description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (none: the daemon's default route; a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken (over stdio only: the HTTP endpoint sends none), and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
+        description: "Run a piece of agent work on the Runbook daemon, on a named model route: `request` is the whole task as text (at most 1 MiB), `model_route` the route by the name the daemon declares (none: the daemon's default route; a route it does not declare is refused as `route-refused`, listing the declared routes; a route whose gateway is not ready as `route-unavailable`, HTTP status 503). With `protocol` that runbook runs with the request as its intake; without, one agent node does the task and writes result.md. `workspace` is a directory under a daemon context root, copied into the run's workspace. The tool waits for the run's end (at most `wait_seconds`, default 600, at most 3600), sends a progress notification at each step when the call carries a progressToken (over stdio only: the HTTP endpoint sends none), and returns the result: the text starts with one line naming the run, the route, the path, the protocol, the calls and the cost, then, for a run that failed, a line `failed: ` with what failed it (a route that did not serve the run's call is named there with `route-unavailable`), then the run's result.md (at most 40000 characters; `result_truncated` says it was cut); `structuredContent.rows[0]` is the row of delegation_result. Past its wait it returns the run id and its state: read the rest with delegation_result.",
         read_only: false,
         kind: Kind::Delegate,
     },
     Tool {
         name: "delegation_result",
         title: "Read the result of a delegation",
-        description: "What a delegation's run has come to, by its run id: the state, the outcome once it ended, the text of its result.md (at most 40000 characters here; `result_truncated` says it was cut), its products, the route, the path, the protocol, the calls, the tokens and the cost (`cost_known` false when a call was booked at its reservation). The text starts with the same line as the answer of delegate. A run id the daemon does not know is an error with the HTTP status 404, and so is a run no delegation created.",
+        description: "What a delegation's run has come to, by its run id: the state, the outcome once it ended, what failed it (`failure`: why it failed to start, or the runtime's reason), the text of its result.md (at most 40000 characters here; `result_truncated` says it was cut), its products, the route, the path, the protocol, the calls, the tokens and the cost (`cost_known` false when a call was booked at its reservation). The text starts with the same line as the answer of delegate. A run id the daemon does not know is an error with the HTTP status 404, and so is a run no delegation created.",
         read_only: true,
         kind: Kind::DelegationResult,
     },
@@ -350,7 +350,7 @@ fn text_of(v: &Value) -> &str {
 }
 
 /// The `result` of `delegate` and `delegation_result` for an answer of the view `delegation-result`: its row with the result text
-/// held to `RESULT_CHARS`, and a text that starts with one line naming the run, then the result. A refusal of the view is its
+/// held to `RESULT_CHARS`, and a text that starts with one line naming the run, then a line `failed:` with the row's `failure` when it has one, then the result. A refusal of the view is its
 /// answer, as for every tool. A run that failed to start, was cancelled or failed in its runtime is an error.
 fn delegation_answer(a: &Answer) -> Value {
     let Some(row) = a.body["rows"].get(0).filter(|_| a.status == StatusCode::OK) else {
@@ -366,7 +366,10 @@ fn delegation_answer(a: &Answer) -> Value {
     let state = text_of(&row["run_state"]).to_owned();
     let outcome = row["outcome"].as_str().map(|o| format!(" ({o})")).unwrap_or_default();
     let cost = if row["cost_known"] == json!(true) { format!("{} micro USD", row["cost_micro_usd"]) } else { format!("{} micro USD booked, the cost of a call not known", row["cost_micro_usd"]) };
-    let head = format!("run {} on route {}: {state}{outcome}, path {}, protocol {}, {} call(s), {cost}", text_of(&row["run_id"]), text_of(&row["route"]), text_of(&row["path"]), text_of(&row["protocol"]), row["calls"]);
+    let mut head = format!("run {} on route {}: {state}{outcome}, path {}, protocol {}, {} call(s), {cost}", text_of(&row["run_id"]), text_of(&row["route"]), text_of(&row["path"]), text_of(&row["protocol"]), row["calls"]);
+    if let Some(failure) = row["failure"].as_str() {
+        head.push_str(&format!("\nfailed: {failure}"));
+    }
     let body = match row["result_text"].as_str() {
         Some(text) => text.to_owned(),
         None if ["Submitted", "Running", "WaitingOnDecision"].contains(&state.as_str()) => "The run has not ended: read its result with delegation_result.".to_owned(),
