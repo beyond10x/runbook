@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.RunMetrics.schema.json",
+  "title": "RunMetrics",
+  "description": "What a run took, as the daemon reads the run's own events when a client asks for the view MetricsOfRun: the run's state, outcome and instants are the Run's; the steps and the calls are read from the events of the run (`runbook.action-started`, Loom's `ActionFinished` and `HandoffChecked`, `runbook.model-call`, `runbook.cost-booked`), walked once through the daemon's index of the run's events, never the whole record. At most `step_limit` steps are listed, in the order they first started; the steps past it are counted in `steps_left_out`, and their calls count in the totals and in `calls_outside_steps`. A number the events do not hold is absent, never 0. The language cannot read a run's events into a row, so no command creates or changes a row, as with Runbook.",
+  "x-ess-name": "sdc.daemon.RunMetrics",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "metrics_id": {
+      "$ref": "#/$defs/sdc.daemon.MetricsId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "run",
+        "kind": "references",
+        "source": "sdc.daemon.RunMetrics",
+        "target": "sdc.daemon.Run",
+        "cardinality": "one",
+        "via": "run_id"
+      }
+    },
+    "run_state": {
+      "$ref": "#/$defs/sdc.daemon.Run.State",
+      "description": "Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one."
+    },
+    "outcome": {
+      "$ref": "#/$defs/sdc.daemon.RunOutcome",
+      "description": "The run's outcome once it Ended."
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "description": "When the runtime took the run up; absent for a run that never started.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "description": "When the run left its last live state.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "running_ms": {
+      "description": "For a live run that started: the milliseconds since it started, by the daemon's clock when the view is read.",
+      "type": "integer"
+    },
+    "duration_ms": {
+      "description": "For a run that started and ended: the milliseconds from its start to its end.",
+      "type": "integer"
+    },
+    "steps": {
+      "description": "Its steps, in the order they first started, at most `step_limit`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.daemon.StepMetrics"
+      }
+    },
+    "steps_left_out": {
+      "description": "The steps past `step_limit`, not listed.",
+      "type": "integer"
+    },
+    "step_limit": {
+      "description": "The most steps a row lists: 500.",
+      "type": "integer"
+    },
+    "totals": {
+      "$ref": "#/$defs/sdc.daemon.CallMetrics",
+      "description": "Every model call of the run: those of its steps, of the steps left out, and those of no step (the decider's, a delegation's classify and build calls)."
+    },
+    "calls_outside_steps": {
+      "description": "The calls of the totals that no listed step holds.",
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.RunMetrics.State"
+    }
+  },
+  "required": [
+    "metrics_id",
+    "run_id",
+    "run_state",
+    "submitted_at",
+    "steps",
+    "steps_left_out",
+    "step_limit",
+    "totals",
+    "calls_outside_steps",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:fb2586c4760b20a5d3fcd0d997f153a3601a49411fd527f14450605cb8e4880e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CallMetrics": {
+      "title": "CallMetrics",
+      "description": "The model calls of a step or of a run, as its events book them: one event `runbook.model-call` per call the relay booked (a run on a route), and the calls of an event `runbook.cost-booked` (a step of a run on no route, booked from its programs' cost records). A number the events do not hold is absent, never 0.",
+      "x-ess-name": "sdc.daemon.CallMetrics",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "model_calls": {
+          "description": "The calls booked.",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "description": "The input tokens of the calls whose answer reported them; absent when calls were booked and none reported any (unknown). 0 with no call.",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "description": "The same for output tokens.",
+          "type": "integer"
+        },
+        "calls_without_tokens": {
+          "description": "The calls that did not report both their input and output tokens: a call whose answer had no usage, and every call of `runbook.cost-booked`, whose event holds no tokens.",
+          "type": "integer"
+        },
+        "cost_micro_usd": {
+          "description": "What the calls of known cost booked (`cost_known` true: the route's declared prices times the tokens). A call of unknown cost adds nothing here.",
+          "type": "integer"
+        },
+        "unknown_cost_calls": {
+          "description": "The calls whose cost is not known: a relay call booked at its reservation (`cost_known` false), and every call of `runbook.cost-booked`, whose event does not say whether its cost was known.",
+          "type": "integer"
+        },
+        "booked_micro_usd": {
+          "description": "What the calls booked in the spend ledger, reservations of calls of unknown cost included.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_calls",
+        "calls_without_tokens",
+        "cost_micro_usd",
+        "unknown_cost_calls",
+        "booked_micro_usd"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.MetricsId": {
+      "title": "MetricsId",
+      "description": "The metrics of a run as a row of RunMetrics: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's events, not the run.",
+      "x-ess-name": "sdc.daemon.MetricsId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.Run.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Run.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Cancelled",
+        "Ended",
+        "FailedToStart",
+        "Running",
+        "Submitted",
+        "WaitingForRoute",
+        "WaitingOnDecision"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunMetrics.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunMetrics.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Read"
+      ]
+    },
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> <end>`). The run's state is the closed set; the outcome is not.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.StepMetrics": {
+      "title": "StepMetrics",
+      "description": "One step of a run: one action of one case in one role, over all its tries. Its starts are the events `runbook.action-started` (the daemon's clock, before the program starts), its ends Loom's lines `ActionFinished` (a program) and `HandoffChecked` (a check) of the same action, recorded as the run's events (their `at` is the daemon's clock when it recorded the line). A model call is the step's when the relay booked it under the step's action (or its case) and the step is the newest of that name before the call's event; a call of `runbook.cost-booked` is the newest program step's before it.",
+      "x-ess-name": "sdc.daemon.StepMetrics",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "case_id": {
+          "description": "The case the step ran for; absent when the start named none.",
+          "type": "string"
+        },
+        "action": {
+          "description": "The action of the program; absent when the start named none.",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/sdc.daemon.StepRole"
+        },
+        "tries": {
+          "description": "How many times the step started.",
+          "type": "integer"
+        },
+        "step_state": {
+          "$ref": "#/$defs/sdc.daemon.StepState",
+          "description": "Where its last try stands. Not `state`: no command moves a step."
+        },
+        "started_at": {
+          "description": "Its first start.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "description": "The end of its last try; absent while that try has no end.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "exit": {
+          "description": "The exit of its last try as Loom's line gives it; absent when the line has none or there is no line.",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "description": "The milliseconds its tries ran, each from its start to its end, summed; absent while a try has no end.",
+          "type": "integer"
+        },
+        "running_ms": {
+          "description": "For a running step: the milliseconds since its last try started, by the daemon's clock when the view is read.",
+          "type": "integer"
+        },
+        "calls": {
+          "$ref": "#/$defs/sdc.daemon.CallMetrics"
+        }
+      },
+      "required": [
+        "role",
+        "tries",
+        "step_state",
+        "started_at",
+        "calls"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.daemon.StepRole": {
+      "title": "StepRole",
+      "description": "What a step started, as the event `runbook.action-started` says: the bound program of an action (program) or its `handoff_when` check (check).",
+      "x-ess-name": "sdc.daemon.StepRole",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "program",
+        "check"
+      ]
+    },
+    "sdc.daemon.StepState": {
+      "title": "StepState",
+      "description": "Where a step stands as the run's events show it: ended (Loom's line `ActionFinished`, or `HandoffChecked` for a check, followed its last start), running (its last start has no such line yet and the run is Running with this step its newest), unfinished (its last start has no such line and the run went on without it, or ended, was cancelled or was orphaned before it).",
+      "x-ess-name": "sdc.daemon.StepState",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "running",
+        "ended",
+        "unfinished"
+      ]
+    }
+  }
+}

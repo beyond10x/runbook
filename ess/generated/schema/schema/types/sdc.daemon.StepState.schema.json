@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.StepState.schema.json",
+  "$ref": "#/$defs/sdc.daemon.StepState",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4c33db48b97b8eb4e51a5069843b44cfe015b311cc0c66c6df3dc4a1657a3f1a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.StepState": {
+      "title": "StepState",
+      "description": "Where a step stands as the run's events show it: ended (Loom's line `ActionFinished`, or `HandoffChecked` for a check, followed its last start), running (its last start has no such line yet and the run is Running with this step its newest), unfinished (its last start has no such line and the run went on without it, or ended, was cancelled or was orphaned before it).",
+      "x-ess-name": "sdc.daemon.StepState",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "running",
+        "ended",
+        "unfinished"
+      ]
+    }
+  }
+}

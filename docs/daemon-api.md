@@ -137,6 +137,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
 | `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at` (below) |
 | `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
+| `run-metrics` | `run_id` | one row: what the run took, its times, a row per step and the totals of its model calls, tokens and cost (below, "The metrics of a run") |
 | `catalog` | none | one row: the declared routes with their prices, the runbooks with their purpose, inputs and the admission of their route entries, and the terms of a delegation (below, "The catalog") |
 
 The view `runbooks` is the list a `submit-run` is checked against: every row names a runbook the
@@ -538,6 +539,39 @@ The member is `case_state`, not `state`: in the specification `state` is an enti
 case (the entity `RunCase`, like `Runbook`, is filled from the host when asked). A run id the daemon does not know is
 `404` `no such run`; a tree that cannot be read at that moment (Loom refused the read) is `503` `tree not readable`, with
 no word of Loom's reason: ask again. The view is a read behind the one guard, like every view.
+
+### The metrics of a run
+
+`GET /daemon/views/run-metrics?run_id=<id>` answers one row of what the run took, read from the run's own events in one
+walk (`runbook/src/run_metrics.rs`). A number the events do not hold is left out of the row, never written 0.
+
+- The run: `run_id`, `run_state`, `outcome` (once it ended), `submitted_at`, `started_at` (absent for a run that never
+  started), `ended_at`, and `duration_ms` (start to end) for a run that ended, or `running_ms` (start to the daemon's
+  clock when the view is read) for a live run.
+- `steps`: a row per step, in the order the steps first started. A step is one action of one case in one role
+  (`program` or `check`), over all its tries: `case_id`, `action`, `role`, `tries`, `step_state`, `started_at` (its
+  first start), `ended_at` and `exit` (of its last try), `duration_ms` (its tries' times summed, once every try has an
+  end) or `running_ms` (a running step: since its last try started), and `calls`.
+- `step_state`: `ended` when Loom's line `ActionFinished` (a program) or `HandoffChecked` (a check) of the action followed
+  its last start; `running` when it has none yet, the run is `Running` and the step is the newest to start; `unfinished`
+  otherwise (a cancel, an orphaned run, a try that a newer step overtook).
+- `calls` of a step and `totals` of the run: `model_calls`, `input_tokens` and `output_tokens` (the sum of what the calls'
+  answers reported; absent when calls were made and none reported any, 0 when there was no call), `calls_without_tokens`,
+  `cost_micro_usd` (the calls of known cost only), `unknown_cost_calls` and `booked_micro_usd` (what the spend ledger
+  booked, reservations of calls of unknown cost included). A relay call (`runbook.model-call`) is the newest step's whose
+  action (else case) its `step` names; the calls of `runbook.cost-booked` (a run on no route, booked from its programs'
+  cost records) are the newest program step's, and count as calls without tokens and of unknown cost, since that event
+  says neither. `calls_outside_steps` counts the calls of `totals` that no listed step holds: the decider's, a
+  delegation's classify and build calls, and those of a step that is not listed.
+- The bound: at most `step_limit` (500) steps are listed; `steps_left_out` counts the rest, and their calls stay in
+  `totals`. The walk reads the run's events through the daemon's index of them, never the whole record, so its time is
+  linear in the run's own events.
+
+The times are the daemon's: a start is the `at` of `runbook.action-started` (before the program starts), an end the `at`
+of the event that recorded Loom's line. A run id the daemon does not know is `404` `no such run`; a query without
+`run_id` is `400`. The page's pane for the row is `ui/daemon/metrics.js` (embedded like every file of `ui/daemon/`);
+the page does not load it yet. The view gives no count per route: the daemon still serves no count of today's calls or
+booked spend per route (the ledger's entries hold no instant).
 
 ### A request read from its case
 
@@ -1160,6 +1194,8 @@ On a loopback listener:
   draining daemon's refusal is; the facts `route_declared`, `runbook_known` and `context_inside_roots` of `Delegate`
   are read from the host as those of `submit-run` are. `delegation-result`'s two refusals are the daemon's answers
   too (a view has no outcome).
+- The refusal of the view `run-metrics` (`404` `no such run`) is the daemon's answer, as for `cases`; its rows are read
+  from the run's events, which no command of the language reads into a row.
 - The refusals of the views `products`, `product` and `cases`: a view has no outcome in the language, so the
   refusals are the daemon's answers, written in the views' summaries, in "The products of a run" and in "The case
   tree of a run". Where a case stands (`case_state`) is read from the runtime, not moved by a command.

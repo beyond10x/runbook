@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.CallMetrics.schema.json",
+  "$ref": "#/$defs/sdc.daemon.CallMetrics",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d7248d1a3d8fa319ba2e04cd8963cdf69af4ca1fe2a58f37f641eb2f5a1e20d7",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CallMetrics": {
+      "title": "CallMetrics",
+      "description": "The model calls of a step or of a run, as its events book them: one event `runbook.model-call` per call the relay booked (a run on a route), and the calls of an event `runbook.cost-booked` (a step of a run on no route, booked from its programs' cost records). A number the events do not hold is absent, never 0.",
+      "x-ess-name": "sdc.daemon.CallMetrics",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "model_calls": {
+          "description": "The calls booked.",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "description": "The input tokens of the calls whose answer reported them; absent when calls were booked and none reported any (unknown). 0 with no call.",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "description": "The same for output tokens.",
+          "type": "integer"
+        },
+        "calls_without_tokens": {
+          "description": "The calls that did not report both their input and output tokens: a call whose answer had no usage, and every call of `runbook.cost-booked`, whose event holds no tokens.",
+          "type": "integer"
+        },
+        "cost_micro_usd": {
+          "description": "What the calls of known cost booked (`cost_known` true: the route's declared prices times the tokens). A call of unknown cost adds nothing here.",
+          "type": "integer"
+        },
+        "unknown_cost_calls": {
+          "description": "The calls whose cost is not known: a relay call booked at its reservation (`cost_known` false), and every call of `runbook.cost-booked`, whose event does not say whether its cost was known.",
+          "type": "integer"
+        },
+        "booked_micro_usd": {
+          "description": "What the calls booked in the spend ledger, reservations of calls of unknown cost included.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_calls",
+        "calls_without_tokens",
+        "cost_micro_usd",
+        "unknown_cost_calls",
+        "booked_micro_usd"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

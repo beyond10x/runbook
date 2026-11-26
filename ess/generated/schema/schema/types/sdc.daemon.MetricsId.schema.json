@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.MetricsId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.MetricsId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:f4d9c9eefbeb43be8dec831be3f7bbca286067372bee28538fabe1b6142fe33f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.MetricsId": {
+      "title": "MetricsId",
+      "description": "The metrics of a run as a row of RunMetrics: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's events, not the run.",
+      "x-ess-name": "sdc.daemon.MetricsId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
