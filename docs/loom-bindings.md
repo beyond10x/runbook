@@ -39,6 +39,7 @@ Every action bound in a JSON file is bound in its YAML file: 68 bindings.
 | (none) | `format: loom.bindings/1` | 2 |
 | (the protocol file given to `init --protocol`) | `protocol: <name>@<revision>`: the protocol id with `.` and `_` as `-`, then the revision of `protocol/<name>.protocol.yaml` (`sdc@8`), as Loom's catalog registers it | 3 |
 | (none) | `program_root: bindings` on every file that binds a program: a program path with a `/` is relative to the directory of the bindings file | 13 |
+| (none) | `workspace: read_write` (Loom 0.62.0), optional: a bound program may write the whole workspace under `--confinement linux`, where without it it writes only `target/`; no file here names it, and another value is refused at the opening | none |
 | `$artifacts` | `artifacts` | 4 |
 | `$independence` | `independence` | 5 |
 | `argv` | `executor: {kind: program, argv}` | 6 |

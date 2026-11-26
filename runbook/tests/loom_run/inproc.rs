@@ -627,6 +627,33 @@ fn a_timeout_past_the_range_of_its_executor_is_refused_at_the_opening_in_looms_w
     }
 }
 
+/// Loom 0.62.0 takes the top-level member `workspace: read_write` of a bindings file (a bound program
+/// may then write the whole workspace under `--confinement linux`): the run opens and is delivered.
+/// Any other value is refused at the opening, naming the member; no program runs.
+#[test]
+fn a_bindings_file_naming_workspace_read_write_runs_and_another_value_is_refused_at_the_opening() {
+    let anchor = "program_root: bindings\n";
+    for (tag, value) in [("workspace-read-write", "read_write"), ("workspace-read-only", "read_only")] {
+        let rig = Rig::new(tag);
+        let file = rig.root.join("fx/bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(anchor), "{tag}: the fixture changed: {text}");
+        std::fs::write(&file, text.replacen(anchor, &format!("{anchor}workspace: {value}\n"), 1)).unwrap();
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        let outcome = rig.outcome("r1");
+        if value == "read_write" {
+            assert_eq!(code(&o), 0, "{tag}: {}", stderr(&o));
+            assert_eq!(outcome["reason"], "delivered", "{tag}: {outcome}");
+        } else {
+            assert_eq!(code(&o), 12, "{tag}: {}", stderr(&o));
+            assert_eq!((outcome["outcome"].as_str(), outcome["cause"].as_str()), (Some("refused"), Some("bindings_refused")), "{tag}: {outcome}");
+            let reason = outcome["reason"].as_str().unwrap_or_default();
+            assert!(reason.contains("workspace") && reason.contains("read_write"), "{tag}: {outcome}");
+            assert!(!rig.work("r1").join("draft.txt").exists(), "{tag}: a program ran after the opening was refused");
+        }
+    }
+}
+
 /// Loom 0.61.0 (story:wildcard-result-row-does-not-match-timeout): a run killed at its timeout matches
 /// only a `timeout` row of its table, never `*`. The fixture's check names `timeout: invalid` beside
 /// `"*": invalid`: its first run, killed at 1 s, records `invalid`, the writer runs again and the run is
