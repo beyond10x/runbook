@@ -56,3 +56,4 @@ mod catalog;
 mod adversary_a;
 mod adversary_b;
 mod adversary_wave2;
+mod protocol_routes;
