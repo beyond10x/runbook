@@ -8,6 +8,7 @@
 // runSummary, experimentsOf).
 import {esc} from './lenses.js';
 import {fmtDur, fmtAgo} from './now.js';
+import {fullTime} from './clock.js';
 
 export const isStub = (s) => s?.program?.kind === 'stub';
 const words = (x) => String(x || '').replace(/_/g, ' ');
@@ -103,7 +104,8 @@ const shownGroups = (g) => g.groups.filter((x) => x.rows.length && (x.key !== 's
 export const visibleItems = (g) => shownGroups(g).flatMap((x) => [...(x.exp ? [{id: x.hid, exp: x.exp.id, open: x.open}] : []), ...(x.exp && !x.open ? [] : x.items.map((it) => ({id: it.id, index: it.s.index})))]);
 
 const usd = (v) => (v == null ? null : `$${v < 10 ? v.toFixed(2) : v.toFixed(0)}`);
-const when = (t) => new Date(t).toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'});
+// the date in ISO form and the 24 h time with the zone's name (web/clock.js)
+const when = (t) => fullTime(t);
 // the experiment tag of a row: in its experiment's group the variant and ordinal, elsewhere the experiment too
 function expTag(s, inExp) {
   const e = inExp ? exps(s).find((x) => x.id === inExp) : exps(s)[0];

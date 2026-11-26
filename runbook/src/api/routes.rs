@@ -14,7 +14,7 @@ use std::collections::HashMap;
 pub const COMMANDS: [&str; 6] = ["open-session", "close-session", "submit-run", "delegate", "cancel-run", "answer-decision"];
 
 /// The views, by wire name.
-pub const VIEWS: [&str; 19] = [
+pub const VIEWS: [&str; 20] = [
     "runs",
     "runs-of-session",
     "runs-in-state",
@@ -33,6 +33,7 @@ pub const VIEWS: [&str; 19] = [
     "product",
     "cases",
     "delegation-result",
+    "run-metrics",
     "catalog",
 ];
 
@@ -164,6 +165,7 @@ pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>)
             "product" => daemon.product_of_run(text(query, "run_id")?, text(query, "path")?)?,
             "cases" => daemon.cases_of_run(text(query, "run_id")?)?,
             "delegation-result" => daemon.delegation_result(text(query, "run_id")?)?,
+            "run-metrics" => daemon.run_metrics(text(query, "run_id")?)?,
             "catalog" => daemon.catalog(),
             other => unreachable!("no view {other}"),
         })

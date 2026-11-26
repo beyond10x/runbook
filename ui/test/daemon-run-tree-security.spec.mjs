@@ -4,7 +4,8 @@
 // of link spellings) are written into the work/ directory of a run of a Loom daemon (daemon-tree-fixture.mjs) and
 // opened in the daemon's page; after each the DOM of the panel, the product line, the tree and the feed is audited
 // (security-products-lib.mjs `audit`), nothing ran, and nothing was asked of an address that is not the daemon's own.
-// Invented text only. The daemon serves no evidence record and no action output, so those cases have no equal here.
+// Invented text only. The daemon's page shows a run's files, its steps and its events, not a case's evidence records or
+// action output, so the cases of those have no equal here.
 import {test, expect as plain} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';

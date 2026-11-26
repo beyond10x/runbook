@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {eventWords} from '../web/runsteps.js';
 
 const expect = plain.configure({timeout: 15000});
 const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -169,7 +170,8 @@ test('a daemon that answers 403 to every request is polled at most 4 times a sec
   const all = await rows('daemon-events', '?after_position=0');
   const last = all.at(-1).run_id;
   await pick(page, last);
-  await expect(page.locator('[data-key=fdl] .fd-row')).toHaveCount(all.filter((e) => e.run_id === last).length);
+  // every event of that run the feed shows: the engine's own lines are folded (web/runsteps.js)
+  await expect(page.locator('[data-key=fdl] .fd-row')).toHaveCount(all.filter((e) => e.run_id === last && !eventWords(e).engine).length);
   await page.click('#routesbtn');
   await expect(page.locator('#routesdlg [data-route]')).toHaveCount(2);
   await page.route('**/daemon/**', (route) => route.fulfill({status: 403, json: {refused: 'forbidden', message: 'refused'}}));

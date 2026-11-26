@@ -324,6 +324,54 @@ types:
       - {name: confinement, type: Optional<sdc.daemon.ConfinementLevel>, summary: "The daemon's default level, the level of every delegation; absent: the daemon has none and refuses every delegation."}
       - {name: request_limit, type: Integer, summary: "The most bytes of a request: 1048576."}
 
+  - name: sdc.daemon.MetricsId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The metrics of a run as a row of RunMetrics: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's events, not the run."
+
+  - name: sdc.daemon.StepRole
+    kind: enum
+    variants: [program, check]
+    naming:
+      summary: "What a step started, as the event `runbook.action-started` says: the bound program of an action (program) or its `handoff_when` check (check)."
+
+  - name: sdc.daemon.StepState
+    kind: enum
+    variants: [running, ended, unfinished]
+    naming:
+      summary: "Where a step stands as the run's events show it: ended (Loom's line `ActionFinished`, or `HandoffChecked` for a check, followed its last start), running (its last start has no such line yet and the run is Running with this step its newest), unfinished (its last start has no such line and the run went on without it, or ended, was cancelled or was orphaned before it)."
+
+  - name: sdc.daemon.CallMetrics
+    kind: struct
+    naming:
+      summary: "The model calls of a step or of a run, as its events book them: one event `runbook.model-call` per call the relay booked (a run on a route), and the calls of an event `runbook.cost-booked` (a step of a run on no route, booked from its programs' cost records). A number the events do not hold is absent, never 0."
+    fields:
+      - {name: model_calls, type: Integer, summary: "The calls booked."}
+      - {name: input_tokens, type: Optional<Integer>, summary: "The input tokens of the calls whose answer reported them; absent when calls were booked and none reported any (unknown). 0 with no call."}
+      - {name: output_tokens, type: Optional<Integer>, summary: "The same for output tokens."}
+      - {name: calls_without_tokens, type: Integer, summary: "The calls that did not report both their input and output tokens: a call whose answer had no usage, and every call of `runbook.cost-booked`, whose event holds no tokens."}
+      - {name: cost_micro_usd, type: Integer, summary: "What the calls of known cost booked (`cost_known` true: the route's declared prices times the tokens). A call of unknown cost adds nothing here."}
+      - {name: unknown_cost_calls, type: Integer, summary: "The calls whose cost is not known: a relay call booked at its reservation (`cost_known` false), and every call of `runbook.cost-booked`, whose event does not say whether its cost was known."}
+      - {name: booked_micro_usd, type: Integer, summary: "What the calls booked in the spend ledger, reservations of calls of unknown cost included."}
+
+  - name: sdc.daemon.StepMetrics
+    kind: struct
+    naming:
+      summary: "One step of a run: one action of one case in one role, over all its tries. Its starts are the events `runbook.action-started` (the daemon's clock, before the program starts), its ends Loom's lines `ActionFinished` (a program) and `HandoffChecked` (a check) of the same action, recorded as the run's events (their `at` is the daemon's clock when it recorded the line). A model call is the step's when the relay booked it under the step's action (or its case) and the step is the newest of that name before the call's event; a call of `runbook.cost-booked` is the newest program step's before it."
+    fields:
+      - {name: case_id, type: Optional<String>, summary: "The case the step ran for; absent when the start named none."}
+      - {name: action, type: Optional<String>, summary: "The action of the program; absent when the start named none."}
+      - {name: role, type: sdc.daemon.StepRole}
+      - {name: tries, type: Integer, summary: "How many times the step started."}
+      - {name: step_state, type: sdc.daemon.StepState, summary: "Where its last try stands. Not `state`: no command moves a step."}
+      - {name: started_at, type: Timestamp, summary: "Its first start."}
+      - {name: ended_at, type: Optional<Timestamp>, summary: "The end of its last try; absent while that try has no end."}
+      - {name: exit, type: Optional<Integer>, summary: "The exit of its last try as Loom's line gives it; absent when the line has none or there is no line."}
+      - {name: duration_ms, type: Optional<Integer>, summary: "The milliseconds its tries ran, each from its start to its end, summed; absent while a try has no end."}
+      - {name: running_ms, type: Optional<Integer>, summary: "For a running step: the milliseconds since its last try started, by the daemon's clock when the view is read."}
+      - {name: calls, type: sdc.daemon.CallMetrics}
+
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
     to: sdc.daemon.ConfinementLevel
@@ -643,6 +691,33 @@ entities:
       initial: Seen
       states: [Seen]
       terminal: [Seen]
+
+  - name: sdc.daemon.RunMetrics
+    naming:
+      summary: "What a run took, as the daemon reads the run's own events when a client asks for the view MetricsOfRun: the run's state, outcome and instants are the Run's; the steps and the calls are read from the events of the run (`runbook.action-started`, Loom's `ActionFinished` and `HandoffChecked`, `runbook.model-call`, `runbook.cost-booked`), walked once through the daemon's index of the run's events, never the whole record. At most `step_limit` steps are listed, in the order they first started; the steps past it are counted in `steps_left_out`, and their calls count in the totals and in `calls_outside_steps`. A number the events do not hold is absent, never 0. The language cannot read a run's events into a row, so no command creates or changes a row, as with Runbook."
+    identity:
+      name: metrics_id
+      type: sdc.daemon.MetricsId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State, summary: "Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "The run's outcome once it Ended."}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>, summary: "When the runtime took the run up; absent for a run that never started."}
+      - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state."}
+      - {name: running_ms, type: Optional<Integer>, summary: "For a live run that started: the milliseconds since it started, by the daemon's clock when the view is read."}
+      - {name: duration_ms, type: Optional<Integer>, summary: "For a run that started and ended: the milliseconds from its start to its end."}
+      - {name: steps, type: "List<sdc.daemon.StepMetrics>", summary: "Its steps, in the order they first started, at most `step_limit`."}
+      - {name: steps_left_out, type: Integer, summary: "The steps past `step_limit`, not listed."}
+      - {name: step_limit, type: Integer, summary: "The most steps a row lists: 500."}
+      - {name: totals, type: sdc.daemon.CallMetrics, summary: "Every model call of the run: those of its steps, of the steps left out, and those of no step (the decider's, a delegation's classify and build calls)."}
+      - {name: calls_outside_steps, type: Integer, summary: "The calls of the totals that no listed step holds."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
 
 actors:
   - name: sdc.daemon.Runtime
@@ -1885,6 +1960,31 @@ views:
       - {name: output_tokens, type: Integer}
       - {name: cost_micro_usd, type: Integer}
       - {name: cost_known, type: Boolean}
+
+  - name: sdc.daemon.MetricsOfRun
+    naming:
+      wire: run-metrics
+      display: Metrics of a run
+      summary: "What a run took, in one row: GET /daemon/views/run-metrics?run_id=... The run's state, outcome, start, end, the milliseconds it has run or ran, a row per step (case, action, role, tries, state, start, end, exit, duration, and its model calls, tokens and cost) and the totals of every call of the run. A number the run's events do not hold is absent, never 0: tokens no call reported, an end no line recorded; a call of unknown cost is counted apart and adds nothing to the known cost. At most 500 steps are listed. A view has no outcome in the language, so the refusal is the daemon's {refused, message} answer: 404 `no such run` for a run id the daemon does not know."
+    source: sdc.daemon.RunMetrics
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: running_ms, type: Optional<Integer>}
+      - {name: duration_ms, type: Optional<Integer>}
+      - {name: steps, type: "List<sdc.daemon.StepMetrics>"}
+      - {name: steps_left_out, type: Integer}
+      - {name: step_limit, type: Integer}
+      - {name: totals, type: sdc.daemon.CallMetrics}
+      - {name: calls_outside_steps, type: Integer}
 
   - name: sdc.daemon.Runs
     naming:

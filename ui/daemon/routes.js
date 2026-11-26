@@ -4,7 +4,6 @@
 // rows. The daemon reads its gateways at most once every 15 s and answers from that read; this page asks the view at
 // most once every 15 s as well, whatever the answer (a refusal, a network error, rows), and only while it shows a run
 // on a route or the Routes view is open. A read that fails keeps the rows of the last read and says so.
-// The daemon serves no count of today's calls or booked spend per route: the view says so and shows none.
 // Text from the daemon is set as text nodes, never as markup. This file is served by the daemon only.
 
 const VIEW = '/daemon/views/routes';
@@ -105,7 +104,6 @@ function build() {
     h('div', {class: 'mh'}, h('h3', {text: 'Model routes'}), h('button', {id: 'routes-close', class: 'ib wide', type: 'button', text: 'Close'})),
     h('p', {id: 'routes-note', class: 'muted'}),
     h('div', {class: 'routes-wrap'}, h('table', {class: 'routes'}, h('thead', {}, head), h('tbody', {id: 'routes-body'}))),
-    h('p', {class: 'muted', text: 'Today\'s calls and booked spend per route: the daemon serves no count of them yet.'}),
     h('div', {id: 'routes-msg', role: 'status'}));
   dlg.addEventListener('click', (e) => { if (e.target.closest('#routes-close')) close(); });
   dlg.addEventListener('close', () => { clearInterval(timer); timer = 0; });

@@ -28,12 +28,17 @@ export const bothFiles = Object.keys(BOTH);
 // server, a refusal, a key or token rule or a text, none of which depends on the viewport. One line per file, the reason
 // in five words. A new spec file must be added to one of the three lists.
 export const WIDE_ONLY = {
+  'adversary-ui-wave.spec.mjs': 'model function, no page',
   'autopilot.spec.mjs': 'who decides, said as text',
   'budget.spec.mjs': 'file checks, no page',
   'child.spec.mjs': 'process guard, no page',
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
   'daemon-level-and-kind.spec.mjs': 'level and kind as text',
+  'daemon-live.spec.mjs': 'sets the gating sizes itself',
+  'daemon-steps-model.spec.mjs': 'model function, no page',
+  'daemon-metrics.spec.mjs': 'pane drawn from a row',
+  'daemon-metrics-tab.spec.mjs': 'tab and calls from view',
   'daemon-routes.spec.mjs': 'route as text, request rate',
   'daemon-run-tree-security.spec.mjs': 'hostile run text stays text',
   'daemon-run-tree.spec.mjs': 'tree, products, address as text',
@@ -125,6 +130,8 @@ export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 export const SIZE_EXCEPTIONS = {
   'autopilot.spec.mjs': 'sets both gating sizes itself',
   'daemon-decide.spec.mjs': 'phone test sets size',
+  'daemon-live.spec.mjs': 'sets the gating sizes itself',
+  'daemon-metrics-tab.spec.mjs': 'sets 1366 and 1280 itself',
   'daemon-run-tree-security.spec.mjs': 'presence, not layout',
   'daemon-run-tree.spec.mjs': 'presence; screenshot is a file',
   'daemon-start.spec.mjs': 'presence, not layout',

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunMetrics.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunMetrics.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:eb20acf71fb6af0bda2896fa50574842de9ed0c3c6852989d920bffa07d5944e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunMetrics.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunMetrics.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Read"
+      ]
+    }
+  }
+}

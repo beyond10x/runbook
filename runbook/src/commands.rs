@@ -2124,6 +2124,14 @@ impl Daemon {
         Ok(vec![Value::Object(m)])
     }
 
+    /// The view `MetricsOfRun` (wire name `run-metrics`): one row, what the run took, read from the run's own events in
+    /// one walk (`crate::run_metrics`); an unknown run is refused 404 `no such run`.
+    pub fn run_metrics(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
+        let st = self.st();
+        let run = st.run(run_id).ok_or_else(|| Fault::no_such_run(run_id))?;
+        Ok(vec![crate::run_metrics::row(run, st.events_of(run_id), st.now_millis())])
+    }
+
     /// The view `CasesOfRun` (wire name `cases`): a row per case of the run's tree, as the runtime reads it
     /// (`Runtime::cases`), read after the state is let go. Where a case stands (`case_state`): `Ended` with an outcome;
     /// else `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else

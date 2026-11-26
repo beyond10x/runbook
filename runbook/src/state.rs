@@ -578,6 +578,12 @@ impl State {
         self.events_of_run.get(run_id).and_then(|v| v.last()).map_or(1, |i| self.events[*i].sequence + 1)
     }
 
+    /// The events of one run, in position order, through the index of the run's events: a walk of that run's events
+    /// only, never of the whole record.
+    pub fn events_of(&self, run_id: &str) -> impl Iterator<Item = &RunEvent> {
+        self.events_of_run.get(run_id).into_iter().flatten().map(|i| &self.events[*i])
+    }
+
     /// Events with a position above `after`, in position order; of one run, of one session, or of all.
     pub fn events_after(&self, run_id: Option<&str>, session_id: Option<&str>, after: u64) -> Vec<&RunEvent> {
         let from = self.events.partition_point(|e| e.position <= after);
