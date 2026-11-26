@@ -58,3 +58,6 @@ mod adversary_b;
 mod adversary_wave2;
 mod protocol_routes;
 mod adversary_wave3;
+mod recovered_call;
+mod failed_call;
+mod adversary_w4;

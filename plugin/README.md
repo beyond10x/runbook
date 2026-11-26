@@ -68,7 +68,8 @@ as a run on the route, waits for its end and answers the row of the view `delega
 `result.md` as `result_text`. Claude Code (2.1) hands the model that row, the tool's structured content, rather
 than the text whose first line names the run. A route that is down is a tool error that names it: refused at the
 submit as `route-unavailable` (HTTP status 503), or, when the route fails the run's call, a run that ended
-`runtime-failure` whose `failure` names `route-unavailable` and the route, or a run that waited for its route and
+`runtime-failure` whose `failure` names `route-unavailable` and the route (a failed call the agent recovered from fails
+no run; a step that failed after one names that call, `route-unavailable` or `call-refused`), or a run that waited for its route and
 ended `stopped: route`, the text naming the route and the last phase its gateway gave. The Agent and Workflow tools stay
 denied either way. `describe_catalog` lists the routes, the runbooks and the members and paths of a delegation
 (`docs/daemon-api.md`, "The catalog").

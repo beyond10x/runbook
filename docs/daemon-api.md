@@ -787,7 +787,12 @@ unbound in money:
 After a step or such an answer the cost records are booked at their cost; a failed call with no
 cost is booked at the largest reservation it held (nothing when it held none), and a record that
 cannot be read books the reservations and ends the run as a runtime failure, unless the run is on a route and the
-relay booked or still takes calls of the step: then the step costs those calls ("The relay of a run's model calls"). A cap sent as a JSON
+relay booked or still takes calls of the step: then the step costs those calls ("The relay of a run's model calls"). The reason
+of a call that left no cost record names the call, its adapter (of its `response.json`, else of its `request.json`), the
+adapter's exit (`adapter_exit`, else `exit` of its `response.json`) and the client's own error from its stderr; a value
+the call's record does not hold is written `not recorded`. Claude Code's `unrecognized_model` is said in words: the model
+it asked for and the roles of the run's route file with their models (`runbook-<role>`), or that the run has no route
+file (`runbook/src/cost.rs`). A cap sent as a JSON
 number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
 and through `submit_run`.
 
@@ -1127,6 +1132,14 @@ On a loopback listener:
   reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
   booked once.
+- A call the gateway refused carries the gateway's `code`, its `detail` and its error text as `error`
+  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced; the
+  `code` at most 64 bytes, the token replaced). A streamed answer that ends in an error event is a failed call too. A
+  `4xx` answer that is no refusal of the route by the gateway (not `model-unknown`, `wire-not-served`,
+  `credential-*` or `spend-ceiling`) has the `cause` `call-refused`; every other failed call, a gateway that does
+  not answer included, `route-unavailable`. A failed call does not end the run by itself: the run ends as its step
+  ends, and a step that went on is named in the run's event `runbook.model-calls-failed` (`docs/engine.md`, "A
+  gateway"). The gateway's refusals of the route and its `spend-ceiling` fail their step at once.
 
 ## Outside the language
 

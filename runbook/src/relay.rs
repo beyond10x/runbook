@@ -14,7 +14,10 @@
 //!
 //! A gateway that refuses the call, or does not answer, is passed back unchanged (a connection that fails answers
 //! `502` with the code `route-unavailable`), and the call is booked with the cause `route-unavailable`, the route,
-//! the gateway's code and the setting that chose the route. The relay never sends a call to another route.
+//! the gateway's code, its error text and the setting that chose the route. A `4xx` answer that is no refusal of the
+//! route by the gateway is booked with the cause `call-refused` instead ([`recoverable`]). A failed call does not end
+//! the run by itself unless the gateway refused the route or its spend ceiling stopped it ([`stops_the_run`]): its
+//! client may retry or go on, and the run ends as the call's step ends. The relay never sends a call to another route.
 //!
 //! The run's processes get the relay through the route file ([`RouteFile`]): `route.json`, `runbook.route/1`, mode
 //! 0600 in the run's private directory, named by [`ROUTE_FILE_VARIABLE`]. It holds the relay's address, the run's
@@ -53,6 +56,23 @@ pub const ROUTE_REFUSED: &str = "route-refused";
 pub const CAP_REACHED: &str = "cap-reached";
 /// The cause of a call the gateway refused or did not answer.
 pub const ROUTE_UNAVAILABLE: &str = "route-unavailable";
+/// The cause of a call the gateway refused with a `4xx` answer the client may recover from ([`recoverable`]).
+pub const CALL_REFUSED: &str = "call-refused";
+/// The codes of the gateway's own refusals of a route (`docs/model-routes.md`, "Refusals a dispatcher meets") and of its
+/// spend ceiling: a call refused with one of them names a route the run cannot use, never a call its client may
+/// recover from, and fails its step at once ([`stops_the_run`]).
+pub const ROUTE_REFUSAL_CODES: [&str; 6] = ["model-unknown", "wire-not-served", "credential-absent", "credential-malformed", "credential-rejected", crate::routes::SPEND_CEILING];
+
+/// Whether a failed call with the gateway's code `code` fails its step at once ([`ROUTE_REFUSAL_CODES`]). Every other
+/// failed call (a `4xx` its client may recover from, a `5xx`, a connection that fails, an answer that broke off) does
+/// not end the run by itself: the run ends as the call's step ends.
+pub fn stops_the_run(code: &str) -> bool {
+    ROUTE_REFUSAL_CODES.contains(&code)
+}
+/// The most bytes of the gateway's error text a ledger line keeps.
+pub const MAX_ERROR_BYTES: usize = 300;
+/// The most bytes of the gateway's code a ledger line keeps.
+pub const MAX_CODE_BYTES: usize = 64;
 /// The kind of the run event that records one call the relay booked.
 pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 /// The code of a call whose gateway did not answer: nothing ran.
@@ -406,7 +426,7 @@ async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) 
     }
     match open_upstream(&call.route, call.wire, &passed, &sent).await {
         Err(why) => {
-            let line = call.line(None, &Usage::default(), Some((CONNECTION_FAILED.to_owned(), why.clone())));
+            let line = call.line(None, &Usage::default(), Some(Failed::unavailable(CONNECTION_FAILED, why.clone())));
             call.book(line).await;
             error(StatusCode::BAD_GATEWAY, ROUTE_UNAVAILABLE, &format!("route {} (chosen by {}): the gateway did not answer: {why}", call.route.name, call.source))
         }
@@ -561,11 +581,112 @@ pub fn charge(route: &ResolvedRoute, usage: &Usage, failed: Option<&str>, reserv
     }
 }
 
+/// What was wrong with a call that failed: its cause ([`ROUTE_UNAVAILABLE`] or [`CALL_REFUSED`]), the gateway's code,
+/// what happened, and the gateway's error text when its answer gave one ([`error_text`]).
+struct Failed {
+    cause: &'static str,
+    code: String,
+    detail: String,
+    error: Option<String>,
+}
+
+impl Failed {
+    /// A call that failed with no answer of the gateway to read: the cause `route-unavailable`.
+    fn unavailable(code: &str, detail: String) -> Failed {
+        Failed { cause: ROUTE_UNAVAILABLE, code: code.to_owned(), detail, error: None }
+    }
+
+    /// A call the gateway answered `status` (400 or above) with `body`: `call-refused` when its client may recover from
+    /// it ([`recoverable`]), else `route-unavailable`. `secrets` are replaced in its error text.
+    fn answered(status: u16, body: &[u8], secrets: &[&str]) -> Failed {
+        let code = gateway_code(status, body, secrets);
+        let cause = if recoverable(status, &code) { CALL_REFUSED } else { ROUTE_UNAVAILABLE };
+        Failed { cause, code, detail: format!("the gateway answered {status}"), error: error_text(body, secrets) }
+    }
+
+    /// A call answered with a status below 400 whose stream ended in an error event ([`stream_error`]): the upstream
+    /// failed while it answered (`overloaded_error`, ...), so the call failed, with the cause `route-unavailable` and the
+    /// event's type or code as its code.
+    fn streamed(body: &[u8], secrets: &[&str]) -> Option<Failed> {
+        let err = stream_error(body)?;
+        let field = |k: &str| err.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let code = bounded(field("type").filter(|t| *t != "error").or_else(|| field("code")).unwrap_or("stream-error").to_owned(), secrets, MAX_CODE_BYTES);
+        let error = error_text(json!({"error": err}).to_string().as_bytes(), secrets);
+        Some(Failed { cause: ROUTE_UNAVAILABLE, code, detail: "the answer ended in an error event".to_owned(), error })
+    }
+}
+
+/// The error object of the event a streamed answer ended in, read from its `data:` lines: an event `{"type": "error",
+/// "error": {...}}` (the messages wire) or a chunk with an `error` object and no `type` (chat completions), an event
+/// `{"type": "error", "code", "message"}` (the responses wire) or `response.failed` with its `response.error`. None for an
+/// answer that is one JSON document, and for a stream with no such event.
+fn stream_error(body: &[u8]) -> Option<Value> {
+    if serde_json::from_slice::<Value>(body).is_ok() {
+        return None;
+    }
+    for line in body.split(|b| *b == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Some(data) = line.strip_prefix(b"data:") else { continue };
+        let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii()) else { continue };
+        let kind = v.get("type").and_then(Value::as_str);
+        let found = match (kind, v.get("error")) {
+            (Some("error") | None, Some(e)) if e.is_object() => Some(e.clone()),
+            (Some("error"), _) => Some(v.clone()),
+            (Some("response.failed"), _) => v.get("response").and_then(|r| r.get("error")).filter(|e| e.is_object()).cloned(),
+            _ => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// `text` with each of `secrets` replaced by `<token>`, cut to at most `max` bytes at a character's boundary.
+fn bounded(mut text: String, secrets: &[&str], max: usize) -> String {
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        text = text.replace(secret, "<token>");
+    }
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
+}
+
+/// Whether a call the gateway answered `status` with the code `code` is one its client may recover from: a `4xx`
+/// answer that is no refusal of the route by the gateway ([`ROUTE_REFUSAL_CODES`]), such as an upstream's
+/// `invalid_request_error` the gateway relayed. A `5xx` answer, a refusal of the route and an answer that never came
+/// are not.
+pub fn recoverable(status: u16, code: &str) -> bool {
+    (400..500).contains(&status) && !ROUTE_REFUSAL_CODES.contains(&code)
+}
+
+/// The gateway's error text in a refusal: `<type or code>: <message>` of the answer's JSON `error` (`error.type`, else
+/// `error.code`; the message alone when it has neither, the type or code alone when it has no message), never a header;
+/// each of `secrets` (the gateway's token) replaced by `<token>`; cut to at most [`MAX_ERROR_BYTES`] bytes at a
+/// character's boundary. None when the answer has no such `error`.
+pub fn error_text(body: &[u8], secrets: &[&str]) -> Option<String> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    let err = v.get("error")?;
+    let field = |k: &str| err.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let kind = field("type").or_else(|| field("code"));
+    let text = match (kind, field("message")) {
+        (Some(k), Some(m)) => format!("{k}: {m}"),
+        (Some(k), None) => k.to_owned(),
+        (None, Some(m)) => m.to_owned(),
+        (None, None) => return None,
+    };
+    Some(bounded(text, secrets, MAX_ERROR_BYTES))
+}
+
 impl Call {
-    /// The ledger line of this call. `failed`: the gateway's code and what was wrong, for a call that failed
-    /// ([`charge`]).
-    fn line(&self, call_id: Option<String>, usage: &Usage, failed: Option<(String, String)>) -> (Value, u64) {
-        let (micro_usd, cost_known) = charge(&self.route, usage, failed.as_ref().map(|(code, _)| code.as_str()), self.reserved);
+    /// The ledger line of this call. `failed`: what was wrong, for a call that failed ([`charge`]).
+    fn line(&self, call_id: Option<String>, usage: &Usage, failed: Option<Failed>) -> (Value, u64) {
+        let (micro_usd, cost_known) = charge(&self.route, usage, failed.as_ref().map(|f| f.code.as_str()), self.reserved);
         let mut line = json!({
             "what": "model call",
             "run": self.run,
@@ -587,10 +708,13 @@ impl Call {
                 line[key] = json!(n);
             }
         }
-        if let Some((code, detail)) = failed {
-            line["cause"] = json!(ROUTE_UNAVAILABLE);
-            line["code"] = json!(code);
-            line["detail"] = json!(detail);
+        if let Some(failed) = failed {
+            line["cause"] = json!(failed.cause);
+            line["code"] = json!(failed.code);
+            line["detail"] = json!(failed.detail);
+            if let Some(error) = failed.error {
+                line["error"] = json!(error);
+            }
         }
         (line, micro_usd)
     }
@@ -756,11 +880,13 @@ async fn open_upstream(route: &ResolvedRoute, wire: &str, passed: &[(String, Str
 /// The headers of the gateway's answer that are about its connection, not its content.
 const HOP: [&str; 6] = ["connection", "keep-alive", "transfer-encoding", "content-length", "proxy-connection", "upgrade"];
 
-/// The gateway's code in a refusal: `error.code`, else `error.type`, else `status-<n>`.
-fn gateway_code(status: u16, body: &[u8]) -> String {
+/// The gateway's code in a refusal: `error.code`, else `error.type`, else `status-<n>`; each of `secrets` replaced by
+/// `<token>` and cut to at most [`MAX_CODE_BYTES`] bytes, as it goes into the ledger, the run's events and its failure.
+fn gateway_code(status: u16, body: &[u8], secrets: &[&str]) -> String {
     let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let err = v.get("error");
-    err.and_then(|e| e.get("code")).and_then(Value::as_str).or_else(|| err.and_then(|e| e.get("type")).and_then(Value::as_str)).map_or_else(|| format!("status-{status}"), str::to_owned)
+    let code = err.and_then(|e| e.get("code")).and_then(Value::as_str).or_else(|| err.and_then(|e| e.get("type")).and_then(Value::as_str)).map_or_else(|| format!("status-{status}"), str::to_owned);
+    bounded(code, secrets, MAX_CODE_BYTES)
 }
 
 /// The answer to the caller: the gateway's status, headers and body, streamed as they come; the call is booked
@@ -789,10 +915,11 @@ fn answer(call: Call, upstream: Upstream) -> Response {
             }
         }
         let usage = usage_of(&kept);
+        let secrets = [call.route.token.as_deref().unwrap_or("")];
         let failed = if status >= 400 {
-            Some((gateway_code(status, &kept), format!("the gateway answered {status}")))
+            Some(Failed::answered(status, &kept, &secrets))
         } else {
-            broken.map(|why| (ANSWER_BROKEN.to_owned(), why))
+            broken.map(|why| Failed::unavailable(ANSWER_BROKEN, why)).or_else(|| Failed::streamed(&kept, &secrets))
         };
         let line = call.line(call_id, &usage, failed);
         // Booked before the caller sees the end of the answer: a process that read its answer finds its call booked.
@@ -948,6 +1075,99 @@ mod tests {
         assert_eq!(charge(&route("local", None, None), &used, None, 12_300), (0, true));
         assert_eq!(charge(&route("hosted", None, None), &used, None, 12_300), (12_300, false));
         assert_eq!(charge(&route("hosted", None, None), &none, Some("rate-limited"), 12_300), (0, true), "a refused call costs nothing");
+    }
+
+    #[test]
+    fn a_4xx_answer_is_one_a_client_may_recover_from_unless_the_gateway_refused_the_route() {
+        for (status, code) in [(400, "invalid_request_error"), (413, "request_too_large"), (429, "rate_limit_error"), (400, "status-400")] {
+            assert!(recoverable(status, code), "{status} {code}");
+        }
+        for (status, code) in [(400, "wire-not-served"), (404, "model-unknown"), (401, "credential-rejected"), (503, "spend-ceiling"), (429, "spend-ceiling"), (503, "model-stopped"), (500, "api_error"), (502, "upstream-failed"), (200, "")] {
+            assert!(!recoverable(status, code), "{status} {code}");
+        }
+        let messages = br#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#;
+        assert_eq!(Failed::answered(400, messages, &[]).cause, CALL_REFUSED);
+        assert_eq!(Failed::answered(400, br#"{"error":{"code":"wire-not-served","message":"no"}}"#, &[]).cause, ROUTE_UNAVAILABLE);
+        assert_eq!(Failed::answered(503, br#"{"error":{"code":"model-stopped"}}"#, &[]).cause, ROUTE_UNAVAILABLE);
+        // what fails the step at once: the gateway's refusals of the route and its spend ceiling, nothing else
+        for code in ["model-unknown", "wire-not-served", "credential-absent", "credential-malformed", "credential-rejected", "spend-ceiling"] {
+            assert!(stops_the_run(code), "{code}");
+        }
+        for code in ["invalid_request_error", "upstream-failed", "model-stopped", "overloaded", "status-502", CONNECTION_FAILED, ANSWER_BROKEN] {
+            assert!(!stops_the_run(code), "{code}");
+        }
+    }
+
+    /// The class [`ROUTE_REFUSAL_CODES`] stands for: every refusal of a model call with a `4xx` status that the gateway's
+    /// list in `docs/model-routes.md` ("Refusals a dispatcher meets") names is in it (`call-unknown` answers a read of a
+    /// call record, never a model call). A code added to that list with a `4xx` fails here until it is placed.
+    #[test]
+    fn every_4xx_refusal_the_gateway_lists_for_a_model_call_is_a_refusal_of_the_route() {
+        let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/model-routes.md")).unwrap();
+        let section = doc.split("### Refusals a dispatcher meets").nth(1).unwrap().split("\n### ").next().unwrap();
+        let mut listed = Vec::new();
+        for bullet in section.lines().filter(|l| l.starts_with("- `")) {
+            let mut codes = Vec::new();
+            for (i, part) in bullet.split('`').enumerate() {
+                if i % 2 == 1 {
+                    codes.push(part.to_owned());
+                } else if let Some(status) = part.split(|c: char| !c.is_ascii_digit()).find(|w| w.len() == 3).and_then(|w| w.parse::<u16>().ok()) {
+                    listed.extend(codes.drain(..).map(|c| (c, status)));
+                }
+            }
+        }
+        assert!(listed.len() >= 10, "the list was not read: {listed:?}");
+        for (code, status) in listed.iter().filter(|(c, s)| (400..500).contains(s) && c != "call-unknown") {
+            assert!(ROUTE_REFUSAL_CODES.contains(&code.as_str()), "the gateway's refusal {code} {status} would be taken for a call its client may recover from");
+        }
+    }
+
+    #[test]
+    fn the_error_text_is_the_type_and_message_of_the_answers_error_at_most_300_bytes_and_holds_no_token() {
+        let body = br#"{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens too large (key secret-token-1)"}}"#;
+        assert_eq!(error_text(body, &["secret-token-1"]).as_deref(), Some("invalid_request_error: max_tokens too large (key <token>)"));
+        assert_eq!(error_text(br#"{"error":{"code":"wire-not-served","message":"no"}}"#, &[]).as_deref(), Some("wire-not-served: no"));
+        assert_eq!(error_text(br#"{"error":{"code":"model-stopped"}}"#, &[]).as_deref(), Some("model-stopped"));
+        assert_eq!(error_text(b"<html>bad gateway</html>", &[]), None, "a body that is no JSON gives no text");
+        assert_eq!(error_text(br#"{"detail":"x"}"#, &[]), None);
+        let long = json!({"error": {"type": "invalid_request_error", "message": "é".repeat(400)}}).to_string();
+        let cut = error_text(long.as_bytes(), &[]).unwrap();
+        assert!(cut.len() <= MAX_ERROR_BYTES && cut.len() >= MAX_ERROR_BYTES - 1 && cut.starts_with("invalid_request_error: é"), "{} bytes", cut.len());
+    }
+
+    /// The gateway's code goes into the ledger, the run's events and its failure as it came: it is cut to 64 bytes and
+    /// holds no token, as the error text does.
+    #[test]
+    fn the_gateways_code_is_at_most_64_bytes_and_holds_no_token() {
+        let long = json!({"error": {"code": "x".repeat(500), "message": "m"}}).to_string();
+        assert_eq!(gateway_code(400, long.as_bytes(), &[]), "x".repeat(MAX_CODE_BYTES));
+        let tokened = json!({"error": {"type": "bad key secret-token-1 here"}}).to_string();
+        let code = gateway_code(401, tokened.as_bytes(), &["secret-token-1"]);
+        assert_eq!(code, "bad key <token> here");
+        let wide = json!({"error": {"code": "é".repeat(100)}}).to_string();
+        let cut = gateway_code(400, wide.as_bytes(), &[]);
+        assert!(cut.len() <= MAX_CODE_BYTES && cut.len() >= MAX_CODE_BYTES - 1, "{} bytes", cut.len());
+        assert_eq!(gateway_code(502, b"<html>", &[]), "status-502");
+        let failed = Failed::answered(400, tokened.as_bytes(), &["secret-token-1"]);
+        assert!(!failed.code.contains("secret-token-1") && !failed.error.unwrap_or_default().contains("secret-token-1"));
+    }
+
+    /// A streamed answer that ended in an error event failed, in each wire's shape; one that did not, and a JSON answer,
+    /// did not.
+    #[test]
+    fn a_stream_that_ended_in_an_error_event_is_a_failed_call_in_each_wire() {
+        let messages = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":11}}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded secret-token-1\"}}\n\n";
+        let f = Failed::streamed(messages, &["secret-token-1"]).expect("the messages wire's error event");
+        assert_eq!((f.cause, f.code.as_str(), f.error.as_deref()), (ROUTE_UNAVAILABLE, "overloaded_error", Some("overloaded_error: Overloaded <token>")));
+        let chat = b"data: {\"choices\":[{\"delta\":{}}]}\n\ndata: {\"error\":{\"code\":\"server_error\",\"message\":\"boom\"}}\n\n";
+        assert_eq!(Failed::streamed(chat, &[]).map(|f| f.code), Some("server_error".to_owned()));
+        let responses = b"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"x\"}}}\n\n";
+        assert_eq!(Failed::streamed(responses, &[]).map(|f| f.code), Some("server_error".to_owned()));
+        let top = b"data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}\n\n";
+        assert_eq!(Failed::streamed(top, &[]).map(|f| f.code), Some("rate_limit_exceeded".to_owned()));
+        let fine = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2}}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert!(Failed::streamed(fine, &[]).is_none());
+        assert!(Failed::streamed(br#"{"id":"m","error":{"type":"x"}}"#, &[]).is_none(), "a JSON answer is no stream");
     }
 
     #[test]

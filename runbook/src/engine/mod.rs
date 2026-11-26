@@ -413,6 +413,7 @@ impl Engine {
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         if let Some(r) = &route {
             let booking = gate.route(r.step.clone());
+            gate.name_route_roles(r.roles.clone());
             if let Some(j) = &judge {
                 booking.set_max_call(j.max_call_micro_usd());
             }
@@ -449,6 +450,18 @@ impl Engine {
         gate.close_route(sink, ROUTE_DRAIN);
         gate.persist();
         result
+    }
+
+    /// The run's end follows the step of the failed calls that fail no step on their own (`failed_calls`,
+    /// [`Gate::take_failed`]), each by its own step: the step of `case` whose program failed ends the run with its own first
+    /// failed call as its cause; a step that went on is noted in the run's record and the run goes on.
+    fn settle_failed(store: &Path, case: &str, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
+        if failed_calls.is_empty() {
+            return Ok(());
+        }
+        let failing = refusal::failed_step(store, case, |_| true).map(|s| s.action);
+        let failed = |step: &str| failing.as_deref() == Some(step);
+        Gate::settle_failed(failed_calls, failed, sink).map_err(failure)
     }
 
     /// Whether the daemon cancelled the run (the wall cap sets the run's own flag, not this).
@@ -514,8 +527,10 @@ impl Engine {
                 calls::run(store, catalog, &settings, Some(&mut observer), Some(local))
             };
             let booked = gate.book(sink);
+            let failed_calls = gate.take_failed();
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
+            Self::settle_failed(store, &ran.case, &failed_calls, sink)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
@@ -746,11 +761,13 @@ impl Wait<'_> {
             let applied = parsed_answer(planned, answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
             (applied, gate.book(self.sink))
         };
+        let failed_calls = gate.take_failed();
         tail.sync_all().map_err(failure)?;
         if let Some(f) = tail.failure.take() {
             return Err(failure(f));
         }
         booked.map_err(failure)?;
+        Engine::settle_failed(self.store, &d.case, &failed_calls, self.sink)?;
         if let Some(end) = Engine::stop_of(gate, self.daemon_cancel, self.slot, self.sink) {
             return end.map(Some);
         }
