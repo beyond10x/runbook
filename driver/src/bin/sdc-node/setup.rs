@@ -32,6 +32,10 @@ pub struct Cfg {
     /// The argv of the stub.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub: Option<Vec<String>>,
+    /// `--step`: a file of the workspace that holds the node's own instruction text (a step of a generated protocol of a
+    /// delegation), relative to the workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 /// What the start leaves for the rest of the run.
@@ -55,9 +59,9 @@ pub struct Setup {
     pub effort: Option<String>,
 }
 
-const VALUED: [&str; 13] = [
+const VALUED: [&str; 14] = [
     "--model", "--max-turns", "--max-budget-usd", "--operations", "--instructions", "--adapter", "--principal",
-    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--gateway-file", "--effort", "--replay-plan",
+    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--gateway-file", "--effort", "--replay-plan", "--step",
 ];
 
 /// Reads standard input and `rest` (the arguments after the action name) as the Loom branch of the
@@ -222,6 +226,7 @@ fn build_cfg(node: &str, opt: &BTreeMap<&str, String>, stub: Option<Vec<String>>
         operations: given("--operations").map(|o| o.split(',').map(str::to_string).collect()),
         instructions,
         stub,
+        step: given("--step").cloned(),
     })
 }
 

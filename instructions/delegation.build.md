@@ -24,8 +24,9 @@ The simplest such protocol, the daemon's free run, as an example:
 {{example_bindings}}
 </bindings>
 
-The daemon writes the bindings' `protocol` and `program_root` and each executor's arguments, exits, budget and
-timeout itself. Answer with one JSON object and nothing else, of this shape:
+An action of the bindings may carry `instruction`: the text its agent node takes as its own step beside the
+request (at most 20000 characters), for a protocol of more than one step. The daemon writes the bindings'
+`protocol` and `program_root` and each executor's arguments, exits, budget and timeout itself. Answer with one JSON object and nothing else, of this shape:
 
 {"protocol": "<the protocol/1 document, as YAML text>", "bindings": "<the loom.bindings/1 document, as YAML text>"}
 

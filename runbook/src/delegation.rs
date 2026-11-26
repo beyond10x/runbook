@@ -190,8 +190,10 @@ pub fn read_built(text: &str) -> Result<Built, String> {
 }
 
 /// The members of an action of a generated protocol's bindings the builder writes; the daemon writes its executor's
-/// arguments, exits, budget and timeout.
-const BUILT_ACTION: [&str; 3] = ["action", "executor", "evidence"];
+/// arguments, exits, budget and timeout. `instruction`: the text of the action's agent node (section 9.2), optional.
+const BUILT_ACTION: [&str; 4] = ["action", "executor", "evidence", "instruction"];
+/// The most characters of the instruction text of one action of a generated protocol.
+const STEP_LIMIT: usize = 20_000;
 const BUILT_EVIDENCE: [&str; 5] = ["kind", "subject", "producer", "from", "results"];
 
 /// The protocol id and revision of a protocol document's text, and its registration (`<id with . and _ as ->@<revision>`).
@@ -265,6 +267,9 @@ pub fn bind_built(registration: &str, bindings: &str, free_bindings: &str) -> Re
                     }
                     let mut action = canon.clone();
                     action.insert("action".into(), name.into());
+                    if let Some(path) = step_of(a, &at)?.map(|_| step_path(name)) {
+                        point_at_step(&mut action, &path).map_err(|why| format!("{at}: {why}"))?;
+                    }
                     action.insert("evidence".into(), Value::Sequence(evidence));
                     actions.push(Value::Mapping(action));
                 }
@@ -276,6 +281,56 @@ pub fn bind_built(registration: &str, bindings: &str, free_bindings: &str) -> Re
     out.insert("artifacts".into(), Value::Mapping(artifacts));
     out.insert("actions".into(), Value::Sequence(actions));
     serde_yaml::to_string(&Value::Mapping(out)).map_err(|e| e.to_string())
+}
+
+/// The instruction of an agent node of a generated protocol that carries its own text (section 9.2).
+pub const STEP_INSTRUCTION: &str = "instructions/delegation.step.md";
+
+/// The instruction texts the builder wrote for actions of a generated protocol: each as the path under the run's work/
+/// directory its agent node reads it from, and the text. The engine writes them before the run starts; [`bind_built`]
+/// checks the same members.
+pub fn built_steps(bindings: &str) -> Result<Vec<(String, String)>, String> {
+    use serde_yaml::Value;
+    let doc: Value = serde_yaml::from_str(bindings).map_err(|e| format!("bindings: not YAML: {e}"))?;
+    let mut out = Vec::new();
+    for (i, a) in doc["actions"].as_sequence().into_iter().flatten().enumerate() {
+        let Some(a) = a.as_mapping() else { continue };
+        let name = a.get("action").and_then(Value::as_str).unwrap_or("");
+        if let Some(text) = step_of(a, &format!("bindings.actions[{i}] ({name})"))? {
+            out.push((step_path(name), text));
+        }
+    }
+    Ok(out)
+}
+
+/// The instruction text an action of a generated protocol carries (`instruction`), checked: text, not blank, at most
+/// [`STEP_LIMIT`] characters, on an action whose name is a file name. None without one.
+fn step_of(action: &serde_yaml::Mapping, at: &str) -> Result<Option<String>, String> {
+    let Some(v) = action.get("instruction") else { return Ok(None) };
+    let text = v.as_str().filter(|t| !t.trim().is_empty() && t.chars().count() <= STEP_LIMIT).ok_or_else(|| format!("{at}.instruction: the text of the action's agent node, not blank, at most {STEP_LIMIT} characters"))?;
+    let name = action.get("action").and_then(serde_yaml::Value::as_str).unwrap_or("");
+    if name.is_empty() || name.starts_with('.') || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+        return Err(format!("{at}.action: an action that carries an instruction is named with letters, digits, ., _ and - only"));
+    }
+    Ok(Some(text.to_owned()))
+}
+
+/// Where the instruction of the action `name` is, under the run's work/ directory.
+fn step_path(name: &str) -> String {
+    format!("{PRODUCTS_DIR}/steps/{name}.md")
+}
+
+/// The executor of an action that carries its own instruction: the free run's agent node with the instruction file of a
+/// step and `--step <path>`.
+fn point_at_step(action: &mut serde_yaml::Mapping, path: &str) -> Result<(), String> {
+    use serde_yaml::Value;
+    let argv = action.get_mut("executor").and_then(|e| e.get_mut("argv")).and_then(Value::as_sequence_mut).ok_or("the free run's executor has no argv")?;
+    let at = argv.iter().position(|a| a.as_str() == Some("--instructions")).ok_or("the free run's argv names no --instructions")?;
+    let task = serde_json::json!({"task": STEP_INSTRUCTION}).to_string();
+    *argv.get_mut(at + 1).ok_or("the free run's --instructions has no value")? = Value::from(task);
+    argv.push(Value::from("--step"));
+    argv.push(Value::from(path));
+    Ok(())
 }
 
 /// `sha256:<hex>` of `bytes`.
@@ -465,5 +520,32 @@ mod tests {
         assert!(refused("format: loom.bindings/1\n", "format: loom.bindings/1\nchildren: {}\n").contains("bindings.children"));
         assert_eq!(protocol_of("format: protocol/1\nprotocol:\n  id: built.tea_x\n  revision: 2\n").unwrap(), ("built.tea_x".into(), 2, "built-tea-x@2".into()));
         assert!(protocol_of("protocol: {id: x}").is_err());
+    }
+
+    /// Section 9.2: the builder composes agent nodes "with instructions it writes". An action of a generated protocol may
+    /// carry its own instruction text: its agent node is still the free run's program, told by `--step` to read that
+    /// text from the run's workspace beside the request (`instructions/delegation.step.md`); an action without one runs
+    /// as the free run does.
+    #[test]
+    fn an_action_of_a_generated_protocol_may_carry_its_own_instruction_for_the_same_agent_node() {
+        let free = bindings(None);
+        let with = BUILT.replace("    evidence:", "    instruction: Write one sentence about green tea, no more.\n    evidence:");
+        let out: serde_yaml::Value = serde_yaml::from_str(&bind_built("built-tea@1", &with, &free).unwrap()).unwrap();
+        let argv: Vec<&str> = out["actions"][0]["executor"]["argv"].as_sequence().unwrap().iter().filter_map(|a| a.as_str()).collect();
+        assert_eq!(&argv[..2], AGENT_NODE, "{argv:?}");
+        assert!(argv.windows(2).any(|w| w == ["--step", "delegation/steps/tea.write.md"]), "{argv:?}");
+        assert!(argv.windows(2).any(|w| w[0] == "--instructions" && w[1].contains(STEP_INSTRUCTION)), "{argv:?}");
+        assert!(!argv.iter().any(|a| a.contains("green tea")), "the text is a file of the run, not an argument: {argv:?}");
+        assert_eq!(built_steps(&with).unwrap(), vec![("delegation/steps/tea.write.md".to_owned(), "Write one sentence about green tea, no more.".to_owned())]);
+        // without one, the free run's instruction and no --step
+        let plain: serde_yaml::Value = serde_yaml::from_str(&bind_built("built-tea@1", BUILT, &free).unwrap()).unwrap();
+        let canon: serde_yaml::Value = serde_yaml::from_str(&free).unwrap();
+        assert_eq!(plain["actions"][0]["executor"], canon["actions"][0]["executor"]);
+        assert_eq!(built_steps(BUILT).unwrap(), Vec::new());
+        // an instruction that is no text, is empty, or an action name that is no file name is refused by name
+        let refused = |text: &str| bind_built("b@1", text, &free).unwrap_err();
+        assert!(refused(&BUILT.replace("    evidence:", "    instruction: [a]\n    evidence:")).contains(".instruction"));
+        assert!(refused(&BUILT.replace("    evidence:", "    instruction: \"  \"\n    evidence:")).contains(".instruction"));
+        assert!(refused(&with.replace("action: tea.write", "action: ../tea")).contains("action"));
     }
 }

@@ -129,6 +129,12 @@ fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Call
     record["protocol"] = json!(id);
     let free_bindings = std::fs::read_to_string(free_home.join("bindings").join(format!("{}.yaml", dlg::FREE_RUNBOOK))).map_err(|e| format!("the free run's bindings: {e}"))?;
     let bound = dlg::bind_built(&registration, &bindings, &free_bindings).map_err(refused)?;
+    // the instruction an action carries is a file of the run's work/ directory its agent node reads (`--step`)
+    for (path, text) in dlg::built_steps(&bindings).map_err(refused)? {
+        let file = workspace.join(&path);
+        let (dir, name) = (file.parent().unwrap_or(workspace), file.file_name().and_then(|n| n.to_str()).unwrap_or_default());
+        put(dir, name, &(text + "\n"))?;
+    }
     let home = request.state_dir.join(dlg::BUILT_DIR);
     put(&home.join("protocol"), &format!("{}.protocol.yaml", dlg::BUILT_RUNBOOK), &protocol)?;
     put(&home.join("bindings"), &format!("{}.yaml", dlg::BUILT_RUNBOOK), &bound)?;

@@ -357,6 +357,11 @@ When the delegation names a `protocol`, that runbook runs with the request as it
    child runbooks of the catalog. It writes no program text. The daemon checks the result with the same loader as a
    shipped runbook; a protocol the loader refuses ends the run `failed: protocol-refused` with the loader's line.
    The generated protocol is a file of the run and is listed among its products.
+   Built: each action of a generated protocol runs the free run's agent node (`sdc-node delegation.free`), and an
+   action may carry its own instruction text (`instruction` in its bindings), which the daemon writes to
+   `work/delegation/steps/<action>.md` and the node reads with `--step` beside the request
+   (`instructions/delegation.step.md`). Not built: the programs and child runbooks of the catalog in a generated
+   protocol; a builder that names one is refused.
 3. **The free run** is the simplest generated protocol and the builder's fallback: one agent node whose
    instruction is the request text, on the delegation's route, in the run's workspace, writing `result.md`.
 

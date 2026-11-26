@@ -305,7 +305,9 @@ events and the web UI work on it unchanged.
   (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
   `{"free": true}`, the free run): the daemon runs it (`generated`) only when every action is the agent node
   `sdc-node delegation.free`, every evidence is read from the exit, and nothing but `format`, `artifacts` and
-  `actions` is named; it writes each executor's arguments, exits, budget and timeout from the free run's, puts the
+  `actions` is named (an action may carry `instruction`, the text of its own step: the daemon writes it to
+  `work/delegation/steps/<action>.md` and runs the agent node with `--step` on it and
+  `instructions/delegation.step.md`); it writes each executor's arguments, exits, budget and timeout from the free run's, puts the
   artifact `idea` at `request.yaml`, and checks the result with the loader of a runbook (the layout, the budgets,
   Loom's reader of the protocol directory, the opening of the tree). Both calls are the run's: taken against its
   caps, booked in its ledger and recorded as its events `runbook.model-call`. An answer that is not the JSON asked

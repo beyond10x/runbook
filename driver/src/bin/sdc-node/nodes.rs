@@ -189,7 +189,21 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             for e in &entries {
                 inp.input(e);
             }
-            Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request)])?))
+            // A step of a generated protocol carries its own instruction: a file of the workspace (`--step`) whose text the
+            // task names beside the request (`instructions/delegation.step.md`).
+            let step = match c.set.cfg.step.as_deref() {
+                None => String::new(),
+                Some(rel) => {
+                    let p = Path::new(rel);
+                    let plain = |s: std::path::Component| matches!(s, std::path::Component::Normal(n) if !n.to_string_lossy().starts_with('.'));
+                    let text = (!p.is_absolute() && p.components().all(plain)).then(|| fs::read_to_string(work.join(p)).ok()).flatten().unwrap_or_default();
+                    if text.trim().is_empty() {
+                        return Err(die(format!("llm-node: {} could not run: --step {rel} names no instruction text in the workspace", c.node), 126));
+                    }
+                    text.trim_end().to_owned()
+                }
+            };
+            Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request), ("step", &step)])?))
         }
         "change.review" => crate::review::inputs(c, rec, cwd, inp),
         "change.implement" => crate::implement::inputs(c, rec, cwd, inp),
