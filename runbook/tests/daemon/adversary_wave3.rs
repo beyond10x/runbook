@@ -13,7 +13,7 @@ use runbook::admission::{for_run, parse, Asked, By, Facts};
 use runbook::relay::{role_model, ResolvedRoute, RouteTable};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
 
@@ -79,15 +79,14 @@ fn adversary_wave3_needs_the_runs_route_misses_are_met_by_the_daemon_default_whe
 /// A runbook of one bound program, `late.write`: it reserves 0.0123 USD (12,300 micro USD), calls the relay through the
 /// run's route file (role `default`) and waits for the answer; it is killed at its timeout of 1 s. With `agent_call`
 /// it first writes the call directory an agent node's adapter writes before it starts its model client
-/// (`.sdc/llm/<n>-<action>/request.json`), whose cost line it would write after the answer. Its process id goes to
-/// `pid_file`, for the gateway of [`gateway_after_the_program`].
-fn late_runbook_with(home: &std::path::Path, agent_call: bool, pid_file: &std::path::Path) {
+/// (`.sdc/llm/<n>-<action>/request.json`), whose cost line it would write after the answer.
+fn late_runbook_with(home: &std::path::Path, agent_call: bool) {
     let protocol = "format: protocol/1\nprotocol:\n  id: late-demo\n  revision: 1\n  description: >-\n    An adversary case's runbook: one program whose model call outlasts its timeout.\nartifacts:\n  idea: {}\n  result: {}\nevidence_kinds:\n  result_written: {}\nclaims:\n  result.written:\n    true_when:\n      evidence: {kind: result_written, subject: result, result: written}\nactions:\n  late.write:\n    effect: write\n    may_produce:\n      - evidence: result_written\noutcomes:\n  answered:\n    requires: {claim: result.written}\n";
     let bindings = "format: loom.bindings/1\nprotocol: late-demo@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  result: result.md\nactions:\n  - action: late.write\n    executor:\n      kind: program\n      argv: [tools/late.sh, --max-budget-usd, \"0.0123\"]\n    timeout_seconds: 1\n    evidence:\n      - kind: result_written\n        subject: result\n        producer: late\n        from: exit\n        results: {\"0\": written, timeout: failed, \"*\": failed}\n";
     std::fs::write(home.join("protocol/late-demo.protocol.yaml"), protocol).unwrap();
     std::fs::write(home.join("bindings/late-demo.yaml"), bindings).unwrap();
     let call_dir = if agent_call { "mkdir -p .sdc/llm/001-late.write && printf '{}\\n' > .sdc/llm/001-late.write/request.json\n" } else { "" };
-    let program = format!("#!/bin/bash\necho $$ > '{}'\n", pid_file.display()) + call_dir + r#"f=$RUNBOOK_ROUTE_FILE
+    let program = String::from("#!/bin/bash\n") + call_dir + r#"f=$RUNBOOK_ROUTE_FILE
 base=$(jq -r .base_url "$f") && token=$(jq -r .token "$f") || exit 9
 rest=${base#http://}
 hostport=${rest%%/*}
@@ -101,31 +100,16 @@ printf 'answered\n' > result.md
     write_exe(&home.join("bindings/tools/late.sh"), &program);
 }
 
-fn late_runbook(home: &std::path::Path, pid_file: &std::path::Path) {
-    late_runbook_with(home, false, pid_file);
+fn late_runbook(home: &std::path::Path) {
+    late_runbook_with(home, false);
 }
 
-/// Whether the program whose process id `pid_file` holds has not ended yet: no file yet, or a process that is neither gone
-/// nor a zombie.
-fn program_lives(pid_file: &std::path::Path) -> bool {
-    let Ok(pid) = std::fs::read_to_string(pid_file) else { return true };
-    match std::fs::read_to_string(format!("/proc/{}/stat", pid.trim())) {
-        Ok(stat) => stat.rfind(')').and_then(|at| stat[at + 1..].split_whitespace().next()).is_some_and(|state| state != "Z"),
-        Err(_) => false,
-    }
-}
-
-/// A stand-in gateway that lists the aliases of the routes and answers each model call [`OK`] once the program whose
-/// process id `pid_file` holds has ended, at most 20 s after the call came: the program is killed at its timeout of 1 s
-/// while its call is in flight, and the answer comes after that.
-fn gateway_after_the_program(pid_file: std::path::PathBuf) -> super::relay::Gateway {
+/// A stand-in gateway that lists the aliases of the routes and answers each model call [`OK`] 3 s after it came.
+fn slow_gateway() -> super::relay::Gateway {
     gateway_answering(
-        move |g| {
+        |g| {
             if g.head.starts_with("POST ") {
-                let limit = Instant::now() + Duration::from_secs(20);
-                while program_lives(&pid_file) && Instant::now() < limit {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
+                std::thread::sleep(Duration::from_secs(3));
             }
             OK.to_vec()
         },
@@ -150,10 +134,9 @@ fn late_run(l: &super::default_confinement::Live) -> (Value, Vec<Value>) {
 /// timeout: the run ends naming it, not `runtime-failure` for a cost record the relay's line replaces on a route.
 #[test]
 fn adversary_wave3_an_agent_step_killed_at_its_timeout_with_its_call_in_flight_ends_naming_the_step() {
-    let pid_file = super::state::scratch("adv3-late-agent-pid").join("late.pid");
-    let gw = gateway_after_the_program(pid_file.clone());
+    let gw = slow_gateway();
     let (h, l, _) = daemon_at("adv3-late-agent", &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
-    late_runbook_with(&h.home, true, &pid_file);
+    late_runbook_with(&h.home, true);
     let (end, events) = late_run(&l);
     let why: Vec<Value> = events.iter().filter(|e| e["kind"] == "runbook.runtime-failed" || e["kind"] == "runbook.step-failed").map(|e| e["record"]["reason"].clone()).collect();
     let booked: Vec<Value> = events.iter().filter(|e| e["kind"] == "runbook.cost-booked").map(|e| e["record"].clone()).collect();
@@ -174,10 +157,17 @@ fn adversary_wave3_an_agent_step_killed_at_its_timeout_with_its_call_in_flight_e
 /// 1,000,000,000 micro USD has left.
 #[test]
 fn adversary_wave3_a_call_of_unknown_cost_that_ends_after_its_step_was_killed_books_the_steps_reservation() {
-    let pid_file = super::state::scratch("adv3-late-pid").join("late.pid");
-    let gw = gateway_after_the_program(pid_file.clone());
+    let gw = gateway_answering(
+        |g| {
+            if g.head.starts_with("POST ") {
+                std::thread::sleep(Duration::from_secs(3));
+            }
+            OK.to_vec()
+        },
+        &["a-model", "b-model"],
+    );
     let (h, l, _) = daemon_at("adv3-late", &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
-    late_runbook(&h.home, &pid_file);
+    late_runbook(&h.home);
     let r = send(l.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(json!({"runbook_id": "late-demo", "intake": "red or blue", "model_route": "default"}).to_string().as_bytes()));
     assert_eq!(r.status, 202, "{}", r.text());
     let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned();

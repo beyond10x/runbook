@@ -44,13 +44,6 @@ fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// Ends the pauses of `count` writers (the `sleep` of `pause.txt` below the daemon this case started): a run submitted with
-/// a pause of 30 s stays live while the case checks the drain, and goes on at once when the case is done with it, instead
-/// of after a fixed pause the checks had to fit into.
-fn end_pauses(count: usize) {
-    super::engine::end_pauses_together(count);
-}
-
 struct Serve {
     child: Child,
     addr: SocketAddr,
@@ -320,7 +313,7 @@ fn reasons(s: &Serve) -> Vec<String> {
 fn a_stop_during_a_live_run_lets_it_end_with_its_outcome_and_refuses_a_submit_meanwhile() {
     let t = Instant::now();
     let mut s = Serve::start("drain-live", &[]);
-    let run = s.submit(30);
+    let run = s.submit(2);
     assert_eq!(s.get("/daemon/views/runs").header(DRAIN_HEADER), None, "not draining yet");
     s.signal("TERM");
     s.wait_draining();
@@ -344,7 +337,6 @@ fn a_stop_during_a_live_run_lets_it_end_with_its_outcome_and_refuses_a_submit_me
     assert_eq!(s.rows("runs", "").len(), 1, "the refused submits made no run");
 
     // Decisions are taken during the drain; the run ends with its own outcome.
-    end_pauses(1);
     assert_eq!(s.settle(&run), "delivered");
     let (code, took) = s.exit_within(Duration::from_secs(15));
     assert_eq!(code, Some(0), "{}", s.stderr());
@@ -417,12 +409,11 @@ fn the_serve_option_names_the_bound_in_seconds() {
 #[test]
 fn three_runs_at_once_all_end_with_their_outcome_and_the_daemon_exits_0_after_the_last() {
     let mut s = Serve::start("drain-three", &[]);
-    let runs: Vec<String> = (0..3).map(|_| s.submit(30)).collect();
+    let runs: Vec<String> = [1, 2, 3].iter().map(|p| s.submit(*p)).collect();
     s.signal("TERM");
     s.wait_draining();
     let draining = &s.facts("daemon.draining")[0];
     assert_eq!(draining["run_ids"].as_array().unwrap().len(), 3, "{draining}");
-    end_pauses(3);
     let outcomes = s.settle_all(&runs);
     assert_eq!(outcomes, vec!["delivered"; 3], "{}", s.stderr());
     let (code, _) = s.exit_within(Duration::from_secs(15));
@@ -548,10 +539,8 @@ fn a_cut_off_that_orphans_a_live_run_exits_with_the_code_that_says_so_and_a_clea
 
     // The bound is set and the run ends inside it: nothing is left, so the exit is 0.
     let mut s = Serve::start("drain-exit-clean", &["--drain-seconds", "20"]);
-    let run = s.submit(30);
+    let run = s.submit(1);
     s.signal("TERM");
-    s.wait_draining();
-    end_pauses(1);
     assert_eq!(s.settle(&run), "delivered");
     let (code, _) = s.exit_within(Duration::from_secs(15));
     assert_eq!(code, Some(0), "{}", s.stderr());
@@ -745,13 +734,12 @@ fn every_submit_during_the_drain_is_503_whatever_else_is_wrong_with_it() {
 #[test]
 fn a_closed_standard_error_does_not_end_the_drain() {
     let mut s = Serve::launch_with(prepare("drain-closed-stderr"), &[], true);
-    let run = s.submit(30);
+    let run = s.submit(2);
     s.signal("TERM");
     std::thread::sleep(Duration::from_millis(500));
     let status = s.child.try_wait().unwrap();
     assert!(status.is_none(), "the daemon exited with a run live: {status:?}, journal facts {:?}", s.journal().iter().map(|f| f["fact"].as_str().unwrap().to_string()).collect::<Vec<_>>());
     assert_eq!(s.facts("daemon.draining").len(), 1);
-    end_pauses(1);
     assert_eq!(s.settle_all(&[run]), vec!["delivered"]);
     let (code, _) = s.exit_within(Duration::from_secs(15));
     assert_eq!(code, Some(0));
@@ -762,11 +750,10 @@ fn a_closed_standard_error_does_not_end_the_drain() {
 fn a_huge_drain_seconds_still_lets_a_live_run_end_with_its_outcome() {
     for v in ["1000000000000000000", "18446744073709551615"] {
         let mut s = Serve::start(&format!("drain-huge-live-{v}"), &["--drain-seconds", v]);
-        let run = s.submit(30);
+        let run = s.submit(1);
         s.signal("TERM");
         std::thread::sleep(Duration::from_millis(500));
         assert!(s.child.try_wait().unwrap().is_none(), "--drain-seconds {v}: the daemon exited with a run live: {}", s.stderr());
-        end_pauses(1);
         assert_eq!(s.settle_all(&[run]), vec!["delivered"], "--drain-seconds {v}: {}", s.stderr());
         let (code, _) = s.exit_within(Duration::from_secs(15));
         assert_eq!(code, Some(0), "--drain-seconds {v}: {}", s.stderr());

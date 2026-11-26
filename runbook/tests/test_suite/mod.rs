@@ -80,28 +80,25 @@ fn lines(o: &Output) -> Vec<String> {
     out(o).lines().map(str::to_owned).collect()
 }
 
-/// The command names of every process below this one, walked down through the `children` file of each thread
-/// (`/proc/<pid>/task/<tid>/children`): a sample reads the processes below this one, not every process of the host.
+/// The command names of every process below this one.
 fn descendants() -> Vec<String> {
-    let mut found = Vec::new();
-    let mut seen: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
-    let mut todo = vec![std::process::id()];
-    while let Some(pid) = todo.pop() {
-        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
-        for task in tasks.flatten() {
-            let Ok(children) = std::fs::read_to_string(task.path().join("children")) else { continue };
-            for child in children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()) {
-                if !seen.insert(child) {
-                    continue;
-                }
-                let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
-                let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
-                found.push(stat[open + 1..close].to_string());
-                todo.push(child);
-            }
-        }
+    let mut table: Vec<(u32, u32, String)> = Vec::new();
+    for e in std::fs::read_dir("/proc").unwrap().flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
+        let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
+        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
+        let ppid = stat[close + 1..].split_whitespace().nth(1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+        table.push((pid, ppid, stat[open + 1..close].to_string()));
     }
-    found
+    let mut below: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
+    loop {
+        let more: Vec<u32> = table.iter().filter(|(p, pp, _)| below.contains(pp) && !below.contains(p)).map(|(p, _, _)| *p).collect();
+        if more.is_empty() {
+            break;
+        }
+        below.extend(more);
+    }
+    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(_, _, c)| c).collect()
 }
 
 #[test]

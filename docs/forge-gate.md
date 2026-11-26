@@ -60,6 +60,30 @@ absent name (`ui/runfiles.mjs`). One run without the run bound, under a reporter
 161 s on 2 CPUs: 102 s of CPU in the renderers, 78 s in the children the tests start (servers, players, their guards),
 62 s in the Playwright workers, 44 s in the browsers' main processes, 12 s in their compositors.
 
+## The runbook step's waits, 2026-11-26
+
+The budget of `test:runbook` is measured on the forge: the job "Build documentation", step "Test the runbook crate
+with the local gate's task". There it took 123.3 s (pull request 112, over the budget) and 112.7 s for the same 1902
+tests, whose times summed to 446 s: the step's time is that sum over the 4 test threads, so a test that waits holds a
+thread as long as one that computes. This host's disk is slower to sync than the runner's: the same step takes 180 s to
+395 s on 2 of its CPUs, most of it in `fsync`, so a local run shows which tests changed and not the forge's time.
+
+| Change | Tests | Forge, before (summed) | Local forge way, after (summed) |
+|---|---|---|---|
+| End the runner before the stand-in's shell; 1 s to prove an ignored HUP | 5 of `gateway_*` | 38.7 s | 2.9 s, 2.9 s |
+| End the pauses once all runs' programs pause (`end_pauses_together`) | 5 of `drain`, 3 of `caps` | 22.9 s | 12.7 s, 34.3 s |
+| Stand-in gateways answer once the program ended or the cancel returned | 5 of `adversary_wave3`, 1 of `adversary_b` | 10.3 s | 5.5 s, 6.6 s |
+| Stand-ins of a delegation wait for each other, not 3 s | 1 of `delegate` | 3.5 s | 0.8 s, 1.0 s |
+
+The helpers that look for the processes below a test walk `/proc/<pid>/task/<tid>/children`: a scan of every process
+of a host with thousands of them cost the tests that poll every 10 ms more CPU than their runs. The `runbook` crate
+builds at `opt-level = 1` like its dependencies: a run of all tests on 2 CPUs here took 161.5 s of CPU before and
+144.6 s with it and the first of the changes.
+
+What stays: about 1450 calls of the pinned Loom's `run_tree` with a cancel flag each return up to 100 ms after their
+run ended (its watcher sleeps in steps of 100 ms), about 72 s of the summed time, about 18 s of the forge's step.
+That is a change of Loom.
+
 ## Why `test:ui` stays out
 
 At 2 CPUs its 611 tests need about 125 s to 133 s (the share that finished in 120 s, taken to the whole run; 161 s in

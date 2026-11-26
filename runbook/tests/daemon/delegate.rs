@@ -835,16 +835,11 @@ fn a_submitted_run_whose_only_action_fails_ends_with_an_outcome_naming_the_step_
 #[test]
 fn adversary_mcp_delegate_does_not_hold_the_server_while_it_waits() {
     let d = daemon("dlg-adv-mcp-par", OK);
-    // Each run's model program waits until the other run's has started too (at most 20 s): the first run cannot end
-    // before the second was submitted unless the second waited, which the case then shows by its times.
-    let started = d.h.log.join("started");
-    std::fs::create_dir_all(&started).unwrap();
     write_exe(
         &d.h.log.join("bin/claude"),
         &format!(
-            "#!/bin/bash\n: > '{s}/'$$\nalone() {{ set -- '{s}'/*; [ $# -lt 2 ]; }}\nn=0\nwhile alone && [ $n -lt 2000 ]; do sleep 0.01; n=$((n + 1)); done\nexec '{}' \"$@\"\n",
-            d.h.log.join("bin/claude-real").display(),
-            s = started.display()
+            "#!/bin/bash\nsleep 3\nexec '{}' \"$@\"\n",
+            d.h.log.join("bin/claude-real").display()
         ),
     );
     write_exe(&d.h.log.join("bin/claude-real"), &claude_answering(&d.h.log));

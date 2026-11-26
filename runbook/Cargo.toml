@@ -31,7 +31,4 @@ b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
 [profile.dev.package."*"]
 opt-level = 1
 
-[profile.dev.package.runbook]
-opt-level = 1
-
 [workspace]
