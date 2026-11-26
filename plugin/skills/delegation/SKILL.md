@@ -13,6 +13,8 @@ task sent there runs nowhere. Send it to the runbook MCP tool `delegate` instead
 The session's route is the value of `RUNBOOK_MODEL_ROUTE` in its environment, named in the denial reason and in
 the context line the plugin adds when the session starts. When it is not set, leave `model_route` out: the
 daemon's default route applies. A `delegate` call may name another route; the daemon admits or refuses it.
+Inside the run, its model processes ask the daemon's relay for the model runbook-<role> of their route file (for
+example runbook-default); that is no route name and never a value for the route of a delegation.
 
 ## Delegate
 
@@ -39,7 +41,7 @@ This step is done when the task's result is in the conversation, or a tool error
   route whose gateway is not ready as `route-unavailable` naming the route (HTTP status 503); a route that fails
   the run's call ends the run `runtime-failure`, a tool error whose `failure` names `route-unavailable` and the
   route. Pick a route from `list_routes` or `describe_catalog`, or report the error.
-- A run whose agent step failed ends `failed: step <action> <end>` (`exit <n>`, `signal <n>`, `timed out after <s> s`
+- A run whose step failed (an agent node or any other program of the runbook) ends `failed: step <action> <end>` (`exit <n>`, `signal <n>`, `timed out after <s> s`
   or `ended with no exit`), a tool error whose `failure` names the step and how it ended. Report it, or delegate again with a clearer task. The Agent and Workflow tools
   stay denied; the session's own model takes no sub-agent work.
 - `daemon unreachable` (status 502): the daemon named by `RUNBOOK_DAEMON` does not answer. Report it.

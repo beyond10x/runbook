@@ -73,10 +73,10 @@
     },
     "outcome": {
       "$ref": "#/$defs/sdc.daemon.RunOutcome",
-      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take; the event runbook.step-failed says why)."
+      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take; the event runbook.step-failed says why)."
     },
     "failure": {
-      "description": "Why the run failed to start; absent in every other state.",
+      "description": "Why the run failed to start; absent in every other state of the row. The view `run` also gives here what failed a run after it started: the reason of its run event `runbook.runtime-failed` or `runbook.step-failed`.",
       "type": "string"
     },
     "step_in_flight": {
@@ -147,7 +147,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:63b95c6005c38f954de8e45a509926025450b9f63a28ac1203dc4d99ae7796fe",
+    "contract_digest": "slice-sha256/2:a87e563c8d6e2b8ddd19344bf11927f89fb21f896a87ebfd2d7c1c966821b9f4",
     "regenerate": "ess generate"
   },
   "$defs": {

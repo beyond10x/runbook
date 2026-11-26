@@ -451,7 +451,9 @@ impl RouteTable {
                 if !models.contains_key(&route.alias) {
                     Readiness::Unlisted
                 } else {
-                    let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias).filter(|_| route.kind.has_model_status()));
+                    // only a managed or a local route waits for its model: a hosted route is never held on `callable`, whichever
+                    // status route gave it (the view `routes` still shows the phase)
+                    let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias)).filter(|_| route.kind.has_model_status());
                     match status {
                         Some(s) if !s.callable.unwrap_or(s.phase.as_deref() == Some("ready")) => Readiness::NotCallable { phase: s.phase.clone() },
                         _ => Readiness::Callable,
@@ -532,8 +534,8 @@ pub const SPEND_CEILING: &str = "spend-ceiling";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Readiness {
     /// The gateway is ready and lists the alias, and the status of the model, when one was read, says it can answer
-    /// (`callable` of `GET /v1/status`, else the phase `ready` of `GET /v1/models/{alias}/status` for a managed or a
-    /// local route). A hosted route on a gateway without `/v1/status` is read no further: no model call probes it.
+    /// (`callable` of `GET /v1/status`, else the phase `ready` of `GET /v1/models/{alias}/status`), read for a managed or a
+    /// local route only. A hosted route is held on neither status (the view `routes` shows it), and no model call probes it.
     Callable,
     /// No answer from `GET /ready` or `GET /v1/models` in time, or an address the daemon does not speak (https).
     Unreachable,

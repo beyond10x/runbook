@@ -35,6 +35,7 @@ model=''
 prev=''
 for a in "$@"; do [ "$prev" = -p ] && prompt=$a; [ "$prev" = --model ] && model=$a; prev=$a; done
 printf '%s' "$prompt" > "$log/prompt"
+printf '%s\n' "$model" >> "$log/models"
 rest=${{ANTHROPIC_BASE_URL#http://}}
 hostport=${{rest%%/*}}
 base=''
@@ -1159,4 +1160,19 @@ fn a_classified_delegation_takes_the_route_entries_of_the_runbook_the_classifier
     assert_eq!((end["run_state"].clone(), end["path"].clone(), end["protocol"].clone()), (json!("FailedToStart"), json!("classified"), json!("answer-demo")), "{end}");
     assert_eq!(failure, format!("route-refused: {reason}"), "the refusal is not the one of a delegation naming the runbook: {end}");
     assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0), "the refused runbook's step made a call");
+}
+
+/// The claude-cli adapter of a run on a route gives `claude` the model the route file names for the role,
+/// `runbook-<role>`, which no client takes for an alias of its own, and the relay takes it for the role.
+#[test]
+fn the_free_runs_claude_asks_for_runbook_default_and_the_relay_takes_it_for_the_role_default() {
+    let d = daemon("dlg-role-model", OK);
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let models = std::fs::read_to_string(d.h.log.join("models")).unwrap_or_default();
+    assert_eq!(models, "runbook-default\n", "the adapter did not give claude the route file's model of the role: {end}");
+    assert_eq!((end["outcome"].clone(), end["calls"].clone()), (json!("delivered"), json!(1)), "{end}");
+    let sent = posted(&d.gw);
+    assert_eq!(sent.iter().map(|g| g.body["model"].clone()).collect::<Vec<_>>(), vec![json!("a-model")], "the relay did not send the route's alias");
 }

@@ -224,6 +224,30 @@ fn a_role_without_a_route_a_call_past_the_cap_and_a_call_without_the_runs_token_
     assert_eq!(got(&review).len(), 1);
 }
 
+/// A call names its role bare (`review`) or as the route file's model of the role (`runbook-review`); a client that adds
+/// a bracketed suffix of its own (`runbook-review[1m]`, as Claude Code does to a name it takes for an alias of its own) is
+/// taken for the same role. A name of no role is refused naming the role.
+#[test]
+fn a_call_names_its_role_bare_or_as_runbook_role_and_a_bracketed_suffix_is_dropped() {
+    let s = served("relay-role-names");
+    let review = gateway(OK_ANSWER);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+    let ticket = s.relay.open("run-role-names", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let names = ["review", "runbook-review", "runbook-review[1m]", "review[1m]"];
+    for name in names {
+        let r = call(&s, ticket.base_url(), "messages", ticket.token(), &json!({"model": name, "max_tokens": 5, "messages": []}));
+        assert_eq!(r.status, 200, "{name}: {}", r.text());
+    }
+    let r = call(&s, ticket.base_url(), "messages", ticket.token(), &json!({"model": "runbook-writer[1m]", "messages": []}));
+    assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!("route-refused")), "{}", r.text());
+    assert!(r.json()["error"]["message"].as_str().unwrap_or_default().contains("the role \"writer\""), "the refusal does not name the role: {}", r.text());
+    let lines = wait_for_lines(&book, names.len());
+    assert!(lines.iter().all(|(l, _)| l["role"] == "review"), "a line names another role: {lines:?}");
+    assert!(got(&review).iter().all(|g| g.body["model"] == "claude-alias") && got(&review).len() == names.len(), "{:?}", got(&review));
+}
+
 #[test]
 fn a_gateway_refusal_is_passed_back_and_booked_route_unavailable_with_its_code_and_the_setting_and_no_other_route_is_called() {
     let s = served("relay-down");

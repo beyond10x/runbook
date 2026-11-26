@@ -1746,8 +1746,16 @@ impl Daemon {
                 if let Some(phase) = &r.route_phase {
                     m.insert("route_phase".into(), json!(phase));
                 }
+                let events = st.events_after(Some(run_id), None, 0);
                 // a delegation's path, protocol and confidence (docs/model-routes.md, section 9)
-                m.extend(delegation_of(&st.events_after(Some(run_id), None, 0)).unwrap_or_default());
+                m.extend(delegation_of(&events).unwrap_or_default());
+                // what failed the run after it started, as the view `delegation-result` says it: the reason of its event
+                // `runbook.runtime-failed` or `runbook.step-failed`, so that no failed run reads as one with no reason
+                if r.failure.is_none() {
+                    if let Some(reason) = events.iter().rev().find(|e| e.kind == RUNTIME_FAILED || e.kind == STEP_FAILED).and_then(|e| e.record["reason"].as_str()) {
+                        m.insert("failure".into(), json!(reason));
+                    }
+                }
                 if r.state == RunState::Running {
                     if let Some(step) = lock(&self.inner.steps).get(run_id) {
                         let now = st.now_millis();
@@ -2334,7 +2342,9 @@ impl Daemon {
                 // CancelRun moved the run already.
                 Ok(Finish::Cancelled) => {}
                 Err(f) if sink.started.load(Ordering::SeqCst) => {
-                    let _ = self.record_run_event(&run_id, RUNTIME_FAILED, json!({"reason": f.reason}));
+                    // a runtime-failure always says why: a runtime that gave no text is said to have given none
+                    let reason = if f.reason.trim().is_empty() { "the runtime ended the run and gave no reason".to_owned() } else { f.reason };
+                    let _ = self.record_run_event(&run_id, RUNTIME_FAILED, json!({"reason": reason}));
                     self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, "runtime-failure");
                 }

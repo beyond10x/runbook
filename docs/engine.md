@@ -401,7 +401,8 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   that listener is loopback. On any other (every interface included) the relay is not served, the daemon says so
   on stderr as it starts, and a run on a route fails to start by that name.
 - When the run starts, the daemon mints a token for it (32 random bytes), void when the run ends, and writes
-  `route.json` (`runbook.route/1`, mode 0600: the relay's address for the run, the token, the roles and the
+  `route.json` (`runbook.route/1`, mode 0600: the relay's address for the run, the token, the roles, the model a
+  client sends for each (`runbook-<role>`) and the
   route of each) into the run's private directory (`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode
   0700). Its path is `RUNBOOK_ROUTE_FILE` for the decider's adapter and for every bound program of the run;
   nothing else of the route is given to a process. The file and its directory go when the run ends.

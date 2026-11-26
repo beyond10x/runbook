@@ -237,6 +237,8 @@ pub struct RelayBooking {
     max_call: AtomicU64,
     /// The calls taken and not yet booked.
     in_flight: AtomicU64,
+    /// The calls of a step (their line names it) booked since the last step was booked ([`Gate::book`] takes the count).
+    booked: AtomicU64,
     /// The run ended: what is booked now is no event of the run any more.
     closed: AtomicBool,
 }
@@ -299,6 +301,10 @@ impl crate::relay::Booking for RelayBooking {
     fn book(&self, line: Value, micro_usd: u64) -> Result<(), String> {
         let booked = self.held.ledger.book_line(&self.held.run_id, &line, micro_usd);
         saturating_add(&self.meter.spent, micro_usd);
+        // a call of a step (a decider's call between steps names none) counts toward the step's booked calls
+        if line.get("step").is_some_and(Value::is_string) {
+            saturating_add(&self.booked, 1);
+        }
         let _ = self.in_flight.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
         let text = |k: &str| line.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let failure = match &booked {
@@ -360,7 +366,7 @@ impl Gate {
     /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
     /// the step in flight.
     pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
-        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), closed: AtomicBool::new(false) });
         self.reader = std::mem::take(&mut self.reader).routed();
         self.routed = Some(booking.clone());
         booking
@@ -437,16 +443,21 @@ impl Gate {
     /// Books what the step spent: the cost records written since the last step, at their cost, and a
     /// call that failed with no cost at its reservation (the largest the step held). The step's
     /// reservations are released: the first is committed with the whole cost, the others released. A
-    /// record that cannot be read books the reservations and is an error (fail closed).
+    /// record that cannot be read books the reservations and is an error (fail closed), unless the relay booked calls of
+    /// the step: then the step costs the sum of those calls, its reservations are released, and its cost records (which
+    /// carry no cost on a route) do not matter.
     pub fn book(&mut self, sink: &dyn EventSink) -> Result<(), String> {
         let held: Vec<Reservation> = std::mem::take(&mut *lock(&self.held.reserved));
         let largest = held.iter().map(|r| r.micro_usd).max().unwrap_or(0);
         let result = self.reader.read_new(&self.workspace);
         let routed = self.routed.is_some();
+        let relayed = self.routed.as_ref().map_or(0, |b| b.booked.swap(0, Ordering::SeqCst));
+        let relay_failed = || self.routed.as_ref().and_then(|b| lock(&b.failed).take()).map_or(Ok(()), Err);
         let (booked, what, calls, outcome) = match result {
             // The relay took and booked every model call of the step; the step's reservations are released. A call
             // the ledger could not book fails the step (fail closed).
-            Ok(_) if routed => (0, "step", 0, self.routed.as_ref().and_then(|b| lock(&b.failed).take()).map_or(Ok(()), Err)),
+            Ok(_) if routed => (0, "step", 0, relay_failed()),
+            Err(_) if relayed > 0 => (0, "step", 0, relay_failed()),
             Ok(cost) => {
                 let unknown = cost.unknown.len() as u64;
                 let booked = cost.micro_usd.saturating_add(largest.saturating_mul(unknown));
@@ -573,6 +584,33 @@ mod tests {
         for word in ["route-unavailable", "qwen", "model-stopped", "protocol"] {
             assert!(why.contains(word), "the step's failure does not name {word}: {why}");
         }
+    }
+
+    #[test]
+    fn a_step_whose_calls_the_relay_booked_costs_their_sum_and_its_reservation_is_released_even_when_its_cost_record_is_missing() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-release", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 5_000_000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("proposals.write".to_owned()))));
+        // the step's program reserved its budget, made one call the relay booked at 0 (a route of price 0), and was
+        // killed before its agent node wrote the cost record of its call
+        gate.held.reserve(1_000_000).unwrap();
+        std::fs::create_dir_all(dir.join(".sdc/llm/001-proposals.write")).unwrap();
+        std::fs::write(dir.join(".sdc/llm/001-proposals.write/request.json"), "{}").unwrap();
+        booking.admit().unwrap();
+        booking.book(json!({"what": "model call", "step": "proposals.write", "cost_known": true, "micro_usd": 0}), 0).unwrap();
+        let outcome = gate.book(&Quiet);
+        let (spent, shown) = (gate.held.ledger.spent_by_run("run-a").unwrap(), gate.meter.usage().spent_micro_usd);
+        // a step with no booked call and a cost that cannot be read still books its reservation (fail closed)
+        gate.held.reserve(1_000_000).unwrap();
+        std::fs::create_dir_all(dir.join(".sdc/llm/002-notes.write")).unwrap();
+        std::fs::write(dir.join(".sdc/llm/002-notes.write/request.json"), "{}").unwrap();
+        let unbooked = gate.book(&Quiet);
+        let after = gate.held.ledger.spent_by_run("run-a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "the step whose call the relay booked failed on its cost record: {outcome:?}");
+        assert_eq!((spent, shown), (0, 0), "the step booked its reservation beside the relay's line of its call");
+        assert!(unbooked.is_err(), "a step with no booked call and no cost record was booked as costing nothing");
+        assert_eq!(after, 1_000_000, "a step with no booked call and no cost record did not book its reservation");
     }
 
     #[test]

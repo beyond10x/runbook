@@ -25,6 +25,8 @@ struct Said {
     ready: u16,
     listed: Vec<&'static str>,
     phase: &'static str,
+    /// What `GET /v1/status` answers; none: 404, the gateway serves no such route.
+    status: Option<Value>,
 }
 
 struct Gateway {
@@ -37,7 +39,7 @@ impl Gateway {
     fn start(ready: u16, listed: Vec<&'static str>, phase: &'static str) -> Gateway {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
-        let said = Arc::new(Mutex::new(Said { ready, listed, phase }));
+        let said = Arc::new(Mutex::new(Said { ready, listed, phase, status: None }));
         let lines = Arc::new(Mutex::new(Vec::new()));
         let (s, kept) = (said.clone(), lines.clone());
         std::thread::spawn(move || {
@@ -60,6 +62,7 @@ impl Gateway {
                         "GET /ready" => (said.ready, json!({"ready": said.ready == 200})),
                         "GET /v1/models" => (200, json!({"object": "list", "data": said.listed.iter().map(|id| json!({"id": id, "wires": ["chat"]})).collect::<Vec<_>>()})),
                         "GET /v1/models/qwen/status" => (200, json!({"model": "qwen", "phase": said.phase})),
+                        "GET /v1/status" if said.status.is_some() => (200, said.status.clone().unwrap_or_default()),
                         _ => (404, json!({"error": {"code": "not-found"}})),
                     }
                 };
@@ -212,6 +215,26 @@ fn past_its_wait_the_run_ends_stopped_route_naming_the_last_phase_and_nothing_wa
     assert_eq!((r["outcome"].clone(), r["route_phase"].clone(), r["started_at"].clone()), (json!("stopped: route"), json!("starting"), Value::Null), "{r}");
     let ended: Vec<Value> = d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.route-wait-ended").map(|e| e["record"].clone()).collect();
     assert_eq!(ended, vec![json!({"route": "qwen", "phase": "starting"})]);
+    gw.only_reads();
+}
+
+/// Only a managed or a local route waits for its model: a hosted route whose gateway says in `GET /v1/status` that it
+/// is not callable (an upstream that answers 404 to its model list reads `callable: false, phase unreachable` though
+/// calls work) starts at once, and the view `routes` still shows the phase. A managed route that is not callable waits.
+#[test]
+fn a_hosted_route_the_gateways_status_calls_not_callable_starts_at_once_and_the_routes_view_shows_its_phase() {
+    let gw = Gateway::start(200, vec!["qwen", "claude"], "stopped");
+    gw.said.lock().unwrap().status = Some(json!({"models": [{"model": "claude", "callable": false, "phase": "unreachable"}, {"model": "qwen", "callable": false, "phase": "stopped"}]}));
+    let (d, _) = daemon("ready-hosted-not-callable", &gw, 600);
+    let run = submit(&d, "claude").unwrap().run_id.unwrap();
+    let r = until_state(&d, &run, "Ended");
+    assert_eq!(r["outcome"], "done", "{r}");
+    assert!(r.get("route_phase").is_none() && !kinds(&d, &run).contains(&"runbook.waiting-for-route".to_owned()), "a hosted route was held on callable: {r}");
+    let row = d.routes().into_iter().find(|row| row["route"] == "claude").expect("no row of the route claude");
+    assert_eq!((row["status"].clone(), row["phase"].clone()), (json!("not-ready"), json!("unreachable")), "{row}");
+    let waiting = submit(&d, "qwen").unwrap().run_id.unwrap();
+    until_state(&d, &waiting, "WaitingForRoute");
+    assert_eq!(d.cancel_run(CancelRun { run_id: waiting.clone() }).unwrap().name, "cancelled");
     gw.only_reads();
 }
 

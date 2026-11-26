@@ -119,6 +119,28 @@ impl From<crate::routes::Resolved<'_>> for ResolvedRoute {
     }
 }
 
+/// What the route file puts before a role's name in the role's `model`: the exact string a client sends for the role.
+pub const ROLE_MODEL_PREFIX: &str = "runbook-";
+
+/// The model the route file gives the role `role`: `runbook-<role>`, a name no client takes for an alias of its own.
+pub fn role_model(role: &str) -> String {
+    format!("{ROLE_MODEL_PREFIX}{role}")
+}
+
+/// `model` without a trailing bracketed suffix (`default[1m]` is `default`).
+fn without_suffix(model: &str) -> &str {
+    match model.rfind('[') {
+        Some(at) if at > 0 && model.ends_with(']') => &model[..at],
+        _ => model,
+    }
+}
+
+/// The role a call's `model` names: without a bracketed suffix and without [`ROLE_MODEL_PREFIX`].
+pub fn role_of(model: &str) -> &str {
+    let bare = without_suffix(model);
+    bare.strip_prefix(ROLE_MODEL_PREFIX).unwrap_or(bare)
+}
+
 /// The route of each role of a run, and the setting that chose it (`run`, `protocol`, `default` or the name of the
 /// daemon's setting).
 #[derive(Clone, Debug, Default)]
@@ -136,6 +158,14 @@ impl RouteTable {
     /// The route of `role` and the setting that chose it.
     pub fn get(&self, role: &str) -> Option<(&ResolvedRoute, &str)> {
         self.roles.get(role).map(|(r, s)| (r, s.as_str()))
+    }
+
+    /// The role a call's `model` names, its route and the setting that chose it: the role by its name, or by the model the
+    /// route file gives it (`runbook-<role>`, [`role_model`]); a trailing bracketed suffix a client added to the name
+    /// (Claude Code writes `default[1m]` for a name it takes for an alias of its own) is dropped first.
+    pub fn named(&self, model: &str) -> Option<(&str, &ResolvedRoute, &str)> {
+        let bare = without_suffix(model);
+        [bare, role_of(model)].into_iter().find_map(|name| self.roles.get_key_value(name)).map(|(role, (r, s))| (role.as_str(), r, s.as_str()))
     }
 
     /// The roles, in order.
@@ -321,11 +351,12 @@ impl Relay {
         let Ok(Value::Object(mut body)) = serde_json::from_slice::<Value>(&bytes) else {
             return error(StatusCode::BAD_REQUEST, "bad-request", "a call is a JSON object");
         };
-        let role = body.get("model").and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some((route, source)) = entry.table.get(&role) else {
+        let asked = body.get("model").and_then(Value::as_str).unwrap_or("");
+        let Some((role, route, source)) = entry.table.named(asked) else {
             let roles = entry.table.roles().join(", ");
-            return error(StatusCode::BAD_REQUEST, ROUTE_REFUSED, &format!("the run has no route for the role {role:?}; its roles: {roles}"));
+            return error(StatusCode::BAD_REQUEST, ROUTE_REFUSED, &format!("the run has no route for the role {:?}; its roles: {roles}", role_of(asked)));
         };
+        let role = role.to_owned();
         let (route, source) = (route.clone(), source.to_owned());
         body.insert("model".to_owned(), Value::String(route.alias.clone()));
         if wire == "chat/completions" && body.get("stream") == Some(&Value::Bool(true)) {
@@ -790,7 +821,7 @@ impl RouteFile {
         }
         let made = RouteFile { file: dir.join(ROUTE_FILE), dir };
         std::fs::set_permissions(&made.dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| format!("{}: {}", made.dir.display(), e.kind()))?;
-        let routes: serde_json::Map<String, Value> = table.roles.iter().map(|(role, (route, _))| (role.clone(), json!({"route": route.name}))).collect();
+        let routes: serde_json::Map<String, Value> = table.roles.iter().map(|(role, (route, _))| (role.clone(), json!({"route": route.name, "model": role_model(role)}))).collect();
         let text = serde_json::to_string_pretty(&json!({"format": ROUTE_FORMAT, "base_url": ticket.base_url, "token": ticket.token, "routes": routes})).unwrap_or_default() + "\n";
         let written = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&made.file).and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes()));
         written.map_err(|e| format!("{}: could not write the route file: {}", made.file.display(), e.kind()))?;

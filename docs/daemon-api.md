@@ -589,8 +589,8 @@ itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's f
 `runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
 `runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`),
 `runbook.step-failed` (record `case`, `action`, `end`, `exit`, `signal` and `timeout_seconds` (each of the last three
-when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take. Of a program that is no agent node,
-Loom's refusal for such an exit or a signal ends the run `runtime-failure` with Loom's text, as before; the view `delegation-result` gives its `reason` as `failure`) and
+when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node or any other program) and the tree has no other action to take;
+the views `run` and `delegation-result` give its `reason` as `failure`, as they give the reason of `runbook.runtime-failed`) and
 `runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime
@@ -1093,7 +1093,8 @@ On a loopback listener:
   `Authorization: Bearer <token>` or `x-api-key`, and never the daemon's token: the daemon's guard checks `Host`
   and `Origin` of these paths and leaves the token to the relay. A run that is not live, or another token, is
   `401`.
-- The call's `model` names a role of the run. The relay answers in the gateway's shape,
+- The call's `model` names a role of the run: the role's `model` of the route file (`runbook-<role>`) or the bare
+  role, a trailing bracketed suffix (`runbook-default[1m]`) dropped. The relay answers in the gateway's shape,
   `{"error": {"code", "message"}}`: `400 route-refused` for a role the run has no route for (the message names
   the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent),
   `400 bad-request` for a body that is no JSON object, `503 run-not-ready` before the run takes calls, and

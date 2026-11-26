@@ -286,8 +286,9 @@ At submit, after the route is resolved and before anything is written:
    "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling. The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
-   upstream shows as a failed call (section 4). Once the gateway serves `/v1/status`, a hosted route's `callable`
-   is read as in 3 (the gateway probes the upstream's model list, which costs nothing).
+   upstream shows as a failed call (section 4). A hosted route's `callable` of `/v1/status` is shown in the view `routes`
+   and holds no run: the gateway reads it from the upstream's model list, and an upstream that answers 404 there reads
+   not callable though its calls work.
 6. `waiting-for-route` is a new state of the run and `stopped: route` a new end: both enter the daemon's ESS
    lifecycle, and its conformance suites are regenerated.
 7. `runbook run --model-route` does not wait: a managed or local route that is not callable refuses the run with
@@ -407,8 +408,9 @@ gateway"); only the decider does. A delegation is agent work, so its agent nodes
 entry `story:model-entry-for-bound-programs` asked for, and the place every call is booked.
 
 - **The relay.** runbookd serves, on its own loopback listener, `/daemon/relay/<run>/v1/messages`,
-  `/v1/chat/completions` and `/v1/responses`. A call names its route by role in `model` (`writer`, `review`, or
-  `default`); the relay looks up the run's route table, refuses a role the run has no route for (`400
+  `/v1/chat/completions` and `/v1/responses`. A call names its route by role in `model`: the model the route file
+  gives the role (`runbook-writer`, `runbook-default`) or the bare role (`writer`, `review`, or
+  `default`), a trailing bracketed suffix a client adds (`runbook-default[1m]`) dropped; the relay looks up the run's route table, refuses a role the run has no route for (`400
   route-refused`), checks the run's caps (`429 cap-reached`, nothing sent), sets `model` to the route's alias, adds
   the gateway's credential, sends the call, streams the answer back unchanged, reads the usage from it (the JSON
   `usage` object, or the usage events of a stream), and writes the ledger line.
@@ -418,13 +420,14 @@ entry `story:model-entry-for-bound-programs` asked for, and the place every call
 
   ```json
   {"format": "runbook.route/1", "base_url": "http://127.0.0.1:<daemon port>/daemon/relay/<run>",
-   "token": "<a token minted for this run>", "routes": {"default": {"route": "qwen", "wires": ["chat", "messages"]},
-   "review": {"route": "claude", "wires": ["messages"]}}}
+   "token": "<a token minted for this run>", "routes": {"default": {"route": "qwen", "model": "runbook-default"},
+   "review": {"route": "claude", "model": "runbook-review"}}}
   ```
 
   The token is the run's own, minted at start and void when the run ends; the gateway's credential never leaves
   runbookd. The `claude-cli` adapter sets `ANTHROPIC_BASE_URL` to `base_url` and `ANTHROPIC_AUTH_TOKEN` to the
-  token for the `claude` it starts, and the model to the role; a program that starts another model client does the
+  token for the `claude` it starts, and the model to the role's `model` (`runbook-<role>`: Claude Code takes a bare
+  `default` for an alias of its own and asks for `default[1m]`); a program that starts another model client does the
   same with its own client's settings.
 - **Who gets the file:** the decider, every agent node (`sdc-node`) and every bound program of a run on a route.
   A program that never calls a model ignores it. The file and its directory go when the run ends.

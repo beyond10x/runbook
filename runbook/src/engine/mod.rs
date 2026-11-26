@@ -537,8 +537,9 @@ impl Engine {
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
                     // A step whose program failed left the tree with nothing it can do: the run ends naming that step and
-                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime.
-                    if let Some(step) = refusal::failed_step(store, &ran.case, |action| programs.get(action).is_some_and(|p| p.agent_node)) {
+                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime. Every bound
+                    // program counts, an agent node or not: a refusal of its exit or its signal is a failed step too.
+                    if let Some(step) = refusal::failed_step(store, &ran.case, |_| true) {
                         let timeout = programs.get(&step.action).and_then(|p| p.timeout_seconds).unwrap_or(b10x_loom_intake_slice::bindings::DEFAULT_TIMEOUT_SECONDS);
                         let said = step.end.said(timeout);
                         let outcome = format!("failed: step {} {said}", step.action);
