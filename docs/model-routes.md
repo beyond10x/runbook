@@ -440,7 +440,7 @@ llm-gateway: one process, one closed TOML deployment document
    |    |- managed RunPod -> RunPod API (create, stop) -> the pod's vLLM behind the RunPod proxy
    |    |- hosted         -> any upstream by base URL (Anthropic API, a vLLM somebody runs, OpenRouter)
    |    |- Bedrock        -> AWS Bedrock
-   |    `- local Ollama   -> an Ollama server on loopback            [proposed]
+   |    `- local Ollama   -> an Ollama server on loopback
    `- records: one usage record per call -> log event, counters, dashboard, call store
 watchdog: a second process that stops the gateway's own pods when the gateway cannot
 ```
@@ -461,8 +461,8 @@ watchdog: a second process that stops the gateway's own pods when the gateway ca
 - Hosted (`[hosted.<alias>]`, or a route of an llm routes document), today. Nothing is started or stopped. The
   Claude route is this kind: the messages wire, the gateway's own key or the client's credential forwarded.
 - Bedrock (`[hosted.<alias>] kind = "bedrock"`), today.
-- Local Ollama [proposed, story:ollama-route]: default base URL on loopback port 11434, the alias mapped to an
-  Ollama model name. The gateway never pulls a model and sends Ollama no request that changes what it stores.
+- Local Ollama, today (release 0.25.0, `story:ollama-route`; kind `ollama` in `GET /v1/status`, a local model
+  loaded): its base URL on loopback, the alias mapped to an Ollama model name. The gateway never pulls a model and sends Ollama no request that changes what it stores.
 
 Runbook's route `kind` maps onto these: `managed` is a managed RunPod model, `hosted` is a hosted or Bedrock model,
 `local` is a local Ollama model.
@@ -562,14 +562,14 @@ Body `{"error":{"code","message"}}`, stable codes.
 `story:route-status-for-every-model`, `story:a-call-starts-no-pod` with `story:ollama-route`,
 `story:call-id-and-usage-record`, `story:cost-per-call`. One pull request per story, then one release.
 
-Release 0.25.0 serves `GET /v1/status`, the header `x-llm-gateway-call`, `GET /v1/calls/{id}` and a call's
-`cost_usd` for a model with `token_price` (the gateway team's report, 2026-11-26).
+Release 0.25.0 serves `GET /v1/status`, the header `x-llm-gateway-call`, `GET /v1/calls/{id}`, a call's
+`cost_usd` for a model with `token_price`, and the Ollama route (kind `ollama`; the gateway team's report, 2026-11-26).
 
 ### On this machine (2026-11-25)
 
 The gateway unit serves on loopback with two routes, `claude` and `qwen`, both of the hosted kind; the qwen pod's
 proxy does not answer. Moving qwen to the managed kind (D-6) waits for `story:a-call-starts-no-pod`. A local
-Ollama (0.40.18, OpenAI-compatible `/v1`) serves `inkling-2-mini` on loopback port 11434: the first model of the
+Ollama (0.40.18, OpenAI-compatible `/v1`) serves `inkling-2-mini` on loopback: the first model of the
 `local` route kind.
 
 ## Part two: the Claude Code plugin whose delegation Runbook serves
@@ -691,7 +691,8 @@ runbook, in build order. The order follows the consumer's first gap: a run's pro
 12. Draft: `delegation-over-a2a`, the A2A face of section 8 on the `a2a` repository's server crate.
 
 llm-gateway (its own store): `route-status-for-every-model`, `a-call-starts-no-pod` with `ollama-route`,
-`call-id-and-usage-record`; `cost-per-call` only if the operator asks.
+`call-id-and-usage-record`, `cost-per-call`. Release 0.25.0 serves the Ollama route and, for a model that declares
+`token_price`, `cost_usd` in a call's record (`GET /v1/calls/{id}`); Runbook does not read that `cost_usd` yet.
 
 loom: none.
 
