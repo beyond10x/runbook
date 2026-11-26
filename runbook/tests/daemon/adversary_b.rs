@@ -253,15 +253,20 @@ fn adversary_b_the_result_of_a_delegation_waiting_for_its_route_does_not_say_it_
 fn adversary_b_a_cancel_while_the_classifier_answers_sends_no_build_call() {
     let asked = Arc::new(AtomicUsize::new(0));
     let answered = Arc::new(AtomicBool::new(false));
-    let (a, done) = (asked.clone(), answered.clone());
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let (a, done, cancel_taken) = (asked.clone(), answered.clone(), cancelled.clone());
     let gw = gateway_answering(
         move |g| {
             if g.body["model"] != "c-model" {
                 return OK.to_vec();
             }
             if a.fetch_add(1, Ordering::SeqCst) == 0 {
-                // the classify call: slow enough for the cancel to come while it is in flight; below the threshold
-                std::thread::sleep(Duration::from_secs(2));
+                // the classify call: held until the daemon has taken the cancel, so the cancel comes while it is in
+                // flight; below the threshold
+                let limit = Instant::now() + Duration::from_secs(20);
+                while !cancel_taken.load(Ordering::SeqCst) && Instant::now() < limit {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 done.store(true, Ordering::SeqCst);
                 return messages(
                     &json!({"protocol": "answer-demo", "confidence": 0.5, "inputs": {}})
@@ -290,6 +295,7 @@ fn adversary_b_a_cancel_while_the_classifier_answers_sends_no_build_call() {
         Some(json!({"run_id": run}).to_string().as_bytes()),
     );
     assert_eq!(c.status, 202, "{}", c.text());
+    cancelled.store(true, Ordering::SeqCst);
     wait_for("the classifier's answer", Duration::from_secs(10), || {
         answered.load(Ordering::SeqCst)
     });
