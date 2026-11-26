@@ -4,7 +4,7 @@
 use super::*;
 
 fn help() -> String {
-    let o = Command::new("sh").arg(script()).arg("--help").env_clear().env("PATH", SYSTEM_PATH).stdin(Stdio::null()).output().unwrap();
+    let o = Command::new("sh").arg(script()).arg("--help").env_clear().envs(crate::kept()).env("PATH", SYSTEM_PATH).stdin(Stdio::null()).output().unwrap();
     assert_eq!(code(&o), 0);
     out(&o).split_whitespace().collect::<Vec<_>>().join(" ")
 }

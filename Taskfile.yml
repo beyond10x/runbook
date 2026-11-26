@@ -202,12 +202,13 @@ tasks:
   test:runbook:
     silent: true
     dir: runbook
-    desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment, such as the build pool's, does not apply to it). RUNBOOK_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), so a local run meets the budget as the forge does: the forge's step took 123 s where 2 CPUs of the build node took 127 s and all of its 64 CPUs 91 s, at the same 4 threads. Other work on those CPUs slows the run: it prints the load average before and after. Needs cargo-nextest and, for RUNBOOK_TEST_FORGE, taskset."
+    desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment, such as the build pool's, does not apply to it). RUNBOOK_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), so a local run meets the budget as the forge does: the forge's step took 123 s where 2 CPUs of the build node took 127 s and all of its 64 CPUs 91 s, at the same 4 threads. Other work on those CPUs slows the run: it prints the load average before and after. The tests run with the preload tests/nosync (LD_PRELOAD, built here first): their syncs return at once, so the durable writes of the product into the tests' homes under target/ flush nothing to the disk. Needs cargo-nextest and, for RUNBOOK_TEST_FORGE, taskset."
     vars:
       FORGE_CPUS: 2
     cmds:
       - cargo build --locked --manifest-path ../watch/Cargo.toml
       - cargo build --locked --manifest-path ../driver/Cargo.toml --bins
+      - cargo build --locked --manifest-path tests/nosync/Cargo.toml
       - cargo nextest run --locked --color never --no-run
       - |
         {
@@ -215,6 +216,13 @@ tasks:
         log=target/nextest-runbook.log
         code=0
         trap_dir=$(cd ../scripts/host-tool-traps && pwd)
+        nosync=$(pwd)/tests/nosync/target/debug/libnosync.so
+        preload=${LD_PRELOAD:-}
+        if [ -f "$nosync" ]; then
+          if [ -n "$preload" ]; then preload="$nosync $preload"; else preload=$nosync; fi
+        else
+          echo "no $nosync (a CARGO_TARGET_DIR of the environment?): the tests' syncs reach the disk"
+        fi
         profile=default
         limit=""
         if [ -n "${CI:-}" ]; then
@@ -225,7 +233,7 @@ tasks:
         fi
         if [ "$profile" = forge ]; then unset NEXTEST_TEST_THREADS; fi
         echo "nextest profile $profile${limit:+, held to {{.FORGE_CPUS}} CPUs by $limit}; test threads ${NEXTEST_TEST_THREADS:-of the profile}; load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
-        PATH="$trap_dir:$PATH" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
+        PATH="$trap_dir:$PATH" LD_PRELOAD="$preload" $limit cargo nextest run --locked --color never --profile "$profile" > "$log" 2>&1 || code=$?
         cat "$log"
         echo "load average after the run: $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null)"
         echo "ten slowest tests:"

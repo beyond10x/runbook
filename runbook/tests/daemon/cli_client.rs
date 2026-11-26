@@ -20,7 +20,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 /// `runbook <args>` with a clean environment (plus `env`), in `dir`.
 fn cli_in(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> Output {
     let mut c = Command::new(BIN);
-    c.args(args).env_clear().env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.args(args).env_clear().envs(crate::kept()).env("HOME", dir).current_dir(dir).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::isolate(&mut c);
     for (k, v) in env {
         c.env(k, v);
@@ -335,7 +335,7 @@ fn runs_events_follows_a_live_run_until_it_ends() {
     f.server.fx.wait_open_decisions(&run, 1);
     let mut child = Command::new(BIN)
         .args(["runs", "events", &run, "--daemon", &f.url])
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -453,7 +453,7 @@ impl Inproc {
             .arg(r("ledger.json"))
             .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
             .args(extra)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", "/marker-home-dir")
             .stdin(Stdio::null());
