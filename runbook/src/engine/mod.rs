@@ -124,6 +124,8 @@ pub struct Engine {
     /// The daemon's classifier route (`[route_policy] classifier`), the route of a delegation's classify and build calls
     /// (`classify`); none: the engine classifies no delegation.
     classifier: Option<crate::relay::ResolvedRoute>,
+    /// The confidence at or above which the runbook the classifier picked runs (`[delegation] classify_threshold`).
+    classify_threshold: f64,
     /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
     free_home: Option<PathBuf>,
 }
@@ -160,7 +162,7 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None, classifier: None, free_home: None }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None, classifier: None, classify_threshold: crate::delegation::CLASSIFY_THRESHOLD, free_home: None }
     }
 
     /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
@@ -189,6 +191,13 @@ impl Engine {
     /// (`with_relay`) when its run starts.
     pub fn with_classifier(mut self, route: crate::relay::ResolvedRoute) -> Engine {
         self.classifier = Some(route);
+        self
+    }
+
+    /// The confidence at or above which a classified delegation runs the runbook the classifier picked (`[delegation]
+    /// classify_threshold` of `runbook.toml`, 0 to 1; without it [`crate::delegation::CLASSIFY_THRESHOLD`]).
+    pub fn with_classify_threshold(mut self, threshold: f64) -> Engine {
+        self.classify_threshold = threshold;
         self
     }
 

@@ -2690,6 +2690,7 @@ mod relative_state_directory {
             decider: None,
             arbiter: None,
             routes: Default::default(),
+            classify_threshold: None,
             route_table: None,
             assets_root: None,
             token_file: None,

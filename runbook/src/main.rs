@@ -220,6 +220,7 @@ fn main() -> ExitCode {
                     return ExitCode::from(loom_run::EXIT_REFUSED);
                 }
                 args.routes = std::sync::Arc::new(routes);
+                args.classify_threshold = f.classify_threshold;
             }
             if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
                 let limits = loom_run::arbiter::Limits {

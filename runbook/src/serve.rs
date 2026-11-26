@@ -68,6 +68,10 @@ pub struct ServeArgs {
     /// read. Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub routes: Arc<crate::routes::RouteTable>,
+    /// `[delegation] classify_threshold` of `runbook.toml`: the confidence at or above which a classified delegation runs
+    /// the runbook the classifier picked. Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub classify_threshold: Option<f64>,
     /// The route table of the runs whose decider kind is `model` (`crate::relay`): the daemon serves the relay and
     /// such a run's model calls go through it. Not an option: the binary fills it from the `[gateway]` of the file.
     #[arg(skip)]
@@ -217,6 +221,9 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
             // a delegation that names no protocol is classified on the classifier route, when the daemon declares one
             if let Some(route) = args.routes.classifier().and_then(|name| args.routes.resolve(name)) {
                 engine = engine.with_classifier(crate::relay::ResolvedRoute::from(route));
+                if let Some(threshold) = args.classify_threshold {
+                    engine = engine.with_classify_threshold(threshold);
+                }
             }
             relay = Some(r);
         }

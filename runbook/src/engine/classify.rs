@@ -103,7 +103,7 @@ fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Call
     record["confidence"] = json!(classified.confidence);
     // the runbook runs only when it takes every input the answer fills (section 9.1: "inputs the runbook accepts")
     let accepts = |id: &String| catalog.iter().find(|e| &e.id == id).is_some_and(|e| classified.inputs.iter().all(|i| e.inputs.contains(i)));
-    if let Some(id) = classified.protocol.clone().filter(|id| classified.confidence >= dlg::CLASSIFY_THRESHOLD && accepts(id)) {
+    if let Some(id) = classified.protocol.clone().filter(|id| classified.confidence >= engine.classify_threshold && accepts(id)) {
         record["path"] = json!("classified");
         record["protocol"] = json!(id);
         let home = layout::home_of(&engine.homes, &id)?;
