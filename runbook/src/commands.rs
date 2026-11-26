@@ -661,7 +661,7 @@ pub const ROUTE_READ_EVERY_MILLIS: i64 = 5_000;
 struct RouteWait {
     /// The declared routes of the run, each read again until all can answer.
     routes: Vec<String>,
-    /// The first route that could not answer, and the phase its gateway gave.
+    /// The route that could not answer with the least wait (the first of equals), and the phase its gateway gave.
     route: String,
     phase: Option<String>,
     /// The wait: the least `start_wait_seconds` of the routes that could not answer (none declared: no wait).
@@ -703,11 +703,12 @@ fn route_wait(routes: &crate::routes::RouteTable, record: &RunRoute, also: Optio
 }
 
 /// What the gateways say of `names` now (`docs/model-routes.md`, section 3): every route can answer (`Ok(None)`), some
-/// cannot yet (`Ok(Some(wait))`, the first one with its phase), or a route cannot take the run at all.
+/// cannot yet (`Ok(Some(wait))`: of those, the one with the least `start_wait_seconds`, the first of equals, with its
+/// phase; its wait is the run's), or a route cannot take the run at all.
 fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<Option<(String, Option<String>)>, NotReady> {
     use crate::routes::Readiness;
     let until = std::time::Instant::now() + crate::routes::READ_BOUND;
-    let mut first = None;
+    let mut least: Option<(u64, String, Option<String>)> = None;
     for name in names {
         let Some(route) = routes.route(name) else { continue };
         match routes.readiness(name, until) {
@@ -716,13 +717,14 @@ fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<O
             Some(Readiness::NotReady) => return Err(NotReady::Unavailable(format!("route {name}: gateway not ready (the gateway {} answered GET /ready, not 200)", route.gateway))),
             Some(Readiness::Unlisted) => return Err(NotReady::Refused(format!("route {name}: the gateway {} serves no model {}", route.gateway, route.alias))),
             Some(Readiness::NotCallable { phase }) => {
-                if first.is_none() {
-                    first = Some((name.clone(), phase));
+                let seconds = route.start_wait_seconds.unwrap_or(0);
+                if least.as_ref().is_none_or(|(s, _, _)| seconds < *s) {
+                    least = Some((seconds, name.clone(), phase));
                 }
             }
         }
     }
-    Ok(first)
+    Ok(least.map(|(_, name, phase)| (name, phase)))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

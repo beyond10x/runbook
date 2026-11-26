@@ -262,8 +262,8 @@ gateway without `/v1/status` is read no further), within 5 s, with `GET` request
 | every route can answer | accepted; the run starts as before |
 
 A run that waits sends no call to its routes and wakes nothing. The daemon reads their status again at most once
-every 5 s of its clock: once every route can answer, the runtime starts the run; when the route's
-`start_wait_seconds` (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
+every 5 s of its clock: once every route can answer, the runtime starts the run; when the least
+`start_wait_seconds` of the routes that cannot answer (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
 (command `EndRouteWait`, event `runbook.route-wait-ended`: route, last phase), and `route_phase` holds the last
 phase. A gateway that does not answer, or no longer lists the alias, during the wait leaves the run waiting. A cancel
 ends the wait (`Cancelled`); a run that waits keeps a drain open until it starts or its wait is over; after a restart

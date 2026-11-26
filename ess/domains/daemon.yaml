@@ -1192,7 +1192,7 @@ commands:
     naming:
       wire: wait-for-route
       display: Hold a run until its route can answer
-      summary: "A route of a run the daemon accepted could not answer at the submit: the gateway is ready and lists the alias, and the status of the model (`callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route) says it cannot take a call now. The run is WaitingForRoute: no call goes to the route and nothing is woken. The daemon reads the status at most once every 5 seconds of its clock, up to the route's `start_wait_seconds` (none declared: no wait); once every route of the run can answer, the runtime starts it (StartRun); past the wait the daemon ends it (EndRouteWait). The daemon also writes the run event `runbook.waiting-for-route` (record: route, phase, wait_seconds); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+      summary: "A route of a run the daemon accepted could not answer at the submit: the gateway is ready and lists the alias, and the status of the model (`callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route) says it cannot take a call now. The run is WaitingForRoute: no call goes to the route and nothing is woken. The daemon reads the status at most once every 5 seconds of its clock, up to the least `start_wait_seconds` of the routes that cannot answer (none declared: no wait); once every route of the run can answer, the runtime starts it (StartRun); past the wait the daemon ends it (EndRouteWait). The daemon also writes the run event `runbook.waiting-for-route` (record: route, phase, wait_seconds); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: phase, type: Optional<String>, summary: "The phase the gateway gave of the route's model."}
@@ -1221,7 +1221,7 @@ commands:
     naming:
       wire: end-route-wait
       display: End a run whose route did not come up
-      summary: "A run waited for its route up to the route's `start_wait_seconds` and a route of it still could not answer: the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+      summary: "A run waited for its route up to the least `start_wait_seconds` of the routes that cannot answer and a route of it still could not answer: the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: phase, type: Optional<String>, summary: "The last phase the gateway gave of the route's model."}

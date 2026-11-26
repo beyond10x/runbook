@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.EndRouteWait.schema.json",
   "title": "End a run whose route did not come up input",
-  "description": "A run waited for its route up to the route's `start_wait_seconds` and a route of it still could not answer: the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "description": "A run waited for its route up to the least `start_wait_seconds` of the routes that cannot answer and a route of it still could not answer: the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
   "x-ess-name": "sdc.daemon.EndRouteWait",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:16432ae6c1f0423152cc0b493e8597a2888767f272a6bdd2c17fe45845246537",
+    "contract_digest": "slice-sha256/2:98c4a7718b57e968e7e737c6721018f722b43a3a8de7f69bdcdfaef8bcd22fde",
     "regenerate": "ess generate"
   },
   "$defs": {
