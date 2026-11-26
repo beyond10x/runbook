@@ -16,7 +16,7 @@ runtime.
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure`, `stopped: route` or `failed: step <action> exit <n>`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
+| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure`, `stopped: route` or `failed: step <action> <end>`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
@@ -240,7 +240,8 @@ an agent node, of its root bindings or a child's), which reaches a model through
 (`RUNBOOK_ROUTE_FILE`, below). A run whose model calls come from its programs only and that names no route takes `[route_policy] default` only
 when the file declares one and the daemon serves the relay (a loopback listener, below); else it takes none, is
 not refused and runs as before routes. The interim route `default` of a lone `[gateway]` goes to a run whose
-decider is `model` above `A0` only. A run on a route gives the route file to its
+decider is `model` above `A0` only: a submit for any other run that names it is refused `route-refused`, the reason
+naming the member (`model_route`, `model_routes.<role>`). A run on a route gives the route file to its
 decider's adapter and to every bound program; a run on no route gives none. The run record and the views `runs`, `run` and the
 other run views carry `model_route`, `model_route_alias` and `model_route_source` (`run` or `default`), and `run`
 also `model_routes`; the event `runbook.submitted` says the same. The relay's table of the run is built from them:
@@ -357,7 +358,7 @@ events and the web UI work on it unchanged.
 
 `GET /daemon/views/delegation-result?run_id=<id>` answers one row: `run_state`, and once the run ended its
 `outcome` (and `failure`: why it failed to start, the reason of `runbook.runtime-failed`, or for the outcome
-`failed: step <action> exit <n>` the reason of `runbook.step-failed`, which names the step and its exit); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
+`failed: step <action> <end>` the reason of `runbook.step-failed`, which names the step and how it ended); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
 (`null` for `named` and `free`), `classifier_route` and `protocol_digest`; `result_text`,
 the text of `result.md` of the run's `work/` directory read as the view `product` reads a file (absent while there
 is none, and for a file that is not text), `result_truncated` and `result_limit` (1,048,576 bytes); `products`, the
@@ -538,9 +539,9 @@ itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's f
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
 `runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
 `runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`),
-`runbook.step-failed` (record `case`, `action`, `exit`, `reason`: before a run ends with the outcome
-`failed: step <action> exit <n>`, when the last program of its tree ended with an exit other than 0 and the tree
-has no other action to take; the view `delegation-result` gives its `reason` as `failure`) and
+`runbook.step-failed` (record `case`, `action`, `end`, `exit`, `signal` and `timeout_seconds` (each of the last three
+when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take. Of a program that is no agent node,
+Loom's refusal for such an exit or a signal ends the run `runtime-failure` with Loom's text, as before; the view `delegation-result` gives its `reason` as `failure`) and
 `runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime

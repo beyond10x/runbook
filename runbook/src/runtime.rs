@@ -331,8 +331,9 @@ pub enum Finish {
     /// The cancel flag was seen and the run stopped.
     Cancelled,
     /// A step's program failed (an exit other than 0, or ended by a signal) and the run's tree has nothing else it can
-    /// do: the run ends with the outcome `outcome` (`failed: step <action> exit <n>`), and the daemon records why in
-    /// the run event `runbook.step-failed` (`record`: case, action, exit, reason).
+    /// do: the run ends with the outcome `outcome` (`failed: step <action> <end>`, `engine::refusal::StepEnd`), and the daemon
+    /// records why in the run event `runbook.step-failed` (`record`: case, action, end, exit, signal, timeout_seconds,
+    /// reason).
     StepFailed { outcome: String, record: Value },
 }
 

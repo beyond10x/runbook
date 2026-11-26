@@ -247,40 +247,112 @@ pub fn stuck_on(store: &std::path::Path) -> Option<String> {
         .map(|text| lead_of(&text))
 }
 
-/// A step whose program failed: its action and the exit its program ended with.
+/// How the program of a failed step ended, from Loom's observation of its run (`loom.bindings.ProgramRun` in the
+/// store's `observations.json`, source [`b10x_loom_bindings::PROGRAM_SOURCE`]) and the run log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StepEnd {
+    /// It ended with this exit status: one other than 0 the binding's results took, or one its `exits.error` lists.
+    Exit(i64),
+    /// A signal ended it: Loom's exit status is 128 plus the signal.
+    Signal(i64),
+    /// It was killed at its binding's `timeout_seconds`.
+    TimedOut,
+    /// It ended with no exit status and no timeout (a signal under `local`, which leaves no status).
+    NoExit,
+}
+
+impl StepEnd {
+    /// The words of the outcome after `failed: step <action> `: `exit <n>`, `signal <n>`, `timed out after <s> s` or
+    /// `ended with no exit`; `timeout` is the binding's `timeout_seconds`.
+    pub fn said(&self, timeout: i64) -> String {
+        match self {
+            StepEnd::Exit(exit) => format!("exit {exit}"),
+            StepEnd::Signal(signal) => format!("signal {signal}"),
+            StepEnd::TimedOut => format!("timed out after {timeout} s"),
+            StepEnd::NoExit => "ended with no exit".to_owned(),
+        }
+    }
+
+    /// What the program did, for the reason of the run's end.
+    pub fn how(&self, timeout: i64) -> String {
+        match self {
+            StepEnd::Exit(exit) => format!("its program ended with exit {exit}"),
+            StepEnd::Signal(signal) => format!("its program was ended by signal {signal} (exit {})", 128 + signal),
+            StepEnd::TimedOut => format!("its program was killed at its timeout of {timeout} s"),
+            StepEnd::NoExit => "its program ended with no exit status".to_owned(),
+        }
+    }
+}
+
+/// A step whose program failed: its action and how its program ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FailedStep {
     pub action: String,
-    pub exit: i64,
+    pub end: StepEnd,
 }
 
-/// The last program of a case's run log, when it failed: the last `ActionFinished` line that ended a program has an
-/// `exit` other than 0. A program that ended with a refusal of [`PROGRAM_REFUSALS`] (an exit `exits.error` lists, a
-/// signal) is no failed step here: [`program_refused`] names it. A refusal of another kind (`RunsSpent` of an action
-/// whose program failed every run it had, `ResultNotInTable`, ...) ended no program and is passed over. `None` when
-/// the last program ended 0, ended with such a refusal, or none ran.
-pub fn failed_step_in(log: &str) -> Option<FailedStep> {
+/// The text of a run log's `ActionFinished` line of a program killed at its timeout (Loom's `effect_summary`).
+const TIMED_OUT: &str = "timed out";
+/// The text of such a line of a program that ended with no exit status and no timeout.
+const NO_EXIT: &str = "ended with no exit";
+
+/// The last program of a case's run log, when it failed. The run log says which step ended last and whether Loom
+/// refused it; the numbers come from Loom's observation of that step's last run in `observations` (the store's
+/// `observations.json`), never from the text of a refusal:
+///
+/// - an `ActionFinished` with an `exit`: that exit, failed when it is not 0;
+/// - one Loom wrote for a program killed at its timeout, or one that ended with no exit status: failed;
+/// - a refusal of [`PROGRAM_REFUSALS`] (an exit `exits.error` lists, a signal) of an agent node (`agent_node` of its
+///   action): failed, with the observed exit or signal. Of any other program it is no failed step here:
+///   [`program_refused`] names it and the run ends `runtime-failure` as before;
+/// - a refusal of another kind (`RunsSpent` of an action whose program failed every run it had, `ResultNotInTable`,
+///   a runner's refusal, ...) ended no program of its own and is passed over.
+///
+/// `None` when the last program ended 0, was refused as above but is no agent node, or none ran.
+pub fn failed_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&str) -> bool) -> Option<FailedStep> {
+    let lines: Vec<Value> = log.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect();
+    let case = lines.iter().find(|l| l.get("kind").and_then(Value::as_str) == Some("CaseOpened")).and_then(|l| l.get("case")).and_then(Value::as_str);
+    // The observation of the last run of `action` in this case.
+    let observed = |action: &str| -> Option<&Value> {
+        observations.iter().rev().filter(|o| o.get("source").and_then(Value::as_str) == Some(b10x_loom_bindings::PROGRAM_SOURCE)).filter_map(|o| o.get("payload")).find(|p| {
+            p.get("action").and_then(Value::as_str) == Some(action) && (case.is_none() || p.get("case").and_then(Value::as_str) == case)
+        })
+    };
     let mut last: Option<FailedStep> = None;
-    for line in log.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
-        if line.get("kind").and_then(Value::as_str) != Some("ActionFinished") {
-            continue;
-        }
+    for line in lines.iter().filter(|l| l.get("kind").and_then(Value::as_str) == Some("ActionFinished")) {
+        let action = line.get("action").and_then(Value::as_str).unwrap_or_default();
+        let step = |end| Some(FailedStep { action: action.to_owned(), end });
         match (line.get("exit").and_then(Value::as_i64), line.get("refusal").and_then(Value::as_str)) {
-            (Some(exit), _) => {
-                let action = line.get("action").and_then(Value::as_str).unwrap_or_default().to_owned();
-                last = Some(FailedStep { action, exit });
+            (Some(exit), _) => last = step(StepEnd::Exit(exit)),
+            (None, Some(text)) if PROGRAM_REFUSALS.iter().any(|(lead, _)| text.starts_with(lead)) => {
+                last = None;
+                if agent_node(action) {
+                    let exit = observed(action).and_then(|run| run.get("exit")).and_then(Value::as_i64);
+                    last = match (text.starts_with(PROGRAM_REFUSALS[0].0), exit) {
+                        (true, Some(exit)) => step(StepEnd::Signal(exit - 128)),
+                        (false, Some(exit)) => step(StepEnd::Exit(exit)),
+                        (_, None) => step(StepEnd::NoExit),
+                    };
+                }
             }
-            (None, Some(text)) if PROGRAM_REFUSALS.iter().any(|(lead, _)| text.starts_with(lead)) => last = None,
+            (None, Some(TIMED_OUT)) if observed(action).and_then(|run| run.get("timed_out")).and_then(Value::as_bool) == Some(true) => last = step(StepEnd::TimedOut),
+            (None, Some(NO_EXIT)) => last = step(StepEnd::NoExit),
             _ => {}
         }
     }
-    last.filter(|s| s.exit != 0)
+    last.filter(|s| s.end != StepEnd::Exit(0))
+}
+
+/// Loom's observations of a store (`observations.json`); none when it cannot be read.
+fn observations_of(store: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(store.join("observations.json")).ok().and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok()).unwrap_or_default()
 }
 
 /// [`failed_step_in`] of the log of the case `case`, else of the first case's log that has one.
-pub fn failed_step(store: &std::path::Path, case: &str) -> Option<FailedStep> {
+pub fn failed_step(store: &std::path::Path, case: &str, agent_node: impl Fn(&str) -> bool) -> Option<FailedStep> {
+    let observations = observations_of(store);
     let own = b10x_loom_runlog::log_file_name(case);
-    let read = |f: &str| std::fs::read_to_string(store.join(f)).ok().and_then(|t| failed_step_in(&t));
+    let read = |f: &str| std::fs::read_to_string(store.join(f)).ok().and_then(|t| failed_step_in(&t, &observations, &agent_node));
     read(&own).or_else(|| run_log_files(store).iter().filter(|f| **f != own).find_map(|f| read(f)))
 }
 
@@ -472,12 +544,39 @@ mod tests {
         let spent = r#"{"seq":7,"kind":"ActionFinished","action":"delegation.free","refusal":"RunsSpent: action delegation.free: 2 of 2 runs"}"#;
         let evaluated = r#"{"seq":4,"kind":"Evaluated"}"#;
         let log = [failed, evaluated, again, evaluated, spent].join("\n");
-        assert_eq!(failed_step_in(&log), Some(FailedStep { action: "delegation.free".into(), exit: 2 }), "the last exit, and a RunsSpent ends no program");
+        let no_agent = |_: &str| false;
+        let step = |action: &str, end| Some(FailedStep { action: action.into(), end });
+        assert_eq!(failed_step_in(&log, &[], no_agent), step("delegation.free", StepEnd::Exit(2)), "the last exit, and a RunsSpent ends no program");
         let ok = r#"{"seq":9,"kind":"ActionFinished","action":"note.check","exit":0}"#;
-        assert_eq!(failed_step_in(&[failed, ok].join("\n")), None, "the last program ended 0");
+        assert_eq!(failed_step_in(&[failed, ok].join("\n"), &[], no_agent), None, "the last program ended 0");
         let errored = r#"{"seq":9,"kind":"ActionFinished","action":"repro.run","refusal":"ProgramError: action repro.run: t.sh ended exit status 69, which exits.error lists"}"#;
-        assert_eq!(failed_step_in(&[failed, errored].join("\n")), None, "a refused program is named by program_refused");
-        assert_eq!(failed_step_in(""), None);
+        assert_eq!(failed_step_in(&[failed, errored].join("\n"), &[], no_agent), None, "a refused program that is no agent node is named by program_refused");
+        assert_eq!(failed_step_in("", &[], no_agent), None);
+    }
+
+    /// The exit of a refused agent node and a timeout come from Loom's observation of the run, not from the text.
+    #[test]
+    fn a_refused_agent_node_and_a_timed_out_program_are_failed_steps_with_the_observed_exit_or_signal() {
+        let opened = r#"{"seq":0,"kind":"CaseOpened","case":"c1","protocol":"p@1"}"#;
+        let run = |action: &str, exit: Option<i64>, timed_out: bool| serde_json::json!({"source": "loom/bound-program", "subject": action, "payload": {"case": "c1", "action": action, "exit": exit, "timed_out": timed_out}});
+        let agent = |a: &str| a == "delegation.free";
+        let step = |action: &str, end| Some(FailedStep { action: action.into(), end });
+        // the text says 99; the observation says 127, and the observation wins
+        let errored = r#"{"seq":2,"kind":"ActionFinished","action":"delegation.free","refusal":"ProgramError: action delegation.free: sdc-node ended exit status 99, which exits.error lists"}"#;
+        let observed = [run("delegation.free", Some(127), false)];
+        assert_eq!(failed_step_in(&[opened, errored].join("\n"), &observed, agent), step("delegation.free", StepEnd::Exit(127)));
+        let signalled = r#"{"seq":2,"kind":"ActionFinished","action":"delegation.free","refusal":"ProgramSignalled: action delegation.free: sdc-node was ended by a signal: exit 137"}"#;
+        let killed = [run("delegation.free", Some(137), false)];
+        assert_eq!(failed_step_in(&[opened, signalled].join("\n"), &killed, agent), step("delegation.free", StepEnd::Signal(9)));
+        assert_eq!(StepEnd::Signal(9).said(60), "signal 9");
+        assert_eq!(failed_step_in(&[opened, signalled].join("\n"), &killed, |_: &str| false), None, "a signal of a program that is no agent node is program_refused's");
+        let timed_out = r#"{"seq":2,"kind":"ActionFinished","action":"hang.write","refusal":"timed out","evidence":["e"]}"#;
+        let hung = [run("hang.write", None, true)];
+        assert_eq!(failed_step_in(&[opened, timed_out].join("\n"), &hung, agent), step("hang.write", StepEnd::TimedOut));
+        assert_eq!(StepEnd::TimedOut.said(1), "timed out after 1 s");
+        assert_eq!(failed_step_in(&[opened, timed_out].join("\n"), &[], agent), None, "no observation says it timed out");
+        let other_case = [serde_json::json!({"source": "loom/bound-program", "payload": {"case": "c2", "action": "hang.write", "exit": null, "timed_out": true}})];
+        assert_eq!(failed_step_in(&[opened, timed_out].join("\n"), &other_case, agent), None, "the observation of another case");
     }
 
     #[test]

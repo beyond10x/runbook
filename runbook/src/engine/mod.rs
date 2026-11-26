@@ -305,6 +305,8 @@ impl Engine {
         // anywhere is refused here.
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{runbook}.yaml")));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
+        // Whether each action runs an agent node and its timeout: the words of the end of a run whose step failed.
+        let programs = crate::budget::action_programs(&read_bindings);
         let terms = &request.terms;
         // A run is on the route the daemon resolved for it at the submit (a model decider, a bound program or an agent
         // node of its runbook, or a delegation): the run's place on the relay and its route file, whose path every bound
@@ -425,7 +427,7 @@ impl Engine {
                 }
             });
             let asking = Asking { workspace: workspace.clone(), bindings: resolved.bindings.parent().map(Path::to_path_buf) };
-            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking);
+            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking, &programs);
             done.store(true, Ordering::SeqCst);
             result
         });
@@ -471,6 +473,7 @@ impl Engine {
         gate: &mut Gate,
         judge: &mut Option<Box<dyn RunArbiter>>,
         asking: &Asking,
+        programs: &std::collections::BTreeMap<String, crate::budget::ActionProgram>,
     ) -> Result<Finish, RuntimeFailure> {
         // The programs of the steps and those the answers of a wait start go through the gate's runner,
         // which reserves the budget of each before it starts; each is booked after.
@@ -527,11 +530,22 @@ impl Engine {
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
                     // A step whose program failed left the tree with nothing it can do: the run ends naming that step and
-                    // its exit, not as a failure of the runtime.
-                    if let Some(step) = refusal::failed_step(store, &ran.case) {
-                        let outcome = format!("failed: step {} exit {}", step.action, step.exit);
-                        let reason = format!("the step {} failed: its program ended with exit {}, and the tree has no other action to take (case {})", step.action, step.exit, ran.case);
-                        let record = serde_json::json!({"case": ran.case, "action": step.action, "exit": step.exit, "reason": reason});
+                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime.
+                    if let Some(step) = refusal::failed_step(store, &ran.case, |action| programs.get(action).is_some_and(|p| p.agent_node)) {
+                        let timeout = programs.get(&step.action).and_then(|p| p.timeout_seconds).unwrap_or(b10x_loom_intake_slice::bindings::DEFAULT_TIMEOUT_SECONDS);
+                        let said = step.end.said(timeout);
+                        let outcome = format!("failed: step {} {said}", step.action);
+                        let reason = format!("the step {} failed: {}, and the tree has no other action to take (case {})", step.action, step.end.how(timeout), ran.case);
+                        let mut record = serde_json::json!({"case": ran.case, "action": step.action, "end": said, "reason": reason});
+                        match step.end {
+                            refusal::StepEnd::Exit(exit) => record["exit"] = exit.into(),
+                            refusal::StepEnd::Signal(signal) => {
+                                record["signal"] = signal.into();
+                                record["exit"] = (128 + signal).into();
+                            }
+                            refusal::StepEnd::TimedOut => record["timeout_seconds"] = timeout.into(),
+                            refusal::StepEnd::NoExit => {}
+                        }
                         return Ok(Finish::StepFailed { outcome, record });
                     }
                     return Err(failure(match refusal::program_refused(store) {

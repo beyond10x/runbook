@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/errors/sdc.daemon.RouteRefused.schema.json",
   "title": "RouteRefused payload",
-  "description": "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0); or the run's decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.",
+  "description": "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run's decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.",
   "x-ess-name": "sdc.daemon.RouteRefused",
   "x-ess-kind": "error-payload",
   "type": "object",
@@ -29,7 +29,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:f0520cbc269b3f812b7f3132f46c17f294a94b53445f3de584e2f56d2cf09c60",
+    "contract_digest": "slice-sha256/2:95b19d42b308a30d0af02004f704583db162d0fb54ccdd3cce6c80b8e0a8ae1e",
     "regenerate": "ess generate"
   },
   "$defs": {

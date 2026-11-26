@@ -39,8 +39,8 @@ This step is done when the task's result is in the conversation, or a tool error
   route whose gateway is not ready as `route-unavailable` naming the route (HTTP status 503); a route that fails
   the run's call ends the run `runtime-failure`, a tool error whose `failure` names `route-unavailable` and the
   route. Pick a route from `list_routes` or `describe_catalog`, or report the error.
-- A run whose agent step failed ends `failed: step <action> exit <n>`, a tool error whose `failure` names the step
-  and its exit. Report it, or delegate again with a clearer task. The Agent and Workflow tools
+- A run whose agent step failed ends `failed: step <action> <end>` (`exit <n>`, `signal <n>`, `timed out after <s> s`
+  or `ended with no exit`), a tool error whose `failure` names the step and how it ended. Report it, or delegate again with a clearer task. The Agent and Workflow tools
   stay denied; the session's own model takes no sub-agent work.
 - `daemon unreachable` (status 502): the daemon named by `RUNBOOK_DAEMON` does not answer. Report it.
 

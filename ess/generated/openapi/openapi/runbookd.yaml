@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:7e2dc8d3d1d80a19d6740a825c3d7e378909067b040c0e91726b572537263164
+# contract digest slice-sha256/2:d91551ffcbedad1636dcded4b2879c1affd1e4f2d4ed55b9e9393497521b90db
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:7e2dc8d3d1d80a19d6740a825c3d7e378909067b040c0e91726b572537263164
+    contract_digest: slice-sha256/2:d91551ffcbedad1636dcded4b2879c1affd1e4f2d4ed55b9e9393497521b90db
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -2051,7 +2051,7 @@ components:
       properties:
         error:
           const: sdc.daemon.RouteRefused
-          description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0); or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
+          description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
           type: string
         outcome:
           const: route-refused
@@ -2237,7 +2237,7 @@ components:
       type: string
     sdc.daemon.EventKind:
       title: EventKind
-      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> exit <n>`, when the last program of the run''s tree ended with an exit other than 0 and the tree has no other action to take; record: case, action, exit, reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
+      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of the run''s tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take; record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
       x-ess-name: sdc.daemon.EventKind
       x-ess-kind: newtype
       type: string
@@ -2770,7 +2770,7 @@ components:
       additionalProperties: false
     sdc.daemon.RouteRefused.Error:
       title: RouteRefused payload
-      description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0); or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
+      description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
       x-ess-name: sdc.daemon.RouteRefused
       x-ess-kind: error-payload
       type: object
@@ -3026,7 +3026,7 @@ components:
       additionalProperties: false
     sdc.daemon.RunOutcome:
       title: RunOutcome
-      description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> exit <n>`). The run''s state is the closed set; the outcome is not.'
+      description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> <end>`). The run''s state is the closed set; the outcome is not.'
       x-ess-name: sdc.daemon.RunOutcome
       x-ess-kind: newtype
       type: string
@@ -3751,11 +3751,11 @@ components:
       type: object
     sdc.daemon.SubmitRun.route-refused.Response:
       additionalProperties: false
-      description: 'The run''s model route is refused (an undeclared route, an address, a token or an alias named in its place, a route for a run whose runbook runs no program and whose decider is no model above A0, or no route and no default for a run whose decider is a model above A0): nothing was submitted. The answer lists the declared routes. Taken when `defined(route_refused)` holds of the input.'
+      description: 'The run''s model route is refused (an undeclared route, an address, a token or an alias named in its place, a route for a run whose runbook runs no program and whose decider is no model above A0, the interim route default of a lone [gateway] for a run whose decider is no model above A0, or no route and no default for a run whose decider is a model above A0): nothing was submitted. The answer lists the declared routes. Taken when `defined(route_refused)` holds of the input.'
       properties:
         error:
           const: sdc.daemon.RouteRefused
-          description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0); or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
+          description: 'The model route the run would take is refused: the submit named a route the daemon''s file does not declare, a gateway''s alias, an address or a token instead of a route''s name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run''s decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`. A delegation is refused the same way for the route it names, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; `declared` lists the routes the daemon declares, in order of name.'
           type: string
         outcome:
           const: route-refused
@@ -4519,7 +4519,7 @@ x-ess-entities:
         $ref: '#/x-ess-entities/sdc.daemon.RunOutcome'
         description: The run's outcome once it Ended.
       failure:
-        description: Why the run failed to start, or what failed it after it started (the runtime's reason, or the step whose program failed and its exit); absent otherwise.
+        description: 'Why the run failed to start, or what failed it after it started (the runtime''s reason, or the step whose program failed and how it ended: its exit, its signal or its timeout); absent otherwise.'
         type: string
       route:
         $ref: '#/x-ess-entities/sdc.daemon.RouteName'
@@ -4659,7 +4659,7 @@ x-ess-entities:
     type: string
   sdc.daemon.EventKind:
     title: EventKind
-    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> exit <n>`, when the last program of the run''s tree ended with an exit other than 0 and the tree has no other action to take; record: case, action, exit, reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
+    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of the run''s tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take; record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime''s own kinds.'
     x-ess-name: sdc.daemon.EventKind
     x-ess-kind: newtype
     type: string
@@ -4913,7 +4913,7 @@ x-ess-entities:
         format: date-time
       outcome:
         $ref: '#/x-ess-entities/sdc.daemon.RunOutcome'
-        description: 'Set when the run Ended; absent in every other state. Besides the outcome names of the runbook''s protocol it holds the daemon''s own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> exit <n>` (a program of the run ended with that exit and its tree had no other action to take; the event runbook.step-failed says why).'
+        description: 'Set when the run Ended; absent in every other state. Besides the outcome names of the runbook''s protocol it holds the daemon''s own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run''s tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take; the event runbook.step-failed says why).'
       failure:
         description: Why the run failed to start; absent in every other state.
         type: string
@@ -5110,7 +5110,7 @@ x-ess-entities:
     type: string
   sdc.daemon.RunOutcome:
     title: RunOutcome
-    description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> exit <n>`). The run''s state is the closed set; the outcome is not.'
+    description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> <end>`). The run''s state is the closed set; the outcome is not.'
     x-ess-name: sdc.daemon.RunOutcome
     x-ess-kind: newtype
     type: string
