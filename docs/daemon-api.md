@@ -974,6 +974,19 @@ Without `--ui`, `GET /` is `404`.
   run writes its id there; an id the daemon does not have shows a note naming it and no other run. Served by
   `ui/server.mjs`, the page reads that server as before (its `?run=` names a run directory), and the inspector
   has no route to the daemon.
+- Model routes (`docs/model-routes.md`, section 6; `ui/daemon/routes.js`, loaded only when the daemon named
+  itself). The header line of a run on a route names it after the runbook, the state (`WaitingForRoute` while the
+  run waits for its route), the level and the kind: `route qwen · managed · starting · alias qwen · named by the
+  run` (`the daemon default` for a route of `[route_policy] default`). The route, the alias and the setting are the
+  run's row of the view `runs`; the kind and the status are the route's row of the view `routes` (the model's
+  `phase` when the gateway gave one, else the row's `status` in words), or "status not read yet", or the reason the
+  read failed. The button "Routes" opens the Routes view: each route of the view `routes` with its alias, kind,
+  gateway, status, phase, wires and `read_at`, as text nodes. The page reads the view `routes` at most once every
+  15 s, whatever the answer, and only while it shows a run on a route or the Routes view is open (every 15 s
+  while it is open); a read that fails keeps the rows of the last read that answered and says so. The daemon
+  serves no count of today's calls or booked spend per route, and the view says so. With the Routes view open, a
+  daemon that answers `403` to every request is asked at most 4 times a second, as without it
+  (`ui/test/daemon-routes.spec.mjs`).
 
 ## MCP
 

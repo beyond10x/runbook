@@ -322,6 +322,9 @@ At submit, after the route is resolved and before anything is written:
   alias, kind, the gateway's readiness and the model's phase (read at most once every 15 s and cached), and today's
   calls and booked spend from the ledger.
 - The run record names the route, the alias and the route's source (run, protocol or default).
+- Built (story `daemon-page-shows-the-route`; `docs/daemon-api.md`, "The web UI"): the run's header and the Routes
+  view of the daemon's page, which reads the view `routes` at most once every 15 s. Today's calls and booked spend
+  per route are not in the view `routes` yet, and the page says so.
 
 ### 7. Confinement
 
