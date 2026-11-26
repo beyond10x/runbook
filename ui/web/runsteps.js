@@ -103,6 +103,7 @@ export function eventWords(e) {
       return {name, detail, engine: false};
     }
     case 'runbook.step-ended': return {name: 'Step ended', detail: 'the run goes on', engine: true};
+    case 'runbook.waiting-on-key': return {name: 'Waiting for its key', detail: join(str(r.serial_key), str(r.behind) && `behind run ${r.behind.slice(-8)}`), engine: false};
     case 'Terminated': return {name: 'Case ended', detail: str(r.reason) ?? '', engine: false};
     case 'runbook.model-call': return {name: 'Model call', detail: join(str(r.step), `${n(num(r.input_tokens) ?? 0)} in, ${n(num(r.output_tokens) ?? 0)} out`, r.cost_known === false ? 'cost not known' : num(r.micro_usd) != null && usd(r.micro_usd)), engine: false};
     default:
@@ -130,6 +131,7 @@ export function runSayParts(run, m, now, {clock = (t) => clockTime(t, now)} = {}
     return {head: `Ended: ${why}${fail ? ` (${fail})` : ''}`, since: null};
   }
   if (state === 'FailedToStart') return {head: `Failed to start: ${run.failure ?? 'no reason named'}`, since: null};
+  if (state === 'WaitingOnKey') return {head: `Waiting for its serial key${str(run.serial_key) ? ` ${run.serial_key}` : ''}: nothing of it starts before the runs ahead of it end`, since: null};
   if (state === 'WaitingForRoute') return {head: `Waiting for the model route${run.route_phase ? ` (${run.route_phase})` : ''}`, since: null};
   return {head: `${STATE_SAY[state] ?? state ?? 'State not read'}${done.length ? `: ${done.length} ${done.length === 1 ? 'step' : 'steps'} done${lastWords}` : ''}`, since: null};
 }
@@ -138,8 +140,8 @@ export function runSay(run, m, now, opts) {
   return p.since != null ? `${p.head}, for ${fmtTook(now - p.since, true)}` : p.head;
 }
 
-const LIVE_STATES = ['Submitted', 'Running', 'WaitingOnDecision', 'WaitingForRoute'];
-const stateCls = (run, m) => (run?.state === 'Running' && m.inFlight ? 'running' : run?.state === 'Ended' ? 'ended' : ['Cancelled', 'FailedToStart'].includes(run?.state) ? 'bad' : run?.state === 'WaitingOnDecision' ? 'waiting' : 'between');
+const LIVE_STATES = ['Submitted', 'WaitingOnKey', 'Running', 'WaitingOnDecision', 'WaitingForRoute'];
+const stateCls = (run, m) => (run?.state === 'Running' && m.inFlight ? 'running' : run?.state === 'Ended' ? 'ended' : ['Cancelled', 'FailedToStart'].includes(run?.state) ? 'bad' : ['WaitingOnDecision', 'WaitingOnKey'].includes(run?.state) ? 'waiting' : 'between');
 
 // The counts the run's events hold.
 function counts(m) {
@@ -178,7 +180,7 @@ export function renderStepsTable(run, m, now, caseName = () => null) {
 }
 
 // The phone's sticky bar: the run's state in a word and the step in flight (or how the run stands).
-const STATE_WORD = {Submitted: 'Submitted', Running: 'Running', WaitingOnDecision: 'Waiting on a decision', WaitingForRoute: 'Waiting for the route', Ended: 'Ended', Cancelled: 'Cancelled', FailedToStart: 'Failed to start'};
+const STATE_WORD = {Submitted: 'Submitted', Running: 'Running', WaitingOnDecision: 'Waiting on a decision', WaitingForRoute: 'Waiting for the route', WaitingOnKey: 'Waiting for its key', Ended: 'Ended', Cancelled: 'Cancelled', FailedToStart: 'Failed to start'};
 export const runStateWord = (run) => STATE_WORD[run?.state] ?? run?.state ?? '';
 export function renderStepsBar(run, m, now) {
   const s = m.inFlight && run?.state === 'Running' ? m.inFlight : null;

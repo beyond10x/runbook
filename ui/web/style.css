@@ -1591,7 +1591,7 @@ html.daemon .gt-id { font: 650 18px var(--sans); letter-spacing: -.01em; }
 .gt-run { font: 12px var(--mono); color: var(--text-3); }
 .pill { white-space: nowrap; }
 .ds-pill.ds-Running, .ds-pill.ds-Submitted { color: var(--accent-2); background: var(--accent-bg); border-color: var(--adm-line); }
-.ds-pill.ds-WaitingOnDecision, .ds-pill.ds-WaitingForRoute { color: var(--appr); background: var(--appr-bg); border-color: var(--appr-line); }
+.ds-pill.ds-WaitingOnDecision, .ds-pill.ds-WaitingForRoute, .ds-pill.ds-WaitingOnKey { color: var(--appr); background: var(--appr-bg); border-color: var(--appr-line); }
 .ds-pill.ds-Ended { color: var(--true); background: var(--true-bg); border-color: var(--true-line); }
 .ds-pill.ds-Cancelled, .ds-pill.ds-FailedToStart { color: var(--false); background: var(--false-bg); border-color: var(--false-line); }
 /* the tree and the run line above it */

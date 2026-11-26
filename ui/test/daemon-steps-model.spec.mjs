@@ -2,7 +2,7 @@
 // synthetic run of daemon-live-fixture.mjs: no server, no browser. Story run-page-watches-a-live-run.
 import {test, expect} from '@playwright/test';
 import {fixture, LIVE, DONE, RUNNING_SINCE} from './daemon-live-fixture.mjs';
-import {runSteps, eventWords, runSay, fmtTook, renderStepsTable} from '../web/runsteps.js';
+import {runSteps, eventWords, runSay, fmtTook, renderStepsTable, runStateWord} from '../web/runsteps.js';
 import {clockTime, zoneName} from '../web/clock.js';
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
@@ -101,6 +101,12 @@ test('what runs now, in words', () => {
   expect(runSay({...row(LIVE), state: 'WaitingOnDecision'}, between, RUNNING_SINCE)).toMatch(/^Waiting on a decision/);
   expect(runSay({...row(LIVE), state: 'Cancelled'}, between, RUNNING_SINCE)).toMatch(/^Cancelled/);
   expect(runSay({...row(LIVE), state: 'FailedToStart', failure: 'no route'}, between, RUNNING_SINCE)).toBe('Failed to start: no route');
+  // a run held behind another run of its serial key: nothing of it started
+  const none = runSteps([]);
+  expect(runSay({...row(LIVE), state: 'WaitingOnKey', serial_key: 'deploy'}, none, RUNNING_SINCE)).toBe('Waiting for its serial key deploy: nothing of it starts before the runs ahead of it end');
+  expect(runStateWord({state: 'WaitingOnKey'})).toBe('Waiting for its key');
+  expect(renderStepsTable({state: 'WaitingOnKey'}, none, RUNNING_SINCE)).toContain('No step has started yet');
+  expect(eventWords({kind: 'runbook.waiting-on-key', record: {serial_key: 'deploy', behind: LIVE}})).toEqual({name: 'Waiting for its key', detail: 'deploy · behind run 0000a1b2', engine: false});
 });
 
 test('durations in words; clock times 24 h with the zone\'s name, a date in ISO form when not today', () => {
