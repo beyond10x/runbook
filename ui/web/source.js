@@ -21,7 +21,7 @@ const events = new Map();
 const ms = (t) => { const v = Date.parse(t); return Number.isNaN(v) ? null : v; };
 const lastAt = (id, fallback) => ms(events.get(id)?.at(-1)?.at) ?? ms(fallback);
 
-const DAEMON_STATE = {Submitted: 'run', Running: 'run', WaitingOnDecision: 'run', WaitingForRoute: 'run', Ended: 'idle', Cancelled: 'idle', FailedToStart: 'bad'};
+const DAEMON_STATE = {Submitted: 'run', Running: 'run', WaitingOnDecision: 'run', WaitingForRoute: 'run', WaitingOnKey: 'run', Ended: 'idle', Cancelled: 'idle', FailedToStart: 'bad'};
 
 function sourceRow(r, index) {
   const words = [r.state, r.outcome, r.failure].filter(Boolean).join(' · ');

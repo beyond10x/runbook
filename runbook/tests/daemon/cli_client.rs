@@ -144,6 +144,24 @@ fn detach_without_a_daemon_exits_64_and_says_a_daemon_is_needed() {
 }
 
 #[test]
+fn detach_sends_the_serial_key_and_a_second_run_of_the_key_waits() {
+    let f = Fixture::new("detach-key");
+    std::fs::write(f.dir.join("i"), "x").unwrap();
+    let first = f.cli(&["run", "hold", "--intake", "i", "--serial-key", "repo-a", "--detach"]);
+    assert_eq!(code(&first), 0, "{}", err(&first));
+    let second = f.cli(&["run", "quick", "--intake", "i", "--serial-key", "repo-a", "--detach"]);
+    assert_eq!(code(&second), 0, "{}", err(&second));
+    let (first, second) = (out(&first).trim().to_string(), out(&second).trim().to_string());
+    f.server.wait_state(&second, "WaitingOnKey");
+    let rows = f.server.view("run", &format!("run_id={second}"));
+    assert_eq!(rows[0]["serial_key"], "repo-a");
+    assert_eq!(rows[0]["key_wait"], json!(format!("waiting on key repo-a behind run {first}")));
+    let o = cli_in(&f.dir, &["run", "quick", "--intake", "i", "--serial-key", "k"], &[], None);
+    assert_eq!(code(&o), 64, "--serial-key belongs to --detach: {}", err(&o));
+    assert!(err(&o).contains("--serial-key"), "{}", err(&o));
+}
+
+#[test]
 fn run_without_detach_runs_in_process_and_names_the_options_it_lacks() {
     let dir = super::state::scratch("cc-inproc");
     std::fs::write(dir.join("i"), "x").unwrap();

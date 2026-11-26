@@ -36,11 +36,12 @@ use std::process::{Command, Output, Stdio};
 use super::{repo, BIN, LAYOUT_DIRS};
 
 /// The programs of `driver/` and `watch/` a run starts: the ones `runbook doctor` requires of every runbook, and the
-/// three that `runbook run` or its tools start besides them.
-const HELPERS: [&str; 11] = [
+/// ones that `runbook run`, its tools or a runbook's bound programs start besides them (`sdc-command`).
+const HELPERS: [&str; 12] = [
     "sdc-answers",
     "sdc-bugfix",
     "sdc-check-routes",
+    "sdc-command",
     "sdc-conform",
     "sdc-conform-adapter",
     "sdc-decision-request",

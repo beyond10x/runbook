@@ -16,7 +16,7 @@ runtime.
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure`, `stopped: route` or `failed: step <action> <end>`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
+| Run | Submitted, WaitingOnKey, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure`, `stopped: route` or `failed: step <action> <end>`), `FailedToStart` a `failure`. `WaitingOnKey`: a run with its serial key submitted before it is live (below, "Runs of one serial key"). `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
@@ -72,6 +72,8 @@ Notes for a caller:
   (`published[0].payload.run_id`, event `SubmitReplayed`), and the `Location` header names the run
   too (`/daemon/views/run?run_id=<id>`, the same header a first submit has). A key over the limit is
   not an outcome of `submit-run`: it is refused `400` before every outcome, `IntakeTooLarge` included.
+- A submit (and a delegation, and `runbook run --detach --serial-key <k>`) may name a `serial_key`;
+  see "Runs of one serial key" below.
 - The intake limit is 1,048,576 bytes of UTF-8, counted by the daemon's handler. The specification
   counts characters (`intake.count`), which is the weaker bound: a text of at most 1,048,576
   characters can still be over the limit in bytes, and the handler refuses it `IntakeTooLarge`.
@@ -115,6 +117,34 @@ The runtime's reports (`StartRun`, `FailRunStart`, `WaitOnDecision`, `RequestDec
 daemon's own, actor `DaemonProcess`) are issued inside the process. They are in the specification
 and not in the HTTP contract: the generator gives a route to the commands of the actor `Client` and
 to no other.
+
+### Runs of one serial key
+
+A submit or a delegation may name `serial_key`, 1 to 200 characters of the submitter's choice (the daemon never
+derives one; an empty or a longer key is refused `400` before anything is written). Runs with one key run one at a
+time, in the order they were submitted; runs with another key or none are not held. The key is recorded on the run
+(`serial_key` of the views `runs` and `run`, and of the event `runbook.submitted`).
+
+- A run whose key a run submitted before it holds (a live run: any state but `Ended`, `Cancelled` and
+  `FailedToStart`; or one the runtime has not let go yet, below) is `WaitingOnKey` (command `WaitOnKey`, event `runbook.waiting-on-key`: serial_key, behind): nothing of it is
+  started, its context is not copied and its routes are not asked. `key_wait` of the views says
+  `waiting on key <k> behind run <id>`, the newest run of the key submitted before it that holds it, read when the view is
+  read: after a cancel of that run it names the one ahead of that.
+- The key is free as soon as each run ahead has left the live states: ended (also `stopped: route` and a failed
+  step), cancelled, failed to start, or orphaned at a restart, and the runtime has let it go. A run that was taken
+  up holds the key until its run thread in the daemon has returned: a cancelled holder is `Cancelled` at once, but
+  its key is free only once the runtime ended its program in flight and its model call (the engine waits up to 5 s
+  for one), and `key_wait` of the run behind names the cancelled run until then. A run cancelled while it waited
+  was never taken up and holds nothing. The next run then takes it (command `TakeKey`,
+  event `runbook.key-taken`), is `Submitted` again and is taken up as a submitted run is; its routes are asked
+  again first (a gateway that is not ready or an alias it does not list fails its start, `route-unavailable: ...` or
+  `route-refused: ...`; a model that is not callable makes it wait for its route).
+- A cancel of a waiting run takes it out of the queue.
+- The queue holds across a restart: its order is the journal's order of the submits. A run that was `WaitingOnKey`
+  stays so and is taken up again when its key is free; a holder whose runtime is gone ends `orphaned` and frees the
+  key. A waiting run whose context lies under no context root now, or whose routes the daemon no longer declares,
+  fails to start with that reason. A stop that ends the live runs at once (a second signal, the drain bound) leaves
+  the waiting runs waiting for the next start; a drain waits for them as for any live run.
 
 ## Views
 
@@ -343,7 +373,7 @@ it joins a wake already sent:
 
 `POST /daemon/commands/delegate` asks for a piece of agent work on a named model route
 (`docs/model-routes.md`, section 8):
-`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "settings": {}, "session_id": "<id>", "idempotency_key": "<key>"}`,
+`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "settings": {}, "session_id": "<id>", "idempotency_key": "<key>", "serial_key": "<key>"}`,
 every member but `request` optional. A delegation is a run, at the daemon's default confinement level (a daemon
 with none refuses it `400` and writes nothing), with the request as its intake; `cancel-run`, the run views, the
 events and the web UI work on it unchanged.
@@ -818,7 +848,7 @@ the daemon does not exit on its first stop signal while a run is live; it drains
   same body, with `isError` true and `503` in `_meta`); no run is made. Everything else goes on: reads,
   event streams, `answer-decision`, `cancel-run`, and the live runs, which are not cancelled and not
   asked to stop. Every answer carries the header `X-Runbook-Draining: <n>`, `n` the count of live runs
-  (`Submitted`, `WaitingForRoute`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
+  (`Submitted`, `WaitingOnKey`, `WaitingForRoute`, `Running` or `WaitingOnDecision`): a command, a view, a stream, the MCP endpoint, the
   UI files, a `404` or `405`, and the refusals of the guard (`401`, `403`, `415`), whose layer lies
   inside the one that adds the header. A daemon that does not drain sends no such header. The specification's rows are unchanged: a read of `runs` or
   `configuration` has no member for it.
@@ -910,7 +940,8 @@ State directory:
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
 After a restart a run that was `Submitted`, or `WaitingForRoute`, and never started becomes `FailedToStart` (event
-`runbook.start-failed`). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
+`runbook.start-failed`); a run that was `WaitingOnKey` keeps its place in the queue of its key (above, "Runs of one
+serial key"). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
 asks the runtime (`Runtime::recover`): `resumed` leaves the run as it is; `gone` ends it with the
 command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (the cause, readable in
 `outcome` of the `run` view), its Open decision requests are withdrawn in the same step, as a cancel

@@ -93,6 +93,10 @@ path = "src/bin/sdc-free-agent.rs"
 name = "sdc-recorded-pool"
 path = "src/bin/sdc-recorded-pool.rs"
 
+[[bin]]
+name = "sdc-command"
+path = "src/bin/sdc-command.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

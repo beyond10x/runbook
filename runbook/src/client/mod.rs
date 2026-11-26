@@ -58,6 +58,9 @@ pub struct RunArgs {
     /// The model route of the run, by the name `runbook.toml` (`[routes.<name>]`) or the daemon declares; without it the route policy's default. In process, a route that cannot answer now is refused.
     #[arg(long = "model-route", value_name = "NAME")]
     pub model_route: Option<String>,
+    /// The serial key of the run (1 to 200 characters): the daemon runs the runs of one key one at a time, in submit order.
+    #[arg(long = "serial-key", value_name = "KEY")]
+    pub serial_key: Option<String>,
     /// Submit the run to the daemon, print its id and return at once.
     #[arg(long)]
     pub detach: bool,
@@ -266,7 +269,7 @@ fn run_detached(args: RunArgs) -> Result<(), Failure> {
         None => None,
         Some(dir) => Some(absolute_dir("--context", dir)?),
     };
-    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, model_route: args.model_route, ..SubmitRun::default() };
+    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, model_route: args.model_route, serial_key: args.serial_key, ..SubmitRun::default() };
     let reply = api.command("submit-run", &input)?;
     if args.json {
         return say(&format!("{}\n", reply.body.trim_end()));

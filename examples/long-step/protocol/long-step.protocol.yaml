@@ -1,0 +1,54 @@
+format: protocol/1
+protocol:
+  id: long-step
+  revision: 1
+  description: >-
+    The example of the long-step pattern (docs/loom-bindings.md, "A long step"). One action starts the work and records that it
+    started; a second action polls the work through sdc-command until the poll says done, stops with a named state, or reaches
+    its deadline; the case ends with the outcome the poll named.
+artifacts:
+  work: {}
+evidence_kinds:
+  work_started: {}
+  work_poll: {}
+claims:
+  work.started:
+    true_when:
+      evidence: {kind: work_started, subject: work, result: started}
+  work.done:
+    true_when:
+      evidence: {kind: work_poll, subject: work, result: done}
+  work.red:
+    true_when:
+      evidence: {kind: work_poll, subject: work, result: red-checks}
+  work.moved:
+    true_when:
+      evidence: {kind: work_poll, subject: work, result: head-moved}
+  work.late:
+    true_when:
+      evidence: {kind: work_poll, subject: work, result: deadline}
+  work.failed:
+    true_when:
+      evidence: {kind: work_poll, subject: work, result: failed}
+actions:
+  work.start:
+    effect: write
+    precondition: {claim: work.started, is: unknown}
+    may_produce:
+      - evidence: work_started
+  work.poll:
+    effect: read
+    precondition: {claim: work.started}
+    may_produce:
+      - evidence: work_poll
+outcomes:
+  green:
+    requires: {claim: work.done}
+  red-checks:
+    requires: {claim: work.red}
+  head-moved:
+    requires: {claim: work.moved}
+  deadline:
+    requires: {claim: work.late}
+  failed:
+    requires: {claim: work.failed}
