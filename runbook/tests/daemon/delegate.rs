@@ -1064,3 +1064,42 @@ fn a_classifier_answer_that_is_not_the_expected_json_is_asked_again_twice_then_e
     assert_eq!(end["calls"], json!(3), "{end}");
     assert!(posted_to(&d.gw, "a-model").is_empty());
 }
+
+/// A runbook that opens `answer-demo` as a child case: `answer-demo` is a child runbook of the home after this.
+fn parent_runbook(h: &Home) {
+    let protocol = "format: protocol/1\nprotocol:\n  id: answer-parent\n  revision: 1\n  description: >-\n    A delegation test's parent runbook: it opens answer-demo as a child case.\nartifacts:\n  idea: {}\nevidence_kinds:\n  case_outcome: {}\n  child_opened: {}\nclaims:\n  child.opened:\n    true_when:\n      evidence: {kind: child_opened, subject: idea, result: opened}\n  child.passed:\n    true_when:\n      children: {in: [answered]}\nactions:\n  child.open:\n    effect: write\n    case_open: {protocol: answer-demo, subject: idea}\n    may_produce:\n      - evidence: child_opened\noutcomes:\n  delivered:\n    requires:\n      all:\n        - {claim: child.opened}\n        - {claim: child.passed}\n";
+    let bindings = "format: loom.bindings/1\nprotocol: answer-parent@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\nactions:\n  - action: child.open\n    executor:\n      kind: open\n      name: child\n      bindings: answer-demo.yaml\n    evidence:\n      - kind: child_opened\n        subject: idea\n        producer: loom\n        from: effect\n        results: {performed: opened}\n";
+    std::fs::write(h.home.join("protocol/answer-parent.protocol.yaml"), protocol).unwrap();
+    std::fs::write(h.home.join("bindings/answer-parent.yaml"), bindings).unwrap();
+}
+
+/// The ids of the runbooks a classify call's prompt lists: its lines that are JSON objects with an `id`.
+fn catalog_ids_of(asked: &Got) -> std::collections::BTreeSet<String> {
+    let prompt = asked.body["messages"][0]["content"].as_str().unwrap_or_default().to_owned();
+    prompt.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| v["id"].as_str().map(str::to_owned)).collect()
+}
+
+/// The classifier's catalog lists the runbooks the catalog view lists, a runbook another runbook opens as a child among
+/// them: a classify answer that picks the child runbook runs it, and a delegation that names it runs it too.
+#[test]
+fn the_classifier_takes_a_child_runbook_the_catalog_view_lists_and_a_delegation_may_name_it() {
+    let d = daemon_on("dlg-classify-child", classifying_gateway(vec![classified("answer-demo", 0.9)]), &format!("{ROUTE}{CLASSIFY}"));
+    parent_runbook(&d.h);
+    let view: std::collections::BTreeSet<String> =
+        rows(&d.l, "/daemon/views/catalog")[0]["runbooks"].as_array().unwrap().iter().filter_map(|r| r["runbook_id"].as_str().map(str::to_owned)).collect();
+    assert!(view.contains("answer-demo") && view.contains("answer-parent"), "the catalog view does not list the parent and its child: {view:?}");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!(
+        (end["run_state"].clone(), end["outcome"].clone(), end["path"].clone(), end["protocol"].clone()),
+        (json!("Ended"), json!("answered"), json!("classified"), json!("answer-demo")),
+        "a classify answer naming a runbook of the catalog view did not run it: {end}"
+    );
+    let asked = posted_to(&d.gw, "c-model");
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(catalog_ids_of(&asked[0]), view, "the classifier's catalog is not the catalog view's list");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "x", "model_route": "default", "protocol": "answer-demo"}));
+    assert_eq!((status, delegated(&body, "path")), (202, json!("named")), "{body}");
+    assert_eq!(until_ended(&d.l, &run_of(&body))["outcome"], json!("answered"));
+}

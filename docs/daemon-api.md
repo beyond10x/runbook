@@ -307,7 +307,7 @@ events and the web UI work on it unchanged.
   (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
   the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title, description and
-  inputs of each runbook a person can start: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of
+  inputs of each runbook of the view `catalog`, a runbook another runbook opens as a child included: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of
   `[delegation] classify_threshold` (default 0.8) or above, when that runbook takes every input the answer's `inputs` names, it runs with the request as its intake
   (`classified`); an answer whose inputs it does not take goes on to the build call. Below it a second call
   (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
