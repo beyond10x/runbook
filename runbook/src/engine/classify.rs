@@ -99,9 +99,11 @@ fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Call
     let catalog = catalog_of(engine);
     let products = workspace.join(dlg::PRODUCTS_DIR);
     let classified = ask(caller, &dlg::classify_prompt(&request.intake, &catalog), MAX_TOKENS_CLASSIFY, |t| dlg::read_classified(t, &catalog))?;
-    put(&products, "classify.json", &(serde_json::to_string_pretty(&json!({"protocol": classified.protocol, "confidence": classified.confidence})).unwrap_or_default() + "\n"))?;
+    put(&products, "classify.json", &(serde_json::to_string_pretty(&json!({"protocol": classified.protocol, "confidence": classified.confidence, "inputs": classified.inputs})).unwrap_or_default() + "\n"))?;
     record["confidence"] = json!(classified.confidence);
-    if let Some(id) = classified.protocol.filter(|_| classified.confidence >= dlg::CLASSIFY_THRESHOLD) {
+    // the runbook runs only when it takes every input the answer fills (section 9.1: "inputs the runbook accepts")
+    let accepts = |id: &String| catalog.iter().find(|e| &e.id == id).is_some_and(|e| classified.inputs.iter().all(|i| e.inputs.contains(i)));
+    if let Some(id) = classified.protocol.clone().filter(|id| classified.confidence >= dlg::CLASSIFY_THRESHOLD && accepts(id)) {
         record["path"] = json!("classified");
         record["protocol"] = json!(id);
         let home = layout::home_of(&engine.homes, &id)?;

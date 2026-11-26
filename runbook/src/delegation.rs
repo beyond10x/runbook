@@ -142,6 +142,8 @@ fn object_of(text: &str) -> Result<serde_json::Map<String, serde_json::Value>, S
 pub struct Classified {
     pub protocol: Option<String>,
     pub confidence: f64,
+    /// The names of the inputs the answer fills (the members of its `inputs`).
+    pub inputs: Vec<String>,
 }
 
 /// The classifier's answer checked against its schema: `protocol` the id of a runbook of `catalog` or null, `confidence` a
@@ -158,10 +160,12 @@ pub fn read_classified(text: &str, catalog: &[CatalogEntry]) -> Result<Classifie
         Some(_) => return Err("protocol is the id of a runbook as text, or null".to_owned()),
     };
     let confidence = m.get("confidence").and_then(serde_json::Value::as_f64).filter(|c| (0.0..=1.0).contains(c)).ok_or("confidence is a number from 0 to 1")?;
-    if m.get("inputs").is_some_and(|i| !i.is_object()) {
-        return Err("inputs is an object".to_owned());
-    }
-    Ok(Classified { protocol, confidence })
+    let inputs = match m.get("inputs") {
+        None => Vec::new(),
+        Some(serde_json::Value::Object(i)) => i.keys().cloned().collect(),
+        Some(_) => return Err("inputs is an object".to_owned()),
+    };
+    Ok(Classified { protocol, confidence, inputs })
 }
 
 /// What the builder answered: the free run, or a protocol and its bindings as YAML texts.
@@ -415,8 +419,8 @@ mod tests {
 
     #[test]
     fn a_classifier_answer_is_checked_against_its_schema() {
-        assert_eq!(read_classified(r#"{"protocol":"answer-demo","confidence":0.9,"inputs":{}}"#, &catalog()), Ok(Classified { protocol: Some("answer-demo".into()), confidence: 0.9 }));
-        assert_eq!(read_classified("```json\n{\"protocol\":null,\"confidence\":0}\n```", &catalog()), Ok(Classified { protocol: None, confidence: 0.0 }));
+        assert_eq!(read_classified(r#"{"protocol":"answer-demo","confidence":0.9,"inputs":{}}"#, &catalog()), Ok(Classified { protocol: Some("answer-demo".into()), confidence: 0.9, inputs: Vec::new() }));
+        assert_eq!(read_classified("```json\n{\"protocol\":null,\"confidence\":0}\n```", &catalog()), Ok(Classified { protocol: None, confidence: 0.0, inputs: Vec::new() }));
         for bad in ["red", "[1]", r#"{"protocol":"sdc","confidence":0.9}"#, r#"{"protocol":"answer-demo","confidence":1.5}"#, r#"{"protocol":"answer-demo"}"#, r#"{"protocol":"answer-demo","confidence":0.9,"why":"x"}"#, r#"{"protocol":"answer-demo","confidence":0.9,"inputs":[]}"#] {
             assert!(read_classified(bad, &catalog()).is_err(), "{bad}");
         }

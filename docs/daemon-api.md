@@ -293,7 +293,8 @@ events and the web UI work on it unchanged.
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
   the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title, description and
   inputs of each runbook a person can start: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of 0.8 or
-  above that runbook runs with the request as its intake (`classified`). Below it a second call
+  above, when that runbook takes every input the answer's `inputs` names, it runs with the request as its intake
+  (`classified`); an answer whose inputs it does not take goes on to the build call. Below it a second call
   (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
   `{"free": true}`, the free run): the daemon runs it (`generated`) only when every action is the agent node
   `sdc-node delegation.free`, every evidence is read from the exit, and nothing but `format`, `artifacts` and
