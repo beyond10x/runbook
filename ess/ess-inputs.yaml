@@ -33,3 +33,4 @@ scenarios:
   - scenarios/daemon-an-answer-that-names-no-option-of-a-case-request-is-refused.yaml
   - scenarios/daemon-a-refused-route-submits-nothing.yaml
   - scenarios/daemon-a-run-waits-for-its-route.yaml
+  - scenarios/daemon-a-run-waits-for-its-serial-key.yaml

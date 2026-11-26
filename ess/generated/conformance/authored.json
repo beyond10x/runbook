@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "9a5901667813962c6543f54005a1f812637f93fc546cb58e9777ad5761376a2f",
-    "contract_digest": "9d34521df09fba48a6cc852d4f2bff78348dfb0bf8d1e3c9f8bda34a24300622",
+    "spec_digest": "56731746ebaf7308e83da610793580207548369c649ce494399a6828b54fbf99",
+    "contract_digest": "e3f02157e9ebd7d981f18dc9d1632c73d94eebd8b5940dcd94b66875e37fe350",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -382,6 +382,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Session.State"
         },
         {
@@ -708,6 +712,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -1200,6 +1208,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -1283,6 +1295,694 @@
         {
           "kind": "event",
           "name": "sdc.daemon.RunWaitingForRoute"
+        },
+        {
+          "kind": "view",
+          "name": "sdc.daemon.RunDetail"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.DaemonProcess"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Operator"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Runtime"
+        }
+      ]
+    },
+    "sdc.daemon/authored/daemon-a-run-waits-for-its-serial-key": {
+      "purpose": "A run held behind the runs of its serial key waits, takes the key, starts; a cancel takes it out of the queue.",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:01:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Merge the pull request once its checks are green."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-holds-the-key"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "serial_key": {
+              "kind": "literal",
+              "value": "repo-a"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:01:01Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-holds-the-key"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:02:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Merge the next pull request once its checks are green."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.WaitOnKey",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.WaitOnKey",
+            "outcome": "waiting-on-key"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.daemon.RunWaitingOnKey",
+          "payload": {
+            "run_id": "run-waits"
+          },
+          "shape": {
+            "run_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:02:02Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.TakeKey",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.TakeKey",
+            "outcome": "took-key"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "expect_event",
+          "event": "sdc.daemon.RunTookKey",
+          "payload": {
+            "run_id": "run-waits"
+          },
+          "shape": {
+            "run_id": {
+              "holds": "primitive",
+              "kind": "string"
+            }
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartRun",
+          "actor": "sdc.daemon.Runtime",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:03:01Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.TakeKey",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.TakeKey",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.SubmitRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:04:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "runbookd"
+            },
+            "intake": {
+              "kind": "literal",
+              "value": "Merge a third pull request."
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-leaves-the-queue"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "sdc"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {}
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.WaitOnKey",
+          "actor": "sdc.daemon.DaemonProcess",
+          "input": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-leaves-the-queue"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.WaitOnKey",
+            "outcome": "waiting-on-key"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.CancelRun",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2026-11-22T10:05:00Z"
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-leaves-the-queue"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.CancelRun",
+            "outcome": "cancelled"
+          }
+        },
+        {
+          "step": "expect_no_error"
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-holds-the-key"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "run_id": {
+                "kind": "literal",
+                "value": "run-holds-the-key"
+              },
+              "serial_key": {
+                "kind": "literal",
+                "value": "repo-a"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Running"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-waits"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "run_id": {
+                "kind": "literal",
+                "value": "run-waits"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Running"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.RunDetail",
+          "params": {
+            "run_id": {
+              "kind": "literal",
+              "value": "run-leaves-the-queue"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.RunDetail",
+          "expectation": {
+            "expect": "contains",
+            "fields": {
+              "run_id": {
+                "kind": "literal",
+                "value": "run-leaves-the-queue"
+              },
+              "state": {
+                "kind": "literal",
+                "value": "Cancelled"
+              }
+            }
+          }
+        }
+      ],
+      "source": [
+        {
+          "kind": "domain",
+          "name": "sdc.daemon"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RoleRoutes"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.Run.State"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunOutcome"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.StepInFlight"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.AutonomyLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.CancelRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.SubmitRun"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.TakeKey"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.WaitOnKey"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.CancelRun",
+            "outcome": "cancelled"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartRun",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.SubmitRun",
+            "outcome": "submitted"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.TakeKey",
+            "outcome": "took-key"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.TakeKey",
+            "outcome": "wrong-state"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.WaitOnKey",
+            "outcome": "waiting-on-key"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunTookKey"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaitingOnKey"
         },
         {
           "kind": "view",
@@ -2102,6 +2802,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -2564,6 +3268,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -3394,6 +4102,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -4024,6 +4736,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -4758,6 +5474,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -5471,6 +6191,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -6144,6 +6868,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.Session.State"
         },
         {
@@ -6549,6 +7277,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -7234,6 +7966,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -7930,6 +8666,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -8423,6 +9163,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -9108,6 +9852,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.SessionId"
         },
         {
@@ -9507,6 +10255,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",
@@ -10645,6 +11397,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.RunbookVersion"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
         },
         {
           "kind": "type",

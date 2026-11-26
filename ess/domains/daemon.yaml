@@ -84,6 +84,15 @@ types:
     naming:
       summary: "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none."
 
+  - name: sdc.daemon.SerialKey
+    kind: newtype
+    of: String
+    invariants:
+      - value.count >= 1
+      - value.count <= 200
+    naming:
+      summary: "Optional text, 1 to 200 characters, that the submitter names (the daemon never derives one): runs with one key run one at a time, in the order they were submitted. A run whose key a live run submitted before it holds is WaitingOnKey until no such run is live; runs with another key or none are not held. A key that is empty or longer is refused before anything is written (400)."
+
   - name: sdc.daemon.EventKind
     kind: newtype
     of: String
@@ -427,6 +436,8 @@ entities:
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>, summary: "The kind of decider of the run, fixed like the level."}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>, summary: "The session the run was submitted into; absent for a run of no session."}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>, summary: "The key the submit carried, when it carried one; a later submit with the same key returns this run."}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>, summary: "The serial key the submit or the delegation named, when it named one: the run waits (WaitingOnKey) while a live run with the same key submitted before it has not ended. Fixed at the submit."}
+      - {name: key_wait, type: Optional<String>, summary: "While the run is WaitingOnKey: `waiting on key <k> behind run <id>`, naming the newest live run with the key that was submitted before it; absent in every other state. No command of the language sets it: the daemon derives it from the live runs of the key when the view is read, so it names the run ahead of it now (after a cancel of that run, the one ahead of that)."}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state: ended, cancelled or failed to start."}
@@ -466,17 +477,19 @@ entities:
         via: run_id
     lifecycle:
       initial: Submitted
-      states: [Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
+      states: [Submitted, WaitingOnKey, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
       terminal: [Ended, Cancelled, FailedToStart]
       transitions:
+        - {name: wait_on_key, from: [Submitted], to: WaitingOnKey, summary: "The run names a serial key and a live run with that key was submitted before it: the run waits, nothing is started and nothing is copied."}
+        - {name: take_key, from: [WaitingOnKey], to: Submitted, summary: "No live run with the run's serial key was submitted before it any more (each ended, was cancelled, failed to start or was orphaned): the run takes the key and is taken up as a submitted run is."}
         - {name: wait_for_route, from: [Submitted], to: WaitingForRoute, summary: "A route of the run could not answer when it was submitted (its model is not callable): the run waits for it, no call is sent and nothing is woken."}
         - {name: start, from: [Submitted, WaitingForRoute], to: Running, summary: "The runtime took the run up (from WaitingForRoute: once every route of the run could answer)."}
-        - {name: fail_to_start, from: [Submitted, WaitingForRoute], to: FailedToStart, summary: "The runtime could not take the run up, or the daemon stopped before it did."}
+        - {name: fail_to_start, from: [Submitted, WaitingOnKey, WaitingForRoute], to: FailedToStart, summary: "The runtime could not take the run up, or the daemon stopped before it did (from WaitingOnKey: a restarted daemon could not take the waiting run up again, its context or its routes being refused now)."}
         - {name: stop_on_route, from: [WaitingForRoute], to: Ended, summary: "The run's wait for its route reached start_wait_seconds and a route still could not answer: the run ends `stopped: route`."}
         - {name: wait, from: [Running], to: WaitingOnDecision, summary: "The run stopped on a decision."}
         - {name: end, from: [Running], to: Ended, summary: "The run reached an outcome."}
         - {name: resume, from: [WaitingOnDecision], to: Running, summary: "Every decision the run waited on is answered and the runtime took the answers up."}
-        - {name: cancel, from: [Submitted, WaitingForRoute, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
+        - {name: cancel, from: [Submitted, WaitingOnKey, WaitingForRoute, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended (from WaitingOnKey: the run leaves the queue of its key)."}
         - {name: orphan, from: [Running, WaitingOnDecision], to: Ended, summary: "The daemon started again and the runtime holds no live run of this id: the run ends with the outcome orphaned."}
 
   - name: sdc.daemon.DecisionRequest
@@ -649,11 +662,13 @@ actors:
   - name: sdc.daemon.DaemonProcess
     naming:
       display: Daemon process
-      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone (that command withdraws the run's Open decision requests itself), and it holds a run whose route cannot answer yet and ends it when its wait is over. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
+      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone (that command withdraws the run's Open decision requests itself), it holds a run whose route cannot answer yet and ends it when its wait is over, and it holds a run whose serial key a run submitted before it holds and lets it take the key when that run ended. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
     may:
       - sdc.daemon.EndOrphanedRun
       - sdc.daemon.WaitForRoute
       - sdc.daemon.EndRouteWait
+      - sdc.daemon.WaitOnKey
+      - sdc.daemon.TakeKey
 
   - name: sdc.daemon.Operator
     naming:
@@ -899,7 +914,7 @@ commands:
     naming:
       wire: submit-run
       display: Submit a run
-      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0, or its runbook runs a bound program or an agent node, which reaches a model through the run's route file) takes a model route (docs/model-routes.md, sections 2 and 11): the one the submit names by name in `model_route` (and per role in `model_routes`), then the route its runbook's route entries give the role (`bindings/<runbook>.routes.yaml`, format runbook.routes/1: a declared route by name, or needs that the run's route or the default meets, else the one allowed route that meets them), else the daemon's `route_policy.default`; every route of the run lies within the entries' routes_allowed; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model. Before anything is written the handler also asks the gateway of each route of the run the daemon's file declares (`GET /ready`, `GET /v1/models` and the status of the model; docs/model-routes.md, section 3): a gateway that is not ready or does not answer refuses the submit with the HTTP status 503 `route-unavailable`, outside this specification like the 503 of a submit while the daemon drains (no outcome of the language has that status), and one that does not list the route's alias refuses it route-refused; a route whose model cannot answer yet leaves the run accepted, and the daemon holds it WaitingForRoute (WaitForRoute). The interim route `default` of a daemon with a lone `[gateway]` and no route of its own is not asked, as before routes, nor is a submit that repeats an idempotency key already used: it is answered already-submitted with the first run. No wake is sent before the run is written: a run held WaitingForRoute may wake a managed route whose wake is on (WaitForRoute)."
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0, or its runbook runs a bound program or an agent node, which reaches a model through the run's route file) takes a model route (docs/model-routes.md, sections 2 and 11): the one the submit names by name in `model_route` (and per role in `model_routes`), then the route its runbook's route entries give the role (`bindings/<runbook>.routes.yaml`, format runbook.routes/1: a declared route by name, or needs that the run's route or the default meets, else the one allowed route that meets them), else the daemon's `route_policy.default`; every route of the run lies within the entries' routes_allowed; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model. Before anything is written the handler also asks the gateway of each route of the run the daemon's file declares (`GET /ready`, `GET /v1/models` and the status of the model; docs/model-routes.md, section 3): a gateway that is not ready or does not answer refuses the submit with the HTTP status 503 `route-unavailable`, outside this specification like the 503 of a submit while the daemon drains (no outcome of the language has that status), and one that does not list the route's alias refuses it route-refused; a route whose model cannot answer yet leaves the run accepted, and the daemon holds it WaitingForRoute (WaitForRoute). The interim route `default` of a daemon with a lone `[gateway]` and no route of its own is not asked, as before routes, nor is a submit that repeats an idempotency key already used: it is answered already-submitted with the first run. No wake is sent before the run is written: a run held WaitingForRoute may wake a managed route whose wake is on (WaitForRoute). A submit may name a `serial_key` (1 to 200 characters, the submitter's; the daemon never derives one, and an empty or a longer key is refused before anything is written, 400): the run is recorded with it, `runbook.submitted` names it, and while a live run with the same key submitted before it has not ended the daemon holds the run WaitingOnKey (WaitOnKey) and takes it up once none is left (TakeKey); runs with another key or none are not held."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: runbook_id, type: sdc.daemon.RunbookId}
@@ -913,6 +928,7 @@ commands:
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>, summary: "The kind of the decider that answers what the level gives it, a name among the kinds the operator configured. Absent: the daemon's default kind. A kind that is not configured, and a level with no kind to take it, are refused before anything is written (400)."}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>, summary: "The serial key of the run: runs with one key run one at a time, in submit order. Absent: the run is not held for any other."}
       - {name: model_route, type: Optional<sdc.daemon.RouteName>, summary: "The route of the run's role `default`, by the name the daemon's file declares it under; never an address, a token or a gateway's alias, each refused by name. Absent: the daemon's `route_policy.default` for a run that makes model calls, through its decider (a model above A0) or its programs (a bound program or an agent node of its runbook, which reach a model through the run's route file; the handler fills it and says which in model_route_source; a run whose model calls come from its programs only takes it only when the file declares it and the daemon serves its relay, else none), none for a run that makes none. A run that makes no model call and names a route is refused (route-refused)."}
       - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>, summary: "The route of each further role of the run, by name, under the same rules as model_route."}
       - {name: model_route_alias, type: Optional<String>, summary: "The alias of model_route at its gateway: the handler fills it from the daemon's file. A client never sends it."}
@@ -984,6 +1000,7 @@ commands:
           decider: input.decider
           session_id: input.session_id
           idempotency_key: input.idempotency_key
+          serial_key: input.serial_key
           model_route: input.model_route
           model_route_alias: input.model_route_alias
           model_route_source: input.model_route_source
@@ -1002,7 +1019,7 @@ commands:
     naming:
       wire: delegate
       display: Delegate agent work
-      summary: "Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run's workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon's default level, and the daemon writes the run's first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation's route, in the run's workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon's runbooks, answers a runbook and a confidence, and at the daemon's `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon's agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier's answer and the generated protocol are files of the run's work/ directory under `delegation/`. A call the route does not serve fails the run's start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator's error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader's line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon's relay. The run's result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon's default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route's gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route's model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon's `{refused, message}` answer, outside the language as a draining daemon's refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer."
+      summary: "Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run's workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon's default level, and the daemon writes the run's first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation's route, in the run's workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon's runbooks, answers a runbook and a confidence, and at the daemon's `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon's agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier's answer and the generated protocol are files of the run's work/ directory under `delegation/`. A call the route does not serve fails the run's start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator's error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader's line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon's relay. The run's result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon's default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route's gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route's model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon's `{refused, message}` answer, outside the language as a draining daemon's refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer. A delegation may name a `serial_key` as a submit does (SubmitRun): one queue per key holds submitted and delegated runs alike."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: request, type: String, summary: "The work asked for, as text: the run's intake, at most 1 MiB."}
@@ -1012,6 +1029,7 @@ commands:
       - {name: settings, type: sdc.daemon.RunSettings}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>, summary: "The serial key of the run, as a submit's (SubmitRun)."}
       - {name: caller, type: Optional<String>, summary: "Who asked: the name the MCP client gave in initialize (clientInfo.name), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
       - {name: caller_label, type: Optional<String>, summary: "The label of the session that asked (RUNBOOK_CALLER of the session `runbook mcp` serves), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
       - {name: runbook_id, type: sdc.daemon.RunbookId, summary: "The runbook the run takes: the protocol; delegation-free for the free run; delegation for a delegation the daemon classifies when its run starts. The handler fills it."}
@@ -1078,6 +1096,7 @@ commands:
           confinement: input.confinement
           session_id: input.session_id
           idempotency_key: input.idempotency_key
+          serial_key: input.serial_key
           model_route: input.route
           model_route_alias: input.model_route_alias
           model_route_source: input.model_route_source
@@ -1101,7 +1120,7 @@ commands:
     naming:
       wire: cancel-run
       display: Cancel a run
-      summary: "Cancel a run that has not ended: Submitted, WaitingForRoute, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only."
+      summary: "Cancel a run that has not ended: Submitted, WaitingOnKey, WaitingForRoute, Running or WaitingOnDecision (a cancel of a run that waits on its serial key takes it out of the key's queue; a cancel of the run that holds the key lets the next take it). The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: at, type: Timestamp}
@@ -1163,7 +1182,7 @@ commands:
     naming:
       wire: fail-run-start
       display: Report a run that could not start
-      summary: "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
+      summary: "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route, or a restarted daemon could not take a run that waits on its serial key up again (its context or its routes are refused now): the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: reason, type: String}
@@ -1189,7 +1208,59 @@ commands:
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict
-        summary: "The run is not Submitted or WaitingForRoute."
+        summary: "The run is not Submitted, WaitingOnKey or WaitingForRoute."
+
+  - name: sdc.daemon.WaitOnKey
+    naming:
+      wire: wait-on-key
+      display: Hold a run behind the runs of its serial key
+      summary: "A Submitted run names a serial key and a live run with that key was submitted before it: the run is WaitingOnKey, and nothing of it is started or copied. The view of the run says `waiting on key <k> behind run <id>` (key_wait). The daemon looks again whenever a run of the key leaves its live states and issues TakeKey once no live run with the key was submitted before this one; a cancel takes the run out of the queue. A restarted daemon keeps the run WaitingOnKey: the queue is the runs of the key in the journal's order. The daemon also writes the run event `runbook.waiting-on-key` (record: serial_key, behind: the run ahead at that moment); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: waiting-on-key
+        moves: sdc.daemon.Run.wait_on_key
+        instance: run_id
+        emits:
+          - sdc.daemon.RunWaitingOnKey
+        payload:
+          sdc.daemon.RunWaitingOnKey:
+            run_id: input.run_id
+        summary: "The run is WaitingOnKey."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Submitted."
+
+  - name: sdc.daemon.TakeKey
+    naming:
+      wire: take-key
+      display: Let a run take its serial key
+      summary: "No live run with the serial key of a WaitingOnKey run was submitted before it any more: each of them ended, was cancelled, failed to start, ended on its route or was orphaned at a restart. The run is Submitted again and is taken up as a submitted run is (its routes are read again first: WaitForRoute). The daemon also writes the run event `runbook.key-taken` (record: serial_key); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: took-key
+        moves: sdc.daemon.Run.take_key
+        instance: run_id
+        emits:
+          - sdc.daemon.RunTookKey
+        payload:
+          sdc.daemon.RunTookKey:
+            run_id: input.run_id
+        summary: "The run is Submitted and holds the key."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not WaitingOnKey."
 
   - name: sdc.daemon.WaitForRoute
     naming:
@@ -1575,6 +1646,12 @@ events:
   - name: sdc.daemon.RunWaitingForRoute
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunWaitingOnKey
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunTookKey
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
   - name: sdc.daemon.RunStoppedOnRoute
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
@@ -1831,6 +1908,8 @@ views:
       - {name: model_route_alias, type: Optional<String>}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>}
+      - {name: key_wait, type: Optional<String>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>}
@@ -1861,6 +1940,8 @@ views:
       - {name: model_route_alias, type: Optional<String>}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>}
+      - {name: key_wait, type: Optional<String>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>}
@@ -1891,6 +1972,8 @@ views:
       - {name: model_route_alias, type: Optional<String>}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>}
+      - {name: key_wait, type: Optional<String>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>}
@@ -1925,6 +2008,8 @@ views:
       - {name: model_route_alias, type: Optional<String>}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>}
+      - {name: key_wait, type: Optional<String>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>}
@@ -1957,6 +2042,8 @@ views:
       - {name: model_route_alias, type: Optional<String>}
       - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: serial_key, type: Optional<sdc.daemon.SerialKey>}
+      - {name: key_wait, type: Optional<String>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>}
