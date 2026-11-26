@@ -573,6 +573,9 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
         if role == "default" {
             return Err("model_routes.default: the role default is the run's model_route; name it there".to_owned());
         }
+        if let Some(why) = crate::relay::prefixed_role_refusal(role, &format!("model_routes.{role}")) {
+            return Err(why);
+        }
         if let Some(why) = route_name_refusal(routes, &format!("model_routes.{role}"), name) {
             return Err(why);
         }
@@ -775,6 +778,21 @@ fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) 
             let at = crate::clock::parse_instant(&e.at)?;
             (at <= now_millis && now_millis - at < wait_millis).then(|| (e.run_id.clone(), e.at.clone()))
         })
+}
+
+/// What a wake of [`Daemon::wake_route`] came to for the run.
+enum Woke {
+    /// Sent and answered other than `spend-ceiling`, or not sent (no cap, the cap reached, a booking not written).
+    Sent,
+    /// The gateway answered `spend-ceiling`.
+    Ceiling,
+    /// The run joined the wake the named run sent within the route's wait.
+    Joined(String),
+}
+
+/// Whether the gateway answered the wake the run `run` sent for `route` with `spend-ceiling`.
+fn answered_ceiling(st: &State, run: &str, route: &str) -> bool {
+    st.events_after(Some(run), None, 0).iter().any(|e| e.kind == ROUTE_WAKE_ANSWERED && e.record["route"] == route && e.record["code"] == crate::routes::SPEND_CEILING)
 }
 
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
@@ -1325,15 +1343,21 @@ impl Daemon {
         drop(st);
 
         // A delegation the run classifies takes the route entries of the runbook the classifier picks as one that names it
-        // does (`route_of_delegation`): the route the delegation named stays the run's word.
+        // does (`route_of_delegation`): the route the delegation named stays the run's word. Its routes pass the readiness
+        // check of a run's before the runbook's first call, and the run's record names them.
         let admit = (a.delegation.is_some() && a.runbook_id == crate::delegation::CLASSIFY_RUNBOOK).then(|| {
             // the run holds the daemon weakly: a run that outlives it gets a refusal, and no cycle keeps the daemon alive
             let inner = Arc::downgrade(&self.inner);
             let named = a.route.as_ref().filter(|(record, _)| record.source == RouteSource::Run).map(|(record, _)| record.route.clone());
+            let run = run_id.clone();
             crate::runtime::Admit(Arc::new(move |runbook: &str| {
-                let daemon = Daemon { inner: inner.upgrade().ok_or("the daemon stopped before the run took its runbook's routes")? };
-                let word = daemon.protocol_word(runbook, None)?;
-                route_of_delegation(&daemon.inner.policy, named.as_deref(), word.as_ref()).map(|(_, table)| table)
+                let refused = |why: String| format!("route-refused: {why}");
+                let daemon = Daemon { inner: inner.upgrade().ok_or_else(|| refused("the daemon stopped before the run took its runbook's routes".to_owned()))? };
+                let word = daemon.protocol_word(runbook, None).map_err(refused)?;
+                let (record, table) = route_of_delegation(&daemon.inner.policy, named.as_deref(), word.as_ref()).map_err(refused)?;
+                daemon.ready_routes(&run, &record)?;
+                daemon.st().commit(Fact::RunRouted { run_id: run.clone(), model_route: record }).map_err(|e| refused(format!("the run's record could not take its routes: {e}")))?;
+                Ok(table)
             }))
         });
         let request = StartRequest {
@@ -2185,14 +2209,21 @@ impl Daemon {
             Ok(o) if !o.is_refusal() => {}
             _ => return false,
         }
+        let ceiling = |name: &str, phase: &Option<String>| {
+            let record = json!({"route": name, "phase": phase, "ceiling": crate::routes::SPEND_CEILING});
+            let _ = self.end_route_wait_recorded(run_id, record, phase.as_deref());
+            false
+        };
+        // the wakes this run joined: route, phase and the run that sent the wake
+        let mut joined: Vec<(String, Option<String>, String)> = Vec::new();
         for (name, phase) in &wait.wake {
             if cancel.load(Ordering::SeqCst) || self.is_stopping() {
                 return false;
             }
-            if !self.wake_route(run_id, name) {
-                let record = json!({"route": name, "phase": phase, "ceiling": crate::routes::SPEND_CEILING});
-                let _ = self.end_route_wait_recorded(run_id, record, phase.as_deref());
-                return false;
+            match self.wake_route(run_id, name) {
+                Woke::Sent => {}
+                Woke::Ceiling => return ceiling(name, phase),
+                Woke::Joined(run) => joined.push((name.clone(), phase.clone(), run)),
             }
         }
         let start = self.st().now_millis();
@@ -2201,6 +2232,11 @@ impl Daemon {
         loop {
             if cancel.load(Ordering::SeqCst) || self.is_stopping() {
                 return false;
+            }
+            // a joined wake the gateway answered `spend-ceiling` (before the join or since) ends this run as it ended the
+            // run that sent it
+            if let Some((name, phase, _)) = joined.iter().find(|(name, _, run)| answered_ceiling(&self.st(), run, name)) {
+                return ceiling(name, phase);
             }
             let now = self.st().now_millis();
             if now >= read_at.saturating_add(ROUTE_READ_EVERY_MILLIS) {
@@ -2225,17 +2261,65 @@ impl Daemon {
         }
     }
 
+    /// The readiness check of the routes of `record` for the running run `run_id` (a delegation the run classified, whose
+    /// runbook's route entries gave it routes the submit did not read; `docs/model-routes.md`, section 3): every route can
+    /// answer, or the run waits as a submitted run does, reading them at most once every 5 s of the daemon's clock up to the
+    /// least `start_wait_seconds` of those that cannot (the run event `runbook.waiting-for-route`). `Err` is the run's
+    /// failure: `route-unavailable: ...` for a gateway that does not answer or is not ready and for a wait that ran out,
+    /// `route-refused: ...` for an alias the gateway does not list; a cancel or the daemon's stop ends the wait too.
+    fn ready_routes(&self, run_id: &str, record: &RunRoute) -> Result<(), String> {
+        let routes = &self.inner.policy.routes;
+        let wait = match route_wait(routes, record, None) {
+            Ok(None) => return Ok(()),
+            Ok(Some(wait)) => wait,
+            Err(NotReady::Unavailable(message)) => return Err(format!("route-unavailable: {message}")),
+            Err(NotReady::Refused(reason)) => return Err(format!("route-refused: {reason}")),
+        };
+        let wait_seconds = wait.wait_millis / 1000;
+        let _ = self.record_run_event(run_id, "runbook.waiting-for-route", json!({"route": wait.route, "phase": wait.phase, "wait_seconds": wait_seconds}));
+        let cancel = lock(&self.inner.cancels).get(run_id).cloned();
+        let start = self.st().now_millis();
+        let deadline = start.saturating_add(wait.wait_millis);
+        let (mut route, mut phase, mut read_at) = (wait.route.clone(), wait.phase.clone(), start);
+        loop {
+            if cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst)) || self.is_stopping() {
+                return Err("the run was cancelled while it waited for its routes".to_owned());
+            }
+            let now = self.st().now_millis();
+            if now >= read_at.saturating_add(ROUTE_READ_EVERY_MILLIS) {
+                read_at = now;
+                match read_routes(routes, &wait.routes) {
+                    Ok(None) => return Ok(()),
+                    Ok(Some((r, p))) => {
+                        route = r;
+                        if p.is_some() {
+                            phase = p;
+                        }
+                    }
+                    // a gateway that does not answer or no longer lists the alias while the run waits: it waits on
+                    Err(_) => {}
+                }
+            }
+            if now >= deadline {
+                let phase = phase.as_deref().unwrap_or("unknown");
+                return Err(format!("route-unavailable: route {route} could not answer within its start_wait_seconds of {wait_seconds} s (phase {phase}); no call was sent to it"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     /// Wakes the managed route `name` once for the run (`docs/model-routes.md`, section 3 point 4). A run within the
     /// route's `start_wait_seconds` of a wake sent for the route joins that wake: nothing is sent or booked, and the event
     /// names the run and the instant of that wake (`joined`, `joined_at`). Otherwise the wake is booked
     /// against the route's cap for the day of the daemon's clock before it is sent, under the lock of the state, in the
     /// run event `runbook.route-wake`; a wake the rest of the day's cap does not cover is not sent and the event says
-    /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. False when the gateway
-    /// answered `spend-ceiling`: the run stops.
-    fn wake_route(&self, run_id: &str, name: &str) -> bool {
+    /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. [`Woke::Ceiling`] when the
+    /// gateway answered `spend-ceiling`: the run stops; [`Woke::Joined`] names the run whose wake this run joined, whose
+    /// answer is this run's too.
+    fn wake_route(&self, run_id: &str, name: &str) -> Woke {
         let routes = &self.inner.policy.routes;
-        let Some(route) = routes.route(name) else { return true };
-        let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return true };
+        let Some(route) = routes.route(name) else { return Woke::Sent };
+        let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return Woke::Sent };
         let wait_millis = i64::try_from(route.start_wait_seconds.unwrap_or(0)).unwrap_or(i64::MAX / 2).saturating_mul(1000);
         {
             let mut st = self.st();
@@ -2243,7 +2327,7 @@ impl Daemon {
             if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis) {
                 let record = json!({"route": name, "sent": false, "reason": WAKE_JOINED, "joined": run, "joined_at": at});
                 let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE, record);
-                return true;
+                return Woke::Joined(run);
             }
             let day: String = st.now().chars().take(10).collect();
             let booked = wakes_booked(&st, name, &day);
@@ -2254,7 +2338,7 @@ impl Daemon {
             }
             // a booking that cannot be written sends no wake
             if record_event_locked(&mut st, run_id, ROUTE_WAKE, record).is_err() || !fits {
-                return true;
+                return Woke::Sent;
             }
         }
         let answer = routes.wake(name, std::time::Instant::now() + crate::routes::READ_BOUND).unwrap_or_default();
@@ -2263,7 +2347,11 @@ impl Daemon {
             record["code"] = json!(code);
         }
         let _ = self.record_run_event(run_id, ROUTE_WAKE_ANSWERED, record);
-        answer.code.as_deref() != Some(crate::routes::SPEND_CEILING)
+        if answer.code.as_deref() == Some(crate::routes::SPEND_CEILING) {
+            Woke::Ceiling
+        } else {
+            Woke::Sent
+        }
     }
 
     fn spawn_run(&self, request: StartRequest, wait: Option<RouteWait>) {

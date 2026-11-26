@@ -306,6 +306,12 @@ fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, 
             return Err(format!("{at}.wake_on_submit: true needs {at}.wake_cost_micro_usd above 0 (what one wake books against the day's cap, docs/model-routes.md section 3)"));
         }
     }
+    // a wake that costs more than the day's cap could never be sent
+    if let (Some(cap), Some(cost)) = (wake.daily_cap_micro_usd, wake.cost_micro_usd) {
+        if cost > cap {
+            return Err(format!("{at}.wake_cost_micro_usd: {cost} is above {at}.wake_daily_cap_micro_usd {cap}: no wake would ever be sent (docs/model-routes.md section 3)"));
+        }
+    }
     Ok(Route {
         name: name.to_owned(),
         gateway,

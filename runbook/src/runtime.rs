@@ -223,11 +223,13 @@ pub struct StartRequest {
 
 /// The daemon's admission of a runbook's route entries (`crate::admission`) for a delegation whose runbook is chosen when its
 /// run starts: given the runbook's name, the routes of the run's roles, chosen as for a delegation that names the runbook,
-/// or the refusal (`route-refused`) that delegation would get, naming the runbook and the role.
+/// once each of them can answer (the readiness check of a run's routes, waiting as a submitted run waits); or why not, as
+/// the run's failure: `route-refused: <reason>` (the refusal that delegation would get, naming the runbook and the role)
+/// or `route-unavailable: <reason>`. The daemon's record of the run names the routes it took.
 #[derive(Clone)]
 pub struct Admit(pub std::sync::Arc<AdmitFn>);
 
-/// The function of an [`Admit`]: the runbook's name in, the run's route table or the refusal out.
+/// The function of an [`Admit`]: the runbook's name in, the run's route table or the run's failure out.
 pub type AdmitFn = dyn Fn(&str) -> Result<crate::relay::RouteTable, String> + Send + Sync;
 
 impl std::fmt::Debug for Admit {

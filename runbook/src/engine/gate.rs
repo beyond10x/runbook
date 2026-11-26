@@ -222,7 +222,7 @@ impl TestRunner for Reserving {
 /// What the relay of a run on a route asks of the run (`crate::relay::Booking`): each call is taken against the
 /// run's caps of model calls and spend before it is sent, and booked into the run's spend ledger when its answer
 /// has ended, at the cost the relay read; a call whose cost is not known books its reservation
-/// ([`crate::relay::Booking::reservation_micro_usd`]). The lines wait here until the run's thread records them as
+/// ([`crate::relay::Booking::reservation_micro_usd`], read as the call is admitted). The lines wait here until the run's thread records them as
 /// events of the run.
 pub struct RelayBooking {
     held: Arc<Held>,
@@ -239,6 +239,9 @@ pub struct RelayBooking {
     in_flight: AtomicU64,
     /// The calls of a step (their line names it) booked since the last step was booked ([`Gate::book`] takes the count).
     booked: AtomicU64,
+    /// The calls taken while a step was in flight since the last step was booked ([`Gate::book`] takes the count): each
+    /// is booked by the relay when it ends, the step's own end before it or not.
+    taken: AtomicU64,
     /// The run ended: what is booked now is no event of the run any more.
     closed: AtomicBool,
 }
@@ -277,6 +280,9 @@ impl crate::relay::Booking for RelayBooking {
             }
             None => {
                 saturating_add(&self.in_flight, 1);
+                if lock(&self.step).is_some() {
+                    saturating_add(&self.taken, 1);
+                }
                 Ok(())
             }
         }
@@ -284,7 +290,7 @@ impl crate::relay::Booking for RelayBooking {
 
     /// In a step: the largest reservation the step holds. Otherwise (a call of the decider, or a step that holds
     /// nothing): what a call of the decider may cost, at most what the run's spend cap has left
-    /// (`docs/model-routes.md`, section 5).
+    /// (`docs/model-routes.md`, section 5). The relay reads it as it admits a call, never when it books one.
     fn reservation_micro_usd(&self) -> u64 {
         let largest = lock(&self.held.reserved).iter().map(|r| r.micro_usd).max().unwrap_or(0);
         if largest > 0 && lock(&self.step).is_some() {
@@ -366,7 +372,7 @@ impl Gate {
     /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
     /// the step in flight.
     pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
-        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
         self.reader = std::mem::take(&mut self.reader).routed();
         self.routed = Some(booking.clone());
         booking
@@ -443,15 +449,18 @@ impl Gate {
     /// Books what the step spent: the cost records written since the last step, at their cost, and a
     /// call that failed with no cost at its reservation (the largest the step held). The step's
     /// reservations are released: the first is committed with the whole cost, the others released. A
-    /// record that cannot be read books the reservations and is an error (fail closed), unless the relay booked calls of
-    /// the step: then the step costs the sum of those calls, its reservations are released, and its cost records (which
+    /// record that cannot be read books the reservations and is an error (fail closed), unless the relay booked or took
+    /// calls of the step: then the step costs the sum of those calls (a call still in flight is booked by the relay when
+    /// it ends, once, at the reservation it was admitted with), its reservations are released, and its cost records (which
     /// carry no cost on a route) do not matter.
     pub fn book(&mut self, sink: &dyn EventSink) -> Result<(), String> {
         let held: Vec<Reservation> = std::mem::take(&mut *lock(&self.held.reserved));
         let largest = held.iter().map(|r| r.micro_usd).max().unwrap_or(0);
         let result = self.reader.read_new(&self.workspace);
         let routed = self.routed.is_some();
-        let relayed = self.routed.as_ref().map_or(0, |b| b.booked.swap(0, Ordering::SeqCst));
+        // the calls of the step the relay booked or takes still (a call in flight when its program was killed is booked
+        // by the relay when the gateway answers it, at the reservation it was admitted with)
+        let relayed = self.routed.as_ref().map_or(0, |b| b.booked.swap(0, Ordering::SeqCst).saturating_add(b.taken.swap(0, Ordering::SeqCst)));
         let relay_failed = || self.routed.as_ref().and_then(|b| lock(&b.failed).take()).map_or(Ok(()), Err);
         let (booked, what, calls, outcome) = match result {
             // The relay took and booked every model call of the step; the step's reservations are released. A call

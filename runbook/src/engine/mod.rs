@@ -282,9 +282,14 @@ impl Engine {
             return Ok(Finish::Cancelled);
         }
         // The runbook the classifier picked brings its route entries: the daemon admits them as for a delegation that names
-        // it, now, before the runbook's first model call; a refusal ends the start with the words of that delegation's.
+        // it, now, before the runbook's first model call, and its routes pass the readiness check of a run's; a refusal
+        // ends the start with the words of that delegation's (`route-refused: ...`, `route-unavailable: ...`).
         let admitted = match (&taken, &request.admit) {
-            (Some(t), Some(admit)) if !t.whole_text => Some((admit.0)(&t.runbook).map_err(|why| failure(format!("route-refused: {why}")))?),
+            (Some(t), Some(admit)) if !t.whole_text => match (admit.0)(&t.runbook) {
+                Ok(table) => Some(table),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            },
             _ => None,
         };
         let routes = admitted.as_ref().or(request.routes.as_ref());

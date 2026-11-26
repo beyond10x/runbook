@@ -248,7 +248,10 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   Built (`story:protocol-declares-the-routes-it-needs`; `docs/daemon-api.md`, "The route of a run"): the file is
   `bindings/<runbook>.routes.yaml`, read at each `submit-run`, each delegation that names the runbook as its
   protocol, and each delegation whose runbook the classifier picks, once it is picked and before its first model call
-  (a refusal there ends the run `FailedToStart` with `route-refused: ` and the same reason). A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
+  (a refusal there ends the run `FailedToStart` with `route-refused: ` and the same reason; the routes the entries give
+  then take the readiness check of section 3, a route that cannot answer within its wait ends the run `FailedToStart`
+  with `route-unavailable: `, and the run record names the routes it took). Requirements the run's route misses are
+  met by `route_policy.default` when it meets them. No role's name starts with `runbook-` (section 11). A role the run names takes the run's route, which must be allowed and meet the role's needs; a role it does
   not name takes the entry's route; an entry for the role `default` comes before `route_policy.default`. A call of a
   role the runbook chose is booked with the source `protocol`.
 - **Per run:** a submit may name `model_route = "<name>"` and per role `model_routes.<role>`. It names a declared
@@ -283,7 +286,7 @@ At submit, after the route is resolved and before anything is written:
    when it accepts a run on a stopped managed route, and books `wake_cost_micro_usd` against
    `wake_daily_cap_micro_usd` for the day. `wake_on_submit = true` without a cap above 0 is refused at start by
    name, and so is one without a `wake_cost_micro_usd` above 0 (a wake that books nothing never meets the cap). A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
-   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling. The shipped
+   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name. The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
    upstream shows as a failed call (section 4). A hosted route's `callable` of `/v1/status` is shown in the view `routes`
@@ -312,9 +315,11 @@ At submit, after the route is resolved and before anything is written:
   (once the gateway sends one), input and output tokens, and its cost. The relay's line replaces the adapter's own
   `cost_usd` for a routed run: today a call that ended 0 with no `cost_usd` ends the run (`runbook/src/cost.rs`),
   and a gateway alias has no price in the model client's table.
-- Cost (D-3): with prices declared on the route, tokens times price; without, `cost_known: false` and the call books
-  its reservation (`max_call_micro_usd`), as the ledger does today for a call of unknown cost. A local route costs 0
-  unless prices are declared. A managed pod's hourly cost is the gateway's (its daily and total spend ceilings);
+- Cost (D-3): with prices declared on the route, tokens times price (the input price takes the input read from and
+  written to the prompt cache, booked in fields of their own beside `input_tokens`); without, `cost_known: false` and
+  the call books its reservation (the step's largest while its step runs, else `max_call_micro_usd`), fixed as the
+  call is admitted, as the ledger does today for a call of unknown cost. A local route costs 0 unless prices are
+  declared; an answer with no usage costs 0 at declared prices and books the reservation on a route without them. A managed pod's hourly cost is the gateway's (its daily and total spend ceilings);
   Runbook books wakes only (section 3).
 - The run's `max_llm_calls` and `cap_micro_usd`, and the daemon's daily spend ledger, count these lines. A cap that
   is reached stops the run as today.
@@ -428,7 +433,8 @@ entry `story:model-entry-for-bound-programs` asked for, and the place every call
   runbookd. The `claude-cli` adapter sets `ANTHROPIC_BASE_URL` to `base_url` and `ANTHROPIC_AUTH_TOKEN` to the
   token for the `claude` it starts, and the model to the role's `model` (`runbook-<role>`: Claude Code takes a bare
   `default` for an alias of its own and asks for `default[1m]`); a program that starts another model client does the
-  same with its own client's settings.
+  same with its own client's settings. The relay takes `runbook-<role>` for the role `<role>` first, else a bare role
+  name; a role whose name starts with `runbook-` is refused in a submit and in a runbook's route entries.
 - **Who gets the file:** the decider, every agent node (`sdc-node`) and every bound program of a run on a route.
   A program that never calls a model ignores it. The file and its directory go when the run ends.
 - `[gateway]` today gives the decider the gateway's own address and token; with routes, the decider takes the

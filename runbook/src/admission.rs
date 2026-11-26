@@ -222,7 +222,11 @@ pub fn parse(runbook: &str, text: &str) -> Result<Declared, String> {
             }
             for (k, v) in m {
                 let role = k.as_str().filter(|r| is_name(r)).ok_or_else(|| format!("{named}: a role is 1 to 64 letters, digits, '.', '_' or '-'"))?;
-                entries.insert(role.to_owned(), entry_of(role, v));
+                let entry = match crate::relay::prefixed_role_refusal(role, &format!("model_routes.{role}")) {
+                    Some(why) => Entry::Invalid(why),
+                    None => entry_of(role, v),
+                };
+                entries.insert(role.to_owned(), entry);
             }
         }
         Some(_) => return Err(format!("{named}: model_routes is a mapping of roles")),
@@ -348,7 +352,8 @@ pub fn for_run(runbook: &str, declared: &Declared, routes: &[Facts], asked: Aske
             (None, Entry::Named(r)) => (r.clone(), By::Protocol),
             (None, Entry::Needs(n)) => {
                 let meet: Vec<&str> = routes.iter().filter(|f| may(allowed, &f.route) && n.met_by(f)).map(|f| f.route.as_str()).collect();
-                match (asked.route.or(asked.default).filter(|d| meet.contains(d)), meet.as_slice()) {
+                // the run's route when it meets them, else the daemon's default when it does, else the one route that does
+                match ([asked.route, asked.default].into_iter().flatten().find(|d| meet.contains(d)), meet.as_slice()) {
                     (Some(d), _) => (d.to_owned(), By::Protocol),
                     (None, [one]) => ((*one).to_owned(), By::Protocol),
                     (None, []) => return Err(format!("runbook {runbook}: role {role}: no declared route meets {}", n.words())),
@@ -545,5 +550,17 @@ mod tests {
         }
         let a = admitted("format: runbook.routes/1\nroutes_allowed: [\"http://h\"]\n", None);
         assert_eq!(a.reasons, ["routes_allowed holds an entry that is not a route name"]);
+    }
+
+    /// The relay takes the model `runbook-<role>` for the role `<role>`: a role whose name starts with `runbook-` would be
+    /// taken for another, and the entry is refused naming its member.
+    #[test]
+    fn a_role_whose_name_starts_with_runbook_dash_is_refused_naming_its_member() {
+        let declared = parse("r", "format: runbook.routes/1\nmodel_routes:\n  runbook-x: {route: claude}\n  x: {route: qwen}\n").unwrap();
+        let a = admit(&declared, &two(), None);
+        assert_eq!(a.reasons.len(), 1, "{:?}", a.reasons);
+        assert!(a.reasons[0].contains("model_routes.runbook-x") && a.reasons[0].contains("`runbook-`"), "{:?}", a.reasons);
+        let why = check("r", &declared, &two()).unwrap_err();
+        assert!(why.starts_with("runbook r: ") && why.contains("model_routes.runbook-x"), "{why}");
     }
 }

@@ -204,7 +204,8 @@ start, exit 2, with a line that names the key and never its value, a part of it 
 gateway the file does not declare, a gateway without `base_url`, a `token` (or any key that is not one of the
 members above) in a gateway, a route or the policy, a `token`, `token_file`, `base_url` or `api_key` in a route,
 `wake_on_submit = true` without a `wake_daily_cap_micro_usd` above 0 or without a `wake_cost_micro_usd` above 0
-(the line names `routes.<name>.wake_on_submit` and the key it lacks), a wake key on a route that is not managed, a `kind` that is not one of the three, a
+(the line names `routes.<name>.wake_on_submit` and the key it lacks), a `wake_cost_micro_usd` above the route's
+`wake_daily_cap_micro_usd` (no wake would ever be sent; the line names both keys), a wake key on a route that is not managed, a `kind` that is not one of the three, a
 `model` that is no alias (an address), a policy that names a route the file does not declare, a name that is not
 1 to 64 letters, digits, `.`, `_` or `-`, and a token file it cannot read. Nothing is written before.
 
@@ -268,12 +269,14 @@ catalog"), which the daemon reads at each submit of the runbook and each delegat
 (`docs/model-routes.md`, section 2). The precedence per role is the run's word, then the runbook's, then the default:
 a role the submit names (`model_route` for the role `default`, `model_routes.<role>`) takes that route; a role it
 does not name takes its entry's route, the one it names or, for `needs`, the run's `model_route` or
-`[route_policy] default` when that meets them, else the one allowed route that does; the role `default` with no
+`[route_policy] default` when that meets them (the run's first, then the default: a run's route that misses them
+leaves them to the default), else the one allowed route that does; the role `default` with no
 entry takes `[route_policy] default`. The run's `model_routes` holds every role besides `default` with its route,
 and the relay books a call of a role the runbook chose with the source `protocol` (`model_route_source` is
 `protocol` when the runbook's entry for the role `default` chose it). The submit or delegation is refused `422
 route-refused`, and nothing is written, when the file cannot be read or is not `runbook.routes/1`, an entry is not
-one, an entry names a route the daemon does not declare or that `routes_allowed` does not hold, no allowed route
+one, a role's name starts with `runbook-` (the relay would take the model `runbook-<role>` for another role; the
+reason names `model_routes.<role>`, and a submit's `model_routes` refuses such a role the same way), an entry names a route the daemon does not declare or that `routes_allowed` does not hold, no allowed route
 meets an entry's `needs`, several do and neither the run's route nor the default is one of them, a route the
 submit names for a role misses the role's `needs`, or any route of the run (the submit's, an entry's or the
 default) is outside `routes_allowed`. The `reason` starts with `runbook <id>:` and names the role and the route or
@@ -318,7 +321,9 @@ it joins a wake already sent:
 - A wake of the same route sent less than the route's `start_wait_seconds` before (by any run, also before a restart
   of the daemon: the journal holds it) is still starting the model: the run joins it, sends nothing and books nothing.
   Its event `runbook.route-wake` says `{"route", "sent": false, "reason": "joined a wake sent within the wait",
-  "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits.
+  "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits. The
+  answer to that wake is its answer too: when the gateway answered it (or answers it while the run waits)
+  `spend-ceiling`, the run ends `stopped: route` at once, its `runbook.route-wait-ended` naming the ceiling.
 - The wake is booked before it is sent, under the lock of the daemon's state, in the run event `runbook.route-wake`:
   `{"route", "sent": true, "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`. `day` is the date (UTC) of
   the daemon's clock; `booked_micro_usd` is what the route's sent wakes of that day add up to with this one. The
@@ -458,7 +463,12 @@ names the role and the route or the requirement; an address, a token or another 
 echoed. A runbook with no such file is admitted with no entries: every declared route may serve it. The catalog
 admits against the default route; a submit, a delegation that names the runbook and a delegation whose runbook the
 classifier picks (once it is picked, before its first model call) admit against the run's own
-word first and refuse what cannot be admitted (above, "The route of a run").
+word first and refuse what cannot be admitted (above, "The route of a run"). The routes a picked runbook's entries
+give take the readiness check of a run's routes before its first call: a model that cannot answer yet holds the
+run up to the route's `start_wait_seconds` (the run event `runbook.waiting-for-route`; the run stays `Running`), and
+past it, or on a gateway that does not answer or is not ready, the run ends `FailedToStart` with
+`route-unavailable: ` and the route (an alias the gateway does not list: `route-refused: `). The run's record then
+names the routes it took (`model_route`, `model_route_alias`, `model_route_source`, `model_routes`).
 No address, token, token file or path of the host is in the row.
 
 ### The products of a run
@@ -776,7 +786,8 @@ unbound in money:
 
 After a step or such an answer the cost records are booked at their cost; a failed call with no
 cost is booked at the largest reservation it held (nothing when it held none), and a record that
-cannot be read books the reservations and ends the run as a runtime failure. A cap sent as a JSON
+cannot be read books the reservations and ends the run as a runtime failure, unless the run is on a route and the
+relay booked or still takes calls of the step: then the step costs those calls ("The relay of a run's model calls"). A cap sent as a JSON
 number (`"max_llm_calls": 50`, or `1e999`, which is out of range) is refused naming the cap, over HTTP
 and through `submit_run`.
 
@@ -1093,8 +1104,9 @@ On a loopback listener:
   `Authorization: Bearer <token>` or `x-api-key`, and never the daemon's token: the daemon's guard checks `Host`
   and `Origin` of these paths and leaves the token to the relay. A run that is not live, or another token, is
   `401`.
-- The call's `model` names a role of the run: the role's `model` of the route file (`runbook-<role>`) or the bare
-  role, a trailing bracketed suffix (`runbook-default[1m]`) dropped. The relay answers in the gateway's shape,
+- The call's `model` names a role of the run: the role's `model` of the route file (`runbook-<role>`, taken for the
+  role `<role>` first) or the bare role, a trailing bracketed suffix (`runbook-default[1m]`) dropped. No role's name
+  starts with `runbook-` (above, "The route of a run"). The relay answers in the gateway's shape,
   `{"error": {"code", "message"}}`: `400 route-refused` for a role the run has no route for (the message names
   the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent),
   `400 bad-request` for a body that is no JSON object, `503 run-not-ready` before the run takes calls, and
@@ -1104,7 +1116,15 @@ On a loopback listener:
 - The relay sets `model` to the route's alias, sets `stream_options.include_usage` on a streamed chat call,
   adds the gateway's token and sends the call, one request per connection, to `<base_url>/v1/<wire>`. It reads
   the tokens from the answer's `usage` (or the usage of a stream's events) and books the call before the caller
-  sees the end of the answer. A `stream_options` that is `null` or no object is replaced by
+  sees the end of the answer. The line has `input_tokens` and `output_tokens`, and `cache_read_input_tokens` and
+  `cache_creation_input_tokens` when the answer counts input read from or written to the prompt cache (the
+  messages wire counts that input beside `input_tokens`); a declared input price takes all three. A call whose
+  cost is not known (no price, or no tokens reported) books its reservation with `cost_known: false`: the step's
+  largest reservation while its step runs, else what one call of the decider may cost, at most what the cap has
+  left, fixed as the call is admitted, so a call answered after its step's program was killed books what its step
+  held. An answer with no usage at all costs 0 at the route's declared prices, and on a route without prices, of
+  any kind, books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
+  reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
   booked once.
 

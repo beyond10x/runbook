@@ -202,6 +202,41 @@ fn wake_on_submit_true_without_a_cap_above_0_is_refused_at_start_by_name() {
     assert!(!declare(json!({"wake_daily_cap_micro_usd": 500, "wake_cost_micro_usd": 100})).unwrap().on_submit, "a cap alone turns no wake on");
 }
 
+/// A wake that costs more than the day's cap could never be sent: the daemon refuses to start and names the key.
+#[test]
+fn a_wake_cost_above_the_daily_cap_is_refused_at_start_by_name() {
+    let file = "[gateways.gw]\nbase_url = \"http://127.0.0.1:9\"\n[routes.qwen]\ngateway = \"gw\"\nmodel = \"qwen\"\nkind = \"managed\"\nwake_on_submit = true\nwake_daily_cap_micro_usd = 100\nwake_cost_micro_usd = 101\n";
+    let (status, err, wrote) = serve("wake-cost-over-cap", file);
+    assert_eq!(status, Some(2), "the daemon started: {err}");
+    assert!(err.contains("routes.qwen.wake_cost_micro_usd") && err.contains("wake_daily_cap_micro_usd"), "the refusal does not name the keys: {err}");
+    assert!(!wrote, "the state directory was written");
+    // a wake that costs the whole cap is one wake a day
+    let gateways = json!({"gw": {"base_url": "http://127.0.0.1:9"}});
+    let routes = json!({"qwen": {"gateway": "gw", "model": "qwen", "kind": "managed", "wake_on_submit": true, "wake_daily_cap_micro_usd": 100, "wake_cost_micro_usd": 100}});
+    let declared = RouteTable::declare(&Tables { gateways: Some(&gateways), routes: Some(&routes), ..Tables::default() });
+    assert!(declared.is_ok(), "a cost equal to the cap was refused: {:?}", declared.err());
+}
+
+/// A run that joins a wake sent for its route within the wait takes that wake's answer: the gateway answered it
+/// `spend-ceiling`, so the joining run ends `stopped: route` at once and its `runbook.route-wait-ended` names the ceiling,
+/// as the run that sent the wake does.
+#[test]
+fn a_run_that_joins_a_wake_answered_spend_ceiling_ends_stopped_route_naming_the_ceiling() {
+    let gw = Gateway::start("stopped", (503, json!({"error": {"code": "spend-ceiling", "message": "a pod start would pass the daily cap"}})));
+    let (d, clock) = daemon("wake-join-ceiling", &gw, wake_on(500, 100));
+    let first = submit(&d, "qwen");
+    assert_eq!(until_state(&d, &first, "Ended")["outcome"], "stopped: route");
+    clock.set("2026-11-26T10:05:00Z");
+    let second = submit(&d, "qwen");
+    // the clock does not move: the run ends on the answer it joined, not at the end of its wait of 600 s
+    let r = until_state(&d, &second, "Ended");
+    assert_eq!((r["outcome"].clone(), r["route_phase"].clone()), (json!("stopped: route"), json!("stopped")), "{r}");
+    assert_eq!(records(&d, &second, "runbook.route-wake")[0]["reason"], "joined a wake sent within the wait");
+    assert_eq!(records(&d, &second, "runbook.route-wait-ended"), vec![json!({"route": "qwen", "phase": "stopped", "ceiling": "spend-ceiling"})]);
+    assert_eq!(gw.wakes(), 1, "the joining run sent a wake");
+    gw.no_call();
+}
+
 #[test]
 fn with_a_cap_one_wake_is_sent_for_a_run_on_a_stopped_route_and_booked_and_a_spent_cap_sends_none() {
     let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));

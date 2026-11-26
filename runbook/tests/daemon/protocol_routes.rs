@@ -142,6 +142,23 @@ fn a_role_naming_a_declared_route_is_admitted_and_reaches_it_and_an_undeclared_o
     assert_eq!(row(&l, &run)["model_routes"], json!({"writer": "a"}));
 }
 
+/// The relay takes the model `runbook-<role>` for the role `<role>` (`docs/model-routes.md`, section 11): a role whose
+/// name starts with `runbook-` would be taken for another role, so a submit's `model_routes` and a runbook's route entries
+/// refuse it, naming the member; nothing is written.
+#[test]
+fn a_role_whose_name_starts_with_runbook_dash_is_refused_at_submit_and_in_route_entries_naming_the_member() {
+    let h = home("pr-prefix");
+    let (one, two) = (gateway(), gateway());
+    let l = serve("pr-prefix-d", &h, &one, &two);
+    let (status, body) = submit_with(&l, json!({"model_routes": {"runbook-x": "a"}}));
+    assert_eq!((status, body["outcome"].clone()), (422, json!("route-refused")), "{body}");
+    let reason = body["payload"]["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("model_routes.runbook-x") && reason.contains("`runbook-`"), "{reason}");
+    routes(&h, "model_routes:\n  runbook-x: {route: b}\n");
+    refused(&l, json!({}), &["model_routes.runbook-x", "`runbook-`"]);
+    assert_eq!((runs(&l), got(&one).len(), got(&two).len()), (0, 0, 0), "a refused submit wrote a run or called a route");
+}
+
 #[test]
 fn requirements_met_by_one_route_are_admitted_and_met_by_none_or_several_are_refused_naming_the_requirement() {
     let h = home("pr-needs");

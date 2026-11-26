@@ -1162,6 +1162,33 @@ fn a_classified_delegation_takes_the_route_entries_of_the_runbook_the_classifier
     assert_eq!((posted_to(&d.gw, "b-model").len(), posted_to(&d.gw, "a-model").len()), (1, 0), "the refused runbook's step made a call");
 }
 
+/// The routes of a classified run that its runbook's route entries give pass the readiness check of a run's routes before
+/// the runbook's first call (`docs/model-routes.md`, section 3): the entry of the role default names the managed route
+/// `other`, whose model the gateway's status gives as not callable. The run waits up to the route's `start_wait_seconds`
+/// of 1 s and then ends `FailedToStart` naming the route; no call goes to it.
+#[test]
+fn a_classified_delegation_waits_for_the_routes_its_runbook_gave_it_and_fails_to_start_on_one_that_cannot_answer() {
+    let status = json!({"models": [{"model": "b-model", "callable": false, "phase": "stopped"}]});
+    let gw = super::relay::gateway_with_status(
+        |g| if g.body["model"] == "c-model" { messages(&classified("answer-demo", 0.9)) } else { OK.to_vec() },
+        &["a-model", "b-model", "c-model"],
+        status,
+    );
+    let tables = ROUTES_AND_CLASSIFY.replace("[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"hosted\"\n", "[routes.other]\ngateway = \"default\"\nmodel = \"b-model\"\nkind = \"managed\"\nstart_wait_seconds = 1\n");
+    let d = daemon_on("dlg-classify-ready", gw, &tables);
+    answer_routes(&d.h, "model_routes:\n  default: {route: other}\n");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black"}));
+    assert_eq!(status, 202, "{body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!((end["run_state"].clone(), end["path"].clone()), (json!("FailedToStart"), json!("classified")), "{end}");
+    assert!(failure.starts_with("route-unavailable: ") && failure.contains("route other") && failure.contains("stopped"), "{failure}");
+    let waited: Vec<Value> = rows(&d.l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == "runbook.waiting-for-route").map(|e| e["record"].clone()).collect();
+    assert_eq!(waited, vec![json!({"route": "other", "phase": "stopped", "wait_seconds": 1})]);
+    assert!(posted_to(&d.gw, "b-model").is_empty(), "a call went to the route that cannot answer");
+}
+
 /// The claude-cli adapter of a run on a route gives `claude` the model the route file names for the role,
 /// `runbook-<role>`, which no client takes for an alias of its own, and the relay takes it for the role.
 #[test]

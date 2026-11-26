@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:9fd0c9f0c9bb625a61f6d36dbca638fe5c7b04a93614b4257602a481d21af203",
+    "contract_digest": "slice-sha256/2:23c2e6bc32f402be4224f612ce69d28dc0485cf4011e043f25aafd4738e6fb70",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.RoleRoutes": {
       "title": "RoleRoutes",
-      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`; a role does not start with `runbook-`, the prefix of the model the run's route file gives a role.",
       "x-ess-name": "sdc.daemon.RoleRoutes",
       "x-ess-kind": "newtype",
       "type": "object",

@@ -85,7 +85,7 @@
     },
     "model_route": {
       "$ref": "#/$defs/sdc.daemon.RouteName",
-      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit.",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook's first model call.",
       "x-ess-relation": {
         "name": "model_route",
         "kind": "references",
@@ -147,7 +147,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:a87e563c8d6e2b8ddd19344bf11927f89fb21f896a87ebfd2d7c1c966821b9f4",
+    "contract_digest": "slice-sha256/2:af8dc85bdfe94b3957b9fa740dcf103477106cdb5b016d8b62dbb26659268c43",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -219,7 +219,7 @@
     },
     "sdc.daemon.RoleRoutes": {
       "title": "RoleRoutes",
-      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`.",
+      "description": "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`; a role does not start with `runbook-`, the prefix of the model the run's route file gives a role.",
       "x-ess-name": "sdc.daemon.RoleRoutes",
       "x-ess-kind": "newtype",
       "type": "object",

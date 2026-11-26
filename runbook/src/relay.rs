@@ -135,6 +135,15 @@ fn without_suffix(model: &str) -> &str {
     }
 }
 
+/// Why `role` is no role a run may have, naming `member` (`model_routes.<role>` of a submit or of a runbook's route
+/// entries): a role whose name starts with [`ROLE_MODEL_PREFIX`] would be taken for the role after it by the relay.
+pub fn prefixed_role_refusal(role: &str, member: &str) -> Option<String> {
+    role.starts_with(ROLE_MODEL_PREFIX).then(|| {
+        let after = &role[ROLE_MODEL_PREFIX.len()..];
+        format!("{member}: a role does not start with `{ROLE_MODEL_PREFIX}`: the relay takes the model `{role}` for the role {after:?}")
+    })
+}
+
 /// The role a call's `model` names: without a bracketed suffix and without [`ROLE_MODEL_PREFIX`].
 pub fn role_of(model: &str) -> &str {
     let bare = without_suffix(model);
@@ -160,12 +169,12 @@ impl RouteTable {
         self.roles.get(role).map(|(r, s)| (r, s.as_str()))
     }
 
-    /// The role a call's `model` names, its route and the setting that chose it: the role by its name, or by the model the
-    /// route file gives it (`runbook-<role>`, [`role_model`]); a trailing bracketed suffix a client added to the name
-    /// (Claude Code writes `default[1m]` for a name it takes for an alias of its own) is dropped first.
+    /// The role a call's `model` names, its route and the setting that chose it: the role by the model the route file
+    /// gives it (`runbook-<role>`, [`role_model`]) first, else the role by its name; a trailing bracketed suffix a client
+    /// added to the name (Claude Code writes `default[1m]` for a name it takes for an alias of its own) is dropped first.
     pub fn named(&self, model: &str) -> Option<(&str, &ResolvedRoute, &str)> {
         let bare = without_suffix(model);
-        [bare, role_of(model)].into_iter().find_map(|name| self.roles.get_key_value(name)).map(|(role, (r, s))| (role.as_str(), r, s.as_str()))
+        [role_of(model), bare].into_iter().find_map(|name| self.roles.get_key_value(name)).map(|(role, (r, s))| (role.as_str(), r, s.as_str()))
     }
 
     /// The roles, in order.
@@ -182,7 +191,8 @@ impl RouteTable {
 pub trait Booking: Send + Sync {
     /// Takes one call against the run's caps; `Err` names the cap that is reached, and nothing is sent.
     fn admit(&self) -> Result<(), String>;
-    /// What a call of unknown cost books, micro USD.
+    /// What a call of unknown cost books, micro USD: read once, when the call is admitted, and kept with the call; a call
+    /// that ends after its step books what was read then.
     fn reservation_micro_usd(&self) -> u64;
     /// The step of the run in flight, when one is.
     fn step(&self) -> Option<String>;
@@ -370,7 +380,7 @@ impl Relay {
             }
         }
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
-        let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking };
+        let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking, reserved: 0 };
         // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
         // drops this handler and not the call, so a call that was sent is booked, once.
         let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
@@ -385,10 +395,12 @@ impl Relay {
 }
 
 /// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once.
-async fn exchange(call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) -> Response {
+async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) -> Response {
     let admitting = call.booking.clone();
-    match tokio::task::spawn_blocking(move || admitting.admit()).await {
-        Ok(Ok(())) => {}
+    // the reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
+    // never read when the call is booked: a call answered after its step ended books what its step held
+    match tokio::task::spawn_blocking(move || admitting.admit().map(|()| admitting.reservation_micro_usd())).await {
+        Ok(Ok(reserved)) => call.reserved = reserved,
         Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
     }
@@ -452,24 +464,40 @@ struct Call {
     source: String,
     wire: &'static str,
     booking: Arc<dyn Booking>,
+    /// What the call books when its cost is not known: [`Booking::reservation_micro_usd`] as the call was admitted.
+    reserved: u64,
 }
 
-/// The tokens an answer reported; a value that was not reported is `None`.
+/// The tokens an answer reported; a value that was not reported is `None`. `input_tokens` is the input the answer counts
+/// as such (on the messages wire the input that was not read from or written to the prompt cache); the input read from
+/// the cache and the input written to it are counted beside it.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+}
+
+/// `slot` set to the larger of what it holds and `n`.
+fn larger(slot: &mut Option<u64>, n: Option<u64>) {
+    if let Some(n) = n {
+        *slot = Some(slot.map_or(n, |x| x.max(n)));
+    }
 }
 
 impl Usage {
+    /// Whether the answer reported no usage at all.
+    pub fn is_none(&self) -> bool {
+        *self == Usage::default()
+    }
+
     fn take(&mut self, usage: &Value) {
         let n = |keys: &[&str]| keys.iter().find_map(|k| usage.get(*k).and_then(Value::as_u64));
-        if let Some(i) = n(&["input_tokens", "prompt_tokens"]) {
-            self.input_tokens = Some(self.input_tokens.map_or(i, |x| x.max(i)));
-        }
-        if let Some(o) = n(&["output_tokens", "completion_tokens"]) {
-            self.output_tokens = Some(self.output_tokens.map_or(o, |x| x.max(o)));
-        }
+        larger(&mut self.input_tokens, n(&["input_tokens", "prompt_tokens"]));
+        larger(&mut self.output_tokens, n(&["output_tokens", "completion_tokens"]));
+        larger(&mut self.cache_read_input_tokens, n(&["cache_read_input_tokens"]));
+        larger(&mut self.cache_creation_input_tokens, n(&["cache_creation_input_tokens"]));
     }
 
     fn take_document(&mut self, v: &Value) {
@@ -500,8 +528,9 @@ pub fn usage_of(body: &[u8]) -> Usage {
 }
 
 /// The cost of a call on `route` with `usage`: tokens times the declared prices (a price that is not declared
-/// beside one that is counts 0), rounded up to a whole micro USD; a local route without prices costs 0. `None`: the
-/// cost is not known (no price, or the tokens were not reported).
+/// beside one that is counts 0), rounded up to a whole micro USD; the input price takes the input read from and written
+/// to the prompt cache too. A local route without prices costs 0. `None`: the cost is not known (no price, or the
+/// tokens were not reported).
 pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
     let (pin, pout) = (route.price_in_micro_usd_per_mtok, route.price_out_micro_usd_per_mtok);
     if pin.is_none() && pout.is_none() {
@@ -513,22 +542,30 @@ pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
             Some(p) => tokens.map(|t| (u128::from(t) * u128::from(p)).div_ceil(1_000_000)),
         }
     };
-    let total = part(usage.input_tokens, pin)? + part(usage.output_tokens, pout)?;
+    let cached = usage.cache_read_input_tokens.unwrap_or(0).saturating_add(usage.cache_creation_input_tokens.unwrap_or(0));
+    let total = part(usage.input_tokens.map(|i| i.saturating_add(cached)), pin)? + part(usage.output_tokens, pout)?;
     Some(u64::try_from(total).unwrap_or(u64::MAX))
 }
 
+/// What a call on `route` books and whether its cost is known. `failed`: the gateway's code, for a call that failed;
+/// `reserved`: the call's reservation, booked when its cost is not known. A call the gateway refused or did not answer
+/// costs nothing; one whose answer broke off ran, and is booked as a call that ended is. An answer with no usage at all
+/// costs 0 tokens at the route's prices when it declares any, else its cost is not known, on a route of any kind.
+pub fn charge(route: &ResolvedRoute, usage: &Usage, failed: Option<&str>, reserved: u64) -> (u64, bool) {
+    let priced = route.price_in_micro_usd_per_mtok.is_some() || route.price_out_micro_usd_per_mtok.is_some();
+    match (failed, cost_of(route, usage)) {
+        (Some(code), _) if code != ANSWER_BROKEN => (0, true),
+        (None, _) if usage.is_none() => if priced { (0, true) } else { (reserved, false) },
+        (_, Some(cost)) => (cost, true),
+        (_, None) => (reserved, false),
+    }
+}
+
 impl Call {
-    /// The ledger line of this call. `failed`: the gateway's code and what was wrong, for a call that failed. A call the
-    /// gateway refused or did not answer cost nothing; one whose answer broke off ran, and is booked as a call that
-    /// ended is.
+    /// The ledger line of this call. `failed`: the gateway's code and what was wrong, for a call that failed
+    /// ([`charge`]).
     fn line(&self, call_id: Option<String>, usage: &Usage, failed: Option<(String, String)>) -> (Value, u64) {
-        let (micro_usd, cost_known) = match (&failed, cost_of(&self.route, usage)) {
-            (Some((code, _)), _) if code != ANSWER_BROKEN => (0, true),
-            (Some(_), Some(cost)) => (cost, true),
-            (Some(_), None) => (self.booking.reservation_micro_usd(), false),
-            (None, Some(cost)) => (cost, true),
-            (None, None) => (self.booking.reservation_micro_usd(), false),
-        };
+        let (micro_usd, cost_known) = charge(&self.route, usage, failed.as_ref().map(|(code, _)| code.as_str()), self.reserved);
         let mut line = json!({
             "what": "model call",
             "run": self.run,
@@ -544,6 +581,12 @@ impl Call {
             "cost_known": cost_known,
             "micro_usd": micro_usd,
         });
+        // the input read from and written to the prompt cache, when the answer counts it
+        for (key, n) in [("cache_read_input_tokens", usage.cache_read_input_tokens), ("cache_creation_input_tokens", usage.cache_creation_input_tokens)] {
+            if let Some(n) = n {
+                line[key] = json!(n);
+            }
+        }
         if let Some((code, detail)) = failed {
             line["cause"] = json!(ROUTE_UNAVAILABLE);
             line["code"] = json!(code);
@@ -855,25 +898,56 @@ mod tests {
 
     #[test]
     fn the_usage_of_a_json_answer_and_of_a_stream_is_read_in_each_wire() {
-        assert_eq!(usage_of(br#"{"usage":{"input_tokens":12,"output_tokens":7}}"#), Usage { input_tokens: Some(12), output_tokens: Some(7) });
-        assert_eq!(usage_of(br#"{"usage":{"prompt_tokens":3,"completion_tokens":4}}"#), Usage { input_tokens: Some(3), output_tokens: Some(4) });
+        assert_eq!(usage_of(br#"{"usage":{"input_tokens":12,"output_tokens":7}}"#), Usage { input_tokens: Some(12), output_tokens: Some(7), ..Usage::default() });
+        assert_eq!(usage_of(br#"{"usage":{"prompt_tokens":3,"completion_tokens":4}}"#), Usage { input_tokens: Some(3), output_tokens: Some(4), ..Usage::default() });
         let messages = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":9}}\n\n";
-        assert_eq!(usage_of(messages), Usage { input_tokens: Some(20), output_tokens: Some(9) });
+        assert_eq!(usage_of(messages), Usage { input_tokens: Some(20), output_tokens: Some(9), ..Usage::default() });
         let chat = b"data: {\"choices\":[]}\r\n\r\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":6}}\r\n\r\ndata: [DONE]\r\n\r\n";
-        assert_eq!(usage_of(chat), Usage { input_tokens: Some(5), output_tokens: Some(6) });
+        assert_eq!(usage_of(chat), Usage { input_tokens: Some(5), output_tokens: Some(6), ..Usage::default() });
         let responses = b"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":8,\"output_tokens\":2}}}\n\n";
-        assert_eq!(usage_of(responses), Usage { input_tokens: Some(8), output_tokens: Some(2) });
+        assert_eq!(usage_of(responses), Usage { input_tokens: Some(8), output_tokens: Some(2), ..Usage::default() });
         assert_eq!(usage_of(b"{}"), Usage::default());
     }
 
     #[test]
     fn a_cost_is_tokens_times_the_declared_prices_and_unknown_without_them() {
-        let used = Usage { input_tokens: Some(1_000_000), output_tokens: Some(500_000) };
+        let used = Usage { input_tokens: Some(1_000_000), output_tokens: Some(500_000), ..Usage::default() };
         assert_eq!(cost_of(&route("hosted", Some(3_000_000), Some(15_000_000)), &used), Some(3_000_000 + 7_500_000));
-        assert_eq!(cost_of(&route("hosted", Some(1), None), &Usage { input_tokens: Some(1), output_tokens: None }), Some(1), "a part of a micro USD is booked as one");
+        assert_eq!(cost_of(&route("hosted", Some(1), None), &Usage { input_tokens: Some(1), ..Usage::default() }), Some(1), "a part of a micro USD is booked as one");
         assert_eq!(cost_of(&route("hosted", None, None), &used), None);
         assert_eq!(cost_of(&route("local", None, None), &used), Some(0), "a local route without prices costs 0");
         assert_eq!(cost_of(&route("hosted", Some(5), Some(5)), &Usage::default()), None, "no tokens reported: unknown");
+    }
+
+    /// The messages wire counts in `input_tokens` only the input that was not read from or written to the prompt cache (a
+    /// call of Claude Code reads 2 there); the input read from the cache and the input written to it are counted in fields
+    /// of their own, and a declared input price takes all three.
+    #[test]
+    fn the_input_read_from_and_written_to_the_prompt_cache_is_counted_beside_the_input_and_priced_as_input() {
+        let answer = br#"{"usage":{"input_tokens":2,"cache_read_input_tokens":30000,"cache_creation_input_tokens":1000,"output_tokens":7}}"#;
+        let want = Usage { input_tokens: Some(2), output_tokens: Some(7), cache_read_input_tokens: Some(30_000), cache_creation_input_tokens: Some(1_000) };
+        assert_eq!(usage_of(answer), want);
+        let stream = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":30000,\"cache_creation_input_tokens\":1000,\"output_tokens\":1}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":7}}\n\n";
+        assert_eq!(usage_of(stream), want);
+        // 31,002 input tokens at 1,000,000 micro USD per million, 7 output tokens at 2,000,000
+        assert_eq!(cost_of(&route("hosted", Some(1_000_000), Some(2_000_000)), &want), Some(31_002 + 14));
+        assert_eq!(cost_of(&route("hosted", Some(1_000_000), None), &Usage { input_tokens: Some(2), ..Usage::default() }), Some(2), "no cache counts: none priced");
+    }
+
+    /// A call answered with no usage at all: on a route without prices its cost is not known and it books its
+    /// reservation, whatever the route's kind; on a route with prices it costs 0 tokens at those prices.
+    #[test]
+    fn a_call_answered_with_no_usage_books_its_reservation_unless_the_route_declares_prices() {
+        let none = Usage::default();
+        assert_eq!(charge(&route("hosted", None, None), &none, None, 12_300), (12_300, false));
+        assert_eq!(charge(&route("local", None, None), &none, None, 12_300), (12_300, false), "an unpriced local route");
+        assert_eq!(charge(&route("managed", None, None), &none, None, 12_300), (12_300, false));
+        assert_eq!(charge(&route("hosted", Some(3_000_000), Some(15_000_000)), &none, None, 12_300), (0, true), "0 tokens at the declared prices");
+        // with usage the rules stand: a local route without prices costs 0, an unpriced hosted one its reservation
+        let used = Usage { input_tokens: Some(10), output_tokens: Some(5), ..Usage::default() };
+        assert_eq!(charge(&route("local", None, None), &used, None, 12_300), (0, true));
+        assert_eq!(charge(&route("hosted", None, None), &used, None, 12_300), (12_300, false));
+        assert_eq!(charge(&route("hosted", None, None), &none, Some("rate-limited"), 12_300), (0, true), "a refused call costs nothing");
     }
 
     #[test]

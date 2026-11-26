@@ -192,7 +192,11 @@ impl CostReader {
                     let adapter = response.get("adapter").and_then(Value::as_str).unwrap_or("?");
                     let exit = response.get("exit").and_then(Value::as_i64).map_or_else(|| "?".to_owned(), |c| c.to_string());
                     let said = stderr_line(&entry.path(), self.home.as_deref());
-                    return Err(format!("model step {action}: model call {name} has no cost record (adapter {adapter}, exit {exit}): {said}"));
+                    let reason = format!("model step {action}: model call {name} has no cost record (adapter {adapter}, exit {exit}): {said}");
+                    // said once, by the step it belongs to: on a route the relay's line of the call stands for the record,
+                    // and the next step's read does not fail on it again
+                    self.checked_dirs.insert(name);
+                    return Err(reason);
                 }
                 self.checked_dirs.insert(name);
             }
