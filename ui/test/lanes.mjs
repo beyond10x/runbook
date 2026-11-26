@@ -36,6 +36,7 @@ export const WIDE_ONLY = {
   'daemon-level-and-kind.spec.mjs': 'level and kind as text',
   'daemon-live.spec.mjs': 'sets the gating sizes itself',
   'daemon-steps-model.spec.mjs': 'model function, no page',
+  'daemon-metrics.spec.mjs': 'pane drawn from a row',
   'daemon-routes.spec.mjs': 'route as text, request rate',
   'daemon-run-tree-security.spec.mjs': 'hostile run text stays text',
   'daemon-run-tree.spec.mjs': 'tree, products, address as text',
