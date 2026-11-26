@@ -777,9 +777,9 @@ fn names_step_and_exit(text: &str, action: &str, exit: &str) -> bool {
     text.contains(action) && text.contains(&format!("exit {exit}"))
 }
 
-/// Point 3: a delegation whose agent step fails (its agent exits 1, so the agent node fails, and fails again on its
-/// second run) ends with an outcome that names the failed step and its exit, not `runtime-failure` with a stuck tree;
-/// the result's `failure` and the MCP tool error carry the same.
+/// Point 3: a delegation whose agent step fails (its agent exits 1, so the agent node ends with exit 1 once, its
+/// results record `failed` for it, and the tree has no other action) ends with an outcome that names the failed step
+/// and its exit, not `runtime-failure` with a stuck tree; the result's `failure` and the MCP tool error carry the same.
 #[test]
 fn a_delegation_whose_agent_step_fails_ends_with_an_outcome_naming_the_step_and_its_exit_and_the_failure_carries_it() {
     let d = daemon("dlg-step-fails", OK);
