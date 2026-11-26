@@ -96,6 +96,19 @@ fn runs_naming_a_and_b_and_none_reach_the_alias_of_a_of_b_and_of_the_default_rou
     assert_eq!((r["model_route"].clone(), r["model_route_alias"].clone(), r["model_route_source"].clone()), (json!("a"), json!("alias-a"), json!("run")), "{r}");
     let line = &events(&l, &run_a, "runbook.model-call")[0];
     assert_eq!((line["route"].clone(), line["alias"].clone(), line["source"].clone(), line["input_tokens"].clone(), line["cost_known"].clone(), line["micro_usd"].clone()), (json!("a"), json!("alias-a"), json!("run"), json!(13), json!(true), json!(21)), "{line}");
+    // the runbook's spend ledger books each call of the run as one line naming route a, with the call's tokens and the
+    // cost of a's declared prices (13 input tokens at 1 USD and 4 output tokens at 2 USD per million: 21 micro USD), and
+    // nothing else of the run
+    let ledger: Value = serde_json::from_slice(&std::fs::read(l.dir.join("state/ledgers/autonomy-demo.json")).unwrap()).unwrap();
+    let booked: Vec<&Value> = ledger["entries"].as_array().into_iter().flatten().filter(|e| e["run"] == run_a.as_str()).collect();
+    assert!(!booked.is_empty(), "the ledger has no line of the run: {ledger}");
+    for e in &booked {
+        assert_eq!(
+            (e["what"].clone(), e["route"].clone(), e["alias"].clone(), e["input_tokens"].clone(), e["output_tokens"].clone(), e["cost_known"].clone(), e["micro_usd"].clone()),
+            (json!("model call"), json!("a"), json!("alias-a"), json!(13), json!(4), json!(true), json!(21)),
+            "{e}"
+        );
+    }
     let first = &events(&l, &run_a, "runbook.submitted")[0];
     assert_eq!((first["model_route"].clone(), first["model_route_alias"].clone(), first["model_route_source"].clone()), (json!("a"), json!("alias-a"), json!("run")), "{first}");
 
