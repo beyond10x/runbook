@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:cf981bbed2632d89ad4dfe30cb9dc20490b11e0aeea583383fe77f7a29632de3
+# contract digest slice-sha256/2:429c1bf2ce7b79de3353b087bd3deaa74aa02ffaf20a1600b7a4e522b3983c0c
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:cf981bbed2632d89ad4dfe30cb9dc20490b11e0aeea583383fe77f7a29632de3
+    contract_digest: slice-sha256/2:429c1bf2ce7b79de3353b087bd3deaa74aa02ffaf20a1600b7a4e522b3983c0c
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -2146,6 +2146,8 @@ components:
           type: string
         route:
           $ref: '#/components/schemas/sdc.daemon.RouteName'
+        route_phase:
+          type: string
         path:
           $ref: '#/components/schemas/sdc.daemon.DelegationPath'
         protocol:
@@ -4524,6 +4526,9 @@ x-ess-entities:
           cardinality: one
           via: route
           $ref: '#/x-ess-entities/sdc.daemon.ModelRoute'
+      route_phase:
+        description: 'The last phase the gateway gave of a route of the run that could not answer: set while the run waits for its route and when it ended `stopped: route`; absent for a run that never waited.'
+        type: string
       path:
         $ref: '#/x-ess-entities/sdc.daemon.DelegationPath'
         description: Absent while the daemon classifies the delegation (from its submit until its run starts, or fails to).

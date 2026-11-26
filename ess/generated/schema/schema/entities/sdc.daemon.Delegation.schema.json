@@ -45,6 +45,10 @@
         "via": "route"
       }
     },
+    "route_phase": {
+      "description": "The last phase the gateway gave of a route of the run that could not answer: set while the run waits for its route and when it ended `stopped: route`; absent for a run that never waited.",
+      "type": "string"
+    },
     "path": {
       "$ref": "#/$defs/sdc.daemon.DelegationPath",
       "description": "Absent while the daemon classifies the delegation (from its submit until its run starts, or fails to)."
@@ -125,7 +129,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:296b3422d0a114a510e63faa6282131340997ccd158831748a62d43fa41732fa",
+    "contract_digest": "slice-sha256/2:98274973b2d1b0cb1b7237ed1ae6c8d3be1968d35ef200151cd72287b718645b",
     "regenerate": "ess generate"
   },
   "$defs": {

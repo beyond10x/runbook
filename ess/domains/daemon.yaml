@@ -587,6 +587,7 @@ entities:
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "The run's outcome once it Ended."}
       - {name: failure, type: Optional<String>, summary: "Why the run failed to start, or what failed it after it started (the runtime's reason); absent otherwise."}
       - {name: route, type: sdc.daemon.RouteName, summary: "The model route of the run, by name."}
+      - {name: route_phase, type: Optional<String>, summary: "The last phase the gateway gave of a route of the run that could not answer: set while the run waits for its route and when it ended `stopped: route`; absent for a run that never waited."}
       - {name: path, type: Optional<sdc.daemon.DelegationPath>, summary: "Absent while the daemon classifies the delegation (from its submit until its run starts, or fails to)."}
       - {name: protocol, type: Optional<String>, summary: "The protocol the run runs, by the id its document declares: the named runbook, delegation-free, the runbook the classifier picked, or the id of the generated protocol; absent while the path is."}
       - {name: confidence, type: Optional<Json>, summary: "The classifier's confidence, a number from 0 to 1, for a classified or generated delegation; null for the paths named and free."}
@@ -1790,6 +1791,7 @@ views:
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
       - {name: failure, type: Optional<String>}
       - {name: route, type: sdc.daemon.RouteName}
+      - {name: route_phase, type: Optional<String>}
       - {name: path, type: Optional<sdc.daemon.DelegationPath>}
       - {name: protocol, type: Optional<String>}
       - {name: confidence, type: Optional<Json>}

@@ -1730,6 +1730,7 @@ impl Daemon {
             let failed_after_start = events.iter().rev().find(|e| e.kind == RUNTIME_FAILED).and_then(|e| e.record["reason"].as_str()).map(str::to_owned);
             put(&mut m, "failure", &run.failure.clone().or(failed_after_start));
             m.insert("route".into(), delegated.record["route"].clone());
+            put(&mut m, "route_phase", &run.route_phase);
             m.insert("confidence".into(), Value::Null);
             m.extend(delegation_of(&events).unwrap_or_default());
             m.insert("calls".into(), json!(calls));

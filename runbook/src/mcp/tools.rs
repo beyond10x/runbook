@@ -366,7 +366,9 @@ fn delegation_answer(a: &Answer) -> Value {
     let state = text_of(&row["run_state"]).to_owned();
     let outcome = row["outcome"].as_str().map(|o| format!(" ({o})")).unwrap_or_default();
     let cost = if row["cost_known"] == json!(true) { format!("{} micro USD", row["cost_micro_usd"]) } else { format!("{} micro USD booked, the cost of a call not known", row["cost_micro_usd"]) };
-    let mut head = format!("run {} on route {}: {state}{outcome}, path {}, protocol {}, {} call(s), {cost}", text_of(&row["run_id"]), text_of(&row["route"]), text_of(&row["path"]), text_of(&row["protocol"]), row["calls"]);
+    // the last phase the gateway gave of a route that could not answer (a run that waited for its route, or ended `stopped: route`)
+    let phase = row["route_phase"].as_str().map(|p| format!(" (phase {p})")).unwrap_or_default();
+    let mut head = format!("run {} on route {}{phase}: {state}{outcome}, path {}, protocol {}, {} call(s), {cost}", text_of(&row["run_id"]), text_of(&row["route"]), text_of(&row["path"]), text_of(&row["protocol"]), row["calls"]);
     if let Some(failure) = row["failure"].as_str() {
         head.push_str(&format!("\nfailed: {failure}"));
     }
@@ -378,13 +380,20 @@ fn delegation_answer(a: &Answer) -> Value {
         }
         None => "The run wrote no result.md.".to_owned(),
     };
-    let failed = matches!(state.as_str(), "FailedToStart" | "Cancelled") || row["outcome"] == "runtime-failure";
+    let failed = matches!(state.as_str(), "FailedToStart" | "Cancelled") || row["outcome"].as_str().is_some_and(failure_outcome);
     json!({
         "content": [{"type": "text", "text": format!("{head}\n\n{body}")}],
         "structuredContent": {"rows": [row]},
         "isError": failed,
         "_meta": {STATUS_KEY: a.status.as_u16()},
     })
+}
+
+/// Whether an outcome of an `Ended` run is a failure of the daemon's own, not one the protocol reached: the runtime failed it
+/// (`runtime-failure`), the daemon ended it at a stop or a restart (`orphaned`), or its route never could answer (`stopped:
+/// route`, and any other `stopped: ...` or `failed...` outcome).
+fn failure_outcome(outcome: &str) -> bool {
+    outcome == "runtime-failure" || outcome == crate::commands::ORPHANED || outcome.starts_with("stopped:") || outcome.starts_with("failed")
 }
 
 /// Call a tool. The answer is the route's.
