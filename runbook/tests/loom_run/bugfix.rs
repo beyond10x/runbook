@@ -106,7 +106,7 @@ impl Rig {
     fn run_with_path(&self, args: &[String], path_dirs: &str) -> Output {
         Command::new(BIN)
             .args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", path_dirs)
             .env("HOME", "/marker-home-dir")
             .env("RUNBOOK_CONFIG", crate::empty_config())
@@ -369,7 +369,7 @@ fn real_run(scratch: &Path, name: &str, extra: &[&str]) -> Output {
     args.extend(extra.iter().map(|s| (*s).to_owned()));
     let out = Command::new(BIN)
         .args(&args)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
         .env("RUNBOOK_CONFIG", crate::empty_config())

@@ -87,7 +87,7 @@ fn the_dry_run_of_sdc_from_the_prefix_ends_as_the_same_run_of_the_checkout_build
                 "--max-wall-seconds",
                 "50",
             ])
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", path)
             .env("HOME", &w)
             .env("RUNBOOK_NO_CONFIG", "1")

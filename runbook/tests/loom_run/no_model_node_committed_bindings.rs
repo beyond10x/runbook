@@ -111,7 +111,7 @@ impl Committed {
         args.extend(extra.iter().map(|s| (*s).to_owned()));
         Command::new(BIN)
             .args(args)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("RUNBOOK_NO_CONFIG", "1")
             .env("PATH", format!("{}:{}", self.p("bin"), std::env::var("PATH").unwrap_or_default()))
             .env("HOME", "/marker-home-dir")
@@ -261,7 +261,7 @@ fn with_caps_the_whole_committed_directory_runs_the_code_of_a_ticket_repository(
     let started = std::time::Instant::now();
     let o = Command::new(BIN)
         .args(&args)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:{}", root.join("driver/target/debug").display(), std::env::var("PATH").unwrap_or_default()))
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())

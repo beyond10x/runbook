@@ -142,7 +142,7 @@ fn install(script: &Path, prefix: &Path, extra: &[&str]) -> Output {
         .arg("--prefix")
         .arg(prefix)
         .args(extra)
-        .env_clear().envs(NO_SYSTEM_GIT)
+        .env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT)
         .env("PATH", SYSTEM_PATH)
         .env("HOME", prefix.parent().unwrap().join("home"))
         .stdin(Stdio::null())
@@ -293,7 +293,7 @@ fn with_toolchain(cmd: &mut Command) -> &mut Command {
 pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
     let path = format!("{}:{SYSTEM_PATH}", prefix.join("bin").display());
     let mut c = Command::new("runbook");
-    c.args(args).env_clear();
+    c.args(args).env_clear().envs(crate::kept());
     crate::isolate(&mut c);
     with_toolchain(&mut c).env("PATH", path).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
@@ -301,7 +301,7 @@ pub(crate) fn from_prefix(prefix: &Path, cwd: &Path, args: &[&str]) -> Output {
 /// The same command with the build of the checkout.
 pub(crate) fn from_checkout(cwd: &Path, args: &[&str]) -> Output {
     let mut c = Command::new(BIN);
-    c.args(args).env_clear();
+    c.args(args).env_clear().envs(crate::kept());
     crate::isolate(&mut c);
     with_toolchain(&mut c).env("PATH", SYSTEM_PATH).env("HOME", cwd).current_dir(cwd).stdin(Stdio::null()).output().unwrap()
 }
@@ -534,7 +534,7 @@ fn the_script_refuses_a_prefix_that_is_relative_the_root_missing_or_inside_the_c
         let o = Command::new("sh")
             .arg(script())
             .args(["--prefix", prefix, "--from-built", "debug"])
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", SYSTEM_PATH)
             .env("HOME", &home)
             .current_dir(&w)
@@ -546,11 +546,11 @@ fn the_script_refuses_a_prefix_that_is_relative_the_root_missing_or_inside_the_c
         assert_eq!(listing(&w), before, "{prefix}: the refusal wrote something");
     }
     for args in [vec![], vec!["--prefix"], vec!["--from-built", "debug"], vec!["--prefix", "/x", "--from-built", "fast"], vec!["--nothing"]] {
-        let o = Command::new("sh").arg(script()).args(&args).env_clear().env("PATH", SYSTEM_PATH).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
+        let o = Command::new("sh").arg(script()).args(&args).env_clear().envs(crate::kept()).env("PATH", SYSTEM_PATH).env("HOME", &home).stdin(Stdio::null()).output().unwrap();
         assert_eq!(code(&o), 2, "{args:?}: {}{}", out(&o), err(&o));
         assert!(err(&o).contains("usage"), "{args:?}: {}", err(&o));
     }
-    let o = Command::new("sh").arg(script()).arg("--help").env_clear().env("PATH", SYSTEM_PATH).stdin(Stdio::null()).output().unwrap();
+    let o = Command::new("sh").arg(script()).arg("--help").env_clear().envs(crate::kept()).env("PATH", SYSTEM_PATH).stdin(Stdio::null()).output().unwrap();
     assert_eq!(code(&o), 0);
     assert!(out(&o).contains("--prefix") && out(&o).contains("--from-built"), "{}", out(&o));
 }
@@ -784,7 +784,7 @@ fn executable(path: &Path, text: &str) {
 
 fn from_built_with(root: &Path, prefix: &Path, path: &str, vars: &[(&str, &Path)]) -> Output {
     let mut cmd = Command::new("sh");
-    cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(prefix).args(["--from-built", "debug"]).env_clear().envs(NO_SYSTEM_GIT).env("PATH", path).env("HOME", prefix.parent().unwrap().join("home")).stdin(Stdio::null());
+    cmd.arg(root.join("scripts/install.sh")).arg("--prefix").arg(prefix).args(["--from-built", "debug"]).env_clear().envs(crate::kept()).envs(NO_SYSTEM_GIT).env("PATH", path).env("HOME", prefix.parent().unwrap().join("home")).stdin(Stdio::null());
     for (k, v) in vars {
         cmd.env(k, v);
     }
