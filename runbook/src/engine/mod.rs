@@ -259,7 +259,12 @@ impl Engine {
         // A delegation the daemon classifies takes its path now: the runbook the classifier picked, or a generated protocol
         // (`classify`). Its ledger stays the one of the runbook it was submitted under.
         let taken = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK && self.classifies() {
-            Some(classify::resolve(self, request, sink, caps, &workspace, &meter).map_err(failure)?)
+            // the cancel is asked before every classify, retry and build call; a run cancelled meanwhile ends Cancelled
+            match classify::resolve(self, request, sink, caps, &workspace, &meter, &|| Self::cancelled(cancel, slot)) {
+                Ok(taken) => Some(taken),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            }
         } else {
             None
         };

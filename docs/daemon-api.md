@@ -301,7 +301,9 @@ events and the web UI work on it unchanged.
   artifact `idea` at `request.yaml`, and checks the result with the loader of a runbook (the layout, the budgets,
   Loom's reader of the protocol directory, the opening of the tree). Both calls are the run's: taken against its
   caps, booked in its ledger and recorded as its events `runbook.model-call`. An answer that is not the JSON asked
-  for is asked again, with the validator's error, at most twice. The run then fails to start with `failure`
+  for is asked again, with the validator's error, at most twice. A cancel is read before every classify, retry and
+  build call: none goes out after it, and the run ends `Cancelled`; a call in flight at the cancel is booked in the
+  ledger and, the run being closed, is said on the daemon's standard error rather than as an event. The run then fails to start with `failure`
   `classifier-answer: ...`; a call the route does not serve `route-unavailable: ...` (`cap-reached: ...` past a
   cap); a generated protocol the loader refuses `protocol-refused: <the loader's line>`. The run event
   `runbook.delegation-resolved` records `path`, `protocol` (the id the protocol declares), `confidence`,

@@ -33,6 +33,8 @@ const MAX_TOKENS_CLASSIFY: u64 = 1024;
 const MAX_TOKENS_BUILD: u64 = 8192;
 /// The setting that chose the route of the calls, as the ledger line names it.
 const SOURCE: &str = "route_policy.classifier";
+/// Why no further call went out: the daemon cancelled the run (the run ends `Cancelled`, not on this text).
+const CANCELLED: &str = "cancelled: the daemon cancelled the run before this call";
 
 /// The path a delegation took: the runbook its run runs and the home it is read from.
 pub struct Taken {
@@ -50,7 +52,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// The path of the delegation `request`, taken now with the classify and build calls, or read from the run's directory when
 /// the run goes on from its store. `meter` is the run's: the calls count against its caps.
-pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, caps: Caps, workspace: &Path, meter: &Arc<Meter>) -> Result<Taken, String> {
+pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, caps: Caps, workspace: &Path, meter: &Arc<Meter>, cancelled: &dyn Fn() -> bool) -> Result<Taken, String> {
     let file = request.state_dir.join(dlg::RESOLVED_FILE);
     if let Ok(text) = std::fs::read_to_string(&file) {
         let record: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", dlg::RESOLVED_FILE))?;
@@ -66,7 +68,7 @@ pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, ca
     // a call of unknown cost books what one such call may cost, never all the cap has left (docs/model-routes.md, section 5)
     booking.set_max_call(dlg::CALL_RESERVATION_MICRO_USD);
     ticket.take_calls(booking);
-    let caller = Caller::new(&ticket, &classifier)?;
+    let caller = Caller::new(&ticket, &classifier, cancelled)?;
     let mut record = json!({"classifier_route": classifier});
     let taken = take(engine, request, workspace, &caller, &step, &mut record);
     // the token is void before the calls are recorded: no call of the run is on the relay any more
@@ -93,7 +95,7 @@ fn taken_of(engine: &Engine, request: &StartRequest, record: &Value) -> Result<T
 }
 
 /// The classify call, and below the threshold the build call and the loader; `record` takes what is known as it is known.
-fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Caller, step: &Mutex<Option<String>>, record: &mut Value) -> Result<Taken, String> {
+fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Caller<'_>, step: &Mutex<Option<String>>, record: &mut Value) -> Result<Taken, String> {
     let catalog = catalog_of(&engine.homes);
     let products = workspace.join(dlg::PRODUCTS_DIR);
     let classified = ask(caller, &dlg::classify_prompt(&request.intake, &catalog), MAX_TOKENS_CLASSIFY, |t| dlg::read_classified(t, &catalog))?;
@@ -161,7 +163,7 @@ fn catalog_of(homes: &[PathBuf]) -> Vec<CatalogEntry> {
 
 /// One call and up to [`dlg::RETRIES`] more, each with the answer before it and the validator's error, until `read` takes
 /// an answer.
-fn ask<T>(caller: &Caller, prompt: &str, max_tokens: u64, read: impl Fn(&str) -> Result<T, String>) -> Result<T, String> {
+fn ask<T>(caller: &Caller<'_>, prompt: &str, max_tokens: u64, read: impl Fn(&str) -> Result<T, String>) -> Result<T, String> {
     let mut messages = vec![json!({"role": "user", "content": prompt})];
     let mut last = String::new();
     for _ in 0..=dlg::RETRIES {
@@ -180,22 +182,27 @@ fn ask<T>(caller: &Caller, prompt: &str, max_tokens: u64, read: impl Fn(&str) ->
 }
 
 /// The run's side of its relay for the classify and build calls: a Messages call as the role `classifier`.
-struct Caller {
+struct Caller<'a> {
     client: Client,
     path: String,
     route: String,
+    /// Whether the daemon cancelled the run: asked before every call, so no call goes out after a cancel.
+    cancelled: &'a dyn Fn() -> bool,
 }
 
-impl Caller {
-    fn new(ticket: &Ticket, route: &str) -> Result<Caller, String> {
+impl<'a> Caller<'a> {
+    fn new(ticket: &Ticket, route: &str, cancelled: &'a dyn Fn() -> bool) -> Result<Caller<'a>, String> {
         let rest = ticket.base_url().strip_prefix("http://").ok_or("the relay's address is not http://")?;
         let (authority, prefix) = rest.split_once('/').ok_or("the relay's address has no path")?;
         let target = crate::client::url::parse(&format!("http://{authority}")).map_err(|f| f.message)?;
-        Ok(Caller { client: Client::new(target, Some(Token::new(ticket.token().to_owned()))), path: format!("/{prefix}/v1/messages"), route: route.to_owned() })
+        Ok(Caller { client: Client::new(target, Some(Token::new(ticket.token().to_owned()))), path: format!("/{prefix}/v1/messages"), route: route.to_owned(), cancelled })
     }
 
     /// The text of the answer to `messages`; `Err` names the cause, the route and what the relay said.
     fn call(&self, messages: &[Value], max_tokens: u64) -> Result<String, String> {
+        if (self.cancelled)() {
+            return Err(CANCELLED.to_owned());
+        }
         let body = json!({"model": dlg::CLASSIFIER_ROLE, "max_tokens": max_tokens, "messages": messages}).to_string();
         let reply = self
             .client
