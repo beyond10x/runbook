@@ -170,11 +170,20 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.12.0`; nothing is published to crates.io. The latest is 0.12.0 (2026-11-25).
+`0.13.0`; nothing is published to crates.io. The latest is 0.13.0 (2026-11-26).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.12.0 over 0.11.0 (nothing is unreleased): a bug fix hands back only with a spec reference, as a check
+- New in 0.13.0 over 0.12.0 (nothing is unreleased): the daemon declares named model routes, starts a run only on a
+  route that can answer, relays and books every model call of a run on a route, takes a delegation and lists what a
+  delegation may name; a Claude Code session with the plugin delegates through it; the daemon's run page watches a
+  live run and shows its case tree, products, metrics and route; a command of a program step has its own deadline,
+  retry and poll; `runbook` links Loom 0.62.1. Three changes are breaking: a daemon run with a `model` decider reaches
+  its model only through the relay (its adapter reads `RUNBOOK_ROUTE_FILE`, and the daemon listens on loopback), a
+  daemon run whose last program failed ends `failed: step ...` instead of `runtime-failure`, and the plugin denies a
+  Claude Code session's Agent and Workflow calls. No evaluation run was made on this code
+  ([docs/releases/0.13.0.md](docs/releases/0.13.0.md)).
+- New in 0.12.0 over 0.11.0: a bug fix hands back only with a spec reference, as a check
   program says; the model programs of `runbook run` and of a daemon run with a `model` decider reach a model through
   a `[gateway]` address and token instead of a login; the forge runs the driver tests, and the UI test step costs
   less. One change is breaking: a bug-fix run ends `fixed` only when the check program says the description
