@@ -1133,7 +1133,8 @@ On a loopback listener:
   `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
   booked once.
 - A call the gateway refused carries the gateway's `code`, its `detail` and its error text as `error`
-  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced). A
+  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced; the
+  `code` at most 64 bytes, the token replaced). A streamed answer that ends in an error event is a failed call too. A
   `4xx` answer that is no refusal of the route by the gateway (not `model-unknown`, `wire-not-served`,
   `credential-*` or `spend-ceiling`) has the `cause` `call-refused`; every other failed call, a gateway that does
   not answer included, `route-unavailable`. A failed call does not end the run by itself: the run ends as its step

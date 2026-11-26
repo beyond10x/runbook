@@ -51,6 +51,30 @@ fn failed_call_cause(line: &Value) -> String {
     format!("{cause}: route {} (chosen by {}) {verb} the call: {}: {}", text("route"), text("source"), text("code"), text("detail"))
 }
 
+/// The ledger lines of failed calls taken apart by their step, the steps in the order their first call was booked.
+fn by_step(lines: &[Value]) -> Vec<(String, Vec<&Value>)> {
+    let mut steps: Vec<(String, Vec<&Value>)> = Vec::new();
+    for line in lines {
+        let step = line.get("step").and_then(Value::as_str).unwrap_or("");
+        match steps.iter_mut().find(|(s, _)| s == step) {
+            Some((_, calls)) => calls.push(line),
+            None => steps.push((step.to_owned(), vec![line])),
+        }
+    }
+    steps
+}
+
+/// Records the event `runbook.model-calls-failed` that names the failed calls `calls` of the step `step`; `why` says
+/// why they did not end the run.
+fn record_failed(sink: &dyn EventSink, step: &str, calls: &[&Value], why: &str) {
+    let named: Vec<Value> = calls
+        .iter()
+        .map(|l| json!({"step": l.get("step"), "route": l.get("route"), "gateway_call": l.get("gateway_call"), "cause": l.get("cause"), "code": l.get("code"), "detail": l.get("detail"), "error": l.get("error")}))
+        .collect();
+    let detail = format!("{} model call(s) of the step {step} failed at the gateway; {why}", named.len());
+    sink.record(FAILED_EVENT, json!({"step": step, "calls": named, "detail": detail}));
+}
+
 /// The cap a run reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cap {
@@ -340,14 +364,15 @@ impl crate::relay::Booking for RelayBooking {
         if let Some(why) = failure {
             lock(&self.failed).get_or_insert(why);
         }
-        if booked.is_ok() && failed_call && !stops {
-            lock(&self.failed_calls).push(line.clone());
-        }
         let mut pending = lock(&self.pending);
         if self.closed.load(Ordering::SeqCst) {
             // The run ended before this call did: its line is in the ledger, and no event of the run can take it.
             eprintln!("runbook: run {}: a model call ended after the run had ended; its ledger line: {line}", self.held.run_id);
         } else {
+            // kept under the lock of the pending lines: the run's close takes both at once (`Gate::close_route`)
+            if booked.is_ok() && failed_call && !stops {
+                lock(&self.failed_calls).push(line.clone());
+            }
             pending.push(line);
         }
         drop(pending);
@@ -405,22 +430,21 @@ impl Gate {
         self.routed.as_ref().map(|b| std::mem::take(&mut *lock(&b.failed_calls))).unwrap_or_default()
     }
 
-    /// The run's end follows the step of the calls `failed_calls` ([`Self::take_failed`]): when `failed` (that step's
-    /// program failed) the first failed call is the run's first cause ([`failed_call_cause`]); otherwise the step went on
-    /// and delivered, and the run's record names the failed calls with one event `runbook.model-calls-failed`.
-    pub fn settle_failed(failed_calls: &[Value], failed: impl FnOnce(&str) -> bool, sink: &dyn EventSink) -> Result<(), String> {
-        let Some(first) = failed_calls.first() else { return Ok(()) };
-        let step = first.get("step").and_then(Value::as_str).unwrap_or("").to_owned();
-        if failed(&step) {
-            return Err(failed_call_cause(first));
+    /// The run's end follows the step of each of the calls `failed_calls` ([`Self::take_failed`]), taken apart by their
+    /// step (a call left in flight by an earlier step may be booked while a later one runs): the run's record names the
+    /// failed calls of each step that went on with one event `runbook.model-calls-failed`; when a step `failed` (its
+    /// program failed), its own first failed call is the run's first cause ([`failed_call_cause`]), never a call of
+    /// another step.
+    pub fn settle_failed(failed_calls: &[Value], failed: impl Fn(&str) -> bool, sink: &dyn EventSink) -> Result<(), String> {
+        let mut cause = None;
+        for (step, calls) in by_step(failed_calls) {
+            if failed(&step) {
+                cause.get_or_insert_with(|| failed_call_cause(calls[0]));
+            } else {
+                record_failed(sink, &step, &calls, "the step went on and its program did not fail");
+            }
         }
-        let calls: Vec<Value> = failed_calls
-            .iter()
-            .map(|l| json!({"step": l.get("step"), "route": l.get("route"), "gateway_call": l.get("gateway_call"), "cause": l.get("cause"), "code": l.get("code"), "detail": l.get("detail"), "error": l.get("error")}))
-            .collect();
-        let detail = format!("{} model call(s) of the step {step} failed at the gateway; the step went on and its program did not fail", calls.len());
-        sink.record(FAILED_EVENT, json!({"step": step, "calls": calls, "detail": detail}));
-        Ok(())
+        cause.map_or(Ok(()), Err)
     }
 
     /// The role names of the run's route file: the reason of a model call that left no cost record names them when the
@@ -441,20 +465,25 @@ impl Gate {
     /// The run has ended and its token is void: waits up to `wait` for the calls still in flight (their callers
     /// were ended with the run, the gateway still answers them), records every booked call as an event of the run,
     /// and records `runbook.model-calls-unfinished` when calls are still in flight then. Such a call is booked in the
-    /// ledger when it ends and said on the daemon's stderr.
+    /// ledger when it ends and said on the daemon's stderr. A failed call that ended after its step was booked is
+    /// named in the run's record with one event `runbook.model-calls-failed` for its step.
     pub fn close_route(&self, sink: &dyn EventSink, wait: std::time::Duration) {
         let Some(booking) = &self.routed else { return };
         let until = Instant::now() + wait;
         while booking.in_flight() > 0 && Instant::now() < until {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let lines = {
+        let (lines, failed_calls) = {
             let mut pending = lock(&booking.pending);
             booking.closed.store(true, Ordering::SeqCst);
-            std::mem::take(&mut *pending)
+            (std::mem::take(&mut *pending), std::mem::take(&mut *lock(&booking.failed_calls)))
         };
         for line in lines {
             sink.record(crate::relay::MODEL_CALL_EVENT, line);
+        }
+        // a failed call that ended after its step was booked: the run's end is taken, and its record names the call
+        for (step, calls) in by_step(&failed_calls) {
+            record_failed(sink, &step, &calls, "the call ended after its step was booked");
         }
         let left = booking.in_flight();
         if left > 0 {
@@ -714,6 +743,46 @@ mod tests {
         let want: Vec<(Value, Value)> = failures.iter().map(|(call, cause, _, _)| (json!(call), json!(cause))).collect();
         assert_eq!(named, want);
         assert!(Gate::settle_failed(&[], |_| true, &Quiet).is_ok());
+    }
+
+    /// Failed calls taken together after a step are settled each by its own step: a late call of an earlier step that
+    /// went on is named under that step, and the step that failed has its own first failed call as the run's cause.
+    #[test]
+    fn failed_calls_of_two_steps_are_settled_each_by_its_own_step() {
+        let line = |step: &str, call: &str, cause: &str, code: &str| json!({"step": step, "route": "default", "source": "run", "gateway_call": call, "cause": cause, "code": code, "detail": "the gateway answered 4xx or 5xx"});
+        let calls = [
+            line("notes.write", "gw-late", "route-unavailable", "upstream-failed"),
+            line("result.write", "gw-own", "call-refused", "invalid_request_error"),
+            line("notes.write", "gw-late-2", "route-unavailable", "model-stopped"),
+        ];
+        let kept = Kept(Mutex::new(Vec::new()));
+        let why = Gate::settle_failed(&calls, |step| step == "result.write", &kept).expect_err("the failed step's own call was not the run's cause");
+        assert!(why.starts_with("call-refused: route default (chosen by run) refused the call: invalid_request_error"), "{why}");
+        let kept = kept.0.into_inner().unwrap();
+        let noted: Vec<(String, Value, Vec<Value>)> = kept.iter().map(|(k, r)| (k.clone(), r["step"].clone(), r["calls"].as_array().unwrap().iter().map(|c| c["gateway_call"].clone()).collect())).collect();
+        assert_eq!(noted, vec![(FAILED_EVENT.to_owned(), json!("notes.write"), vec![json!("gw-late"), json!("gw-late-2")])]);
+    }
+
+    /// A failed call that ends after its step was booked (its client hung up, the relay finished it) is named in the
+    /// run's record when the run's route is closed, under its own step.
+    #[test]
+    fn a_failed_call_booked_after_its_step_is_named_when_the_route_closes() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-late-close", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("delegation.free".to_owned()))));
+        booking.admit().unwrap();
+        let outcome = gate.book(&Quiet);
+        assert!(gate.take_failed().is_empty());
+        let late = json!({"what": "model call", "run": "run-a", "step": "delegation.free", "route": "default", "source": "run", "gateway_call": "gw-late", "cost_known": true, "micro_usd": 0, "cause": "route-unavailable", "code": "upstream-failed", "detail": "the gateway answered 502"});
+        booking.book(late, 0).unwrap();
+        let kept = Kept(Mutex::new(Vec::new()));
+        gate.close_route(&kept, std::time::Duration::from_millis(100));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "{outcome:?}");
+        let kept = kept.0.into_inner().unwrap();
+        let kinds: Vec<&str> = kept.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(kinds, vec![crate::relay::MODEL_CALL_EVENT, FAILED_EVENT], "{kept:?}");
+        assert_eq!((kept[1].1["step"].clone(), kept[1].1["calls"][0]["gateway_call"].clone()), (json!("delegation.free"), json!("gw-late")));
     }
 
     #[test]

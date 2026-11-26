@@ -71,6 +71,8 @@ pub fn stops_the_run(code: &str) -> bool {
 }
 /// The most bytes of the gateway's error text a ledger line keeps.
 pub const MAX_ERROR_BYTES: usize = 300;
+/// The most bytes of the gateway's code a ledger line keeps.
+pub const MAX_CODE_BYTES: usize = 64;
 /// The kind of the run event that records one call the relay booked.
 pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 /// The code of a call whose gateway did not answer: nothing ran.
@@ -597,10 +599,62 @@ impl Failed {
     /// A call the gateway answered `status` (400 or above) with `body`: `call-refused` when its client may recover from
     /// it ([`recoverable`]), else `route-unavailable`. `secrets` are replaced in its error text.
     fn answered(status: u16, body: &[u8], secrets: &[&str]) -> Failed {
-        let code = gateway_code(status, body);
+        let code = gateway_code(status, body, secrets);
         let cause = if recoverable(status, &code) { CALL_REFUSED } else { ROUTE_UNAVAILABLE };
         Failed { cause, code, detail: format!("the gateway answered {status}"), error: error_text(body, secrets) }
     }
+
+    /// A call answered with a status below 400 whose stream ended in an error event ([`stream_error`]): the upstream
+    /// failed while it answered (`overloaded_error`, ...), so the call failed, with the cause `route-unavailable` and the
+    /// event's type or code as its code.
+    fn streamed(body: &[u8], secrets: &[&str]) -> Option<Failed> {
+        let err = stream_error(body)?;
+        let field = |k: &str| err.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let code = bounded(field("type").filter(|t| *t != "error").or_else(|| field("code")).unwrap_or("stream-error").to_owned(), secrets, MAX_CODE_BYTES);
+        let error = error_text(json!({"error": err}).to_string().as_bytes(), secrets);
+        Some(Failed { cause: ROUTE_UNAVAILABLE, code, detail: "the answer ended in an error event".to_owned(), error })
+    }
+}
+
+/// The error object of the event a streamed answer ended in, read from its `data:` lines: an event `{"type": "error",
+/// "error": {...}}` (the messages wire) or a chunk with an `error` object and no `type` (chat completions), an event
+/// `{"type": "error", "code", "message"}` (the responses wire) or `response.failed` with its `response.error`. None for an
+/// answer that is one JSON document, and for a stream with no such event.
+fn stream_error(body: &[u8]) -> Option<Value> {
+    if serde_json::from_slice::<Value>(body).is_ok() {
+        return None;
+    }
+    for line in body.split(|b| *b == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Some(data) = line.strip_prefix(b"data:") else { continue };
+        let Ok(v) = serde_json::from_slice::<Value>(data.trim_ascii()) else { continue };
+        let kind = v.get("type").and_then(Value::as_str);
+        let found = match (kind, v.get("error")) {
+            (Some("error") | None, Some(e)) if e.is_object() => Some(e.clone()),
+            (Some("error"), _) => Some(v.clone()),
+            (Some("response.failed"), _) => v.get("response").and_then(|r| r.get("error")).filter(|e| e.is_object()).cloned(),
+            _ => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// `text` with each of `secrets` replaced by `<token>`, cut to at most `max` bytes at a character's boundary.
+fn bounded(mut text: String, secrets: &[&str], max: usize) -> String {
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        text = text.replace(secret, "<token>");
+    }
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
 }
 
 /// Whether a call the gateway answered `status` with the code `code` is one its client may recover from: a `4xx`
@@ -620,23 +674,13 @@ pub fn error_text(body: &[u8], secrets: &[&str]) -> Option<String> {
     let err = v.get("error")?;
     let field = |k: &str| err.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
     let kind = field("type").or_else(|| field("code"));
-    let mut text = match (kind, field("message")) {
+    let text = match (kind, field("message")) {
         (Some(k), Some(m)) => format!("{k}: {m}"),
         (Some(k), None) => k.to_owned(),
         (None, Some(m)) => m.to_owned(),
         (None, None) => return None,
     };
-    for secret in secrets.iter().filter(|s| !s.is_empty()) {
-        text = text.replace(secret, "<token>");
-    }
-    if text.len() > MAX_ERROR_BYTES {
-        let mut end = MAX_ERROR_BYTES;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
-    }
-    Some(text)
+    Some(bounded(text, secrets, MAX_ERROR_BYTES))
 }
 
 impl Call {
@@ -836,11 +880,13 @@ async fn open_upstream(route: &ResolvedRoute, wire: &str, passed: &[(String, Str
 /// The headers of the gateway's answer that are about its connection, not its content.
 const HOP: [&str; 6] = ["connection", "keep-alive", "transfer-encoding", "content-length", "proxy-connection", "upgrade"];
 
-/// The gateway's code in a refusal: `error.code`, else `error.type`, else `status-<n>`.
-fn gateway_code(status: u16, body: &[u8]) -> String {
+/// The gateway's code in a refusal: `error.code`, else `error.type`, else `status-<n>`; each of `secrets` replaced by
+/// `<token>` and cut to at most [`MAX_CODE_BYTES`] bytes, as it goes into the ledger, the run's events and its failure.
+fn gateway_code(status: u16, body: &[u8], secrets: &[&str]) -> String {
     let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let err = v.get("error");
-    err.and_then(|e| e.get("code")).and_then(Value::as_str).or_else(|| err.and_then(|e| e.get("type")).and_then(Value::as_str)).map_or_else(|| format!("status-{status}"), str::to_owned)
+    let code = err.and_then(|e| e.get("code")).and_then(Value::as_str).or_else(|| err.and_then(|e| e.get("type")).and_then(Value::as_str)).map_or_else(|| format!("status-{status}"), str::to_owned);
+    bounded(code, secrets, MAX_CODE_BYTES)
 }
 
 /// The answer to the caller: the gateway's status, headers and body, streamed as they come; the call is booked
@@ -869,10 +915,11 @@ fn answer(call: Call, upstream: Upstream) -> Response {
             }
         }
         let usage = usage_of(&kept);
+        let secrets = [call.route.token.as_deref().unwrap_or("")];
         let failed = if status >= 400 {
-            Some(Failed::answered(status, &kept, &[call.route.token.as_deref().unwrap_or("")]))
+            Some(Failed::answered(status, &kept, &secrets))
         } else {
-            broken.map(|why| Failed::unavailable(ANSWER_BROKEN, why))
+            broken.map(|why| Failed::unavailable(ANSWER_BROKEN, why)).or_else(|| Failed::streamed(&kept, &secrets))
         };
         let line = call.line(call_id, &usage, failed);
         // Booked before the caller sees the end of the answer: a process that read its answer finds its call booked.
@@ -1086,6 +1133,41 @@ mod tests {
         let long = json!({"error": {"type": "invalid_request_error", "message": "é".repeat(400)}}).to_string();
         let cut = error_text(long.as_bytes(), &[]).unwrap();
         assert!(cut.len() <= MAX_ERROR_BYTES && cut.len() >= MAX_ERROR_BYTES - 1 && cut.starts_with("invalid_request_error: é"), "{} bytes", cut.len());
+    }
+
+    /// The gateway's code goes into the ledger, the run's events and its failure as it came: it is cut to 64 bytes and
+    /// holds no token, as the error text does.
+    #[test]
+    fn the_gateways_code_is_at_most_64_bytes_and_holds_no_token() {
+        let long = json!({"error": {"code": "x".repeat(500), "message": "m"}}).to_string();
+        assert_eq!(gateway_code(400, long.as_bytes(), &[]), "x".repeat(MAX_CODE_BYTES));
+        let tokened = json!({"error": {"type": "bad key secret-token-1 here"}}).to_string();
+        let code = gateway_code(401, tokened.as_bytes(), &["secret-token-1"]);
+        assert_eq!(code, "bad key <token> here");
+        let wide = json!({"error": {"code": "é".repeat(100)}}).to_string();
+        let cut = gateway_code(400, wide.as_bytes(), &[]);
+        assert!(cut.len() <= MAX_CODE_BYTES && cut.len() >= MAX_CODE_BYTES - 1, "{} bytes", cut.len());
+        assert_eq!(gateway_code(502, b"<html>", &[]), "status-502");
+        let failed = Failed::answered(400, tokened.as_bytes(), &["secret-token-1"]);
+        assert!(!failed.code.contains("secret-token-1") && !failed.error.unwrap_or_default().contains("secret-token-1"));
+    }
+
+    /// A streamed answer that ended in an error event failed, in each wire's shape; one that did not, and a JSON answer,
+    /// did not.
+    #[test]
+    fn a_stream_that_ended_in_an_error_event_is_a_failed_call_in_each_wire() {
+        let messages = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":11}}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded secret-token-1\"}}\n\n";
+        let f = Failed::streamed(messages, &["secret-token-1"]).expect("the messages wire's error event");
+        assert_eq!((f.cause, f.code.as_str(), f.error.as_deref()), (ROUTE_UNAVAILABLE, "overloaded_error", Some("overloaded_error: Overloaded <token>")));
+        let chat = b"data: {\"choices\":[{\"delta\":{}}]}\n\ndata: {\"error\":{\"code\":\"server_error\",\"message\":\"boom\"}}\n\n";
+        assert_eq!(Failed::streamed(chat, &[]).map(|f| f.code), Some("server_error".to_owned()));
+        let responses = b"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"x\"}}}\n\n";
+        assert_eq!(Failed::streamed(responses, &[]).map(|f| f.code), Some("server_error".to_owned()));
+        let top = b"data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}\n\n";
+        assert_eq!(Failed::streamed(top, &[]).map(|f| f.code), Some("rate_limit_exceeded".to_owned()));
+        let fine = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":2}}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert!(Failed::streamed(fine, &[]).is_none());
+        assert!(Failed::streamed(br#"{"id":"m","error":{"type":"x"}}"#, &[]).is_none(), "a JSON answer is no stream");
     }
 
     #[test]

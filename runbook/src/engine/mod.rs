@@ -453,13 +453,14 @@ impl Engine {
     }
 
     /// The run's end follows the step of the failed calls that fail no step on their own (`failed_calls`,
-    /// [`Gate::take_failed`]): a step of `case` whose program failed ends the run with the first failed call as its
-    /// cause; a step that went on is noted in the run's record and the run goes on.
+    /// [`Gate::take_failed`]), each by its own step: the step of `case` whose program failed ends the run with its own first
+    /// failed call as its cause; a step that went on is noted in the run's record and the run goes on.
     fn settle_failed(store: &Path, case: &str, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
         if failed_calls.is_empty() {
             return Ok(());
         }
-        let failed = |step: &str| refusal::failed_step(store, case, |_| true).is_some_and(|s| s.action == step);
+        let failing = refusal::failed_step(store, case, |_| true).map(|s| s.action);
+        let failed = |step: &str| failing.as_deref() == Some(step);
         Gate::settle_failed(failed_calls, failed, sink).map_err(failure)
     }
 
