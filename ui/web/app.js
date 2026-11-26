@@ -10,7 +10,9 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
-import {api, openEvents, daemonView, daemon, missingRun} from './source.js';
+import {api, openEvents, daemonView, daemon, missingRun, runEvents, eventRow, tabsOf} from './source.js';
+import {runSteps, renderStepsHead, renderStepsTable, renderStepsBar, runStateWord, fmtTook} from './runsteps.js';
+import {clockTime} from './clock.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
 // the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
@@ -29,7 +31,7 @@ const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: n
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
   inbox: {items: []}, drawer: q0.get('drawer') === '1',
-  liveData: null, offset: 0, diff: null,
+  liveData: null, offset: 0, diff: null, dall: false,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
   panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
 const LS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
@@ -42,6 +44,16 @@ function setPanel(open, tab) {
 }
 const openPanel = (tab) => setPanel(true, tab);
 const $ = (q) => document.querySelector(q);
+// The tabs this page has data for (web/source.js tabsOf): any other tab is no button, and a remembered one opens the first.
+const TABS = tabsOf();
+for (const b of document.querySelectorAll('#tabs button[data-tab]')) b.hidden = !TABS.includes(b.dataset.tab);
+if (!TABS.includes(S.tab)) S.tab = TABS[0];
+// The daemon's page: its own layout rules (html.daemon in style.css), and the run's files line with its steps.
+if (daemon) {
+  document.documentElement.classList.add('daemon');
+  $('#dhead').after($('#product'));
+  $('#dsteps').hidden = false;
+}
 
 const firstAt = (c) => (c.events.find((e) => e.at && e.at !== '-')?.at || '~');
 const lastAt = (c) => { for (let i = c.events.length - 1; i >= 0; i--) if (c.events[i].at && c.events[i].at !== '-') return c.events[i].at; return ''; };
@@ -269,7 +281,7 @@ function render() {
   $('#reads').checked = S.showReads;
   const live = $('#live');
   live.className = `live ${S.live}`;
-  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? ((t) => `<span class="lt" title="${t}">${t}</span>`)(`updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}`) : ''}`);
+  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? ((t) => `<span class="lt" title="${t}">${t}</span>`)(`updated ${clockTime(S.lastChange.getTime())}`) : ''}`);
   renderDecisions();
   if (daemon) return renderDaemon(src);
   const cases = ordered();
@@ -352,30 +364,42 @@ function render() {
 }
 
 // The page the daemon serves: the run's case tree (the view `cases`) in the tree's place with the run's events as the
-// feed, the Products tab with the run's files; the daemon serves no graph, phases, timeline or evidence of a case, and
-// the panes that would show them say so.
-const DAEMON_TABS = {explain: 'explanation', autonomy: 'autonomy view', security: 'security view', metrics: 'metrics', events: 'event log', changes: 'file changes', run: 'run log'};
+// feed; in the centre the run's steps, read from its events (web/runsteps.js), with what runs now and the counts; the
+// panel has the tabs the daemon serves data for (tabsOf): the run's files and its events.
 function renderDaemon(src) {
-  for (const id of ['#view-note', '#phases', '#now', '#nowbar', '#kpis', '#timeline']) patch($(id), '');
+  for (const id of ['#view-note', '#phases', '#now', '#kpis', '#timeline', '#graph']) patch($(id), '');
+  const now = Date.now();
   const cases = S.missingRun == null ? ordered() : [];
-  const dv = S.missingRun == null ? daemonView(src, routeWords) : null;
+  const dv = S.missingRun == null ? daemonView(src, routeWords, {all: S.dall}) : null;
   patch($('#feed'), dv?.feed ?? '');
   if (cases.length && (!S.sel || !S.cases.has(S.sel))) S.sel = cases[0].rel;
   const c = cases.length ? current() : null;
-  const tree = S.missingRun != null ? missingRun(S.missingRun) : (dv?.head ?? '') + (cases.length ? renderTree(cases, {stopped: null, running: []}, Date.now()) : dv?.tree ?? '');
+  const tree = S.missingRun != null ? missingRun(S.missingRun) : (dv?.head ?? '') + (cases.length ? renderTree(cases, {stopped: null, running: []}, now) : dv?.tree ?? '');
   patch($('#tree'), tree);
-  if (c) {
-    const st = caseState(c);
-    patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.name ?? c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span></div><div class="gt-sub">${esc(c.case.protocol)}</div>`);
-    patch($('#graph'), '<p class="muted pad" data-key="dgraph">The daemon serves no graph of a case: the tree shows its cases and where each stands.</p>');
-  } else { patch($('#gtitle'), ''); patch($('#graph'), ''); }
+  const run = S.missingRun == null ? src?.daemonRun : null;
+  const m = run ? runSteps(runEvents(run.run_id)) : null;
+  $('#dsteps').hidden = !run;
+  if (run) {
+    // the root case is the run: titled by its runbook, its id short beside it; a case under it by its link name
+    const root = !c || !c.parent;
+    const st = c ? caseState(c) : null;
+    const pill = root ? `<span class="pill ds-pill ds-${esc(run.state)}" data-v="${esc(run.state)}">${esc(runStateWord(run))}</span>` : `<span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`;
+    const name = root ? run.runbook_id : c.name ?? c.id;
+    const sub = root ? [c?.case?.protocol && c.case.protocol !== run.runbook_id ? `protocol ${c.case.protocol}` : '', run.started_at ? `started ${clockTime(Date.parse(run.started_at), now)}` : '', run.confinement ? `${run.confinement} confinement` : ''].filter(Boolean).join(' · ') : `case of ${run.runbook_id} · ${c.case.protocol}`;
+    patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(name)}</span>${root ? `<span class="gt-run" title="${esc(`run ${run.run_id}`)}">run ${esc(run.run_id.slice(-8))}</span>` : ''}${pill}</div><div class="gt-sub">${esc(sub)}</div>`);
+    patch($('#dhead'), renderStepsHead(run, m, now));
+    patch($('#dlist'), renderStepsTable(run, m, now, (id) => S.cases.get(id)?.name ?? (S.cases.get(id) && !S.cases.get(id).parent ? run.runbook_id : null)));
+    patch($('#nowbar'), renderStepsBar(run, m, now));
+  } else { patch($('#gtitle'), ''); patch($('#dhead'), ''); patch($('#dlist'), ''); patch($('#nowbar'), ''); }
   renderProductBar($('#product'), {products: S.missingRun == null ? S.products : null, daemon});
   document.documentElement.classList.toggle('rp-open', S.panel);
   document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
   const p = $('#panel');
   if (S.panel && S.tab === 'products') return mountProducts(c);
   if (p.dataset.tab === 'products') p.dataset.tab = '';
-  patch(p, S.panel ? `<div class="tabpane" data-key="pane:${esc(S.tab)}"><p class="muted pad">The daemon serves no ${esc(DAEMON_TABS[S.tab] || S.tab)} of a case: the case tree and the Products tab show what it serves.</p></div>` : '');
+  // the Events tab: every event of the run, oldest first, the engine's lines too
+  const list = run && S.panel && S.tab === 'events' ? runEvents(run.run_id) : [];
+  patch(p, S.panel && S.tab === 'events' ? `<div class="tabpane" data-key="pane:events"><div class="sect">Run events <span class="muted">${list.length}, oldest first</span></div><div class="ev-list">${list.map((e) => eventRow(e, now, 'ev-row fd-row')).join('')}</div></div>` : '');
 }
 
 function renderTree(cases, st, now) {
@@ -488,6 +512,8 @@ function tickClocks() {
   const now = serverNow();
   for (const el of document.querySelectorAll('[data-since]')) { const v = fmtDur(now - Number(el.dataset.since)); if (el.textContent !== v) el.textContent = v; }
   for (const el of document.querySelectorAll('[data-ago]')) { const v = fmtAgo(now - Number(el.dataset.ago)); if (el.textContent !== v) el.textContent = v; }
+  // the step in flight of a daemon's run: its duration in words
+  for (const el of document.querySelectorAll('[data-took-since]')) { const v = fmtTook(now - Number(el.dataset.tookSince), true); if (el.textContent !== v) el.textContent = v; }
   // the band's head says how many minutes the action in flight has run: it is text, set as text
   const ns = S.nowState;
   if (ns?.proc && ns.mode === 'running') {
@@ -536,6 +562,8 @@ document.addEventListener('click', async (ev) => {
   if (t.closest('#decbtn') || t.closest('[data-open-drawer]')) { S.drawer = !S.drawer || !!t.closest('[data-open-drawer]'); return render(); }
   if (t.closest('#rpclose')) { setPanel(false); return render(); }
   if (t.closest('#railbtn')) { setPanel(true); return render(); }
+  const fold = t.closest('[data-dfold]');
+  if (fold) { S.dall = fold.dataset.dfold === '1'; render(); $('#feed [data-dfold]')?.focus(); return; }
   const chip = t.closest('[data-feed]');
   if (chip) { S.feedCls = S.feedCls === chip.dataset.feed ? '' : chip.dataset.feed; LS('sdc-ui.feed', S.feedCls); return render(); }
   const kpi = t.closest('[data-kpi]');

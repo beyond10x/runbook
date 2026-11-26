@@ -34,6 +34,8 @@ export const WIDE_ONLY = {
   'daemon-decide-review.spec.mjs': 'daemon refusals and page text',
   'daemon-decide.spec.mjs': 'token rules and answer flow',
   'daemon-level-and-kind.spec.mjs': 'level and kind as text',
+  'daemon-live.spec.mjs': 'sets the gating sizes itself',
+  'daemon-steps-model.spec.mjs': 'model function, no page',
   'daemon-routes.spec.mjs': 'route as text, request rate',
   'daemon-run-tree-security.spec.mjs': 'hostile run text stays text',
   'daemon-run-tree.spec.mjs': 'tree, products, address as text',
@@ -125,6 +127,7 @@ export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 export const SIZE_EXCEPTIONS = {
   'autopilot.spec.mjs': 'sets both gating sizes itself',
   'daemon-decide.spec.mjs': 'phone test sets size',
+  'daemon-live.spec.mjs': 'sets the gating sizes itself',
   'daemon-run-tree-security.spec.mjs': 'presence, not layout',
   'daemon-run-tree.spec.mjs': 'presence; screenshot is a file',
   'daemon-start.spec.mjs': 'presence, not layout',

@@ -946,11 +946,19 @@ Without `--ui`, `GET /` is `404`.
   the evidence records, the actions and the files of a run and open each one. Served here, the tab lists the files of
   the run's `work/` directory, which its cases share, from the view `products`, and opens one through the view
   `product` (text, Markdown rendered by the page's renderer, JSON indented, a file over 1 MiB with the part shown
-  said, bytes that are not text by their size); the line counts the files. The daemon serves no evidence record and
-  no action output of a case, and the tab says so. Nothing in them is made up. Run content never becomes
+  said, bytes that are not text by their size); the line counts the files and stands with the run's steps. The daemon
+  serves no evidence record and no action output of a case, and the page has no tab for them. Nothing in them is made up. Run content never becomes
   markup of the page: the page builds nodes from the text, and the policy above (`script-src 'self'`,
   `connect-src 'self'`, `img-src 'self' data:`) stays as it is (`ui/README.md` "What a step produced"); the
   inspector's hostile cases run against this page too (`ui/test/daemon-run-tree-security.spec.mjs`).
+- A run. The centre lists the run's steps in the order they started, read from the run's events (`runbook.action-started`,
+  `ActionFinished`, `runbook.model-call`; `ui/web/runsteps.js`): step, role, state, start, duration and try, the step
+  in flight marked and its duration counting. A line above says what runs now or how the run ended, and the counts
+  (steps done, exits other than 0, model calls, tokens, cost). A `Stopped` with `BudgetSpent`/`MaxSteps` ends one step,
+  never the run (the runtime runs each step as one engine call; also `runbook.step-ended` when it comes). The side
+  panel has only the tabs the daemon serves data for (`tabsOf` in `ui/web/source.js`): Products and Events, every event
+  of the run in words. Times are the browser's local time, 24 h, with the zone's name (`19:54:50 CET`), the ISO date in
+  front when not of today (`ui/web/clock.js`).
 - Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
   token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
   `Authorization` header with a page load, so it hands the token over once: the `401` of a page load

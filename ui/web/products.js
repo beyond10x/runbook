@@ -285,10 +285,10 @@ function lists(c, products, src) {
   return root;
 }
 
-// The daemon's page: the run's files, which its cases share; no evidence record and no action output
+// The daemon's page: the run's files, which its cases share
 function daemonLists(products) {
   const root = h('div', 'prod-lists');
-  root.append(h('p', 'prod-note prod-daemon', 'the daemon serves the files under the run\'s work/ directory, which its cases share; it serves no evidence records and no action output of a case'));
+  root.append(h('p', 'prod-note prod-daemon', 'the files under the run\'s work/ directory, which its cases share'));
   root.append(fileList(products));
   return root;
 }

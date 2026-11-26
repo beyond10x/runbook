@@ -80,6 +80,18 @@ export function policy(vp) {
   return {alwaysVisible: Object.values(phone.alwaysVisible).map((s) => s[0]), scrollAllowed: phone.scrollAllowed, pageScrollY: true, order: [], whole: null};
 }
 
+// The run page of the daemon (`runbook serve --ui`) at a live run (story run-page-watches-a-live-run): the checks of one
+// viewport. Always visible on a desktop: the run picker, the Decisions control, the start of a run and the line that says
+// what runs now (#dnow, the head of the steps); on a phone the sticky bar's run state and current step and the
+// Decisions control. The list of steps scrolls inside its own box (D-001).
+export const daemonScenario = {name: 'daemon-live', primary: '#dsteps',
+  truth: {running: {action: 'findings.judge', role: 'program', took: '2 min 12 s'}, last: {action: 'report.write', state: 'done'}, failed: {action: 'evidence.repo', state: 'exit 10'}, calls: '1 model call', cost: '$0.0042'},
+  tasks: ['name the step in flight, who runs it and for how long', 'read how the step that failed ended', 'read the model calls and their cost']};
+export function daemonPage(vp) {
+  if (!isPhone(vp)) return {alwaysVisible: ['#runpick', '#decbtn', '#startbtn', '#dnow'], scrollAllowed: [...scrollAllowed, '#dsteps'], pageScrollY: false};
+  return {alwaysVisible: ['#nowbar .nb-state', '#nowbar .nb-step', '#decbtn'], scrollAllowed: [...phone.scrollAllowed, '#dsteps'], pageScrollY: true};
+}
+
 // Scenarios: a run played by test/fixture-run.mjs (the driver bot: deterministic code that plays the
 // run as the driver and the adapters would write it), or a recorded run read as it is. Each has its
 // truth: what runs now, who is waited on, what changed last, and the completion state.
