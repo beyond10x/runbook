@@ -276,7 +276,7 @@ At submit, after the route is resolved and before anything is written:
    when it accepts a run on a stopped managed route, and books `wake_cost_micro_usd` against
    `wake_daily_cap_micro_usd` for the day. `wake_on_submit = true` without a cap above 0 is refused at start by
    name, and so is one without a `wake_cost_micro_usd` above 0 (a wake that books nothing never meets the cap). A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
-   "wake cap reached". A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling. The shipped
+   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling. The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
    upstream shows as a failed call (section 4). Once the gateway serves `/v1/status`, a hosted route's `callable`

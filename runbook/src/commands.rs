@@ -715,6 +715,22 @@ pub const ROUTE_WAKE_ANSWERED: &str = "runbook.route-wake-answered";
 /// The reason of a wake that was not sent.
 pub const WAKE_CAP_REACHED: &str = "wake cap reached";
 
+/// The reason of a wake that was not sent because a wake of the same route was sent within the route's wait.
+pub const WAKE_JOINED: &str = "joined a wake sent within the wait";
+
+/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis`, from the run events
+/// `runbook.route-wake` of every run (the journal, so a daemon started again finds it): its run and its instant.
+fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
+    st.events_after(None, None, 0)
+        .into_iter()
+        .rev()
+        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route)
+        .find_map(|e| {
+            let at = crate::clock::parse_instant(&e.at)?;
+            (at <= now_millis && now_millis - at < wait_millis).then(|| (e.run_id.clone(), e.at.clone()))
+        })
+}
+
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
 /// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them.
 fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
@@ -2123,7 +2139,9 @@ impl Daemon {
         }
     }
 
-    /// Wakes the managed route `name` once for the run (`docs/model-routes.md`, section 3 point 4). The wake is booked
+    /// Wakes the managed route `name` once for the run (`docs/model-routes.md`, section 3 point 4). A run within the
+    /// route's `start_wait_seconds` of a wake sent for the route joins that wake: nothing is sent or booked, and the event
+    /// names the run and the instant of that wake (`joined`, `joined_at`). Otherwise the wake is booked
     /// against the route's cap for the day of the daemon's clock before it is sent, under the lock of the state, in the
     /// run event `runbook.route-wake`; a wake the rest of the day's cap does not cover is not sent and the event says
     /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. False when the gateway
@@ -2132,8 +2150,15 @@ impl Daemon {
         let routes = &self.inner.policy.routes;
         let Some(route) = routes.route(name) else { return true };
         let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return true };
+        let wait_millis = i64::try_from(route.start_wait_seconds.unwrap_or(0)).unwrap_or(i64::MAX / 2).saturating_mul(1000);
         {
             let mut st = self.st();
+            // a wake sent for the route within its wait is still starting the model: the run joins it and books nothing
+            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis) {
+                let record = json!({"route": name, "sent": false, "reason": WAKE_JOINED, "joined": run, "joined_at": at});
+                let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE, record);
+                return true;
+            }
             let day: String = st.now().chars().take(10).collect();
             let booked = wakes_booked(&st, name, &day);
             let fits = booked.checked_add(cost).is_some_and(|total| total <= cap);

@@ -294,8 +294,13 @@ The wake ships off (`docs/model-routes.md`, section 3 point 4, D-5): a pod is st
 sets `wake_on_submit = true` on a managed route, and that is accepted only with `wake_daily_cap_micro_usd` and
 `wake_cost_micro_usd` both above 0 (else the daemon refuses to start, above). With the wake on, a run the daemon
 holds `WaitingForRoute` on that route while the gateway gives the phase `stopped` sends one
-`POST /v1/models/{alias}/wake` with the gateway's token, once for the run, before its first read of the wait:
+`POST /v1/models/{alias}/wake` with the gateway's token, once for the run, before its first read of the wait, unless
+it joins a wake already sent:
 
+- A wake of the same route sent less than the route's `start_wait_seconds` before (by any run, also before a restart
+  of the daemon: the journal holds it) is still starting the model: the run joins it, sends nothing and books nothing.
+  Its event `runbook.route-wake` says `{"route", "sent": false, "reason": "joined a wake sent within the wait",
+  "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits.
 - The wake is booked before it is sent, under the lock of the daemon's state, in the run event `runbook.route-wake`:
   `{"route", "sent": true, "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`. `day` is the date (UTC) of
   the daemon's clock; `booked_micro_usd` is what the route's sent wakes of that day add up to with this one. The

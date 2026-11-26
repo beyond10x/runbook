@@ -228,6 +228,8 @@ fn with_a_cap_one_wake_is_sent_for_a_run_on_a_stopped_route_and_booked_and_a_spe
     }
     assert_eq!(gw.wakes(), 1, "a waiting run woke its route twice");
 
+    // the next run comes after the first one's wait of 600 s, so it joins no wake and sends its own
+    clock.set("2026-11-26T10:10:01Z");
     let second = submit(&d, "qwen");
     let booked = until_records(&d, &second, "runbook.route-wake");
     assert_eq!(booked, vec![json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": 200, "cap_micro_usd": 250})]);
@@ -235,6 +237,7 @@ fn with_a_cap_one_wake_is_sent_for_a_run_on_a_stopped_route_and_booked_and_a_spe
     assert_eq!(gw.wakes(), 2);
 
     // the day's cap has 50 left, less than a wake: none is sent, the run waits, and its record says so
+    clock.set("2026-11-26T10:20:02Z");
     let third = submit(&d, "qwen");
     let refused = until_records(&d, &third, "runbook.route-wake");
     assert_eq!(refused, vec![json!({"route": "qwen", "sent": false, "reason": "wake cap reached", "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": 200, "cap_micro_usd": 250})]);
@@ -245,6 +248,7 @@ fn with_a_cap_one_wake_is_sent_for_a_run_on_a_stopped_route_and_booked_and_a_spe
     // the booking is the journal's: a daemon started again on the same state counts the day's wakes
     d.stop();
     drop(d);
+    clock.set("2026-11-26T10:30:03Z");
     let d = daemon_in(&dir, &gw, wake_on(250, 100), clock.clone());
     let fourth = submit(&d, "qwen");
     let refused = until_records(&d, &fourth, "runbook.route-wake");
@@ -259,6 +263,45 @@ fn with_a_cap_one_wake_is_sent_for_a_run_on_a_stopped_route_and_booked_and_a_spe
     assert_eq!(booked, vec![json!({"route": "qwen", "sent": true, "day": "2026-11-27", "cost_micro_usd": 100, "booked_micro_usd": 100, "cap_micro_usd": 250})]);
     until_records(&d, &fifth, "runbook.route-wake-answered");
     assert_eq!(gw.wakes(), 3);
+    gw.no_call();
+}
+
+#[test]
+fn a_run_within_the_wait_of_a_wake_sent_for_its_route_joins_that_wake_and_sends_and_books_none() {
+    let gw = Gateway::start("stopped", (202, json!({})));
+    let dir = super::state::scratch("wake-join");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(500, 100), clock.clone());
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(gw.wakes(), 1);
+
+    // 5 minutes later, within the route's start_wait_seconds of 600: the second run joins the first run's wake
+    clock.set("2026-11-26T10:05:00Z");
+    let second = submit(&d, "qwen");
+    let joined = until_records(&d, &second, "runbook.route-wake");
+    let want = json!({"route": "qwen", "sent": false, "reason": "joined a wake sent within the wait", "joined": first, "joined_at": "2026-11-26T10:00:00.000Z"});
+    assert_eq!(joined, vec![want.clone()]);
+    assert_eq!(detail(&d, &second)["state"], "WaitingForRoute");
+    assert!(records(&d, &second, "runbook.route-wake-answered").is_empty());
+    assert_eq!(gw.wakes(), 1, "a run within the wait of a wake sent for its route woke it again");
+
+    // the join is read from the journal: a daemon started again joins the wake it sent before
+    d.stop();
+    drop(d);
+    clock.set("2026-11-26T10:09:59.999Z");
+    let d = daemon_in(&dir, &gw, wake_on(500, 100), clock.clone());
+    let third = submit(&d, "qwen");
+    assert_eq!(until_records(&d, &third, "runbook.route-wake"), vec![want]);
+    assert_eq!(gw.wakes(), 1, "a daemon started again woke within the wait of a wake it sent");
+
+    // 600 s after the wake its wait is over: the next run sends a wake of its own, and the joins booked nothing
+    clock.set("2026-11-26T10:10:00Z");
+    let fourth = submit(&d, "qwen");
+    let booked = until_records(&d, &fourth, "runbook.route-wake");
+    assert_eq!(booked, vec![json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": 200, "cap_micro_usd": 500})]);
+    until_records(&d, &fourth, "runbook.route-wake-answered");
+    assert_eq!(gw.wakes(), 2);
     gw.no_call();
 }
 
