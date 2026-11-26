@@ -44,6 +44,10 @@ pub const STORE_DIR: &str = "tree";
 /// The kind of the event that names the copy of the runbook a run took at its submit.
 pub const PINNED_EVENT: &str = "runbook.pinned";
 
+/// The kind of the event that names a run-log line `Stopped` (`BudgetSpent`) the engine took as the end of
+/// one step: every `run_tree` of the engine is given one step, and Loom ends it with that line.
+pub const STEP_ENDED_EVENT: &str = "runbook.step-ended";
+
 const POLL: Duration = Duration::from_millis(20);
 /// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
 const ROUTE_DRAIN: Duration = Duration::from_secs(5);
@@ -549,8 +553,13 @@ impl Engine {
                     let outcome = status.cases.iter().find(|c| c.case == status.root).and_then(|c| c.outcome.clone()).or(ran.detail);
                     return outcome.map(Finish::Outcome).ok_or_else(|| failure("the root case ended with no outcome"));
                 }
-                // one step done: the caps are held against the use again before the next
-                TreeStop::BudgetSpent if ran.steps > 0 && !local.load(Ordering::SeqCst) => {}
+                // one step done: the caps are held against the use again before the next. Loom ended the call with a
+                // `Stopped` `BudgetSpent` line, the end of this step's call and not of the run: the event says so.
+                TreeStop::BudgetSpent if ran.steps > 0 && !local.load(Ordering::SeqCst) => {
+                    if let Some(seq) = tail.budget_stop(&ran.case) {
+                        sink.record(STEP_ENDED_EVENT, serde_json::json!({"case": ran.case, "seq": seq}));
+                    }
+                }
                 TreeStop::BudgetSpent => {
                     if local.load(Ordering::SeqCst) {
                         return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));

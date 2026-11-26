@@ -231,6 +231,15 @@ run), against the run's own cap; after the step or answer the cost records are b
 cancel handle of `run_tree` reads, and a client's cancel wins over it. The options, the request, the
 ceilings and the view are in `docs/daemon-api.md`, "Caps of a run".
 
+Each `run_tree` of one step ends with a run-log line `Stopped` (`stop` `BudgetSpent`, `budget`
+`MaxSteps`) in the log of the deepest open case: Loom's step budget of that call is spent, not the
+run's. The engine takes it as one step done (`TreeStop::BudgetSpent` with a step taken and no cancel
+or wall cap set) and records the run event `runbook.step-ended` (record `case`, `seq`: the line it
+names) before the next step, so a reader of the events tells the end of a step from a wait or the
+end of the tree; the line itself reaches the events unchanged. The gate test is
+`a_stopped_line_that_ends_one_step_is_named_so_and_one_that_ends_or_holds_the_run_is_not` in
+`runbook/tests/daemon/engine.rs`.
+
 ## Cancel and recover
 
 Cancel while waiting ends the run at once. Cancel while a program runs ends the program too: the
