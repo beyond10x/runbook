@@ -1,9 +1,10 @@
-//! A model call the gateway refuses with a 4xx answer the client may recover from (story
-//! `a-recovered-call-does-not-fail-the-run`, `docs/model-routes.md` section 4): the relay passes the refusal to the
-//! client and books it with the cause `call-refused`, the gateway's code and its error text; the run ends as its step
-//! ended. A step that exits 0 with its product delivered ends the run delivered, and the run's record names the refused
-//! calls (`runbook.model-calls-refused`); a step that exits non-zero ends the run with the refused call as its first
-//! cause. A refusal of the route by the gateway itself still fails the step `route-unavailable`.
+//! A model call that failed does not end the run by itself (story `a-recovered-call-does-not-fail-the-run`,
+//! `docs/model-routes.md` section 4): a 4xx answer the client may recover from (booked `call-refused`), a 5xx answer,
+//! a gateway timeout and a connection that fails (booked `route-unavailable`) are passed to the client, booked with the
+//! gateway's code and its error text, and the run ends as its step ended. A step that exits 0 with its product
+//! delivered ends the run delivered, and the run's record names the failed calls (`runbook.model-calls-failed`); a step
+//! that exits non-zero ends the run with the first failed call as its first cause. The gateway's own refusals of the
+//! route and its spend ceiling still fail the step `route-unavailable` at once.
 //!
 //! No model is called and nothing leaves loopback: the gateway is a stand-in on a port of the test's own that answers
 //! the first call with a refusal and every later one 200, and `claude` is a stand-in in bash first on the daemon's
@@ -41,6 +42,18 @@ fn upstream_refusal() -> Vec<u8> {
 fn route_refusal() -> Vec<u8> {
     let body = json!({"error": {"code": "wire-not-served", "message": "the route does not serve this wire"}}).to_string();
     answer("400 Bad Request", "gw-call-wire", &body)
+}
+
+/// The gateway's answer to a call whose upstream timed out: `upstream-failed` 502.
+fn upstream_failed() -> Vec<u8> {
+    let body = json!({"error": {"code": "upstream-failed", "message": "the upstream gave no answer: timeout"}}).to_string();
+    answer("502 Bad Gateway", "gw-call-timeout", &body)
+}
+
+/// The gateway's spend ceiling: `spend-ceiling` 503.
+fn spend_ceiling() -> Vec<u8> {
+    let body = json!({"error": {"code": "spend-ceiling", "message": "a pod start would pass a cap"}}).to_string();
+    answer("503 Service Unavailable", "gw-call-ceiling", &body)
 }
 
 /// A gateway, ready and listing `a-model`, that answers the first call with `first` and every later one 200.
@@ -143,12 +156,13 @@ fn a_call_refused_400_that_the_agent_recovered_from_leaves_the_run_delivered_and
     assert_eq!((booked[0]["code"].clone(), booked[0]["error"].clone()), (json!("invalid_request_error"), json!(error)), "{booked:?}");
     assert!(!booked[0].to_string().contains(TOKEN), "{booked:?}");
 
-    let noted = events(&l, &run, "runbook.model-calls-refused");
+    let noted = events(&l, &run, "runbook.model-calls-failed");
     assert_eq!(noted.len(), 1, "the run's record does not name the refused calls: {noted:?}");
     assert_eq!(noted[0]["step"], "delegation.free", "{noted:?}");
     let named = noted[0]["calls"].as_array().cloned().unwrap_or_default();
     assert_eq!(named.len(), 1, "{noted:?}");
     assert_eq!((named[0]["gateway_call"].clone(), named[0]["code"].clone(), named[0]["route"].clone()), (json!("gw-call-refused"), json!("invalid_request_error"), json!("default")), "{noted:?}");
+    assert_eq!(named[0]["cause"], "call-refused", "{noted:?}");
 }
 
 /// The same refusal in a step whose program exits non-zero: the run fails, and its failure names the refused call
@@ -162,7 +176,7 @@ fn a_call_refused_400_in_a_step_that_exits_non_zero_is_the_first_cause_of_the_ru
     let failure = end["failure"].as_str().unwrap_or_default();
     assert_ne!(end["outcome"], json!("delivered"), "{end}");
     assert!(failure.starts_with("call-refused: route default (chosen by run)") && failure.contains("invalid_request_error") && failure.contains("400"), "{end}");
-    assert!(events(&l, &run, "runbook.model-calls-refused").is_empty(), "a failed step's refused call was noted as recovered");
+    assert!(events(&l, &run, "runbook.model-calls-failed").is_empty(), "a failed step's refused call was noted as recovered");
 }
 
 /// The gateway's own refusal of the route (`wire-not-served` 400) is no refusal a client recovers from: the step that
@@ -178,4 +192,55 @@ fn a_refusal_of_the_route_by_the_gateway_still_fails_the_step_route_unavailable(
     assert!(failure.starts_with("route-unavailable: route default") && failure.contains("wire-not-served"), "{end}");
     let calls = events(&l, &run, "runbook.model-call");
     assert!(calls.iter().any(|c| c["cause"] == "route-unavailable" && c["code"] == "wire-not-served"), "{calls:?}");
+}
+
+/// The stand-in gateway answers 502 (`upstream-failed`, the upstream timed out) to the first call and 200 after; the
+/// agent retries, its next call is answered, it exits 0 and writes `result.md`. The run ends delivered, the failed call
+/// is booked `route-unavailable` with the gateway's code and its error text, and the run's record names it with its
+/// cause.
+#[test]
+fn a_call_answered_502_that_the_agent_retried_leaves_the_run_delivered_and_is_named_in_its_record() {
+    let gw = first_refused(upstream_failed);
+    let (h, l) = daemon("rc-502", &gw, 2);
+    let run = delegated(&l);
+    let end = until_ended(&l, &run);
+    let statuses = std::fs::read_to_string(h.log.join("statuses")).unwrap_or_default();
+    assert!(statuses.lines().next().is_some_and(|s| s.contains(" 502 ")) && statuses.lines().nth(1).is_some_and(|s| s.contains(" 200 ")), "the client was not passed the 502 and then the answer: {statuses}");
+    assert_eq!((end["run_state"].clone(), end["outcome"].clone(), end["failure"].clone()), (json!("Ended"), json!("delivered"), Value::Null), "{end}");
+    assert_eq!(end["result_text"], json!(format!("{ANSWER}\n")), "{end}");
+    let calls = events(&l, &run, "runbook.model-call");
+    let failed: Vec<&Value> = calls.iter().filter(|c| c["cause"] == "route-unavailable").collect();
+    assert_eq!(failed.len(), 1, "{calls:?}");
+    assert_eq!((failed[0]["code"].clone(), failed[0]["error"].clone()), (json!("upstream-failed"), json!("upstream-failed: the upstream gave no answer: timeout")), "{calls:?}");
+    let noted = events(&l, &run, "runbook.model-calls-failed");
+    assert_eq!(noted.len(), 1, "the run's record does not name the failed call: {noted:?}");
+    let named = noted[0]["calls"].as_array().cloned().unwrap_or_default();
+    assert_eq!(named.len(), 1, "{noted:?}");
+    assert_eq!((named[0]["gateway_call"].clone(), named[0]["cause"].clone(), named[0]["code"].clone()), (json!("gw-call-timeout"), json!("route-unavailable"), json!("upstream-failed")), "{noted:?}");
+}
+
+/// A 502 in a step whose program exits non-zero: the run fails naming that call first.
+#[test]
+fn a_call_answered_502_in_a_step_that_exits_non_zero_is_the_first_cause_of_the_runs_failure() {
+    let gw = first_refused(upstream_failed);
+    let (_h, l) = daemon("rc-502-exit", &gw, 1);
+    let run = delegated(&l);
+    let end = until_ended(&l, &run);
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_ne!(end["outcome"], json!("delivered"), "{end}");
+    assert!(failure.starts_with("route-unavailable: route default (chosen by run) failed the call: upstream-failed"), "{end}");
+    assert!(events(&l, &run, "runbook.model-calls-failed").is_empty(), "a failed step's failed call was noted as recovered");
+}
+
+/// The gateway's spend ceiling (`spend-ceiling` 503) still fails the step at once, though the program went on and
+/// exited 0.
+#[test]
+fn the_gateways_spend_ceiling_still_fails_the_step_route_unavailable() {
+    let gw = first_refused(spend_ceiling);
+    let (_h, l) = daemon("rc-ceiling", &gw, 2);
+    let run = delegated(&l);
+    let end = until_ended(&l, &run);
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_ne!(end["outcome"], json!("delivered"), "{end}");
+    assert!(failure.starts_with("route-unavailable: route default") && failure.contains("spend-ceiling"), "{end}");
 }

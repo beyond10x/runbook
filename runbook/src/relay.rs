@@ -15,8 +15,9 @@
 //! A gateway that refuses the call, or does not answer, is passed back unchanged (a connection that fails answers
 //! `502` with the code `route-unavailable`), and the call is booked with the cause `route-unavailable`, the route,
 //! the gateway's code, its error text and the setting that chose the route. A `4xx` answer that is no refusal of the
-//! route by the gateway is booked with the cause `call-refused` instead ([`recoverable`]): its client may go on. The
-//! relay never sends a call to another route.
+//! route by the gateway is booked with the cause `call-refused` instead ([`recoverable`]). A failed call does not end
+//! the run by itself unless the gateway refused the route or its spend ceiling stopped it ([`stops_the_run`]): its
+//! client may retry or go on, and the run ends as the call's step ends. The relay never sends a call to another route.
 //!
 //! The run's processes get the relay through the route file ([`RouteFile`]): `route.json`, `runbook.route/1`, mode
 //! 0600 in the run's private directory, named by [`ROUTE_FILE_VARIABLE`]. It holds the relay's address, the run's
@@ -55,12 +56,19 @@ pub const ROUTE_REFUSED: &str = "route-refused";
 pub const CAP_REACHED: &str = "cap-reached";
 /// The cause of a call the gateway refused or did not answer.
 pub const ROUTE_UNAVAILABLE: &str = "route-unavailable";
-/// The cause of a call the gateway refused with a `4xx` answer the client may recover from ([`recoverable`]): the run
-/// ends as the call's step ends.
+/// The cause of a call the gateway refused with a `4xx` answer the client may recover from ([`recoverable`]).
 pub const CALL_REFUSED: &str = "call-refused";
-/// The codes of the gateway's own refusals of a route (`docs/model-routes.md`, "Refusals a dispatcher meets"): a call
-/// refused with one of them names a route the run cannot use, never a call its client may recover from.
+/// The codes of the gateway's own refusals of a route (`docs/model-routes.md`, "Refusals a dispatcher meets") and of its
+/// spend ceiling: a call refused with one of them names a route the run cannot use, never a call its client may
+/// recover from, and fails its step at once ([`stops_the_run`]).
 pub const ROUTE_REFUSAL_CODES: [&str; 6] = ["model-unknown", "wire-not-served", "credential-absent", "credential-malformed", "credential-rejected", crate::routes::SPEND_CEILING];
+
+/// Whether a failed call with the gateway's code `code` fails its step at once ([`ROUTE_REFUSAL_CODES`]). Every other
+/// failed call (a `4xx` its client may recover from, a `5xx`, a connection that fails, an answer that broke off) does
+/// not end the run by itself: the run ends as the call's step ends.
+pub fn stops_the_run(code: &str) -> bool {
+    ROUTE_REFUSAL_CODES.contains(&code)
+}
 /// The most bytes of the gateway's error text a ledger line keeps.
 pub const MAX_ERROR_BYTES: usize = 300;
 /// The kind of the run event that records one call the relay booked.
@@ -1034,6 +1042,13 @@ mod tests {
         assert_eq!(Failed::answered(400, messages, &[]).cause, CALL_REFUSED);
         assert_eq!(Failed::answered(400, br#"{"error":{"code":"wire-not-served","message":"no"}}"#, &[]).cause, ROUTE_UNAVAILABLE);
         assert_eq!(Failed::answered(503, br#"{"error":{"code":"model-stopped"}}"#, &[]).cause, ROUTE_UNAVAILABLE);
+        // what fails the step at once: the gateway's refusals of the route and its spend ceiling, nothing else
+        for code in ["model-unknown", "wire-not-served", "credential-absent", "credential-malformed", "credential-rejected", "spend-ceiling"] {
+            assert!(stops_the_run(code), "{code}");
+        }
+        for code in ["invalid_request_error", "upstream-failed", "model-stopped", "overloaded", "status-502", CONNECTION_FAILED, ANSWER_BROKEN] {
+            assert!(!stops_the_run(code), "{code}");
+        }
     }
 
     /// The class [`ROUTE_REFUSAL_CODES`] stands for: every refusal of a model call with a `4xx` status that the gateway's

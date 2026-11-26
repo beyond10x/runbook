@@ -451,15 +451,15 @@ impl Engine {
         result
     }
 
-    /// The run's end follows the step of the calls the gateway refused with an answer the client may recover from
-    /// (`refused`, [`Gate::take_refused`]): a step of `case` whose program failed ends the run with the first refused
-    /// call as its cause; a step that went on is noted in the run's record and the run goes on.
-    fn settle_refused(store: &Path, case: &str, refused: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
-        if refused.is_empty() {
+    /// The run's end follows the step of the failed calls that fail no step on their own (`failed_calls`,
+    /// [`Gate::take_failed`]): a step of `case` whose program failed ends the run with the first failed call as its
+    /// cause; a step that went on is noted in the run's record and the run goes on.
+    fn settle_failed(store: &Path, case: &str, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
+        if failed_calls.is_empty() {
             return Ok(());
         }
         let failed = |step: &str| refusal::failed_step(store, case, |_| true).is_some_and(|s| s.action == step);
-        Gate::settle_refused(refused, failed, sink).map_err(failure)
+        Gate::settle_failed(failed_calls, failed, sink).map_err(failure)
     }
 
     /// Whether the daemon cancelled the run (the wall cap sets the run's own flag, not this).
@@ -525,10 +525,10 @@ impl Engine {
                 calls::run(store, catalog, &settings, Some(&mut observer), Some(local))
             };
             let booked = gate.book(sink);
-            let refused = gate.take_refused();
+            let failed_calls = gate.take_failed();
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
-            Self::settle_refused(store, &ran.case, &refused, sink)?;
+            Self::settle_failed(store, &ran.case, &failed_calls, sink)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
@@ -759,13 +759,13 @@ impl Wait<'_> {
             let applied = parsed_answer(planned, answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
             (applied, gate.book(self.sink))
         };
-        let refused = gate.take_refused();
+        let failed_calls = gate.take_failed();
         tail.sync_all().map_err(failure)?;
         if let Some(f) = tail.failure.take() {
             return Err(failure(f));
         }
         booked.map_err(failure)?;
-        Engine::settle_refused(self.store, &d.case, &refused, self.sink)?;
+        Engine::settle_failed(self.store, &d.case, &failed_calls, self.sink)?;
         if let Some(end) = Engine::stop_of(gate, self.daemon_cancel, self.slot, self.sink) {
             return end.map(Some);
         }

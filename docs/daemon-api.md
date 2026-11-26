@@ -1130,9 +1130,10 @@ On a loopback listener:
 - A call the gateway refused carries the gateway's `code`, its `detail` and its error text as `error`
   (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced). A
   `4xx` answer that is no refusal of the route by the gateway (not `model-unknown`, `wire-not-served`,
-  `credential-*` or `spend-ceiling`) is a call the client may recover from: its `cause` is `call-refused`, and the
-  run ends as its step ends (`docs/engine.md`, "A gateway"). Every other refusal, and a gateway that does not
-  answer, has the `cause` `route-unavailable` and fails its step.
+  `credential-*` or `spend-ceiling`) has the `cause` `call-refused`; every other failed call, a gateway that does
+  not answer included, `route-unavailable`. A failed call does not end the run by itself: the run ends as its step
+  ends, and a step that went on is named in the run's event `runbook.model-calls-failed` (`docs/engine.md`, "A
+  gateway"). The gateway's refusals of the route and its `spend-ceiling` fail their step at once.
 
 ## Outside the language
 

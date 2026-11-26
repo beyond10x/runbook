@@ -423,23 +423,26 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   answer does not stop a call that was sent from being booked, once. An answer that breaks off after its head
   ran on the gateway: it is booked at its tokens and prices as read, else at its reservation.
 - A gateway that refuses the call, or does not answer, fails the call: the refusal is passed back unchanged
-  (a connection that fails answers `502` `route-unavailable`), and the line and the event carry `cause`
-  `route-unavailable`, the route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for
-  an answer that broke off) and the `source`. A call the gateway refused or did not answer costs 0. The relay
-  never sends a call to another route. Such a call in a step fails that step with `route-unavailable`, the
-  route, the code and the `source`; a call of the decider that fails ends the decider's call as any failed call
-  does: the decision stays open for a person. The line of a refused call also carries the gateway's error text as
-  `error` (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token
-  replaced by `<token>`).
-- A `4xx` answer that is no refusal of the route by the gateway (its code is not `model-unknown`,
-  `wire-not-served`, `credential-absent`, `credential-malformed`, `credential-rejected` or `spend-ceiling`) is a
-  call the client may recover from, as Claude Code goes on after a side call answered `400`. It is passed back
-  unchanged and booked with the `cause` `call-refused`, and the run ends as its step ends: a step whose program
-  exits 0 with its products goes on, and the run's record names the refused calls with one event
-  `runbook.model-calls-refused` (the step, and per call the route, the `gateway_call`, the `code`, the `detail`
-  and the `error`); a step whose program failed ends the run with the refused call as its first cause,
-  `call-refused: route <route> (chosen by <source>) refused the call: <code>: <detail>`
-  (story `a-recovered-call-does-not-fail-the-run`).
+  (a connection that fails answers `502` `route-unavailable`), and the line and the event carry a `cause`, the
+  route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for an answer that broke off),
+  the `detail` and the `source`, and, when the answer gave one, the gateway's error text as `error`
+  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced by
+  `<token>`). The `cause` is `call-refused` for a `4xx` answer that is no refusal of the route by the gateway,
+  else `route-unavailable`. A call the gateway refused or did not answer costs 0. The relay never sends a call to
+  another route.
+- A failed call in a step does not end the run by itself: a `4xx` the client may recover from, a `5xx` answer
+  (`upstream-failed` for an upstream that timed out), a connection that fails and an answer that broke off are
+  passed to the client, which may retry, as Claude Code does. The run ends as the step ends: a step whose program
+  exits 0 with its products goes on, and the run's record names the failed calls with one event
+  `runbook.model-calls-failed` (the step, and per call the route, the `gateway_call`, the `cause`, the `code`, the
+  `detail` and the `error`); a step whose program failed ends the run with the first failed call as its first
+  cause, `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused the call` for
+  `call-refused`) (story `a-recovered-call-does-not-fail-the-run`).
+- What stops the run at once: the gateway's refusals of the route (`model-unknown`, `wire-not-served`,
+  `credential-absent`, `credential-malformed`, `credential-rejected`) and its `spend-ceiling` fail the step they
+  came in with `route-unavailable`, the route, the code and the `source`, whatever its program does after; a call
+  past the run's caps is refused by the relay and the caps stop the run before the next step. A call of the decider
+  that fails ends the decider's call as any failed call does: the decision stays open for a person.
 - For a run on a route the relay's line is the call's cost: the cost records of its bound programs book
   nothing, and one with no `cost_usd` does not end the run (`runbook/src/cost.rs`). A line the ledger cannot
   write fails the step the call ran in (fail closed). The spend cap is held against what was booked when a
