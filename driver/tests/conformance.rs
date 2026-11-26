@@ -1168,7 +1168,7 @@ fn conformance_budget_refused_starts_no_ess_command_but_the_pin_check() {
         crate::ess_pin_guard::executable(&ess, &body);
         let want = sdc_tools::conformance::sha256_bytes(body.as_bytes());
         let pin = dir.join("pin.json");
-        fs::write(&pin, json!({"format": "sdc.ess-pin/1", "version": "9.9.9", "platforms": {sdc_tools::conformance::target_triple(): {"binary_sha256": want}}}).to_string()).unwrap();
+        fs::write(&pin, json!({"format": "sdc.ess-pin/1", "version": "9.9.9", "platforms": {sdc_tools::conformance::target_triple(&J::Null): {"binary_sha256": want}}}).to_string()).unwrap();
         let mut t = table();
         t["views"] = json!([]);
         let t = write_table(&dir, "t.json", &t);
@@ -1193,6 +1193,42 @@ fn conformance_budget_refused_starts_no_ess_command_but_the_pin_check() {
         let compiled = lines.iter().any(|l| l.starts_with("compile"));
         if compiled != compiles {
             bad.push(format!("{tag} {value}: ess compile ran {compiled}, want {compiles}: {lines:?}"));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// The platform of a pinned tool: a musl build takes `<arch>-unknown-linux-musl` when the pin names that platform and
+/// `<arch>-unknown-linux-gnu` when it does not (aep and ess ship no musl archive yet); a gnu build takes
+/// `-linux-gnu` whatever the pin names, and macOS its `-apple-darwin`. This test binary is a gnu build, so
+/// `target_triple` of a pin that names both platforms says `-linux-gnu`.
+#[test]
+fn target_triple_takes_the_musl_platform_only_when_the_pin_names_it() {
+    use sdc_tools::conformance::{platform_for, target_triple};
+    let both = json!({"platforms": {"x86_64-unknown-linux-gnu": {}, "x86_64-unknown-linux-musl": {}}});
+    let gnu_only = json!({"platforms": {"x86_64-unknown-linux-gnu": {}}});
+    let musl_only = json!({"platforms": {"x86_64-unknown-linux-musl": {}}});
+    let mut bad = vec![];
+    for (arch, os, musl, pin, want) in [
+        ("x86_64", "linux", true, &both, "x86_64-unknown-linux-musl"),
+        ("x86_64", "linux", true, &musl_only, "x86_64-unknown-linux-musl"),
+        ("x86_64", "linux", true, &gnu_only, "x86_64-unknown-linux-gnu"),
+        ("x86_64", "linux", true, &J::Null, "x86_64-unknown-linux-gnu"),
+        ("aarch64", "linux", true, &both, "aarch64-unknown-linux-gnu"),
+        ("x86_64", "linux", false, &both, "x86_64-unknown-linux-gnu"),
+        ("x86_64", "linux", false, &musl_only, "x86_64-unknown-linux-gnu"),
+        ("aarch64", "macos", false, &both, "aarch64-apple-darwin"),
+    ] {
+        let got = platform_for(arch, os, musl, pin);
+        if got != want {
+            bad.push(format!("{arch} {os} musl={musl} pin={pin}: {got}, want {want}"));
+        }
+    }
+    if cfg!(all(target_os = "linux", target_env = "gnu")) {
+        let host = format!("{}-unknown-linux-gnu", std::env::consts::ARCH);
+        let got = target_triple(&both);
+        if got != host {
+            bad.push(format!("target_triple of this gnu build with a pin that names musl: {got}, want {host}"));
         }
     }
     assert!(bad.is_empty(), "{bad:#?}");

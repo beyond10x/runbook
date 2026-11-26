@@ -991,11 +991,27 @@ pub fn http(port: u16, method: &str, path: &str, body: Option<&J>, headers: &[(S
 
 // ---- the ess pin ----------------------------------------------------------------------------
 
-pub fn target_triple() -> String {
-    let arch = std::env::consts::ARCH;
-    match std::env::consts::OS {
+/// The platform of this host among the `platforms` of a pin (`driver/ess-pin.json`, `driver/aep-pin.json`). A
+/// static musl build of this program (a host without glibc, such as Alpine) takes `<arch>-unknown-linux-musl` when
+/// the pin names it and `<arch>-unknown-linux-gnu` when it does not; every other Linux build takes
+/// `<arch>-unknown-linux-gnu`.
+pub fn target_triple(pin: &J) -> String {
+    platform_for(std::env::consts::ARCH, std::env::consts::OS, cfg!(target_env = "musl"), pin)
+}
+
+/// `target_triple` for a given architecture, operating system and C library (`musl`: the program is a musl
+/// build).
+pub fn platform_for(arch: &str, os: &str, musl: bool, pin: &J) -> String {
+    match os {
         "macos" => format!("{arch}-apple-darwin"),
-        "linux" => format!("{arch}-unknown-linux-gnu"),
+        "linux" => {
+            let own = format!("{arch}-unknown-linux-musl");
+            if musl && pin["platforms"].get(&own).is_some() {
+                own
+            } else {
+                format!("{arch}-unknown-linux-gnu")
+            }
+        }
         os => format!("{arch}-{os}"),
     }
 }
@@ -1028,7 +1044,7 @@ fn tool_cache_path(tool: &str, var: &str, pin: &J) -> PathBuf {
             .join("sdc")
             .join(tool)
     });
-    base.join(s(&pin["version"])).join(target_triple()).join(tool)
+    base.join(s(&pin["version"])).join(target_triple(pin)).join(tool)
 }
 
 /// The pinned ess: `ESS_BIN` when set, else the cache path. Refused (`Err((cause, why))`) when the
@@ -1039,7 +1055,7 @@ pub fn resolve_ess(pin_path: &Path) -> Result<Ess, (&'static str, String)> {
     if pin["format"] != PIN_FORMAT {
         return Err(("ess_pin_unreadable", format!("{}: format is not {PIN_FORMAT}", pin_path.display())));
     }
-    let target = target_triple();
+    let target = target_triple(&pin);
     let want = s(&pin["platforms"][&target]["binary_sha256"]).to_string();
     if want.is_empty() {
         return Err(("ess_pin_mismatch", format!("the pin names no binary for {target}")));
@@ -1081,7 +1097,7 @@ pub fn resolve_aep(pin_path: &Path) -> Result<PathBuf, String> {
     if pin["format"] != AEP_PIN_FORMAT {
         return Err(format!("{}: format is not {AEP_PIN_FORMAT}", pin_path.display()));
     }
-    let target = target_triple();
+    let target = target_triple(&pin);
     let want = s(&pin["platforms"][&target]["binary_sha256"]);
     if want.is_empty() {
         return Err(format!("{}: the pin names no binary for {target}", pin_path.display()));

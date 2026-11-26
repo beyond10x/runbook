@@ -686,6 +686,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-conform-adapter");
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(table), Some(tree), Some(work)) = (arg(&args, "--table"), arg(&args, "--tree"), arg(&args, "--work")) else {
         eprintln!("usage: sdc-conform-adapter --table <table.json> --tree <dir> --work <dir> [--ir <ir.json>] [--suite <suite.json>] [--log <file>] [--start-timeout <s>] [--request-timeout <s>]");

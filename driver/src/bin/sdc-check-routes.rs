@@ -451,6 +451,7 @@ fn capability_lines(ends: &Value) -> Vec<String> {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-check-routes");
     let args: Vec<String> = std::env::args().collect();
     let opt = |n: &str| args.iter().position(|a| a == n).and_then(|i| args.get(i + 1)).cloned();
     let root = opt("--root").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."));

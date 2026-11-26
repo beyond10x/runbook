@@ -11,6 +11,7 @@
 
 mod caller_environment;
 mod during_the_build;
+mod every_program_answers;
 mod guards;
 mod half_install;
 mod installed_path;

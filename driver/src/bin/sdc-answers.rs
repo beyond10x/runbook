@@ -139,6 +139,7 @@ fn run(args: &[String]) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-answers");
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,

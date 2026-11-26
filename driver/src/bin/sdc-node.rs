@@ -269,6 +269,7 @@ fn run(argv: &[String]) -> R<i32> {
 }
 
 fn main() {
+    sdc_tools::answer_version("sdc-node");
     let argv: Vec<String> = std::env::args().collect();
     let code = match run(&argv) {
         Ok(code) | Err(Exit(code)) => code,
