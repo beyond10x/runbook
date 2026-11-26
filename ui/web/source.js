@@ -7,7 +7,7 @@
 // and the page says so; nothing is made up.
 import {esc} from './lenses.js';
 import {clockTime, fullTime} from './clock.js';
-import {eventWords} from './runsteps.js';
+import {eventWords, stepEnds} from './runsteps.js';
 
 // Which server sent this page: the daemon names itself in the Server-Timing header of every file it serves
 // (read from the page's own navigation entry: no request, so a Node server sees no failed probe).
@@ -206,8 +206,8 @@ function routeLine(r, words) {
 
 // One event of a run as a row: its name and what it says in words, its place in the run with the kind the runtime
 // wrote, and its time on the page's clock (the date and time in full on hover).
-export function eventRow(e, now = Date.now(), cls = 'fd-row') {
-  const w = eventWords(e);
+export function eventRow(e, now = Date.now(), cls = 'fd-row', ends = null) {
+  const w = eventWords(e, ends);
   const position = Number(e.position), sequence = Number(e.sequence), at = ms(e.at);
   return `<div class="${cls}${w.engine ? ' fd-engine' : ''}" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
     + `<div class="fd-1"><span class="fd-s">${esc(w.name)}</span></div>`
@@ -217,17 +217,19 @@ export function eventRow(e, now = Date.now(), cls = 'fd-row') {
 
 // What the left side shows for a daemon's run: a line naming the run (and its model route) above its case tree, the
 // note of a run with no case, and in place of the feed of changes the run's own events, newest first, in words. The
-// engine's own lines around each step (an evaluation before it, the step-budget stop that ends it after it) are folded
+// engine's own lines around each step (an evaluation before it, the step-budget stop after it and, from a runtime that
+// names a step's end, runbook.step-ended) are folded
 // unless `all`; the head says how many and has the control that shows them.
 export function daemonView(src, words = null, {all = false} = {}) {
   if (!daemon || !src?.daemonRun) return null;
   const id = src.daemonRun.run_id;
   const now = Date.now();
   const list = [...(events.get(id) || [])].reverse();
-  const shown = all ? list : list.filter((e) => !eventWords(e).engine);
+  const ends = stepEnds(events.get(id));
+  const shown = all ? list : list.filter((e) => !eventWords(e, ends).engine);
   const folded = list.length - shown.length;
-  const rows = shown.map((e) => eventRow(e, now)).join('');
-  const fold = all ? (list.some((e) => eventWords(e).engine) ? '<button type="button" class="fd-fold" data-dfold="0">Fold engine lines</button>' : '')
+  const rows = shown.map((e) => eventRow(e, now, 'fd-row', ends)).join('');
+  const fold = all ? (list.some((e) => eventWords(e, ends).engine) ? '<button type="button" class="fd-fold" data-dfold="0">Fold engine lines</button>' : '')
     : folded ? `<button type="button" class="fd-fold" data-dfold="1">Show all ${list.length}</button>` : '';
   return {
     feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${shown.length}${folded ? ` of ${list.length}` : ''}, newest first${folded ? ` · ${folded} engine lines folded` : ''}</span>${fold}</div>`

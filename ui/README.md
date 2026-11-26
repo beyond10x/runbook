@@ -21,8 +21,10 @@ and its status). These files are in `daemon/`, which this server does not serve.
 On a run, the daemon's page has none of the inspector's bands it has no data for (KPIs, Now, phases, the graph and its
 legend, the timeline). Its centre lists the run's steps read from the run's events (`web/runsteps.js`): step, role,
 state, start, duration and try, the step in flight marked with its duration counting, a line that says what runs now
-or how the run ended, and the counts (steps done, model calls, tokens, cost). A `Stopped` with
-`BudgetSpent`/`MaxSteps` ends one step, not the run. The run events are said in words, the engine's own lines folded.
+or how the run ended, and the counts (steps done, model calls, tokens, cost). A step ends at the run's
+`runbook.step-ended`, not the run; a `Stopped` with `BudgetSpent`/`MaxSteps` none names is a wait or the end of the
+tree, and in a run with no `runbook.step-ended` (an older runtime) that `Stopped` line ends the step (`stepEnds`). The
+run events are said in words, the engine's own lines folded.
 The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`), and
 Metrics when the daemon's view `run-metrics` answers a row for the run (`daemon/metrics.js` draws it; a step's model
 calls whose events name none are taken from that row, `withViewCalls` in `web/runsteps.js`, and an unknown count is

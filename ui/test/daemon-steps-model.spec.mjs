@@ -2,7 +2,7 @@
 // synthetic run of daemon-live-fixture.mjs: no server, no browser. Story run-page-watches-a-live-run.
 import {test, expect} from '@playwright/test';
 import {fixture, LIVE, DONE, RUNNING_SINCE} from './daemon-live-fixture.mjs';
-import {runSteps, eventWords, runSay, fmtTook, renderStepsTable, runStateWord} from '../web/runsteps.js';
+import {runSteps, stepEnds, eventWords, runSay, fmtTook, renderStepsTable, runStateWord} from '../web/runsteps.js';
 import {clockTime, zoneName} from '../web/clock.js';
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
@@ -56,6 +56,39 @@ test('the end of a step, with or without the runtime\'s own line: the step-budge
   // a step-ended line of another case leaves this one in flight; a wait ends no step
   expect(runSteps([start('b'), ev('runbook.step-ended', {case: 'other', seq: 1})]).inFlight).toMatchObject({action: 'b'});
   expect(runSteps([start('b'), ev('Stopped', {stop: 'AwaitingPerson', next: []})]).inFlight).toMatchObject({action: 'b'});
+});
+
+// The runtime's runbook.step-ended against the step-budget stop (story a-budget-stop-in-a-running-run-is-named): the
+// event when the run has it, the line otherwise.
+const T = (s) => `2026-11-26T18:00:${String(s).padStart(2, '0')}.000Z`;
+const at = (kind, record, s) => ({kind, at: T(s), record});
+const begin = (action, s) => at('runbook.action-started', {case: 'c', action, role: 'person', try: 1}, s);
+const budgetStop = (seq, s) => at('Stopped', {seq, stop: 'BudgetSpent', next: [], budget: 'MaxSteps'}, s);
+const stepEnded = (seq, s) => at('runbook.step-ended', {case: 'c', seq}, s);
+
+test('a run with runbook.step-ended: a step ends at that event, and a step-budget stop no such event names ends no step', () => {
+  const one = [begin('a', 0), budgetStop(3, 5), stepEnded(3, 6)];
+  expect(runSteps(one).steps.map((s) => [s.action, s.state, s.end])).toEqual([['a', 'done', Date.parse(T(6))]]);
+  // the second stop has no step-ended after it: a wait or the end of the tree, so b still runs
+  const two = [...one, begin('b', 7), budgetStop(9, 8)];
+  const m = runSteps(two);
+  expect(m.inFlight).toMatchObject({action: 'b', end: null});
+  expect(m.ended).toBeNull();
+  // in words: the stop the event names is the engine's own line, the event says the step ended, the other stop is said
+  const ends = stepEnds(two);
+  expect(eventWords(two[1], ends)).toEqual({name: 'Step budget spent', detail: 'the engine call of one step ended', engine: true});
+  expect(eventWords(two[2], ends)).toEqual({name: 'Step ended', detail: 'the run goes on', engine: true});
+  expect(eventWords(two[4], ends)).toEqual({name: 'Engine stopped', detail: 'step budget spent, no step ended: a wait or the end of the tree', engine: false});
+});
+
+test('a run without runbook.step-ended (an older runtime): the step-budget stop ends the step in flight, said as its end', () => {
+  const evs = [begin('a', 0), budgetStop(3, 5), begin('b', 7), budgetStop(9, 8)];
+  const m = runSteps(evs);
+  expect(m.steps.map((s) => [s.action, s.state, s.end])).toEqual([['a', 'done', Date.parse(T(5))], ['b', 'done', Date.parse(T(8))]]);
+  expect(m.inFlight).toBeNull();
+  const ends = stepEnds(evs);
+  expect(ends.present).toBe(false);
+  for (const e of [evs[1], evs[3]]) expect(eventWords(e, ends)).toEqual({name: 'Step ended', detail: 'the run goes on', engine: true});
 });
 
 test('the cases of a run: each one it opened; a run of more than one names each step\'s case', () => {

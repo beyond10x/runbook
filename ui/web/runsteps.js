@@ -6,10 +6,13 @@
 //   runbook.model-call      a model call of a step: step, input_tokens, output_tokens, micro_usd, cost_known.
 //   Evaluated, Stopped      the engine's own lines around each step: the runtime runs each step as one engine call
 //                           that stops on its step budget, so every step is followed by `Stopped` with
-//                           `BudgetSpent`/`MaxSteps`. That line ends one step, never the run: it closes the last step
-//                           started when that one still runs (a step with no program has no `ActionFinished`). Any
-//                           other stop is said for what it is (a wait is a wait).
-//   runbook.step-ended      the runtime's own line after such a stop: case, seq. The same end, said twice changes nothing.
+//                           `BudgetSpent`/`MaxSteps`. That line ends one step, never the run. Any other stop is said
+//                           for what it is (a wait is a wait).
+//   runbook.step-ended      the runtime's own line after the stop it took as one step's end: case, seq. It closes the
+//                           last step started of that case when that one still runs (a step with no program has no
+//                           `ActionFinished`). In a run that has it, a step-budget stop it does not name is a wait or
+//                           the end of the tree and ends no step; in a run without it (an older runtime) the stop
+//                           itself closes the step (stepEnds).
 //   Terminated              the case ended, with its reason.
 // Nothing here reads a digest or an id of a record: a person reads names, numbers and times.
 import {esc} from './lenses.js';
@@ -20,11 +23,35 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v) => (typeof v === 'string' && v ? v : null);
 const STEP_END = (r) => r?.stop === 'BudgetSpent' && r?.budget === 'MaxSteps';
 
+// The ends of steps a run's events name (story a-budget-stop-in-a-running-run-is-named; docs/daemon-api.md, "Event
+// streams"): the runtime records `runbook.step-ended` (case, seq) after the step-budget `Stopped` line it took as the end
+// of one step, before the next run-log line. {present, named}: present, the run has such an event (its runtime writes
+// them); named, the `Stopped` lines one names (the nearest step-budget stop before it, of its seq). In a run that has
+// them, a step-budget stop none names is a wait or the end of the tree, not a step's end; in a run without them (an
+// older runtime) the line itself ends the step.
+export function stepEnds(events) {
+  const list = events || [];
+  const named = new Set();
+  let present = false;
+  list.forEach((e, i) => {
+    if (e?.kind !== 'runbook.step-ended') return;
+    present = true;
+    const seq = num(e.record?.seq);
+    for (let j = i - 1; j >= 0 && list[j]?.kind !== 'runbook.step-ended'; j--) {
+      const x = list[j];
+      if (x?.kind === 'Stopped' && STEP_END(x.record) && (seq == null || num(x.record?.seq) == null || x.record.seq === seq)) { named.add(x); break; }
+    }
+  });
+  return {present, named};
+}
+
 // {steps, cases, inFlight, calls, tokens, tokensKnown, micro, costKnown, ended, stop, failed} of one run's events, in
 // their order. tokens and micro: the sum of the counts the calls report; tokensKnown, costKnown: every call reported one.
 // cases: the ids of the cases the run opened (`CaseOpened`).
 export function runSteps(events) {
   const steps = [];
+  // a step-budget stop ends a step only in a run whose runtime names no step's end (stepEnds)
+  const ends = stepEnds(events);
   const m = {steps, cases: new Set(), inFlight: null, calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true, ended: null, stop: null, failed: null};
   const open = (action) => steps.filter((s) => s.state === 'running' && s.action === action);
   // the end of a step: the last step started (of the case named, when one is) ends here if it still runs
@@ -57,7 +84,7 @@ export function runSteps(events) {
       if (s) { s.calls++; s.tokens += tokens; s.micro += micro; if (!counted) s.tokensKnown = false; if (!costKnown) s.costKnown = false; }
     } else if (e?.kind === 'CaseOpened') { if (str(r.case)) m.cases.add(r.case); }
     else if (e?.kind === 'Terminated') m.ended = {reason: str(r.reason)};
-    else if (e?.kind === 'Stopped') { if (STEP_END(r)) stepEnd(null, at); else m.stop = r; }
+    else if (e?.kind === 'Stopped') { if (STEP_END(r)) { if (!ends.present) stepEnd(null, at); } else m.stop = r; }
     else if (e?.kind === 'runbook.step-ended') stepEnd(str(r.case), at);
     else if (e?.kind === 'runbook.step-failed') m.failed = r;
   }
@@ -118,8 +145,11 @@ const plain = (r) => Object.entries(r).filter(([k, v]) => !['seq', 'prev', 'at',
   .slice(0, 4).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(' · ');
 const join = (...xs) => xs.filter((x) => x != null && x !== '' && x !== false).join(' · ');
 
-// {name, detail, engine}: an event in words. `engine`: one of the engine's own lines around each step.
-export function eventWords(e) {
+// {name, detail, engine}: an event in words. `engine`: one of the engine's own lines around each step. `ends`: stepEnds of
+// the run's events: in a run whose runtime names each step's end, the step-budget stop it names is the engine's own line
+// and one it does not name is a wait or the end of the tree; without `ends`, or in a run with no such event, the stop
+// is the step's end.
+export function eventWords(e, ends = null) {
   const r = e?.record && typeof e.record === 'object' ? e.record : {};
   switch (e?.kind) {
     case 'runbook.submitted': return {name: 'Run submitted', detail: join(str(r.runbook_id), str(r.confinement) && `${r.confinement} confinement`, str(r.model_route) && `route ${r.model_route}`), engine: false};
@@ -129,6 +159,7 @@ export function eventWords(e) {
     case 'ActionFinished': return {name: 'Step finished', detail: join(str(r.action), num(r.exit) != null && `exit ${r.exit}`), engine: false};
     case 'Evaluated': return {name: 'Case evaluated', detail: num(r.case_revision) != null ? `case revision ${r.case_revision}` : '', engine: true};
     case 'Stopped': {
+      if (STEP_END(r) && ends?.present) return ends.named.has(e) ? {name: 'Step budget spent', detail: 'the engine call of one step ended', engine: true} : {name: 'Engine stopped', detail: 'step budget spent, no step ended: a wait or the end of the tree', engine: false};
       if (STEP_END(r)) return {name: 'Step ended', detail: 'the run goes on', engine: true};
       if (r.stop === 'BudgetSpent') return {name: 'Budget spent', detail: str(r.budget) ?? 'not named', engine: false};
       const [name, detail] = STOP[r.stop] ?? [str(r.stop) ? humane(r.stop) : 'Stopped', ''];

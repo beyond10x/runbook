@@ -1030,11 +1030,13 @@ Without `--ui`, `GET /` is `404`.
 - A run. The centre lists the run's steps in the order they started, read from the run's events (`runbook.action-started`,
   `ActionFinished`, `runbook.model-call`; `ui/web/runsteps.js`): step, role, state, start, duration and try, the step
   in flight marked and its duration counting. A line above says what runs now or how the run ended, and the counts
-  (steps done, exits other than 0, model calls, tokens, cost). A `Stopped` with `BudgetSpent`/`MaxSteps` ends one step,
-  never the run (the runtime runs each step as one engine call; also `runbook.step-ended` when it comes). The side
-  panel has only the tabs the daemon serves data for (`tabsOf` in `ui/web/source.js`): Products and Events, every event
-  of the run in words, and Metrics when the view `run-metrics` answers a row for the run ("The metrics of a run"). Times are the browser's local time, 24 h, with the zone's name (`19:54:50 CET`), the ISO date in
-  front when not of today (`ui/web/clock.js`).
+  (steps done, exits other than 0, model calls, tokens, cost). A step ends at the run's `runbook.step-ended`, never the
+  run; a `Stopped` with `BudgetSpent`/`MaxSteps` that no `runbook.step-ended` names is said as a wait or the end of the
+  tree and ends no step. A run with no `runbook.step-ended` at all (a runtime before it) has its steps ended by that
+  `Stopped` line (`stepEnds` in `ui/web/runsteps.js`). The side panel has only the tabs the daemon serves data for
+  (`tabsOf` in `ui/web/source.js`): Products and Events, every event of the run in words, and Metrics when the view
+  `run-metrics` answers a row for the run ("The metrics of a run"). Times are the browser's local time, 24 h, with the
+  zone's name (`19:54:50 CET`), the ISO date in front when not of today (`ui/web/clock.js`).
 - Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
   token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
   `Authorization` header with a page load, so it hands the token over once: the `401` of a page load
