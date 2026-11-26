@@ -176,9 +176,9 @@ kind = "managed"                     # managed, hosted or local
 start_wait_seconds = 600             # optional
 price_in_micro_usd_per_mtok = 0      # optional
 price_out_micro_usd_per_mtok = 0     # optional
-wake_on_submit = false               # managed only; true is refused: the wake is not built
-wake_daily_cap_micro_usd = 0         # managed only, optional
-wake_cost_micro_usd = 0              # managed only, optional
+wake_on_submit = false               # managed only; true needs the two keys below above 0
+wake_daily_cap_micro_usd = 0         # managed only, optional: the most the route's wakes book per day
+wake_cost_micro_usd = 0              # managed only, optional: what one wake books
 
 [routes.claude]
 gateway = "default"
@@ -203,7 +203,8 @@ gateway `default`: a route names it so, and the decider takes it as before. Both
 start, exit 2, with a line that names the key and never its value, a part of it or a path: a route that names a
 gateway the file does not declare, a gateway without `base_url`, a `token` (or any key that is not one of the
 members above) in a gateway, a route or the policy, a `token`, `token_file`, `base_url` or `api_key` in a route,
-`wake_on_submit = true`, a wake key on a route that is not managed, a `kind` that is not one of the three, a
+`wake_on_submit = true` without a `wake_daily_cap_micro_usd` above 0 or without a `wake_cost_micro_usd` above 0
+(the line names `routes.<name>.wake_on_submit` and the key it lacks), a wake key on a route that is not managed, a `kind` that is not one of the three, a
 `model` that is no alias (an address), a policy that names a route the file does not declare, a name that is not
 1 to 64 letters, digits, `.`, `_` or `-`, and a token file it cannot read. Nothing is written before.
 
@@ -276,7 +277,7 @@ gateway without `/v1/status` is read no further), within 5 s, with `GET` request
 | the model is not callable | accepted; the run is `WaitingForRoute` (command `WaitForRoute`, event `runbook.waiting-for-route`: route, phase, wait_seconds) and `route_phase` of the view `run` holds the phase |
 | every route can answer | accepted; the run starts as before |
 
-A run that waits sends no call to its routes and wakes nothing. The daemon reads their status again at most once
+A run that waits sends no call to its routes, and wakes nothing unless a route's wake is on (below). The daemon reads their status again at most once
 every 5 s of its clock: once every route can answer, the runtime starts the run; when the least
 `start_wait_seconds` of the routes that cannot answer (none declared: no wait) is over first, the run ends `Ended` with the outcome `stopped: route`
 (command `EndRouteWait`, event `runbook.route-wait-ended`: route, last phase), and `route_phase` holds the last
@@ -286,6 +287,34 @@ still waits when the daemon ends (a second stop signal, the drain bound) or that
 `FailedToStart`. The interim route `default` of a daemon with only a `[gateway]`
 is not asked, as before routes. A submit that repeats an idempotency key already used is not asked either: it answers
 the first run (`already-submitted`) whatever the gateway says.
+
+#### The wake of a managed route
+
+The wake ships off (`docs/model-routes.md`, section 3 point 4, D-5): a pod is started by a person until the operator
+sets `wake_on_submit = true` on a managed route, and that is accepted only with `wake_daily_cap_micro_usd` and
+`wake_cost_micro_usd` both above 0 (else the daemon refuses to start, above). With the wake on, a run the daemon
+holds `WaitingForRoute` on that route while the gateway gives the phase `stopped` sends one
+`POST /v1/models/{alias}/wake` with the gateway's token, once for the run, before its first read of the wait, unless
+it joins a wake already sent:
+
+- A wake of the same route sent less than the route's `start_wait_seconds` before (by any run, also before a restart
+  of the daemon: the journal holds it) is still starting the model: the run joins it, sends nothing and books nothing.
+  Its event `runbook.route-wake` says `{"route", "sent": false, "reason": "joined a wake sent within the wait",
+  "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits.
+- The wake is booked before it is sent, under the lock of the daemon's state, in the run event `runbook.route-wake`:
+  `{"route", "sent": true, "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`. `day` is the date (UTC) of
+  the daemon's clock; `booked_micro_usd` is what the route's sent wakes of that day add up to with this one. The
+  booking is the journal's, so a daemon started again counts the wakes of the day it booked before.
+- A wake the rest of the day's cap does not cover is not sent: the event says `"sent": false, "reason": "wake cap
+  reached"` with what the day booked so far, and the run waits as any run that waits.
+- The gateway's answer is the run event `runbook.route-wake-answered`: `{"route", "status"}` (`status` null when it
+  did not answer within 5 s) and `code`, the gateway's error code, when it gave one. A wake that was sent stays
+  booked, whatever the answer.
+- The answer `spend-ceiling` (a pod start would pass a cap of the gateway) ends the run at once: `Ended`, outcome
+  `stopped: route` (command `EndRouteWait`), and its `runbook.route-wait-ended` names the ceiling:
+  `{"route", "phase", "ceiling": "spend-ceiling"}`. Any other answer leaves the run waiting for its route.
+- A model in another phase (`starting`, `stopping`), a hosted or a local route, and a route without the wake are not
+  woken.
 
 ### A delegation
 

@@ -9,7 +9,8 @@
 //! once, when the daemon starts. Every refusal names the key (`routes.qwen.gateway`) and never a value, a part of a
 //! value or a path. [`Listing`] is the view `routes`: what the gateway says of each route, read at most once every
 //! [`READ_EVERY_MILLIS`] of the daemon's clock with `GET` requests only, in the background and within
-//! [`READ_BOUND`]; a read sends no model call and starts nothing.
+//! [`READ_BOUND`]; a read sends no model call and starts nothing. [`RouteTable::wake`] is the one request that may
+//! start a model: the daemon sends it only for a managed route whose wake is on, booked against its daily cap.
 
 use crate::client::http::{Client, Token};
 use crate::client::url::Target;
@@ -88,8 +89,8 @@ pub struct Prices {
     pub out_micro_usd_per_mtok: Option<u64>,
 }
 
-/// The wake keys of a managed route, read and kept. `on_submit` is false: true is refused at start, the wake is
-/// not built (`docs/model-routes.md`, section 3).
+/// The wake keys of a managed route (`docs/model-routes.md`, section 3 point 4). Off unless the file sets
+/// `wake_on_submit = true`, which is refused at start unless the daily cap and the cost of a wake are both above 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Wake {
     pub on_submit: bool,
@@ -292,11 +293,19 @@ fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, 
     }
     let on_submit = match table.get("wake_on_submit") {
         None | Some(Value::Bool(false)) => false,
-        Some(Value::Bool(true)) => {
-            return Err(format!("{at}.wake_on_submit: true is not built yet (the wake of a managed route ships off, docs/model-routes.md section 3): remove the key or set it to false"));
-        }
+        Some(Value::Bool(true)) => true,
         Some(_) => return Err(format!("{at}.wake_on_submit: true or false")),
     };
+    let wake = Wake { on_submit, daily_cap_micro_usd: whole(table, &at, "wake_daily_cap_micro_usd")?, cost_micro_usd: whole(table, &at, "wake_cost_micro_usd")? };
+    if on_submit {
+        // the wake ships off: it turns on only behind a daily cap, and every wake books against it
+        if !wake.daily_cap_micro_usd.is_some_and(|c| c > 0) {
+            return Err(format!("{at}.wake_on_submit: true needs {at}.wake_daily_cap_micro_usd above 0 (the most the route's wakes may book per day, docs/model-routes.md section 3)"));
+        }
+        if !wake.cost_micro_usd.is_some_and(|c| c > 0) {
+            return Err(format!("{at}.wake_on_submit: true needs {at}.wake_cost_micro_usd above 0 (what one wake books against the day's cap, docs/model-routes.md section 3)"));
+        }
+    }
     Ok(Route {
         name: name.to_owned(),
         gateway,
@@ -304,7 +313,7 @@ fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, 
         kind,
         start_wait_seconds: whole(table, &at, "start_wait_seconds")?,
         prices: Prices { in_micro_usd_per_mtok: whole(table, &at, "price_in_micro_usd_per_mtok")?, out_micro_usd_per_mtok: whole(table, &at, "price_out_micro_usd_per_mtok")? },
-        wake: Wake { on_submit, daily_cap_micro_usd: whole(table, &at, "wake_daily_cap_micro_usd")?, cost_micro_usd: whole(table, &at, "wake_cost_micro_usd")? },
+        wake,
     })
 }
 
@@ -491,7 +500,33 @@ impl RouteTable {
         let gateway = self.gateways.get(&route.gateway)?;
         Some(Resolved { route: &route.name, base_url: &gateway.base_url, token: gateway.token(), alias: &route.alias, kind: route.kind, prices: route.prices })
     }
+
+    /// Sends the wake of the route `name` (`POST /v1/models/{alias}/wake` with its gateway's token), done by `until`:
+    /// what the gateway answered. None for a name that is not declared. The caller books the wake before it calls this.
+    pub fn wake(&self, name: &str, until: Instant) -> Option<WakeAnswer> {
+        let route = self.routes.get(name)?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        let Some((client, prefix)) = client_of(gateway) else { return Some(WakeAnswer::default()) };
+        let path = format!("{prefix}/v1/models/{}/wake", segment(&route.alias));
+        Some(match client.with_deadline(until).request("POST", &path, None) {
+            Err(_) => WakeAnswer::default(),
+            Ok(reply) => {
+                let body: Value = serde_json::from_str(&reply.body).unwrap_or(Value::Null);
+                WakeAnswer { status: Some(reply.status), code: word(&body["error"]["code"]) }
+            }
+        })
+    }
 }
+
+/// What a gateway answered a wake: its status (none: no answer in time) and its error code, when it gave one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WakeAnswer {
+    pub status: Option<u16>,
+    pub code: Option<String>,
+}
+
+/// The gateway's code of a wake that would pass one of its spend caps: the run that asked for it stops.
+pub const SPEND_CEILING: &str = "spend-ceiling";
 
 /// What a route's gateway says of it when a run is about to take it ([`RouteTable::readiness`]).
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -704,6 +704,41 @@ struct RouteWait {
     phase: Option<String>,
     /// The wait: the least `start_wait_seconds` of the routes that could not answer (none declared: no wait).
     wait_millis: i64,
+    /// The routes the run wakes once when its wait starts: managed, the wake on, the phase `stopped` at the submit.
+    wake: Vec<(String, Option<String>)>,
+}
+
+/// The run event that books a wake of a route, or says the day's wake cap does not cover one.
+pub const ROUTE_WAKE: &str = "runbook.route-wake";
+/// The run event of the gateway's answer to a wake.
+pub const ROUTE_WAKE_ANSWERED: &str = "runbook.route-wake-answered";
+/// The reason of a wake that was not sent.
+pub const WAKE_CAP_REACHED: &str = "wake cap reached";
+
+/// The reason of a wake that was not sent because a wake of the same route was sent within the route's wait.
+pub const WAKE_JOINED: &str = "joined a wake sent within the wait";
+
+/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis`, from the run events
+/// `runbook.route-wake` of every run (the journal, so a daemon started again finds it): its run and its instant.
+fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
+    st.events_after(None, None, 0)
+        .into_iter()
+        .rev()
+        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route)
+        .find_map(|e| {
+            let at = crate::clock::parse_instant(&e.at)?;
+            (at <= now_millis && now_millis - at < wait_millis).then(|| (e.run_id.clone(), e.at.clone()))
+        })
+}
+
+/// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
+/// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them.
+fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
+    st.events_after(None, None, 0)
+        .into_iter()
+        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route && e.record["day"] == day)
+        .filter_map(|e| e.record["cost_micro_usd"].as_u64())
+        .fold(0u64, u64::saturating_add)
 }
 
 /// Why a route of the run cannot take it at the submit.
@@ -734,9 +769,15 @@ fn route_wait(routes: &crate::routes::RouteTable, record: &RunRoute, also: Optio
         names.push(name.to_owned());
         names.sort();
     }
-    Ok(read_routes(routes, &names)?.map(|(route, phase)| {
+    let waiting = not_callable(routes, &names)?;
+    let wake: Vec<(String, Option<String>)> = waiting
+        .iter()
+        .filter(|(name, phase)| phase.as_deref() == Some("stopped") && routes.route(name).is_some_and(|r| r.kind == crate::routes::RouteKind::Managed && r.wake.on_submit))
+        .cloned()
+        .collect();
+    Ok(least_wait(routes, waiting).map(|(route, phase)| {
         let seconds = routes.route(&route).and_then(|r| r.start_wait_seconds).unwrap_or(0);
-        RouteWait { routes: names, route, phase, wait_millis: i64::try_from(seconds).unwrap_or(i64::MAX / 2).saturating_mul(1000) }
+        RouteWait { routes: names, route, phase, wait_millis: i64::try_from(seconds).unwrap_or(i64::MAX / 2).saturating_mul(1000), wake }
     }))
 }
 
@@ -744,9 +785,15 @@ fn route_wait(routes: &crate::routes::RouteTable, record: &RunRoute, also: Optio
 /// cannot yet (`Ok(Some(wait))`: of those, the one with the least `start_wait_seconds`, the first of equals, with its
 /// phase; its wait is the run's), or a route cannot take the run at all.
 fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<Option<(String, Option<String>)>, NotReady> {
+    Ok(least_wait(routes, not_callable(routes, names)?))
+}
+
+/// The routes of `names` that cannot answer yet, in order, each with the phase its gateway gave; an error when a route
+/// cannot take the run at all.
+fn not_callable(routes: &crate::routes::RouteTable, names: &[String]) -> Result<Vec<(String, Option<String>)>, NotReady> {
     use crate::routes::Readiness;
     let until = std::time::Instant::now() + crate::routes::READ_BOUND;
-    let mut least: Option<(u64, String, Option<String>)> = None;
+    let mut waiting = Vec::new();
     for name in names {
         let Some(route) = routes.route(name) else { continue };
         match routes.readiness(name, until) {
@@ -754,15 +801,22 @@ fn read_routes(routes: &crate::routes::RouteTable, names: &[String]) -> Result<O
             Some(Readiness::Unreachable) => return Err(NotReady::Unavailable(format!("route {name}: the gateway {} does not answer", route.gateway))),
             Some(Readiness::NotReady) => return Err(NotReady::Unavailable(format!("route {name}: gateway not ready (the gateway {} answered GET /ready, not 200)", route.gateway))),
             Some(Readiness::Unlisted) => return Err(NotReady::Refused(format!("route {name}: the gateway {} serves no model {}", route.gateway, route.alias))),
-            Some(Readiness::NotCallable { phase }) => {
-                let seconds = route.start_wait_seconds.unwrap_or(0);
-                if least.as_ref().is_none_or(|(s, _, _)| seconds < *s) {
-                    least = Some((seconds, name.clone(), phase));
-                }
-            }
+            Some(Readiness::NotCallable { phase }) => waiting.push((name.clone(), phase)),
         }
     }
-    Ok(least.map(|(_, name, phase)| (name, phase)))
+    Ok(waiting)
+}
+
+/// Of the routes that cannot answer yet, the one with the least `start_wait_seconds` (the first of equals), with its phase.
+fn least_wait(routes: &crate::routes::RouteTable, waiting: Vec<(String, Option<String>)>) -> Option<(String, Option<String>)> {
+    let mut least: Option<(u64, String, Option<String>)> = None;
+    for (name, phase) in waiting {
+        let seconds = routes.route(&name).and_then(|r| r.start_wait_seconds).unwrap_or(0);
+        if least.as_ref().is_none_or(|(s, _, _)| seconds < *s) {
+            least = Some((seconds, name, phase));
+        }
+    }
+    least.map(|(_, name, phase)| (name, phase))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1513,11 +1567,17 @@ impl Daemon {
     /// not answer. The run ends `stopped: route`, with the last phase the gateway gave; the daemon writes the run event
     /// `runbook.route-wait-ended` first, while the run still takes events.
     pub fn end_route_wait(&self, run_id: &str, route: Option<&str>, phase: Option<&str>) -> Reply {
+        self.end_route_wait_recorded(run_id, json!({"route": route, "phase": phase}), phase)
+    }
+
+    /// `EndRouteWait` with the record of its event `runbook.route-wait-ended`: a wake the gateway answered
+    /// `spend-ceiling` ends the wait at once, and the record names the ceiling.
+    fn end_route_wait_recorded(&self, run_id: &str, record: Value, phase: Option<&str>) -> Reply {
         let mut st = self.st();
         match st.run(run_id).map(|r| r.state) {
             None => Ok(refuse("end-route-wait", "no-run", json!({"run_id": run_id}))),
             Some(RunState::WaitingForRoute) => {
-                record_event_locked(&mut st, run_id, "runbook.route-wait-ended", json!({"route": route, "phase": phase}))?;
+                record_event_locked(&mut st, run_id, "runbook.route-wait-ended", record)?;
                 let now = st.now();
                 st.commit(Fact::RunStoppedOnRoute { run_id: run_id.to_string(), phase: phase.map(str::to_owned), at: now })?;
                 Ok(done("end-route-wait", "stopped", vec![("RunStoppedOnRoute", json!({"run_id": run_id}))]))
@@ -2025,9 +2085,10 @@ impl Daemon {
     // ---- the run's thread ----
 
     /// Holds a run whose routes could not all answer at the submit (`docs/model-routes.md`, section 3): the run is
-    /// WaitingForRoute, its routes are read again at most once every 5 s of the daemon's clock, and nothing is sent to
-    /// them and nothing is woken. True when every route can answer: the run starts. False when the wait is over (the
-    /// run ends `stopped: route` with the last phase), the run was cancelled or the daemon stops.
+    /// WaitingForRoute, its routes are read again at most once every 5 s of the daemon's clock, and no call is sent to
+    /// them. A stopped managed route whose wake is on is woken once first (`wake_route`). True when every route can
+    /// answer: the run starts. False when the wait is over (the run ends `stopped: route` with the last phase), a wake
+    /// was answered `spend-ceiling` (it ends so at once), the run was cancelled or the daemon stops.
     fn wait_for_routes(&self, run_id: &str, wait: &RouteWait, cancel: &AtomicBool) -> bool {
         let wait_seconds = wait.wait_millis / 1000;
         let record = json!({"route": wait.route, "phase": wait.phase, "wait_seconds": wait_seconds});
@@ -2037,6 +2098,16 @@ impl Daemon {
         match self.wait_for_route(run_id, wait.phase.as_deref()) {
             Ok(o) if !o.is_refusal() => {}
             _ => return false,
+        }
+        for (name, phase) in &wait.wake {
+            if cancel.load(Ordering::SeqCst) || self.is_stopping() {
+                return false;
+            }
+            if !self.wake_route(run_id, name) {
+                let record = json!({"route": name, "phase": phase, "ceiling": crate::routes::SPEND_CEILING});
+                let _ = self.end_route_wait_recorded(run_id, record, phase.as_deref());
+                return false;
+            }
         }
         let start = self.st().now_millis();
         let deadline = start.saturating_add(wait.wait_millis);
@@ -2066,6 +2137,47 @@ impl Daemon {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+    }
+
+    /// Wakes the managed route `name` once for the run (`docs/model-routes.md`, section 3 point 4). A run within the
+    /// route's `start_wait_seconds` of a wake sent for the route joins that wake: nothing is sent or booked, and the event
+    /// names the run and the instant of that wake (`joined`, `joined_at`). Otherwise the wake is booked
+    /// against the route's cap for the day of the daemon's clock before it is sent, under the lock of the state, in the
+    /// run event `runbook.route-wake`; a wake the rest of the day's cap does not cover is not sent and the event says
+    /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. False when the gateway
+    /// answered `spend-ceiling`: the run stops.
+    fn wake_route(&self, run_id: &str, name: &str) -> bool {
+        let routes = &self.inner.policy.routes;
+        let Some(route) = routes.route(name) else { return true };
+        let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return true };
+        let wait_millis = i64::try_from(route.start_wait_seconds.unwrap_or(0)).unwrap_or(i64::MAX / 2).saturating_mul(1000);
+        {
+            let mut st = self.st();
+            // a wake sent for the route within its wait is still starting the model: the run joins it and books nothing
+            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis) {
+                let record = json!({"route": name, "sent": false, "reason": WAKE_JOINED, "joined": run, "joined_at": at});
+                let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE, record);
+                return true;
+            }
+            let day: String = st.now().chars().take(10).collect();
+            let booked = wakes_booked(&st, name, &day);
+            let fits = booked.checked_add(cost).is_some_and(|total| total <= cap);
+            let mut record = json!({"route": name, "sent": fits, "day": day, "cost_micro_usd": cost, "booked_micro_usd": if fits { booked + cost } else { booked }, "cap_micro_usd": cap});
+            if !fits {
+                record["reason"] = json!(WAKE_CAP_REACHED);
+            }
+            // a booking that cannot be written sends no wake
+            if record_event_locked(&mut st, run_id, ROUTE_WAKE, record).is_err() || !fits {
+                return true;
+            }
+        }
+        let answer = routes.wake(name, std::time::Instant::now() + crate::routes::READ_BOUND).unwrap_or_default();
+        let mut record = json!({"route": name, "status": answer.status});
+        if let Some(code) = &answer.code {
+            record["code"] = json!(code);
+        }
+        let _ = self.record_run_event(run_id, ROUTE_WAKE_ANSWERED, record);
+        answer.code.as_deref() != Some(crate::routes::SPEND_CEILING)
     }
 
     fn spawn_run(&self, request: StartRequest, wait: Option<RouteWait>) {

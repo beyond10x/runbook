@@ -50,6 +50,7 @@ mod products_attack;
 mod relay;
 mod relay_daemon;
 mod route_ready;
+mod route_wake;
 mod run_route;
 mod catalog;
 mod adversary_a;
