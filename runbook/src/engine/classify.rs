@@ -96,7 +96,7 @@ fn taken_of(engine: &Engine, request: &StartRequest, record: &Value) -> Result<T
 
 /// The classify call, and below the threshold the build call and the loader; `record` takes what is known as it is known.
 fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Caller<'_>, step: &Mutex<Option<String>>, record: &mut Value) -> Result<Taken, String> {
-    let catalog = catalog_of(&engine.homes);
+    let catalog = catalog_of(engine);
     let products = workspace.join(dlg::PRODUCTS_DIR);
     let classified = ask(caller, &dlg::classify_prompt(&request.intake, &catalog), MAX_TOKENS_CLASSIFY, |t| dlg::read_classified(t, &catalog))?;
     put(&products, "classify.json", &(serde_json::to_string_pretty(&json!({"protocol": classified.protocol, "confidence": classified.confidence})).unwrap_or_default() + "\n"))?;
@@ -143,8 +143,10 @@ fn put(dir: &Path, name: &str, text: &str) -> Result<(), String> {
     std::fs::write(dir.join(name), text).map_err(|e| format!("{}: {e}", dir.join(name).display()))
 }
 
-/// The runbooks a person can start from the engine's homes, each with its title and description.
-fn catalog_of(homes: &[PathBuf]) -> Vec<CatalogEntry> {
+/// The runbooks a person can start from the engine's homes, each with its title, description and inputs.
+fn catalog_of(engine: &Engine) -> Vec<CatalogEntry> {
+    use crate::runtime::Runtime;
+    let homes = &engine.homes;
     let names: BTreeSet<String> = layout::list_in(homes).into_iter().map(|r| r.name).collect();
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
@@ -155,7 +157,7 @@ fn catalog_of(homes: &[PathBuf]) -> Vec<CatalogEntry> {
             }
             let file = home.join("protocol").join(format!("{}.protocol.yaml", entry.id));
             let doc: serde_yaml::Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
-            out.push(CatalogEntry::of(&entry.id, &doc));
+            out.push(CatalogEntry::of(&entry.id, &doc, engine.runbook_facts(&entry.id).inputs));
         }
     }
     out

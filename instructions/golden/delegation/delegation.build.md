@@ -4,9 +4,9 @@ A session delegated a piece of work that no runbook of this daemon fits. Write a
 `sdc-node delegation.free`, which is given the request (the artifact `idea`, at `request.yaml`) and the files of
 the run's workspace, does the work and writes `result.md`; its exit status is its evidence (`from: exit`). You
 write no program and name no other one. The runbooks of the daemon, for what they are not (id, title,
-description):
+description, inputs):
 
-{"id":"answer-demo","title":"Answers a question in result.md","description":"One program answers the idea in result.md."}
+{"id":"answer-demo","title":"Answers a question in result.md","description":"One program answers the idea in result.md.","inputs":["idea"]}
 
 The request, as the session wrote it:
 

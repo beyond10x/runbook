@@ -291,8 +291,8 @@ events and the web UI work on it unchanged.
 - Without `protocol` on a daemon with `[route_policy] classifier`, the run takes its path when it starts
   (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
-  the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title and description of
-  each runbook a person can start), answers `{"protocol", "confidence", "inputs"}`; at a confidence of 0.8 or
+  the role `classifier` (`instructions/delegation.classify.md`: the request, and the id, title, description and
+  inputs of each runbook a person can start: `idea` when its bindings place one), answers `{"protocol", "confidence", "inputs"}`; at a confidence of 0.8 or
   above that runbook runs with the request as its intake (`classified`). Below it a second call
   (`instructions/delegation.build.md`) answers a `protocol/1` document and its `loom.bindings/1` as YAML texts (or
   `{"free": true}`, the free run): the daemon runs it (`generated`) only when every action is the agent node

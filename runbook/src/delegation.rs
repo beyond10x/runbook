@@ -69,13 +69,15 @@ pub struct CatalogEntry {
     pub id: String,
     pub title: String,
     pub description: String,
+    /// The inputs a request fills, by name (`RunbookFacts::inputs`: `idea` when the bindings place it).
+    pub inputs: Vec<String>,
 }
 
 impl CatalogEntry {
-    /// The entry of the protocol document `doc` of the runbook `id`.
-    pub fn of(id: &str, doc: &serde_yaml::Value) -> CatalogEntry {
+    /// The entry of the protocol document `doc` of the runbook `id`, which takes the inputs `inputs`.
+    pub fn of(id: &str, doc: &serde_yaml::Value, inputs: Vec<String>) -> CatalogEntry {
         let description: String = doc["protocol"]["description"].as_str().unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ").chars().take(DESCRIPTION_LIMIT).collect();
-        CatalogEntry { id: id.to_owned(), title: crate::runbooks::title_of(doc), description }
+        CatalogEntry { id: id.to_owned(), title: crate::runbooks::title_of(doc), description, inputs }
     }
 }
 
@@ -105,7 +107,7 @@ fn catalog_lines(catalog: &[CatalogEntry]) -> String {
     if catalog.is_empty() {
         return "(none)".to_owned();
     }
-    catalog.iter().map(|e| serde_json::json!({"id": e.id, "title": e.title, "description": e.description}).to_string()).collect::<Vec<_>>().join("\n")
+    catalog.iter().map(|e| serde_json::json!({"id": e.id, "title": e.title, "description": e.description, "inputs": e.inputs}).to_string()).collect::<Vec<_>>().join("\n")
 }
 
 /// What the classifier is asked: the request and the catalog (`instructions/delegation.classify.md`).
@@ -387,7 +389,7 @@ mod tests {
     /// instruction file is reached by a golden reads them.
     #[test]
     fn the_prompts_of_classify_build_and_retry_are_their_goldens_byte_for_byte() {
-        let catalog = vec![CatalogEntry { id: "answer-demo".into(), title: "Answers a question in result.md".into(), description: "One program answers the idea in result.md.".into() }];
+        let catalog = vec![CatalogEntry { id: "answer-demo".into(), title: "Answers a question in result.md".into(), description: "One program answers the idea in result.md.".into(), inputs: vec!["idea".into()] }];
         let request = "Write one sentence about tea.";
         let prompts = [
             ("delegation.classify", classify_prompt(request, &catalog)),
@@ -408,7 +410,7 @@ mod tests {
     }
 
     fn catalog() -> Vec<CatalogEntry> {
-        vec![CatalogEntry { id: "answer-demo".into(), title: "t".into(), description: "d".into() }]
+        vec![CatalogEntry { id: "answer-demo".into(), title: "t".into(), description: "d".into(), inputs: vec!["idea".into()] }]
     }
 
     #[test]
