@@ -373,7 +373,8 @@ with what a delegation may name on this daemon (`docs/model-routes.md`, section 
   is the run's intake), and the admission of its route entries.
 - `delegation`: `members`, the members of `delegate` a client sends as the OpenAPI document gives them (`name`,
   `required`, `summary`, `max_length`); `paths` (`named` when a runbook is listed, `free` when the daemon runs the free
-  run); `default_route` and `classifier_route` (`[route_policy]`); `confinement`, the daemon's default level, which
+  run, and on a daemon with a classifier route `classified` when a runbook is listed and `generated` when it runs
+  the free run); `default_route` and `classifier_route` (`[route_policy]`); `confinement`, the daemon's default level, which
   every delegation runs at; `request_limit`, 1,048,576 bytes.
 
 A runbook's route entries are the file `bindings/<runbook>.routes.yaml` beside its bindings (format

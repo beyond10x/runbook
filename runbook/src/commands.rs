@@ -1913,6 +1913,16 @@ impl Daemon {
         if self.inner.runtime.free_run() {
             paths.push("free");
         }
+        // a daemon with a classifier route classifies a delegation that names no protocol (section 9): it runs the runbook
+        // the classifier picked, or builds one, whose agent node is the free run's
+        if self.inner.runtime.classifies() {
+            if !runbooks.is_empty() {
+                paths.push("classified");
+            }
+            if self.inner.runtime.free_run() {
+                paths.push("generated");
+            }
+        }
         let mut delegation = Map::new();
         delegation.insert("members".into(), json!(members));
         delegation.insert("paths".into(), json!(paths));

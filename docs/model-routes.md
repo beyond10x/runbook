@@ -375,7 +375,8 @@ Built (`story:daemon-catalog-lists-what-a-delegation-may-name`; `docs/daemon-api
 tool and `runbook catalog`. A runbook's route entries are read from `bindings/<runbook>.routes.yaml`; the catalog
 lists their admission against the declared routes and what the gateways listed (`wires`, `max_model_len`,
 `tool_calling`); the refusal at submit is `story:protocol-declares-the-routes-it-needs`. The paths a delegation may
-take are listed as `named` and `free` until classify and build are built.
+take are listed: `named` and `free`, and on a daemon with a classifier route `classified` and `generated`
+(section 9).
 
 
 ### 11. The run's model entry: the relay and the route file

@@ -5,7 +5,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:2ee245a9d8a46f1aa97ca65be0f70480b19f6318998c2a9cb4cdd4f912444b27",
+    "contract_digest": "slice-sha256/2:543a974cc40eeb3a76146d5cfcf12d35cd4c541c0e6bd9bff3bb3f89220fa348",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -75,7 +75,7 @@
           }
         },
         "paths": {
-          "description": "named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.",
+          "description": "named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/sdc.daemon.DelegationPath"

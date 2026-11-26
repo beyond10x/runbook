@@ -164,7 +164,7 @@ fn the_catalog_of_a_daemon_with_two_routes_and_two_runbooks_lists_both_of_each_w
     assert!(d["members"][0]["summary"].as_str().is_some_and(|s| s.contains("1 MiB")), "{d}");
     assert_eq!(
         (d["paths"].clone(), d["default_route"].clone(), d["classifier_route"].clone(), d["confinement"].clone(), d["request_limit"].clone()),
-        (json!(["named", "free"]), json!("claude"), json!("claude"), json!("local"), json!(1048576)),
+        (json!(["named", "free", "classified", "generated"]), json!("claude"), json!("claude"), json!("local"), json!(1048576)),
         "{d}"
     );
 

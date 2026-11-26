@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:f94cf53025fff59e3282e23eea8d5d8017d43d66eb0a250a6bd10260576479a7
+# contract digest slice-sha256/2:661a4abf84448daf27afff59a04054b9d7bb60545026a48b39e8fde1b7b67d99
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:f94cf53025fff59e3282e23eea8d5d8017d43d66eb0a250a6bd10260576479a7
+    contract_digest: slice-sha256/2:661a4abf84448daf27afff59a04054b9d7bb60545026a48b39e8fde1b7b67d99
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -2208,7 +2208,7 @@ components:
           items:
             $ref: '#/components/schemas/sdc.daemon.DelegateMember'
         paths:
-          description: named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.
+          description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation.
           type: array
           items:
             $ref: '#/components/schemas/sdc.daemon.DelegationPath'
@@ -4630,7 +4630,7 @@ x-ess-entities:
         items:
           $ref: '#/x-ess-entities/sdc.daemon.DelegateMember'
       paths:
-        description: named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation.
+        description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation.
         type: array
         items:
           $ref: '#/x-ess-entities/sdc.daemon.DelegationPath'

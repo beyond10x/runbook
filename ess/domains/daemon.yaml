@@ -309,7 +309,7 @@ types:
       summary: "What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request."
     fields:
       - {name: members, type: "List<sdc.daemon.DelegateMember>"}
-      - {name: paths, type: "List<sdc.daemon.DelegationPath>", summary: "named when the daemon can run a runbook the catalog lists; free when it runs the free run. A daemon that lists neither takes no delegation."}
+      - {name: paths, type: "List<sdc.daemon.DelegationPath>", summary: "named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation."}
       - {name: default_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one."}
       - {name: classifier_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.classifier`: the route of a delegation's classify and build calls; absent when the file names none."}
       - {name: confinement, type: Optional<sdc.daemon.ConfinementLevel>, summary: "The daemon's default level, the level of every delegation; absent: the daemon has none and refuses every delegation."}

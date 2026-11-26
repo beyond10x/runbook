@@ -61,7 +61,8 @@ than the text whose first line names the run. A route that is down is a tool err
 submit as `route-unavailable` (HTTP status 503), or, when the route fails the run's call, a run that ended
 `runtime-failure` whose `failure` names `route-unavailable` and the route, or a run that waited for its route and
 ended `stopped: route`, the text naming the route and the last phase its gateway gave. The Agent and Workflow tools stay
-denied either way. `describe_catalog` comes with the story `daemon-catalog-lists-what-a-delegation-may-name`.
+denied either way. `describe_catalog` lists the routes, the runbooks and the members and paths of a delegation
+(`docs/daemon-api.md`, "The catalog").
 
 A headless session delegates end to end in `runbook/tests/daemon/plugin_session.rs`: `claude -p` with
 `--plugin-dir plugin` against a stand-in Messages server on loopback that answers the session's model calls (an
