@@ -319,7 +319,9 @@ events and the web UI work on it unchanged.
   anything is written: a gateway that is not ready or does not answer refuses the delegation `503`
   `route-unavailable`, naming the route and never its address or token; an alias it does not list refuses it `422
   route-refused`; a model that is not callable leaves the run `WaitingForRoute` until it can answer or its
-  `start_wait_seconds` are over. A replay of an idempotency key is not asked about.
+  `start_wait_seconds` are over. A delegation whose path is still open (it names no protocol on a daemon with a
+  classifier route) takes the same check for the classifier route: no classify call goes to it before it can answer.
+  A replay of an idempotency key is not asked about.
 - A replay (`202` outcome `already-submitted`) names the first run with the key. Its `Location` is that run's
   `delegation-result`, or `/daemon/views/run?run_id=<id>` when the key was a `submit-run`'s.
 - A `result.md` that comes with the workspace is moved to `.result.from-workspace.md` before the run starts

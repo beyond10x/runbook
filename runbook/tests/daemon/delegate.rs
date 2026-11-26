@@ -974,6 +974,25 @@ fn a_built_protocol_the_loader_refuses_ends_failed_protocol_refused_with_the_loa
     assert!(posted_to(&d.gw, "a-model").is_empty(), "a refused protocol ran");
 }
 
+/// A delegation the run classifies takes the readiness check for the classifier route too: a classifier gateway that
+/// answers `GET /ready` 503 refuses it `503 route-unavailable` naming the route `classify`, and nothing is written; a
+/// delegation that names its protocol is not classified and is not asked about that route.
+#[test]
+fn a_classifier_route_whose_gateway_is_not_ready_refuses_a_delegation_to_classify_503_and_not_one_that_names_its_protocol() {
+    let down = gateway(b"HTTP/1.1 503 X\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    let classify = format!("[gateways.cls]\nbase_url = \"{}\"\n[routes.classify]\ngateway = \"cls\"\nmodel = \"c-model\"\nkind = \"hosted\"\n[route_policy]\nclassifier = \"classify\"\n", down.base_url);
+    let d = daemon_on("dlg-classifier-503", gateway_listing(OK, &["a-model"]), &format!("{ROUTE}{classify}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 503, "{body}");
+    let text = body.to_string();
+    assert!(text.contains("route-unavailable") && text.contains("classify") && !text.contains(&down.base_url), "{text}");
+    assert!(rows(&d.l, "/daemon/views/runs").is_empty(), "a refused delegation wrote a run");
+    assert!(posted(&down).is_empty(), "the classifier gateway got a call");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "x", "model_route": "default", "protocol": "answer-demo"}));
+    assert_eq!((status, delegated(&body, "path")), (202, json!("named")), "{body}");
+    assert_eq!(until_ended(&d.l, &run_of(&body))["outcome"], json!("answered"));
+}
+
 #[test]
 fn a_classifier_answer_that_is_not_the_expected_json_is_asked_again_twice_then_ends_failed_classifier_answer() {
     let d = daemon_on("dlg-classify-bad", classifying_gateway(vec!["red, I think".to_owned()]), &format!("{ROUTE}{CLASSIFY}"));
