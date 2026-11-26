@@ -176,6 +176,35 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             inp.notes(&notes);
             Ok(Built::new("aep", None, c.render_part("task", &[("epic", &c.names().0)])?))
         }
+        "delegation.free" => {
+            // The free run of a delegation: the request is the task, and every file of the workspace an input.
+            let request = yaml::load(&work.join("request.yaml")).map(|d| yaml::text(yaml::get(&d, "text"))).unwrap_or_default();
+            if request.trim().is_empty() {
+                return Err(die(format!("llm-node: {} could not run: the workspace holds no request (request.yaml with a text)", c.node), 126));
+            }
+            let mut entries: Vec<String> = fs::read_dir(work)
+                .map(|d| d.flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|n| !n.starts_with('.') && n != "request.yaml" && n != "result.md").collect())
+                .unwrap_or_default();
+            entries.sort();
+            for e in &entries {
+                inp.input(e);
+            }
+            // A step of a generated protocol carries its own instruction: a file of the workspace (`--step`) whose text the
+            // task names beside the request (`instructions/delegation.step.md`).
+            let step = match c.set.cfg.step.as_deref() {
+                None => String::new(),
+                Some(rel) => {
+                    let p = Path::new(rel);
+                    let plain = |s: std::path::Component| matches!(s, std::path::Component::Normal(n) if !n.to_string_lossy().starts_with('.'));
+                    let text = (!p.is_absolute() && p.components().all(plain)).then(|| fs::read_to_string(work.join(p)).ok()).flatten().unwrap_or_default();
+                    if text.trim().is_empty() {
+                        return Err(die(format!("llm-node: {} could not run: --step {rel} names no instruction text in the workspace", c.node), 126));
+                    }
+                    text.trim_end().to_owned()
+                }
+            };
+            Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request), ("step", &step)])?))
+        }
         "change.review" => crate::review::inputs(c, rec, cwd, inp),
         "change.implement" => crate::implement::inputs(c, rec, cwd, inp),
         "test.reproduce" => {

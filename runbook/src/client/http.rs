@@ -6,7 +6,7 @@ use super::exit::{self, Failure};
 use super::url::Target;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -35,6 +35,7 @@ impl std::fmt::Debug for Token {
 pub struct Client {
     target: Target,
     token: Option<Token>,
+    deadline: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,7 +112,20 @@ fn why(e: &io::Error) -> String {
 
 impl Client {
     pub fn new(target: Target, token: Option<Token>) -> Client {
-        Client { target, token }
+        Client { target, token, deadline: None }
+    }
+
+    /// The client with `until` as the end of every request: the connect, the request and the whole answer, head
+    /// and body, are done by then or the request fails as timed out. Without one, each read and write waits at
+    /// most its own timeout, however long the answer takes as a whole.
+    pub fn with_deadline(mut self, until: Instant) -> Client {
+        self.deadline = Some(until);
+        self
+    }
+
+    /// `limit`, or less when the deadline is nearer; an error once the deadline passed.
+    fn within(&self, limit: Duration) -> io::Result<Duration> {
+        within(self.deadline, limit)
     }
 
     pub fn target(&self) -> &Target {
@@ -126,10 +140,11 @@ impl Client {
         let addrs = (self.target.host.as_str(), self.target.port).to_socket_addrs().map_err(|e| unreachable(&self.target, &why(&e)))?;
         let mut last = None;
         for addr in addrs {
-            match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            let connect = self.within(CONNECT_TIMEOUT).map_err(|e| unreachable(&self.target, &why(&e)))?;
+            match TcpStream::connect_timeout(&addr, connect) {
                 Ok(s) => {
                     s.set_read_timeout(Some(read_timeout)).ok();
-                    s.set_write_timeout(Some(REPLY_TIMEOUT)).ok();
+                    s.set_write_timeout(Some(self.within(REPLY_TIMEOUT).map_err(|e| unreachable(&self.target, &why(&e)))?)).ok();
                     s.set_nodelay(true).ok();
                     return Ok(s);
                 }
@@ -157,7 +172,13 @@ impl Client {
 
     /// The status, the headers and the body of the answer, whole.
     pub fn request(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Reply, Failure> {
-        let mut s = self.connect(REPLY_TIMEOUT)?;
+        self.request_waiting(method, path, body, REPLY_TIMEOUT)
+    }
+
+    /// [`Client::request`] that waits up to `wait` for each next bytes of the answer (a model call answers after it has
+    /// thought), within the deadline when one is set.
+    pub fn request_waiting(&self, method: &str, path: &str, body: Option<&[u8]>, wait: Duration) -> Result<Reply, Failure> {
+        let mut s = self.connect(wait)?;
         self.send(&mut s, method, path, &[("Accept", "application/json".to_string())], body)?;
         let (status, headers, mut body) = self.read_response(s)?;
         let mut text = Vec::new();
@@ -187,7 +208,8 @@ impl Client {
     }
 
     fn read_response(&self, s: TcpStream) -> Result<Response, Failure> {
-        let mut r = BufReader::new(s);
+        let limit = s.read_timeout().ok().flatten().unwrap_or(REPLY_TIMEOUT);
+        let mut r = BufReader::new(Bounded { s, deadline: self.deadline, limit });
         let broken = |e: io::Error| unreachable(&self.target, &why(&e));
         let mut head = Vec::new();
         loop {
@@ -226,6 +248,33 @@ impl Client {
 
 /// The status, the headers and the body of an answer that is being read.
 type Response = (u16, Vec<(String, String)>, Body);
+
+/// `limit`, or less when `deadline` is nearer; a timed-out error once it passed.
+fn within(deadline: Option<Instant>, limit: Duration) -> io::Result<Duration> {
+    let Some(until) = deadline else { return Ok(limit) };
+    let left = until.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Err(io::ErrorKind::TimedOut.into());
+    }
+    Ok(left.min(limit))
+}
+
+/// The connection of an answer: each read waits at most `limit`, and none waits past `deadline`, so an answer that
+/// comes one byte at a time still ends by then.
+struct Bounded {
+    s: TcpStream,
+    deadline: Option<Instant>,
+    limit: Duration,
+}
+
+impl Read for Bounded {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.deadline.is_some() {
+            self.s.set_read_timeout(Some(within(self.deadline, self.limit)?))?;
+        }
+        self.s.read(buf)
+    }
+}
 
 /// A body with a `Content-Length`: ending early is an error, not an end.
 struct Exact<R> {

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.RunDelegated.schema.json",
+  "title": "RunDelegated payload",
+  "x-ess-name": "sdc.daemon.RunDelegated",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "route": {
+      "$ref": "#/$defs/sdc.daemon.RouteName",
+      "description": "The route the run's model calls take, by name."
+    },
+    "path": {
+      "$ref": "#/$defs/sdc.daemon.DelegationPath",
+      "description": "Absent for a delegation the daemon classifies when its run starts: the run event `runbook.delegation-resolved` names its path then."
+    },
+    "protocol": {
+      "$ref": "#/$defs/sdc.daemon.RunbookId",
+      "description": "The runbook the run was submitted with: the named one, delegation-free, or delegation for a delegation the daemon classifies."
+    }
+  },
+  "required": [
+    "run_id",
+    "route",
+    "protocol"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:b353103ad77bf504048f03bb72bb7063704ef9f98ee1195dd0e9ded20e6f9535",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free",
+        "classified",
+        "generated"
+      ]
+    },
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunbookId": {
+      "title": "RunbookId",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
+      "x-ess-name": "sdc.daemon.RunbookId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

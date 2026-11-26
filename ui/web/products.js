@@ -2,7 +2,10 @@
 // Products tab of the panel: the evidence records of the case, its actions and the files of the run, each opened in
 // the same panel. Everything here is built with createElement and text nodes, outside the page's patch(): what a run
 // holds (a file, the output of an action, an evidence record) is the text of a confined model and never becomes
-// markup of the page. A value the run did not record says so, never an empty field.
+// markup of the page. A value the run did not record says so, never an empty field. On the daemon's page the tab lists the
+// run's files (the view `products`) and reads one through the view `product` (web/source.js daemonFile); the daemon serves
+// no evidence record and no action output, and the tab says so.
+import {daemonFile} from './source.js';
 
 // the renderer is loaded when the first Markdown file is opened: the first screen does not wait for it
 let markdown = null;
@@ -43,24 +46,30 @@ async function fetchJson(url) {
     return {status: r.status, body};
   } catch (e) { return {status: 0, body: {error: String(e?.message || e)}}; }
 }
+// `url` is the inspector's route, or a function that answers in its shape (the daemon's view `product`, web/source.js)
 function need(key, url) {
   const hit = P.cache.get(key);
   if (hit) return hit;
   P.cache.set(key, {loading: true});
-  fetchJson(url).then((r) => { P.cache.set(key, r); P.v++; hooks.refresh(); });
+  (typeof url === 'function' ? url() : fetchJson(url)).then((r) => { P.cache.set(key, r); P.v++; hooks.refresh(); });
   return P.cache.get(key);
 }
 
 // ---- the product line ------------------------------------------------------------------------------------
 export function renderProductBar(host, {products, daemon}) {
-  const sig = JSON.stringify([products?.product, products?.served, daemon]);
+  const sig = JSON.stringify([products?.product, products?.served, daemon, daemon ? products?.files?.length : null]);
   if (host.__sig === sig) return;
   host.__sig = sig;
   host.replaceChildren();
   host.hidden = !daemon && !products;
   if (host.hidden) return;
   host.append(h('span', 'prod-k', 'Product'));
-  if (daemon || products?.served === false) { host.append(h('span', 'prod-via', 'the daemon serves no files of a run yet')); return; }
+  if (daemon) {
+    // the daemon names no product of a step: the line counts the run's files, and the Products tab lists them
+    const n = products?.files?.length;
+    host.append(h('span', 'prod-via', n == null ? 'reading the run…' : n ? `${n} ${n === 1 ? 'file' : 'files'} under the run's work/ directory: the Products tab lists ${n === 1 ? 'it' : 'them'}` : 'the run has written no file under work/ yet'));
+    return;
+  }
   const p = products.product;
   const link = (path, cls = 'prod-link') => { const a = attr(h('a', cls, path), {href: `#file=${encodeURIComponent(path)}`, 'data-path': path}); a.addEventListener('click', (e) => { e.preventDefault(); hooks.open({kind: 'file', path}); }); return a; };
   if (p.path && !p.missing) {
@@ -171,11 +180,12 @@ function actionDetail(c, seq, src) {
   return d;
 }
 
-function fileDetail(path, files, src) {
+function fileDetail(path, files, src, run) {
   const d = attr(h('div', 'prod-detail'), {'data-kind': 'file'});
   d.append(back(), h('div', 'prod-path', path));
   const f = files?.find((x) => x.path === path);
-  const r = need(`file:${src}:${path}:${f?.mtime ?? ''}:${f?.size ?? ''}`, `/api/file?source=${src}&path=${encodeURIComponent(path)}`);
+  const key = `file:${run ?? src}:${path}:${f?.mtime ?? ''}:${f?.size ?? ''}`;
+  const r = need(key, run != null ? () => daemonFile(run, path) : `/api/file?source=${src}&path=${encodeURIComponent(path)}`);
   if (r.loading) { d.append(h('p', 'prod-note', 'reading the file…')); return d; }
   const b = r.body || {};
   if (r.status !== 200) {
@@ -271,6 +281,20 @@ function lists(c, products, src) {
   if (!acts.length) al.append(h('p', 'prod-note', 'no action has finished yet'));
   root.append(al);
   if (products?.basis === 'records') { root.append(...recordLists(products)); return root; }
+  root.append(fileList(products));
+  return root;
+}
+
+// The daemon's page: the run's files, which its cases share; no evidence record and no action output
+function daemonLists(products) {
+  const root = h('div', 'prod-lists');
+  root.append(h('p', 'prod-note prod-daemon', 'the daemon serves the files under the run\'s work/ directory, which its cases share; it serves no evidence records and no action output of a case'));
+  root.append(fileList(products));
+  return root;
+}
+
+function fileList(products) {
+  const root = document.createDocumentFragment();
   const files = products?.files || [];
   root.append(h('h4', '', `Files (${files.length})`));
   const fl = h('div', 'prod-files');
@@ -288,13 +312,14 @@ function lists(c, products, src) {
   return root;
 }
 
-export function renderProducts(host, {c, products, src, daemon}) {
-  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}:${f.mark}:${f.step}`), products?.basis, products?.basisNote, products?.notShown, products?.gone, products?.refusedRecords, products?.cutStrings, products?.linkCut, products?.recordsStopped?.cause, products?.recordsStopped?.read, products?.inputs, products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served]);
+export function renderProducts(host, {c, products, src, daemon, run}) {
+  const sig = JSON.stringify([P.view, P.v, src, c?.rel, Object.keys(c?.evidence || {}), c?.events?.length, products?.files?.map((f) => `${f.path}:${f.size}:${f.mtime}:${f.result}:${f.mark}:${f.step}`), products?.basis, products?.basisNote, products?.notShown, products?.gone, products?.refusedRecords, products?.cutStrings, products?.linkCut, products?.recordsStopped?.cause, products?.recordsStopped?.read, products?.inputs, products?.hiddenDirectories, products?.hiddenFiles, products?.leftOut, products?.cut, daemon, products?.served, run]);
   if (host.firstChild?.__sig === sig) return;
   const root = h('div', 'prod');
   root.__sig = sig;
-  if (daemon || products?.served === false) root.append(h('p', 'prod-note', 'the daemon serves no files, evidence records or action output of a run yet'));
-  else if (!products) root.append(h('p', 'prod-note', 'reading the run…'));
+  if (!products) root.append(h('p', 'prod-note', 'reading the run…'));
+  else if (daemon && P.view.kind === 'file') root.append(fileDetail(P.view.path, products.files, src, run));
+  else if (daemon) root.append(daemonLists(products));
   else if (P.view.kind === 'evidence') root.append(evidenceDetail(c, P.view.id));
   else if (P.view.kind === 'action') root.append(actionDetail(c, P.view.seq, src));
   else if (P.view.kind === 'file') root.append(fileDetail(P.view.path, products.files, src));

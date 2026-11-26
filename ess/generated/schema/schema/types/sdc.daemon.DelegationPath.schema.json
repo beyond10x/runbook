@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DelegationPath.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DelegationPath",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ae1fc242e8abbc382093a0ea2f257958442ed2cbde6930b5714e04b8e72d9756",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free",
+        "classified",
+        "generated"
+      ]
+    }
+  }
+}

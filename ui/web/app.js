@@ -10,7 +10,7 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
-import {api, openEvents, daemonView, daemon} from './source.js';
+import {api, openEvents, daemonView, daemon, missingRun} from './source.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
 // the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
@@ -18,6 +18,8 @@ import {renderProducts, renderProductBar, bindProducts, showProduct} from './pro
 const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
 // the same for the start form (ui/daemon/start.js): it names the mode "operate" and hands the run it started to openRun
 const initStart = daemon ? (await import('./start.js')).initStart : null;
+// and for the Routes view (ui/daemon/routes.js): the daemon's model routes, and the kind and status of a run's route
+const {initRoutes, routeWords} = daemon ? await import('./routes.js') : {};
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -47,8 +49,11 @@ function ordered() {
   const all = Array.from(S.cases.values());
   const kids = (id) => all.filter((c) => c.parent === id).sort((a, b) => firstAt(a).localeCompare(firstAt(b)) || a.id.localeCompare(b.id));
   const out = [];
-  const visit = (c) => { out.push(c); kids(c.id).forEach(visit); };
+  const seen = new Set();
+  const visit = (c) => { if (seen.has(c)) return; seen.add(c); out.push(c); kids(c.id).forEach(visit); };
   all.filter((c) => !c.parent || !all.some((p) => p.id === c.parent)).forEach(visit);
+  // cases no root reaches (parents that name each other) are drawn too, each from the first of them: none is hidden
+  all.forEach(visit);
   return out;
 }
 const current = () => S.cases.get(S.sel);
@@ -65,7 +70,9 @@ const viewNote = () => (S.viewInfo?.missing ? `<p class="view-note-t" data-ux="v
 async function loadTree(only) {
   if (!only || !S.viewInfo?.protocols?.length || only.some((k) => !S.cases.has(k))) await loadView();
   const q = only ? `&cases=${encodeURIComponent(only.join(','))}` : '';
-  const t = await api(`/api/tree?source=${S.src}${q}`);
+  // the daemon's tree may not be readable for a moment (a 503 while the run writes): the tree shown stays
+  const t = daemon ? await api(`/api/tree?source=${S.src}${q}`).catch(() => null) : await api(`/api/tree?source=${S.src}${q}`);
+  if (!t) return;
   S.exists = t.exists;
   if (!only) S.cases.clear();
   for (const c of t.cases) S.cases.set(c.rel, c);
@@ -85,7 +92,7 @@ function mountProducts(c) {
   const p = $('#panel');
   if (p.dataset.tab !== 'products') { p.dataset.tab = 'products'; p.scrollTop = 0; p.replaceChildren(); }
   p.__html = null;
-  renderProducts(p, {c, products: S.products, src: S.src, daemon});
+  renderProducts(p, {c, products: S.products, src: S.src, daemon, run: S.sources[S.src]?.path});
 }
 bindProducts({refresh: () => render(), open: (view) => { showProduct(view); openPanel('products'); render(); }});
 async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); setRunSettings(S.run?.settings); }
@@ -102,6 +109,12 @@ function pickFollow() {
   if (!S.follow) return;
   const cs = ordered();
   if (!cs.length) return;
+  // the daemon's tree has a state per case and no feed of steps: follow the case that runs or waits, else the root
+  if (daemon) {
+    const hot = cs.find((c) => c.daemonState === 'Running') || cs.find((c) => ['AwaitingPerson', 'AwaitingAuthority', 'Stuck'].includes(c.daemonState)) || cs[0];
+    if (hot.rel !== S.sel) { S.sel = hot.rel; S.node = null; S.atSeq = null; }
+    return;
+  }
   const st = nowState(cs, S.liveData, S.run);
   // stay on a case that is still in flight; else go to the one that started last
   const hots = [...st.running.map((r) => r.c), ...st.gone.map((r) => r.c), ...st.waiting.filter((w) => w.kind === 'decider').map((w) => w.c)];
@@ -190,11 +203,12 @@ function toggleExp(id) {
 async function selectSource(i) {
   closePicker();
   if (i === S.src || !S.sources[i]) return;
-  S.src = i; S.sel = null; S.node = null; S.atSeq = null; S.follow = true;
+  S.src = i; S.sel = null; S.node = null; S.atSeq = null; S.follow = true; S.missingRun = null;
   const q = new URLSearchParams(location.search);
   for (const k of ['case', 'node', 'at']) q.delete(k);
   q.set('source', String(i));
-  q.set('run', S.sources[i].name);
+  // the daemon's address names the run by its id (the index is the page's own order); the inspector's by its name
+  q.set('run', daemon ? S.sources[i].path : S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
   if (stream && !daemon) connect(); // the stream names the run on screen
   showProduct({kind: 'list'});
@@ -207,6 +221,7 @@ async function openRun(id) {
   if (s) await selectSource(s.index);
 }
 if (initStart) initStart(openRun);
+if (initRoutes) initRoutes(schedule);
 document.addEventListener('click', (ev) => {
   const t = ev.target;
   if (t.closest('#runpick')) { if (PK.open) closePicker(); else openPicker(); return; }
@@ -256,6 +271,7 @@ function render() {
   live.className = `live ${S.live}`;
   patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? ((t) => `<span class="lt" title="${t}">${t}</span>`)(`updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}`) : ''}`);
   renderDecisions();
+  if (daemon) return renderDaemon(src);
   const cases = ordered();
   if (!cases.length) {
     patch($('#view-note'), '');
@@ -335,6 +351,33 @@ function render() {
   patch(p, `<div class="tabpane" data-key="pane:${S.tab}">${html}</div>`);
 }
 
+// The page the daemon serves: the run's case tree (the view `cases`) in the tree's place with the run's events as the
+// feed, the Products tab with the run's files; the daemon serves no graph, phases, timeline or evidence of a case, and
+// the panes that would show them say so.
+const DAEMON_TABS = {explain: 'explanation', autonomy: 'autonomy view', security: 'security view', metrics: 'metrics', events: 'event log', changes: 'file changes', run: 'run log'};
+function renderDaemon(src) {
+  for (const id of ['#view-note', '#phases', '#now', '#nowbar', '#kpis', '#timeline']) patch($(id), '');
+  const cases = S.missingRun == null ? ordered() : [];
+  const dv = S.missingRun == null ? daemonView(src, routeWords) : null;
+  patch($('#feed'), dv?.feed ?? '');
+  if (cases.length && (!S.sel || !S.cases.has(S.sel))) S.sel = cases[0].rel;
+  const c = cases.length ? current() : null;
+  const tree = S.missingRun != null ? missingRun(S.missingRun) : (dv?.head ?? '') + (cases.length ? renderTree(cases, {stopped: null, running: []}, Date.now()) : dv?.tree ?? '');
+  patch($('#tree'), tree);
+  if (c) {
+    const st = caseState(c);
+    patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.name ?? c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span></div><div class="gt-sub">${esc(c.case.protocol)}</div>`);
+    patch($('#graph'), '<p class="muted pad" data-key="dgraph">The daemon serves no graph of a case: the tree shows its cases and where each stands.</p>');
+  } else { patch($('#gtitle'), ''); patch($('#graph'), ''); }
+  renderProductBar($('#product'), {products: S.missingRun == null ? S.products : null, daemon});
+  document.documentElement.classList.toggle('rp-open', S.panel);
+  document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
+  const p = $('#panel');
+  if (S.panel && S.tab === 'products') return mountProducts(c);
+  if (p.dataset.tab === 'products') p.dataset.tab = '';
+  patch(p, S.panel ? `<div class="tabpane" data-key="pane:${esc(S.tab)}"><p class="muted pad">The daemon serves no ${esc(DAEMON_TABS[S.tab] || S.tab)} of a case: the case tree and the Products tab show what it serves.</p></div>` : '');
+}
+
 function renderTree(cases, st, now) {
   // a run stopped on purpose: said above the tree, on the case it stopped in, and nothing spins
   const stop = st.stopped;
@@ -346,11 +389,12 @@ function renderTree(cases, st, now) {
     const e = evalAt(x, null);
     const claims = Object.values(e?.claims || {});
     const t = claims.filter((v) => v.value === 'true').length;
-    const name = x.parent ? x.id.slice(x.parent.length + 1) : x.id;
+    // a case of the daemon's tree is labelled by its link name (the root by its id)
+    const name = x.name ?? (x.parent ? x.id.slice(x.parent.length + 1) : x.id);
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
       <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
-      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span>${claimsRecorded(x) ? `<span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span>` : `<span class="cnt nr-cnt" title="${CLAIMS_NOT_RECORDED}">claims not recorded</span>`}</div></div>`;
+      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span>${x.daemon ? '' : claimsRecorded(x) ? `<span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span>` : `<span class="cnt nr-cnt" title="${CLAIMS_NOT_RECORDED}">claims not recorded</span>`}</div></div>`;
   }).join('');
 }
 
@@ -603,20 +647,24 @@ let resizeT = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => S.fit && render(), 120); });
 
 // ---- live: coalesce change bursts into one fetch and one frame --------------------------------------
-const pending = {cases: new Set(), run: false, full: false, live: false, sources: false};
+const pending = {cases: new Set(), run: false, full: false, live: false, sources: false, tree: false};
 let inflight = false;
 async function drain() {
   if (inflight) return;
   inflight = true;
   try {
-    while (pending.full || pending.cases.size || pending.run || pending.live || pending.sources) {
-      const full = pending.full || !S.cases.size;
+    while (pending.full || pending.cases.size || pending.run || pending.live || pending.sources || pending.tree) {
+      // an empty tree is a tree not read yet on the inspector's page; on the daemon's page it is a run with no case or a
+      // refused read, and the tick reads the tree whole (pending.tree): a full drain there would read the run list and
+      // the files of the run once more on every tick
+      const full = pending.full || (!daemon && !S.cases.size);
       const cases = Array.from(pending.cases);
-      const run = pending.run, live = pending.live || full, srcs = pending.sources || full;
-      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false; pending.sources = false;
+      const run = pending.run, live = pending.live || full, srcs = pending.sources || full, tree = pending.tree;
+      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false; pending.sources = false; pending.tree = false;
       // the run list (states, rows) with the rest, so one render shows both
       if (srcs) S.sources = await api('/api/sources').catch(() => S.sources);
-      if (full || cases.length) await loadTree(full ? null : cases);
+      // the daemon's tree is read whole: a change of the run and the two-second tick ask for it (pending.tree)
+      if (full || cases.length || tree) await loadTree(full || tree ? null : cases);
       if (run) await loadRun();
       if (live) await loadLive();
       // never waited for: the page shows the run first and the product line when the files are read
@@ -647,6 +695,7 @@ function connect() {
     if (d.source !== S.src) return;
     d.cases.forEach((k) => pending.cases.add(k));
     if (d.run) pending.run = true;
+    if (daemon && d.run) pending.tree = true;
     if (d.live) pending.live = true;
     drain();
   });
@@ -657,9 +706,11 @@ function connect() {
 
 (async () => {
   S.sources = await api('/api/sources');
-  // ?run=<name> names the run (it survives a server that lists the runs in another order), else ?source=<index>
-  const named = q0.get('run') ? S.sources.find((s) => s.name === q0.get('run')) : null;
+  // ?run=<name> names the run (it survives a server that lists the runs in another order), else ?source=<index>; on
+  // the daemon's page ?run=<run id>, and an id the daemon does not have shows a note and no other run
+  const named = q0.get('run') ? S.sources.find((s) => (daemon ? s.path : s.name) === q0.get('run')) : null;
   if (named) S.src = named.index;
+  else if (daemon && q0.get('run')) { S.src = -1; S.missingRun = q0.get('run'); }
   else if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
   await loadTree();

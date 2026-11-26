@@ -238,6 +238,8 @@ pub fn args_of(base: &RunArgs, here: HereOptions, file: Option<&config::File>) -
             max_wall_seconds,
             ports,
             config: file.and_then(config::File::noted),
+            model_route: base.model_route.clone(),
+            routes: file.map(|f| f.routes.clone()).unwrap_or_default(),
         },
         generated,
     ))

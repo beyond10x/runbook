@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {startServer} from './serve.mjs';
 import {writeProductsRun, ROOT, OUTPUT_DIGEST} from './products-fixture.mjs';
-import {fixtureRoot, put} from './security-products-lib.mjs';
+import {fixtureRoot, put, quiet as quietAfter} from './security-products-lib.mjs';
 
 const root = fixtureRoot('security-products-page');
 const E = 'work/example';
@@ -72,42 +72,8 @@ async function openPage(page) {
   return {...seen, scripts};
 }
 
-const audit = (page) => page.evaluate(() => {
-  const bad = [];
-  const forbidden = /^(img|svg|iframe|object|embed|video|audio|source|picture|math|template|noscript|base|meta|form|input|frame|frameset|applet|portal)$/i;
-  for (const el of document.querySelectorAll('#panel *, #product *')) {
-    if (forbidden.test(el.tagName)) bad.push(`element ${el.tagName}`);
-    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'LINK') bad.push(`element ${el.tagName}`);
-    for (const a of el.attributes) {
-      if (/^on/i.test(a.name)) bad.push(`${el.tagName}[${a.name}]`);
-      if (/^(src|srcset|srcdoc|formaction|action|xlink:href|background|poster|data|ping)$/i.test(a.name)) bad.push(`${el.tagName}[${a.name}]`);
-      if (a.name === 'style' && !/^--depth:\d+$/.test(a.value)) bad.push(`style=${a.value}`);
-      if (a.name === 'class' && /[<>"'=]/.test(a.value)) bad.push(`class=${a.value}`);
-    }
-    if (el.tagName === 'A') {
-      const href = el.getAttribute('href');
-      if (href === null) continue;
-      if (href.startsWith('#file=')) {
-        const p = decodeURIComponent(href.slice(6));
-        if (p.startsWith('/') || p.split('/').some((n) => n === '..' || n.startsWith('.'))) bad.push(`file link ${p}`);
-        continue;
-      }
-      let u = null;
-      try { u = new URL(href); } catch { bad.push(`href ${href}`); continue; }
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') bad.push(`href ${href}`);
-      if (el.getAttribute('target') !== '_blank' || el.getAttribute('rel') !== 'noopener noreferrer') bad.push(`external link without target and rel ${href}`);
-    }
-  }
-  return bad;
-});
-const quiet = async (page, seen, label) => {
-  expect(await audit(page), `${label}: DOM`).toEqual([]);
-  expect(await page.evaluate(() => Object.keys(window).filter((k) => k.startsWith('__pwned')))).toEqual([]);
-  expect(await page.locator('script').count(), `${label}: script nodes`).toBe(seen.scripts);
-  expect(seen.dialogs, `${label}: dialogs`).toEqual([]);
-  expect(seen.errors, `${label}: page errors`).toEqual([]);
-  expect(seen.requests, `${label}: requests`).toEqual([]);
-};
+// the audit and the checks after each step are shared with the daemon's page (security-products-lib.mjs)
+const quiet = (page, seen, label) => quietAfter(expect, page, seen, label);
 
 test('inv 4: file names, an evidence id and the output of an action that look like markup are text in the lists and the details', async ({page}) => {
   const seen = await openPage(page);

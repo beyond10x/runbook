@@ -267,6 +267,48 @@ for the view `run` (`docs/daemon-api.md`, "The step in flight"). The gate tests 
 `a_handoff_check_is_recorded_as_a_check_of_its_action` and
 `after_a_restart_the_orphaned_run_shows_no_step_and_keeps_the_event` in `runbook/tests/daemon/engine.rs`.
 
+## The products of a run
+
+The run's `work/` directory is its workspace, `<state dir>/workspaces/<run id>/`: the bound programs of
+every case of the run write there, and a stub run has one too. `runbook/src/engine/products.rs` is the
+one reader of it: `list` walks it for the views `products` and `list_products`, `read` reads one file for
+`product` and `read_product` (`docs/daemon-api.md`, "The products of a run"; `docs/mcp.md`). It runs in
+the daemon's process and starts no program, so no name and no path reaches a shell.
+
+It holds directories as descriptors (`record_write::Held`, the store of the run's record uses the same
+walk): the workspace is opened without following a link at its own name, each directory below with
+`O_NOFOLLOW | O_DIRECTORY` relative to the one above, and a file with `O_NOFOLLOW | O_NONBLOCK`, after
+`fstatat` without following named a regular file with one link. The type and the link count are read
+again from the open descriptor before a byte is read, so a file swapped for a link, a pipe or a second
+name between the two is refused, and a pipe never blocks the read. A path is checked before anything
+opens: not empty, not absolute, no NUL, no backslash, no `.` or `..` component, no component that starts
+with a dot. A file is read up to 1 MiB and one more byte (to say `truncated`), never more.
+
+The listing has the inspector's bounds (500 files, 2000 directories, 20000 entries, 6 levels; the first
+reached is `cut`). It counts the names that start with a dot (`hidden`, never entered) and the links, the
+files with a second name and the names that are not UTF-8 (`left_out`). The gate tests are
+`runbook/tests/daemon/products.rs` (the views) and the `list_products` and `read_product` cases of
+`runbook/tests/daemon/mcp.rs` (the tools).
+
+## The case tree of a run
+
+`Runtime::cases` (`runbook/src/runtime.rs`) answers the cases of a run's tree; the stub runtime has none (the default).
+The engine answers it with Loom's tree status of the run's store, `calls::status` over `calls::catalog`
+(`runbook/src/engine/calls.rs`), the call it makes at a run's end: Loom reads the manifest, the case files and the run
+logs without taking the store's lock, so the tree answers while `run_tree` runs, and a run whose store has no manifest
+yet has no case. A case gives its id, its parent, its link name, the protocol id of its bindings, its outcome and the
+stop of its last `Stopped` run-log line; no path leaves the engine. The daemon makes the view `cases` from it
+(`Daemon::cases_of_run`, `runbook/src/commands.rs`; `docs/daemon-api.md`, "The case tree of a run"): a waiting stop
+counts while the run waits on a decision, a `Stuck` or `BudgetSpent` stop once the run ended by its tree (a wait or
+a cancel that ended with the run, or an orphaned run, leaves the case `Open`: a case above one that waits records a
+`Stuck` stop of its own), and the run's step in
+flight marks its case `Running`. A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
+page keeps the tree it shows and reads again on the next tick. The gate tests are
+`the_cases_of_a_run_are_its_tree_with_each_case_state_and_the_tree_follows_the_run_to_its_end`,
+`a_case_whose_program_runs_is_running_while_the_run_goes_on` and
+`a_tree_three_levels_deep_is_answered_to_its_last_case` (a middle protocol, `engine-section`, written by the test) in
+`runbook/tests/daemon/engine.rs`, and `runbook/tests/daemon/cases.rs` (the stub's empty tree, the guard).
+
 ## Loom gaps seen
 
 All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program
@@ -348,28 +390,91 @@ none; when a cap is named and spent, the decider stops and the decision stays op
 
 The daemon's operator may name a gateway instead of a login: the `[gateway]` table of the `runbook.toml` the
 daemon reads, with `base_url` and, for a gateway that takes a token, `token_file` (the file holds no token:
-`gateway.token` there is refused, `docs/loom-run-settings.md` "`[gateway]`"). The model programs of a daemon
-run are those of its `model` decider, and they take the gateway the way `runbook run` gives it: the daemon
-writes one file `gateway` (mode 0600, the address and the token) into the run's private directory
-(`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode 0700) when the run's kind is `model`, the decider's
-adapter is given its path in `SDC_GATEWAY_FILE` and nothing else of it, and the adapter sets
-`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for the `claude` it starts and no other process; no login is
-linked or copied. The file and its directory go when the run ends. A run whose kind is `rule`, or that has
-no kind, starts no model program and writes no gateway file. The bound programs of the runbook get neither a
-login nor a gateway from the daemon.
+`gateway.token` there is refused, `docs/loom-run-settings.md` "`[gateway]`"). It is the one route `default` of
+the runs that may take a route (decider kind `model` above `A0`, or a runbook that runs a program: `docs/daemon-api.md`, "The route of a run"), whose alias is the `model` of `[deciders.model]`,
+until the daemon declares routes of its own (`docs/model-routes.md`, sections 1 and 11). Every model call of
+such a run goes through the daemon's relay, never to the gateway (`runbook/src/relay.rs`,
+`runbook/src/engine/route.rs`):
+
+- The relay answers on the daemon's own listener, at `/daemon/relay/<run>/v1/messages`,
+  `/v1/chat/completions` and `/v1/responses` ("The relay of a run's model calls", `docs/daemon-api.md`), when
+  that listener is loopback. On any other (every interface included) the relay is not served, the daemon says so
+  on stderr as it starts, and a run on a route fails to start by that name.
+- When the run starts, the daemon mints a token for it (32 random bytes), void when the run ends, and writes
+  `route.json` (`runbook.route/1`, mode 0600: the relay's address for the run, the token, the roles, the model a
+  client sends for each (`runbook-<role>`) and the
+  route of each) into the run's private directory (`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode
+  0700). Its path is `RUNBOOK_ROUTE_FILE` for the decider's adapter and for every bound program of the run;
+  nothing else of the route is given to a process. The file and its directory go when the run ends.
+- The claude-cli adapter reads the file as it reads a gateway file: `claude` gets `ANTHROPIC_BASE_URL` (the
+  relay) and `ANTHROPIC_AUTH_TOKEN` (the run's token) for that one start, and asks for the run's role (the
+  request's model when the file names a route for it, else `default`); the relay sets the alias and adds the
+  gateway's token. No process of the run gets the gateway's address or token, and no login is linked or copied.
+- Each call is taken against the run's caps before it is sent: a role the run has no route for is refused
+  `400 route-refused`, a call past `max_llm_calls` or past the spend cap `429 cap-reached`, and neither reaches
+  the gateway. Each call that was sent is one line of the run's spend ledger (`what` `model call`; run, step,
+  role, route, alias, the setting that chose the route as `source`, the gateway's `x-llm-gateway-call` as
+  `gateway_call`, `input_tokens`, `output_tokens`, `cost_known`, `micro_usd`) and one event
+  `runbook.model-call` of the run. With no price on the route the cost is not known, and the line books the
+  call's reservation with `cost_known: false` (`docs/model-routes.md`, section 5): in a step, the largest
+  reservation the step holds; otherwise (a call of the decider, or a step that holds none) what one call of the
+  decider may cost (`max_call_micro_usd`, its `max_budget_usd`), at most what the run's spend cap has left.
+- A call is exchanged with the gateway and booked apart from its caller: a caller that hangs up before the
+  answer does not stop a call that was sent from being booked, once. An answer that breaks off after its head
+  ran on the gateway: it is booked at its tokens and prices as read, else at its reservation.
+- A gateway that refuses the call, or does not answer, fails the call: the refusal is passed back unchanged
+  (a connection that fails answers `502` `route-unavailable`), and the line and the event carry a `cause`, the
+  route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for an answer that broke off),
+  the `detail` and the `source`, and, when the answer gave one, the gateway's error text as `error`
+  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced by
+  `<token>`). The `cause` is `call-refused` for a `4xx` answer that is no refusal of the route by the gateway,
+  else `route-unavailable`. The `code` is cut to 64 bytes and holds no token either. An answer with a status below
+  400 whose stream ends in an error event (`event: error` with `overloaded_error`, a chat chunk with an `error`,
+  `response.failed`) failed too: `route-unavailable`, the event's type or code as `code`, `detail` "the answer
+  ended in an error event". A call the gateway refused or did not answer costs 0. The relay never sends a call to
+  another route.
+- A failed call in a step does not end the run by itself: a `4xx` the client may recover from, a `5xx` answer
+  (`upstream-failed` for an upstream that timed out), a connection that fails and an answer that broke off are
+  passed to the client, which may retry, as Claude Code does. The run ends as the step ends: a step whose program
+  exits 0 with its products goes on, and the run's record names the failed calls with one event
+  `runbook.model-calls-failed` (the step, and per call the route, the `gateway_call`, the `cause`, the `code`, the
+  `detail` and the `error`), one event per step: a call left in flight by an earlier step and booked while a later
+  one runs is named under its own step, and one that ends after the last step was booked is named when the run's
+  calls are closed; a step whose program failed ends the run with its own first failed call as its first cause, `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused the call` for
+  `call-refused`) (story `a-recovered-call-does-not-fail-the-run`).
+- What stops the run at once: the gateway's refusals of the route (`model-unknown`, `wire-not-served`,
+  `credential-absent`, `credential-malformed`, `credential-rejected`) and its `spend-ceiling` fail the step they
+  came in with `route-unavailable`, the route, the code and the `source`, whatever its program does after; a call
+  past the run's caps is refused by the relay and the caps stop the run before the next step. A call of the decider
+  that fails ends the decider's call as any failed call does: the decision stays open for a person.
+- For a run on a route the relay's line is the call's cost: the cost records of its bound programs book
+  nothing, and one with no `cost_usd` does not end the run (`runbook/src/cost.rs`). A line the ledger cannot
+  write fails the step the call ran in (fail closed). The spend cap is held against what was booked when a
+  call is taken: calls in flight at once may each pass it, by at most their own cost.
+- When the run ends its token is void at once, and the calls still in flight are waited for up to 5 seconds
+  and recorded. A call that outlasts that is booked in the ledger when it ends and said on the daemon's stderr;
+  the run's record says how many were left with one event `runbook.model-calls-unfinished`.
+
+A run whose kind is `rule`, or that has no kind, is on no route and writes no route file.
+
+The daemon also declares named model routes, several gateways and routes side by side (`docs/model-routes.md`, section 1), and lists them in the view `routes` (`docs/daemon-api.md`, "Model routes"). A run whose kind is `model` takes one of them (`docs/daemon-api.md`, "The route of a run"): the route its submit names in `model_route` (and per role in `model_routes`), else `[route_policy] default`; the relay's table of the run is the role `default` on that route plus each named role on its own, and every call is booked with the route, its alias and the setting that chose it. A daemon that declares no route but a lone `[gateway]` (the gateway `default`) and a model decider declares the interim route `default` on that gateway (kind hosted, the decider's model as its alias, no price) as its default: the route above, now listed by the view `routes` too.
 
 The token file is read once, when the daemon starts, and only when the `model` kind is configured. The daemon
 does not start (exit 2, naming the member and never a value or a path) when the token file cannot be read as
 one line of a token, when the gateway's shape is refused, and when the `model` kind's adapter is
 `metaharness`, its default, which cannot take a gateway: name `adapter = "claude-cli"` in
 `[deciders.model]`. A gateway and a `login_file` in one file are refused. A model run under a gateway without
-`XDG_RUNTIME_DIR` fails to start by that name.
+`XDG_RUNTIME_DIR` fails to start by that name. The relay speaks `http://` to the gateway only: a gateway at an
+`https://` address fails every call `route-unavailable`.
 
 A submit names no gateway, address or token: a setting, or a member of the request, named `gateway`,
 `base_url`, `token`, `token_file` or `gateway.<member>`, in any case, is refused (400) by its name and never
-with its value, and no run is made. The cases are `runbook/tests/daemon/gateway.rs`: a stand-in gateway on a
-loopback port receives the configured token from a stand-in `claude` started by the committed claude-cli
-adapter, and no file of the daemon's state and no event of the run holds it.
+with its value, and no run is made. The cases are `runbook/tests/daemon/gateway.rs` and
+`runbook/tests/daemon/relay_daemon.rs`: a stand-in gateway on a loopback port receives the configured token
+from the relay, with the alias as the model, for a stand-in `claude` started by the committed claude-cli
+adapter; no process of the run, no file of the daemon's state and no event of the run holds it.
+`runbook/tests/daemon/relay.rs` holds the relay's own cases: the answer passed back unchanged, the usage of a
+JSON answer and of a stream, a price, the refusals and a role on another route that is not called.
 
 ## Not built
 

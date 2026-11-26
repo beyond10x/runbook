@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ProductKind.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ProductKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:41c650d8f24402005bd73d91b21866285f2e64417239a513aff0a22bac461209",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ProductKind": {
+      "title": "ProductKind",
+      "description": "What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered).",
+      "x-ess-name": "sdc.daemon.ProductKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "text",
+        "binary"
+      ]
+    }
+  }
+}

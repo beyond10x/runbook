@@ -24,24 +24,25 @@ served as `2026-07-28`; `initialize` selects the legacy shape.
 | `initialize` | 2025-11-25, 2025-06-18 | `protocolVersion` (the client's, when it is one of the two; else `2025-11-25`), `capabilities.tools`, `serverInfo` (`runbook` and the version), `instructions` |
 | `notifications/initialized`, any other notification | legacy | accepted, no answer |
 | `ping` | both | `{}` |
-| `tools/list` | both | the nine tools below |
+| `tools/list` | both | the fifteen tools below |
 | `tools/call` | both | the result of the tool |
 
 A request of another protocol version is the error `-32022` (`UnsupportedProtocolVersion`) with
 `data.supported` and `data.requested`. A modern request without `clientCapabilities` is `-32602`; so
 is any other request before a legacy client has sent `initialize`. An unknown method is `-32601`, an
 unknown tool or an argument the tool does not take `-32602`. A modern result carries
-`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has nine tools),
+`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has fifteen tools),
 `ttlMs` and `cacheScope`, `subscriptions/listen`, multi round-trip requests, cancellation of a call,
-progress, resources, prompts. The server sends no request and no notification of its own.
+resources, prompts. The server sends no request of its own; the one notification it sends is the progress of `delegate`
+(`notifications/progress`, over stdio only, when the call carries `_meta.progressToken`).
 
 ## The tools
 
-`tools/list` prints exactly these nine, in this order:
+`tools/list` prints exactly these fifteen, in this order:
 
 | Tool | Calls | Input |
 |---|---|---|
-| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `autonomy`, `decider`, `session_id`, `idempotency_key` |
+| `submit_run` | command `submit-run` | `runbook_id`, `intake`; optional `runbook_version`, `context_path`, `settings`, `confinement`, `autonomy`, `decider`, `session_id`, `idempotency_key`, `model_route`, `model_routes` (`daemon-api.md`, "The route of a run": `route-refused`, 422) |
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id`; the row has `step_in_flight` (`action`, `case_id`, `started_at`, `seconds`) while a program of the run runs (`docs/daemon-api.md`, "The step in flight") |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
@@ -50,6 +51,12 @@ progress, resources, prompts. The server sends no request and no notification of
 | `cancel_run` | command `cancel-run` | `run_id` |
 | `open_session` | command `open-session` | `session_id`, `client` (a label of at most 200 characters, stored and shown, that grants nothing; the route's length check and no other); an id the daemon already knows is `session-exists` (422), a longer label `400` |
 | `close_session` | command `close-session` | `session_id`; afterwards a `submit_run` with that id is `SessionClosedToRuns` (409); the runs of the session go on, none is cancelled; an unknown id is `no-session` (404), a closed session `wrong-state` (409) |
+| `list_products` | view `products` | `run_id`; one row: the files under the run's `work/` directory (`files`, each `path` relative to `work/`, `size`, `modified_at`), `hidden` (names that start with a dot), `left_out` (links and files with a second name) and `cut` when a bound of the walk was reached (`docs/daemon-api.md`, "The products of a run") |
+| `read_product` | view `product` | `run_id`, `path` (relative to `work/`); one row: `kind` `text` with `text` (at most 1 MiB, `truncated` when the file is larger) or `binary`, `size`, `shown`, `modified_at`; a path that leaves `work/` is `bad path` (400), a link at any component `link` (403), a name with a dot `not served` (404), a missing file `no such file` (404), a directory or a pipe `not a regular file` (415), an unknown run `no such run` (404) |
+| `list_routes` | view `routes` | none; the rows: each model route the daemon declares, by name, with `gateway` (its name), `alias`, `kind` (`managed`, `hosted`, `local`), `wires`, `status`, `phase` when the gateway gave one, and `read_at`; the gateways are read at most once every 15 s (`docs/daemon-api.md`, "Model routes") |
+| `delegate` | command `delegate`, then view `delegation-result` | `request`; optional `model_route` (none: the daemon's default route), `protocol`, `workspace`, `settings`, `session_id`, `idempotency_key` and the tool's own `wait_seconds` (default 600, at most 3600). The tool waits for the run's end, reading the view, and sends a progress notification at each step of the run (the step, the route, the calls and the cost booked so far) when the call carries a progress token; past `wait_seconds` it answers the row as it stands (the run id and its state). A refusal of the command is its answer (`route-refused` 422 with the declared routes, `route-unavailable` 503, the refusals of `submit_run`) |
+| `delegation_result` | view `delegation-result` | `run_id`; the row of the view, the result text held to 40000 characters (`result_truncated` says it was cut); an unknown run `no such run` (404), a run no delegation created `not a delegation` (404) |
+| `describe_catalog` | view `catalog` | none; one row: `routes` (each declared route as `list_routes` lists it, with `max_model_len`, `tool_calling`, the prices and the wait), `runbooks` (each runbook a delegation may name as `protocol`, with `title`, `description`, `inputs`, `route_entries`, `routes_allowed`, `admitted` and the `refusal` of one whose route entries cannot be admitted) and `delegation` (the members of `delegate`, the `paths`, `default_route`, `classifier_route`, `confinement`, `request_limit`) (`docs/daemon-api.md`, "The catalog") |
 
 Input schemas are derived from the generated OpenAPI document of the daemon
 (`ess/generated/openapi/openapi/runbookd.yaml`, compiled into the binary): a command tool's schema is
@@ -77,9 +84,34 @@ route gives it: a `cancel_run` of an unknown run is `404` (`NoSuchRun`), a secon
 This is a tool execution error in the sense of the specification, in the result and not a JSON-RPC
 error: a model that reads it can correct itself.
 
+`runbook mcp` sends who asked with every `delegate`: `caller`, the name the client gave in `initialize`
+(`clientInfo.name`), and `caller_label`, the `RUNBOOK_CALLER` of its environment; neither is an argument of the tool,
+and the run records both in its event `runbook.delegated`.
+
+`delegate` and `delegation_result` answer the row of the view `delegation-result` in
+`structuredContent.rows[0]`, its `result_text` held to 40000 characters, and a text whose first line names
+the run, the route (with the last phase its gateway gave, `route_phase`, for a run that waited for its route), its
+state and outcome, the path, the protocol, the calls and the cost, then, for a run
+that failed, a line `failed: ` with the row's `failure`, followed by the run's `result.md`
+(`docs/model-routes.md`, "What is recorded"). `failure` is why the run failed to start or, for a run that
+ended `runtime-failure`, the runtime's reason: a step whose route did not serve its call names
+`route-unavailable`, the route, the setting that chose it and the gateway's code; for a run that ended
+`failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (its agent node or another program failed and the tree had nothing else to do), the step and how it ended:
+its exit, its signal or its timeout. `isError` is true for a run
+that failed to start, was cancelled, or ended on a failure of the daemon's own: `runtime-failure`, `orphaned`,
+`stopped: route` (its route never could answer within its wait) or another `stopped: ...` or `failed...` outcome; a refusal of the command or the view is its
+answer, as for every tool. A run whose `result.md` is not text says so in the text (read it with
+`read_product`). Over stdio each `tools/call` is answered on a thread of its own, at most 16 side by side,
+so the `delegate`, `delegation_result` and `cancel_run` calls of one session do not wait on each other; the
+progress notifications of a call go out before its reply. The streamable HTTP endpoint runs each call off
+the daemon's workers, at most 32 at once (the next waits for one to end, on no thread), and has no stream:
+there `delegate` waits the same and sends no progress.
+
 A `submit_run` while the daemon drains after a stop signal is `isError` true with `503` and the body
 `{"refused": "draining", "message": ..., "live_runs": <n>}` of the route, and no run is made
-(`docs/daemon-api.md`, "Stopping the daemon").
+(`docs/daemon-api.md`, "Stopping the daemon"). A `submit_run` whose route's gateway is not ready is `isError` true with `503` and the
+body `{"refused": "route-unavailable", "message": ...}`, and no run is made (`docs/daemon-api.md`, "A run starts only
+on a route that can answer").
 
 Two tools are stricter than their route. `read_run` and `read_events` of a run id the daemon does not
 know answer `404` with `{"refused": "no such run", ...}`, where the views answer `200` with no row.

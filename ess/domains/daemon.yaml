@@ -88,13 +88,13 @@ types:
     kind: newtype
     of: String
     naming:
-      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds."
+      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take; record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds."
 
   - name: sdc.daemon.RunOutcome
     kind: newtype
     of: String
     naming:
-      summary: "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not."
+      summary: "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> <end>`). The run's state is the closed set; the outcome is not."
 
   - name: sdc.daemon.ConfinementLevel
     kind: enum
@@ -150,6 +150,170 @@ types:
       - {name: recommendation_strength, type: sdc.decision.Strength, summary: "How strongly the grounds support the recommendation; none where the request carries no recommendation."}
       - {name: grounds, type: "List<sdc.decision.Ground>", summary: "The grounds of the recommendation, each with a citation the runtime checked before the request opened."}
       - {name: free_answer, type: Boolean, summary: "Whether an answer that names no option is taken as a free answer (a question request)."}
+
+  - name: sdc.daemon.WorkId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The work/ directory of a run as a row of RunProducts: its text is the run's id. A type of its own, not RunId, because a row of that view is the listing of a directory and not the run."
+
+  - name: sdc.daemon.DelegationPath
+    kind: enum
+    variants: [named, free, classified, generated]
+    naming:
+      summary: "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted)."
+
+  - name: sdc.daemon.DelegationId
+    kind: newtype
+    of: String
+    naming:
+      summary: "A delegation as a row of Delegation: its text is the run's id. A type of its own, not RunId, because a row is what the daemon reads of the run's record and files, not the run."
+
+  - name: sdc.daemon.ProductPath
+    kind: newtype
+    of: String
+    naming:
+      summary: "The path of a file of a run, relative to the run's work/ directory (its workspace, which the cases of the run share): names joined by `/`, none of them `..` and none starting with a dot. Never absolute and never a path of the host."
+
+  - name: sdc.daemon.ProductFile
+    kind: struct
+    naming:
+      summary: "One file of a run's work/ directory as the listing names it: a regular file with one name, reached through no link."
+    fields:
+      - {name: path, type: sdc.daemon.ProductPath}
+      - {name: size, type: Integer, summary: "Its length in bytes."}
+      - {name: modified_at, type: Timestamp, summary: "When it was last written."}
+
+  - name: sdc.daemon.CaseKey
+    kind: newtype
+    of: String
+    naming:
+      summary: "One case of one run as a row of RunCase: the run's id and the case's id. A type of its own, not RunId, because a row is a case and not the run."
+
+  - name: sdc.daemon.CaseState
+    kind: enum
+    variants: [Open, Running, AwaitingPerson, AwaitingAuthority, Stuck, Ended]
+    naming:
+      summary: "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands."
+
+  - name: sdc.daemon.ProductKind
+    kind: enum
+    variants: [text, binary]
+    naming:
+      summary: "What a read found: text (the bytes shown are UTF-8 without a NUL byte; a partial character at a cut does not count) or binary (anything else: no text is answered)."
+
+  - name: sdc.daemon.RouteName
+    kind: newtype
+    of: String
+    naming:
+      summary: "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file."
+
+  - name: sdc.daemon.ModelRouteKind
+    kind: enum
+    variants: [managed, hosted, local]
+    naming:
+      summary: "What stands behind a route's alias at its gateway: managed (a model on a pod the gateway starts and stops), hosted (a fixed upstream, nothing started) or local (a model server on the gateway's machine, such as Ollama). The daemon's file says which; the daemon reads the status of a managed or a local route from the gateway, and sends a hosted route no call to probe it."
+
+  - name: sdc.daemon.RouteStatus
+    kind: enum
+    variants: [ready, not-ready, listed, model-unknown, gateway-not-ready, gateway-unreachable]
+    naming:
+      summary: "Where a route stands as the daemon last read its gateway: gateway-unreachable (no answer from `GET /ready` or `GET /v1/models`, or an address the daemon does not speak, https), gateway-not-ready (`/ready` answered, not 200, or `/v1/models` gave no list), model-unknown (the gateway is ready and `GET /v1/models` does not list the route's alias), ready or not-ready (the gateway read the route's model: `callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route, ready only for the phase ready), listed (the gateway is ready and lists the alias, and no status of the model was read: a hosted route on a gateway without `/v1/status`, or a status route that did not answer). A read sends no model call and starts nothing."
+
+  - name: sdc.daemon.RouteSource
+    kind: enum
+    variants: [run, protocol, default]
+    naming:
+      summary: "The setting that chose a run's route: run (the submit named it, `model_route` or `model_routes.<role>`), protocol (the runbook's route entries, the file `bindings/<runbook>.routes.yaml` of format runbook.routes/1: the route its entry for the role names, or the route that meets the entry's needs; docs/model-routes.md section 2) or default (the submit named none and the daemon's `route_policy.default` applied; a daemon whose file declares no route but a lone `[gateway]` table and a model decider declares the interim route `default` on that gateway and takes it as its default, so a model run that names none says default too). The run's word comes first, then the protocol's, then the default."
+
+  - name: sdc.daemon.RoleRoutes
+    kind: newtype
+    of: "Map<String, sdc.daemon.RouteName>"
+    naming:
+      summary: "The route of each named role of a run (`writer`, `review`, ...) besides the role `default`: a role is the word a model process of the run names as its model, and the daemon's relay sends the call to the role's route. A role and a route are each one to 64 characters of letters, digits, `.`, `_` and `-`; a role does not start with `runbook-`, the prefix of the model the run's route file gives a role."
+
+  - name: sdc.daemon.CatalogId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The catalog as a row of DaemonCatalog: its text is the daemon's id. A type of its own, not DaemonId, because the row is what the daemon reads of its file, its gateways and its runbooks when a client asks, and not the configuration row."
+
+  - name: sdc.daemon.CatalogRoute
+    kind: struct
+    naming:
+      summary: "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait. No address, token or token file."
+    fields:
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: gateway, type: String, summary: "The name of the route's gateway in the daemon's file, never its address."}
+      - {name: alias, type: String}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>"}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>}
+      - {name: max_model_len, type: Optional<Integer>, summary: "The context length `GET /v1/models` gave for the alias; absent when the gateway gave none."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "Whether the model calls tools, as `GET /v1/models` gave it for the alias; absent when the gateway gave nothing."}
+      - {name: price_in_micro_usd_per_mtok, type: Optional<Integer>, summary: "What a call on the route books per million input tokens; absent when the file declares no price: the call books its reservation and its cost is not known."}
+      - {name: price_out_micro_usd_per_mtok, type: Optional<Integer>, summary: "The same per million output tokens."}
+      - {name: start_wait_seconds, type: Optional<Integer>, summary: "How long a run waits for the route's model to be ready; absent when the file sets none."}
+      - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this route."}
+
+  - name: sdc.daemon.RouteNeeds
+    kind: struct
+    naming:
+      summary: "What a route entry of a runbook asks of a route when it names none (docs/model-routes.md, section 2): each member that is present is a requirement, checked against what the route's gateway lists for its alias (`GET /v1/models`: the wires, max_model_len, tool_calling) and the route's kind in the daemon's file. A fact the gateway did not give does not meet a requirement."
+    fields:
+      - {name: wire, type: Optional<String>, summary: "A wire the gateway lists for the alias: chat, responses or messages."}
+      - {name: min_context, type: Optional<Integer>, summary: "The least max_model_len the gateway lists for the alias."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "true: the gateway lists tool calling for the alias."}
+      - {name: kind, type: Optional<sdc.daemon.ModelRouteKind>}
+
+  - name: sdc.daemon.RouteEntry
+    kind: struct
+    naming:
+      summary: "One role of a runbook's route entries (the file `bindings/<runbook>.routes.yaml` of its runbook directory, format runbook.routes/1) and what the daemon's admission made of it: an entry that names a route is admitted when the daemon declares the route and the runbook's routes_allowed, when it has one, holds it; an entry that states needs is admitted with the daemon's default route when that meets them, else with the one allowed route that meets them, and none or several is a refusal."
+    fields:
+      - {name: role, type: String, summary: "The role the entry is for (writer, review, default, ...)."}
+      - {name: route, type: Optional<sdc.daemon.RouteName>, summary: "The route that serves the role: the one the entry names, or the route that meets its needs; absent when none does."}
+      - {name: needs, type: Optional<sdc.daemon.RouteNeeds>, summary: "The requirements of an entry that names no route; absent for an entry that names one."}
+      - {name: admitted, type: Boolean}
+      - {name: reason, type: Optional<String>, summary: "Why the entry is not admitted, naming the role and the route or the requirement; absent when it is."}
+
+  - name: sdc.daemon.CatalogRunbook
+    kind: struct
+    naming:
+      summary: "A runbook a delegation may name as its protocol, as the catalog lists it: the name and version of the view Runbooks, its purpose in one line and its description as its root protocol gives them, the inputs a delegation's request fills, and its route entries with the daemon's admission of each. A runbook whose entries cannot be admitted is listed with the reason. No path of the host."
+    fields:
+      - {name: runbook_id, type: sdc.daemon.RunbookName}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: title, type: Optional<String>, summary: "Its purpose in one line: the root protocol's title, else the first sentence of its description; absent when it has neither."}
+      - {name: description, type: Optional<String>, summary: "The root protocol's description, at most 2000 characters; absent when it has none."}
+      - {name: inputs, type: "List<String>", summary: "The artifacts a delegation's request becomes: `idea` when the runbook's root bindings place it (the request is the run's intake); none when they place no idea, and such a runbook cannot take a request."}
+      - {name: route_entries, type: "List<sdc.daemon.RouteEntry>", summary: "One per role of its route entries file, by role; none when it has no such file: every declared route may serve it."}
+      - {name: routes_allowed, type: "Optional<List<sdc.daemon.RouteName>>", summary: "The routes the file allows to serve the runbook; absent when it narrows nothing."}
+      - {name: admitted, type: Boolean, summary: "Whether every route entry is admitted and the file could be read."}
+      - {name: refusal, type: Optional<String>, summary: "Why the runbook's route entries cannot be admitted: the file's own fault, else the reason of each entry that is not admitted, joined by `; `. Absent when admitted."}
+
+  - name: sdc.daemon.DelegateMember
+    kind: struct
+    naming:
+      summary: "A member of the input of Delegate a client sends, as the OpenAPI document of the daemon gives it (the members the handler fills are left out)."
+    fields:
+      - {name: name, type: String}
+      - {name: required, type: Boolean}
+      - {name: summary, type: Optional<String>, summary: "What the document says of it."}
+      - {name: max_length, type: Optional<Integer>, summary: "The most characters it may hold, where the document bounds it."}
+
+  - name: sdc.daemon.DelegationTerms
+    kind: struct
+    naming:
+      summary: "What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request."
+    fields:
+      - {name: members, type: "List<sdc.daemon.DelegateMember>"}
+      - {name: paths, type: "List<sdc.daemon.DelegationPath>", summary: "named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation."}
+      - {name: default_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.default`: the route of a delegation that names none; absent: a delegation must name one."}
+      - {name: classifier_route, type: Optional<sdc.daemon.RouteName>, summary: "`route_policy.classifier`: the route of a delegation's classify and build calls; absent when the file names none."}
+      - {name: confinement, type: Optional<sdc.daemon.ConfinementLevel>, summary: "The daemon's default level, the level of every delegation; absent: the daemon has none and refuses every delegation."}
+      - {name: request_limit, type: Integer, summary: "The most bytes of a request: 1048576."}
 
 conversions:
   - from: Optional<sdc.daemon.ConfinementLevel>
@@ -209,6 +373,42 @@ entities:
       states: [Listed]
       terminal: [Listed]
 
+  - name: sdc.daemon.ModelRoute
+    naming:
+      summary: "A model route the daemon declares: a name, the gateway it goes through ([gateways.<name>] of runbook.toml; a lone [gateway] table is the gateway `default`), the gateway's alias of the model and its kind (a daemon that declares no route but has a lone [gateway] table and a model decider declares the interim route `default` on that gateway: kind hosted, its alias the model of the decider, no price), with what the daemon last read of the gateway: the wires `GET /v1/models` lists for the alias and the route's status. The daemon reads its file when it starts and the gateway when a client asks for the view Routes, at most once every 15 seconds (the rows of a read are kept and answered until then); the language cannot read a file or a gateway, so no command creates or changes a row, as with Runbook. No address, token, token file or price is in a row."
+    identity:
+      name: route
+      type: sdc.daemon.RouteName
+    fields:
+      - {name: gateway, type: String, summary: "The name of the route's gateway in the daemon's file, never its address."}
+      - {name: alias, type: String, summary: "The model's alias at the gateway: what the gateway's `GET /v1/models` lists and a model call names."}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>", summary: "The wires the gateway lists for the alias (chat, responses, messages), in its order; none when the gateway did not answer or does not list the alias."}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>, summary: "The phase the gateway gave for the route's model (ready, starting, stopped, stopping, unreachable, or a phase the gateway adds later); absent when no status of the model was read."}
+      - {name: max_model_len, type: Optional<Integer>, summary: "The context length `GET /v1/models` gave for the alias; absent when the gateway gave none."}
+      - {name: tool_calling, type: Optional<Boolean>, summary: "Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing."}
+      - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this row."}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  - name: sdc.daemon.DaemonCatalog
+    naming:
+      summary: "What a delegation may name on this daemon, read when a client asks for the view Catalog: one row with the declared model routes (the view Routes with the prices and the wait the file declares), the runbooks a delegation may name as its protocol (the view Runbooks with their purpose, their inputs and the admission of their route entries) and the terms of a delegation. The daemon reads its file when it starts, the gateways as the view Routes does and the runbooks' files when the client asks; the language cannot read a file or a gateway, so no command creates or changes the row, as with Runbook."
+    identity:
+      name: catalog_id
+      type: sdc.daemon.CatalogId
+    fields:
+      - {name: routes, type: "List<sdc.daemon.CatalogRoute>", summary: "The declared routes, in order of name; none when the file declares none."}
+      - {name: runbooks, type: "List<sdc.daemon.CatalogRunbook>", summary: "The runbooks of the view Runbooks, in order of name."}
+      - {name: delegation, type: sdc.daemon.DelegationTerms}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
+
   - name: sdc.daemon.Run
     naming:
       summary: "One run of a runbook on the daemon:its inputs as submitted, its confinement, where it stands and how it ended."
@@ -230,15 +430,30 @@ entities:
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
       - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state: ended, cancelled or failed to start."}
-      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."}
-      - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) (the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take; the event runbook.step-failed says why)."}
+      - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state of the row. The view `run` also gives here what failed a run after it started: the reason of its run event `runbook.runtime-failed` or `runbook.step-failed`."}
       - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>, summary: "The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none."}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>, summary: "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook's first model call."}
+      - {name: model_route_alias, type: Optional<String>, summary: "The gateway's alias of the model behind model_route, as the daemon's file declared it at the submit: what every call of the role names at the gateway. Absent with model_route."}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>, summary: "The setting that chose model_route: run, protocol or default. Absent with model_route."}
+      - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>, summary: "The routes of the other roles of the run: those the submit named (`model_routes.<role>`) and those the runbook's route entries give; absent when there are none."}
+      - {name: route_phase, type: Optional<String>, summary: "The last phase the gateway gave of a route of the run that could not answer when the run was submitted: set when the run waits for its route (WaitingForRoute) and when it ends `stopped: route`; absent for a run that never waited."}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>, summary: "For a run a Delegate created: how it became a run, read from its run events `runbook.delegated` and `runbook.delegation-resolved` (the path a classified delegation took when its run started); absent for any other run, and while the daemon classifies. No command of the language sets it."}
+      - {name: protocol, type: Optional<String>, summary: "For a run a Delegate created, once its path is taken: the protocol it runs, by the id its document declares (the named runbook, delegation-free, the runbook the classifier picked, or the id of the generated protocol). Read like `path`."}
+      - {name: confidence, type: Optional<Json>, summary: "For a classified or generated delegation: the classifier's confidence, a number from 0 to 1. Read like `path`."}
+      - {name: classifier_route, type: Optional<String>, summary: "For a classified or generated delegation: the route of its classify and build calls (route_policy.classifier), by name. Read like `path`."}
+      - {name: protocol_digest, type: Optional<String>, summary: "For a generated delegation: sha256:<hex> of the protocol document the builder wrote, as the run took it. Read like `path`."}
     relations:
       - name: session
         kind: references
         target: sdc.daemon.Session
         cardinality: one
         via: session_id
+      - name: model_route
+        kind: references
+        target: sdc.daemon.ModelRoute
+        cardinality: one
+        via: model_route
       - name: decision_requests
         kind: owns
         target: sdc.daemon.DecisionRequest
@@ -251,15 +466,17 @@ entities:
         via: run_id
     lifecycle:
       initial: Submitted
-      states: [Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
+      states: [Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
       terminal: [Ended, Cancelled, FailedToStart]
       transitions:
-        - {name: start, from: [Submitted], to: Running, summary: "The runtime took the run up."}
-        - {name: fail_to_start, from: [Submitted], to: FailedToStart, summary: "The runtime could not take the run up."}
+        - {name: wait_for_route, from: [Submitted], to: WaitingForRoute, summary: "A route of the run could not answer when it was submitted (its model is not callable): the run waits for it, no call is sent and nothing is woken."}
+        - {name: start, from: [Submitted, WaitingForRoute], to: Running, summary: "The runtime took the run up (from WaitingForRoute: once every route of the run could answer)."}
+        - {name: fail_to_start, from: [Submitted, WaitingForRoute], to: FailedToStart, summary: "The runtime could not take the run up, or the daemon stopped before it did."}
+        - {name: stop_on_route, from: [WaitingForRoute], to: Ended, summary: "The run's wait for its route reached start_wait_seconds and a route still could not answer: the run ends `stopped: route`."}
         - {name: wait, from: [Running], to: WaitingOnDecision, summary: "The run stopped on a decision."}
         - {name: end, from: [Running], to: Ended, summary: "The run reached an outcome."}
         - {name: resume, from: [WaitingOnDecision], to: Running, summary: "Every decision the run waited on is answered and the runtime took the answers up."}
-        - {name: cancel, from: [Submitted, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
+        - {name: cancel, from: [Submitted, WaitingForRoute, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
         - {name: orphan, from: [Running, WaitingOnDecision], to: Ended, summary: "The daemon started again and the runtime holds no live run of this id: the run ends with the outcome orphaned."}
 
   - name: sdc.daemon.DecisionRequest
@@ -317,6 +534,103 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
+  - name: sdc.daemon.RunProducts
+    naming:
+      summary: "What a run wrote under its work/ directory, as the daemon finds it when a client asks for the view ProductsOfRun: one row per run the daemon knows. The daemon reads the directory from the host through one reader (runbook/src/engine/products.rs) with the guards of the inspector's file route: no link is followed or listed, a file with more than one name is not listed, a name that starts with a dot is neither listed nor entered, and the walk stops at 500 files, 2000 directories, 20000 entries and 6 levels. The language cannot read a file system, so no command creates or changes a row, as with Runbook."
+    identity:
+      name: work_id
+      type: sdc.daemon.WorkId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId, summary: "The run whose work/ directory this is."}
+      - {name: files, type: "List<sdc.daemon.ProductFile>", summary: "The files, by path."}
+      - {name: cut, type: Optional<String>, summary: "The bound the listing stopped at: files, directories, entries or depth; absent when it walked the whole directory."}
+      - {name: hidden, type: Integer, summary: "Entries whose name starts with a dot: neither listed nor served."}
+      - {name: left_out, type: Integer, summary: "Links and files with more than one name: neither listed nor served."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Listed
+      states: [Listed]
+      terminal: [Listed]
+
+  - name: sdc.daemon.RunProduct
+    naming:
+      summary: "One file of a run's work/ directory, read when a client asks for the view ProductOfRun. The reader opens each directory on the path and the file relative to the one before without following a link, reads the type and the link count from the open file before a byte, and reads at most `limit` bytes in the daemon's process; no program opens the file. As with RunProducts, no command creates or changes a row."
+    identity:
+      name: path
+      type: sdc.daemon.ProductPath
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: size, type: Integer, summary: "The length of the file in bytes."}
+      - {name: modified_at, type: Timestamp}
+      - {name: kind, type: sdc.daemon.ProductKind}
+      - {name: text, type: Optional<String>, summary: "The first `limit` bytes as text; absent when kind is binary."}
+      - {name: shown, type: Integer, summary: "The bytes of `text`; 0 for binary."}
+      - {name: truncated, type: Boolean, summary: "True when the file holds more than `limit` bytes: `text` is its start."}
+      - {name: limit, type: Integer, summary: "The most bytes a read answers: 1048576."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
+
+  - name: sdc.daemon.Delegation
+    naming:
+      summary: "What a delegation's run has come to, as the daemon reads it when a client asks for the view DelegationResult: one row per run that a Delegate created. The route, the path and the protocol are the run's event `runbook.delegated`, and for a delegation the daemon classified its event `runbook.delegation-resolved` (path, protocol, confidence, classifier route and the digest of a generated protocol, recorded when the run started); the state, the outcome and the failure are the Run's; the calls, the tokens and the cost are the sum of the run's events `runbook.model-call` (one per call the relay booked); the result text is the file result.md of the run's work/ directory, read through the reader of ProductOfRun (no link followed, at most `result_limit` bytes), and the products are the paths ProductsOfRun lists. The language cannot read a file system, so no command creates or changes a row, as with RunProducts."
+    identity:
+      name: delegation_id
+      type: sdc.daemon.DelegationId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State, summary: "Where the run stands. Not `state`: that member of an entity is its lifecycle, and no command moves a row of this one."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "The run's outcome once it Ended."}
+      - {name: failure, type: Optional<String>, summary: "Why the run failed to start, or what failed it after it started (the runtime's reason, or the step whose program failed and how it ended: its exit, its signal or its timeout); absent otherwise."}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The model route of the run, by name."}
+      - {name: route_phase, type: Optional<String>, summary: "The last phase the gateway gave of a route of the run that could not answer: set while the run waits for its route and when it ended `stopped: route`; absent for a run that never waited."}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>, summary: "Absent while the daemon classifies the delegation (from its submit until its run starts, or fails to)."}
+      - {name: protocol, type: Optional<String>, summary: "The protocol the run runs, by the id its document declares: the named runbook, delegation-free, the runbook the classifier picked, or the id of the generated protocol; absent while the path is."}
+      - {name: confidence, type: Optional<Json>, summary: "The classifier's confidence, a number from 0 to 1, for a classified or generated delegation; null for the paths named and free."}
+      - {name: classifier_route, type: Optional<String>, summary: "The route of the classify and build calls, by name, for a delegation the daemon classified."}
+      - {name: protocol_digest, type: Optional<String>, summary: "sha256:<hex> of the protocol document the builder wrote, for a generated delegation."}
+      - {name: result_text, type: Optional<String>, summary: "The text of result.md in the run's work/ directory, at most `result_limit` bytes; absent while the run has written none, and for a file that is not text."}
+      - {name: result_truncated, type: Boolean, summary: "True when result.md holds more than `result_limit` bytes: `result_text` is its start."}
+      - {name: result_limit, type: Integer, summary: "The most bytes of result.md the view answers: 1048576."}
+      - {name: products, type: "List<String>", summary: "The paths of the files of the run's work/ directory, as ProductsOfRun lists them."}
+      - {name: calls, type: Integer, summary: "The model calls the relay booked for the run."}
+      - {name: input_tokens, type: Integer, summary: "The input tokens those calls reported; a call that reported none adds 0."}
+      - {name: output_tokens, type: Integer}
+      - {name: cost_micro_usd, type: Integer, summary: "What the calls booked: the route's declared price times the tokens, else the reservation of a call of unknown cost."}
+      - {name: cost_known, type: Boolean, summary: "False when any call was booked at its reservation because its cost was not known."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+      - {name: route, kind: references, target: sdc.daemon.ModelRoute, cardinality: one, via: route}
+    lifecycle:
+      initial: Read
+      states: [Read]
+      terminal: [Read]
+
+  - name: sdc.daemon.RunCase
+    naming:
+      summary: "One case of a run's tree, as the runtime reads the run's store when a client asks for the view CasesOfRun: the Loom runtime answers it from Loom's tree status of the store, which it reads without holding it, so it answers while the run goes on; the stub runtime has no tree and answers none. No path of the store or of a case file is in a row. The language cannot read a store, so no command creates or changes a row, as with Runbook."
+    identity:
+      name: case_key
+      type: sdc.daemon.CaseKey
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: case_id, type: String, summary: "The case's id in the run's tree."}
+      - {name: parent, type: Optional<String>, summary: "The case that opened this one; absent for the root."}
+      - {name: name, type: Optional<String>, summary: "The name the opening action gave the case (its link name); absent for the root."}
+      - {name: protocol, type: String, summary: "The id of the case's protocol."}
+      - {name: case_state, type: sdc.daemon.CaseState, summary: "Where the case stands when the daemon reads the tree. Not `state`: that member of an entity is its lifecycle, and no command moves a case."}
+      - {name: outcome, type: Optional<String>, summary: "The outcome the case ended through; absent while it is not ended."}
+    relations:
+      - {name: run, kind: references, target: sdc.daemon.Run, cardinality: one, via: run_id}
+    lifecycle:
+      initial: Seen
+      states: [Seen]
+      terminal: [Seen]
+
 actors:
   - name: sdc.daemon.Runtime
     naming:
@@ -335,9 +649,11 @@ actors:
   - name: sdc.daemon.DaemonProcess
     naming:
       display: Daemon process
-      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone; that command withdraws the run's Open decision requests itself. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
+      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone (that command withdraws the run's Open decision requests itself), and it holds a run whose route cannot answer yet and ends it when its wait is over. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
     may:
       - sdc.daemon.EndOrphanedRun
+      - sdc.daemon.WaitForRoute
+      - sdc.daemon.EndRouteWait
 
   - name: sdc.daemon.Operator
     naming:
@@ -356,6 +672,7 @@ actors:
       - sdc.daemon.SubmitRun
       - sdc.daemon.CancelRun
       - sdc.daemon.AnswerDecision
+      - sdc.daemon.Delegate
 
 errors:
   - name: sdc.daemon.NoSuchDecisionRequest
@@ -392,6 +709,13 @@ errors:
     summary: "No preset and no runbook of the daemon's --runbook-dir has this name (and version): the run was not submitted. The handler looks the runbook up and reports the fact in `runbook_known`."
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.RouteRefused
+    summary: "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run's decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`; or the runbook's route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) cannot be admitted: the file cannot be read, an entry is not one, a role's name starts with `runbook-` (also a role of the submit's model_routes: the relay takes the model `runbook-<role>` for the role `<role>`), a route an entry names is not declared or not in the file's routes_allowed, no route or several routes meet an entry's needs, a route the submit names for a role misses the role's needs, or a route of the run (named by the submit, by an entry or by `route_policy.default`) is outside routes_allowed. A delegation is refused the same way for the route it names and the route entries of the runbook it names as its protocol, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; a refusal of the route entries names the runbook, the role and the route or the requirement, or the route and the setting that chose it, and never an address or a token the file holds; `declared` lists the routes the daemon declares, in order of name."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: reason, type: String}
+      - {name: declared, type: "List<sdc.daemon.RouteName>"}
 
   - name: sdc.daemon.IntakeTooLarge
     summary: "The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound."
@@ -575,7 +899,7 @@ commands:
     naming:
       wire: submit-run
       display: Submit a run
-      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy and decider when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement (optional: a submit that names none runs at the daemon's default level; a daemon with none refuses it by name, and nothing is written), and optionally an autonomy level and a decider kind (a submit that names none takes the daemon's defaults; a kind the operator did not configure, or a level with no kind to take it, is refused before anything is written and creates no run), into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement, confinement_source, and autonomy, decider, model_route, model_route_alias and model_route_source when the run has them}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names. A run that makes model calls (its decider is a model at a level above A0, or its runbook runs a bound program or an agent node, which reaches a model through the run's route file) takes a model route (docs/model-routes.md, sections 2 and 11): the one the submit names by name in `model_route` (and per role in `model_routes`), then the route its runbook's route entries give the role (`bindings/<runbook>.routes.yaml`, format runbook.routes/1: a declared route by name, or needs that the run's route or the default meets, else the one allowed route that meets them), else the daemon's `route_policy.default`; every route of the run lies within the entries' routes_allowed; the handler resolves it against the routes the daemon's file declares, fills `model_route`, `model_route_alias` and `model_route_source`, and reports a route it refuses in the fact `route_refused` before anything is written. The route is recorded on the run; the runtime sends every model call of the run through the daemon's relay to that route's gateway, with the route's alias as the model. Before anything is written the handler also asks the gateway of each route of the run the daemon's file declares (`GET /ready`, `GET /v1/models` and the status of the model; docs/model-routes.md, section 3): a gateway that is not ready or does not answer refuses the submit with the HTTP status 503 `route-unavailable`, outside this specification like the 503 of a submit while the daemon drains (no outcome of the language has that status), and one that does not list the route's alias refuses it route-refused; a route whose model cannot answer yet leaves the run accepted, and the daemon holds it WaitingForRoute (WaitForRoute). The interim route `default` of a daemon with a lone `[gateway]` and no route of its own is not asked, as before routes, nor is a submit that repeats an idempotency key already used: it is answered already-submitted with the first run. No wake is sent before the run is written: a run held WaitingForRoute may wake a managed route whose wake is on (WaitForRoute)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: runbook_id, type: sdc.daemon.RunbookId}
@@ -589,6 +913,11 @@ commands:
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>, summary: "The kind of the decider that answers what the level gives it, a name among the kinds the operator configured. Absent: the daemon's default kind. A kind that is not configured, and a level with no kind to take it, are refused before anything is written (400)."}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>, summary: "The route of the run's role `default`, by the name the daemon's file declares it under; never an address, a token or a gateway's alias, each refused by name. Absent: the daemon's `route_policy.default` for a run that makes model calls, through its decider (a model above A0) or its programs (a bound program or an agent node of its runbook, which reach a model through the run's route file; the handler fills it and says which in model_route_source; a run whose model calls come from its programs only takes it only when the file declares it and the daemon serves its relay, else none), none for a run that makes none. A run that makes no model call and names a route is refused (route-refused)."}
+      - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>, summary: "The route of each further role of the run, by name, under the same rules as model_route."}
+      - {name: model_route_alias, type: Optional<String>, summary: "The alias of model_route at its gateway: the handler fills it from the daemon's file. A client never sends it."}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>, summary: "Where model_route came from: the handler fills it. A client never sends it."}
+      - {name: route_refused, type: Optional<String>, summary: "Why the handler refuses the run's route, when it does: a fact it reads from the daemon's file, which the language cannot read. Absent when the route is admitted or the run takes none. A client never sends it."}
       - {name: runbook_known, type: Boolean}
       - {name: context_inside_roots, type: Boolean}
       - {name: daemon_id, type: sdc.daemon.DaemonId}
@@ -606,6 +935,10 @@ commands:
         when: context_inside_roots == false
         error: sdc.daemon.ContextOutsideRoots
         summary: "The context path lies under no context root of the daemon: nothing was submitted."
+      - name: route-refused
+        when: defined(route_refused)
+        error: sdc.daemon.RouteRefused
+        summary: "The run's model route is refused (an undeclared route, an address, a token or an alias named in its place, a route for a run whose runbook runs no program and whose decider is no model above A0, the interim route default of a lone [gateway] for a run whose decider is no model above A0, or no route and no default for a run whose decider is a model above A0, or the runbook's route entries cannot be admitted for the run: a role whose route is undeclared or meets no or several routes, or a route outside the entries' routes_allowed, each named with the runbook): nothing was submitted. The answer lists the declared routes."
       - name: no-daemon
         when_related: {via: input.daemon_id, exists: false}
         error: sdc.daemon.NoSuchDaemon
@@ -651,6 +984,10 @@ commands:
           decider: input.decider
           session_id: input.session_id
           idempotency_key: input.idempotency_key
+          model_route: input.model_route
+          model_route_alias: input.model_route_alias
+          model_route_source: input.model_route_source
+          model_routes: input.model_routes
           submitted_at: input.at
         emits:
           - sdc.daemon.RunSubmitted
@@ -661,11 +998,110 @@ commands:
             confinement: input.confinement
         summary: "The run is Submitted and holds its first event, `runbook.submitted`, sequence 1 (position: the next of the daemon)."
 
+  - name: sdc.daemon.Delegate
+    naming:
+      wire: delegate
+      display: Delegate agent work
+      summary: "Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run's workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon's default level, and the daemon writes the run's first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation's route, in the run's workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon's runbooks, answers a runbook and a confidence, and at the daemon's `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon's agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier's answer and the generated protocol are files of the run's work/ directory under `delegation/`. A call the route does not serve fails the run's start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator's error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader's line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon's relay. The run's result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon's default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route's gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route's model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon's `{refused, message}` answer, outside the language as a draining daemon's refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: request, type: String, summary: "The work asked for, as text: the run's intake, at most 1 MiB."}
+      - {name: model_route, type: Optional<String>, summary: "The route the run's model calls take, by the name the daemon declares it under; absent: the daemon's default route, and a daemon with none refuses the delegation as route-refused. Never an address, a token or an alias."}
+      - {name: protocol, type: Optional<sdc.daemon.RunbookId>, summary: "The runbook to run with the request as its intake, or delegation-free for the free run; absent: the daemon classifies the request when it has a classifier route, else the free run."}
+      - {name: workspace, type: Optional<sdc.daemon.ContextPath>, summary: "A directory under one of the daemon's context roots: its files are copied into the run's workspace before the run starts."}
+      - {name: settings, type: sdc.daemon.RunSettings}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: caller, type: Optional<String>, summary: "Who asked: the name the MCP client gave in initialize (clientInfo.name), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
+      - {name: caller_label, type: Optional<String>, summary: "The label of the session that asked (RUNBOOK_CALLER of the session `runbook mcp` serves), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
+      - {name: runbook_id, type: sdc.daemon.RunbookId, summary: "The runbook the run takes: the protocol; delegation-free for the free run; delegation for a delegation the daemon classifies when its run starts. The handler fills it."}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel, summary: "The daemon's default level: a delegation names none. The handler fills it; a daemon with no default refuses the delegation by name (400) and writes nothing."}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The route the run takes, by name: model_route, else the daemon's default route. The handler fills it."}
+      - {name: model_route_alias, type: String, summary: "The alias of route at its gateway, as the daemon's file declares it. The handler fills it."}
+      - {name: model_route_source, type: sdc.daemon.RouteSource, summary: "run when the delegation named its route, default when it took route_policy.default. The handler fills it."}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>, summary: "named when the delegation names a runbook, free for the free run; absent for a delegation the daemon classifies when its run starts. The handler fills it."}
+      - {name: route_declared, type: Boolean}
+      - {name: runbook_known, type: Boolean}
+      - {name: context_inside_roots, type: Boolean}
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: intake-too-large
+        when: request.count > 1048576
+        error: sdc.daemon.IntakeTooLarge
+        summary: "The request is larger than 1 MiB: nothing was submitted."
+      - name: route-refused
+        when: route_declared == false
+        error: sdc.daemon.RouteRefused
+        summary: "The delegation names a route the daemon does not declare, or names none and the daemon has no default route: nothing was submitted, and the answer lists the declared routes. The refusals of a named route are the run's (submit-run): an alias, an address, a token or an empty name in its place is refused too, and the reason names what was wrong, never the value."
+      - name: no-runbook
+        when: runbook_known == false
+        error: sdc.daemon.NoSuchRunbook
+        summary: "The protocol is no runbook the daemon can run: nothing was submitted."
+      - name: context-outside-roots
+        when: context_inside_roots == false
+        error: sdc.daemon.ContextOutsideRoots
+        summary: "The workspace lies under no context root of the daemon: nothing was submitted."
+      - name: no-daemon
+        when_related: {via: input.daemon_id, exists: false}
+        error: sdc.daemon.NoSuchDaemon
+        summary: "No daemon was started under this id: nothing was submitted."
+      - name: no-session
+        when_related: {via: input.session_id, exists: false}
+        error: sdc.daemon.NoSuchSession
+        summary: "A session was named and none has that name: nothing was submitted."
+      - name: session-closed
+        when_related: {via: input.session_id, predicate: state == Closed}
+        error: sdc.daemon.SessionClosedToRuns
+        summary: "The named session is Closed and takes no new run: nothing was submitted."
+      - name: already-submitted
+        when: defined(idempotency_key)
+        when_related:
+          entity: sdc.daemon.Run
+          where: idempotency_key == input.idempotency_key
+          exists: true
+        emits:
+          - sdc.daemon.SubmitReplayed
+        payload:
+          sdc.daemon.SubmitReplayed:
+            idempotency_key: input.idempotency_key
+            run_id: {related: {entity: sdc.daemon.Run, where: idempotency_key == input.idempotency_key, field: run_id}}
+        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run."
+      - name: delegated
+        creates: sdc.daemon.Run
+        instance: run_id
+        sets:
+          runbook_id: input.runbook_id
+          intake: input.request
+          context_path: input.workspace
+          settings: input.settings
+          confinement: input.confinement
+          session_id: input.session_id
+          idempotency_key: input.idempotency_key
+          model_route: input.route
+          model_route_alias: input.model_route_alias
+          model_route_source: input.model_route_source
+          submitted_at: input.at
+        emits:
+          - sdc.daemon.RunSubmitted
+          - sdc.daemon.RunDelegated
+        payload:
+          sdc.daemon.RunSubmitted:
+            run_id: input.run_id
+            runbook_id: input.runbook_id
+            confinement: input.confinement
+          sdc.daemon.RunDelegated:
+            run_id: input.run_id
+            route: input.route
+            path: input.path
+            protocol: input.runbook_id
+        summary: "The run is Submitted on the route and holds its first two events, `runbook.submitted` and `runbook.delegated`. The answer names the run (`run_id` of RunSubmitted, and the `Location` header: the view DelegationResult of the run), the route and the path (RunDelegated)."
+
   - name: sdc.daemon.CancelRun
     naming:
       wire: cancel-run
       display: Cancel a run
-      summary: "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only."
+      summary: "Cancel a run that has not ended: Submitted, WaitingForRoute, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: at, type: Timestamp}
@@ -721,13 +1157,13 @@ commands:
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict
-        summary: "The run is not Submitted."
+        summary: "The run is not Submitted or WaitingForRoute."
 
   - name: sdc.daemon.FailRunStart
     naming:
       wire: fail-run-start
       display: Report a run that could not start
-      summary: "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
+      summary: "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: reason, type: String}
@@ -753,7 +1189,68 @@ commands:
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict
+        summary: "The run is not Submitted or WaitingForRoute."
+
+  - name: sdc.daemon.WaitForRoute
+    naming:
+      wire: wait-for-route
+      display: Hold a run until its route can answer
+      summary: "A route of a run the daemon accepted could not answer at the submit: the gateway is ready and lists the alias, and the status of the model (`callable` of `GET /v1/status`, else the phase of `GET /v1/models/{alias}/status` for a managed or a local route) says it cannot take a call now. The run is WaitingForRoute: no call goes to the route, and nothing is woken unless the route is managed with its wake on (`wake_on_submit`, accepted at start only with `wake_daily_cap_micro_usd` and `wake_cost_micro_usd` above 0): a model the gateway gave as `stopped` then gets one `POST /v1/models/{alias}/wake` for the run before the first read of the wait, booked first, under the lock of the state, in the run event `runbook.route-wake` (record: route, sent, day, cost_micro_usd, booked_micro_usd, cap_micro_usd; a wake the rest of the route's cap for the day of the daemon's clock does not cover is not sent, `sent` false and reason `wake cap reached`; a run less than the route's `start_wait_seconds` after a wake sent for the same route by any run joins that wake: nothing is sent or booked, `sent` false, reason `joined a wake sent within the wait`, and `joined` and `joined_at` name the run and the instant of that wake), and the gateway's answer is the run event `runbook.route-wake-answered` (record: route, status, and code when the gateway gave one); an answer `spend-ceiling` ends the run (EndRouteWait), and every run that joined that wake, whether the answer came before its join or while it waits. The daemon reads the status at most once every 5 seconds of its clock, up to the least `start_wait_seconds` of the routes that cannot answer (none declared: no wait); once every route of the run can answer, the runtime starts it (StartRun); past the wait the daemon ends it (EndRouteWait). The daemon also writes the run event `runbook.waiting-for-route` (record: route, phase, wait_seconds); see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: phase, type: Optional<String>, summary: "The phase the gateway gave of the route's model."}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: waiting-for-route
+        moves: sdc.daemon.Run.wait_for_route
+        instance: run_id
+        sets:
+          route_phase: input.phase
+        emits:
+          - sdc.daemon.RunWaitingForRoute
+        payload:
+          sdc.daemon.RunWaitingForRoute:
+            run_id: input.run_id
+        summary: "The run is WaitingForRoute."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
         summary: "The run is not Submitted."
+
+  - name: sdc.daemon.EndRouteWait
+    naming:
+      wire: end-route-wait
+      display: End a run whose route did not come up
+      summary: "A run waited for its route up to the least `start_wait_seconds` of the routes that cannot answer and a route of it still could not answer, or the gateway answered the wake of a route the run sent or joined `spend-ceiling` (a pod start would pass a cap of the gateway; WaitForRoute): the run is Ended with the outcome `stopped: route`, and `route_phase` holds the last phase the gateway gave. No call was sent to the route. The daemon also writes the run event `runbook.route-wait-ended` (record: route, phase, and ceiling `spend-ceiling` when that answer ended the wait) just before the run is Ended; see CancelRun for why it is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: phase, type: Optional<String>, summary: "The last phase the gateway gave of the route's model."}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: stopped
+        moves: sdc.daemon.Run.stop_on_route
+        instance: run_id
+        sets:
+          outcome: "stopped: route"
+          route_phase: input.phase
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunStoppedOnRoute
+        payload:
+          sdc.daemon.RunStoppedOnRoute:
+            run_id: input.run_id
+        summary: "The run is Ended with the outcome `stopped: route`."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not WaitingForRoute."
 
   - name: sdc.daemon.WaitOnDecision
     naming:
@@ -1009,7 +1506,7 @@ commands:
     naming:
       wire: end-run
       display: Report a run ended
-      summary: "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own."
+      summary: "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own. When the last program of the run's tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or Loom refused it for an exit its `exits.error` lists or a signal, an agent node (`sdc-node`) or any other program) and the tree has no other action to take, the daemon issues it with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`) and, just before, writes the run event `runbook.step-failed` (record: case, action, end, exit, signal and timeout_seconds (each of the last three when it applies), reason)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: outcome, type: sdc.daemon.RunOutcome}
@@ -1075,6 +1572,12 @@ events:
   - name: sdc.daemon.RunOrphaned
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunWaitingForRoute
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunStoppedOnRoute
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
   - name: sdc.daemon.SubmitReplayed
     fields:
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
@@ -1086,6 +1589,12 @@ events:
     fields:
       - {name: daemon_id, type: sdc.daemon.DaemonId}
       - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+  - name: sdc.daemon.RunDelegated
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: route, type: sdc.daemon.RouteName, summary: "The route the run's model calls take, by name."}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>, summary: "Absent for a delegation the daemon classifies when its run starts: the run event `runbook.delegation-resolved` names its path then."}
+      - {name: protocol, type: sdc.daemon.RunbookId, summary: "The runbook the run was submitted with: the named one, delegation-free, or delegation for a delegation the daemon classifies."}
   - name: sdc.daemon.RunSubmitted
     fields:
       - {name: run_id, type: sdc.daemon.RunId}
@@ -1175,6 +1684,131 @@ views:
       - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
       - {name: runtime, type: sdc.daemon.RuntimeKind}
 
+  - name: sdc.daemon.Routes
+    naming:
+      wire: routes
+      display: Model routes
+      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
+    source: sdc.daemon.ModelRoute
+    consistency: read_your_writes
+    order_by:
+      - route asc
+    fields:
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: gateway, type: String}
+      - {name: alias, type: String}
+      - {name: kind, type: sdc.daemon.ModelRouteKind}
+      - {name: wires, type: "List<String>"}
+      - {name: status, type: sdc.daemon.RouteStatus}
+      - {name: phase, type: Optional<String>}
+      - {name: max_model_len, type: Optional<Integer>}
+      - {name: tool_calling, type: Optional<Boolean>}
+      - {name: read_at, type: Timestamp}
+
+  - name: sdc.daemon.Catalog
+    naming:
+      wire: catalog
+      display: What a delegation may name
+      summary: "What a client may pass to Delegate, in one row: GET /daemon/views/catalog (the MCP tool describe_catalog, the command runbook catalog). `routes`: each declared route with its kind, alias, gateway by name, wires, status and phase as the view Routes reads them (at most once every 15 seconds), its context length and tool calling as the gateway lists them, and the prices and wait of the daemon's file. `runbooks`: each runbook of the view Runbooks with its purpose in one line, its description, its inputs and its route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) with the daemon's admission of each; a runbook whose entries cannot be admitted is listed with the reason. `delegation`: the members of Delegate, the paths a delegation may take, the default and classifier routes, the level and the most bytes of a request. No address, token, token file or path of the host is in the row."
+    source: sdc.daemon.DaemonCatalog
+    consistency: read_your_writes
+    fields:
+      - {name: routes, type: "List<sdc.daemon.CatalogRoute>"}
+      - {name: runbooks, type: "List<sdc.daemon.CatalogRunbook>"}
+      - {name: delegation, type: sdc.daemon.DelegationTerms}
+
+  - name: sdc.daemon.ProductsOfRun
+    naming:
+      wire: products
+      display: Products of a run
+      summary: "The files a run wrote under its work/ directory, in one row: GET /daemon/views/products?run_id=... (the MCP tool list_products). A view has no outcome in the language, so the refusals are the daemon's {refused, message} answers: 404 `no such run` for a run id the daemon does not know, 403 `link` when the work/ directory itself is a link. No path of the host is in a row or a refusal."
+    source: sdc.daemon.RunProducts
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: files, type: "List<sdc.daemon.ProductFile>"}
+      - {name: cut, type: Optional<String>}
+      - {name: hidden, type: Integer}
+      - {name: left_out, type: Integer}
+
+  - name: sdc.daemon.CasesOfRun
+    naming:
+      wire: cases
+      display: Cases of a run
+      summary: "The case tree of a run, a row per case in the order the runtime's tree lists them: GET /daemon/views/cases?run_id=... A row names the case, its parent, its link name, its protocol, its state and its outcome; no path. A run of the stub runtime has no case. A view has no outcome in the language, so the refusal is the daemon's {refused, message} answer: 404 `no such run` for a run id the daemon does not know."
+    source: sdc.daemon.RunCase
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: case_id, type: String}
+      - {name: parent, type: Optional<String>}
+      - {name: name, type: Optional<String>}
+      - {name: protocol, type: String}
+      - {name: case_state, type: sdc.daemon.CaseState}
+      - {name: outcome, type: Optional<String>}
+
+  - name: sdc.daemon.ProductOfRun
+    naming:
+      wire: product
+      display: One product of a run
+      summary: "One file of a run's work/ directory, by its path as ProductsOfRun names it, in one row: GET /daemon/views/product?run_id=...&path=... (the MCP tool read_product). The refusals, each the daemon's {refused, message} answer naming the path as asked and holding no byte of a file and no path of the host: 400 `bad path` (empty, absolute, a NUL, a backslash or a `..` component), 404 `not served` (a name that starts with a dot), 404 `no such file`, 403 `link` (a link at any component of the path: no link is followed, whether it stays in the run or not), 403 `more than one link`, 415 `not a regular file` (a directory, a pipe, a socket or a device, never opened), 404 `no such run`."
+    source: sdc.daemon.RunProduct
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: path, type: sdc.daemon.ProductPath}
+    filter:
+      all:
+        - run_id == param.run_id
+        - path == param.path
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: path, type: sdc.daemon.ProductPath}
+      - {name: size, type: Integer}
+      - {name: modified_at, type: Timestamp}
+      - {name: kind, type: sdc.daemon.ProductKind}
+      - {name: text, type: Optional<String>}
+      - {name: shown, type: Integer}
+      - {name: truncated, type: Boolean}
+      - {name: limit, type: Integer}
+
+  - name: sdc.daemon.DelegationResult
+    naming:
+      wire: delegation-result
+      display: The result of a delegation
+      summary: "What a delegation's run has come to, in one row: GET /daemon/views/delegation-result?run_id=... (the MCP tool delegation_result; the tool delegate answers the same row when the run ends within its wait). The run's state, and once it Ended its outcome, the text of its result.md (at most 1048576 bytes; the MCP tools hold the text to 40000 characters), its products, its route, path and protocol (both absent while the daemon classifies), the classifier's confidence (null for named and free), its route and the digest of a generated protocol, and the calls, tokens and cost the relay booked. A view has no outcome in the language, so the refusal is the daemon's {refused, message} answer: 404 `no such run` for a run id the daemon does not know, and 404 `not a delegation` for a run that no Delegate created."
+    source: sdc.daemon.Delegation
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: run_state, type: sdc.daemon.Run.State}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+      - {name: route, type: sdc.daemon.RouteName}
+      - {name: route_phase, type: Optional<String>}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>}
+      - {name: protocol, type: Optional<String>}
+      - {name: confidence, type: Optional<Json>}
+      - {name: classifier_route, type: Optional<String>}
+      - {name: protocol_digest, type: Optional<String>}
+      - {name: result_text, type: Optional<String>}
+      - {name: result_truncated, type: Boolean}
+      - {name: result_limit, type: Integer}
+      - {name: products, type: "List<String>"}
+      - {name: calls, type: Integer}
+      - {name: input_tokens, type: Integer}
+      - {name: output_tokens, type: Integer}
+      - {name: cost_micro_usd, type: Integer}
+      - {name: cost_known, type: Boolean}
+
   - name: sdc.daemon.Runs
     naming:
       wire: runs
@@ -1193,6 +1827,9 @@ views:
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
       - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>}
+      - {name: model_route_alias, type: Optional<String>}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1220,6 +1857,9 @@ views:
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
       - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>}
+      - {name: model_route_alias, type: Optional<String>}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1247,6 +1887,9 @@ views:
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
       - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>}
+      - {name: model_route_alias, type: Optional<String>}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1278,6 +1921,9 @@ views:
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
       - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>}
+      - {name: model_route_alias, type: Optional<String>}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1289,7 +1935,7 @@ views:
     naming:
       wire: run
       display: One run
-      summary: "One run with every field it was submitted with. The run's open decision requests are the view OpenDecisionsOfRun: GET /daemon/views/run and GET /daemon/views/open-decisions, each with run_id, answer the two. A view has one source entity, so the language cannot join them in one row."
+      summary: "One run with every field it was submitted with, and for a run a Delegate created the path it took, the protocol it runs and the classifier's confidence (the MCP tool read_run answers this row). The run's open decision requests are the view OpenDecisionsOfRun: GET /daemon/views/run and GET /daemon/views/open-decisions, each with run_id, answer the two. A view has one source entity, so the language cannot join them in one row."
     source: sdc.daemon.Run
     consistency: read_your_writes
     params:
@@ -1307,6 +1953,9 @@ views:
       - {name: confinement_source, type: Optional<sdc.daemon.ConfinementSource>}
       - {name: autonomy, type: Optional<sdc.decision.AutonomyLevel>}
       - {name: decider, type: Optional<sdc.daemon.DeciderKind>}
+      - {name: model_route, type: Optional<sdc.daemon.RouteName>}
+      - {name: model_route_alias, type: Optional<String>}
+      - {name: model_route_source, type: Optional<sdc.daemon.RouteSource>}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: submitted_at, type: Timestamp}
       - {name: started_at, type: Optional<Timestamp>}
@@ -1314,6 +1963,13 @@ views:
       - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
       - {name: failure, type: Optional<String>}
       - {name: step_in_flight, type: Optional<sdc.daemon.StepInFlight>}
+      - {name: model_routes, type: Optional<sdc.daemon.RoleRoutes>}
+      - {name: route_phase, type: Optional<String>}
+      - {name: path, type: Optional<sdc.daemon.DelegationPath>}
+      - {name: protocol, type: Optional<String>}
+      - {name: confidence, type: Optional<Json>}
+      - {name: classifier_route, type: Optional<String>}
+      - {name: protocol_digest, type: Optional<String>}
 
   - name: sdc.daemon.OpenDecisionsOfRun
     naming:

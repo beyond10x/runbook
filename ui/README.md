@@ -14,8 +14,9 @@ The page has two modes and its header names the mode. **watch**: this server ser
 reads (no start form, no token field, `405` to every `POST`). **operate**: the daemon serves it
 (`runbook serve --ui`): the same page, plus "Start a run" (a runbook from the daemon's view
 `runbooks`, the intake, the confinement at or above the daemon's floor; `daemon/start.js`) and the
-answer to a decision (`daemon/decide.js`). Both files are in `daemon/`, which this server does not
-serve.
+answer to a decision (`daemon/decide.js`), and "Routes", the daemon's model routes with alias, kind,
+gateway, status and phase (`daemon/routes.js`; the header of a run on a route names the route, its kind
+and its status). These files are in `daemon/`, which this server does not serve.
 
 ## Start
 
@@ -436,11 +437,12 @@ is compared by time:
   does not keep them apart. The blob of a run of `runbook run` is found through Loom's own run log
   (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
   projected events do not carry the digest.
-- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The daemon's API has no
-  view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
+- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The tab lists the files of the
+  run's `work/` directory (the daemon's views `products` and `product`) and says that the daemon serves no evidence
+  records and no action output of a case; the line counts the files (`docs/daemon-api.md`, "The web UI").
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
-`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/step-products-bounds.spec.mjs`,
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/daemon-run-tree.spec.mjs`, `test/daemon-run-tree-security.spec.mjs`, `test/step-products-bounds.spec.mjs`,
 `test/written-model.spec.mjs`, `test/written-api.spec.mjs`, `test/written-page.spec.mjs`,
 `test/markdown-bounds.spec.mjs` and the reviewer's `test/security-products-*.spec.mjs`.
 
@@ -506,7 +508,10 @@ answered and no control that acts; its last test holds the mode: the page says "
 start form and no token field, sends no command, and a `POST` of the start command is `405`.
 `test/daemon-start.spec.mjs` is the other mode: four daemons (stub runtime with a runbook directory,
 the same with a token and a floor of `local`, one whose runbook goes away, one on the Loom runtime)
-and the page that starts a run. `test/view-race.spec.mjs` holds two sources with two views on one
+and the page that starts a run. `test/daemon-routes.spec.mjs` runs a daemon with two routes on a
+stand-in gateway on loopback (one managed and starting, one hosted and ready): the header names each run's
+route, the Routes view lists both, and with it open a daemon that refuses every request is asked at most 4
+times a second. `test/view-race.spec.mjs` holds two sources with two views on one
 server and checks that concurrent requests each keep their own view. `test/paths.spec.mjs` fails
 when a file git would commit under `ui/` or any page or API answer names an absolute home path;
 `test/paths-served.spec.mjs` checks the same on a served copy of the committed fixture. The server

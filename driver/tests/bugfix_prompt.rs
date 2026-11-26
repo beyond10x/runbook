@@ -202,10 +202,10 @@ const AGENT_NODES: [&str; 14] = [
 
 /// The goldens that `sdc_node.rs` compares in its own cases (a ticket, no gate, feedback, the review
 /// on a coverage document, the implementer sent back or asked again, ...).
-const VARIANT_GOLDENS: [&str; 11] = [
+const VARIANT_GOLDENS: [&str; 13] = [
     "change.fix.ticket", "test.reproduce.ticket", "change.fix.no-gate", "change.fix.feedback", "change.review.coverage",
     "change.review.facts", "change.review.retry", "change.implement.coverage", "change.implement.rework",
-    "change.implement.rework-coverage", "change.implement.coverage-retry",
+    "change.implement.rework-coverage", "change.implement.coverage-retry", "delegation.free", "delegation.step",
 ];
 
 /// Each agent node's prompt, written by the program `sdc-node` under Loom (one start per node, on
@@ -286,6 +286,7 @@ fn every_instruction_file_is_reached_by_a_golden() {
         "feedback",
         "requester-request",
         "node-log",
+        "delegation",
     ] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());

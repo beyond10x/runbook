@@ -5,13 +5,16 @@
 pub mod announce;
 pub mod arbiter;
 pub mod calls;
+mod classify;
 pub mod copy;
 mod decision;
 mod gate;
 mod hide;
 pub mod layout;
 pub mod pin;
+pub mod products;
 pub mod refusal;
+pub mod route;
 pub mod shape;
 mod tail;
 
@@ -19,7 +22,7 @@ pub use decision::Parsed;
 pub use gate::WallClock;
 
 use crate::caps::{CapPolicy, Caps, Usage};
-use crate::runtime::{AnswerFailure, Autonomy, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, Autonomy, CaseRow, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
@@ -42,6 +45,10 @@ pub const STORE_DIR: &str = "tree";
 pub const PINNED_EVENT: &str = "runbook.pinned";
 
 const POLL: Duration = Duration::from_millis(20);
+/// How long the end of a run waits for its model calls still in flight before it records them as unfinished.
+const ROUTE_DRAIN: Duration = Duration::from_secs(5);
+/// The most characters of a runbook's description the catalog answers.
+const DESCRIPTION_CHARS: usize = 2000;
 
 /// What a run's store on disk is, as a restarted daemon finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +118,16 @@ pub struct Engine {
     arbiter: Option<Arc<dyn Arbiter>>,
     /// What the wall caps of its runs are held against: the host's clock unless a test gave another.
     wall: WallClock,
+    /// The daemon's relay; none: no run is on a route. The route table of a run is its own, resolved by the daemon at
+    /// the submit (`StartRequest::routes`).
+    relay: Option<Arc<crate::relay::Relay>>,
+    /// The daemon's classifier route (`[route_policy] classifier`), the route of a delegation's classify and build calls
+    /// (`classify`); none: the engine classifies no delegation.
+    classifier: Option<crate::relay::ResolvedRoute>,
+    /// The confidence at or above which the runbook the classifier picked runs (`[delegation] classify_threshold`).
+    classify_threshold: f64,
+    /// The home of the free run of a delegation (`crate::delegation::install`); none: the engine runs no free run.
+    free_home: Option<PathBuf>,
 }
 
 struct Registered<'a> {
@@ -145,13 +162,42 @@ impl Engine {
     pub fn with_levels(home: PathBuf, state_dir: PathBuf, levels: &[Confinement], caps: CapPolicy) -> Engine {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let absolute = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
-        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default() }
+        Engine { homes: vec![absolute(home)], state_dir: absolute(state_dir), levels: levels.to_vec(), caps, runs: Mutex::new(HashMap::new()), rounds: AtomicU64::new(0), epoch, arbiter: None, wall: WallClock::default(), relay: None, classifier: None, classify_threshold: crate::delegation::CLASSIFY_THRESHOLD, free_home: None }
+    }
+
+    /// The home of the free run of a delegation (`crate::delegation::install`): a run of the runbook `delegation-free` on a route
+    /// is read from there, never from the configured homes.
+    pub fn with_free_run(mut self, home: PathBuf) -> Engine {
+        self.free_home = Some(std::path::absolute(&home).unwrap_or(home));
+        self
     }
 
     /// The deciders that answer the waits of the runs that have an autonomy level and a decider kind
     /// (`arbiter.rs`). Without one, a run that asks for a kind is refused when it starts.
     pub fn with_arbiter(mut self, arbiter: Arc<dyn Arbiter>) -> Engine {
         self.arbiter = Some(arbiter);
+        self
+    }
+
+    /// The daemon's relay: a run that comes with a route table
+    /// (`StartRequest::routes`) is taken onto it, its model processes reach their model through it and the run's route
+    /// file (`engine::route`), and its model calls are taken and booked there.
+    pub fn with_relay(mut self, relay: Arc<crate::relay::Relay>) -> Engine {
+        self.relay = Some(relay);
+        self
+    }
+
+    /// The daemon's classifier route: a delegation that names no protocol is classified on it through the relay
+    /// (`with_relay`) when its run starts.
+    pub fn with_classifier(mut self, route: crate::relay::ResolvedRoute) -> Engine {
+        self.classifier = Some(route);
+        self
+    }
+
+    /// The confidence at or above which a classified delegation runs the runbook the classifier picked (`[delegation]
+    /// classify_threshold` of `runbook.toml`, 0 to 1; without it [`crate::delegation::CLASSIFY_THRESHOLD`]).
+    pub fn with_classify_threshold(mut self, threshold: f64) -> Engine {
+        self.classify_threshold = threshold;
         self
     }
 
@@ -213,35 +259,93 @@ impl Engine {
             )));
         }
         let caps = self.caps.resolve(&request.settings).map_err(failure)?;
-        let home = layout::home_of(&self.homes, &request.runbook).map_err(failure)?;
-        let in_home = layout::resolve(&home, &request.runbook, request.version.as_deref()).map_err(failure)?;
-        let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
+        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
+        let meter = Arc::new(Meter::on(before, self.wall.clone()));
+        *lock(&slot.meter) = Some(meter.clone());
+        // A delegation the daemon classifies takes its path now: the runbook the classifier picked, or a generated protocol
+        // (`classify`). Its ledger stays the one of the runbook it was submitted under.
+        let taken = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK && self.classifies() {
+            // the cancel is asked before every classify, retry and build call; a run cancelled meanwhile ends Cancelled
+            match classify::resolve(self, request, sink, caps, &workspace, &meter, &|| Self::cancelled(cancel, slot)) {
+                Ok(taken) => Some(taken),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            }
+        } else {
+            None
+        };
+        // a cancel that came while the classifier answered: nothing of the run is opened
+        if taken.is_some() && Self::cancelled(cancel, slot) {
+            return Ok(Finish::Cancelled);
+        }
+        // The runbook the classifier picked brings its route entries: the daemon admits them as for a delegation that names
+        // it, now, before the runbook's first model call, and its routes pass the readiness check of a run's; a refusal
+        // ends the start with the words of that delegation's (`route-refused: ...`, `route-unavailable: ...`).
+        let admitted = match (&taken, &request.admit) {
+            (Some(t), Some(admit)) if !t.whole_text => match (admit.0)(&t.runbook) {
+                Ok(table) => Some(table),
+                Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
+                Err(why) => return Err(failure(why)),
+            },
+            _ => None,
+        };
+        let routes = admitted.as_ref().or(request.routes.as_ref());
+        let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
+        let generated = taken.as_ref().is_some_and(|t| t.generated);
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
+        let home = match (&taken, &self.free_home, &request.model_route) {
+            (Some(t), _, _) => t.home.clone(),
+            (None, Some(free), Some(_)) if free_run => free.clone(),
+            _ => layout::home_of(&self.homes, runbook).map_err(failure)?,
+        };
+        let in_home = layout::resolve(&home, runbook, request.version.as_deref()).map_err(failure)?;
+        let mut runner = calls::runner(request.confinement).map_err(failure)?;
         // The run takes its runbook now: it reads the copy in its own directory until it ends.
         let (resolved, pin) = if resume {
             let pin = Pin::load(&request.state_dir).map_err(failure)?;
             (in_home, pin)
         } else {
-            let (pin, copied) = Pin::take(&home, &request.state_dir, &request.runbook, request.version.as_deref()).map_err(failure)?;
+            let (pin, copied) = Pin::take(&home, &request.state_dir, runbook, request.version.as_deref()).map_err(failure)?;
             (copied, Some(pin))
         };
         let pinned = pin.as_ref();
         // What each program reserves, from the bindings the run reads (the copy's members are kept
         // beside it, `budget::seal`); a runbook whose programs could call a model with no budget
         // anywhere is refused here.
-        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{}.yaml", request.runbook)));
+        let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{runbook}.yaml")));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
+        // Whether each action runs an agent node and its timeout: the words of the end of a run whose step failed.
+        let programs = crate::budget::action_programs(&read_bindings);
+        let terms = &request.terms;
+        // A run is on the route the daemon resolved for it at the submit (a model decider, a bound program or an agent
+        // node of its runbook, or a delegation): the run's place on the relay and its route file, whose path every bound
+        // program and the decider get (`engine::route`). It goes when the run ends. A run with a route table and no relay
+        // to take it does not start: it would reach no model. A run with no route table gets no route file.
+        let route = match (&self.relay, routes) {
+            (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
+            (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
+            (_, None) => None,
+        };
+        if let Some(r) = &route {
+            runner = route::RouteEnv::wrap(runner, r.file());
+        }
         // Every program the runner starts is told to the sink before it starts: the daemon records the step in
         // flight. The actions are read from the bindings the run reads, those of its own copy.
         let runner: Arc<dyn b10x_loom_tree::TestRunner> = match (sink.steps(), resolved.bindings.parent()) {
-            (Some(target), Some(dir)) => Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf())),
+            (Some(target), Some(dir)) => {
+                let target = match &route {
+                    Some(r) => route::StepNote::wrap(target, r.step.clone()),
+                    None => target,
+                };
+                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()))
+            }
             _ => runner,
         };
         // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
         // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
-        let terms = &request.terms;
         let mut judge: Option<Box<dyn RunArbiter>> = None;
         let mut tree_bindings = resolved.bindings.clone();
         if let (Some(level), Some(kind)) = (terms.autonomy, terms.decider.as_deref()) {
@@ -251,7 +355,7 @@ impl Engine {
                     return Err(failure(format!("the decider kind {kind} is not configured in this engine")));
                 }
                 let opened = arbiter
-                    .open(&ArbiterOpening { run_dir: &request.state_dir, workspace: &workspace, bindings: &resolved.bindings, terms, resume })
+                    .open(&ArbiterOpening { run_dir: &request.state_dir, workspace: &workspace, bindings: &resolved.bindings, terms, resume, route_file: route.as_ref().map(route::RunRoute::file) })
                     .map_err(failure)?;
                 tree_bindings = opened.bindings;
                 judge = Some(opened.judge);
@@ -282,11 +386,15 @@ impl Engine {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
                     }
-                    std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| format!("{}: {e}", path.display()))?;
+                    // the free run's agent node reads the request whole, never a member of it, and so does a generated protocol's
+                    let whole = free_run || taken.as_ref().is_some_and(|t| t.whole_text);
+                    let document = if whole { layout::text_document(&request.intake) } else { layout::idea_document(&request.intake) };
+                    std::fs::write(path, document).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
                 Ok(())
             })
-            .map_err(failure)?;
+            // a generated protocol's tree is opened by the loader of a runbook: what it refuses is the protocol's refusal
+            .map_err(|e| failure(if generated { format!("protocol-refused: {e}") } else { e }))?;
         }
         let catalog = calls::catalog(&store).map_err(failure)?;
 
@@ -302,10 +410,15 @@ impl Engine {
             tail.sync_all().map_err(failure)?;
         }
 
-        let before = if resume { gate::read_usage(&request.state_dir).unwrap_or_default() } else { Usage::default() };
-        let meter = Arc::new(Meter::on(before, self.wall.clone()));
-        *lock(&slot.meter) = Some(meter.clone());
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
+        if let Some(r) = &route {
+            let booking = gate.route(r.step.clone());
+            gate.name_route_roles(r.roles.clone());
+            if let Some(j) = &judge {
+                booking.set_max_call(j.max_call_micro_usd());
+            }
+            r.ticket.take_calls(booking);
+        }
         gate.persist();
 
         // The run's own flag: the daemon's cancel or the wall cap sets it, and it ends a step that sleeps.
@@ -327,12 +440,28 @@ impl Engine {
                 }
             });
             let asking = Asking { workspace: workspace.clone(), bindings: resolved.bindings.parent().map(Path::to_path_buf) };
-            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking);
+            let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking, &programs);
             done.store(true, Ordering::SeqCst);
             result
         });
+        // The run's token is void and its route file gone before the last calls are recorded; a call still in flight
+        // is waited for a while, and one that outlasts that is said in the run's record.
+        drop(route);
+        gate.close_route(sink, ROUTE_DRAIN);
         gate.persist();
         result
+    }
+
+    /// The run's end follows the step of the failed calls that fail no step on their own (`failed_calls`,
+    /// [`Gate::take_failed`]), each by its own step: the step of `case` whose program failed ends the run with its own first
+    /// failed call as its cause; a step that went on is noted in the run's record and the run goes on.
+    fn settle_failed(store: &Path, case: &str, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
+        if failed_calls.is_empty() {
+            return Ok(());
+        }
+        let failing = refusal::failed_step(store, case, |_| true).map(|s| s.action);
+        let failed = |step: &str| failing.as_deref() == Some(step);
+        Gate::settle_failed(failed_calls, failed, sink).map_err(failure)
     }
 
     /// Whether the daemon cancelled the run (the wall cap sets the run's own flag, not this).
@@ -369,6 +498,7 @@ impl Engine {
         gate: &mut Gate,
         judge: &mut Option<Box<dyn RunArbiter>>,
         asking: &Asking,
+        programs: &std::collections::BTreeMap<String, crate::budget::ActionProgram>,
     ) -> Result<Finish, RuntimeFailure> {
         // The programs of the steps and those the answers of a wait start go through the gate's runner,
         // which reserves the budget of each before it starts; each is booked after.
@@ -397,8 +527,10 @@ impl Engine {
                 calls::run(store, catalog, &settings, Some(&mut observer), Some(local))
             };
             let booked = gate.book(sink);
+            let failed_calls = gate.take_failed();
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
+            Self::settle_failed(store, &ran.case, &failed_calls, sink)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
@@ -424,6 +556,26 @@ impl Engine {
                 }
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
+                    // A step whose program failed left the tree with nothing it can do: the run ends naming that step and
+                    // how its program ended (its exit, its signal, its timeout), not as a failure of the runtime. Every bound
+                    // program counts, an agent node or not: a refusal of its exit or its signal is a failed step too.
+                    if let Some(step) = refusal::failed_step(store, &ran.case, |_| true) {
+                        let timeout = programs.get(&step.action).and_then(|p| p.timeout_seconds).unwrap_or(b10x_loom_intake_slice::bindings::DEFAULT_TIMEOUT_SECONDS);
+                        let said = step.end.said(timeout);
+                        let outcome = format!("failed: step {} {said}", step.action);
+                        let reason = format!("the step {} failed: {}, and the tree has no other action to take (case {})", step.action, step.end.how(timeout), ran.case);
+                        let mut record = serde_json::json!({"case": ran.case, "action": step.action, "end": said, "reason": reason});
+                        match step.end {
+                            refusal::StepEnd::Exit(exit) => record["exit"] = exit.into(),
+                            refusal::StepEnd::Signal(signal) => {
+                                record["signal"] = signal.into();
+                                record["exit"] = (128 + signal).into();
+                            }
+                            refusal::StepEnd::TimedOut => record["timeout_seconds"] = timeout.into(),
+                            refusal::StepEnd::NoExit => {}
+                        }
+                        return Ok(Finish::StepFailed { outcome, record });
+                    }
                     return Err(failure(match refusal::program_refused(store) {
                         Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
                         None => match refusal::stuck_on(store) {
@@ -540,6 +692,8 @@ impl Engine {
                 }
             }
         }
+        // The calls of a judge that left a request open are in the run's record before the run waits.
+        gate.record_calls(sink);
         while !wait.unanswered.is_empty() {
             let Some(answered) = next_answer(slot, cancel) else { return Ok(RoundEnd::Halted) };
             lock(&slot.state).open.remove(&answered.request_id);
@@ -607,11 +761,13 @@ impl Wait<'_> {
             let applied = parsed_answer(planned, answer).and_then(|parsed| calls::apply(self.store, self.catalog, d, &parsed, principal, self.runner));
             (applied, gate.book(self.sink))
         };
+        let failed_calls = gate.take_failed();
         tail.sync_all().map_err(failure)?;
         if let Some(f) = tail.failure.take() {
             return Err(failure(f));
         }
         booked.map_err(failure)?;
+        Engine::settle_failed(self.store, &d.case, &failed_calls, self.sink)?;
         if let Some(end) = Engine::stop_of(gate, self.daemon_cancel, self.slot, self.sink) {
             return end.map(Some);
         }
@@ -725,13 +881,69 @@ impl Runtime for Engine {
         "loom"
     }
 
+    /// The root protocol's title and description, `idea` when the root bindings place it, and the route entries file
+    /// `bindings/<runbook>.routes.yaml` beside the bindings, of the home `layout::resolve_in` finds the runbook in.
+    fn runbook_facts(&self, runbook: &str) -> crate::runtime::RunbookFacts {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, None) else { return Default::default() };
+        let doc: serde_yaml::Value = std::fs::read_to_string(resolved.protocol_dir.join(format!("{runbook}.protocol.yaml"))).ok().and_then(|t| serde_yaml::from_str(&t).ok()).unwrap_or_default();
+        let title = Some(crate::runbooks::title_of(&doc)).filter(|t| !t.is_empty());
+        let description = doc["protocol"]["description"].as_str().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.chars().take(DESCRIPTION_CHARS).collect());
+        let inputs = match layout::idea_path(&resolved.bindings) {
+            Ok(Some(_)) => vec!["idea".to_owned()],
+            _ => Vec::new(),
+        };
+        let routes_file = self.routes_file(runbook, None);
+        crate::runtime::RunbookFacts { title, description, inputs, routes_file }
+    }
+
+    /// `bindings/<runbook>.routes.yaml` beside the bindings of the home `layout::resolve_in` finds the runbook (and version) in.
+    fn routes_file(&self, runbook: &str, version: Option<&str>) -> Option<Result<String, String>> {
+        let resolved = layout::resolve_in(&self.homes, runbook, version).ok()?;
+        crate::admission::read(&resolved.bindings.with_file_name(format!("{runbook}.routes.yaml")), runbook)
+    }
+
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
         self.caps.resolve(settings).map(Some)
+    }
+
+    /// A program of the bindings the run would read, the root's or a child's (`budget::runbook_budgets`); a runbook whose
+    /// bindings cannot be read is taken to run one (its run is refused at load all the same).
+    fn runs_programs(&self, runbook: &str, version: Option<&str>) -> bool {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, version) else { return false };
+        crate::budget::runbook_budgets(&resolved.bindings).map_or(true, |b| !b.programs.is_empty())
+    }
+
+    fn serves_routes(&self) -> bool {
+        self.relay.as_ref().is_some_and(|relay| relay.serves())
     }
 
     fn check_runbook(&self, runbook: &str, version: Option<&str>) -> Result<(), String> {
         let resolved = layout::resolve_in(&self.homes, runbook, version)?;
         crate::budget::reserve_for_unnamed(&resolved.bindings).map(|_| ())
+    }
+
+    /// Loom's tree status of the run's store (`calls::status`): Loom reads the store without its lock, so the tree
+    /// answers while the run goes on. A run whose store has no manifest yet has no case.
+    fn cases(&self, run_id: &str) -> Result<Vec<CaseRow>, String> {
+        let store = std::path::absolute(self.store_of(run_id)).map_err(|e| e.to_string())?;
+        if !store.join(MANIFEST).is_file() {
+            return Ok(Vec::new());
+        }
+        let catalog = calls::catalog(&store)?;
+        let status = calls::status(&store, &catalog)?;
+        Ok(status
+            .cases
+            .into_iter()
+            .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
+            .collect())
+    }
+
+    fn free_run(&self) -> bool {
+        self.free_home.is_some()
+    }
+
+    fn classifies(&self) -> bool {
+        self.relay.is_some() && self.classifier.is_some()
     }
 
     fn usage(&self, run_id: &str) -> Option<Usage> {

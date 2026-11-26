@@ -14,10 +14,16 @@ pub fn read(path: &Path) -> Result<Value, String> {
 }
 
 /// The settings a run reads: the `--settings` file when one is named, over the members `runbook.toml`
-/// carries (a member of the file replaces the default's whole). With neither, an empty table.
-pub fn merged(args: &crate::loom_run::Args) -> Result<Value, String> {
+/// carries (a member of the file replaces the default's whole); with neither, an empty table. And the keys the
+/// `--settings` file itself names (`login_file` also for the old spelling
+/// `loom.login_file`): what the settings name, apart from what `runbook.toml` gives (`route.rs` tells the two).
+pub fn merged_and_own(args: &crate::loom_run::Args) -> Result<(Value, Vec<String>), String> {
     let over = args.settings.as_deref().map(read).transpose()?;
-    Ok(crate::config::merge(&args.defaults, over.as_ref()))
+    let mut own: Vec<String> = over.as_ref().and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    if over.as_ref().and_then(|o| o.get("loom")).and_then(|l| l.get(LOGIN_KEY)).is_some() {
+        own.push(LOGIN_KEY.to_owned());
+    }
+    Ok((crate::config::merge(&args.defaults, over.as_ref()), own))
 }
 
 /// The settings of a TOML text as the JSON value the loop, the decider and the bindings copy read:
@@ -342,6 +348,8 @@ mod tests {
             max_wall_seconds: 3600,
             ports: Default::default(),
             config: None,
+            model_route: None,
+            routes: Default::default(),
         }
     }
 

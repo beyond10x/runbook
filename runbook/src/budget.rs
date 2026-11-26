@@ -422,6 +422,31 @@ pub fn runbook_budgets(root: &Path) -> Result<RunbookBudgets, String> {
     Ok(out)
 }
 
+/// The program of an action as its binding names it, for the end of a run whose step failed: whether it is an agent
+/// node (`executor.argv` runs `sdc-node`, [`crate::delegation::AGENT_NODE`]) and its `timeout_seconds`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionProgram {
+    pub agent_node: bool,
+    pub timeout_seconds: Option<i64>,
+}
+
+/// The programs of the actions of the bindings `root` names, the root's and each child file's, by action; the first
+/// binding of an action wins. A file that cannot be read adds nothing.
+pub fn action_programs(root: &Path) -> BTreeMap<String, ActionProgram> {
+    let mut out = BTreeMap::new();
+    let _ = walk(root, Reading::Path, |_, _, doc| {
+        for a in actions(doc) {
+            let first = a.get("executor").and_then(|e| e.get("argv")).and_then(Value::as_sequence).and_then(|argv| argv.first()).and_then(Value::as_str);
+            let Some(first) = first else { continue };
+            let agent_node = Path::new(first).file_name().is_some_and(|name| name == crate::delegation::AGENT_NODE[0]);
+            let timeout_seconds = a.get("timeout_seconds").and_then(Value::as_i64);
+            out.entry(action_name(a).to_owned()).or_insert(ActionProgram { agent_node, timeout_seconds });
+        }
+        Ok(())
+    });
+    out
+}
+
 /// What each program of a daemon run reserves as it starts.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Reserves {

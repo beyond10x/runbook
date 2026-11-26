@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunProducts.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunProducts.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ab9ea4dc68b5913cf6bc609adc62b4800ed99ee06d3bde22798a2bc315de6c37",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunProducts.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunProducts.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Listed"
+      ]
+    }
+  }
+}

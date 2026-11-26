@@ -80,6 +80,7 @@ impl Setup {
             "intake-too-large" => req.intake = "a".repeat(MAX_INTAKE_BYTES + 1),
             "no-runbook" => req.runbook_id = "nothing".into(),
             "context-outside-roots" => req.context_path = Some(self.fx.dir.to_string_lossy().into_owned()),
+            "route-refused" => req.model_route = Some("no-such-route".into()),
             "no-daemon" => *daemon = "another-daemon".into(),
             "no-session" => req.session_id = Some("none".into()),
             "below-floor" => req.confinement = Some(Confinement::Local),
@@ -106,7 +107,7 @@ fn every_pair_of_conditions_of_submit_run_answers_the_earlier_declared_outcome()
     let order = declared_submit_order();
     assert_eq!(
         order,
-        ["intake-too-large", "no-runbook", "context-outside-roots", "no-daemon", "no-session", "below-floor", "session-closed", "already-submitted", "submitted"]
+        ["intake-too-large", "no-runbook", "context-outside-roots", "route-refused", "no-daemon", "no-session", "below-floor", "session-closed", "already-submitted", "submitted"]
     );
     // alone
     let mut report = vec![];

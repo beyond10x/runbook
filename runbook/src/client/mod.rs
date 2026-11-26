@@ -1,4 +1,5 @@
-//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`.
+//! The CLI as a client of the daemon: `runbook run --detach`, `runbook runs ...`, `runbook decide`, `runbook delegate`,
+//! `runbook catalog`.
 //!
 //! Each command is one call of a route of the daemon (`api`), with the input types of the server's own
 //! routes, and prints what the route returns: text lines by default, the route's JSON with `--json`.
@@ -16,7 +17,7 @@ pub mod http;
 pub mod sse;
 pub mod url;
 
-use crate::commands::{AnswerDecision, CancelRun, SubmitRun, MAX_INTAKE_BYTES};
+use crate::commands::{AnswerDecision, CancelRun, Delegate, SubmitRun, MAX_INTAKE_BYTES};
 use api::Api;
 use clap::{Args, Subcommand};
 use exit::Failure;
@@ -54,6 +55,9 @@ pub struct RunArgs {
     /// A setting of the run, `KEY=VALUE`; repeatable, each key once. With `--detach` it goes to the daemon; in process it is a condition of the replay (`--recorded`).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
+    /// The model route of the run, by the name `runbook.toml` (`[routes.<name>]`) or the daemon declares; without it the route policy's default. In process, a route that cannot answer now is refused.
+    #[arg(long = "model-route", value_name = "NAME")]
+    pub model_route: Option<String>,
     /// Submit the run to the daemon, print its id and return at once.
     #[arg(long)]
     pub detach: bool,
@@ -127,8 +131,53 @@ pub struct DecideArgs {
     pub remote: Remote,
 }
 
+#[derive(Args, Debug)]
+pub struct DelegateArgs {
+    /// The request: a file holding the work asked for, as text, or `-` for standard input.
+    #[arg(value_name = "REQUEST_FILE|-")]
+    pub request: String,
+    /// The model route of the run, by the name the daemon declares it under.
+    #[arg(long, value_name = "ROUTE")]
+    pub route: Option<String>,
+    /// The runbook to run with the request as its intake; without one the daemon's free run does the work.
+    #[arg(long, value_name = "RUNBOOK")]
+    pub protocol: Option<String>,
+    /// A directory the daemon copies into the run's workspace; it must lie under one of the daemon's context roots.
+    #[arg(long, value_name = "DIR")]
+    pub workspace: Option<PathBuf>,
+    /// A setting of the run, `KEY=VALUE`; repeatable, each key once.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    pub set: Vec<String>,
+    /// Print what the route returns as JSON.
+    #[arg(long)]
+    pub json: bool,
+    #[command(flatten)]
+    pub remote: Remote,
+}
+
+#[derive(Args, Debug)]
+pub struct CatalogArgs {
+    /// Print what the route returns as JSON.
+    #[arg(long)]
+    pub json: bool,
+    #[command(flatten)]
+    pub remote: Remote,
+}
+
+/// `runbook catalog`: one call of `GET /daemon/views/catalog`; prints a line per route, per runbook (with the refusal of
+/// one whose route entries cannot be admitted) and of the delegation's terms.
+pub fn catalog(args: CatalogArgs) -> ExitCode {
+    done("catalog", catalog_print(args))
+}
+
 pub fn run(args: RunArgs) -> ExitCode {
     done("run", run_detached(args))
+}
+
+/// `runbook delegate`: one call of `POST /daemon/commands/delegate`; prints the run's id (read its result with
+/// `GET /daemon/views/delegation-result`).
+pub fn delegate(args: DelegateArgs) -> ExitCode {
+    done("delegate", delegate_run(args))
 }
 
 pub fn runs(cmd: RunsCmd) -> ExitCode {
@@ -215,9 +264,9 @@ fn run_detached(args: RunArgs) -> Result<(), Failure> {
     let intake = read_intake(&args.intake)?;
     let context_path = match &args.context {
         None => None,
-        Some(dir) => Some(absolute_dir(dir)?),
+        Some(dir) => Some(absolute_dir("--context", dir)?),
     };
-    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, ..SubmitRun::default() };
+    let input = SubmitRun { runbook_id: args.runbook, intake, context_path, settings, model_route: args.model_route, ..SubmitRun::default() };
     let reply = api.command("submit-run", &input)?;
     if args.json {
         return say(&format!("{}\n", reply.body.trim_end()));
@@ -238,23 +287,98 @@ fn settings_of(set: &[String]) -> Result<BTreeMap<String, String>, Failure> {
 }
 
 pub fn read_intake(source: &str) -> Result<String, Failure> {
+    read_text("--intake", "the intake", source)
+}
+
+/// The text of a file, or of standard input for `-`, at most `MAX_INTAKE_BYTES`: `flag` and `what` name it in a failure.
+fn read_text(flag: &str, what: &str, source: &str) -> Result<String, Failure> {
     let mut bytes = Vec::new();
     let limit = MAX_INTAKE_BYTES as u64 + 1;
     let read = if source == "-" { io::stdin().lock().take(limit).read_to_end(&mut bytes) } else { std::fs::File::open(source).and_then(|f| f.take(limit).read_to_end(&mut bytes)) };
-    read.map_err(|e| Failure::new(exit::NOT_FOUND, format!("--intake {source}: {e}")))?;
+    read.map_err(|e| Failure::new(exit::NOT_FOUND, format!("{flag} {source}: {e}")))?;
     if bytes.len() > MAX_INTAKE_BYTES {
-        return Err(Failure::new(exit::REFUSED, format!("IntakeTooLarge: the intake is over {MAX_INTAKE_BYTES} bytes")));
+        return Err(Failure::new(exit::REFUSED, format!("IntakeTooLarge: {what} is over {MAX_INTAKE_BYTES} bytes")));
     }
-    String::from_utf8(bytes).map_err(|_| Failure::new(exit::REFUSED, "the intake is not UTF-8 text"))
+    String::from_utf8(bytes).map_err(|_| Failure::new(exit::REFUSED, format!("{what} is not UTF-8 text")))
 }
 
-fn absolute_dir(dir: &Path) -> Result<String, Failure> {
-    let missing = |why: String| Failure::new(exit::NOT_FOUND, format!("--context {}: {why}", dir.display()));
+fn absolute_dir(flag: &str, dir: &Path) -> Result<String, Failure> {
+    let missing = |why: String| Failure::new(exit::NOT_FOUND, format!("{flag} {}: {why}", dir.display()));
     let full = std::fs::canonicalize(dir).map_err(|e| missing(e.to_string()))?;
     if !full.is_dir() {
         return Err(missing("not a directory".to_string()));
     }
-    full.to_str().map(String::from).ok_or_else(|| Failure::new(exit::REFUSED, "--context: the path is not UTF-8 text"))
+    full.to_str().map(String::from).ok_or_else(|| Failure::new(exit::REFUSED, format!("{flag}: the path is not UTF-8 text")))
+}
+
+// ---- delegate ----
+
+fn delegate_run(args: DelegateArgs) -> Result<(), Failure> {
+    let settings = settings_of(&args.set)?;
+    let api = connect(&args.remote)?;
+    let request = read_text("the request", "the request", &args.request)?;
+    let workspace = match &args.workspace {
+        None => None,
+        Some(dir) => Some(absolute_dir("--workspace", dir)?),
+    };
+    let input = Delegate { request, model_route: args.route, protocol: args.protocol, workspace, settings, ..Delegate::default() };
+    let reply = api.command("delegate", &input)?;
+    if args.json {
+        return say(&format!("{}\n", reply.body.trim_end()));
+    }
+    let run_id = run_id_of(&reply).ok_or_else(|| Failure::new(exit::OTHER, "the answer of delegate names no run"))?;
+    say(&format!("{run_id}\n"))
+}
+
+// ---- catalog ----
+
+fn catalog_print(args: CatalogArgs) -> Result<(), Failure> {
+    let reply = connect(&args.remote)?.view("catalog", &[])?;
+    if args.json {
+        return say(&format!("{}\n", reply.body.trim_end()));
+    }
+    let rows = Api::rows(&reply)?;
+    let row = rows.first().ok_or_else(|| Failure::new(exit::OTHER, "the view catalog answered no row"))?;
+    say(&catalog_text(row))
+}
+
+/// The text of a row of the view `catalog`: a line per route, per runbook and per route entry that is not admitted, and one
+/// of the delegation's terms.
+fn catalog_text(row: &Value) -> String {
+    let list = |v: &Value| v.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".to_owned());
+    let mut text = String::new();
+    for r in row["routes"].as_array().into_iter().flatten() {
+        let mut line = format!("route {}  {}  alias {}  {}", field(r, "route"), field(r, "kind"), field(r, "alias"), field(r, "status"));
+        if let Some(p) = r["phase"].as_str() {
+            line.push_str(&format!(" ({p})"));
+        }
+        line.push_str(&format!("  wires {}", list(&r["wires"])));
+        if let Some(n) = r["max_model_len"].as_u64() {
+            line.push_str(&format!("  context {n}"));
+        }
+        match (r["price_in_micro_usd_per_mtok"].as_u64(), r["price_out_micro_usd_per_mtok"].as_u64()) {
+            (None, None) => line.push_str("  no price"),
+            (i, o) => line.push_str(&format!("  micro USD per Mtok in {} out {}", i.map_or("-".to_owned(), |n| n.to_string()), o.map_or("-".to_owned(), |n| n.to_string()))),
+        }
+        text.push_str(&format!("{line}\n"));
+    }
+    for b in row["runbooks"].as_array().into_iter().flatten() {
+        let state = if b["admitted"] == Value::Bool(true) { "admitted".to_owned() } else { format!("refused: {}", field(b, "refusal")) };
+        text.push_str(&format!("runbook {}  {}  inputs {}  {state}\n", field(b, "runbook_id"), field(b, "title"), list(&b["inputs"])));
+        for e in b["route_entries"].as_array().into_iter().flatten().filter(|e| e["admitted"] == Value::Bool(true)) {
+            text.push_str(&format!("  role {}: route {}\n", field(e, "role"), field(e, "route")));
+        }
+    }
+    let d = &row["delegation"];
+    text.push_str(&format!(
+        "delegation  paths {}  default route {}  classifier route {}  confinement {}  request at most {} bytes\n",
+        list(&d["paths"]),
+        field(d, "default_route"),
+        field(d, "classifier_route"),
+        field(d, "confinement"),
+        d["request_limit"]
+    ));
+    text
 }
 
 /// The run a submit created: the `run_id` of the event it published, else the `Location` header.

@@ -16,6 +16,10 @@
 //! such a program and no budget anywhere is refused at load (`budget::reserves`). What a program
 //! costs is booked from the cost records after it, and the next step is refused once the cap is
 //! reached.
+//!
+//! A run on a route ([`Gate::route`]) books its model calls where they are relayed (`crate::relay`): each
+//! call is taken against the model calls and the spend of the run before it is sent ([`RelayBooking`]),
+//! and its line in the ledger is its cost; the cost records of the bound programs then book nothing.
 
 use crate::budget;
 use crate::caps::{Caps, Usage};
@@ -26,13 +30,50 @@ use b10x_loom_intake_slice::confinement::{Backend, ChildCommand, ConfinementErro
 use b10x_loom_intake_slice::executor::TestCommand;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// The file of a run's usage, in the run's own directory: what a restarted daemon and the view of an
 /// ended run read.
 pub const USAGE_FILE: &str = "caps-used.json";
+
+/// The kind of the run event that names the failed calls of a step whose program went on and did not fail
+/// ([`Gate::settle_failed`]).
+pub const FAILED_EVENT: &str = "runbook.model-calls-failed";
+
+/// The cause a failed call of a step gives the run's failure: `<cause>: route <route> (chosen by <source>) failed the
+/// call: <code>: <detail>` (`refused the call` for `call-refused`), read from the call's ledger line.
+fn failed_call_cause(line: &Value) -> String {
+    let text = |k: &str| line.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let cause = text("cause");
+    let verb = if cause == crate::relay::CALL_REFUSED { "refused" } else { "failed" };
+    format!("{cause}: route {} (chosen by {}) {verb} the call: {}: {}", text("route"), text("source"), text("code"), text("detail"))
+}
+
+/// The ledger lines of failed calls taken apart by their step, the steps in the order their first call was booked.
+fn by_step(lines: &[Value]) -> Vec<(String, Vec<&Value>)> {
+    let mut steps: Vec<(String, Vec<&Value>)> = Vec::new();
+    for line in lines {
+        let step = line.get("step").and_then(Value::as_str).unwrap_or("");
+        match steps.iter_mut().find(|(s, _)| s == step) {
+            Some((_, calls)) => calls.push(line),
+            None => steps.push((step.to_owned(), vec![line])),
+        }
+    }
+    steps
+}
+
+/// Records the event `runbook.model-calls-failed` that names the failed calls `calls` of the step `step`; `why` says
+/// why they did not end the run.
+fn record_failed(sink: &dyn EventSink, step: &str, calls: &[&Value], why: &str) {
+    let named: Vec<Value> = calls
+        .iter()
+        .map(|l| json!({"step": l.get("step"), "route": l.get("route"), "gateway_call": l.get("gateway_call"), "cause": l.get("cause"), "code": l.get("code"), "detail": l.get("detail"), "error": l.get("error")}))
+        .collect();
+    let detail = format!("{} model call(s) of the step {step} failed at the gateway; {why}", named.len());
+    sink.record(FAILED_EVENT, json!({"step": step, "calls": named, "detail": detail}));
+}
 
 /// The cap a run reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +256,130 @@ impl TestRunner for Reserving {
     }
 }
 
+/// What the relay of a run on a route asks of the run (`crate::relay::Booking`): each call is taken against the
+/// run's caps of model calls and spend before it is sent, and booked into the run's spend ledger when its answer
+/// has ended, at the cost the relay read; a call whose cost is not known books its reservation
+/// ([`crate::relay::Booking::reservation_micro_usd`], read as the call is admitted). The lines wait here until the run's thread records them as
+/// events of the run.
+pub struct RelayBooking {
+    held: Arc<Held>,
+    meter: Arc<Meter>,
+    max_calls: u64,
+    step: Arc<Mutex<Option<String>>>,
+    pending: Mutex<Vec<Value>>,
+    /// What fails the step in flight: the first call of it the ledger could not book, or the first whose route the
+    /// gateway refused or whose spend ceiling it reached (`crate::relay::stops_the_run`).
+    failed: Mutex<Option<String>>,
+    /// The lines of the other failed calls of a step (`call-refused`, `route-unavailable`), since [`Gate::take_failed`]
+    /// took them: they fail no step on their own, and the run ends as their step ends.
+    failed_calls: Mutex<Vec<Value>>,
+    /// What a call of the decider may cost (`max_call_micro_usd`); `u64::MAX` when it names no budget.
+    max_call: AtomicU64,
+    /// The calls taken and not yet booked.
+    in_flight: AtomicU64,
+    /// The calls of a step (their line names it) booked since the last step was booked ([`Gate::book`] takes the count).
+    booked: AtomicU64,
+    /// The calls taken while a step was in flight since the last step was booked ([`Gate::book`] takes the count): each
+    /// is booked by the relay when it ends, the step's own end before it or not.
+    taken: AtomicU64,
+    /// The run ended: what is booked now is no event of the run any more.
+    closed: AtomicBool,
+}
+
+/// `counter + n`, held at `u64::MAX`.
+fn saturating_add(counter: &AtomicU64, n: u64) {
+    let _ = counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_add(n)));
+}
+
+impl RelayBooking {
+    /// What a call of the decider may cost: the call of unknown cost outside a step books it.
+    pub fn set_max_call(&self, micro_usd: u64) {
+        self.max_call.store(micro_usd, Ordering::SeqCst);
+    }
+
+    /// The calls taken and not yet booked.
+    pub fn in_flight(&self) -> u64 {
+        self.in_flight.load(Ordering::SeqCst)
+    }
+}
+
+impl crate::relay::Booking for RelayBooking {
+    fn admit(&self) -> Result<(), String> {
+        let max = self.max_calls;
+        self.meter.calls.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < max).then_some(n + 1)).map_err(|n| format!("llm calls: {n} of {max} calls"))?;
+        let cap = self.held.cap_micro_usd;
+        let refused = match self.held.ledger.spent_by_run(&self.held.run_id) {
+            Ok(spent) if spent >= cap => Some(format!("spend cap: {spent} of {cap} micro USD spent")),
+            Ok(_) => None,
+            Err(why) => Some(format!("the spend ledger cannot be read: {why}")),
+        };
+        match refused {
+            Some(why) => {
+                self.meter.calls.fetch_sub(1, Ordering::SeqCst);
+                Err(why)
+            }
+            None => {
+                saturating_add(&self.in_flight, 1);
+                if lock(&self.step).is_some() {
+                    saturating_add(&self.taken, 1);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// In a step: the largest reservation the step holds. Otherwise (a call of the decider, or a step that holds
+    /// nothing): what a call of the decider may cost, at most what the run's spend cap has left
+    /// (`docs/model-routes.md`, section 5). The relay reads it as it admits a call, never when it books one.
+    fn reservation_micro_usd(&self) -> u64 {
+        let largest = lock(&self.held.reserved).iter().map(|r| r.micro_usd).max().unwrap_or(0);
+        if largest > 0 && lock(&self.step).is_some() {
+            return largest;
+        }
+        let left = self.held.cap_micro_usd.saturating_sub(self.held.ledger.spent_by_run(&self.held.run_id).unwrap_or(0));
+        self.max_call.load(Ordering::SeqCst).min(left)
+    }
+
+    fn step(&self) -> Option<String> {
+        lock(&self.step).clone()
+    }
+
+    fn book(&self, line: Value, micro_usd: u64) -> Result<(), String> {
+        let booked = self.held.ledger.book_line(&self.held.run_id, &line, micro_usd);
+        saturating_add(&self.meter.spent, micro_usd);
+        // a call of a step (a decider's call between steps names none) counts toward the step's booked calls
+        if line.get("step").is_some_and(Value::is_string) {
+            saturating_add(&self.booked, 1);
+        }
+        let _ = self.in_flight.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+        // a failed call of a step: one the gateway refused the route for (or its spend ceiling stopped) fails the step at
+        // once; any other is kept, and the run ends as its step ends
+        let failed_call = line.get("step").is_some_and(Value::is_string) && matches!(line.get("cause").and_then(Value::as_str), Some(crate::relay::ROUTE_UNAVAILABLE | crate::relay::CALL_REFUSED));
+        let stops = failed_call && crate::relay::stops_the_run(line.get("code").and_then(Value::as_str).unwrap_or(""));
+        let failure = match &booked {
+            Err(why) => Some(why.clone()),
+            Ok(()) if stops => Some(failed_call_cause(&line)),
+            Ok(()) => None,
+        };
+        if let Some(why) = failure {
+            lock(&self.failed).get_or_insert(why);
+        }
+        let mut pending = lock(&self.pending);
+        if self.closed.load(Ordering::SeqCst) {
+            // The run ended before this call did: its line is in the ledger, and no event of the run can take it.
+            eprintln!("runbook: run {}: a model call ended after the run had ended; its ledger line: {line}", self.held.run_id);
+        } else {
+            // kept under the lock of the pending lines: the run's close takes both at once (`Gate::close_route`)
+            if booked.is_ok() && failed_call && !stops {
+                lock(&self.failed_calls).push(line.clone());
+            }
+            pending.push(line);
+        }
+        drop(pending);
+        booked
+    }
+}
+
 pub struct Gate {
     pub caps: Caps,
     pub meter: Arc<Meter>,
@@ -222,6 +387,8 @@ pub struct Gate {
     run_dir: PathBuf,
     workspace: PathBuf,
     reader: CostReader,
+    /// The run is on a route: its model calls are taken and booked by the relay.
+    routed: Option<Arc<RelayBooking>>,
 }
 
 impl Gate {
@@ -243,7 +410,88 @@ impl Gate {
             let _ = reader.read_new(workspace);
         }
         let held = Arc::new(Held { ledger, run_id: run_id.to_owned(), cap_micro_usd: caps.cap_micro_usd, reserves, reserved: Mutex::new(Vec::new()), stopped: Mutex::new(None) });
-        Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader })
+        Ok(Gate { caps, meter, held, run_dir: run_dir.to_path_buf(), workspace: workspace.to_path_buf(), reader, routed: None })
+    }
+
+    /// The run is on a route: from now on its model calls are taken against its caps and booked by the relay through
+    /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
+    /// the step in flight.
+    pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), failed_calls: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        self.reader = std::mem::take(&mut self.reader).routed();
+        self.routed = Some(booking.clone());
+        booking
+    }
+
+    /// The failed calls of a step that fail no step on their own (a `4xx` the client may recover from, a `5xx`, a
+    /// connection that failed, an answer that broke off), booked since the last time, taken once: the run ends as their
+    /// step ends ([`Self::settle_failed`]).
+    pub fn take_failed(&self) -> Vec<Value> {
+        self.routed.as_ref().map(|b| std::mem::take(&mut *lock(&b.failed_calls))).unwrap_or_default()
+    }
+
+    /// The run's end follows the step of each of the calls `failed_calls` ([`Self::take_failed`]), taken apart by their
+    /// step (a call left in flight by an earlier step may be booked while a later one runs): the run's record names the
+    /// failed calls of each step that went on with one event `runbook.model-calls-failed`; when a step `failed` (its
+    /// program failed), its own first failed call is the run's first cause ([`failed_call_cause`]), never a call of
+    /// another step.
+    pub fn settle_failed(failed_calls: &[Value], failed: impl Fn(&str) -> bool, sink: &dyn EventSink) -> Result<(), String> {
+        let mut cause = None;
+        for (step, calls) in by_step(failed_calls) {
+            if failed(&step) {
+                cause.get_or_insert_with(|| failed_call_cause(calls[0]));
+            } else {
+                record_failed(sink, &step, &calls, "the step went on and its program did not fail");
+            }
+        }
+        cause.map_or(Ok(()), Err)
+    }
+
+    /// The role names of the run's route file: the reason of a model call that left no cost record names them when the
+    /// client did not know the model it asked for (`CostReader::with_route_roles`).
+    pub fn name_route_roles(&mut self, roles: Vec<String>) {
+        self.reader = std::mem::take(&mut self.reader).with_route_roles(roles);
+    }
+
+    /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`).
+    pub fn record_calls(&self, sink: &dyn EventSink) {
+        if let Some(booking) = &self.routed {
+            for line in std::mem::take(&mut *lock(&booking.pending)) {
+                sink.record(crate::relay::MODEL_CALL_EVENT, line);
+            }
+        }
+    }
+
+    /// The run has ended and its token is void: waits up to `wait` for the calls still in flight (their callers
+    /// were ended with the run, the gateway still answers them), records every booked call as an event of the run,
+    /// and records `runbook.model-calls-unfinished` when calls are still in flight then. Such a call is booked in the
+    /// ledger when it ends and said on the daemon's stderr. A failed call that ended after its step was booked is
+    /// named in the run's record with one event `runbook.model-calls-failed` for its step.
+    pub fn close_route(&self, sink: &dyn EventSink, wait: std::time::Duration) {
+        let Some(booking) = &self.routed else { return };
+        let until = Instant::now() + wait;
+        while booking.in_flight() > 0 && Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let (lines, failed_calls) = {
+            let mut pending = lock(&booking.pending);
+            booking.closed.store(true, Ordering::SeqCst);
+            (std::mem::take(&mut *pending), std::mem::take(&mut *lock(&booking.failed_calls)))
+        };
+        for line in lines {
+            sink.record(crate::relay::MODEL_CALL_EVENT, line);
+        }
+        // a failed call that ended after its step was booked: the run's end is taken, and its record names the call
+        for (step, calls) in by_step(&failed_calls) {
+            record_failed(sink, &step, &calls, "the call ended after its step was booked");
+        }
+        let left = booking.in_flight();
+        if left > 0 {
+            sink.record(
+                "runbook.model-calls-unfinished",
+                json!({"in_flight": left, "detail": format!("{left} model call(s) had not ended when the run ended: each is booked in the spend ledger when it ends, and is no event of the run")}),
+            );
+        }
     }
 
     /// The runner of the run's bound programs: `inner`, reserving the budget of each program that
@@ -281,12 +529,24 @@ impl Gate {
     /// Books what the step spent: the cost records written since the last step, at their cost, and a
     /// call that failed with no cost at its reservation (the largest the step held). The step's
     /// reservations are released: the first is committed with the whole cost, the others released. A
-    /// record that cannot be read books the reservations and is an error (fail closed).
+    /// record that cannot be read books the reservations and is an error (fail closed), unless the relay booked or took
+    /// calls of the step: then the step costs the sum of those calls (a call still in flight is booked by the relay when
+    /// it ends, once, at the reservation it was admitted with), its reservations are released, and its cost records (which
+    /// carry no cost on a route) do not matter.
     pub fn book(&mut self, sink: &dyn EventSink) -> Result<(), String> {
         let held: Vec<Reservation> = std::mem::take(&mut *lock(&self.held.reserved));
         let largest = held.iter().map(|r| r.micro_usd).max().unwrap_or(0);
         let result = self.reader.read_new(&self.workspace);
+        let routed = self.routed.is_some();
+        // the calls of the step the relay booked or takes still (a call in flight when its program was killed is booked
+        // by the relay when the gateway answers it, at the reservation it was admitted with)
+        let relayed = self.routed.as_ref().map_or(0, |b| b.booked.swap(0, Ordering::SeqCst).saturating_add(b.taken.swap(0, Ordering::SeqCst)));
+        let relay_failed = || self.routed.as_ref().and_then(|b| lock(&b.failed).take()).map_or(Ok(()), Err);
         let (booked, what, calls, outcome) = match result {
+            // The relay took and booked every model call of the step; the step's reservations are released. A call
+            // the ledger could not book fails the step (fail closed).
+            Ok(_) if routed => (0, "step", 0, relay_failed()),
+            Err(_) if relayed > 0 => (0, "step", 0, relay_failed()),
             Ok(cost) => {
                 let unknown = cost.unknown.len() as u64;
                 let booked = cost.micro_usd.saturating_add(largest.saturating_mul(unknown));
@@ -299,11 +559,12 @@ impl Gate {
             }
         };
         self.commit(&held, what, booked)?;
-        self.meter.spent.fetch_add(booked, Ordering::SeqCst);
-        self.meter.calls.fetch_add(calls, Ordering::SeqCst);
+        saturating_add(&self.meter.spent, booked);
+        saturating_add(&self.meter.calls, calls);
         if calls > 0 {
             sink.record("runbook.cost-booked", json!({"calls": calls, "micro_usd": booked, "spent_micro_usd": self.meter.usage().spent_micro_usd}));
         }
+        self.record_calls(sink);
         self.persist();
         outcome
     }
@@ -350,5 +611,279 @@ mod tests {
         gate.commit(&[first, second], "step", 100).unwrap();
         // 100 spent, nothing held: 900 of the run's 1000 are left
         assert_eq!(ledger.reserve_for_run("run-a", 1000, 1000).unwrap().micro_usd, 900, "a reservation of the step is still held after it was booked");
+    }
+
+    struct Quiet;
+
+    impl EventSink for Quiet {
+        fn steps(&self) -> Option<Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
+        fn started(&self) {}
+        fn record(&self, _: &str, _: Value) {}
+        fn decision_requested(&self, _: crate::runtime::DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn a_relayed_call_the_ledger_could_not_book_fails_the_step_it_ran_in() {
+        use crate::relay::Booking;
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("gate-unit-relay-book-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let caps = Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 };
+        let mut gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::on(Usage::default(), WallClock::default())), budget::Reserves::default()).unwrap();
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        let file = dir.join("ledgers").join("rb.json");
+        let kept = std::fs::read(&file).unwrap_or_default();
+        let _ = std::fs::remove_file(&file);
+        std::fs::create_dir(&file).unwrap();
+        assert!(booking.admit().is_err(), "a call was admitted while the ledger could not be read");
+        assert!(booking.book(json!({"what": "model call"}), 5).is_err(), "a ledger that cannot be written booked the call");
+        std::fs::remove_dir(&file).unwrap();
+        std::fs::write(&file, kept).unwrap();
+        let outcome = gate.book(&Quiet);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_err_and(|why| why.contains("spend ledger")), "the step of a call the ledger did not book ended without its error");
+    }
+
+    fn routed_gate(tag: &str, caps: Caps) -> (Gate, std::path::PathBuf) {
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join(format!("gate-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gate = Gate::open(caps, &dir, "rb", "run-a", &dir, &dir, false, Arc::new(Meter::on(Usage::default(), WallClock::default())), budget::Reserves::default()).unwrap();
+        (gate, dir)
+    }
+
+    /// A call whose route the gateway refused (`wire-not-served`, `model-unknown`, `credential-*`) or whose spend ceiling
+    /// it reached fails the step it ran in at once, `route-unavailable`, naming the route, the code and the setting.
+    #[test]
+    fn a_relayed_call_whose_route_the_gateway_refused_fails_the_step_it_ran_in_route_unavailable_naming_the_route_the_code_and_the_setting() {
+        use crate::relay::Booking;
+        for (code, status) in [("wire-not-served", 400), ("model-unknown", 404), ("credential-rejected", 401), ("spend-ceiling", 503)] {
+            let (mut gate, dir) = routed_gate(&format!("relay-refused-{code}"), Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+            let booking = gate.route(Arc::new(Mutex::new(Some("notes.write".to_owned()))));
+            booking.admit().unwrap();
+            // the line the relay books for a call its gateway refused (`relay::Call::line`)
+            let line = json!({"what": "model call", "run": "run-a", "step": "notes.write", "role": "writer", "route": "qwen", "alias": "qwen-alias", "source": "protocol", "wire": "messages", "gateway_call": null, "input_tokens": null, "output_tokens": null, "cost_known": true, "micro_usd": 0, "cause": "route-unavailable", "code": code, "detail": format!("the gateway answered {status}")});
+            booking.book(line, 0).unwrap();
+            let outcome = gate.book(&Quiet);
+            let kept = gate.take_failed();
+            let _ = std::fs::remove_dir_all(&dir);
+            let why = outcome.expect_err("the step whose model call the gateway refused was booked Ok");
+            for word in ["route-unavailable", "qwen", code, "protocol"] {
+                assert!(why.contains(word), "the step's failure does not name {word}: {why}");
+            }
+            assert!(kept.is_empty(), "a call that fails the step at once was kept to follow the step: {kept:?}");
+        }
+    }
+
+    struct Kept(Mutex<Vec<(String, Value)>>);
+
+    impl EventSink for Kept {
+        fn steps(&self) -> Option<Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
+        fn started(&self) {}
+        fn record(&self, kind: &str, record: Value) {
+            lock(&self.0).push((kind.to_owned(), record));
+        }
+        fn decision_requested(&self, _: crate::runtime::DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    /// A failed call of a step that is no refusal of its route (a `4xx` the client may recover from booked
+    /// `call-refused`; a `5xx`, a connection that failed and an answer that broke off booked `route-unavailable`) fails
+    /// no step when it is booked; it is taken once, and the run's end follows its step: a step that failed names the
+    /// first such call as its cause, one that went on is noted in the run's record with each call's cause.
+    #[test]
+    fn a_failed_call_that_is_no_refusal_of_its_route_fails_no_step_and_the_run_follows_its_step() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-call-failed", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("delegation.free".to_owned()))));
+        let base = json!({"what": "model call", "run": "run-a", "step": "delegation.free", "role": "default", "route": "sonnet", "alias": "sonnet", "source": "run", "wire": "messages", "input_tokens": null, "output_tokens": null, "cost_known": true, "micro_usd": 0});
+        let failures = [
+            ("gw-c", "call-refused", "invalid_request_error", "the gateway answered 400"),
+            ("gw-d", "route-unavailable", "upstream-failed", "the gateway answered 502"),
+            ("gw-e", "route-unavailable", "model-stopped", "the gateway answered 503"),
+            ("gw-f", "route-unavailable", "connection-failed", "no answer: TimedOut"),
+            ("gw-g", "route-unavailable", "answer-broken", "the answer broke off: ConnectionReset"),
+        ];
+        for (call, cause, code, detail) in failures {
+            booking.admit().unwrap();
+            let mut line = base.clone();
+            line["gateway_call"] = json!(call);
+            line["cause"] = json!(cause);
+            line["code"] = json!(code);
+            line["detail"] = json!(detail);
+            booking.book(line, 0).unwrap();
+        }
+        let outcome = gate.book(&Quiet);
+        let failed = gate.take_failed();
+        let again = gate.take_failed();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "the step of a failed call that is no refusal of its route failed on the booking: {outcome:?}");
+        assert_eq!((failed.len(), again.len()), (failures.len(), 0), "{failed:?} {again:?}");
+        let why = Gate::settle_failed(&failed, |step| step == "delegation.free", &Quiet).expect_err("a failed step's failed call was not its cause");
+        assert_eq!(why, "call-refused: route sonnet (chosen by run) refused the call: invalid_request_error: the gateway answered 400");
+        let why = Gate::settle_failed(&failed[1..], |_| true, &Quiet).unwrap_err();
+        assert_eq!(why, "route-unavailable: route sonnet (chosen by run) failed the call: upstream-failed: the gateway answered 502");
+        let kept = Kept(Mutex::new(Vec::new()));
+        Gate::settle_failed(&failed, |_| false, &kept).unwrap();
+        let kept = kept.0.into_inner().unwrap();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!((kept[0].0.as_str(), kept[0].1["step"].clone()), (FAILED_EVENT, json!("delegation.free")));
+        let named: Vec<(Value, Value)> = kept[0].1["calls"].as_array().unwrap().iter().map(|c| (c["gateway_call"].clone(), c["cause"].clone())).collect();
+        let want: Vec<(Value, Value)> = failures.iter().map(|(call, cause, _, _)| (json!(call), json!(cause))).collect();
+        assert_eq!(named, want);
+        assert!(Gate::settle_failed(&[], |_| true, &Quiet).is_ok());
+    }
+
+    /// Failed calls taken together after a step are settled each by its own step: a late call of an earlier step that
+    /// went on is named under that step, and the step that failed has its own first failed call as the run's cause.
+    #[test]
+    fn failed_calls_of_two_steps_are_settled_each_by_its_own_step() {
+        let line = |step: &str, call: &str, cause: &str, code: &str| json!({"step": step, "route": "default", "source": "run", "gateway_call": call, "cause": cause, "code": code, "detail": "the gateway answered 4xx or 5xx"});
+        let calls = [
+            line("notes.write", "gw-late", "route-unavailable", "upstream-failed"),
+            line("result.write", "gw-own", "call-refused", "invalid_request_error"),
+            line("notes.write", "gw-late-2", "route-unavailable", "model-stopped"),
+        ];
+        let kept = Kept(Mutex::new(Vec::new()));
+        let why = Gate::settle_failed(&calls, |step| step == "result.write", &kept).expect_err("the failed step's own call was not the run's cause");
+        assert!(why.starts_with("call-refused: route default (chosen by run) refused the call: invalid_request_error"), "{why}");
+        let kept = kept.0.into_inner().unwrap();
+        let noted: Vec<(String, Value, Vec<Value>)> = kept.iter().map(|(k, r)| (k.clone(), r["step"].clone(), r["calls"].as_array().unwrap().iter().map(|c| c["gateway_call"].clone()).collect())).collect();
+        assert_eq!(noted, vec![(FAILED_EVENT.to_owned(), json!("notes.write"), vec![json!("gw-late"), json!("gw-late-2")])]);
+    }
+
+    /// A failed call that ends after its step was booked (its client hung up, the relay finished it) is named in the
+    /// run's record when the run's route is closed, under its own step.
+    #[test]
+    fn a_failed_call_booked_after_its_step_is_named_when_the_route_closes() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-late-close", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("delegation.free".to_owned()))));
+        booking.admit().unwrap();
+        let outcome = gate.book(&Quiet);
+        assert!(gate.take_failed().is_empty());
+        let late = json!({"what": "model call", "run": "run-a", "step": "delegation.free", "route": "default", "source": "run", "gateway_call": "gw-late", "cost_known": true, "micro_usd": 0, "cause": "route-unavailable", "code": "upstream-failed", "detail": "the gateway answered 502"});
+        booking.book(late, 0).unwrap();
+        let kept = Kept(Mutex::new(Vec::new()));
+        gate.close_route(&kept, std::time::Duration::from_millis(100));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "{outcome:?}");
+        let kept = kept.0.into_inner().unwrap();
+        let kinds: Vec<&str> = kept.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(kinds, vec![crate::relay::MODEL_CALL_EVENT, FAILED_EVENT], "{kept:?}");
+        assert_eq!((kept[1].1["step"].clone(), kept[1].1["calls"][0]["gateway_call"].clone()), (json!("delegation.free"), json!("gw-late")));
+    }
+
+    #[test]
+    fn a_step_whose_calls_the_relay_booked_costs_their_sum_and_its_reservation_is_released_even_when_its_cost_record_is_missing() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-release", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 5_000_000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("proposals.write".to_owned()))));
+        // the step's program reserved its budget, made one call the relay booked at 0 (a route of price 0), and was
+        // killed before its agent node wrote the cost record of its call
+        gate.held.reserve(1_000_000).unwrap();
+        std::fs::create_dir_all(dir.join(".sdc/llm/001-proposals.write")).unwrap();
+        std::fs::write(dir.join(".sdc/llm/001-proposals.write/request.json"), "{}").unwrap();
+        booking.admit().unwrap();
+        booking.book(json!({"what": "model call", "step": "proposals.write", "cost_known": true, "micro_usd": 0}), 0).unwrap();
+        let outcome = gate.book(&Quiet);
+        let (spent, shown) = (gate.held.ledger.spent_by_run("run-a").unwrap(), gate.meter.usage().spent_micro_usd);
+        // a step with no booked call and a cost that cannot be read still books its reservation (fail closed)
+        gate.held.reserve(1_000_000).unwrap();
+        std::fs::create_dir_all(dir.join(".sdc/llm/002-notes.write")).unwrap();
+        std::fs::write(dir.join(".sdc/llm/002-notes.write/request.json"), "{}").unwrap();
+        let unbooked = gate.book(&Quiet);
+        let after = gate.held.ledger.spent_by_run("run-a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "the step whose call the relay booked failed on its cost record: {outcome:?}");
+        assert_eq!((spent, shown), (0, 0), "the step booked its reservation beside the relay's line of its call");
+        assert!(unbooked.is_err(), "a step with no booked call and no cost record was booked as costing nothing");
+        assert_eq!(after, 1_000_000, "a step with no booked call and no cost record did not book its reservation");
+    }
+
+    #[test]
+    fn decider_calls_of_unknown_cost_reach_the_spend_cap_when_the_runbooks_programs_reserve_nothing() {
+        use crate::relay::Booking;
+        // a runbook whose bound programs call no model (`max_budget_usd: 0` on each, as `budget::reserves` asks of
+        // such a program): its largest budget is 0. The decider of kind `model` calls through the relay between
+        // steps, and its route declares no price.
+        let (mut gate, dir) = routed_gate("relay-unknown", Caps { max_wall_seconds: 60, max_llm_calls: 100, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        let mut admitted = 0;
+        for _ in 0..5 {
+            if booking.admit().is_err() {
+                break;
+            }
+            admitted += 1;
+            // what `relay::Call::line` books for a call of unknown cost
+            let reservation = booking.reservation_micro_usd();
+            booking.book(json!({"what": "model call", "cost_known": false, "micro_usd": reservation}), reservation).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(admitted < 5, "5 model calls of unknown cost were admitted against a spend cap of 1000 micro USD: each booked {} (docs/model-routes.md, section 5: a call of unknown cost books its reservation, max_call_micro_usd)", booking.reservation_micro_usd());
+    }
+
+    #[test]
+    fn the_spend_the_meter_shows_does_not_wrap_past_the_largest_amount() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-wrap", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: u64::MAX });
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        // `relay::cost_of` saturates a huge count of tokens at u64::MAX; the ledger saturates its sum
+        booking.book(json!({"what": "model call"}), u64::MAX).unwrap();
+        booking.book(json!({"what": "model call"}), 2).unwrap();
+        let shown = gate.meter.usage().spent_micro_usd;
+        let ledger = gate.held.ledger.spent_by_run("run-a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!((shown, ledger), (u64::MAX, u64::MAX), "the run's shown spend wrapped while the ledger saturated");
+    }
+
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<(String, Value)>>);
+
+    impl EventSink for Recorded {
+        fn steps(&self) -> Option<Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
+        fn started(&self) {}
+        fn record(&self, kind: &str, record: Value) {
+            self.0.lock().unwrap().push((kind.to_owned(), record));
+        }
+        fn decision_requested(&self, _: crate::runtime::DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    #[test]
+    fn a_call_still_in_flight_when_the_run_ends_is_said_in_the_runs_record_and_still_booked_in_the_ledger() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-late", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(None)));
+        booking.admit().unwrap();
+        booking.book(json!({"what": "model call", "role": "early"}), 3).unwrap();
+        booking.admit().unwrap();
+        let sink = Recorded::default();
+        gate.close_route(&sink, std::time::Duration::from_millis(50));
+        booking.book(json!({"what": "model call", "role": "late"}), 4).unwrap();
+        gate.record_calls(&sink);
+        let spent = gate.held.ledger.spent_by_run("run-a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let kinds: Vec<(String, Value)> = sink.0.lock().unwrap().clone();
+        assert_eq!(kinds.iter().filter(|(k, _)| k == "runbook.model-call").count(), 1, "{kinds:?}");
+        let unfinished = kinds.iter().find(|(k, _)| k == "runbook.model-calls-unfinished").map(|(_, v)| v.clone());
+        assert_eq!(unfinished.and_then(|v| v.get("in_flight").cloned()), Some(json!(1)), "the call in flight at the end is not in the run's record: {kinds:?}");
+        assert_eq!(spent, 7, "the call that ended after the run is not in the ledger");
     }
 }

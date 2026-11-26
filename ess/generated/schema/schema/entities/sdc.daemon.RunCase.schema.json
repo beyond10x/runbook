@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.RunCase.schema.json",
+  "title": "RunCase",
+  "description": "One case of a run's tree, as the runtime reads the run's store when a client asks for the view CasesOfRun: the Loom runtime answers it from Loom's tree status of the store, which it reads without holding it, so it answers while the run goes on; the stub runtime has no tree and answers none. No path of the store or of a case file is in a row. The language cannot read a store, so no command creates or changes a row, as with Runbook.",
+  "x-ess-name": "sdc.daemon.RunCase",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "case_key": {
+      "$ref": "#/$defs/sdc.daemon.CaseKey"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "run",
+        "kind": "references",
+        "source": "sdc.daemon.RunCase",
+        "target": "sdc.daemon.Run",
+        "cardinality": "one",
+        "via": "run_id"
+      }
+    },
+    "case_id": {
+      "description": "The case's id in the run's tree.",
+      "type": "string"
+    },
+    "parent": {
+      "description": "The case that opened this one; absent for the root.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The name the opening action gave the case (its link name); absent for the root.",
+      "type": "string"
+    },
+    "protocol": {
+      "description": "The id of the case's protocol.",
+      "type": "string"
+    },
+    "case_state": {
+      "$ref": "#/$defs/sdc.daemon.CaseState",
+      "description": "Where the case stands when the daemon reads the tree. Not `state`: that member of an entity is its lifecycle, and no command moves a case."
+    },
+    "outcome": {
+      "description": "The outcome the case ended through; absent while it is not ended.",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.RunCase.State"
+    }
+  },
+  "required": [
+    "case_key",
+    "run_id",
+    "case_id",
+    "protocol",
+    "case_state",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:9a0556c6837e4fcbf7da17c7543a2945010b683f9ba7ac2006eac4772745c26e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.CaseKey": {
+      "title": "CaseKey",
+      "description": "One case of one run as a row of RunCase: the run's id and the case's id. A type of its own, not RunId, because a row is a case and not the run.",
+      "x-ess-name": "sdc.daemon.CaseKey",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.CaseState": {
+      "title": "CaseState",
+      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
+      "x-ess-name": "sdc.daemon.CaseState",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Open",
+        "Running",
+        "AwaitingPerson",
+        "AwaitingAuthority",
+        "Stuck",
+        "Ended"
+      ]
+    },
+    "sdc.daemon.RunCase.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunCase.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Seen"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

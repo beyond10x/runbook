@@ -68,6 +68,10 @@ enum Cmd {
     },
     /// Answer a decision request of a run on a daemon.
     Decide(runbook::client::DecideArgs),
+    /// Delegate a piece of agent work to a daemon on a named model route and print the run's id; its result is read from the view delegation-result.
+    Delegate(runbook::client::DelegateArgs),
+    /// List what a delegation may name on a daemon: its model routes, its runbooks with the admission of their route entries, and the members of a delegation.
+    Catalog(runbook::client::CatalogArgs),
     /// Run the cycles of a `loom.tree-suite/1` file through Loom's suite runner in this process; exit 1 when a cycle is not as expected, 2 when the suite is refused.
     Test(runbook::test_suite::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
@@ -187,6 +191,8 @@ fn main() -> ExitCode {
         },
         Cmd::Runs { cmd } => runbook::client::runs(cmd),
         Cmd::Decide(args) => runbook::client::decide(args),
+        Cmd::Delegate(args) => runbook::client::delegate(args),
+        Cmd::Catalog(args) => runbook::client::catalog(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
         Cmd::Canon { version: true, .. } => canon_cmd::version(),
         Cmd::Canon { cmd: Some(cmd), .. } => canon_cmd::run(cmd),
@@ -206,6 +212,16 @@ fn main() -> ExitCode {
             }
             // The level of a submit that names none and the deciders the daemon offers come from the same file.
             args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+            // The model routes: their token files are read once, here, before the daemon reads or writes anything.
+            if let Some(f) = file.as_ref() {
+                let mut routes = f.routes.clone();
+                if let Err(e) = routes.read_tokens() {
+                    eprintln!("runbook serve: {}", config::printable(&e));
+                    return ExitCode::from(loom_run::EXIT_REFUSED);
+                }
+                args.routes = std::sync::Arc::new(routes);
+                args.classify_threshold = f.classify_threshold;
+            }
             if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
                 let limits = loom_run::arbiter::Limits {
                     login_file: f.members.get(loom_run::settings::LOGIN_KEY).and_then(|v| v.as_str()).map(str::to_owned),
@@ -214,14 +230,28 @@ fn main() -> ExitCode {
                     gateway: f.members.get(loom_run::gateway::KEY).cloned(),
                 };
                 match loom_run::arbiter::DaemonArbiter::new(f.deciders.clone(), limits) {
-                    Ok(arbiter) => args.arbiter = Some(std::sync::Arc::new(arbiter)),
+                    Ok(arbiter) => {
+                        args.route_table = arbiter.route_table();
+                        args.arbiter = Some(std::sync::Arc::new(arbiter));
+                    }
                     Err(e) => {
                         eprintln!("runbook serve: {}", config::printable(&e));
                         return ExitCode::from(loom_run::EXIT_REFUSED);
                     }
                 }
             }
-            let world = match catalog::open_with(file, &assets::Lookup::from_process()) {
+            // A lone [gateway] and a model decider and no route declared: the run's interim route default is a route of
+            // the table, listed by the view routes and taken as its default.
+            if let Some(alias) = args.route_table.as_ref().and_then(|t| t.get("default")).map(|(r, _)| r.alias.clone()) {
+                match (*args.routes).clone().with_interim_default(&alias) {
+                    Ok(routes) => args.routes = std::sync::Arc::new(routes),
+                    Err(e) => {
+                        eprintln!("runbook serve: {}", config::printable(&e));
+                        return ExitCode::from(loom_run::EXIT_REFUSED);
+                    }
+                }
+            }
+            let world =match catalog::open_with(file, &assets::Lookup::from_process()) {
                 Ok(w) => w,
                 Err((code, e)) => {
                     eprintln!("runbook serve: {}", config::printable(&e));
@@ -233,6 +263,7 @@ fn main() -> ExitCode {
                 args.runbook_dir = world.assets.as_ref().map(|a| a.protocol_dir());
             }
             let presets: Vec<String> = world.startable().iter().map(|s| s.to_string()).collect();
+            args.assets_root = world.assets.as_ref().map(|a| a.root.clone());
             if args.runbook_home.is_none() {
                 args.runbook_home = world.assets.map(|a| a.root);
             }

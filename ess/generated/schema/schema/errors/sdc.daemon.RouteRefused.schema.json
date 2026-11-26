@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.RouteRefused.schema.json",
+  "title": "RouteRefused payload",
+  "description": "The model route the run would take is refused: the submit named a route the daemon's file does not declare, a gateway's alias, an address or a token instead of a route's name, or a route for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), or the interim route default of a lone [gateway] for a run whose decider is not a model above A0; or the run's decider is a model above A0, it names no route, and the daemon declares routes and no `route_policy.default`; or the runbook's route entries (`bindings/<runbook>.routes.yaml`, docs/model-routes.md section 2) cannot be admitted: the file cannot be read, an entry is not one, a role's name starts with `runbook-` (also a role of the submit's model_routes: the relay takes the model `runbook-<role>` for the role `<role>`), a route an entry names is not declared or not in the file's routes_allowed, no route or several routes meet an entry's needs, a route the submit names for a role misses the role's needs, or a route of the run (named by the submit, by an entry or by `route_policy.default`) is outside routes_allowed. A delegation is refused the same way for the route it names and the route entries of the runbook it names as its protocol, and when it names none and the daemon has no `route_policy.default`. The run was not submitted and nothing was written. The reason names the member that was wrong (`model_route`, `model_routes.<role>`) and what was wrong, never the value the client sent; a refusal of the route entries names the runbook, the role and the route or the requirement, or the route and the setting that chose it, and never an address or a token the file holds; `declared` lists the routes the daemon declares, in order of name.",
+  "x-ess-name": "sdc.daemon.RouteRefused",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "declared": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.daemon.RouteName"
+      }
+    }
+  },
+  "required": [
+    "run_id",
+    "reason",
+    "declared"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:53f619b5cf4e5ab1ec4c6d719b0b5647f61f8b346152fc8da27c4c97596096a2",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RouteName": {
+      "title": "RouteName",
+      "description": "The name of a model route the daemon declares (a table [routes.<name>] of its runbook.toml): one to 64 characters of letters, digits, `.`, `_` and `-`. A client names a route by it, never by an address, a token or an alias; the address, the token file and the prices stay in the daemon's file.",
+      "x-ess-name": "sdc.daemon.RouteName",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}
