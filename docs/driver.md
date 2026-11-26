@@ -23,7 +23,7 @@ program is a `[[bin]]` of `driver/Cargo.toml`.
 | `sdc-run-metrics`, `sdc-run-compare`, `sdc-finding-kpis`, `sdc-run-timeline` | readers of a run directory | `docs/workflow-metrics.md`, `docs/run-compare.md`, `docs/kpis.md`, `docs/llm-is-not-the-runtime.md` |
 | `sdc-replay` | the model replay of `runbook run --recorded` | `docs/loom-run.md`, "A recorded run" |
 | `sdc-decision-request` | a scope-changing question as a decision request | `docs/decisions.md` |
-| `sdc-check-routes`, `sdc-check-unreferenced`, `sdc-protocol-site` | checks and the data of the documentation site | `docs/reject-routes.md`, `docs/releasing.md` |
+| `sdc-check-routes`, `sdc-check-unreferenced`, `sdc-check-names`, `sdc-protocol-site` | checks and the data of the documentation site | `docs/reject-routes.md`, `docs/releasing.md`, `AGENTS.md` ("Rules") |
 | `sdc-free-agent` | the free-running agent session of one experiment | `docs/llm-is-not-the-runtime.md` |
 
 Not ported, dropped with the driver: keep-going (a run that goes on past a refusal and collects
