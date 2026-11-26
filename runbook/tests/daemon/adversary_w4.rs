@@ -9,13 +9,14 @@
 use super::default_confinement::{rows, Live};
 use super::delegate::{daemon_at, until_ended, ANSWER, ROUTE};
 use super::gateway::{claude_cli, model_table, until_state, write_exe, Home};
-use super::http::send;
+use super::http::{send, try_send};
 use super::relay::{gateway_answering, Gateway};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-ok\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
 
@@ -135,9 +136,40 @@ fn named_failed(l: &Live, run: &str) -> Vec<Value> {
     events(l, run, "runbook.model-calls-failed").iter().flat_map(|e| e["calls"].as_array().cloned().unwrap_or_default()).map(|c| c["gateway_call"].clone()).collect()
 }
 
-/// How long the stand-in gateway holds the call that is left in flight: longer than its step takes to be booked, shorter
-/// than the run's wait for its calls in flight when it ends (5 s, `runbook/src/engine/mod.rs`).
-const HELD: Duration = Duration::from_millis(3000);
+/// The longest the stand-in gateway holds the call that is left in flight while it waits for its signal: a guard against
+/// a hang only, under the test's 60 s.
+const HOLD_BOUND: Duration = Duration::from_secs(30);
+
+/// The signal the stand-in gateway holds the call left in flight for: the daemon's address and the run, set by the test
+/// once it has them. The gateway answers the call at most one poll (20 ms) after the run's events hold the marker that
+/// its step was booked, well inside the run's wait for its calls in flight when it ends (5 s,
+/// `runbook/src/engine/mod.rs`), and at the latest after `HOLD_BOUND`.
+#[derive(Clone, Default)]
+struct Signal(Arc<Mutex<Option<(SocketAddr, String)>>>);
+
+impl Signal {
+    fn set(&self, addr: SocketAddr, run: &str) {
+        *self.0.lock().unwrap() = Some((addr, run.to_owned()));
+    }
+
+    /// Holds until the run's events hold `nth` events of the kind `kind`, or `HOLD_BOUND` passed.
+    fn wait(&self, kind: &str, nth: usize) {
+        let until = Instant::now() + HOLD_BOUND;
+        while Instant::now() < until {
+            let target = self.0.lock().unwrap().clone();
+            if let Some((addr, run)) = target {
+                let seen = try_send(addr, "GET", &format!("/daemon/views/events?run_id={run}&after_position=0"), &[], None)
+                    .ok()
+                    .filter(|r| r.status == 200)
+                    .and_then(|r| r.json()["rows"].as_array().map(|rows| rows.iter().filter(|e| e["kind"] == kind).count()));
+                if seen.is_some_and(|n| n >= nth) {
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
 
 /// The case's precondition, read from the order of the run's events: the event `runbook.model-call` of `call` comes
 /// after the `nth` event of the kind `after`, one the run records after the call's own step was booked (a call booked
@@ -157,11 +189,13 @@ fn booked_after_its_step(l: &Live, run: &str, call: &str, after: &str, nth: usiz
 #[test]
 fn adversary_w4_a_failed_call_still_in_flight_when_the_last_step_was_booked_is_named_in_the_record() {
     let n = Arc::new(AtomicU64::new(0));
+    let signal = Signal::default();
+    let held = signal.clone();
     let gw = gateway_answering(
         move |_| match n.fetch_add(1, Ordering::SeqCst) {
             0 => OK.to_vec(),
             _ => {
-                std::thread::sleep(HELD);
+                held.wait("Terminated", 1);
                 upstream_failed("gw-call-late")
             }
         },
@@ -169,6 +203,7 @@ fn adversary_w4_a_failed_call_still_in_flight_when_the_last_step_was_booked_is_n
     );
     let (_h, l) = daemon("adv-w4-late", &gw, claude_leaving_a_call_in_flight);
     let run = delegated(&l);
+    signal.set(l.addr, &run);
     let end = until_ended(&l, &run);
     assert_eq!((end["run_state"].clone(), end["outcome"].clone()), (json!("Ended"), json!("delivered")), "{end}");
     booked_after_its_step(&l, &run, "gw-call-late", "Terminated", 1);
@@ -205,10 +240,12 @@ fn late_then_failing_runbook(h: &Home) {
 #[test]
 fn adversary_w4_a_late_failed_call_of_an_earlier_step_does_not_take_the_place_of_the_failed_steps_own_call() {
     let n = Arc::new(AtomicU64::new(0));
+    let signal = Signal::default();
+    let held = signal.clone();
     let gw = gateway_answering(
         move |_| match n.fetch_add(1, Ordering::SeqCst) {
             0 => {
-                std::thread::sleep(HELD);
+                held.wait("runbook.action-started", 2);
                 upstream_failed("gw-call-late")
             }
             _ => upstream_refusal("gw-call-refused"),
@@ -220,6 +257,7 @@ fn adversary_w4_a_late_failed_call_of_an_earlier_step_does_not_take_the_place_of
     let r = send(l.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(json!({"runbook_id": "late-demo", "intake": "red or blue", "model_route": "default"}).to_string().as_bytes()));
     assert_eq!(r.status, 202, "{}", r.text());
     let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned();
+    signal.set(l.addr, &run);
     let end = until_state(&l, &run, &["Ended", "FailedToStart", "Cancelled"]);
     let calls = events(&l, &run, "runbook.model-call");
     let steps: Vec<(Value, Value, Value)> = calls.iter().map(|c| (c["step"].clone(), c["gateway_call"].clone(), c["cause"].clone())).collect();
