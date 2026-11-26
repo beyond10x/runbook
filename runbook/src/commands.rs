@@ -817,6 +817,19 @@ enum Keyed {
     Left,
 }
 
+/// A run its thread took up (`State::take_up`): when the thread returns, also by a panic, the state lets it go and the
+/// run frees its serial key (`State::ahead_on_key`).
+struct TakenUp {
+    daemon: Daemon,
+    run_id: String,
+}
+
+impl Drop for TakenUp {
+    fn drop(&mut self) {
+        self.daemon.st().let_go(&self.run_id);
+    }
+}
+
 /// The run event of the gateway's answer to a wake.
 pub const ROUTE_WAKE_ANSWERED: &str = "runbook.route-wake-answered";
 /// The reason of a wake that was not sent.
@@ -2534,25 +2547,34 @@ impl Daemon {
     /// Holds a run whose serial key a live run submitted before it holds (`State::ahead_on_key`): the run is WaitingOnKey
     /// (`WaitOnKey`) and looks again every [`KEY_LOOK_EVERY`] until no such run is live, then takes the key (`TakeKey`).
     /// The order is the journal's, so the runs of a key start in submit order, also after a restart. A cancel or the
-    /// daemon's stop ends the wait and leaves the run's state as it is.
+    /// daemon's stop ends the wait and leaves the run's state as it is; both are read again under the state's lock, so
+    /// a run takes no key after the daemon's stop began. A run that goes on is taken up (`State::take_up`) under that
+    /// lock: it holds its key until its run thread returns.
     fn wait_for_key(&self, run_id: &str, cancel: &AtomicBool) -> Keyed {
         loop {
-            if cancel.load(Ordering::SeqCst) || self.is_stopping() {
-                return Keyed::Left;
-            }
             {
                 let mut st = self.st();
+                if cancel.load(Ordering::SeqCst) || self.is_stopping() {
+                    return Keyed::Left;
+                }
                 let Some(run) = st.run(run_id) else { return Keyed::Left };
                 if run.serial_key.is_none() {
+                    st.take_up(run_id);
                     return Keyed::Free;
                 }
                 let state = run.state;
                 let ahead = st.ahead_on_key(run_id).is_some();
                 match (state, ahead) {
-                    (RunState::Submitted, false) => return Keyed::Free,
+                    (RunState::Submitted, false) => {
+                        st.take_up(run_id);
+                        return Keyed::Free;
+                    }
                     (RunState::WaitingOnKey, false) => {
                         return match take_key_locked(&mut st, run_id) {
-                            Ok(o) if !o.is_refusal() => Keyed::Took,
+                            Ok(o) if !o.is_refusal() => {
+                                st.take_up(run_id);
+                                Keyed::Took
+                            }
                             _ => Keyed::Left,
                         };
                     }
@@ -2585,7 +2607,10 @@ impl Daemon {
 
     fn run_thread(&self, request: StartRequest, wait: Option<RouteWait>, cancel: &AtomicBool) {
         let run_id = request.run_id.clone();
-        let wait = match self.wait_for_key(&run_id, cancel) {
+        let keyed = self.wait_for_key(&run_id, cancel);
+        // the run holds its serial key until this thread returns: the runtime has let it go then
+        let _taken_up = (!matches!(keyed, Keyed::Left)).then(|| TakenUp { daemon: self.clone(), run_id: run_id.clone() });
+        let wait = match keyed {
             Keyed::Free => wait,
             Keyed::Took => match self.routes_after_key(&request) {
                 Ok(wait) => wait,

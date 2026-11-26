@@ -231,3 +231,66 @@ fn a_command_line_the_helper_cannot_take_is_refused_with_64_and_runs_nothing() {
         assert!(!d.join("ran").exists(), "{args:?} ran the command");
     }
 }
+
+/// The helper's own exits (64 usage, 124 deadline, 125 guard, 127 not started) never stand for a
+/// command's exit: a command that exits with one of them makes the helper exit 1, and its try and
+/// the report's text keep the command's own code.
+#[test]
+fn a_command_exit_that_is_one_of_the_helpers_own_is_reported_as_1_and_kept_in_its_try() {
+    for own in [64, 124, 125, 127] {
+        let d = scratch(&format!("own-exit-{own}"));
+        let (o, _) = helper(&d, &["--", "sh", "-c", &format!("exit {own}")], &[]);
+        assert_eq!(code(&o), 1, "a command that exits {own}: {}", err(&o));
+        let r = report(&o);
+        assert_eq!((r["outcome"].as_str(), r["exit"].as_i64()), (Some("failed"), Some(1)), "{r}");
+        assert_eq!(exits(&r), [own], "{r}");
+        assert!(r["text"].as_str().unwrap_or("").contains(&format!("exited {own}")), "{r}");
+    }
+    let d = scratch("own-exit-stop");
+    let (o, _) = helper(&d, &["--stop", "124=late", "--", "sh", "-c", "exit 124"], &[]);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    let r = report(&o);
+    assert_eq!((r["outcome"].as_str(), exits(&r)), (Some("late"), vec![Value::from(124)]), "{r}");
+
+    let d = scratch("own-exit-spent");
+    let (o, _) = helper(&d, &["--retry", "1", "--", "sh", "-c", "exit 125"], &[]);
+    assert_eq!(code(&o), 1, "{}", err(&o));
+    assert_eq!(exits(&report(&o)), [125, 125]);
+}
+
+/// A guard that cannot be started is its own outcome, `guard-not-started` (exit 127), never the
+/// `--guard-stop` name; the command does not run. The name is the helper's own.
+#[test]
+fn a_guard_that_cannot_be_started_is_its_own_outcome_and_not_the_guard_stop_name() {
+    let d = scratch("guard-not-started");
+    let (o, _) = helper(&d, &["--guard-stop", "head-moved", "--guard", "./no-such-guard", "--", "sh", "-c", "touch ran"], &[]);
+    assert_eq!(code(&o), 127, "{}", err(&o));
+    let r = report(&o);
+    assert_eq!(r["outcome"], "guard-not-started", "{r}");
+    assert_eq!(states(&r), ["guard-not-started"], "{r}");
+    assert!(!d.join("ran").exists(), "the command ran after its guard could not start");
+    for args in [["--stop", "3=guard-not-started"], ["--guard-stop", "guard-not-started"]] {
+        let mut args = args.to_vec();
+        args.extend(["--deadline", "1s", "--", "sh", "-c", "touch ran"]);
+        let (o, _) = helper(&d, &args, &[]);
+        assert_eq!(code(&o), 64, "{args:?}: {}", err(&o));
+    }
+}
+
+/// Under Loom's step limit a helper with no `--deadline` takes the step's time less the 2 s it
+/// keeps to end the command and write its report; a step of 2 s or less leaves it none and is
+/// refused by name.
+#[test]
+fn under_a_step_limit_with_no_deadline_the_deadline_is_the_steps_time_less_2_s() {
+    let d = scratch("step-deadline");
+    let (o, took) = helper(&d, &["--retry-on", "8", "--retry", "1000", "--retry-delay", "100ms", "--", "sh", "-c", "exit 8"], &[("LOOM_TIMEOUT_SECONDS", "3")]);
+    assert_eq!(code(&o), 124, "{}", err(&o));
+    assert!(took < Duration::from_secs(3), "{took:?}");
+    let r = report(&o);
+    assert_eq!((r["deadline_s"].as_u64(), r["text"].as_str()), (Some(1), Some("deadline after 1 s, last state pending")), "{r}");
+
+    let (o, _) = helper(&d, &["--", "sh", "-c", "touch ran"], &[("LOOM_TIMEOUT_SECONDS", "2")]);
+    assert_eq!(code(&o), 64, "{}", err(&o));
+    assert!(err(&o).contains("LOOM_TIMEOUT_SECONDS"), "{}", err(&o));
+    assert!(!d.join("ran").exists(), "a refused command ran");
+}

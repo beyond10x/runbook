@@ -125,13 +125,17 @@ derives one; an empty or a longer key is refused `400` before anything is writte
 time, in the order they were submitted; runs with another key or none are not held. The key is recorded on the run
 (`serial_key` of the views `runs` and `run`, and of the event `runbook.submitted`).
 
-- A run whose key a live run submitted before it has (any state but `Ended`, `Cancelled` and `FailedToStart`)
-  is `WaitingOnKey` (command `WaitOnKey`, event `runbook.waiting-on-key`: serial_key, behind): nothing of it is
+- A run whose key a run submitted before it holds (a live run: any state but `Ended`, `Cancelled` and
+  `FailedToStart`; or one the runtime has not let go yet, below) is `WaitingOnKey` (command `WaitOnKey`, event `runbook.waiting-on-key`: serial_key, behind): nothing of it is
   started, its context is not copied and its routes are not asked. `key_wait` of the views says
-  `waiting on key <k> behind run <id>`, the newest live run of the key submitted before it, read when the view is
+  `waiting on key <k> behind run <id>`, the newest run of the key submitted before it that holds it, read when the view is
   read: after a cancel of that run it names the one ahead of that.
 - The key is free as soon as each run ahead has left the live states: ended (also `stopped: route` and a failed
-  step), cancelled, failed to start, or orphaned at a restart. The next run then takes it (command `TakeKey`,
+  step), cancelled, failed to start, or orphaned at a restart, and the runtime has let it go. A run that was taken
+  up holds the key until its run thread in the daemon has returned: a cancelled holder is `Cancelled` at once, but
+  its key is free only once the runtime ended its program in flight and its model call (the engine waits up to 5 s
+  for one), and `key_wait` of the run behind names the cancelled run until then. A run cancelled while it waited
+  was never taken up and holds nothing. The next run then takes it (command `TakeKey`,
   event `runbook.key-taken`), is `Submitted` again and is taken up as a submitted run is; its routes are asked
   again first (a gateway that is not ready or an alias it does not list fails its start, `route-unavailable: ...` or
   `route-refused: ...`; a model that is not callable makes it wait for its route).

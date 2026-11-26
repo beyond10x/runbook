@@ -10,7 +10,7 @@ use crate::clock::{format_instant, Clock, SystemClock};
 use crate::runtime::{Confinement, ConfinementSource, Terms};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -241,6 +241,10 @@ pub struct State {
     decision_index: HashMap<String, usize>,
     events: Vec<RunEvent>,
     events_of_run: HashMap<String, Vec<usize>>,
+    /// The runs this process took up (past the wait for their serial key) whose run thread has not
+    /// returned yet: the runtime may still run one of them after it left the live states (a cancel
+    /// moves the run at once). Not journaled: a new start has none.
+    taken_up: HashSet<String>,
     /// A version that grows with every commit: what an event stream waits on.
     changes: tokio::sync::watch::Sender<u64>,
     clock: Arc<dyn Clock>,
@@ -289,6 +293,7 @@ impl State {
             decision_index: HashMap::new(),
             events: vec![],
             events_of_run: HashMap::new(),
+            taken_up: HashSet::new(),
             changes: tokio::sync::watch::channel(0).0,
             clock,
         };
@@ -528,12 +533,24 @@ impl State {
         &self.runs
     }
 
-    /// The run a run with a serial key waits behind: the newest live run with the same key that was submitted before it
-    /// (the journal's order is the submit order). None for a run with no key, and for the first live run of its key.
+    /// The run a run with a serial key waits behind: the newest run with the same key that was submitted before it (the
+    /// journal's order is the submit order) and holds the key: a live run, or one this process took up whose run thread
+    /// has not returned (a cancelled run whose runtime has not let it go). None for a run with no key, and for the first
+    /// such run of its key.
     pub fn ahead_on_key(&self, run_id: &str) -> Option<&Run> {
         let i = *self.run_index.get(run_id)?;
         let key = self.runs[i].serial_key.as_deref()?;
-        self.runs[..i].iter().rev().find(|r| r.state.is_live() && r.serial_key.as_deref() == Some(key))
+        self.runs[..i].iter().rev().find(|r| r.serial_key.as_deref() == Some(key) && (r.state.is_live() || self.taken_up.contains(&r.run_id)))
+    }
+
+    /// The run thread of `run_id` took the run up: it holds its serial key until [`State::let_go`].
+    pub fn take_up(&mut self, run_id: &str) {
+        self.taken_up.insert(run_id.to_owned());
+    }
+
+    /// The run thread of `run_id` returned: the runtime let the run go.
+    pub fn let_go(&mut self, run_id: &str) {
+        self.taken_up.remove(run_id);
     }
 
     pub fn run_by_key(&self, key: &str) -> Option<&Run> {

@@ -7,27 +7,36 @@
 //!             [--guard <program> [<argument>...]] -- <program> [<argument>...]
 //! ```
 //!
-//! A try runs the guard (when there is one) and then the command, each in a process group of its
-//! own; when a try ends, what is left of its group is killed. The exit of the command gives the
-//! try a state: `done` (0), `pending` (an exit of `--retry-on`, or any other than 0 when `--retry`
-//! is given without `--retry-on`), the name an exit has in `--stop`, else `failed`. A pending try
-//! is followed by another after `--retry-delay`, while the retries and the deadline allow.
+//! A try runs the guard (when there is one) and then the command, each in the helper's own process
+//! group, so a runner that kills that group (Loom under `local`) ends the try with the helper; the
+//! program the helper started also gets SIGKILL when the helper ends (`PR_SET_PDEATHSIG`). The
+//! helper is the child subreaper of what a try starts: when a try ends, every process left below
+//! the helper is killed, also one that made a group or a session of its own. The exit of the
+//! command gives the try a state: `done` (0), `pending` (an exit of `--retry-on`, or any other than
+//! 0 when `--retry` is given without `--retry-on`), the name an exit has in `--stop`, else
+//! `failed`. A pending try is followed by another after `--retry-delay`, while the retries and the
+//! deadline allow.
 //!
-//! At the deadline the try that runs is ended (SIGTERM to its group, SIGKILL after 1 s) and the
-//! helper exits 124. Standard output is one JSON object, the report (`runbook.command/1`): the
-//! outcome, its text, the exit, and the last `--keep-tries` tries with the count of the others.
-//! What the command and the guard print goes to standard error. Under Loom's program contract the
-//! standard input (Loom's argument object) is read once and given to every try.
+//! The deadline counts from the helper's start. Under Loom (`LOOM_TIMEOUT_SECONDS` set) with no
+//! `--deadline` it is the step's time less [`STEP_MARGIN`]. At the deadline the try that runs is
+//! ended (SIGTERM to every process below the helper, SIGKILL after 1 s) and the helper exits 124.
+//! Standard output is one JSON object, the report (`runbook.command/1`): the outcome, its text, the
+//! exit, and the last `--keep-tries` tries with the count of the others. What the command and the
+//! guard print goes to standard error. Under Loom's program contract the standard input (Loom's
+//! argument object) is read once, within the deadline, and given to every try.
 //!
-//! Exits: 0 done; the command's own exit for a stop, a failure or spent retries; 124 the
-//! deadline; 125 the guard stopped the step; 127 the command could not be started; 64 a command
-//! line this helper refuses (nothing runs).
+//! Exits: 0 done; the command's own exit for a stop, a failure or spent retries, except one of the
+//! helper's own exits below, which is reported as 1 (the try keeps the command's code); 124 the
+//! deadline; 125 the guard stopped the step; 127 the command or the guard could not be started; 64
+//! a command line this helper refuses (nothing runs).
 
 use serde_json::{json, Value};
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const FORMAT: &str = "runbook.command/1";
@@ -35,8 +44,15 @@ const EXIT_DEADLINE: i32 = 124;
 const EXIT_GUARD: i32 = 125;
 const EXIT_NOT_STARTED: i32 = 127;
 const EXIT_USAGE: i32 = 64;
-/// How long a try's group has to end after SIGTERM before SIGKILL.
+/// The helper's exit for a command whose own exit is one of [`OWN_EXITS`].
+const EXIT_FAILED: i32 = 1;
+/// The exits that the helper gives for itself; a command's exit is never passed on as one of them.
+const OWN_EXITS: [i32; 4] = [EXIT_USAGE, EXIT_DEADLINE, EXIT_GUARD, EXIT_NOT_STARTED];
+/// How long what a try started has to end after SIGTERM before SIGKILL.
 const END_GRACE: Duration = Duration::from_secs(1);
+/// How long the helper goes on killing what is left below it before it gives up: with
+/// [`END_GRACE`] and the report, within [`STEP_MARGIN`].
+const END_BELOW: Duration = Duration::from_millis(500);
 /// What the step keeps of its own time after the deadline: the grace, then the report.
 const STEP_MARGIN: Duration = Duration::from_secs(2);
 const KEEP_TRIES: usize = 100;
@@ -44,7 +60,8 @@ const KEEP_TRIES_MAX: usize = 1000;
 const STDIN_LIMIT: u64 = 1 << 20;
 const POLL_STEP: Duration = Duration::from_millis(10);
 /// State names the helper gives itself; a `--stop` or `--guard-stop` name is none of them.
-const OWN_STATES: [&str; 6] = ["done", "pending", "failed", "deadline", "refused", "none"];
+const OWN_STATES: [&str; 7] = ["done", "pending", "failed", "deadline", "refused", "none", GUARD_NOT_STARTED];
+const GUARD_NOT_STARTED: &str = "guard-not-started";
 
 #[derive(Debug, Default)]
 struct Options {
@@ -76,8 +93,13 @@ fn main() {
             finish(&Report { outcome: "refused".into(), text: why, exit: EXIT_USAGE, ..Report::default() }, started, None);
         }
     };
-    let input = standard_input();
-    let report = run(&options, input.as_deref());
+    let deadline = options.deadline.map(|d| started + d);
+    become_subreaper();
+    let input = match standard_input(deadline) {
+        Input::Read(bytes) => bytes,
+        Input::Deadline => finish(&at_deadline(Report::default(), &options, "none"), started, Some(&options)),
+    };
+    let report = run(&options, input.as_deref(), deadline);
     finish(&report, started, Some(&options));
 }
 
@@ -217,31 +239,61 @@ fn name_ok(name: &str) -> Result<(), String> {
 }
 
 /// Under Loom (`LOOM_TIMEOUT_SECONDS` set) the deadline and the margin to end fit in the step's
-/// time: a longer deadline is refused, never cut.
-fn fits_the_step(o: Options, timeout: Option<&str>) -> Result<Options, String> {
-    let (Some(deadline), Some(timeout)) = (o.deadline, timeout) else { return Ok(o) };
+/// time: a longer deadline is refused, never cut. With no `--deadline` the deadline is the step's
+/// time less the margin; a step that leaves none is refused.
+fn fits_the_step(mut o: Options, timeout: Option<&str>) -> Result<Options, String> {
+    let Some(timeout) = timeout else { return Ok(o) };
     let Ok(seconds) = timeout.trim().parse::<u64>() else { return Ok(o) };
-    let left = Duration::from_secs(seconds);
-    if deadline + STEP_MARGIN > left {
-        return Err(format!(
-            "--deadline {} is longer than this step's {seconds} s (LOOM_TIMEOUT_SECONDS) less the {} s the helper takes to end the command and write its report; name a shorter deadline or raise the binding's timeout_seconds",
-            o.deadline_text,
-            STEP_MARGIN.as_secs()
-        ));
+    let step = Duration::from_secs(seconds);
+    let margin = STEP_MARGIN.as_secs();
+    match o.deadline {
+        Some(deadline) if deadline + STEP_MARGIN > step => Err(format!(
+            "--deadline {} is longer than this step's {seconds} s (LOOM_TIMEOUT_SECONDS) less the {margin} s the helper takes to end the command and write its report; name a shorter deadline or raise the binding's timeout_seconds",
+            o.deadline_text
+        )),
+        Some(_) => Ok(o),
+        None => {
+            let Some(deadline) = step.checked_sub(STEP_MARGIN).filter(|d| !d.is_zero()) else {
+                return Err(format!(
+                    "this step's {seconds} s (LOOM_TIMEOUT_SECONDS) leave no time for a command after the {margin} s the helper takes to end it and write its report; raise the binding's timeout_seconds"
+                ));
+            };
+            o.deadline_text = format!("{}s", deadline.as_secs());
+            o.deadline = Some(deadline);
+            Ok(o)
+        }
     }
-    Ok(o)
+}
+
+enum Input {
+    Read(Option<Vec<u8>>),
+    /// The deadline came before the standard input ended.
+    Deadline,
 }
 
 /// Standard input, read to its end once when it is no terminal (Loom writes its argument object
-/// and closes it), at most [`STDIN_LIMIT`] bytes.
-fn standard_input() -> Option<Vec<u8>> {
+/// and closes it), at most [`STDIN_LIMIT`] bytes, and no longer than the deadline.
+fn standard_input(deadline: Option<Instant>) -> Input {
     // SAFETY: isatty only reads the descriptor's state.
     if unsafe { libc::isatty(0) } == 1 {
-        return None;
+        return Input::Read(None);
     }
-    let mut bytes = Vec::new();
-    std::io::stdin().lock().take(STDIN_LIMIT).read_to_end(&mut bytes).ok()?;
-    (!bytes.is_empty()).then_some(bytes)
+    let (sent, read) = mpsc::channel();
+    // a reader still blocked at the deadline ends with the process
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let got = std::io::stdin().lock().take(STDIN_LIMIT).read_to_end(&mut bytes).ok().map(|_| bytes);
+        let _ = sent.send(got);
+    });
+    let got = match deadline {
+        None => read.recv().ok().flatten(),
+        Some(d) => match read.recv_timeout(d.saturating_duration_since(Instant::now())) {
+            Ok(got) => got,
+            Err(mpsc::RecvTimeoutError::Timeout) => return Input::Deadline,
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+        },
+    };
+    Input::Read(got.filter(|b| !b.is_empty()))
 }
 
 // ----------------------------------------------------------------------------------------- run
@@ -262,9 +314,7 @@ enum Ended {
     NotStarted(String),
 }
 
-fn run(o: &Options, input: Option<&[u8]>) -> Report {
-    let start = Instant::now();
-    let deadline = o.deadline.map(|d| start + d);
+fn run(o: &Options, input: Option<&[u8]>, deadline: Option<Instant>) -> Report {
     let mut report = Report::default();
     let mut last_state = "none".to_owned();
     let mut retries = 0u64;
@@ -304,14 +354,14 @@ fn run(o: &Options, input: Option<&[u8]>) -> Report {
                     return at_deadline(report, o, &last_state);
                 }
                 Ended::NotStarted(why) => {
-                    entry["state"] = json!(o.guard_stop);
+                    entry["state"] = json!(GUARD_NOT_STARTED);
                     entry["ms"] = json!(ms(try_start.elapsed()));
                     entry["exit"] = Value::Null;
                     entry["deadline"] = json!(false);
                     keep(&mut report, entry);
-                    report.outcome = o.guard_stop.clone();
+                    report.outcome = GUARD_NOT_STARTED.into();
                     report.text = format!("the guard could not be started: {why}");
-                    report.exit = EXIT_GUARD;
+                    report.exit = EXIT_NOT_STARTED;
                     return report;
                 }
             }
@@ -345,19 +395,19 @@ fn run(o: &Options, input: Option<&[u8]>) -> Report {
         keep(&mut report, entry);
         last_state = state.clone();
         if state != "pending" {
-            report.exit = code;
+            report.exit = exit_of(code);
             report.text = match state.as_str() {
                 "done" => format!("done on try {n}"),
                 "failed" => format!("try {n} exited {code}"),
                 stop => format!("try {n} exited {code}, which stops the step as {stop}"),
-            };
+            } + &passed_on(code);
             report.outcome = state;
             return report;
         }
         if o.retry.is_some_and(|max| retries >= max) {
             report.outcome = "failed".into();
-            report.text = format!("retries spent after {n} tries, last state pending");
-            report.exit = code;
+            report.text = format!("retries spent after {n} tries, last state pending") + &passed_on(code);
+            report.exit = exit_of(code);
             return report;
         }
         retries += 1;
@@ -401,15 +451,58 @@ fn code_of(status: ExitStatus) -> i32 {
     status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
-/// Runs `argv` in a process group of its own, its standard output on this helper's standard error,
-/// until it exits or `deadline` comes; then what is left of the group is killed.
+/// The helper's exit for a command that exited `code`: the code itself, or [`EXIT_FAILED`] for
+/// one of the helper's own exits.
+fn exit_of(code: i32) -> i32 {
+    if OWN_EXITS.contains(&code) {
+        EXIT_FAILED
+    } else {
+        code
+    }
+}
+
+/// What the report's text adds when the helper does not pass the command's exit on.
+fn passed_on(code: i32) -> String {
+    if OWN_EXITS.contains(&code) {
+        format!("; the helper exits {EXIT_FAILED}, as {code} is one of its own exits")
+    } else {
+        String::new()
+    }
+}
+
+/// Makes this helper the child subreaper of what its tries start: a process whose parent ended
+/// becomes the helper's child, so the end of a try finds it below the helper and kills it.
+fn become_subreaper() {
+    let on: libc::c_ulong = 1;
+    // SAFETY: a flag of this process; no memory is passed.
+    unsafe {
+        libc::prctl(libc::PR_SET_CHILD_SUBREAPER, on);
+    }
+}
+
+/// Runs `argv` in this helper's process group, its standard output on this helper's standard
+/// error, until it exits or `deadline` comes; then every process left below the helper is killed.
 fn run_one(argv: &[String], input: Option<&[u8]>, deadline: Option<Instant>) -> Ended {
     let stdout = match std::io::stderr().as_fd().try_clone_to_owned() {
         Ok(fd) => Stdio::from(fd),
         Err(e) => return Ended::NotStarted(format!("no standard error to give it: {e}")),
     };
+    let helper = std::process::id() as libc::pid_t;
     let mut c = Command::new(&argv[0]);
-    c.args(&argv[1..]).process_group(0).stdout(stdout).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+    c.args(&argv[1..]).stdout(stdout).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+    // SAFETY: prctl and getppid are async-signal-safe and touch no memory of the parent.
+    unsafe {
+        c.pre_exec(move || {
+            // the program ends with the helper, also when the helper is killed with SIGKILL
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as libc::c_ulong) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::getppid() != helper {
+                return Err(std::io::Error::other("the helper ended before the program started"));
+            }
+            Ok(())
+        });
+    }
     let mut child = match c.spawn() {
         Ok(child) => child,
         Err(e) => return Ended::NotStarted(format!("{}: {e}", argv[0])),
@@ -420,7 +513,6 @@ fn run_one(argv: &[String], input: Option<&[u8]>, deadline: Option<Instant>) -> 
             let _ = pipe.write_all(&bytes);
         });
     }
-    let group = child.id() as libc::pid_t;
     let ended = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ended::Exited(status),
@@ -428,26 +520,26 @@ fn run_one(argv: &[String], input: Option<&[u8]>, deadline: Option<Instant>) -> 
             Err(e) => break Ended::NotStarted(format!("waiting for {}: {e}", argv[0])),
         }
         if deadline.is_some_and(|d| Instant::now() >= d) {
-            end_group(group, &mut child);
+            end_try(&mut child);
             break Ended::Deadline;
         }
         std::thread::sleep(POLL_STEP);
     };
     // what the program started and left behind ends with its try
-    signal_group(group, libc::SIGKILL);
+    end_below();
     ended
 }
 
-fn signal_group(group: libc::pid_t, signal: libc::c_int) {
-    // SAFETY: a signal to a process group this helper made; ESRCH (none left) is not an error here.
-    unsafe {
-        libc::kill(-group, signal);
+/// SIGTERM to every process below the helper, SIGKILL to the program after [`END_GRACE`] (std
+/// sends none to a program it has collected), and the program collected.
+fn end_try(child: &mut Child) {
+    for pid in below() {
+        // SAFETY: a signal to a process below this helper, which no other process can collect
+        // before the helper does; ESRCH (gone) is not an error here.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
     }
-}
-
-/// SIGTERM to the group, SIGKILL after [`END_GRACE`], and the leader collected.
-fn end_group(group: libc::pid_t, child: &mut Child) {
-    signal_group(group, libc::SIGTERM);
     let until = Instant::now() + END_GRACE;
     while Instant::now() < until {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -455,8 +547,61 @@ fn end_group(group: libc::pid_t, child: &mut Child) {
         }
         std::thread::sleep(POLL_STEP);
     }
-    signal_group(group, libc::SIGKILL);
+    let _ = child.kill();
     let _ = child.wait();
+}
+
+/// SIGKILL to every process left below the helper, top down, and each collected, until none is
+/// left or [`END_BELOW`] passed. Runs only when the try's program is collected: the helper then
+/// waits for any child. A process is signalled only while the /proc read just before shows it
+/// below the helper, and top down, so its parent is killed before it could collect it and hand its
+/// pid on.
+fn end_below() {
+    let until = Instant::now() + END_BELOW;
+    loop {
+        collect();
+        let left = below();
+        if left.is_empty() || Instant::now() >= until {
+            return;
+        }
+        for pid in left {
+            // SAFETY: as in `end_try`.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Collects every child of the helper that has ended.
+fn collect() {
+    // SAFETY: waitpid with no status pointer only collects children of this process.
+    while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
+}
+
+/// The processes below this helper, parents before their children, read from /proc.
+fn below() -> Vec<libc::pid_t> {
+    let mut children: HashMap<libc::pid_t, Vec<libc::pid_t>> = HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else { return Vec::new() };
+    for entry in entries.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<libc::pid_t>().ok()) else { continue };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { continue };
+        // the fields after the command's name, which ends at the last `)`: state, parent
+        let parent = stat.rfind(')').and_then(|at| stat[at + 1..].split_whitespace().nth(1)).and_then(|p| p.parse::<libc::pid_t>().ok());
+        if let Some(parent) = parent {
+            children.entry(parent).or_default().push(pid);
+        }
+    }
+    let mut out = Vec::new();
+    let mut next = VecDeque::from([std::process::id() as libc::pid_t]);
+    while let Some(pid) = next.pop_front() {
+        for child in children.remove(&pid).unwrap_or_default() {
+            out.push(child);
+            next.push_back(child);
+        }
+    }
+    out
 }
 
 // -------------------------------------------------------------------------------------- report
