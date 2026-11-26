@@ -28,6 +28,7 @@ export const bothFiles = Object.keys(BOTH);
 // server, a refusal, a key or token rule or a text, none of which depends on the viewport. One line per file, the reason
 // in five words. A new spec file must be added to one of the three lists.
 export const WIDE_ONLY = {
+  'adversary-ui-wave.spec.mjs': 'model function, no page',
   'autopilot.spec.mjs': 'who decides, said as text',
   'budget.spec.mjs': 'file checks, no page',
   'child.spec.mjs': 'process guard, no page',
