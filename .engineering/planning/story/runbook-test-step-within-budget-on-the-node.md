@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:runbook-test-step-within-budget-on-the-node
 kind: story
-status: draft
+status: active
 title: The runbook test step stays within its budget when it runs on the build node again
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-26T14:25:00Z", actor: "agent:runbook", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-26T14:25:01Z", actor: "agent:runbook", revision: 5}
 ---
 ## Outcome
 
