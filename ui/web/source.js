@@ -6,6 +6,8 @@
 // What the daemon does not serve (a case's evidence, events, graph and the output of its actions) stays empty
 // and the page says so; nothing is made up.
 import {esc} from './lenses.js';
+import {clockTime, fullTime} from './clock.js';
+import {eventWords} from './runsteps.js';
 
 // Which server sent this page: the daemon names itself in the Server-Timing header of every file it serves
 // (read from the page's own navigation entry: no request, so a Node server sees no failed probe).
@@ -47,8 +49,8 @@ const EMPTY = {
 const q = encodeURIComponent;
 
 // The case tree of a run from the daemon's view `cases`: each row becomes a case with the fields the page's tree reads,
-// its parent, its depth, its protocol and one event made from the row's state (web/model.js caseState). The daemon
-// serves no evidence, evaluation or event log of a case, so those stay empty.
+// its parent, its depth, its protocol and one event made from the row's state (web/model.js caseState). A case of the
+// daemon has no evidence, evaluation or event log on the page: the run's steps and events stand for them (web/runsteps.js).
 const STATE_EVENT = {Ended: 'terminated', AwaitingPerson: 'awaiting_person', AwaitingAuthority: 'awaiting_authority', Stuck: 'stuck', Running: 'action_started'};
 export function daemonCases(rows) {
   const byId = new Map(rows.map((r) => [r.case_id, r]));
@@ -58,7 +60,7 @@ export function daemonCases(rows) {
     const ev = STATE_EVENT[r.case_state];
     if (ev) events.push({seq: 2, event: ev, at: '-', outcome: r.outcome, action: 'a step'});
     return {rel: r.case_id, id: r.case_id, name: r.name ?? null, parent: r.parent ?? null, depth: depth(r), daemon: true, daemonState: r.case_state,
-      case: {protocol: r.protocol}, events, evidence: {}, evaluations: {}, parts: {loom: true, protocol: {why: 'the daemon serves no graph of a case'}}};
+      case: {protocol: r.protocol}, events, evidence: {}, evaluations: {}, parts: {loom: true}};
   });
 }
 async function tree(index) {
@@ -179,8 +181,14 @@ export const openEvents = (source = 0) => (daemon ? daemonStream() : new EventSo
 let again = () => {};
 export const refresh = () => again();
 
-const when = (t) => { const v = ms(t); return v == null ? '' : new Date(v).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}); };
-const short = (rec) => { const t = JSON.stringify(rec ?? null); return t === '{}' || t === 'null' ? '' : t.length > 160 ? `${t.slice(0, 159)}…` : t; };
+// The events of a run the stream has brought, in their order (web/runsteps.js reads its steps from them).
+export const runEvents = (id) => events.get(id) || [];
+
+// The tabs of the right panel this page has data for: the inspector's page all of them; the daemon's page those whose
+// data the daemon serves, the run's files and its events. A tab not named here is no button and no pane. A view of a
+// run's metrics or its log, once the daemon serves one, is a name added here.
+export const ALL_TABS = ['explain', 'autonomy', 'security', 'metrics', 'changes', 'products', 'events', 'run'];
+export const tabsOf = () => (daemon ? ['products', 'events'] : ALL_TABS);
 
 // The model route of a daemon's run in its header (docs/model-routes.md, section 6): `route qwen · managed · ready`,
 // then the alias and the setting that chose the route. The route, the alias and the setting are the run's (the view
@@ -195,19 +203,33 @@ function routeLine(r, words) {
   return ` · <span class="droute" data-key="droute">${esc(parts.join(' · '))}</span>`;
 }
 
+// One event of a run as a row: its name and what it says in words, its place in the run with the kind the runtime
+// wrote, and its time on the page's clock (the date and time in full on hover).
+export function eventRow(e, now = Date.now(), cls = 'fd-row') {
+  const w = eventWords(e);
+  const position = Number(e.position), sequence = Number(e.sequence), at = ms(e.at);
+  return `<div class="${cls}${w.engine ? ' fd-engine' : ''}" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
+    + `<div class="fd-1"><span class="fd-s">${esc(w.name)}</span></div>`
+    + (w.detail ? `<div class="fd-m">${esc(w.detail)}</div>` : '')
+    + `<div class="fd-2"><span class="fd-c">event ${sequence} · ${esc(e.kind)}</span><span class="fd-t" title="${esc(fullTime(at))}">${esc(clockTime(at, now))}</span></div></div>`;
+}
+
 // What the left side shows for a daemon's run: a line naming the run (and its model route) above its case tree, the
-// note of a run with no case, and in place of the feed of changes the run's own events, newest first, each with its
-// place in the run and the record the runtime wrote.
-export function daemonView(src, words = null) {
+// note of a run with no case, and in place of the feed of changes the run's own events, newest first, in words. The
+// engine's own lines around each step (an evaluation before it, the step-budget stop that ends it after it) are folded
+// unless `all`; the head says how many and has the control that shows them.
+export function daemonView(src, words = null, {all = false} = {}) {
   if (!daemon || !src?.daemonRun) return null;
   const id = src.daemonRun.run_id;
+  const now = Date.now();
   const list = [...(events.get(id) || [])].reverse();
-  const rows = list.map((e) => { const position = Number(e.position), sequence = Number(e.sequence); return `<div class="fd-row" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
-    + `<div class="fd-1"><span class="fd-s">${esc(e.kind)}</span></div>`
-    + (short(e.record) ? `<div class="fd-m">${esc(short(e.record))}</div>` : '')
-    + `<div class="fd-2"><span class="fd-c">event ${sequence}</span><span class="fd-t" title="${esc(e.at)}">${esc(when(e.at))}</span></div></div>`; }).join('');
+  const shown = all ? list : list.filter((e) => !eventWords(e).engine);
+  const folded = list.length - shown.length;
+  const rows = shown.map((e) => eventRow(e, now)).join('');
+  const fold = all ? (list.some((e) => eventWords(e).engine) ? '<button type="button" class="fd-fold" data-dfold="0">Fold engine lines</button>' : '')
+    : folded ? `<button type="button" class="fd-fold" data-dfold="1">Show all ${list.length}</button>` : '';
   return {
-    feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${list.length} from the daemon, newest first</span></div>`
+    feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${shown.length}${folded ? ` of ${list.length}` : ''}, newest first${folded ? ` · ${folded} engine lines folded` : ''}</span>${fold}</div>`
       + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows}</div>`,
     head: `<div class="dhead muted" data-key="dhead">${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}${src.daemonRun.autonomy ? ` · autonomy ${esc(src.daemonRun.autonomy)}` : ''}${src.daemonRun.decider ? ` · decider ${esc(src.daemonRun.decider)}` : ''}${routeLine(src.daemonRun, words)}</div>`,
     tree: `<div class="empty" data-key="dnote"><p>${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}</p>`

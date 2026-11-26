@@ -92,7 +92,8 @@ test('the daemon serves the page and the page lists both runs, each feed showing
     expect(owners).toEqual([mine.id]);
     const text = await page.locator('#feed').innerText();
     for (const kind of ['runbook.submitted', 'stub.note']) expect(text).toContain(kind);
-    expect(text).toContain(mine.id);
+    // each row belongs to its run by its data-run (above); its words name no record id (UXF-029), of this run or the other
+    expect(text).not.toContain(mine.id);
     expect(text).not.toContain(other.id);
   }
   expect(await page.evaluate(() => window.__csp)).toEqual([]);
@@ -128,7 +129,8 @@ test('the daemon page has the Products panel and the product line; a stub run ha
   await expect(page.locator('#product .prod-link')).toHaveCount(0);
   await expect(page.locator('#tree')).toContainText('This run has no case tree');
   await page.locator('#tabs button[data-tab=products]').click();
-  await expect(page.locator('#panel .prod .prod-daemon')).toContainText('it serves no evidence records and no action output of a case');
+  await expect(page.locator('#panel .prod .prod-daemon')).toHaveText('the files under the run\'s work/ directory, which its cases share');
+  await expect(page.locator('#panel')).not.toContainText('serves no');
   await expect(page.locator('#panel .prod-files')).toContainText('the run has written no file under work/ yet');
   await expect(page.locator('#panel .prod-file')).toHaveCount(0);
   expect(problems).toEqual([]);

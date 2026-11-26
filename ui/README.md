@@ -18,6 +18,16 @@ answer to a decision (`daemon/decide.js`), and "Routes", the daemon's model rout
 gateway, status and phase (`daemon/routes.js`; the header of a run on a route names the route, its kind
 and its status). These files are in `daemon/`, which this server does not serve.
 
+On a run, the daemon's page has none of the inspector's bands it has no data for (KPIs, Now, phases, the graph and its
+legend, the timeline). Its centre lists the run's steps read from the run's events (`web/runsteps.js`): step, role,
+state, start, duration and try, the step in flight marked with its duration counting, a line that says what runs now
+or how the run ended, and the counts (steps done, model calls, tokens, cost). A `Stopped` with
+`BudgetSpent`/`MaxSteps` ends one step, not the run. The run events are said in words, the engine's own lines folded.
+The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`); no pane
+says what is missing in place of showing something. Times on the page are 24 h local time of the browser with the
+zone's name (`web/clock.js`). Specs: `test/daemon-live.spec.mjs` over the synthetic daemon `test/daemon-live-fixture.mjs`
+(`node test/daemon-live-fixture.mjs --live` serves it to look at), `test/daemon-steps-model.spec.mjs`.
+
 ## Start
 
 ```console
@@ -438,8 +448,8 @@ is compared by time:
   (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
   projected events do not carry the digest.
 - Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The tab lists the files of the
-  run's `work/` directory (the daemon's views `products` and `product`) and says that the daemon serves no evidence
-  records and no action output of a case; the line counts the files (`docs/daemon-api.md`, "The web UI").
+  run's `work/` directory (the daemon's views `products` and `product`); the line counts the files and stands with the
+  run's steps (`docs/daemon-api.md`, "The web UI").
 
 Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
 `test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`, `test/daemon-run-tree.spec.mjs`, `test/daemon-run-tree-security.spec.mjs`, `test/step-products-bounds.spec.mjs`,
@@ -525,7 +535,8 @@ viewports (1600x1000, 1366x768, the operator tile 805x1270 and the phone 390x844
 always visible (Now band with its run state, KPI strip, phase bar, the run picker, Decisions; decision D-009), the
 desktop order from the top and the KPI tiles that must be whole (decision D-008), the scroll exceptions (decision
 D-001), the guidance cue (the Now band's waiting card and its Decide control) and six scenarios
-with their truth. `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
+with their truth, and the daemon's run page at a live run (scenario `daemon-live`, `ux/specs/daemon.spec.mjs` over
+`test/daemon-live-fixture.mjs`). `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
 eyes, the metrics, the ratchet and the round command. `ux/specs/` joins them: the driver bot
 (`test/fixture-run.mjs`) plays each run, the contract samples it, the screen-only user does the
 scenario's tasks with only what it can see.
