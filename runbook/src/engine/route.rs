@@ -28,6 +28,8 @@ pub struct RunRoute {
     pub ticket: Ticket,
     /// The step in flight, written by [`StepNote`] and read by the relay for the line of a call.
     pub step: Arc<Mutex<Option<String>>>,
+    /// The role names the route file holds, in order.
+    pub roles: Vec<String>,
 }
 
 impl RunRoute {
@@ -35,7 +37,8 @@ impl RunRoute {
     pub fn open(relay: &Arc<Relay>, run_id: &str, run_dir: &Path, table: &RouteTable) -> Result<RunRoute, String> {
         let ticket = relay.open(run_id, table.clone())?;
         let file = RouteFile::write(&private_name(run_dir), &ticket, table)?;
-        Ok(RunRoute { file, ticket, step: Arc::new(Mutex::new(None)) })
+        let roles = table.roles().into_iter().map(str::to_owned).collect();
+        Ok(RunRoute { file, ticket, step: Arc::new(Mutex::new(None)), roles })
     }
 
     /// The route file.

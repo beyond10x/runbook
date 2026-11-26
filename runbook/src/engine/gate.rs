@@ -378,6 +378,12 @@ impl Gate {
         booking
     }
 
+    /// The role names of the run's route file: the reason of a model call that left no cost record names them when the
+    /// client did not know the model it asked for (`CostReader::with_route_roles`).
+    pub fn name_route_roles(&mut self, roles: Vec<String>) {
+        self.reader = std::mem::take(&mut self.reader).with_route_roles(roles);
+    }
+
     /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`).
     pub fn record_calls(&self, sink: &dyn EventSink) {
         if let Some(booking) = &self.routed {

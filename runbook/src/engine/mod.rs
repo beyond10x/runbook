@@ -413,6 +413,7 @@ impl Engine {
         let mut gate = Gate::open(caps, &self.state_dir, &request.runbook, &request.run_id, &request.state_dir, &workspace, resume, meter, reserves).map_err(failure)?;
         if let Some(r) = &route {
             let booking = gate.route(r.step.clone());
+            gate.name_route_roles(r.roles.clone());
             if let Some(j) = &judge {
                 booking.set_max_call(j.max_call_micro_usd());
             }
