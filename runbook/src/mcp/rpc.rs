@@ -220,6 +220,9 @@ fn check_headers(h: &Headers, id: &Value, method: &str, params: &Value) -> Resul
 
 fn request(be: &dyn Backend, wire: &mut Wire, id: Value, method: &str, params: &Value, notify: &mut dyn FnMut(Value)) -> Reply {
     if method == "initialize" {
+        if let Some(name) = params.get("clientInfo").and_then(|c| c.get("name")).and_then(Value::as_str) {
+            be.client_named(name);
+        }
         return initialize(wire, id, params);
     }
     let era = match era(wire, &id, method, params) {

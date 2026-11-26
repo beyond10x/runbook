@@ -33,6 +33,13 @@ pub const PATH: &str = "/mcp";
 pub trait Backend {
     fn command(&self, name: &str, body: &[u8]) -> Answer;
     fn view(&self, name: &str, query: &HashMap<String, String>) -> Answer;
+    /// Who calls through this server, sent with a delegation (`docs/model-routes.md`, Part two, "What is recorded"): the MCP
+    /// client's name (`clientInfo.name` of `initialize`) and the session's label (`RUNBOOK_CALLER`). None in process.
+    fn caller(&self) -> (Option<String>, Option<String>) {
+        (None, None)
+    }
+    /// The MCP client named itself in `initialize`.
+    fn client_named(&self, _name: &str) {}
 }
 
 /// The daemon in this process: the routes' own functions.

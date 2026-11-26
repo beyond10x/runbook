@@ -140,7 +140,7 @@ pub fn run(args: McpArgs) -> ExitCode {
     };
     let remote = auth::load_token(args.token_file.as_deref(), env("RUNBOOK_TOKEN")).and_then(|token| Remote::parse(&url, token));
     let remote = match remote {
-        Ok(r) => r,
+        Ok(r) => r.with_label(env("RUNBOOK_CALLER")),
         Err(e) => {
             eprintln!("runbook mcp: {e}");
             return ExitCode::from(1);

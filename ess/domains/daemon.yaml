@@ -1012,6 +1012,8 @@ commands:
       - {name: settings, type: sdc.daemon.RunSettings}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
       - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: caller, type: Optional<String>, summary: "Who asked: the name the MCP client gave in initialize (clientInfo.name), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
+      - {name: caller_label, type: Optional<String>, summary: "The label of the session that asked (RUNBOOK_CALLER of the session `runbook mcp` serves), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`."}
       - {name: runbook_id, type: sdc.daemon.RunbookId, summary: "The runbook the run takes: the protocol; delegation-free for the free run; delegation for a delegation the daemon classifies when its run starts. The handler fills it."}
       - {name: confinement, type: sdc.daemon.ConfinementLevel, summary: "The daemon's default level: a delegation names none. The handler fills it; a daemon with no default refuses the delegation by name (400) and writes nothing."}
       - {name: route, type: sdc.daemon.RouteName, summary: "The route the run takes, by name: model_route, else the daemon's default route. The handler fills it."}

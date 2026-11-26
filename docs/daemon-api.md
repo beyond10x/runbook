@@ -334,6 +334,9 @@ events and the web UI work on it unchanged.
   `start_wait_seconds` are over. A delegation whose path is still open (it names no protocol on a daemon with a
   classifier route) takes the same check for the classifier route: no classify call goes to it before it can answer.
   A replay of an idempotency key is not asked about.
+- `caller` and `caller_label` (each at most 200 characters, else `400`) say who asked: `runbook mcp` fills them
+  with the name the MCP client gave in `initialize` and the session's `RUNBOOK_CALLER`; they are no argument of
+  the MCP tool. The run records them in its event `runbook.delegated` (not in `RunDelegated`).
 - A replay (`202` outcome `already-submitted`) names the first run with the key. Its `Location` is that run's
   `delegation-result`, or `/daemon/views/run?run_id=<id>` when the key was a `submit-run`'s.
 - A `result.md` that comes with the workspace is moved to `.result.from-workspace.md` before the run starts

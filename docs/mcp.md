@@ -84,6 +84,10 @@ route gives it: a `cancel_run` of an unknown run is `404` (`NoSuchRun`), a secon
 This is a tool execution error in the sense of the specification, in the result and not a JSON-RPC
 error: a model that reads it can correct itself.
 
+`runbook mcp` sends who asked with every `delegate`: `caller`, the name the client gave in `initialize`
+(`clientInfo.name`), and `caller_label`, the `RUNBOOK_CALLER` of its environment; neither is an argument of the tool,
+and the run records both in its event `runbook.delegated`.
+
 `delegate` and `delegation_result` answer the row of the view `delegation-result` in
 `structuredContent.rows[0]`, its `result_text` held to 40000 characters, and a text whose first line names
 the run, the route (with the last phase its gateway gave, `route_phase`, for a run that waited for its route), its

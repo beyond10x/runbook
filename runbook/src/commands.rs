@@ -630,6 +630,12 @@ pub struct Delegate {
     pub session_id: Option<String>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    /// Who asked: the MCP client's name (`runbook mcp` sends `clientInfo.name`), recorded in `runbook.delegated`.
+    #[serde(default)]
+    pub caller: Option<String>,
+    /// The session's label (`RUNBOOK_CALLER` of the session `runbook mcp` serves), recorded in `runbook.delegated`.
+    #[serde(default)]
+    pub caller_label: Option<String>,
 }
 
 /// A run its command admitted: what `Daemon::enter` writes and starts.
@@ -1221,6 +1227,11 @@ impl Daemon {
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
+        for (member, value) in [("caller", &input.caller), ("caller_label", &input.caller_label)] {
+            if value.as_deref().is_some_and(|v| !long_enough(v)) {
+                return Err(Fault::Invalid(format!("{member} is longer than {MAX_LABEL_CHARS} characters")));
+            }
+        }
         draining_fault(&self.st())?;
         let terms = Terms { autonomy: self.inner.policy.autonomy, decider: self.inner.policy.decider.clone() };
         check_terms(&terms, &self.inner.policy.kinds).map_err(Fault::Invalid)?;
@@ -1318,6 +1329,12 @@ impl Daemon {
             event["path"] = json!(path);
         }
         let mut delegated = event.clone();
+        // who asked is the run's record (its event `runbook.delegated`), not a member of the published RunDelegated
+        for (member, value) in [("caller", &input.caller), ("caller_label", &input.caller_label)] {
+            if let Some(v) = value {
+                event[member] = json!(v);
+            }
+        }
         delegated["run_id"] = json!(run_id);
         let admitted = Admitted {
             run_id: run_id.clone(),

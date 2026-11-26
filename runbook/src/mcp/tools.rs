@@ -157,8 +157,9 @@ const TOOLS: [Tool; 15] = [
     },
 ];
 
-/// The members of the input of `delegate` the handler fills.
-pub const DELEGATE_FILLED: [&str; 12] = ["run_id", "runbook_id", "confinement", "route", "model_route_alias", "model_route_source", "path", "route_declared", "runbook_known", "context_inside_roots", "daemon_id", "at"];
+/// The members of the input of `delegate` the handler fills, and the two the MCP server fills (`caller`, `caller_label`):
+/// none of them is an argument of the tool.
+pub const DELEGATE_FILLED: [&str; 14] = ["run_id", "runbook_id", "confinement", "route", "model_route_alias", "model_route_source", "path", "route_declared", "runbook_known", "context_inside_roots", "daemon_id", "at", "caller", "caller_label"];
 /// How long `delegate` waits for the run's end when the call names no `wait_seconds`, and the most it names.
 pub const DEFAULT_WAIT_SECONDS: u64 = 600;
 pub const MAX_WAIT_SECONDS: u64 = 3600;
@@ -310,6 +311,14 @@ fn delegate(be: &dyn Backend, mut args: Map<String, Value>, mut progress: Option
         None | Some(Value::Null) => DEFAULT_WAIT_SECONDS,
         Some(v) => v.as_u64().filter(|w| *w <= MAX_WAIT_SECONDS).ok_or_else(|| Invalid::Arguments(format!("wait_seconds must be a whole number from 0 to {MAX_WAIT_SECONDS}")))?,
     };
+    // who calls: the server sends it, never the model (the members are no argument of the tool)
+    let (client, label) = be.caller();
+    if let Some(c) = client {
+        args.insert("caller".into(), json!(c));
+    }
+    if let Some(l) = label {
+        args.insert("caller_label".into(), json!(l));
+    }
     let a = be.command("delegate", Value::Object(args).to_string().as_bytes());
     let Some(run_id) = a.body["published"][0]["payload"]["run_id"].as_str().filter(|_| a.status == StatusCode::ACCEPTED).map(str::to_owned) else {
         return Ok(result(&a));

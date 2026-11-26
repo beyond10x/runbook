@@ -22,6 +22,10 @@ const MAX_ANSWER: u64 = 64 * 1024 * 1024;
 pub struct Remote {
     authority: String,
     token: Option<String>,
+    /// The session's label (`RUNBOOK_CALLER`), sent with a delegation.
+    label: Option<String>,
+    /// The MCP client's name, once `initialize` gave it.
+    client: std::sync::Mutex<Option<String>>,
 }
 
 impl Remote {
@@ -33,7 +37,13 @@ impl Remote {
             return Err(format!("daemon URL {url:?}: give http://host[:port], with no user, no path and no query"));
         }
         let authority = if authority.contains(':') && !authority.ends_with(']') { authority.to_string() } else { format!("{authority}:80") };
-        Ok(Remote { authority, token })
+        Ok(Remote { authority, token, label: None, client: std::sync::Mutex::new(None) })
+    }
+
+    /// The session's label this server sends with a delegation (`RUNBOOK_CALLER`).
+    pub fn with_label(mut self, label: Option<String>) -> Remote {
+        self.label = label;
+        self
     }
 
     /// Whether a token goes to a host that is not loopback, over a connection that is not encrypted.
@@ -104,6 +114,14 @@ fn encode(s: &str) -> String {
 }
 
 impl Backend for Remote {
+    fn caller(&self) -> (Option<String>, Option<String>) {
+        (self.client.lock().unwrap_or_else(|e| e.into_inner()).clone(), self.label.clone())
+    }
+
+    fn client_named(&self, name: &str) {
+        *self.client.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_owned());
+    }
+
     fn command(&self, name: &str, body: &[u8]) -> Answer {
         self.send("POST", &routes::command_path(name), Some(body))
     }

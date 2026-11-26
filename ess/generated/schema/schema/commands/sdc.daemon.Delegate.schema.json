@@ -35,6 +35,14 @@
     "idempotency_key": {
       "$ref": "#/$defs/sdc.daemon.IdempotencyKey"
     },
+    "caller": {
+      "description": "Who asked: the name the MCP client gave in initialize (clientInfo.name), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`.",
+      "type": "string"
+    },
+    "caller_label": {
+      "description": "The label of the session that asked (RUNBOOK_CALLER of the session `runbook mcp` serves), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`.",
+      "type": "string"
+    },
     "runbook_id": {
       "$ref": "#/$defs/sdc.daemon.RunbookId",
       "description": "The runbook the run takes: the protocol; delegation-free for the free run; delegation for a delegation the daemon classifies when its run starts. The handler fills it."
@@ -95,7 +103,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:d6cacc5fbe2440ee3a01a1b6d604e1b703a39da7bc7c8c1c12d0fc006504fe74",
+    "contract_digest": "slice-sha256/2:ef3a4c13f9e43c0a8221ba5501e34eb48ed42801763d6193de4c33244a7cf8e8",
     "regenerate": "ess generate"
   },
   "$defs": {
