@@ -5,9 +5,10 @@
 //! stays denied: nothing runs on the session's own model.
 //!
 //! No model is called and nothing leaves loopback. One stand-in Anthropic Messages server on a port of the test's own
-//! answers every model call: the session's own (it plays the model: an Agent call first, then `delegate` as the deny
-//! reason says, then the tool's result as its answer) and the run's, which reaches it through the daemon's relay as
-//! the daemon's gateway. The run's agent node is the stand-in `claude` of `delegate.rs` on the daemon's `PATH`.
+//! answers every model call: the session's own (it plays the model: an Agent call first, then `delegate` by the name
+//! the deny reason gives, loaded first with ToolSearch as the reason says when the session lists it as a deferred tool,
+//! then the tool's result as its answer) and the run's, which reaches it through the daemon's relay as the daemon's
+//! gateway. The session runs with Claude Code's tool search at its default (on), so `delegate` is deferred. The run's agent node is the stand-in `claude` of `delegate.rs` on the daemon's `PATH`.
 //!
 //! The headless cases start the `claude` found on `PATH` with `--plugin-dir plugin`, and print why they skip when
 //! there is none (the forge has none). That session gets a fresh `HOME` and `CLAUDE_CONFIG_DIR` under the test's own
@@ -32,8 +33,9 @@ use std::time::Duration;
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 /// The task the session's model hands to a sub-agent.
 const TASK: &str = "Write one sentence about tea.";
-/// The ids of the session model's two tool calls.
+/// The ids of the session model's tool calls: Agent, ToolSearch (when `delegate` is deferred) and `delegate`.
 const AGENT_CALL: &str = "toolu_agent_1";
+const SEARCH_CALL: &str = "toolu_search_1";
 const DELEGATE_CALL: &str = "toolu_delegate_1";
 /// What the stand-in model answers once it has the result of `delegate`, before that result.
 const SAYS: &str = "The sub-agent answered: ";
@@ -155,26 +157,42 @@ fn route_named(reason: &str) -> Option<String> {
     Some(rest.split_once('`')?.0.to_owned())
 }
 
-/// The session's model, played: with no tool result yet it calls Agent with the task; given the result of that Agent
-/// call it calls `delegate` as the reason says (the task as `request`, the route the reason names); given any other
-/// result it answers that result's text.
+/// The tool a deny reason tells the model to load: the name in "`select:<name>`".
+fn tool_to_load(reason: &str) -> Option<String> {
+    let rest = reason.split_once("`select:")?.1;
+    Some(rest.split_once('`')?.0.to_owned())
+}
+
+/// The result of the tool call `id` among the messages of a request, if any.
+fn result_of(body: &Value, id: &str) -> Option<Value> {
+    body["messages"].as_array().into_iter().flatten().flat_map(|m| m["content"].as_array().cloned().unwrap_or_default()).find(|c| c["type"] == "tool_result" && c["tool_use_id"] == id)
+}
+
+/// The session's model, played, knowing nothing of the plugin but what the deny reason says: with no tool result yet
+/// it calls Agent with the task. Given the deny, it takes the tool the reason names (`select:<name>`): when the request
+/// offers it, it calls it (the task as `request`, the route the reason names); when it does not (the tool is deferred:
+/// Claude Code's tool search lists it by name only), it loads it with ToolSearch and calls it once that has answered.
+/// Given any other result it answers that result's text.
 fn session_turn(body: &Value) -> (Vec<Value>, &'static str) {
     let tools: Vec<&str> = body["tools"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str()).collect();
-    let delegate = tools.iter().find(|t| t.ends_with("__delegate"));
     let last = body["messages"].as_array().and_then(|m| m.last()).cloned().unwrap_or(Value::Null);
     let results: Vec<&Value> = last["content"].as_array().into_iter().flatten().filter(|c| c["type"] == "tool_result").collect();
     let tool_use = |id: &str, name: &str, input: Value| (vec![json!({"type": "tool_use", "id": id, "name": name, "input": input})], "tool_use");
-    match results.last() {
-        Some(r) if r["tool_use_id"] == AGENT_CALL && delegate.is_some() => {
-            let mut input = json!({"request": TASK});
-            if let Some(route) = route_named(&result_text(r)) {
-                input["model_route"] = json!(route);
-            }
-            tool_use(DELEGATE_CALL, delegate.unwrap(), input)
+    let deny = result_of(body, AGENT_CALL).map(|r| result_text(&r)).unwrap_or_default();
+    let delegate = |name: &str| {
+        let mut input = json!({"request": TASK});
+        if let Some(route) = route_named(&deny) {
+            input["model_route"] = json!(route);
         }
-        Some(r) => (vec![json!({"type": "text", "text": format!("{SAYS}{}", result_text(r))})], "end_turn"),
-        None if tools.contains(&"Agent") => tool_use(AGENT_CALL, "Agent", json!({"description": "tea", "prompt": TASK, "subagent_type": "general-purpose"})),
-        None => (vec![json!({"type": "text", "text": "this session has no Agent tool"})], "end_turn"),
+        tool_use(DELEGATE_CALL, name, input)
+    };
+    match (results.last(), tool_to_load(&deny)) {
+        (Some(r), Some(name)) if r["tool_use_id"] == AGENT_CALL && tools.contains(&name.as_str()) => delegate(&name),
+        (Some(r), Some(name)) if r["tool_use_id"] == AGENT_CALL && tools.contains(&"ToolSearch") => tool_use(SEARCH_CALL, "ToolSearch", json!({"query": format!("select:{name}")})),
+        (Some(r), Some(name)) if r["tool_use_id"] == SEARCH_CALL => delegate(&name),
+        (Some(r), _) => (vec![json!({"type": "text", "text": format!("{SAYS}{}", result_text(r))})], "end_turn"),
+        (None, _) if tools.contains(&"Agent") => tool_use(AGENT_CALL, "Agent", json!({"description": "tea", "prompt": TASK, "subagent_type": "general-purpose"})),
+        (None, _) => (vec![json!({"type": "text", "text": "this session has no Agent tool"})], "end_turn"),
     }
 }
 
@@ -274,7 +292,6 @@ fn headless(tag: &str, l: &Live, gw: &Standin, prompt: &str) -> Option<Value> {
         .env("ANTHROPIC_AUTH_TOKEN", SESSION_TOKEN)
         .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
         .env("DISABLE_AUTOUPDATER", "1")
-        .env("ENABLE_TOOL_SEARCH", "false")
         .env("HTTPS_PROXY", &proxy)
         .env("HTTP_PROXY", &proxy)
         .env("NO_PROXY", "127.0.0.1,localhost")
@@ -304,20 +321,27 @@ fn results_of(gw: &Standin) -> std::collections::BTreeMap<String, Value> {
         .collect()
 }
 
-/// The session's Agent call was denied by the hook with a reason naming `delegate` and the session's route, and no
-/// sub-agent ran: the session called its model three times (Agent, `delegate`, the answer), each with the case's
-/// token, and Claude Code spawned no sub-agent.
+/// The session's Agent call was denied by the hook with a reason naming `delegate` by the name the session lists it
+/// under, how to load it, and the session's route, and no sub-agent ran: the session called its model three times
+/// (Agent, `delegate`, the answer), and once more to load `delegate` with ToolSearch when the session had deferred it,
+/// each with the case's token, and Claude Code spawned no sub-agent.
 fn assert_agent_denied(out: &Value, gw: &Standin) {
     let results = results_of(gw);
     let agent = results.get(AGENT_CALL).unwrap_or_else(|| panic!("the Agent call has no result: {results:?}"));
     let reason = result_text(agent);
     assert_eq!(agent["is_error"], json!(true), "{agent}");
-    for want in ["`delegate`", "RUNBOOK_MODEL_ROUTE", "`model_route` = `default`", TASK] {
+    for want in ["`delegate`", "RUNBOOK_MODEL_ROUTE", "`model_route` = `default`", TASK, &format!("`{DELEGATE_TOOL}`"), &format!("`select:{DELEGATE_TOOL}`"), "ToolSearch"] {
         assert!(reason.contains(want), "the deny reason lacks {want}: {reason}");
     }
     assert_eq!(out["subagent_stats"]["spawned"], json!(0), "a sub-agent ran: {out}");
     let calls = gw.session_calls();
-    assert_eq!(calls.len(), 3, "the session's model calls: {:?}", calls.iter().map(|c| &c.head).collect::<Vec<_>>());
+    // the name the reason gives is the one Claude Code lists: offered as a tool, or named among the deferred tools
+    let first = calls.first().expect("the session called no model");
+    let offered = first.body["tools"].as_array().into_iter().flatten().any(|t| t["name"] == DELEGATE_TOOL);
+    assert!(offered || first.body["messages"].to_string().contains(&format!("\\n{DELEGATE_TOOL}\\n")), "the session lists no tool {DELEGATE_TOOL}");
+    let searched = usize::from(results.contains_key(SEARCH_CALL));
+    assert_eq!(searched, usize::from(!offered), "ToolSearch was called (1) or not (0) where the tool was deferred (1) or offered (0)");
+    assert_eq!(calls.len(), 3 + searched, "the session's model calls: {:?}", calls.iter().map(|c| &c.head).collect::<Vec<_>>());
     for c in &calls {
         assert!(c.head.lines().any(|l| l.eq_ignore_ascii_case(&format!("authorization: Bearer {SESSION_TOKEN}"))), "a call without the case's token: {}", c.head);
     }
@@ -447,7 +471,10 @@ fn the_plugin_names_only_tools_and_arguments_runbook_mcp_serves() {
     let tools = runbook::mcp::tools::list();
     let mut known: Vec<String> = Vec::new();
     for t in tools {
-        known.push(t["name"].as_str().unwrap().to_owned());
+        let name = t["name"].as_str().unwrap();
+        // the name Claude Code lists the tool under (`DELEGATE_TOOL` is one): the prefix of the plugin's server, then the tool's
+        known.push(format!("{}{name}", DELEGATE_TOOL.trim_end_matches("delegate")));
+        known.push(name.to_owned());
         known.extend(t["inputSchema"]["properties"].as_object().into_iter().flatten().map(|(k, _)| k.clone()));
     }
     let row = &super::openapi::doc()["components"]["schemas"]["sdc.daemon.DelegationResult.Row"]["properties"];

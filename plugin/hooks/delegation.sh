@@ -37,6 +37,22 @@ quote() {
 	printf '%s' "$q"
 }
 
+# The names Claude Code lists the runbook tools under: mcp__plugin_<plugin>_<server>__<tool>, the
+# plugin `runbook` (.claude-plugin/plugin.json) and its MCP server `runbook` (.mcp.json). With tool
+# search on (Claude Code's default) each tool is deferred: the model sees that name only and loads
+# the tool with ToolSearch before it can call it.
+listed_prefix=mcp__plugin_runbook_runbook__
+
+# $1, a tool of the runbook MCP server, by its name, the name the session lists it under and the
+# ToolSearch query that loads it.
+listed() {
+	printf '`%s` (listed in this session as `%s%s`; when it is not callable yet, load it first with ToolSearch, query `select:%s%s`)' "$1" "$listed_prefix" "$1" "$listed_prefix" "$1"
+}
+
+tool_use="the runbook MCP tool $(listed delegate)"
+catalog_use=$(listed describe_catalog)
+result_use=$(listed delegation_result)
+
 route=${RUNBOOK_MODEL_ROUTE-}
 if [ -n "$route" ]; then
 	route_use="\`model_route\` = \`$(quote "$route")\` (RUNBOOK_MODEL_ROUTE of this session)"
@@ -47,7 +63,7 @@ fi
 input=$(tr '\000-\037' '                                ')
 
 if [ "$event" = session-start ]; then
-	context="This session has the Runbook plugin: its sub-agent work is served by Runbook. Call the runbook MCP tool \`delegate\` with \`request\` = the task and $route_use; the Agent and Workflow tools are denied. \`delegation_result\` reads a delegation that outlasted its call; \`describe_catalog\` lists the routes and runbooks a delegation may name."
+	context="This session has the Runbook plugin: its sub-agent work is served by Runbook. Call $tool_use with \`request\` = the task and $route_use; the Agent and Workflow tools are denied. $result_use reads a delegation that outlasted its call; $catalog_use lists the routes and runbooks a delegation may name."
 	printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$context"
 	exit 0
 fi
@@ -80,5 +96,5 @@ else
 	prompt="No prompt could be read from the hook's input: pass the task this $call was given."
 fi
 
-reason="Sub-agents in this session are served by Runbook: this $call is denied and runs nowhere. Call the runbook MCP tool \`delegate\` instead, one call per sub-agent task, with \`request\` = the task's full text and $route_use. \`describe_catalog\` lists the routes and runbooks. $prompt"
+reason="Sub-agents in this session are served by Runbook: this $call is denied and runs nowhere. Call $tool_use instead, one call per sub-agent task, with \`request\` = the task's full text and $route_use. $catalog_use lists the routes and runbooks. $prompt"
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"

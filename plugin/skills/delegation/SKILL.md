@@ -16,6 +16,10 @@ daemon's default route applies. A `delegate` call may name another route; the da
 
 ## Delegate
 
+Claude Code lists the tool as `mcp__plugin_runbook_runbook__delegate`. When the session shows that name only
+(tool search defers MCP tools), load it first with ToolSearch, query `select:mcp__plugin_runbook_runbook__delegate`;
+`delegation_result` and `describe_catalog` load the same way.
+
 1. Call `delegate` with `request` = the full task text, the text an Agent call's prompt would have held, and
    `model_route` = the session's route when it has one. Name a `protocol` only when `describe_catalog` lists a
    runbook for the task.
@@ -34,7 +38,9 @@ This step is done when the task's result is in the conversation, or a tool error
 - A route the daemon does not declare comes back as the tool error `route-refused` with the declared routes; a
   route whose gateway is not ready as `route-unavailable` naming the route (HTTP status 503); a route that fails
   the run's call ends the run `runtime-failure`, a tool error whose `failure` names `route-unavailable` and the
-  route. Pick a route from `list_routes` or `describe_catalog`, or report the error. The Agent and Workflow tools
+  route. Pick a route from `list_routes` or `describe_catalog`, or report the error.
+- A run whose agent step failed ends `failed: step <action> <end>` (`exit <n>`, `signal <n>`, `timed out after <s> s`
+  or `ended with no exit`), a tool error whose `failure` names the step and how it ended. Report it, or delegate again with a clearer task. The Agent and Workflow tools
   stay denied; the session's own model takes no sub-agent work.
 - `daemon unreachable` (status 502): the daemon named by `RUNBOOK_DAEMON` does not answer. Report it.
 

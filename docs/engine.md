@@ -391,7 +391,7 @@ none; when a cap is named and spent, the decider stops and the decision stays op
 The daemon's operator may name a gateway instead of a login: the `[gateway]` table of the `runbook.toml` the
 daemon reads, with `base_url` and, for a gateway that takes a token, `token_file` (the file holds no token:
 `gateway.token` there is refused, `docs/loom-run-settings.md` "`[gateway]`"). It is the one route `default` of
-the runs whose decider kind is `model` (at a level above `A0`), whose alias is the `model` of `[deciders.model]`,
+the runs that may take a route (decider kind `model` above `A0`, or a runbook that runs a program: `docs/daemon-api.md`, "The route of a run"), whose alias is the `model` of `[deciders.model]`,
 until the daemon declares routes of its own (`docs/model-routes.md`, sections 1 and 11). Every model call of
 such a run goes through the daemon's relay, never to the gateway (`runbook/src/relay.rs`,
 `runbook/src/engine/route.rs`):
@@ -399,7 +399,7 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
 - The relay answers on the daemon's own listener, at `/daemon/relay/<run>/v1/messages`,
   `/v1/chat/completions` and `/v1/responses` ("The relay of a run's model calls", `docs/daemon-api.md`), when
   that listener is loopback. On any other (every interface included) the relay is not served, the daemon says so
-  on stderr as it starts, and a run whose decider kind is `model` fails to start by that name.
+  on stderr as it starts, and a run on a route fails to start by that name.
 - When the run starts, the daemon mints a token for it (32 random bytes), void when the run ends, and writes
   `route.json` (`runbook.route/1`, mode 0600: the relay's address for the run, the token, the roles and the
   route of each) into the run's private directory (`$XDG_RUNTIME_DIR/runbook/daemon-<process>-<run>/`, mode

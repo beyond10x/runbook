@@ -39,6 +39,9 @@ pub const MAX_LABEL_CHARS: usize = 200;
 pub const ACTION_STARTED: &str = "runbook.action-started";
 /// The kind of the run event the daemon records, with the runtime's reason, just before it ends a run that failed after it started.
 pub const RUNTIME_FAILED: &str = "runbook.runtime-failed";
+/// The kind of the run event the daemon records just before it ends a run whose step failed with nothing else to do
+/// (`Finish::StepFailed`): the case, the action, the exit of its program and the reason.
+pub const STEP_FAILED: &str = "runbook.step-failed";
 
 /// Whether `text` is a principal: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`.
 pub fn check_principal(text: &str) -> Result<(), String> {
@@ -541,12 +544,18 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
     Some(format!("{member} {why}; name a declared route"))
 }
 
-/// The run's route as the handler resolves it at the submit (`docs/model-routes.md`, section 2): the route of each role
-/// and the record of it, or none for a run that takes no route; `Err` is the reason of `route-refused`. The run's
-/// word comes first (`model_route`, `model_routes.<role>`), then `route_policy.default`. A run that makes no model call
-/// takes no route and is refused when it names one; the default is not applied to it. A daemon whose file declares no
-/// route gives a model run the route `default` of its lone `[gateway]`, as before routes, and refuses any named route.
-fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
+/// The run's route as the handler resolves it at the submit (`docs/model-routes.md`, sections 2 and 11): the route of
+/// each role and the record of it, or none for a run that takes no route; `Err` is the reason of `route-refused`. The
+/// run's word comes first (`model_route`, `model_routes.<role>`), then `route_policy.default`. A run may take a route
+/// when its decider is the kind model above A0 or its runbook runs a program (`runs_programs`: a bound program or an
+/// agent node, each of which may call a model through the route file). Any other run makes no model call: it takes no
+/// route, is refused when it names one (the reason names the member), and the default is not applied to it. A run
+/// whose model calls come from its programs only and that names no route takes `route_policy.default` only when the
+/// file declares one and the relay serves runs (`serves_routes`); else it takes none and runs as before routes. A
+/// daemon whose file declares no route gives a model run the route `default` of its lone `[gateway]`, as before
+/// routes, and refuses any other named route; a run whose model calls come from its programs only does not take it, and
+/// one that names it is refused naming the member.
+fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs: bool, serves_routes: bool) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
     let routes = &policy.routes;
     let roles = input.model_routes.clone().unwrap_or_default();
     if let Some(name) = &input.model_route {
@@ -565,11 +574,31 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms) -> Result<Opt
             return Err(why);
         }
     }
-    if !terms.makes_model_calls() {
-        if input.model_route.is_some() || !roles.is_empty() {
-            return Err("the submit names a route, and the run makes no model call (its decider is not the kind model at a level above A0): a submit for such a run names no route".to_owned());
+    let decider_calls = terms.makes_model_calls();
+    if !decider_calls && !runs_programs {
+        let member = match (&input.model_route, roles.keys().next()) {
+            (Some(_), _) => Some("model_route".to_owned()),
+            (None, Some(role)) => Some(format!("model_routes.{role}")),
+            (None, None) => None,
+        };
+        if let Some(member) = member {
+            return Err(format!("{member} names a route, and the run makes no model call (its runbook runs no bound program and no agent node, and its decider is not the kind model at a level above A0): a submit for such a run names no route"));
         }
         return Ok(None);
+    }
+    if !decider_calls {
+        let named = input.model_route.iter().map(|name| ("model_route".to_owned(), name)).chain(roles.iter().map(|(role, name)| (format!("model_routes.{role}"), name)));
+        for (member, name) in named {
+            if routes.is_interim(name) {
+                return Err(format!("{member} names the interim route default of the daemon's lone [gateway], which only a run whose decider is the kind model above A0 takes: a run whose model calls come from its programs only names a route the daemon's file declares in [routes]"));
+            }
+        }
+    }
+    if !decider_calls && input.model_route.is_none() && roles.is_empty() {
+        let declared = routes.default_route().filter(|name| !routes.is_interim(name));
+        if declared.is_none() || !serves_routes {
+            return Ok(None);
+        }
     }
     if routes.names().is_empty() {
         let Some(table) = policy.gateway_route.clone() else { return Ok(None) };
@@ -1060,7 +1089,8 @@ impl Daemon {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
         // The run's model route: the submit's word, then the daemon's default; a refusal lists the declared routes.
-        let route = match route_of_run(&self.inner.policy, &input, &terms) {
+        let runs_programs = self.inner.runtime.runs_programs(&input.runbook_id, input.runbook_version.as_deref());
+        let route = match route_of_run(&self.inner.policy, &input, &terms, runs_programs, self.inner.runtime.serves_routes()) {
             Ok(route) => route,
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
         };
@@ -1743,8 +1773,9 @@ impl Daemon {
             m.insert("run_state".into(), json!(run.state));
             put(&mut m, "outcome", &run.outcome);
             // Why the run failed to start, or what failed it after it started: the reason of its event `runbook.runtime-failed`
-            // (a step whose route did not serve its call names the route, the gateway's code and the setting).
-            let failed_after_start = events.iter().rev().find(|e| e.kind == RUNTIME_FAILED).and_then(|e| e.record["reason"].as_str()).map(str::to_owned);
+            // (a step whose route did not serve its call names the route, the gateway's code and the setting) or
+            // `runbook.step-failed` (the step whose program failed and how it ended).
+            let failed_after_start = events.iter().rev().find(|e| e.kind == RUNTIME_FAILED || e.kind == STEP_FAILED).and_then(|e| e.record["reason"].as_str()).map(str::to_owned);
             put(&mut m, "failure", &run.failure.clone().or(failed_after_start));
             m.insert("route".into(), delegated.record["route"].clone());
             put(&mut m, "route_phase", &run.route_phase);
@@ -2100,6 +2131,13 @@ impl Daemon {
                     // A run stopped while it waited on decisions (a cap, also one reached while the
                     // last answer was taken, with nothing left open): what it asked is withdrawn and
                     // it ends from Running.
+                    self.leave_wait(&run_id);
+                    let _ = self.end_run(&run_id, &outcome);
+                }
+                // A step failed and nothing else could be done: why is recorded, then the run ends with the outcome that
+                // names the step and its exit.
+                Ok(Finish::StepFailed { outcome, record }) => {
+                    let _ = self.record_run_event(&run_id, STEP_FAILED, record);
                     self.leave_wait(&run_id);
                     let _ = self.end_run(&run_id, &outcome);
                 }

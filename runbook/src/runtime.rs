@@ -116,9 +116,9 @@ pub struct Terms {
 }
 
 impl Terms {
-    /// Whether a run with these terms makes model calls the daemon routes: its decider is the kind `model` at a level
-    /// above `A0`. Such a run takes a model route (`docs/model-routes.md`, section 2) and its model processes reach it
-    /// through the daemon's relay; any other run takes none, and a submit for it that names one is refused.
+    /// Whether the decider of a run with these terms makes model calls: it is the kind `model` at a level above `A0`.
+    /// Such a run takes a model route (`docs/model-routes.md`, section 2), and so does a run whose runbook runs a program
+    /// (`Runtime::runs_programs`); any other run takes none, and a submit for it that names one is refused.
     pub fn makes_model_calls(&self) -> bool {
         self.decider.as_deref() == Some("model") && self.autonomy.is_some_and(|l| l != Autonomy::A0)
     }
@@ -205,7 +205,7 @@ pub struct StartRequest {
     pub state_dir: PathBuf,
     /// The run's workspace, a child of the one shared `workspaces` directory.
     pub workspace_dir: PathBuf,
-    /// The route of each role of a run that makes model calls (`Terms::makes_model_calls`) or is a delegation, resolved by
+    /// The route of each role of a run that may take one (a model decider, a program of its runbook, or a delegation), resolved by
     /// the daemon at the submit: the run's model processes reach these routes through the daemon's relay. None: the run
     /// is on no route.
     pub routes: Option<crate::relay::RouteTable>,
@@ -330,6 +330,11 @@ pub enum Finish {
     Outcome(String),
     /// The cancel flag was seen and the run stopped.
     Cancelled,
+    /// A step's program failed (an exit other than 0, or ended by a signal) and the run's tree has nothing else it can
+    /// do: the run ends with the outcome `outcome` (`failed: step <action> <end>`, `engine::refusal::StepEnd`), and the daemon
+    /// records why in the run event `runbook.step-failed` (`record`: case, action, end, exit, signal, timeout_seconds,
+    /// reason).
+    StepFailed { outcome: String, record: Value },
 }
 
 /// The runtime could not start the run, or failed after it started.
@@ -397,6 +402,21 @@ pub trait Runtime: Send + Sync + 'static {
     /// What the run has used so far, when the runtime counts it.
     fn usage(&self, _run_id: &str) -> Option<Usage> {
         None
+    }
+
+    /// Whether a run of the runbook runs a program: a bound program or an agent node of its bindings (the root's or a
+    /// child's), any of which may call a model through the run's route file (`docs/model-routes.md`, section 11). Such a
+    /// run may take a model route whatever its decider. Asked at submit. The default (the stub, whose runbooks are
+    /// scripts that call no model): no.
+    fn runs_programs(&self, _runbook: &str, _version: Option<&str>) -> bool {
+        false
+    }
+
+    /// Whether a run on a route can start here: the daemon's relay answers runs (a loopback listener). Where it does
+    /// not, the daemon's default route is not given to a run whose model calls come from its programs only, which
+    /// then runs as before routes; a route it names is still refused at start. The default (the stub): yes.
+    fn serves_routes(&self) -> bool {
+        true
     }
 
     /// Why a run of the runbook is refused at load, when it is (the engine: a per-call budget that is

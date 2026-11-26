@@ -400,7 +400,7 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         if let Some(relay) = &relay {
             relay.set_listen(bound);
             if !relay.serves() {
-                note(format_args!("runbook: the relay of model calls serves a loopback listener only: a run whose decider is a model does not start on {bound}"));
+                note(format_args!("runbook: the relay of model calls serves a loopback listener only: a run on a route does not start on {bound}, and a run whose model calls come from its programs only takes no default route"));
             }
         }
         println!("runbook: listening on http://{bound}");

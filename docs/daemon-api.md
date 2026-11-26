@@ -16,7 +16,7 @@ runtime.
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure` or `stopped: route`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
+| Run | Submitted, WaitingForRoute, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned`, `runtime-failure`, `stopped: route` or `failed: step <action> <end>`), `FailedToStart` a `failure`. `WaitingForRoute`: a route of the run could not answer at the submit (below, "A run starts only on a route that can answer"). |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
@@ -234,8 +234,15 @@ A row names the gateway by name; no address, port, token, token file or price is
 
 A `submit-run` names the route of its model calls by `model_route` (a declared route name) and, for a role that
 takes another, `model_routes` (a map from role to route name; the role `default` is the run's own). The run's
-word wins; a run that names none takes `[route_policy] default`. Only a run that makes model calls takes a route:
-its decider kind is `model` and its autonomy is above `A0`. The run record and the views `runs`, `run` and the
+word wins; a run that names none takes `[route_policy] default`. A run may take a route when it can make model
+calls: its decider kind is `model` and its autonomy is above `A0`, or its runbook runs a program (a bound program or
+an agent node, of its root bindings or a child's), which reaches a model through the run's route file
+(`RUNBOOK_ROUTE_FILE`, below). A run whose model calls come from its programs only and that names no route takes `[route_policy] default` only
+when the file declares one and the daemon serves the relay (a loopback listener, below); else it takes none, is
+not refused and runs as before routes. The interim route `default` of a lone `[gateway]` goes to a run whose
+decider is `model` above `A0` only: a submit for any other run that names it is refused `route-refused`, the reason
+naming the member (`model_route`, `model_routes.<role>`). A run on a route gives the route file to its
+decider's adapter and to every bound program; a run on no route gives none. The run record and the views `runs`, `run` and the
 other run views carry `model_route`, `model_route_alias` and `model_route_source` (`run` or `default`), and `run`
 also `model_routes`; the event `runbook.submitted` says the same. The relay's table of the run is built from them:
 the role `default` on the chosen route, each role of `model_routes` on its own, every call booked with the
@@ -245,8 +252,9 @@ A submit is refused `422 route-refused` (error `RouteRefused`: `run_id`, `reason
 names), and nothing is written, when it names a route the daemon does not declare, an alias of a gateway's model
 instead of a route, an address (a value with `/` or `:`), a value that is no route name (a token, or any other
 text that is not 1 to 64 letters, digits, `.`, `_` or `-`), an empty name, the role `default` or a role that is
-no name in `model_routes`, or a route at all for a run that makes no model call; and when a run that makes model
-calls names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
+no name in `model_routes`, or a route at all for a run that makes no model call (its runbook runs no program and no
+agent node, and its decider is not `model` above `A0`; the default is not applied to such a run); and when a run
+whose decider is `model` above `A0` names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
 (`model_route`, `model_routes.<role>`) and why, and never the value. `model_route_alias`, `model_route_source` and
 `route_refused` are filled by the daemon: a submit that sends one is refused `400` by its name. A daemon with only
 a `[gateway]` and a model decider declares the interim route `default` on that gateway (kind `hosted`, the
@@ -349,7 +357,8 @@ events and the web UI work on it unchanged.
   `runbook.submitted` and `runbook.delegated` (`route`, `path`, `protocol`).
 
 `GET /daemon/views/delegation-result?run_id=<id>` answers one row: `run_state`, and once the run ended its
-`outcome` (and `failure`); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
+`outcome` (and `failure`: why it failed to start, the reason of `runbook.runtime-failed`, or for the outcome
+`failed: step <action> <end>` the reason of `runbook.step-failed`, which names the step and how it ended); `route`, `path`, `protocol` (both absent while the run classifies); `confidence`
 (`null` for `named` and `free`), `classifier_route` and `protocol_digest`; `result_text`,
 the text of `result.md` of the run's `work/` directory read as the view `product` reads a file (absent while there
 is none, and for a file that is not text), `result_truncated` and `result_limit` (1,048,576 bytes); `products`, the
@@ -529,7 +538,10 @@ An event's `kind` is open text, the `kind` of the runtime's run-log line; events
 itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
 1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
 `runbook.run-orphaned` (at the next start, or at the stop of a daemon that ends with runs live: see "Stopping the daemon"), `runbook.answer-undeliverable` (an answer the runtime could not take up),
-`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`) and
+`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`),
+`runbook.step-failed` (record `case`, `action`, `end`, `exit`, `signal` and `timeout_seconds` (each of the last three
+when it applies), `reason`: before a run ends with the outcome `failed: step <action> <end>` (`<end>`: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), when the last program of its tree failed (it ended with an exit other than 0, was killed at its timeout or ended with no exit status, or it is an agent node, `sdc-node`, that Loom refused for an exit its `exits.error` lists or a signal) and the tree has no other action to take. Of a program that is no agent node,
+Loom's refusal for such an exit or a signal ends the run `runtime-failure` with Loom's text, as before; the view `delegation-result` gives its `reason` as `failure`) and
 `runbook.action-started` (before a bound program starts; "The step in flight"). Each is declared
 in the specification by the command that writes it, in its summary: the language cannot write a
 run event from a command, so no row of the interpreted target stands for them. The runtime
@@ -1011,7 +1023,8 @@ A daemon with declared routes, or with a `[gateway]` and the decider kind `model
 is loopback, the relay of the model calls of its runs on a route (above, "The route of a run") and of every
 delegation's run (above, "A delegation") (`docs/engine.md`, "A gateway"; `docs/model-routes.md`, section 11).
 On a listener that is not loopback the relay is not served: these paths take the daemon's token there and are `404`, and
-a run whose kind is `model` does not start. On a loopback listener:
+a run on a route does not start (a run whose model calls come from its programs only takes no default route there).
+On a loopback listener:
 
 - `POST /daemon/relay/<run>/v1/messages`, `/v1/chat/completions` and `/v1/responses`, the gateway's three wires.
   A call carries the run's own token, from the run's route file (`RUNBOOK_ROUTE_FILE`, `runbook.route/1`), as

@@ -772,6 +772,63 @@ fn adversary_a_free_run_that_writes_no_result_answers_no_result_text_from_the_wo
     );
 }
 
+/// Whether `text` names the step `action` and the exit `exit` (`exit <n>`).
+fn names_step_and_exit(text: &str, action: &str, exit: &str) -> bool {
+    text.contains(action) && text.contains(&format!("exit {exit}"))
+}
+
+/// Point 3: a delegation whose agent step fails (its agent exits 1, so the agent node ends with exit 1 once, its
+/// results record `failed` for it, and the tree has no other action) ends with an outcome that names the failed step
+/// and its exit, not `runtime-failure` with a stuck tree; the result's `failure` and the MCP tool error carry the same.
+#[test]
+fn a_delegation_whose_agent_step_fails_ends_with_an_outcome_naming_the_step_and_its_exit_and_the_failure_carries_it() {
+    let d = daemon("dlg-step-fails", OK);
+    write_exe(&d.h.log.join("bin/claude"), "#!/bin/bash\necho 'the agent gave up' >&2\nexit 1\n");
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let outcome = end["outcome"].as_str().unwrap_or_default();
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!(end["run_state"], "Ended", "{end}");
+    assert!(outcome.starts_with("failed: ") && outcome.contains("delegation.free") && outcome.contains("exit "), "the outcome does not name the failed step and its exit: {end}");
+    let exit = outcome.rsplit("exit ").next().unwrap_or_default().to_owned();
+    assert!(exit.parse::<i32>().is_ok_and(|n| n != 0), "no exit status in the outcome: {end}");
+    assert!(names_step_and_exit(failure, "delegation.free", &exit), "the failure does not carry the step and its exit: {end}");
+    assert!(!failure.contains("is stuck"), "{end}");
+
+    let mut m = Mcp::to(&d.l);
+    m.send(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "delegate", "arguments": {"request": "Write one sentence about tea.", "model_route": "default", "wait_seconds": 40}}}));
+    let answer = m.until(2).pop().unwrap();
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap_or_default();
+    assert_eq!(answer["result"]["isError"], json!(true), "{answer}");
+    assert!(names_step_and_exit(text, "delegation.free", &exit) && text.contains("failed: "), "the tool error does not name the step and its exit: {text}");
+}
+
+/// Point 3, a submitted run: a run whose only action's program exits 1 ends with an outcome naming that step and its
+/// exit, and the event that says why carries them.
+#[test]
+fn a_submitted_run_whose_only_action_fails_ends_with_an_outcome_naming_the_step_and_its_exit() {
+    let d = daemon("dlg-run-fails", OK);
+    write_exe(&d.h.home.join("bindings/tools/answer.sh"), "#!/bin/bash\nexit 1\n");
+    let r = send(
+        d.l.addr,
+        "POST",
+        "/daemon/commands/submit-run",
+        &[("Content-Type", "application/json")],
+        Some(json!({"runbook_id": "answer-demo", "intake": "red or blue"}).to_string().as_bytes()),
+    );
+    assert_eq!(r.status, 202, "{}", r.text());
+    let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned();
+    let end = super::gateway::until_state(&d.l, &run, &["Ended", "FailedToStart", "Cancelled"]);
+    assert_eq!(end["state"], "Ended", "{end}");
+    let outcome = end["outcome"].as_str().unwrap_or_default();
+    assert!(outcome.starts_with("failed: ") && names_step_and_exit(outcome, "answer.write", "1"), "the outcome does not name the failed step and its exit: {end}");
+    let events = rows(&d.l, &format!("/daemon/views/events?run_id={run}&after_position=0"));
+    let said = events.iter().find(|e| e["kind"] == "runbook.step-failed").unwrap_or_else(|| panic!("no event runbook.step-failed: {events:?}"));
+    assert_eq!((said["record"]["action"].clone(), said["record"]["exit"].clone()), (json!("answer.write"), json!(1)), "{said}");
+    assert!(names_step_and_exit(said["record"]["reason"].as_str().unwrap_or_default(), "answer.write", "1"), "{said}");
+}
+
 /// A session delegates side by side (parallel sub-agents): a second `delegate` on the same `runbook mcp` is taken while
 /// the first one waits for its run, so the second run is submitted before the first run ends.
 #[test]

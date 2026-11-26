@@ -144,7 +144,7 @@ const TOOLS: [Tool; 15] = [
     Tool {
         name: "delegation_result",
         title: "Read the result of a delegation",
-        description: "What a delegation's run has come to, by its run id: the state, the outcome once it ended, what failed it (`failure`: why it failed to start, or the runtime's reason), the text of its result.md (at most 40000 characters here; `result_truncated` says it was cut), its products, the route, the path, the protocol, the calls, the tokens and the cost (`cost_known` false when a call was booked at its reservation). The text starts with the same line as the answer of delegate. A run id the daemon does not know is an error with the HTTP status 404, and so is a run no delegation created.",
+        description: "What a delegation's run has come to, by its run id: the state, the outcome once it ended, what failed it (`failure`: why it failed to start, the runtime's reason, or for the outcome `failed: step <action> <end>` the step whose program failed and how it ended: `exit <n>`, `signal <n>`, `timed out after <s> s` or `ended with no exit`), the text of its result.md (at most 40000 characters here; `result_truncated` says it was cut), its products, the route, the path, the protocol, the calls, the tokens and the cost (`cost_known` false when a call was booked at its reservation). The text starts with the same line as the answer of delegate. A run id the daemon does not know is an error with the HTTP status 404, and so is a run no delegation created.",
         read_only: true,
         kind: Kind::DelegationResult,
     },
