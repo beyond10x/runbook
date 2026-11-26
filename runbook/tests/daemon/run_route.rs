@@ -1,10 +1,11 @@
 //! A run names a model route (`docs/model-routes.md`, section 2; story `run-names-a-model-route`): a submit names a
 //! route of the daemon's `runbook.toml` by name in `model_route` (and per role in `model_routes`), else the run takes
 //! `route_policy.default`; the run's calls go through the daemon's relay to that route's gateway with its alias, and
-//! the run's record names the route, the alias and the setting that chose it. A route that is not declared, an
-//! address, a token or an alias in its place, a route for a run that makes no model call, and a model run with no
-//! route on a daemon with no default are refused `422 route-refused` before anything is written, listing the declared
-//! routes.
+//! the run's record names the route, the alias and the setting that chose it. A run takes a route when its decider is
+//! a model above A0 or its runbook runs a program (its bound programs get the route file). A route that is not
+//! declared, an address, a token or an alias in its place, a route for a run that makes no model call (no program, no
+//! model decider), and a model run with no route on a daemon with no default are refused `422 route-refused` before
+//! anything is written, listing the declared routes.
 //!
 //! No model is called and nothing leaves loopback: the gateways are stand-ins on ports of the test's own, the model
 //! decider's adapter is the committed claude-cli adapter and `claude` a stand-in that calls the relay.
@@ -185,20 +186,110 @@ fn an_undeclared_route_an_address_a_token_or_an_alias_in_its_place_are_refused_b
     assert!(got(&one).is_empty() && got(&two).is_empty());
 }
 
+/// A runbook of the test's home that runs no program and has no agent node: its one action is a person's.
+fn person_runbook(h: &Home) {
+    let protocol = "format: protocol/1\nprotocol:\n  id: person-demo\n  revision: 1\n  description: >-\n    A route test's runbook: a person approves the idea; no program runs.\nartifacts:\n  idea: {}\nevidence_kinds:\n  idea_review: {}\nclaims:\n  idea.approved:\n    true_when:\n      evidence: {kind: idea_review, subject: idea, result: approved}\nactions:\n  idea.review:\n    effect: write\n    may_produce:\n      - evidence: idea_review\noutcomes:\n  approved:\n    requires: {claim: idea.approved}\n";
+    let bindings = "format: loom.bindings/1\nprotocol: person-demo@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\nactions:\n  - action: idea.review\n    executor:\n      kind: person\n      principal: reviewer\n    evidence:\n      - kind: idea_review\n        subject: idea\n        producer: reviewer\n        from: effect\n        results: {performed: approved, rejected: rejected}\n";
+    std::fs::write(h.home.join("protocol/person-demo.protocol.yaml"), protocol).unwrap();
+    std::fs::write(h.home.join("bindings/person-demo.yaml"), bindings).unwrap();
+}
+
+/// The program of `notes.write` for a run whose model calls come from its bound programs, not its decider: it writes
+/// one line to `log/route-files` (`set` when `RUNBOOK_ROUTE_FILE` names a file, else `none`), and with the file it
+/// sends one Messages call for the role `default` to the relay the file names, then writes the notes.
+fn program_calling(log: &Path) -> String {
+    format!(
+        r#"#!/bin/bash
+log='{log}'
+f=${{RUNBOOK_ROUTE_FILE-}}
+if [ -z "$f" ]; then echo none >> "$log/route-files"; echo notes >> notes.txt; exit 0; fi
+echo set >> "$log/route-files"
+base=$(jq -r .base_url "$f") && token=$(jq -r .token "$f") || exit 9
+rest=${{base#http://}}
+hostport=${{rest%%/*}}
+path=/${{rest#*/}}
+body='{{"model":"default","max_tokens":8,"messages":[{{"role":"user","content":"hi"}}]}}'
+exec 3<>"/dev/tcp/${{hostport%:*}}/${{hostport##*:}}" || exit 7
+printf 'POST %s/v1/messages HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' "$path" "$hostport" "$token" "${{#body}}" "$body" >&3
+answer=$(cat <&3)
+exec 3<&-
+printf '%s\n' "${{answer%%$'\r'*}}" >> "$log/program-statuses"
+echo notes >> notes.txt
+"#,
+        log = log.display()
+    )
+}
+
+fn route_files(h: &Home) -> Vec<String> {
+    std::fs::read_to_string(h.log.join("route-files")).unwrap_or_default().lines().map(str::to_owned).collect()
+}
+
+/// Point 1 and the rule that stays of point 2: a run whose runbook runs no program (no bound program, no agent node) and
+/// whose decider is not a model above A0 may not take a route. A submit for it that names one is refused, and the
+/// reason names the member that named it; the default route is not applied to it.
 #[test]
-fn a_run_that_makes_no_model_call_and_names_a_route_is_refused_and_one_that_names_none_takes_no_default() {
+fn a_run_whose_runbook_runs_no_program_and_whose_decider_is_no_model_is_refused_naming_the_member_and_takes_no_default() {
     let h = home("rr-rule");
+    person_runbook(&h);
     let (one, two) = (gateway(OK), gateway(OK));
     let l = serve("rr-rule-d", &h, &routes_file(&one.base_url, &two.base_url, &h.token_file, "default = \"c\""), true);
-    refused(&l, "rule", json!({"model_route": "a"}), "makes no model call", &[]);
-    refused(&l, "rule", json!({"model_routes": {"writer": "a"}}), "makes no model call", &[]);
-    refused(&l, "model", json!({"autonomy": "A0", "model_route": "a"}), "makes no model call", &[]);
+    let person = |extra: Value| {
+        let mut extra = extra;
+        extra["runbook_id"] = json!("person-demo");
+        extra
+    };
+    refused(&l, "rule", person(json!({"model_route": "a"})), "model_route", &[]);
+    refused(&l, "rule", person(json!({"model_route": "a"})), "makes no model call", &[]);
+    refused(&l, "rule", person(json!({"model_routes": {"writer": "a"}})), "model_routes.writer", &[]);
+    refused(&l, "model", person(json!({"autonomy": "A0", "model_route": "a"})), "model_route", &[]);
     nothing_written(&l);
-    let run = submitted(&l, "rule", json!({}));
-    ended(&l, &run);
+    let run = submitted(&l, "rule", person(json!({})));
     let r = row(&l, &run);
     assert!(r.get("model_route").is_none() && r.get("model_route_source").is_none(), "the default was applied to a run that makes no model call: {r}");
     assert!(got(&one).is_empty() && got(&two).is_empty() && entries(&h.xdg).is_empty());
+}
+
+/// Point 2: a run's model calls may come from its bound programs, not from its decider. A run whose decider is a rule
+/// takes the route it names, else the default route; its bound program gets `RUNBOOK_ROUTE_FILE` and its call reaches
+/// the route's gateway through the relay with the route's alias, booked with the setting that chose it.
+#[test]
+fn a_rule_run_whose_runbook_runs_programs_takes_its_named_route_or_the_default_and_its_programs_get_the_route_file() {
+    let h = home("rr-programs");
+    write_exe(&h.home.join("bindings/tools/notes-write.sh"), &program_calling(&h.log));
+    let (one, two) = (gateway(OK), gateway(OK));
+    let l = serve("rr-programs-d", &h, &routes_file(&one.base_url, &two.base_url, &h.token_file, "default = \"c\""), true);
+
+    let named = submitted(&l, "rule", json!({"model_route": "a"}));
+    ended(&l, &named);
+    let r = row(&l, &named);
+    assert_eq!((r["model_route"].clone(), r["model_route_alias"].clone(), r["model_route_source"].clone()), (json!("a"), json!("alias-a"), json!("run")), "{r}");
+    assert!(!route_files(&h).is_empty() && route_files(&h).iter().all(|s| s == "set"), "the bound program got no route file: {:?}", route_files(&h));
+    assert!(!models(&one).is_empty() && models(&one).iter().all(|m| m == "alias-a") && got(&two).is_empty(), "route a: {:?} {:?}", models(&one), models(&two));
+    let line = &events(&l, &named, "runbook.model-call")[0];
+    assert_eq!((line["route"].clone(), line["step"].clone(), line["source"].clone()), (json!("a"), json!("notes.write"), json!("run")), "{line}");
+
+    let before = got(&one).len();
+    let defaulted = submitted(&l, "rule", json!({}));
+    ended(&l, &defaulted);
+    let r = row(&l, &defaulted);
+    assert_eq!((r["model_route"].clone(), r["model_route_alias"].clone(), r["model_route_source"].clone()), (json!("c"), json!("alias-c"), json!("default")), "{r}");
+    assert!(got(&one).len() > before && models(&one)[before..].iter().all(|m| m == "alias-c"), "the default route: {:?}", models(&one));
+}
+
+/// Point 2, a run with no route: on a daemon that declares routes and no default, a rule run that names none is not
+/// refused and takes no route; its bound program gets no `RUNBOOK_ROUTE_FILE` and no call reaches a gateway.
+#[test]
+fn a_rule_run_that_names_no_route_on_a_daemon_without_a_default_takes_none_and_its_programs_get_no_route_file() {
+    let h = home("rr-noroute");
+    write_exe(&h.home.join("bindings/tools/notes-write.sh"), &program_calling(&h.log));
+    let (one, two) = (gateway(OK), gateway(OK));
+    let l = serve("rr-noroute-d", &h, &routes_file(&one.base_url, &two.base_url, &h.token_file, ""), true);
+    let run = submitted(&l, "rule", json!({}));
+    ended(&l, &run);
+    let r = row(&l, &run);
+    assert!(r.get("model_route").is_none(), "{r}");
+    assert!(!route_files(&h).is_empty() && route_files(&h).iter().all(|s| s == "none"), "a run with no route handed a route file: {:?}", route_files(&h));
+    assert!(got(&one).is_empty() && got(&two).is_empty());
 }
 
 #[test]
@@ -261,4 +352,73 @@ fn the_model_route_of_a_run_on_a_lone_gateway_is_a_route_the_view_routes_lists()
     let r = row(&l, &run);
     let listed: Vec<Value> = rows(&l, "/daemon/views/routes").iter().map(|x| x["route"].clone()).collect();
     assert!(listed.contains(&r["model_route"]), "the run references the route {} and the view routes lists {listed:?}", r["model_route"]);
+}
+
+/// A runtime whose runbooks run a program and whose relay serves runs or not (`Runtime::serves_routes`): it keeps the
+/// start request of each run and ends it.
+struct Programs {
+    serves: bool,
+    started: std::sync::Mutex<Vec<runbook::runtime::StartRequest>>,
+}
+
+impl runbook::runtime::Runtime for Programs {
+    fn recover(&self, _run_id: &str) -> runbook::runtime::Recovery {
+        runbook::runtime::Recovery::Gone
+    }
+    fn knows_runbook(&self, _runbook: &str, _version: Option<&str>) -> bool {
+        true
+    }
+    fn runbooks(&self) -> Vec<runbook::runtime::RunbookInfo> {
+        Vec::new()
+    }
+    fn kind(&self) -> &'static str {
+        "stub"
+    }
+    fn runs_programs(&self, _runbook: &str, _version: Option<&str>) -> bool {
+        true
+    }
+    fn serves_routes(&self) -> bool {
+        self.serves
+    }
+    fn start(&self, request: runbook::runtime::StartRequest, sink: &dyn runbook::runtime::EventSink, _cancel: &std::sync::atomic::AtomicBool) -> Result<runbook::runtime::Finish, runbook::runtime::RuntimeFailure> {
+        self.started.lock().unwrap().push(request);
+        sink.started();
+        Ok(runbook::runtime::Finish::Outcome("done".into()))
+    }
+    fn answer(&self, _run_id: &str, _request_id: &str, _answer: &str, _principal: &str) -> Result<(), runbook::runtime::AnswerFailure> {
+        Ok(())
+    }
+    fn cancel(&self, _run_id: &str) {}
+}
+
+/// A run whose model calls come from its programs only and that names no route takes the daemon's declared default
+/// only where the relay serves runs: on a daemon whose listener is not loopback a run on a route does not start, so
+/// such a run takes no route there and runs as before routes. A route it names is its own word and is kept.
+#[test]
+fn a_program_run_takes_the_declared_default_only_where_the_relay_serves_runs() {
+    use runbook::routes::{RouteTable, Tables};
+    let gw = gateway_listing(OK, &["alias-c"]);
+    let gateways = json!({"g": {"base_url": gw.base_url}});
+    let declared = json!({"c": {"gateway": "g", "model": "alias-c", "kind": "hosted"}});
+    let policy = json!({"default": "c"});
+    let routes = std::sync::Arc::new(RouteTable::declare(&Tables { gateways: Some(&gateways), routes: Some(&declared), route_policy: Some(&policy), ..Tables::default() }).unwrap());
+    let take = |serves: bool, named: Option<&str>| {
+        let dir = super::state::scratch(&format!("rr-serves-{serves}-{}", named.unwrap_or("none")));
+        std::fs::create_dir_all(dir.join("ctx")).unwrap();
+        let rt = std::sync::Arc::new(Programs { serves, started: std::sync::Mutex::new(Vec::new()) });
+        let policy = runbook::commands::Policy { default_confinement: Some(runbook::runtime::Confinement::Linux), routes: routes.clone(), ..runbook::commands::Policy::default() };
+        let d = runbook::commands::Daemon::start_with(super::commands::config(&dir), policy, rt.clone()).unwrap();
+        let out = d.submit_run(runbook::commands::SubmitRun { runbook_id: "any".into(), intake: "x".into(), model_route: named.map(str::to_owned), ..runbook::commands::SubmitRun::default() }).unwrap_or_else(|f| panic!("{f:?}"));
+        assert_eq!(out.body()["outcome"], "submitted", "{}", out.body());
+        let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while rt.started.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < limit, "the run did not start");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let started = rt.started.lock().unwrap();
+        started[0].routes.as_ref().map(|t| t.get("default").map(|(r, _)| r.name.clone()))
+    };
+    assert_eq!(take(true, None), Some(Some("c".to_owned())), "a program run on a daemon whose relay serves runs takes the declared default");
+    assert_eq!(take(false, None), None, "a program run on a daemon whose relay serves no run took the default route, so it would not start");
+    assert_eq!(take(false, Some("c")), Some(Some("c".to_owned())), "a route the run names is its own word");
 }

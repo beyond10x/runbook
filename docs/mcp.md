@@ -95,7 +95,9 @@ state and outcome, the path, the protocol, the calls and the cost, then, for a r
 that failed, a line `failed: ` with the row's `failure`, followed by the run's `result.md`
 (`docs/model-routes.md`, "What is recorded"). `failure` is why the run failed to start or, for a run that
 ended `runtime-failure`, the runtime's reason: a step whose route did not serve its call names
-`route-unavailable`, the route, the setting that chose it and the gateway's code. `isError` is true for a run
+`route-unavailable`, the route, the setting that chose it and the gateway's code; for a run that ended
+`failed: step <action> exit <n>` (its agent node or another program failed and the tree had nothing else to
+do), the step and its exit. `isError` is true for a run
 that failed to start, was cancelled, or ended on a failure of the daemon's own: `runtime-failure`, `orphaned`,
 `stopped: route` (its route never could answer within its wait) or another `stopped: ...` or `failed...` outcome; a refusal of the command or the view is its
 answer, as for every tool. A run whose `result.md` is not text says so in the text (read it with

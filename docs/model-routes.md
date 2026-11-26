@@ -133,7 +133,7 @@ sequenceDiagram
   participant G as llm-gateway
   participant L as Loom run
   CC->>HK: Agent(prompt, description, subagent_type)
-  HK-->>CC: deny: "delegation is served by Runbook: call mcp__runbook__delegate"
+  HK-->>CC: deny: "delegation is served by Runbook: call mcp__plugin_runbook_runbook__delegate"
   CC->>MCP: delegate(request=prompt, model_route=<session route>)
   MCP->>D: POST /daemon/commands/delegate
   D->>G: GET /ready, /v1/models, /v1/status
@@ -250,8 +250,14 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   `routes_allowed`, or one that misses the role's requirements, is refused before the run starts (422
   `route-refused`, naming the route and the rule that refused it).
 - `runbook run` reads the same tables from `runbook.toml` and takes `--model-route <name>`.
-- A run with no model step (decider kind `rule`, a runbook with no agent node) takes no route: a submit that
-  names one is refused `route-refused` "the run makes no model call", and the default route is not applied.
+- A run's model calls may come from its decider or from its programs (section 11: the route file goes to every model
+  process of a run on a route, bound programs included). So a run may take a route when its decider is `model` above
+  `A0`, or its runbook has an agent node or any bound program; the default route applies to it the same way. Only a
+  run with none of these (a person's actions only, and a decider that is no model) takes no route: a submit that
+  names one is refused `route-refused`, the reason naming the member (`model_route`, `model_routes.<role>`) and "the
+  run makes no model call", and the default route is not applied. A run whose model calls come from its programs only
+  and that names no route takes a declared `[route_policy] default` only, and only where the relay is served (a
+  loopback listener); else it takes none and runs as before routes (built: `docs/daemon-api.md`, "The route of a run").
 
 ### 3. Before the run starts: the route must be able to answer
 
@@ -417,8 +423,9 @@ entry `story:model-entry-for-bound-programs` asked for, and the place every call
 
 ## The model gateway (llm-gateway)
 
-Written by the gateway's maintainer for this design (2026-11-25). Nothing marked [proposed] is built; each is a draft
-story in `beyond10x/llm-gateway`. "Today" means release 0.24.0.
+Written by the gateway's maintainer for this design (2026-11-25), brought to release 0.25.0 from the gateway team's
+report (2026-11-26). Nothing marked [proposed] is built; each is a draft story in `beyond10x/llm-gateway`. "Today"
+means release 0.25.0.
 
 ### Components
 
@@ -434,7 +441,7 @@ llm-gateway: one process, one closed TOML deployment document
    |    |- hosted         -> any upstream by base URL (Anthropic API, a vLLM somebody runs, OpenRouter)
    |    |- Bedrock        -> AWS Bedrock
    |    `- local Ollama   -> an Ollama server on loopback            [proposed]
-   `- records: one usage record per call -> log event, counters, dashboard, call store [proposed]
+   `- records: one usage record per call -> log event, counters, dashboard, call store
 watchdog: a second process that stops the gateway's own pods when the gateway cannot
 ```
 
@@ -465,10 +472,12 @@ Runbook's route `kind` maps onto these: `managed` is a managed RunPod model, `ho
 - Today: `GET /v1/models` (no credential) lists every alias with its wires. `GET /v1/models/{alias}/status` and
   `POST /v1/models/{alias}/wake` exist for managed RunPod models only. `/health` and `/ready` describe the process,
   never an upstream.
-- [proposed, story:route-status-for-every-model] `GET /v1/status`:
+- Today: `GET /v1/status` is served. For each model it gives `callable`, `phase` and `sub_phase`, for the kinds
+  `pod`, `hosted`, `route` and `ollama`. The proposal's document was
   `{"format":"llm-gateway.status/1","models":[{"model","kind","wires","phase","sub_phase","profile","callable"}]}`,
-  every model once, alias order. `GET /v1/models/{alias}/status` answers for every kind but Bedrock.
-- Phases after the change:
+  every model once, alias order; the report names only the three members above, so the rest of that shape is
+  *inferred*. [proposed] `GET /v1/models/{alias}/status` answers for every kind but Bedrock.
+- Phases:
   - `ready`: a call is relayed.
   - `starting`: a call is held up to the model's `request_hold_seconds`, then `model-cold-start`.
   - `stopped`: nothing is live. Managed pod: the owner's wake starts it. Ollama (`sub_phase` `not-loaded`): the
@@ -495,25 +504,25 @@ Runbook's route `kind` maps onto these: `managed` is a managed RunPod model, `ho
 
 ### Call id and usage
 
-- Today: the answer body is the upstream's own, so a client reads the upstream's `usage`. The gateway adds no
-  header. Its usage record (model, wire, outcome, refusal, statuses, bytes, duration, tokens) feeds counters and the
-  dashboard; the log event has no token field.
-- [proposed, story:call-id-and-usage-record] Every answer on a wire path, a refusal included, carries
-  `x-llm-gateway-call: <id>`, unique across restarts. `GET /v1/calls/{id}` answers
+- The answer body is the upstream's own, so a client reads the upstream's `usage`. The gateway's usage record
+  (model, wire, outcome, refusal, statuses, bytes, duration, tokens) feeds counters and the dashboard.
+- Today: the answer of every model call carries the header `x-llm-gateway-call: <id>`, and `GET /v1/calls/{id}`
+  answers the record `llm-gateway.call/1` of that call (C4). The proposal's record was
   `{"format":"llm-gateway.call/1","id","state","model","wire","disposition","outcome","refusal","status",
   "target_status","input_tokens","output_tokens","cache_read_tokens","cache_creation_tokens","response_bytes",
-  "duration_ms","profile","principal"}`; `state` is `in-flight` until the last byte is written. A value that was not
-  reported is absent, never 0, never an estimate. The gateway keeps a published number of ended calls; another id is
-  `404 call-unknown`.
+  "duration_ms","profile","principal"}`, `state` `in-flight` until the last byte is written, a value that was not
+  reported absent (never 0, never an estimate), a published number of ended calls kept and another id `404
+  call-unknown`; the report names the format only, so these members are *inferred*.
 - A streamed chat answer carries tokens only when the client asked (`stream_options.include_usage`); the gateway
   relays the request unchanged. Runbook's relay sets that option on a streamed chat call it forwards.
 
 ### Cost
 
-- Today the gateway prices no call. A managed model declares `price_per_hour_usd` for the spend check; the dashboard
-  snapshot has the RunPod account's balance and spend rate.
-- Runbook prices a call itself: tokens from the call times a price on its own route (D-3). The gateway's own
-  `cost_usd` on the call record is a draft (story:cost-per-call), built only when the operator asks.
+- Today a model that declares `token_price` gets `cost_usd`, a USD string, in its call record (`GET /v1/calls/{id}`).
+  A managed model declares `price_per_hour_usd` for the spend check; the dashboard snapshot has the RunPod account's
+  balance and spend rate.
+- Runbook prices a call itself, as D-3 says: the price per million tokens declared on its route, else the
+  reservation. Runbook does not read the gateway's `cost_usd` yet.
 
 ### Refusals a dispatcher meets
 
@@ -537,7 +546,7 @@ Body `{"error":{"code","message"}}`, stable codes.
 - `ingress_auth = "bearer"` (default): every model call carries the owner secret.
 - `ingress_auth = "none"`: model calls take no credential, for a gateway on loopback. Wake, `/v1/routes` and
   `/metrics` still take the owner secret.
-- [proposed] `GET /v1/status` and `GET /v1/calls/{id}` take what `GET /v1/launch` takes: the owner secret, or
+- Today (C4): `GET /v1/status` and `GET /v1/calls/{id}` take what `GET /v1/launch` takes: the owner secret, or
   nothing on a gateway open on loopback. So a dispatcher on the same machine reads status and call records without
   the owner secret, and cannot wake a pod.
 
@@ -552,6 +561,9 @@ Body `{"error":{"code","message"}}`, stable codes.
 
 `story:route-status-for-every-model`, `story:a-call-starts-no-pod` with `story:ollama-route`,
 `story:call-id-and-usage-record`, `story:cost-per-call`. One pull request per story, then one release.
+
+Release 0.25.0 serves `GET /v1/status`, the header `x-llm-gateway-call`, `GET /v1/calls/{id}` and a call's
+`cost_usd` for a model with `token_price` (the gateway team's report, 2026-11-26).
 
 ### On this machine (2026-11-25)
 
@@ -586,6 +598,11 @@ permissions, plugins/components, mcp, sub-agents):
   `timeout` in the plugin's MCP configuration overrides it. A call still running after 2 minutes moves to a background
   task; its result comes back as a task notification and its progress shows in `/tasks`. A result over 25,000 tokens
   is cut (`MAX_MCP_OUTPUT_TOKENS`); a text over 50,000 characters is saved to a file.
+- With tool search on (Claude Code's default; observed with Claude Code 2.1 in the headless case of
+  `runbook/tests/daemon/plugin_session.rs`), a plugin's MCP tools are deferred: the model sees each by the name the
+  session lists it under, `mcp__plugin_<plugin>_<server>__<tool>`, with no schema, and must load it with the
+  ToolSearch tool (query `select:<name>`) before it can call it. The hook's reason and the session-start context
+  therefore name `delegate` as `mcp__plugin_runbook_runbook__delegate` and say to load it that way.
 
 ### The mechanism: a hook that denies Agent, and an MCP tool that delegates
 

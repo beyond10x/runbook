@@ -386,6 +386,32 @@ fn session_start_says_delegate_the_route_and_the_catalog() {
     }
 }
 
+/// The name Claude Code lists a tool of this plugin's MCP server under: `mcp__plugin_<plugin>_<server>__<tool>`, the
+/// plugin's name from `.claude-plugin/plugin.json` and the server's from `.mcp.json` (its one server).
+fn listed_tool_name(tool: &str) -> String {
+    let plugin = json(&root().join("plugin/.claude-plugin/plugin.json"))["name"].as_str().expect("the plugin's name").to_owned();
+    let servers = json(&root().join("plugin/.mcp.json"))["mcpServers"].as_object().expect("mcpServers").keys().cloned().collect::<Vec<_>>();
+    assert_eq!(servers.len(), 1, "{servers:?}");
+    format!("mcp__plugin_{plugin}_{}__{tool}", servers[0])
+}
+
+/// With tool search on (Claude Code's default), an MCP tool is deferred: the model sees its listed name only and loads it
+/// with ToolSearch before it can call it. The deny reason and the session-start context name `delegate` by the name the
+/// session lists it under and say to load it with `select:<that name>` when it is not callable yet.
+#[test]
+fn hook_and_session_start_name_delegate_as_the_session_lists_it_and_say_how_to_load_it() {
+    let full = listed_tool_name("delegate");
+    assert_eq!(full, "mcp__plugin_runbook_runbook__delegate");
+    let reason = denied(&hook("pre-tool-use", &fixture("pre-tool-use-agent.json"), Some("qwen-local")).1);
+    let (_, out) = hook("session-start", &fixture("session-start.json"), Some("qwen-local"));
+    let v: Value = serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"));
+    let context = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap().to_owned();
+    for (place, text) in [("the deny reason", &reason), ("the session-start context", &context)] {
+        assert!(text.contains(&format!("`{full}`")), "{place} does not name {full}: {text}");
+        assert!(text.contains("ToolSearch") && text.contains(&format!("`select:{full}`")), "{place} does not say how to load it: {text}");
+    }
+}
+
 #[test]
 fn hook_names_no_network_program() {
     let text = fs::read_to_string(root().join(HOOK)).unwrap();

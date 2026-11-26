@@ -247,6 +247,43 @@ pub fn stuck_on(store: &std::path::Path) -> Option<String> {
         .map(|text| lead_of(&text))
 }
 
+/// A step whose program failed: its action and the exit its program ended with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailedStep {
+    pub action: String,
+    pub exit: i64,
+}
+
+/// The last program of a case's run log, when it failed: the last `ActionFinished` line that ended a program has an
+/// `exit` other than 0. A program that ended with a refusal of [`PROGRAM_REFUSALS`] (an exit `exits.error` lists, a
+/// signal) is no failed step here: [`program_refused`] names it. A refusal of another kind (`RunsSpent` of an action
+/// whose program failed every run it had, `ResultNotInTable`, ...) ended no program and is passed over. `None` when
+/// the last program ended 0, ended with such a refusal, or none ran.
+pub fn failed_step_in(log: &str) -> Option<FailedStep> {
+    let mut last: Option<FailedStep> = None;
+    for line in log.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        if line.get("kind").and_then(Value::as_str) != Some("ActionFinished") {
+            continue;
+        }
+        match (line.get("exit").and_then(Value::as_i64), line.get("refusal").and_then(Value::as_str)) {
+            (Some(exit), _) => {
+                let action = line.get("action").and_then(Value::as_str).unwrap_or_default().to_owned();
+                last = Some(FailedStep { action, exit });
+            }
+            (None, Some(text)) if PROGRAM_REFUSALS.iter().any(|(lead, _)| text.starts_with(lead)) => last = None,
+            _ => {}
+        }
+    }
+    last.filter(|s| s.exit != 0)
+}
+
+/// [`failed_step_in`] of the log of the case `case`, else of the first case's log that has one.
+pub fn failed_step(store: &std::path::Path, case: &str) -> Option<FailedStep> {
+    let own = b10x_loom_runlog::log_file_name(case);
+    let read = |f: &str| std::fs::read_to_string(store.join(f)).ok().and_then(|t| failed_step_in(&t));
+    read(&own).or_else(|| run_log_files(store).iter().filter(|f| **f != own).find_map(|f| read(f)))
+}
+
 /// A call into Loom's tree commands that was refused: the reason (typed) and Loom's text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
@@ -426,6 +463,21 @@ mod tests {
             assert!(!REASONS.iter().any(|r| cause(*r) == cause_name), "{cause_name} is a reason's cause");
             assert!(named(lead).is_none(), "{lead} is the name of a reason of a tree call");
         }
+    }
+
+    #[test]
+    fn the_failed_step_is_the_last_program_that_ended_with_an_exit_other_than_0() {
+        let failed = r#"{"seq":3,"kind":"ActionFinished","action":"delegation.free","exit":1}"#;
+        let again = r#"{"seq":5,"kind":"ActionFinished","action":"delegation.free","exit":2}"#;
+        let spent = r#"{"seq":7,"kind":"ActionFinished","action":"delegation.free","refusal":"RunsSpent: action delegation.free: 2 of 2 runs"}"#;
+        let evaluated = r#"{"seq":4,"kind":"Evaluated"}"#;
+        let log = [failed, evaluated, again, evaluated, spent].join("\n");
+        assert_eq!(failed_step_in(&log), Some(FailedStep { action: "delegation.free".into(), exit: 2 }), "the last exit, and a RunsSpent ends no program");
+        let ok = r#"{"seq":9,"kind":"ActionFinished","action":"note.check","exit":0}"#;
+        assert_eq!(failed_step_in(&[failed, ok].join("\n")), None, "the last program ended 0");
+        let errored = r#"{"seq":9,"kind":"ActionFinished","action":"repro.run","refusal":"ProgramError: action repro.run: t.sh ended exit status 69, which exits.error lists"}"#;
+        assert_eq!(failed_step_in(&[failed, errored].join("\n")), None, "a refused program is named by program_refused");
+        assert_eq!(failed_step_in(""), None);
     }
 
     #[test]

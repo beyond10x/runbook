@@ -40,13 +40,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:9f90a3954f0d54c3854ec76900f2e7292b0c5152a6df13d937d8e84100feadef",
+    "contract_digest": "slice-sha256/2:b9d26517261ea1587506af0a7633549d958192d4517d50c95d2b8950557fa7c5",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventKind": {
       "title": "EventKind",
-      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds.",
+      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure), runbook.step-failed (written by the daemon just before it issues EndRun with the outcome `failed: step <action> exit <n>`, when the last program of the run's tree ended with an exit other than 0 and the tree has no other action to take; record: case, action, exit, reason) and runbook.action-started (written by the daemon when the runtime tells that a program of an action, or its `handoff_when` check, is about to start, before the program starts; record: case, action, role (`program` or `check`) and try, each absent when unknown; the language cannot write a RunEvent from a command, so it is stated here, and the view RunDetail shows the step while the program runs). Not a closed set for the runtime's own kinds.",
       "x-ess-name": "sdc.daemon.EventKind",
       "x-ess-kind": "newtype",
       "type": "string"

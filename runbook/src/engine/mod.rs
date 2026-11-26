@@ -179,7 +179,7 @@ impl Engine {
         self
     }
 
-    /// The daemon's relay: a run that makes model calls (`Terms::makes_model_calls`) or is a delegation and comes with a route table
+    /// The daemon's relay: a run that comes with a route table
     /// (`StartRequest::routes`) is taken onto it, its model processes reach their model through it and the run's route
     /// file (`engine::route`), and its model calls are taken and booked there.
     pub fn with_relay(mut self, relay: Arc<crate::relay::Relay>) -> Engine {
@@ -306,11 +306,11 @@ impl Engine {
         let read_bindings = pinned.map_or_else(|| resolved.bindings.clone(), |p| p.copy.join("bindings").join(format!("{runbook}.yaml")));
         let reserves = crate::budget::reserves(&read_bindings).map_err(failure)?;
         let terms = &request.terms;
-        // A run whose decider is a model is on the route the daemon resolved for it at the submit: the run's place on
-        // the relay and its route file, whose path every bound program and the decider get (`engine::route`). It goes
-        // when the run ends. A run with a route table and no relay to take it does not start: it would reach no model.
-        // A delegation is on its route whatever its decider (`StartRequest::model_route`).
-        let route = match (&self.relay, request.routes.as_ref().filter(|_| terms.makes_model_calls() || request.model_route.is_some())) {
+        // A run is on the route the daemon resolved for it at the submit (a model decider, a bound program or an agent
+        // node of its runbook, or a delegation): the run's place on the relay and its route file, whose path every bound
+        // program and the decider get (`engine::route`). It goes when the run ends. A run with a route table and no relay
+        // to take it does not start: it would reach no model. A run with no route table gets no route file.
+        let route = match (&self.relay, request.routes.as_ref()) {
             (Some(relay), Some(table)) => Some(route::RunRoute::open(relay, &request.run_id, &request.state_dir, table).map_err(failure)?),
             (None, Some(_)) => return Err(failure("the run is on a model route and the engine has no relay of the daemon to take it")),
             (_, None) => None,
@@ -526,6 +526,14 @@ impl Engine {
                 }
                 TreeStop::Cancelled => return Ok(Self::halted(cancel, wall_hit, slot, gate, sink)),
                 TreeStop::Stuck => {
+                    // A step whose program failed left the tree with nothing it can do: the run ends naming that step and
+                    // its exit, not as a failure of the runtime.
+                    if let Some(step) = refusal::failed_step(store, &ran.case) {
+                        let outcome = format!("failed: step {} exit {}", step.action, step.exit);
+                        let reason = format!("the step {} failed: its program ended with exit {}, and the tree has no other action to take (case {})", step.action, step.exit, ran.case);
+                        let record = serde_json::json!({"case": ran.case, "action": step.action, "exit": step.exit, "reason": reason});
+                        return Ok(Finish::StepFailed { outcome, record });
+                    }
                     return Err(failure(match refusal::program_refused(store) {
                         Some(refused) => format!("the tree is stuck at case {}: {}", ran.case, refused.text),
                         None => match refusal::stuck_on(store) {
@@ -846,6 +854,17 @@ impl Runtime for Engine {
 
     fn resolve_caps(&self, settings: &std::collections::BTreeMap<String, String>) -> Result<Option<Caps>, String> {
         self.caps.resolve(settings).map(Some)
+    }
+
+    /// A program of the bindings the run would read, the root's or a child's (`budget::runbook_budgets`); a runbook whose
+    /// bindings cannot be read is taken to run one (its run is refused at load all the same).
+    fn runs_programs(&self, runbook: &str, version: Option<&str>) -> bool {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, version) else { return false };
+        crate::budget::runbook_budgets(&resolved.bindings).map_or(true, |b| !b.programs.is_empty())
+    }
+
+    fn serves_routes(&self) -> bool {
+        self.relay.as_ref().is_some_and(|relay| relay.serves())
     }
 
     fn check_runbook(&self, runbook: &str, version: Option<&str>) -> Result<(), String> {

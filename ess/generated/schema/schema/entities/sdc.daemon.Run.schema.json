@@ -73,7 +73,7 @@
     },
     "outcome": {
       "$ref": "#/$defs/sdc.daemon.RunOutcome",
-      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started)."
+      "description": "Set when the run Ended; absent in every other state. Besides the outcome names of the runbook's protocol it holds the daemon's own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started), and `failed: step <action> exit <n>` (a program of the run ended with that exit and its tree had no other action to take; the event runbook.step-failed says why)."
     },
     "failure": {
       "description": "Why the run failed to start; absent in every other state.",
@@ -85,7 +85,7 @@
     },
     "model_route": {
       "$ref": "#/$defs/sdc.daemon.RouteName",
-      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its decider is not a model, or its level is A0) and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit.",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit.",
       "x-ess-relation": {
         "name": "model_route",
         "kind": "references",
@@ -147,7 +147,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:4369f63e6153fd50a5a338a708d70a0e38fbf2c3aa893b21c4076bb32bda70cc",
+    "contract_digest": "slice-sha256/2:6ab36b3db47bb25f91174a97bcd9617c5c6d7130c783f8468c332a999b2a1c6f",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -270,7 +270,7 @@
     },
     "sdc.daemon.RunOutcome": {
       "title": "RunOutcome",
-      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not.",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`, `stopped: route`, `failed: step <action> exit <n>`). The run's state is the closed set; the outcome is not.",
       "x-ess-name": "sdc.daemon.RunOutcome",
       "x-ess-kind": "newtype",
       "type": "string"
