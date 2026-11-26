@@ -1047,9 +1047,12 @@ impl Daemon {
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
         };
         // Can the routes take the run (docs/model-routes.md, section 3)? Read before anything is written; no call, no
-        // wake. A gateway not ready is 503, an alias it does not list route-refused, a model not callable a wait.
+        // wake. A gateway not ready is 503, an alias it does not list route-refused, a model not callable a wait. A replay
+        // of an idempotency key is not asked about: it answers the run that exists (below), as a delegation's does.
+        let replay = input.idempotency_key.as_deref().is_some_and(|k| self.st().run_by_key(k).is_some());
         let wait = match &route {
             None => None,
+            Some(_) if replay => None,
             Some((record, _)) => {
                 let routes = &self.inner.policy.routes;
                 match route_wait(routes, record, None) {

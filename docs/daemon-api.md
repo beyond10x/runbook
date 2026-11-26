@@ -268,7 +268,8 @@ every 5 s of its clock: once every route can answer, the runtime starts the run;
 phase. A gateway that does not answer, or no longer lists the alias, during the wait leaves the run waiting. A cancel
 ends the wait (`Cancelled`); a run that waits keeps a drain open until it starts or its wait is over; after a restart
 a run that was `WaitingForRoute` is `FailedToStart`. The interim route `default` of a daemon with only a `[gateway]`
-is not asked, as before routes.
+is not asked, as before routes. A submit that repeats an idempotency key already used is not asked either: it answers
+the first run (`already-submitted`) whatever the gateway says.
 
 ### A delegation
 
