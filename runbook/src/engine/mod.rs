@@ -340,7 +340,7 @@ impl Engine {
                     Some(r) => route::StepNote::wrap(target, r.step.clone()),
                     None => target,
                 };
-                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()))
+                Arc::new(announce::Announcing::to(runner, target, dir.to_path_buf()).reading_cases(store.clone()))
             }
             _ => runner,
         };

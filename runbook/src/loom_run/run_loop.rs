@@ -167,7 +167,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
             Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
         }
         (Identity::Library { .. }, Some((level, runner))) => {
-            let announced: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(announcing(runner, run_dir.clone(), run_dir.join("bindings")));
+            let announced: std::sync::Arc<dyn b10x_loom_tree::TestRunner> = std::sync::Arc::new(announcing(runner, run_dir.clone(), run_dir.join("bindings")).reading_cases(store.clone()));
             Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, announced, cancel))
         }
         (Identity::Library { .. }, None) => return Err("the library was not prepared".into()),
