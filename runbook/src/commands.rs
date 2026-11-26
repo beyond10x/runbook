@@ -1210,13 +1210,19 @@ impl Daemon {
         // The facts the specification takes from the host. The delegation's route is chosen as a run's (`route_of_delegation`): the
         // one it names, else the daemon's `route_policy.default`; a route that is not declared, or none, is refused.
         let route = route_of_delegation(&self.inner.policy, input.model_route.as_deref());
-        let (runbook_id, path) = match &input.protocol {
-            Some(p) => (p.clone(), "named"),
-            None => (crate::delegation::FREE_RUNBOOK.to_owned(), "free"),
+        // The path (docs/model-routes.md, section 9): a named runbook; the free run, asked for by its name or taken by a delegation
+        // that names none on a daemon without a classifier route; else none yet: the run classifies the request when it starts.
+        use crate::delegation::{CLASSIFY_RUNBOOK, FREE_RUNBOOK};
+        let (runbook_id, path) = match input.protocol.as_deref() {
+            Some(FREE_RUNBOOK) => (FREE_RUNBOOK.to_owned(), Some("free")),
+            Some(p) => (p.to_owned(), Some("named")),
+            None if self.inner.runtime.classifies() => (CLASSIFY_RUNBOOK.to_owned(), None),
+            None => (FREE_RUNBOOK.to_owned(), Some("free")),
         };
-        let runbook_known = match &input.protocol {
-            Some(p) => self.runbook_known(p, None),
-            None => self.inner.runtime.free_run(),
+        let runbook_known = match (path, input.protocol.as_deref()) {
+            (Some("named"), Some(p)) => self.runbook_known(p, None),
+            (Some(_), _) => self.inner.runtime.free_run(),
+            (None, _) => true,
         };
         let context = input.workspace.as_deref().map(|p| self.context_under_roots(p));
 
@@ -1241,7 +1247,7 @@ impl Daemon {
             Ok(None) => {}
             Err(why) => return Err(Fault::Invalid(why)),
         }
-        if input.protocol.is_some() {
+        if path == Some("named") {
             self.inner.runtime.check_runbook(&runbook_id, None).map_err(Fault::Invalid)?;
         }
         let replay = input.idempotency_key.as_deref().is_some_and(|k| self.st().run_by_key(k).is_some());
@@ -1282,7 +1288,13 @@ impl Daemon {
             }
         }
         let submitted = json!({"run_id": run_id, "runbook_id": runbook_id, "confinement": confinement});
-        let delegated = json!({"run_id": run_id, "route": route, "path": path, "protocol": runbook_id});
+        // a delegation the run classifies holds no path until it starts: the run event `runbook.delegation-resolved` names it then
+        let mut event = json!({"route": route, "protocol": runbook_id});
+        if let Some(path) = path {
+            event["path"] = json!(path);
+        }
+        let mut delegated = event.clone();
+        delegated["run_id"] = json!(run_id);
         let admitted = Admitted {
             run_id: run_id.clone(),
             runbook_id: runbook_id.clone(),
@@ -1300,7 +1312,7 @@ impl Daemon {
             delegation: Some(route.clone()),
             wait,
         };
-        self.enter(st, admitted, Some(json!({"route": route, "path": path, "protocol": runbook_id})))?;
+        self.enter(st, admitted, Some(event))?;
         let mut out = done("delegate", "delegated", vec![("RunSubmitted", submitted), ("RunDelegated", delegated)]);
         out.run_id = Some(run_id);
         Ok(out)
@@ -1537,6 +1549,8 @@ impl Daemon {
                 if let Some(phase) = &r.route_phase {
                     m.insert("route_phase".into(), json!(phase));
                 }
+                // a delegation's path, protocol and confidence (docs/model-routes.md, section 9)
+                m.extend(delegation_of(&st.events_after(Some(run_id), None, 0)).unwrap_or_default());
                 if r.state == RunState::Running {
                     if let Some(step) = lock(&self.inner.steps).get(run_id) {
                         let now = st.now_millis();
@@ -1688,10 +1702,9 @@ impl Daemon {
             m.insert("run_state".into(), json!(run.state));
             put(&mut m, "outcome", &run.outcome);
             put(&mut m, "failure", &run.failure);
-            for key in ["route", "path", "protocol"] {
-                m.insert(key.into(), delegated.record[key].clone());
-            }
+            m.insert("route".into(), delegated.record["route"].clone());
             m.insert("confidence".into(), Value::Null);
+            m.extend(delegation_of(&events).unwrap_or_default());
             m.insert("calls".into(), json!(calls));
             m.insert("input_tokens".into(), json!(input_tokens));
             m.insert("output_tokens".into(), json!(output_tokens));
@@ -2242,6 +2255,26 @@ fn run_row(r: &Run) -> Value {
     put(&mut m, "outcome", &r.outcome);
     put(&mut m, "failure", &r.failure);
     Value::Object(m)
+}
+
+/// What a delegation's run says of its path, from its events: `path` and `protocol` of `runbook.delegated` (none while the run
+/// classifies), then `path`, `protocol`, `confidence`, `classifier_route` and `protocol_digest` of `runbook.delegation-resolved`.
+/// None for a run no delegation created.
+fn delegation_of(events: &[&RunEvent]) -> Option<Map<String, Value>> {
+    let delegated = events.iter().find(|e| e.kind == crate::delegation::DELEGATED_EVENT)?;
+    let mut m = Map::new();
+    if let Some(path) = delegated.record.get("path").filter(|v| !v.is_null()) {
+        m.insert("path".into(), path.clone());
+        m.insert("protocol".into(), delegated.record["protocol"].clone());
+    }
+    if let Some(resolved) = events.iter().rev().find(|e| e.kind == crate::delegation::RESOLVED_EVENT) {
+        for key in ["path", "protocol", "confidence", "classifier_route", "protocol_digest"] {
+            if let Some(v) = resolved.record.get(key).filter(|v| !v.is_null()) {
+                m.insert(key.into(), v.clone());
+            }
+        }
+    }
+    Some(m)
 }
 
 fn run_rows<'a>(runs: impl Iterator<Item = &'a Run>) -> Vec<Value> {

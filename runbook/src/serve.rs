@@ -214,6 +214,10 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         if args.route_table.as_ref().is_some_and(|t| !t.is_empty()) || !args.routes.names().is_empty() {
             let r = crate::relay::Relay::new();
             engine = engine.with_relay(r.clone());
+            // a delegation that names no protocol is classified on the classifier route, when the daemon declares one
+            if let Some(route) = args.routes.classifier().and_then(|name| args.routes.resolve(name)) {
+                engine = engine.with_classifier(crate::relay::ResolvedRoute::from(route));
+            }
             relay = Some(r);
         }
         let tools = args.assets_root.as_deref().and_then(crate::delegation::tools_of);

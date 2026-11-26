@@ -111,6 +111,25 @@
       "description": "The last phase the gateway gave of a route of the run that could not answer when the run was submitted: set when the run waits for its route (WaitingForRoute) and when it ends `stopped: route`; absent for a run that never waited.",
       "type": "string"
     },
+    "path": {
+      "$ref": "#/$defs/sdc.daemon.DelegationPath",
+      "description": "For a run a Delegate created: how it became a run, read from its run events `runbook.delegated` and `runbook.delegation-resolved` (the path a classified delegation took when its run started); absent for any other run, and while the daemon classifies. No command of the language sets it."
+    },
+    "protocol": {
+      "description": "For a run a Delegate created, once its path is taken: the protocol it runs, by the id its document declares (the named runbook, delegation-free, the runbook the classifier picked, or the id of the generated protocol). Read like `path`.",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "For a classified or generated delegation: the classifier's confidence, a number from 0 to 1. Read like `path`."
+    },
+    "classifier_route": {
+      "description": "For a classified or generated delegation: the route of its classify and build calls (route_policy.classifier), by name. Read like `path`.",
+      "type": "string"
+    },
+    "protocol_digest": {
+      "description": "For a generated delegation: sha256:<hex> of the protocol document the builder wrote, as the run took it. Read like `path`.",
+      "type": "string"
+    },
     "state": {
       "$ref": "#/$defs/sdc.daemon.Run.State"
     }
@@ -128,7 +147,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:e8168d64ff3f0d3ead31a2c2a6b3ffa0fa060f76d11b70af1c0dd2e2b75076e8",
+    "contract_digest": "slice-sha256/2:fc2fab257bcb56904d5c53e48cbf46d5a3a17c3cbf6e657e77c640c54085b65e",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -172,6 +191,19 @@
       "x-ess-invariants": [
         "value.count >= 1",
         "value.count <= 63"
+      ]
+    },
+    "sdc.daemon.DelegationPath": {
+      "title": "DelegationPath",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "x-ess-name": "sdc.daemon.DelegationPath",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "named",
+        "free",
+        "classified",
+        "generated"
       ]
     },
     "sdc.daemon.IdempotencyKey": {

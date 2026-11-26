@@ -172,7 +172,13 @@ impl Client {
 
     /// The status, the headers and the body of the answer, whole.
     pub fn request(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Reply, Failure> {
-        let mut s = self.connect(REPLY_TIMEOUT)?;
+        self.request_waiting(method, path, body, REPLY_TIMEOUT)
+    }
+
+    /// [`Client::request`] that waits up to `wait` for each next bytes of the answer (a model call answers after it has
+    /// thought), within the deadline when one is set.
+    pub fn request_waiting(&self, method: &str, path: &str, body: Option<&[u8]>, wait: Duration) -> Result<Reply, Failure> {
+        let mut s = self.connect(wait)?;
         self.send(&mut s, method, path, &[("Accept", "application/json".to_string())], body)?;
         let (status, headers, mut body) = self.read_response(s)?;
         let mut text = Vec::new();

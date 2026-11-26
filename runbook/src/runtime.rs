@@ -399,4 +399,11 @@ pub trait Runtime: Send + Sync + 'static {
     fn free_run(&self) -> bool {
         false
     }
+
+    /// Whether the runtime classifies a delegation that names no protocol when its run starts, on the daemon's classifier
+    /// route (`[route_policy] classifier`; `crate::delegation`, `docs/model-routes.md` section 9). None (the stub): such a
+    /// delegation is the free run.
+    fn classifies(&self) -> bool {
+        false
+    }
 }

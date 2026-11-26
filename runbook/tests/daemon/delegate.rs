@@ -11,7 +11,7 @@
 use super::default_confinement::{live_env, rows, Live};
 use super::gateway::{claude_cli, gateway_table, home, model_table, repo, write_exe, Home};
 use super::http::send;
-use super::relay::{gateway, gateway_listing, got, Gateway};
+use super::relay::{gateway, gateway_answering, gateway_listing, got, Gateway, Got};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -101,6 +101,13 @@ fn daemon(tag: &str, answer: &'static [u8]) -> Delegating {
 
 /// [`daemon`] with `tables` after the lone `[gateway]` of its `runbook.toml`.
 fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
+    // a gateway that answers DOWN is not ready; any other is ready and lists the aliases of the routes these cases declare
+    let gw = if answer == DOWN { gateway(answer) } else { gateway_listing(answer, &["a-model", "b-model"]) };
+    daemon_on(tag, gw, tables)
+}
+
+/// [`daemon_with`] on the stand-in gateway `gw`.
+fn daemon_on(tag: &str, gw: Gateway, tables: &str) -> Delegating {
     let h = home(tag);
     answer_runbook(&h);
     let bin = h.log.join("bin");
@@ -109,8 +116,6 @@ fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
     let roots = h.log.join("roots");
     std::fs::create_dir_all(roots.join("project")).unwrap();
     std::fs::write(roots.join("project/notes.txt"), "a file of the workspace\n").unwrap();
-    // a gateway that answers DOWN is not ready; any other is ready and lists the aliases of the routes these cases declare
-    let gw = if answer == DOWN { gateway(answer) } else { gateway_listing(answer, &["a-model", "b-model"]) };
     let file = format!("{}{tables}", gateway_table(&gw.base_url, &h.token_file));
     let path = format!(
         "{}:{}:/usr/local/bin:/usr/bin:/bin",
@@ -824,4 +829,156 @@ fn adversary_a_delegate_replaying_a_submit_runs_key_names_a_result_its_location_
         "delegate answered 202 {} and its Location {location} answers: {}",
         body["outcome"], r.text()
     );
+}
+
+// ---- classify, else build (docs/model-routes.md, section 9) ----
+
+/// The route `classify` (alias `c-model`) beside the route `default`: the classifier route of `[route_policy]`.
+const CLASSIFY: &str = "[routes.classify]\ngateway = \"default\"\nmodel = \"c-model\"\nkind = \"hosted\"\n[route_policy]\nclassifier = \"classify\"\n";
+
+/// A protocol a builder writes: one action whose evidence is the result, one outcome.
+const BUILT_PROTOCOL: &str = "format: protocol/1\nprotocol:\n  id: built-tea\n  revision: 1\n  description: >-\n    A protocol a builder wrote for one request.\nartifacts:\n  idea: {}\n  result: {}\nevidence_kinds:\n  result_written: {}\nclaims:\n  result.written:\n    true_when:\n      evidence: {kind: result_written, subject: result, result: written}\nactions:\n  tea.write:\n    effect: write\n    may_produce:\n      - evidence: result_written\noutcomes:\n  done:\n    requires: {claim: result.written}\n";
+
+/// The bindings the builder writes for [`BUILT_PROTOCOL`]: its one action is the daemon's agent node.
+const BUILT_BINDINGS: &str = "format: loom.bindings/1\nartifacts:\n  idea: request.yaml\n  result: result.md\nactions:\n  - action: tea.write\n    executor: {kind: program, argv: [sdc-node, delegation.free]}\n    evidence:\n      - {kind: result_written, subject: result, producer: sdc-node, from: exit, results: {\"0\": written, timeout: failed, \"*\": failed}}\n";
+
+/// A Messages answer of the gateway whose text is `text`.
+fn messages(text: &str) -> Vec<u8> {
+    let body = json!({"id": "m", "type": "message", "role": "assistant", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 7, "output_tokens": 3}}).to_string();
+    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+}
+
+/// A gateway whose model `c-model` answers the texts of `scripted` in order (the last again once the others are spent),
+/// and every other request [`OK`].
+fn classifying_gateway(scripted: Vec<String>) -> Gateway {
+    let left = std::sync::Mutex::new(std::collections::VecDeque::from(scripted));
+    gateway_answering(move |g| {
+        if g.body["model"] != "c-model" {
+            return OK.to_vec();
+        }
+        let mut left = left.lock().unwrap();
+        let text = if left.len() > 1 { left.pop_front().unwrap_or_default() } else { left.front().cloned().unwrap_or_default() };
+        messages(&text)
+    }, &["a-model", "c-model"])
+}
+
+fn posted_to(gw: &Gateway, alias: &str) -> Vec<Got> {
+    posted(gw).into_iter().filter(|g| g.body["model"] == alias).collect()
+}
+
+fn classified(protocol: &str, confidence: f64) -> String {
+    json!({"protocol": protocol, "confidence": confidence, "inputs": {}}).to_string()
+}
+
+fn built(protocol: &str, bindings: &str) -> String {
+    json!({"protocol": protocol, "bindings": bindings}).to_string()
+}
+
+#[test]
+fn a_classifier_answer_of_0_9_runs_that_runbook_and_read_run_shows_path_protocol_and_confidence() {
+    let d = daemon_on("dlg-classify", classifying_gateway(vec![classified("answer-demo", 0.9)]), &format!("{ROUTE}{CLASSIFY}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    super::openapi::check_response("delegate", "delegated", &body);
+    assert_eq!(delegated(&body, "path"), Value::Null, "the path of a classified delegation is taken when its run starts: {body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    assert_eq!(
+        (end["outcome"].clone(), end["path"].clone(), end["protocol"].clone(), end["confidence"].clone(), end["classifier_route"].clone()),
+        (json!("answered"), json!("classified"), json!("answer-demo"), json!(0.9), json!("classify")),
+        "{end}"
+    );
+    assert_eq!(end["result_text"], json!("answered: green or black\n"), "{end}");
+    super::openapi::check_row("DelegationResult", &end);
+    // one call on the classifier route with the request and the catalog, then the runbook's own call on the delegation's route
+    let asked = posted_to(&d.gw, "c-model");
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let sent = asked[0].body.to_string();
+    assert!(sent.contains("green or black") && sent.contains("answer-demo"), "the classifier was not given the request and the catalog: {sent}");
+    assert_eq!(posted_to(&d.gw, "a-model").len(), 1);
+    assert_eq!(end["calls"], json!(2), "the classifier call is booked like any call: {end}");
+    // neither route declares a price: the classifier call books one call's reservation (1 USD), the program's its budget
+    // (0.5 USD), and neither books what the run's cap has left
+    assert_eq!((end["cost_micro_usd"].clone(), end["cost_known"].clone()), (json!(1_500_000), json!(false)), "{end}");
+    // read_run shows the path, the protocol and the confidence
+    let row = rows(&d.l, &format!("/daemon/views/run?run_id={run}"))[0].clone();
+    assert_eq!((row["path"].clone(), row["protocol"].clone(), row["confidence"].clone()), (json!("classified"), json!("answer-demo"), json!(0.9)), "{row}");
+    super::openapi::check_row("RunDetail", &row);
+    let mut m = Mcp::to(&d.l);
+    m.send(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "read_run", "arguments": {"run_id": run}}}));
+    let read = m.until(1).pop().unwrap();
+    let shown = &read["result"]["structuredContent"]["rows"][0];
+    assert_eq!((shown["path"].clone(), shown["protocol"].clone(), shown["confidence"].clone()), (json!("classified"), json!("answer-demo"), json!(0.9)), "{read}");
+    // a delegation that asks for the free run is not classified
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default", "protocol": "delegation-free"}));
+    assert_eq!((status, delegated(&body, "path")), (202, json!("free")), "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["outcome"].clone(), end["path"].clone(), end["confidence"].clone()), (json!("delivered"), json!("free"), Value::Null), "{end}");
+    assert_eq!(posted_to(&d.gw, "c-model").len(), 1, "the free run was classified");
+}
+
+#[test]
+fn a_classifier_answer_of_0_5_builds_a_protocol_the_loader_accepts_and_runs_it() {
+    let gw = classifying_gateway(vec![classified("answer-demo", 0.5), built(BUILT_PROTOCOL, BUILT_BINDINGS)]);
+    let d = daemon_on("dlg-build", gw, &format!("{ROUTE}{CLASSIFY}"));
+    let request = "Write one sentence about tea.";
+    let (status, body, _) = delegate(&d.l, &json!({"request": request, "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let run = run_of(&body);
+    let end = until_ended(&d.l, &run);
+    assert_eq!(
+        (end["run_state"].clone(), end["outcome"].clone(), end["path"].clone(), end["protocol"].clone(), end["confidence"].clone()),
+        (json!("Ended"), json!("done"), json!("generated"), json!("built-tea"), json!(0.5)),
+        "{end}"
+    );
+    assert_eq!(end["result_text"], json!(format!("{ANSWER}\n")), "{end}");
+    let digest = end["protocol_digest"].as_str().unwrap_or_default().to_owned();
+    assert!(digest.starts_with("sha256:") && digest.len() == 71, "the run records no digest of the generated protocol: {end}");
+    assert!(end["products"].as_array().unwrap().iter().any(|p| p == "delegation/protocol.yaml"), "the generated protocol is no product of the run: {end}");
+    super::openapi::check_row("DelegationResult", &end);
+    // classify and build on the classifier route, then the built protocol's agent node on the delegation's route
+    assert_eq!(posted_to(&d.gw, "c-model").len(), 2);
+    assert_eq!(posted_to(&d.gw, "a-model").len(), 1);
+    let prompt = std::fs::read_to_string(d.h.log.join("prompt")).unwrap_or_default();
+    assert!(prompt.contains(request), "the built protocol's agent node was not given the request: {prompt}");
+    let row = rows(&d.l, &format!("/daemon/views/run?run_id={run}"))[0].clone();
+    assert_eq!((row["path"].clone(), row["protocol"].clone(), row["protocol_digest"].clone()), (json!("generated"), json!("built-tea"), json!(digest)), "{row}");
+}
+
+#[test]
+fn a_built_protocol_the_loader_refuses_ends_failed_protocol_refused_with_the_loaders_line() {
+    let refused = BUILT_PROTOCOL.replace("requires: {claim: result.written}", "requires: {claim: never.declared}");
+    let program = BUILT_BINDINGS.replace("argv: [sdc-node, delegation.free]", "argv: [sh, -c, \"echo built > result.md\"]");
+    let gw = classifying_gateway(vec![classified("answer-demo", 0.5), built(&refused, BUILT_BINDINGS), classified("answer-demo", 0.5), built(BUILT_PROTOCOL, &program)]);
+    let d = daemon_on("dlg-build-refused", gw, &format!("{ROUTE}{CLASSIFY}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert_eq!((end["run_state"].clone(), end["path"].clone()), (json!("FailedToStart"), json!("generated")), "{end}");
+    assert!(failure.starts_with("protocol-refused: ") && failure.contains("never.declared"), "the run did not end protocol-refused with the loader's line: {end}");
+    // a builder that names a program of its own: nothing of it runs
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert!(end["run_state"] == "FailedToStart" && failure.starts_with("protocol-refused: ") && failure.contains("sdc-node delegation.free"), "{end}");
+    assert!(end["result_text"].is_null(), "the builder's program ran: {end}");
+    assert_eq!(posted_to(&d.gw, "c-model").len(), 4);
+    assert!(posted_to(&d.gw, "a-model").is_empty(), "a refused protocol ran");
+}
+
+#[test]
+fn a_classifier_answer_that_is_not_the_expected_json_is_asked_again_twice_then_ends_failed_classifier_answer() {
+    let d = daemon_on("dlg-classify-bad", classifying_gateway(vec!["red, I think".to_owned()]), &format!("{ROUTE}{CLASSIFY}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    let failure = end["failure"].as_str().unwrap_or_default();
+    assert!(end["run_state"] == "FailedToStart" && failure.starts_with("classifier-answer: "), "{end}");
+    let asked = posted_to(&d.gw, "c-model");
+    assert_eq!(asked.len(), 3, "one call and two more with the validator's error: {asked:?}");
+    assert!(asked[1].body.to_string().contains("red, I think"), "the second call does not hold the first answer: {:?}", asked[1].body);
+    assert_eq!(end["calls"], json!(3), "{end}");
+    assert!(posted_to(&d.gw, "a-model").is_empty());
 }

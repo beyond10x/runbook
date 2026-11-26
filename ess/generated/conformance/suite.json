@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "de239d064d7cea9d7a32117c21924c13c1d71561e6de15088b02ce88ececcb8e",
-    "contract_digest": "13098bb4c3f7e888a4a4df396229281a842b602c896bda685d986a15fd87334c",
+    "spec_digest": "3a16e6f3793d9f552b772fdb45c08676777913f6c8ae50fe0281abf001064245",
+    "contract_digest": "46dc05caa24f70d3a9a357567cfaa378107e7b97064d1e4f92fd4db01592e7f9",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -2658,10 +2658,6 @@
               "kind": "literal",
               "value": "run"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -2844,10 +2840,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "default"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -3317,8 +3309,11 @@
               "holds": "enum",
               "variants": [
                 "named",
-                "free"
-              ]
+                "free",
+                "classified",
+                "generated"
+              ],
+              "optional": true
             },
             "protocol": {
               "holds": "primitive",
@@ -3851,10 +3846,6 @@
               "kind": "literal",
               "value": "run"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -3935,10 +3926,6 @@
               "kind": "literal",
               "value": "run"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4018,10 +4005,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "run"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -4465,10 +4448,6 @@
               "kind": "literal",
               "value": "run"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4651,10 +4630,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "default"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -4986,10 +4961,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "run"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -5426,10 +5397,6 @@
               "kind": "literal",
               "value": "run"
             },
-            "path": {
-              "kind": "literal",
-              "value": "named"
-            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -5612,10 +5579,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "default"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "free"
             },
             "request": {
               "kind": "literal",
@@ -6002,10 +5965,6 @@
             "model_route_source": {
               "kind": "literal",
               "value": "run"
-            },
-            "path": {
-              "kind": "literal",
-              "value": "named"
             },
             "request": {
               "kind": "literal",
@@ -15030,6 +14989,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -15512,6 +15475,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
         },
         {
           "kind": "type",
@@ -16406,6 +16373,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
         },
         {
           "kind": "type",
@@ -20859,6 +20830,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -22729,6 +22704,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -23396,6 +23375,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
         },
         {
           "kind": "type",
