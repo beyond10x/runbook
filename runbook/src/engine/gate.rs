@@ -38,6 +38,10 @@ use std::time::Instant;
 /// ended run read.
 pub const USAGE_FILE: &str = "caps-used.json";
 
+/// The kind of the run event that names the calls of a step the gateway refused with an answer the client may recover
+/// from, when the step went on and its program did not fail ([`Gate::settle_refused`]).
+pub const REFUSED_EVENT: &str = "runbook.model-calls-refused";
+
 /// The cap a run reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cap {
@@ -233,6 +237,9 @@ pub struct RelayBooking {
     /// What fails the step in flight: the first call of it the ledger could not book, or the first the route did
     /// not serve (`route-unavailable`).
     failed: Mutex<Option<String>>,
+    /// The lines of the calls of a step the gateway refused with an answer the client may recover from
+    /// (`call-refused`), since [`Gate::take_refused`] took them: the run ends as their step ends.
+    refused: Mutex<Vec<Value>>,
     /// What a call of the decider may cost (`max_call_micro_usd`); `u64::MAX` when it names no budget.
     max_call: AtomicU64,
     /// The calls taken and not yet booked.
@@ -323,6 +330,9 @@ impl crate::relay::Booking for RelayBooking {
         if let Some(why) = failure {
             lock(&self.failed).get_or_insert(why);
         }
+        if booked.is_ok() && line.get("cause").and_then(Value::as_str) == Some(crate::relay::CALL_REFUSED) && line.get("step").is_some_and(Value::is_string) {
+            lock(&self.refused).push(line.clone());
+        }
         let mut pending = lock(&self.pending);
         if self.closed.load(Ordering::SeqCst) {
             // The run ended before this call did: its line is in the ledger, and no event of the run can take it.
@@ -372,10 +382,37 @@ impl Gate {
     /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
     /// the step in flight.
     pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
-        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), refused: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
         self.reader = std::mem::take(&mut self.reader).routed();
         self.routed = Some(booking.clone());
         booking
+    }
+
+    /// The calls of a step the gateway refused with an answer the client may recover from (cause `call-refused`),
+    /// booked since the last time, taken once: they fail no step on their own, and the run ends as their step ends
+    /// ([`Self::settle_refused`]).
+    pub fn take_refused(&self) -> Vec<Value> {
+        self.routed.as_ref().map(|b| std::mem::take(&mut *lock(&b.refused))).unwrap_or_default()
+    }
+
+    /// The run's end follows the step of the calls `refused` ([`Self::take_refused`]): when `failed` (that step's program
+    /// failed) the first refused call is the run's first cause, `call-refused: route <route> (chosen by <source>)
+    /// refused the call: <code>: <detail>`; otherwise the step went on and delivered, and the run's record names the
+    /// refused calls with one event `runbook.model-calls-refused`.
+    pub fn settle_refused(refused: &[Value], failed: impl FnOnce(&str) -> bool, sink: &dyn EventSink) -> Result<(), String> {
+        let Some(first) = refused.first() else { return Ok(()) };
+        let text = |line: &Value, k: &str| line.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let step = text(first, "step");
+        if failed(&step) {
+            return Err(format!("{}: route {} (chosen by {}) refused the call: {}: {}", crate::relay::CALL_REFUSED, text(first, "route"), text(first, "source"), text(first, "code"), text(first, "detail")));
+        }
+        let calls: Vec<Value> = refused
+            .iter()
+            .map(|l| json!({"step": l.get("step"), "route": l.get("route"), "gateway_call": l.get("gateway_call"), "code": l.get("code"), "detail": l.get("detail"), "error": l.get("error")}))
+            .collect();
+        let detail = format!("the gateway refused {} model call(s) of the step {step} with an answer the client may recover from; the step went on and its program did not fail", calls.len());
+        sink.record(REFUSED_EVENT, json!({"step": step, "calls": calls, "detail": detail}));
+        Ok(())
     }
 
     /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`).
@@ -593,6 +630,50 @@ mod tests {
         for word in ["route-unavailable", "qwen", "model-stopped", "protocol"] {
             assert!(why.contains(word), "the step's failure does not name {word}: {why}");
         }
+    }
+
+    struct Kept(Mutex<Vec<(String, Value)>>);
+
+    impl EventSink for Kept {
+        fn steps(&self) -> Option<Arc<dyn crate::runtime::StartTarget>> {
+            None
+        }
+        fn started(&self) {}
+        fn record(&self, kind: &str, record: Value) {
+            lock(&self.0).push((kind.to_owned(), record));
+        }
+        fn decision_requested(&self, _: crate::runtime::DecisionRequest) {}
+        fn decision_answered(&self, _: &str, _: &str, _: &str, _: &str) -> bool {
+            false
+        }
+        fn resumed(&self) {}
+    }
+
+    /// A call of a step the gateway refused with an answer the client may recover from (`call-refused`, the line of
+    /// `relay::Call::line`) fails no step when it is booked; it is taken once, and the run's end follows its step: a
+    /// step that failed names it as the first cause, one that went on is noted in the run's record.
+    #[test]
+    fn a_relayed_call_refused_with_an_answer_the_client_may_recover_from_fails_no_step_and_the_run_follows_its_step() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-call-refused", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let booking = gate.route(Arc::new(Mutex::new(Some("delegation.free".to_owned()))));
+        booking.admit().unwrap();
+        let line = json!({"what": "model call", "run": "run-a", "step": "delegation.free", "role": "default", "route": "sonnet", "alias": "sonnet", "source": "run", "wire": "messages", "gateway_call": "gw-c", "input_tokens": null, "output_tokens": null, "cost_known": true, "micro_usd": 0, "cause": "call-refused", "code": "invalid_request_error", "detail": "the gateway answered 400", "error": "invalid_request_error: max_tokens too large"});
+        booking.book(line, 0).unwrap();
+        let outcome = gate.book(&Quiet);
+        let refused = gate.take_refused();
+        let again = gate.take_refused();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "the step of a call its client may recover from failed on the booking: {outcome:?}");
+        assert_eq!((refused.len(), again.len()), (1, 0), "{refused:?} {again:?}");
+        let why = Gate::settle_refused(&refused, |step| step == "delegation.free", &Quiet).expect_err("a failed step's refused call was not its cause");
+        assert_eq!(why, "call-refused: route sonnet (chosen by run) refused the call: invalid_request_error: the gateway answered 400");
+        let kept = Kept(Mutex::new(Vec::new()));
+        Gate::settle_refused(&refused, |_| false, &kept).unwrap();
+        let kept = kept.0.into_inner().unwrap();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!((kept[0].0.as_str(), kept[0].1["step"].clone(), kept[0].1["calls"][0]["gateway_call"].clone(), kept[0].1["calls"][0]["error"].clone()), (REFUSED_EVENT, json!("delegation.free"), json!("gw-c"), json!("invalid_request_error: max_tokens too large")));
+        assert!(Gate::settle_refused(&[], |_| true, &Quiet).is_ok());
     }
 
     #[test]

@@ -111,7 +111,8 @@ flowchart LR
 7. **Relay → gateway.** The same request with `model` set to the route's alias and the gateway's credential added;
    the answer streams back unchanged; the relay reads `usage` from it (and `x-llm-gateway-call` once the gateway
    sends it) and writes one ledger line. Failure: the gateway's refusal is passed back unchanged and the step fails
-   `route-unavailable` naming the route; the relay never sends the call to another route.
+   `route-unavailable` naming the route; the relay never sends the call to another route. A `4xx` answer that is no
+   refusal of the route by the gateway is booked `call-refused`, and the run ends as its step ends (section 4).
 8. **Gateway → upstream.** The gateway's own arrow (section "The model gateway"). A call to a stopped pod starts
    nothing once the gateway's `start_on_request` is false (its story `a-call-starts-no-pod`).
 9. **runbookd → client: result.** `GET /daemon/views/delegation-result?run_id=<id>` and the MCP tool
@@ -307,6 +308,12 @@ At submit, after the route is resolved and before anything is written:
   is recorded on the call and fails that step with the cause `route-unavailable`, the route, the gateway's code and
   the setting that chose the route (run, protocol or default). The protocol decides what a failed step does, as
   for any failed program; a failed decider call leaves its decision open for a person, with that cause on it.
+- A `4xx` answer that is no refusal of the route by the gateway (an upstream's `invalid_request_error` the gateway
+  relayed, not `model-unknown`, `wire-not-served`, `credential-*` or `spend-ceiling`) is a call the client may
+  recover from: it is passed back, booked with the cause `call-refused`, the gateway's code and its error text
+  (type and message, at most 300 bytes, no header, no token), and the run ends as its step ends. A step that exits 0
+  with its products goes on, the run's record naming the refused calls (`runbook.model-calls-refused`); a step that
+  fails names the refused call as the first cause of the run's failure (story `a-recovered-call-does-not-fail-the-run`).
 - Runbook never re-sends a call to another route, and never changes the route of a running run.
 
 ### 5. Booking and caps

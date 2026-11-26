@@ -1127,6 +1127,12 @@ On a loopback listener:
   reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. The exchange and the booking go on when the caller hangs up: a call that was sent is
   booked once.
+- A call the gateway refused carries the gateway's `code`, its `detail` and its error text as `error`
+  (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced). A
+  `4xx` answer that is no refusal of the route by the gateway (not `model-unknown`, `wire-not-served`,
+  `credential-*` or `spend-ceiling`) is a call the client may recover from: its `cause` is `call-refused`, and the
+  run ends as its step ends (`docs/engine.md`, "A gateway"). Every other refusal, and a gateway that does not
+  answer, has the `cause` `route-unavailable` and fails its step.
 
 ## Outside the language
 
