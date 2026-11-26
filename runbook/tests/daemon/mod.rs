@@ -52,3 +52,4 @@ mod relay_daemon;
 mod route_ready;
 mod run_route;
 mod catalog;
+mod adversary_b;
