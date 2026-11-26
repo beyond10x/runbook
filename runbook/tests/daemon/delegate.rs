@@ -835,14 +835,20 @@ fn a_submitted_run_whose_only_action_fails_ends_with_an_outcome_naming_the_step_
 #[test]
 fn adversary_mcp_delegate_does_not_hold_the_server_while_it_waits() {
     let d = daemon("dlg-adv-mcp-par", OK);
-    // Each run's model program waits until the other run's has started too (at most 20 s): the first run cannot end
-    // before the second was submitted unless the second waited, which the case then shows by its times.
+    // Each run's model program waits until the other run's has started too, at most `ALONE_SECONDS` by the clock (bash's
+    // `SECONDS`, not a count of sleeps that load stretches): the first run cannot end before the second was submitted
+    // unless the second waited, which the case then shows by its times. A server that takes one call at a time answers
+    // the first delegate once its run ended, after `ALONE_SECONDS` and well inside `WAIT_SECONDS`, so the second is
+    // submitted after that end; were the limit near `WAIT_SECONDS`, the first delegate could answer with its run still
+    // live and such a server would pass.
+    const ALONE_SECONDS: u64 = 10;
+    const WAIT_SECONDS: u64 = 30;
     let started = d.h.log.join("started");
     std::fs::create_dir_all(&started).unwrap();
     write_exe(
         &d.h.log.join("bin/claude"),
         &format!(
-            "#!/bin/bash\n: > '{s}/'$$\nalone() {{ set -- '{s}'/*; [ $# -lt 2 ]; }}\nn=0\nwhile alone && [ $n -lt 2000 ]; do sleep 0.01; n=$((n + 1)); done\nexec '{}' \"$@\"\n",
+            "#!/bin/bash\n: > '{s}/'$$\nalone() {{ set -- '{s}'/*; [ $# -lt 2 ]; }}\nend=$((SECONDS + {ALONE_SECONDS}))\nwhile alone && [ $SECONDS -lt $end ]; do sleep 0.01; done\nexec '{}' \"$@\"\n",
             d.h.log.join("bin/claude-real").display(),
             s = started.display()
         ),
@@ -850,7 +856,7 @@ fn adversary_mcp_delegate_does_not_hold_the_server_while_it_waits() {
     write_exe(&d.h.log.join("bin/claude-real"), &claude_answering(&d.h.log));
     let mut m = Mcp::to(&d.l);
     for id in [2, 3] {
-        m.send(&json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "delegate", "arguments": {"request": format!("task {id}"), "model_route": "default", "wait_seconds": 30}}}));
+        m.send(&json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "delegate", "arguments": {"request": format!("task {id}"), "model_route": "default", "wait_seconds": WAIT_SECONDS}}}));
     }
     let mut answers = std::collections::BTreeMap::new();
     while answers.len() < 2 {
@@ -869,6 +875,9 @@ fn adversary_mcp_delegate_does_not_hold_the_server_while_it_waits() {
         rows(&d.l, &format!("/daemon/views/run?run_id={r}"))[0].clone()
     };
     let (first, second) = (run(2), run(3));
+    // both runs reached their model program and ended by it: a run that fails before its program starts ends at once,
+    // and two such runs would pass the order below on any server
+    assert_eq!((first["outcome"].as_str(), second["outcome"].as_str()), (Some("delivered"), Some("delivered")), "first {first}, second {second}");
     let at = |row: &Value, key: &str| runbook::clock::parse_instant(row[key].as_str().unwrap_or_else(|| panic!("{key}: {row}"))).unwrap();
     assert!(
         at(&second, "submitted_at") < at(&first, "ended_at"),
