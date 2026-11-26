@@ -203,6 +203,7 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-reply");
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Citable { cwd, case_dir } => {

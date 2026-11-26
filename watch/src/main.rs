@@ -18,7 +18,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 #[derive(Parser)]
-#[command(name = "sdc-watch", about = "Record every effective file change of an SDC run, with its attribution")]
+#[command(name = "sdc-watch", version, about = "Record every effective file change of an SDC run, with its attribution")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

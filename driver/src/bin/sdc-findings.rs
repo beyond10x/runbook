@@ -1587,6 +1587,7 @@ fn run(args: &[String]) -> R<u8> {
 }
 
 fn main() -> ExitCode {
+    sdc_tools::answer_version("sdc-findings");
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
         Ok(code) => ExitCode::from(code),
