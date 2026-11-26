@@ -58,12 +58,32 @@ test('the page shows a run of the daemon as its case tree, nested to the depth t
   await expect(page.locator('#gtitle .gt-id')).toHaveText('draft');
   await expect(page.locator('#feed .fd-row').first()).toBeVisible();
   await expect(page.locator('#feed')).toContainText('runbook.submitted');
-  // a case is chosen from the tree; the daemon serves no graph of a case, and says so
+  // a case is chosen from the tree; the centre shows the run's steps (no graph, and no text in its place about one)
   await page.locator('#tree .case', {hasText: 'section'}).click();
   await expect(page.locator('#gtitle .gt-id')).toHaveText('section');
-  await expect(page.locator('#graph')).toContainText('The daemon serves no graph of a case');
+  await expect(page.locator('#graph')).toBeHidden();
+  await expect(page.locator('#dsteps tbody tr').first()).toBeVisible();
+  await expect(page.locator('#center')).not.toContainText('serves no');
   await page.locator('#tree .case', {hasText: 'draft'}).click();
   await shot(page, 'tree.png');
+  expect(problems).toEqual([]);
+});
+
+test('the centre lists the steps the run took, read from the runtime\'s own events, and says the run waits on a decision', async ({page}) => {
+  const problems = watch(page);
+  await page.goto(`${d.base}/?run=${runs.c}`);
+  await expect(page.locator('#tree .case')).toHaveCount(3);
+  // the run's steps in order: the two openings of a child (no program, so no start), the check before the draft
+  // exists (exit 1), the writer, the check again (exit 0); each with its state and try
+  const rowsOf = page.locator('#dsteps tbody tr');
+  await expect(rowsOf.locator('.ds-act')).toHaveText(['draft.open', 'draft.open', 'draft.check', 'draft.write', 'draft.check']);
+  await expect(rowsOf.locator('.ds-st')).toHaveText(['done', 'done', 'exit 1', 'done', 'done']);
+  await expect(rowsOf.locator('.ds-try')).toHaveText(['—', '—', '1', '1', '2']);
+  // the steps of a run of three cases name their case
+  await expect(page.locator('#dsteps thead')).toContainText('Case');
+  await expect(page.locator('#dsteps tbody tr', {has: page.locator('.ds-act', {hasText: 'draft.write'})}).first().locator('.ds-case')).toHaveText('draft');
+  await expect(page.locator('#dnow')).toHaveText(/^Waiting on a decision/);
+  await expect(page.locator('#dsteps tbody tr[data-state=running]')).toHaveCount(0);
   expect(problems).toEqual([]);
 });
 
@@ -73,7 +93,8 @@ test('the Products tab lists the run\'s files and shows one: text, Markdown, a f
   await expect(page.locator('#tree .case')).toHaveCount(3);
   await expect(page.locator('#product')).toContainText('5 files under the run\'s work/ directory');
   await page.locator('#tabs button[data-tab=products]').click();
-  await expect(page.locator('#panel .prod-daemon')).toContainText('it serves no evidence records and no action output of a case');
+  await expect(page.locator('#panel .prod-daemon')).toHaveText('the files under the run\'s work/ directory, which its cases share');
+  await expect(page.locator('#panel')).not.toContainText('serves no');
   await expect(page.locator('#panel .prod-file .prod-fp')).toHaveText(['big.txt', 'blob.bin', 'draft.txt', 'idea.yaml', 'notes/report.md']);
   await shot(page, 'products.png');
   await page.locator('#panel .prod-file[data-path="draft.txt"]').click();

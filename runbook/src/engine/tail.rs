@@ -6,7 +6,7 @@
 //! (`b10x_loom_runlog::encode`), once, in the order of its log.
 
 use crate::runtime::EventSink;
-use b10x_loom_runlog::{encode, EXTENSION, PREFIX};
+use b10x_loom_runlog::{encode, BUDGET_SPENT, EXTENSION, PREFIX};
 use b10x_loom_tree::runlog::RunLogLine;
 use b10x_loom_tree::{log_file_name, read_log, RunObserver};
 use serde_json::Value;
@@ -23,13 +23,16 @@ pub struct LogTail<'a> {
     sink: &'a dyn EventSink,
     /// Per log file: the `seq` the next line to report has.
     next: HashMap<String, i64>,
+    /// Per log file: the `seq` of the last line reported, when that line is a `Stopped` whose stop is
+    /// `BudgetSpent`.
+    budget_stop: HashMap<String, i64>,
     /// The first line that could not be read or reported; the loop looks at it after each call.
     pub failure: Option<String>,
 }
 
 impl<'a> LogTail<'a> {
     pub fn new(store: &Path, sink: &'a dyn EventSink) -> LogTail<'a> {
-        LogTail { store: store.to_path_buf(), sink, next: HashMap::new(), failure: None }
+        LogTail { store: store.to_path_buf(), sink, next: HashMap::new(), budget_stop: HashMap::new(), failure: None }
     }
 
     fn files(&self) -> Result<Vec<String>, String> {
@@ -49,8 +52,14 @@ impl<'a> LogTail<'a> {
         match serde_json::from_str::<Value>(&text) {
             Ok(record) => {
                 let kind = record.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
+                let budget_stop = kind == "Stopped" && record.get("stop").and_then(Value::as_str) == Some(BUDGET_SPENT);
                 self.sink.record(&kind, record);
                 self.next.insert(file.to_string(), line.seq + 1);
+                if budget_stop {
+                    self.budget_stop.insert(file.to_string(), line.seq);
+                } else {
+                    self.budget_stop.remove(file);
+                }
             }
             Err(e) => {
                 self.failure.get_or_insert(format!("{file}: a line that Loom encoded does not read as JSON: {e}"));
@@ -85,6 +94,12 @@ impl<'a> LogTail<'a> {
             self.next.insert(file, next);
         }
         Ok(())
+    }
+
+    /// The `seq` of the last line reported of `case`'s log, when that line is a `Stopped` whose stop is
+    /// `BudgetSpent`: the line a `run_tree` that spent its step budget ended with.
+    pub fn budget_stop(&self, case: &str) -> Option<i64> {
+        self.budget_stop.get(&log_file_name(case)).copied()
     }
 
     /// What `run_tree` calls for each line it writes.

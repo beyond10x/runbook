@@ -16,6 +16,7 @@ pub mod mcp;
 pub mod record_write;
 pub mod relay;
 pub mod routes;
+pub mod run_metrics;
 pub mod runbooks;
 pub mod runtime;
 pub mod serve;

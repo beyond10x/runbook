@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.StepRole.schema.json",
+  "$ref": "#/$defs/sdc.daemon.StepRole",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a073bc0a5c2928e122fb6ef1676982a5041bef801c91e4975f630231080d279b",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.StepRole": {
+      "title": "StepRole",
+      "description": "What a step started, as the event `runbook.action-started` says: the bound program of an action (program) or its `handoff_when` check (check).",
+      "x-ess-name": "sdc.daemon.StepRole",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "program",
+        "check"
+      ]
+    }
+  }
+}

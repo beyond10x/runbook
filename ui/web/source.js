@@ -6,6 +6,7 @@
 // What the daemon does not serve (a case's evidence, events, graph and the output of its actions) stays empty
 // and the page says so; nothing is made up.
 import {esc} from './lenses.js';
+import {eventsFeed} from './runsteps.js';
 
 // Which server sent this page: the daemon names itself in the Server-Timing header of every file it serves
 // (read from the page's own navigation entry: no request, so a Node server sees no failed probe).
@@ -47,8 +48,8 @@ const EMPTY = {
 const q = encodeURIComponent;
 
 // The case tree of a run from the daemon's view `cases`: each row becomes a case with the fields the page's tree reads,
-// its parent, its depth, its protocol and one event made from the row's state (web/model.js caseState). The daemon
-// serves no evidence, evaluation or event log of a case, so those stay empty.
+// its parent, its depth, its protocol and one event made from the row's state (web/model.js caseState). A case of the
+// daemon has no evidence, evaluation or event log on the page: the run's steps and events stand for them (web/runsteps.js).
 const STATE_EVENT = {Ended: 'terminated', AwaitingPerson: 'awaiting_person', AwaitingAuthority: 'awaiting_authority', Stuck: 'stuck', Running: 'action_started'};
 export function daemonCases(rows) {
   const byId = new Map(rows.map((r) => [r.case_id, r]));
@@ -58,7 +59,7 @@ export function daemonCases(rows) {
     const ev = STATE_EVENT[r.case_state];
     if (ev) events.push({seq: 2, event: ev, at: '-', outcome: r.outcome, action: 'a step'});
     return {rel: r.case_id, id: r.case_id, name: r.name ?? null, parent: r.parent ?? null, depth: depth(r), daemon: true, daemonState: r.case_state,
-      case: {protocol: r.protocol}, events, evidence: {}, evaluations: {}, parts: {loom: true, protocol: {why: 'the daemon serves no graph of a case'}}};
+      case: {protocol: r.protocol}, events, evidence: {}, evaluations: {}, parts: {loom: true}};
   });
 }
 async function tree(index) {
@@ -179,8 +180,15 @@ export const openEvents = (source = 0) => (daemon ? daemonStream() : new EventSo
 let again = () => {};
 export const refresh = () => again();
 
-const when = (t) => { const v = ms(t); return v == null ? '' : new Date(v).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}); };
-const short = (rec) => { const t = JSON.stringify(rec ?? null); return t === '{}' || t === 'null' ? '' : t.length > 160 ? `${t.slice(0, 159)}…` : t; };
+// The events of a run the stream has brought, in their order (web/runsteps.js reads its steps from them).
+export const runEvents = (id) => events.get(id) || [];
+
+// The tabs of the right panel this page has data for: the inspector's page all of them; the daemon's page those whose
+// data the daemon serves, the run's files and its events, and its metrics when the daemon's view run-metrics answered a
+// row for the run on screen (`metrics`; ui/daemon/metrics.js draws it). A tab not named here is no button and no pane. A
+// view of a run's log, once the daemon serves one, is a name added here.
+export const ALL_TABS = ['explain', 'autonomy', 'security', 'metrics', 'changes', 'products', 'events', 'run'];
+export const tabsOf = ({metrics = false} = {}) => (daemon ? ['products', 'events', ...(metrics ? ['metrics'] : [])] : ALL_TABS);
 
 // The model route of a daemon's run in its header (docs/model-routes.md, section 6): `route qwen · managed · ready`,
 // then the alias and the setting that chose the route. The route, the alias and the setting are the run's (the view
@@ -196,19 +204,12 @@ function routeLine(r, words) {
 }
 
 // What the left side shows for a daemon's run: a line naming the run (and its model route) above its case tree, the
-// note of a run with no case, and in place of the feed of changes the run's own events, newest first, each with its
-// place in the run and the record the runtime wrote.
-export function daemonView(src, words = null) {
+// note of a run with no case, and in place of the feed of changes the run's own events (eventsFeed).
+export function daemonView(src, words = null, {all = false} = {}) {
   if (!daemon || !src?.daemonRun) return null;
   const id = src.daemonRun.run_id;
-  const list = [...(events.get(id) || [])].reverse();
-  const rows = list.map((e) => { const position = Number(e.position), sequence = Number(e.sequence); return `<div class="fd-row" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
-    + `<div class="fd-1"><span class="fd-s">${esc(e.kind)}</span></div>`
-    + (short(e.record) ? `<div class="fd-m">${esc(short(e.record))}</div>` : '')
-    + `<div class="fd-2"><span class="fd-c">event ${sequence}</span><span class="fd-t" title="${esc(e.at)}">${esc(when(e.at))}</span></div></div>`; }).join('');
   return {
-    feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${list.length} from the daemon, newest first</span></div>`
-      + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows}</div>`,
+    feed: eventsFeed(events.get(id) || [], id, {all}),
     head: `<div class="dhead muted" data-key="dhead">${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}${src.daemonRun.autonomy ? ` · autonomy ${esc(src.daemonRun.autonomy)}` : ''}${src.daemonRun.decider ? ` · decider ${esc(src.daemonRun.decider)}` : ''}${routeLine(src.daemonRun, words)}</div>`,
     tree: `<div class="empty" data-key="dnote"><p>${esc(src.daemonRun.runbook_id)} · ${esc(src.daemonRun.state)}</p>`
       + '<p class="muted">This run has no case tree: a run of the stub runtime has none, and a run of the Loom runtime shows its cases once its tree is written.</p></div>',

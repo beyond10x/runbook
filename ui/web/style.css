@@ -1572,3 +1572,133 @@ html:not(.rp-open) #product { margin-right: 44px; }
   dialog::backdrop, #scrim { backdrop-filter: none !important; }
 }
 
+/* The daemon's run page at a live run (story run-page-watches-a-live-run; html.daemon, set by app.js when the daemon
+   served the page). The inspector's bands (KPIs, Now, phases, the graph with its legend and tools, the timeline) have no
+   data here and take no room; the centre shows the run's steps (web/runsteps.js), what runs now and the counts. */
+html.daemon #kpis, html.daemon #now, html.daemon #phases, html.daemon #view-note, html.daemon #graph, html.daemon #ghint, html.daemon #timeline, html.daemon .gtools { display: none; }
+#tabs button[hidden], #dsteps[hidden] { display: none; }
+html.daemon:not(.rp-open) main { grid-template-columns: 312px minmax(0, 1fr); }
+@media (max-width: 1400px) { html.daemon:not(.rp-open) main { grid-template-columns: 272px minmax(0, 1fr); } }
+/* the closed panel: its tabs as buttons across, at the right of the title row */
+html.daemon:not(.rp-open) #right { top: 68px; right: 20px; bottom: auto; width: auto; border: 0; background: none; }
+html.daemon:not(.rp-open) #tabs { flex-direction: row; gap: 6px; margin: 0; padding: 0; border: 0; background: none; }
+html.daemon:not(.rp-open) #tabs button[data-tab] { writing-mode: horizontal-tb; width: auto; padding: 4px 12px; font: 550 12px var(--sans); letter-spacing: 0; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); }
+html.daemon:not(.rp-open) #tabs button[data-tab]:hover { color: var(--text); background: var(--surface-3); }
+html.daemon:not(.rp-open):not(.phone) .gbar { padding-right: 190px; }
+/* the title: the runbook's name, the run's short id, its state in a word */
+html.daemon .gt-main { flex-wrap: wrap; row-gap: 4px; }
+html.daemon .gt-id { font: 650 18px var(--sans); letter-spacing: -.01em; }
+.gt-run { font: 12px var(--mono); color: var(--text-3); }
+.pill { white-space: nowrap; }
+.ds-pill.ds-Running, .ds-pill.ds-Submitted { color: var(--accent-2); background: var(--accent-bg); border-color: var(--adm-line); }
+.ds-pill.ds-WaitingOnDecision, .ds-pill.ds-WaitingForRoute, .ds-pill.ds-WaitingOnKey { color: var(--appr); background: var(--appr-bg); border-color: var(--appr-line); }
+.ds-pill.ds-Ended { color: var(--true); background: var(--true-bg); border-color: var(--true-line); }
+.ds-pill.ds-Cancelled, .ds-pill.ds-FailedToStart { color: var(--false); background: var(--false-bg); border-color: var(--false-line); }
+/* the tree and the run line above it */
+html.daemon .dhead { padding: 0 16px 8px; line-height: 1.5; }
+html.daemon .cid { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: 11.5px; }
+html.daemon .proto { width: auto; overflow: visible; }
+/* the run's events, in words */
+html.daemon .fd-row { --c-rgb: 139, 147, 163; }
+html.daemon .fd-h { flex-wrap: wrap; row-gap: 4px; }
+html.daemon .fd-m { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; color: var(--text-2); }
+html.daemon .fd-2 { flex-wrap: wrap; white-space: normal; overflow: visible; row-gap: 0; }
+html.daemon .fd-c { overflow-wrap: anywhere; }
+.fd-fold { margin-left: auto; font: 550 11px var(--sans); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.fd-fold:hover { color: var(--text); background: var(--surface-3); }
+.ev-list { padding: 0 12px 16px; }
+/* the steps */
+#dsteps { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 24px; }
+#dsteps:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#dsteps > * { max-width: 1080px; }
+.ds-now { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--text); }
+.ds-now i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); transform: translateY(-1px); }
+.ds-now.ds-running i { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-bg); }
+.ds-now.ds-ended i { background: var(--true); }
+.ds-now.ds-waiting i { background: var(--appr); }
+.ds-now.ds-bad i { background: var(--false); }
+.ds-counts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0 0 2px 19px; font-size: 12px; color: var(--text-3); }
+#dsteps #product { display: block; padding: 0; margin: 0 0 16px 19px; border: 0; background: none; font-size: 12px; }
+#dsteps #product .prod-k { display: none; }
+.ds-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ds-table th { text-align: left; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); padding: 6px 10px; border-bottom: 1px solid var(--line-2); }
+.ds-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: baseline; }
+.ds-table .ds-n { width: 1%; text-align: right; color: var(--text-3); }
+.ds-act { font: 500 12.5px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ds-calls { margin-left: 8px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.ds-at, .ds-took, .ds-try { white-space: nowrap; }
+/* a state of more than one word (`ended by a signal`, a check's `checked: the writer goes on`) wraps in its column */
+html.daemon #live { font-variant-numeric: tabular-nums; }
+/* the columns keep their widths when a step starts (its running state and ticking duration do not move the others) */
+html:not(.phone) .ds-table .ds-role { width: 6em; }
+html:not(.phone) .ds-table .ds-st { width: 9em; }
+html:not(.phone) .ds-table .ds-at { width: 7.5em; }
+html:not(.phone) .ds-table .ds-took { width: 6.5em; }
+html:not(.phone) .ds-table .ds-try { width: 3em; }
+/* where the centre is narrow the head of a running step takes two lines: keep them, so the steps do not move */
+@media (max-width: 1100px) { html.daemon:not(.phone) .ds-now { min-height: 2.8em; } }
+.ds-table tr[data-state=running] { background: var(--accent-bg); }
+.ds-table tr[data-state=running] td { color: var(--text); }
+.ds-table tr[data-state=running] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.ds-table tr[data-state=running] .ds-st { color: var(--accent-2); font-weight: 600; }
+.ds-table tr[data-state=exit] .ds-st, .ds-table tr[data-state=ended] .ds-st { color: var(--appr); }
+.ds-table tr[data-state=unfinished] .ds-st { color: var(--text-3); font-style: italic; }
+.ds-empty { margin: 12px 19px; }
+.ds-left { margin: 6px 19px; font-size: 12px; }
+.fd-left { padding: 8px 4px; font-size: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* the closed drawer is not laid out (it slid off the window's right edge, 2073 px at 1366 wide) */
+body:not(.drawer-open) #drawer { display: none; }
+/* a phone: the header's controls in rows that wrap (none covers another), the run's state and step in the bar; each
+   step a block of two lines */
+:where(html.phone.daemon) header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+:where(html.phone.daemon) .logo { order: 1; }
+:where(html.phone.daemon) .selectw { order: 2; flex: 1 1 120px; }
+:where(html.phone.daemon) header .switch { order: 3; }
+:where(html.phone.daemon) #decbtn { order: 4; }
+:where(html.phone.daemon) #nowbar { order: 5; flex: 1 1 200px; }
+:where(html.phone.daemon) #live { order: 6; min-width: 24px; justify-content: center; }
+:where(html.phone.daemon) #mode { order: 7; }
+:where(html.phone.daemon) #startbtn { order: 8; }
+:where(html.phone.daemon) #routesbtn { order: 9; }
+:where(html.phone.daemon) #railbtn { order: 10; margin-left: auto; }
+:where(html.phone.daemon) #runmark { order: 11; flex-basis: 100%; }
+:where(html.phone.daemon) #startbtn, :where(html.phone.daemon) #routesbtn { min-height: 44px; padding: 0 12px; }
+:where(html.phone.daemon) #center { order: -1; }
+:where(html.phone.daemon) #dsteps { padding: 12px; overflow: visible; }
+:where(html.phone.daemon) .ds-counts, :where(html.phone.daemon) #dsteps #product { margin-left: 0; }
+:where(html.phone.daemon) .ds-table, :where(html.phone.daemon) .ds-table tbody { display: block; }
+:where(html.phone.daemon) .ds-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+:where(html.phone.daemon) .ds-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+:where(html.phone.daemon) .ds-table td { display: block; padding: 0; border: 0; font-size: 14px; }
+:where(html.phone.daemon) .ds-table .ds-n { order: 1; width: 22px; }
+:where(html.phone.daemon) .ds-table .ds-act-c { order: 2; flex: 1 0 calc(100% - 140px); min-width: 0; }
+:where(html.phone.daemon) .ds-table .ds-st { order: 3; max-width: 96px; text-align: right; }
+:where(html.phone.daemon) .ds-table .ds-role { order: 4; margin-left: 32px; }
+:where(html.phone.daemon) .ds-table .ds-case { order: 5; }
+:where(html.phone.daemon) .ds-table .ds-at { order: 6; }
+:where(html.phone.daemon) .ds-table .ds-took { order: 7; }
+:where(html.phone.daemon) .ds-table .ds-try { order: 8; }
+:where(html.phone.daemon) .ds-table .ds-act { font-size: 14px; }
+:where(html.phone.daemon) .ds-table .ds-try::before { content: 'try '; }
+:where(html.phone.daemon) .ds-table tr[data-state=running] { box-shadow: inset 3px 0 0 var(--accent); }
+:where(html.phone.daemon) .ds-table tr[data-state=running] td:first-child { box-shadow: none; }
+
+/* The Metrics tab of the daemon's page: the row of the view run-metrics (ui/daemon/metrics.js). A step is a row of six
+   columns that fits the panel at 1280 px and the line under it with the rest. */
+.metrics { padding: 12px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.metrics-sum { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0 0 12px; }
+.metrics-sum dt { color: var(--text-3); }
+.metrics-sum dd { margin: 0; color: var(--text); }
+.metrics-wrap { overflow-x: auto; margin: 0 0 10px; }
+.metrics-steps { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.metrics-steps th { text-align: left; font-weight: 650; color: var(--text-3); padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+.metrics-steps td { padding: 5px 6px 1px 0; color: var(--text-2); vertical-align: baseline; }
+.metrics-steps th:last-child, .metrics-steps td:last-child { padding-right: 0; }
+.metrics-steps td[data-field=action] { font: 500 11.5px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.metrics-steps td[data-field=role], .metrics-steps td[data-field=state], .metrics-steps td[data-field=calls], .metrics-steps td[data-field=cost] { width: 1%; white-space: nowrap; }
+.metrics-steps td[data-field=duration] { width: 1%; min-width: 6em; }
+.metrics-steps th[data-field=calls], .metrics-steps th[data-field=cost], .metrics-steps td[data-field=calls], .metrics-steps td[data-field=cost] { text-align: right; }
+.metrics-steps tr.metrics-more td { padding: 0 0 5px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--text-3); }
+.metrics-steps tr.metrics-more span { color: var(--text-2); }
+.metrics p { margin: 6px 0; }
