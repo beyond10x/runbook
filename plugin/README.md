@@ -49,13 +49,14 @@ run on a named model route, records it and hands the result back. The design is 
 - A `SessionStart` hook (`hooks/delegation.sh session-start`) and the skill `delegation` that say the same
   before the first delegation.
 
-The deny reason and the session-start context name the tool by the name Claude Code lists it under,
+The deny reason and the session-start context name each runbook tool they mention (`delegate`, `describe_catalog`,
+and in the context `delegation_result`) by the name Claude Code lists it under, such as
 `mcp__plugin_runbook_runbook__delegate` (`mcp__plugin_<plugin>_<server>__<tool>`: the plugin `runbook` of
 `.claude-plugin/plugin.json` and the server `runbook` of `.mcp.json`). With tool search on, Claude Code's
 default, an MCP tool is deferred: the model sees only that name and must load the tool before it can call it, so
-both texts say to load it with ToolSearch, query `select:mcp__plugin_runbook_runbook__delegate`, when it is not
-callable yet. The headless session of `runbook/tests/daemon/plugin_session.rs` runs with tool search on and
-loads the tool that way.
+both texts say to load each with ToolSearch, query `select:<that name>` (such as
+`select:mcp__plugin_runbook_runbook__delegate`), when it is not callable yet. The headless session of
+`runbook/tests/daemon/plugin_session.rs` runs with tool search on and loads `delegate` that way.
 
 Why Workflow too: the Workflow tool runs a script whose `agent()` calls each start a sub-agent on the session's
 model. The Claude Code documentation (code.claude.com/docs, workflows and hooks, read 2026-11-25) does not say

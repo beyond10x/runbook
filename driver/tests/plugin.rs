@@ -412,6 +412,23 @@ fn hook_and_session_start_name_delegate_as_the_session_lists_it_and_say_how_to_l
     }
 }
 
+/// The other tools the deny reason and the session-start context name, `describe_catalog` and `delegation_result`, are
+/// deferred the same way: each is named by the name the session lists it under, with the query that loads it.
+#[test]
+fn hook_and_session_start_name_every_runbook_tool_they_mention_as_the_session_lists_it() {
+    let reason = denied(&hook("pre-tool-use", &fixture("pre-tool-use-agent.json"), Some("qwen-local")).1);
+    let (_, out) = hook("session-start", &fixture("session-start.json"), Some("qwen-local"));
+    let v: Value = serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"));
+    let context = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap().to_owned();
+    for (place, text, tools) in [("the deny reason", &reason, &["describe_catalog"][..]), ("the session-start context", &context, &["describe_catalog", "delegation_result"][..])] {
+        for tool in tools {
+            let full = listed_tool_name(tool);
+            assert!(text.contains(&format!("`{tool}`")), "{place} does not name {tool}: {text}");
+            assert!(text.contains(&format!("`{full}`")) && text.contains(&format!("`select:{full}`")), "{place} does not name {tool} as the session lists it, with the query that loads it: {text}");
+        }
+    }
+}
+
 #[test]
 fn hook_names_no_network_program() {
     let text = fs::read_to_string(root().join(HOOK)).unwrap();
