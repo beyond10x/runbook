@@ -10,7 +10,8 @@
 //! run does next is the driver's rule (`driver/src/main.rs`, `program_error`): a call that ended
 //! with an exit other than 0 does not end the run, the step's retry rule decides, unless the exit
 //! is 126, 127 or 75 (the tool could not run). Every other call without a cost ends the run, with a
-//! reason that names the action, the adapter, its exit and the first line of its stderr.
+//! reason that names the action, the adapter, its exit and the client's error from its stderr (in words
+//! where this module knows it); a value the call's record does not hold is "not recorded".
 //!
 //! One call directory is no call: the step ended before it started any adapter (no `request.json`,
 //! `status.json` with its exit). It costs nothing, books nothing and does not end the run; the
@@ -55,6 +56,8 @@ pub struct CostReader {
     home: Option<String>,
     /// The run is on a route: the relay books its calls, so no line carries a cost here.
     routed: bool,
+    /// The role names of the run's route file, when the run has one.
+    route_roles: Option<Vec<String>>,
 }
 
 /// USD as a JSON number to micro USD: finite, not negative.
@@ -70,20 +73,70 @@ pub fn usd_to_micro(v: &Value) -> Result<u64, String> {
     Ok(micro as u64)
 }
 
-/// The first non-empty line of what the call's adapter wrote on stderr (`adapter-stderr.txt`, else
-/// `stderr.txt` of the call directory), `home` replaced by `~`, cut at 300 characters.
-fn stderr_line(call_dir: &Path, home: Option<&str>) -> String {
+/// What a reason says for a value the call's record does not hold.
+const NOT_RECORDED: &str = "not recorded";
+
+/// Claude Code's error line for a model it does not know: `[claude-code:unrecognized_model] {"model": ...}`.
+const UNRECOGNIZED_MODEL: &str = "[claude-code:unrecognized_model]";
+
+/// What the call's adapter wrote on stderr (`adapter-stderr.txt`, else `stderr.txt` of the call directory), `home`
+/// replaced by `~`: the client's own error in words where [`client_words`] knows it, else the first non-empty line cut
+/// at 300 characters. `roles` are the role names of the run's route file, `None` when the run has none.
+fn stderr_line(call_dir: &Path, home: Option<&str>, roles: Option<&[String]>) -> String {
     for name in ["adapter-stderr.txt", "stderr.txt"] {
         let Ok(bytes) = record_write::read_regular_prefix(&call_dir.join(name), 65_536) else { continue };
         let text = String::from_utf8_lossy(&bytes);
-        let Some(line) = text.lines().map(str::trim).find(|l| !l.is_empty()) else { continue };
-        let line = match home {
-            Some(h) if h.len() > 1 => line.replace(h, "~"),
-            _ => line.to_owned(),
+        let text = match home {
+            Some(h) if h.len() > 1 => text.replace(h, "~"),
+            _ => text.into_owned(),
         };
-        return line.chars().take(STDERR_LINE_MAX).collect();
+        let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let Some(first) = lines.first() else { continue };
+        return lines.iter().find_map(|l| client_words(l, roles)).unwrap_or_else(|| first.chars().take(STDERR_LINE_MAX).collect());
     }
     "(no stderr)".to_owned()
+}
+
+/// The client's own error of `line` in words, for the errors known here: Claude Code's `unrecognized_model` names the
+/// model the client asked for and the roles of the run's route file with the model the file gives each
+/// (`runbook-<role>`), or says the run has no route file. `None` for every other line.
+fn client_words(line: &str, roles: Option<&[String]>) -> Option<String> {
+    let detail: Value = serde_json::from_str(line.strip_prefix(UNRECOGNIZED_MODEL)?.trim()).unwrap_or(Value::Null);
+    let model = match detail.get("model").and_then(Value::as_str) {
+        Some(m) => format!(", {}", Value::from(m.chars().take(STDERR_LINE_MAX).collect::<String>())),
+        None => format!(" (model {NOT_RECORDED})"),
+    };
+    let route = match roles {
+        None => "the run has no route file".to_owned(),
+        Some([]) => "the run's route file names no role".to_owned(),
+        Some(roles) => {
+            let named: Vec<String> = roles.iter().map(|r| format!("{r} (model {})", crate::relay::role_model(r))).collect();
+            format!("the roles of the run's route file: {}", named.join(", "))
+        }
+    };
+    Some(format!("Claude Code does not know the model it asked for{model}; {route} {UNRECOGNIZED_MODEL}"))
+}
+
+/// The JSON document `file` of a call directory, `Null` when it is missing, no regular file or no JSON.
+fn record_json(call_dir: &Path, file: &str) -> Value {
+    record_write::read_regular(&call_dir.join(file)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null)
+}
+
+/// The adapter of a call: the one its `response.json` names, else its `request.json`.
+fn adapter_of(call_dir: &Path, response: &Value) -> Option<String> {
+    let named = |v: &Value| v.get("adapter").and_then(Value::as_str).map(str::to_owned);
+    named(response).or_else(|| named(&record_json(call_dir, "request.json")))
+}
+
+/// The adapter's exit in a call's `response.json`: `adapter_exit` (the client's own exit, where a program keeps it beside
+/// the exit it reports), else `exit`.
+fn exit_of(response: &Value) -> Option<i64> {
+    response.get("adapter_exit").and_then(Value::as_i64).or_else(|| response.get("exit").and_then(Value::as_i64))
+}
+
+/// The action of a call directory's name `NNN-<action>`.
+fn action_of(name: &str) -> Option<&str> {
+    name.split_once('-').map(|(_, a)| a).filter(|a| !a.is_empty())
 }
 
 /// The note of a call directory in which no adapter was started, or `None` when that is not
@@ -115,20 +168,35 @@ impl CostReader {
         self
     }
 
+    /// This reader for a run whose route file names `roles`.
+    pub fn with_route_roles(mut self, roles: Vec<String>) -> CostReader {
+        self.route_roles = Some(roles);
+        self
+    }
+
     /// The call directory of a cost line: its name below `<workspace>/.sdc/llm/`.
     fn call_dir(dir: &Path, line: &Value) -> Option<std::path::PathBuf> {
         let name = line.get("record").and_then(Value::as_str).and_then(|p| p.rsplit('/').next())?;
         Some(dir.join(name))
     }
 
-    /// The reason a call without a usable cost ends the run: action, adapter, exit and stderr.
+    /// What the call's adapter wrote on stderr, with the role names of the run's route file (see [`stderr_line`]).
+    fn said(&self, call_dir: &Path) -> String {
+        stderr_line(call_dir, self.home.as_deref(), self.route_roles.as_deref())
+    }
+
+    /// The reason a call without a usable cost ends the run: action, adapter, exit and stderr. An action or an adapter
+    /// the line does not name is taken from its call directory (its name, its `request.json`), else "not recorded".
     fn reason(&self, dir: &Path, line: &Value, detail: &str) -> String {
-        let action = line.get("action").and_then(Value::as_str).unwrap_or("?");
-        let adapter = line.get("adapter").and_then(Value::as_str).unwrap_or("?");
+        let call_dir = Self::call_dir(dir, line);
+        let named = |key: &str| line.get(key).and_then(Value::as_str).map(str::to_owned);
+        let call_name = call_dir.as_deref().and_then(Path::file_name).and_then(|n| n.to_str());
+        let action = named("action").or_else(|| call_name.and_then(action_of).map(str::to_owned)).unwrap_or_else(|| NOT_RECORDED.to_owned());
+        let adapter = named("adapter").or_else(|| call_dir.as_deref().and_then(|d| adapter_of(d, &Value::Null))).unwrap_or_else(|| NOT_RECORDED.to_owned());
         let exit = line.get("exit").and_then(Value::as_i64);
         match exit {
             Some(code) if code != 0 => {
-                let said = Self::call_dir(dir, line).map_or_else(|| "(no stderr)".to_owned(), |d| stderr_line(&d, self.home.as_deref()));
+                let said = call_dir.map_or_else(|| "(no stderr)".to_owned(), |d| self.said(&d));
                 format!("model step {action}: adapter {adapter} exited {code}: {said}")
             }
             Some(code) => format!("model step {action}: adapter {adapter} exited {code} and recorded no cost ({detail})"),
@@ -187,12 +255,12 @@ impl CostReader {
                         self.checked_dirs.insert(name);
                         continue;
                     }
-                    let action = name.split_once('-').map_or("?", |(_, a)| a);
-                    let response: Value = record_write::read_regular(&entry.path().join("response.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
-                    let adapter = response.get("adapter").and_then(Value::as_str).unwrap_or("?");
-                    let exit = response.get("exit").and_then(Value::as_i64).map_or_else(|| "?".to_owned(), |c| c.to_string());
-                    let said = stderr_line(&entry.path(), self.home.as_deref());
-                    let reason = format!("model step {action}: model call {name} has no cost record (adapter {adapter}, exit {exit}): {said}");
+                    let action = action_of(&name).unwrap_or(NOT_RECORDED);
+                    let response = record_json(&entry.path(), "response.json");
+                    let adapter = adapter_of(&entry.path(), &response).unwrap_or_else(|| NOT_RECORDED.to_owned());
+                    let exit = exit_of(&response).map_or_else(|| format!("exit {NOT_RECORDED}"), |c| format!("exit {c}"));
+                    let said = self.said(&entry.path());
+                    let reason = format!("model step {action}: model call {name} has no cost record (adapter {adapter}, {exit}): {said}");
                     // said once, by the step it belongs to: on a route the relay's line of the call stands for the record,
                     // and the next step's read does not fail on it again
                     self.checked_dirs.insert(name);
@@ -239,10 +307,88 @@ mod tests {
         let dir = Dir::new("stderr-line");
         let call = dir.dir("call");
         std::fs::write(call.join("adapter-stderr.txt"), "\n  the model said no, at length  \nsecond\n").unwrap();
-        assert_eq!(stderr_line(&call, None), "the model said no, at length");
+        assert_eq!(stderr_line(&call, None, None), "the model said no, at length");
         let home = format!("{}/home", call.display());
         std::fs::write(call.join("adapter-stderr.txt"), format!("failed in {home}/x\n")).unwrap();
-        assert_eq!(stderr_line(&call, Some(&home)), "failed in ~/x");
+        assert_eq!(stderr_line(&call, Some(&home), None), "failed in ~/x");
+    }
+
+    /// A workspace whose `.sdc/llm/<call>/` holds `files` (name, text).
+    fn call(dir: &Dir, call: &str, files: &[(&str, &str)]) -> PathBuf {
+        let work = dir.dir("work");
+        let rec = dir.dir(&format!("work/.sdc/llm/{call}"));
+        for (name, text) in files {
+            std::fs::write(rec.join(name), text).unwrap();
+        }
+        work
+    }
+
+    #[test]
+    fn the_failure_of_a_call_without_a_cost_record_names_the_adapter_of_its_request() {
+        let dir = Dir::new("names-request");
+        let work = call(&dir, "001-proposals.write", &[("request.json", r#"{"action":"proposals.write","adapter":"claude-cli"}"#), ("response.json", ""), ("stderr.txt", "it broke\n")]);
+        assert_eq!(
+            CostReader::default().read_new(&work),
+            Err("model step proposals.write: model call 001-proposals.write has no cost record (adapter claude-cli, exit not recorded): it broke".to_owned())
+        );
+        let dir = Dir::new("names-nothing");
+        let work = call(&dir, "001-proposals.write", &[("request.json", "{}"), ("stderr.txt", "it broke\n")]);
+        assert_eq!(
+            CostReader::default().read_new(&work),
+            Err("model step proposals.write: model call 001-proposals.write has no cost record (adapter not recorded, exit not recorded): it broke".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_failure_of_a_call_without_a_cost_record_names_the_exit_of_its_response() {
+        for (response, said) in [
+            (r#"{"adapter":"claude-cli","exit":1,"adapter_exit":143}"#, "adapter claude-cli, exit 143"),
+            (r#"{"adapter":"metaharness","exit":2}"#, "adapter metaharness, exit 2"),
+        ] {
+            let dir = Dir::new("names-response");
+            let work = call(&dir, "002-notes.write", &[("request.json", r#"{"adapter":"from-the-request"}"#), ("response.json", response)]);
+            assert_eq!(
+                CostReader::default().read_new(&work),
+                Err(format!("model step notes.write: model call 002-notes.write has no cost record ({said}): (no stderr)")),
+                "{response}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cost_line_without_action_or_adapter_says_not_recorded_or_takes_them_from_the_call() {
+        let dir = Dir::new("line-from-call");
+        let work = call(&dir, "001-notes.write", &[("request.json", r#"{"adapter":"claude-cli"}"#), ("stderr.txt", "no login\n")]);
+        let rec = work.join(".sdc/llm/001-notes.write");
+        std::fs::write(work.join(".sdc/llm/calls.jsonl"), format!("{}\n", serde_json::json!({"record": rec.display().to_string(), "exit": 127}))).unwrap();
+        assert_eq!(CostReader::default().read_new(&work), Err("model step notes.write: adapter claude-cli exited 127: no login".to_owned()));
+        let dir = Dir::new("line-bare");
+        let work = dir.dir("work");
+        dir.dir("work/.sdc/llm");
+        std::fs::write(work.join(".sdc/llm/calls.jsonl"), "{\"exit\":0}\n").unwrap();
+        assert_eq!(
+            CostReader::default().read_new(&work),
+            Err("model step not recorded: adapter not recorded exited 0 and recorded no cost (a cost record has no cost_usd)".to_owned())
+        );
+    }
+
+    #[test]
+    fn claude_codes_unrecognized_model_is_said_in_words_with_the_roles_of_the_route_file() {
+        let error = "[claude-code:unrecognized_model] {\"model\":\"default[1m]\",\"query_source\":\"sdk\"}\n";
+        let files = [("request.json", r#"{"adapter":"claude-cli"}"#), ("stderr.txt", error)];
+        let dir = Dir::new("words-roles");
+        let work = call(&dir, "001-proposals.write", &files);
+        let reader = CostReader::default().routed().with_route_roles(vec!["default".to_owned(), "review".to_owned()]);
+        assert_eq!(
+            { reader }.read_new(&work),
+            Err("model step proposals.write: model call 001-proposals.write has no cost record (adapter claude-cli, exit not recorded): Claude Code does not know the model it asked for, \"default[1m]\"; the roles of the run's route file: default (model runbook-default), review (model runbook-review) [claude-code:unrecognized_model]".to_owned())
+        );
+        let dir = Dir::new("words-no-route");
+        let work = call(&dir, "001-proposals.write", &[("request.json", r#"{"adapter":"claude-cli"}"#), ("stderr.txt", &format!("a warning first\n{}", error.replace("\"default[1m]\"", "null")))]);
+        assert_eq!(
+            CostReader::default().read_new(&work),
+            Err("model step proposals.write: model call 001-proposals.write has no cost record (adapter claude-cli, exit not recorded): Claude Code does not know the model it asked for (model not recorded); the run has no route file [claude-code:unrecognized_model]".to_owned())
+        );
     }
 
     #[test]
@@ -252,8 +398,8 @@ mod tests {
         let outside = dir.dir("outside");
         std::fs::write(outside.join("said.txt"), "text of a file outside the run\n").unwrap();
         std::os::unix::fs::symlink(outside.join("said.txt"), call.join("adapter-stderr.txt")).unwrap();
-        assert_eq!(stderr_line(&call, None), "(no stderr)");
+        assert_eq!(stderr_line(&call, None, None), "(no stderr)");
         std::fs::write(call.join("stderr.txt"), "the plain file\n").unwrap();
-        assert_eq!(stderr_line(&call, None), "the plain file");
+        assert_eq!(stderr_line(&call, None, None), "the plain file");
     }
 }
