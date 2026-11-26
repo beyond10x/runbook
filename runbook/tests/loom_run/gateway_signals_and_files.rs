@@ -87,13 +87,17 @@ fn a_hangup_that_the_caller_ignores_does_not_end_the_run() {
     let mut child = cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     wait_for(&w.fake.dir.join("pid"), 20, "the fake tree run did not start");
     signal("HUP", child.id());
-    std::thread::sleep(Duration::from_secs(4));
+    // A runner that takes a SIGHUP ends its run, the start included, in about 0.1 s (`the_private_directory_is_gone_after_sighup_too`
+    // in `gateway_hardening.rs`); one second is ten times that.
+    std::thread::sleep(Duration::from_secs(1));
     let still_running = child.try_wait().unwrap().is_none();
+    // SIGTERM first: the runner ends the process group of its fake, the `sleep` included. A kill of the hook's shell
+    // first left the `sleep` holding the runner's pipes, and the runner waited for them until it was killed 8 s later.
+    let _ = std::process::Command::new("kill").args(["-TERM", &child.id().to_string()]).stderr(Stdio::null()).status();
+    let _ = ended_within(&mut child, 8);
     if let Ok(pid) = std::fs::read_to_string(w.fake.dir.join("pid")) {
         let _ = std::process::Command::new("kill").args(["-KILL", pid.trim()]).status();
     }
-    let _ = std::process::Command::new("kill").args(["-TERM", &child.id().to_string()]).stderr(Stdio::null()).status();
-    let _ = ended_within(&mut child, 8);
     assert!(still_running, "the run ended on a SIGHUP that its caller had ignored (as nohup does)");
 }
 

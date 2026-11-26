@@ -103,10 +103,13 @@ fn runner_in_a_run(tag: &str, caller: Caller) -> ((u64, u64), World, Child) {
     (m, w, child)
 }
 
+/// Ends the runner with SIGTERM, which ends the process group of its fake (the shell and its `sleep`), then kills the
+/// hook's shell should it still be there. The other order left the `sleep` holding the runner's pipes, and the runner
+/// waited for them until this function killed it 8 s later.
 fn finish(w: &World, mut child: Child) {
-    kill_hook_pid(w);
     let _ = std::process::Command::new("kill").args(["-TERM", &child.id().to_string()]).stderr(Stdio::null()).status();
     let _ = ended_within(&mut child, 8);
+    kill_hook_pid(w);
 }
 
 // ---- the dispositions, read from the kernel, in a run ----
@@ -147,7 +150,8 @@ fn an_ignored_hup_sent_twice_leaves_the_run_and_its_private_directory_and_a_term
     signal("HUP", child.id());
     std::thread::sleep(Duration::from_millis(300));
     signal("HUP", child.id());
-    std::thread::sleep(Duration::from_secs(2));
+    // A runner that takes a SIGHUP ends in about 0.1 s (`gateway_hardening.rs`); one second is ten times that.
+    std::thread::sleep(Duration::from_secs(1));
     let running = child.try_wait().unwrap().is_none();
     let present = gateway.exists();
     signal("TERM", child.id());
