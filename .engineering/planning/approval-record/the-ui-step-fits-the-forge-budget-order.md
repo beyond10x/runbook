@@ -3,10 +3,10 @@ format: aep.planning-md/3
 id: approval-record:the-ui-step-fits-the-forge-budget-order
 kind: approval-record
 status: approved
-title: The UI step's forge budget is a story worked now (Tests stay fast; host-operator 2026-11-24 11:17 CET)
+title: The UI step's forge budget is a story worked now (Tests stay fast; the operator 2026-11-24 11:17 CET)
 relations:
 - decides: story:the-ui-step-fits-the-forge-budget
-revision: 2
+revision: 3
 transitions:
 - {from: "draft", to: "approved", at: "2026-11-24T18:28:41Z", actor: "human:operator", revision: 2, executor: "agent:runbook"}
 ---
@@ -19,7 +19,7 @@ words, cited here because a move carries no text of its own:
 
 - `../AGENTS.md` § "Tests stay fast": "A step over the budget is a defect. It gets a story and is fixed before the
   next feature. Raising a timeout, adding shards or waiting longer is not a fix."
-- host-operator, 2026-11-24 11:17 CET: "The local gate equals CI: put them into the CI gate, or write in the
+- the operator, 2026-11-24 11:17 CET: "The local gate equals CI: put them into the CI gate, or write in the
   repository what the runner does differently and why".
 
 The CI-parity unit (`impl/the-forge-runs-the-driver-and-ui-tests`, head `07c03f42`) took the second branch of that

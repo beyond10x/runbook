@@ -122,6 +122,14 @@
 - Cite `path:line` for facts in docs; mark what was not observed as *inferred*.
 - No `/home/<name>/` path in any committed file: write repository-relative paths, sibling-relative
   paths (`../canon/…`) in docs, and `$HOME`-based or argument paths in scripts.
+- The repository is public: no file, author or commit message names a person, an organisation or a session. The
+  operator is "the operator", an operator session "the operator session" (the operator, 2026-11-26). `task
+  check:names` (`sdc-check-names`, part of `task check`; on the forge the driver test
+  `names::this_repository_adds_no_refused_word`) refuses a line the change adds whose word, or run of hyphenated
+  parts, has its lower-cased SHA-256 in `driver/refused-names.txt`; that file holds digests, never the words. A new
+  word is added as its digest (`printf '%s' '<word>' | tr '[:upper:]' '[:lower:]' | sha256sum`), computed in a shell
+  and never written down. `FULL=1 task check:names` checks every tracked line; the `correlation` of seven transitions
+  of four stories still holds a session name, because no `aep` verb changes a transition.
 - A run that cannot continue (a defect that needs a code change, a missing capability, or a
   decision nobody will take) is stopped at once by whoever finds it. A run of an experiment record
   is stopped with

@@ -61,7 +61,7 @@ idea (a line, word and character counter) at 10:27:41Z (`trial3/start-batch.sh`,
 | `trial-3-small-sonnet-1` | Sonnet / Haiku | running, spec stage, 8 `spec.author` calls | 15 | 19 | 0.843 + 0.270 | 221 |
 
 The strong runs' records name the decider `decider:haiku` although the model was `claude-opus-5-5`
-(`run-settings.jsonl` `decider.kind`, `console.txt`); `host-operator` reported it at 10:35:46Z.
+(`run-settings.jsonl` `decider.kind`, `console.txt`); the operator session reported it at 10:35:46Z.
 
 Read at 10:53Z, after this record ends: `trial-3-small-sonnet-1` stopped `decider_budget_spent`
 at 10:46:51Z in its spec, `trial-3-small-haiku-1` stopped `writer_spent` on `change.implement` at

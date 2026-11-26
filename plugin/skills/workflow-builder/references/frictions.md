@@ -26,7 +26,7 @@ the rule in `SKILL.md` it produced. Sources as in `timeline.md`.
   (trial 1), `questions.settled` at `scope.answer` (trial 2b), `health.required` at
   `release.publish` (`trial-3-mixed-3`). Three occurrences, three local fixes, the last
   `073c173` generic (derived from the compiled protocol).
-- `host-operator` asked at 10:16:06Z for an audit of every step for both classes. That one audit
+- The operator session asked at 10:16:06Z for an audit of every step for both classes. That one audit
   (`docs/reject-routes.md` on `audit/reject-routes`) listed 16 decision points and 15 writer or
   cap rows, found 9 missing or wrong routes (R1 to R9) plus 3 dead ends nobody had asked about
   (R10 to R12), and printed 13 dead ends as program output. One full run found one stop.
@@ -137,7 +137,7 @@ checked, not from the product:
 - Stopped runs showed running clocks (operator 02:41Z); stub runs with a billing fixture were
   taken for real output (operator 06:00:48Z, reply 06:01:34Z).
 - The strong passes record the Opus decider as `decider:haiku`; a console line says 13 calls where
-  `llm-calls.jsonl` has 12 (`host-operator`, 10:35:46Z).
+  `llm-calls.jsonl` has 12 (the operator session, 10:35:46Z).
 - A reopened run counted 553 s of waiting for a fix as waiting on a person
   (`trial3/attempt5-notes.txt`).
 - Rule: SKILL.md "What to record".
