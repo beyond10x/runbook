@@ -53,3 +53,4 @@ mod route_ready;
 mod run_route;
 mod catalog;
 mod adversary_a;
+mod adversary_b;
