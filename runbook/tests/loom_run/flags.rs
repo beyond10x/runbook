@@ -25,7 +25,7 @@ fn run(root: &Path, extra: &[&str]) -> Output {
     args.extend(["--settings", &p("settings.toml"), "--spend-ledger", &p("ledger.json")].map(String::from));
     args.extend(["--cap-micro-usd", "1", "--max-llm-calls", "1", "--max-wall-seconds", "1"].map(String::from));
     args.extend(extra.iter().map(|s| (*s).to_owned()));
-    Command::new(BIN).args(&args).env_clear().env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap()
+    Command::new(BIN).args(&args).env_clear().envs(crate::kept()).env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap()
 }
 
 fn refused(root: &Path, extra: &[&str], line: &str) {
@@ -113,7 +113,7 @@ fn the_port_options_belong_to_a_run_in_process_not_to_detach() {
     for extra in [&["--dry"][..], &["--watch"], &["--goals", "g.yaml"], &["--conformance", "observe"]] {
         let mut args = vec!["run", "sdc", "--intake", "i", "--detach", "--daemon", "http://127.0.0.1:1"];
         args.extend(extra);
-        let o = Command::new(BIN).args(&args).env_clear().env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap();
+        let o = Command::new(BIN).args(&args).env_clear().envs(crate::kept()).env("RUNBOOK_CONFIG", crate::empty_config()).env("PATH", std::env::var("PATH").unwrap_or_default()).stdin(Stdio::null()).output().unwrap();
         assert_ne!(o.status.code(), Some(0), "{extra:?}");
         assert!(!String::from_utf8_lossy(&o.stderr).contains("not built yet"), "{extra:?}");
     }

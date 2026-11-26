@@ -67,25 +67,53 @@ fn end_the_pauses() -> bool {
     !pauses.is_empty()
 }
 
+/// Ends the pauses of `count` programs (each a `sleep` of `pause.txt`, below this process) once that many pause at the
+/// same time, and not before: the programs of several runs overlap for sure, and each goes on at once when the case
+/// lets it, instead of after a pause of fixed seconds that had to be long enough for both. It returns once the pauses it
+/// ended have ended, so the next call counts only the pauses of the next step.
+pub(super) fn end_pauses_together(count: usize) {
+    let mut pauses = Vec::new();
+    until(&format!("{count} pauses at the same time"), 40, || {
+        pauses = descendant_processes().into_iter().filter(|(pid, c)| c == "sleep" && alive(*pid)).map(|(pid, _)| pid).collect();
+        pauses.len() >= count
+    });
+    for pid in &pauses {
+        // SAFETY: a plain signal to a process id this case just read below its own process.
+        unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
+    }
+    until("the ended pauses to end", 20, || pauses.iter().all(|pid| !alive(*pid)));
+}
+
+/// Whether the process `pid` runs: it exists and is no zombie (a `sleep` that ended stays one until its shell reaps it).
+fn alive(pid: u32) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return false };
+    stat.rfind(')').and_then(|close| stat[close + 1..].split_whitespace().next()).is_some_and(|state| state != "Z" && state != "X")
+}
+
 /// The process id and the command name of every process below this one.
+/// Walks down from this process through the `children` file of each of its threads (`/proc/<pid>/task/<tid>/children`),
+/// so a scan reads the processes below this one and not every process of the host: the cases that wait on a pause scan
+/// every 10 ms, and a scan of all of `/proc` cost them more CPU than their runs on a host with thousands of processes.
 fn descendant_processes() -> Vec<(u32, String)> {
-    let mut table: Vec<(u32, u32, String)> = Vec::new();
-    for e in std::fs::read_dir("/proc").unwrap().flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
-        let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
-        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
-        let ppid = stat[close + 1..].split_whitespace().nth(1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
-        table.push((pid, ppid, stat[open + 1..close].to_string()));
-    }
-    let mut below: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
-    loop {
-        let more: Vec<u32> = table.iter().filter(|(p, pp, _)| below.contains(pp) && !below.contains(p)).map(|(p, _, _)| *p).collect();
-        if more.is_empty() {
-            break;
+    let mut found: Vec<(u32, String)> = Vec::new();
+    let mut seen: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
+    let mut todo = vec![std::process::id()];
+    while let Some(pid) = todo.pop() {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
+        for task in tasks.flatten() {
+            let Ok(children) = std::fs::read_to_string(task.path().join("children")) else { continue };
+            for child in children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()) {
+                if !seen.insert(child) {
+                    continue;
+                }
+                let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
+                let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
+                found.push((child, stat[open + 1..close].to_string()));
+                todo.push(child);
+            }
         }
-        below.extend(more);
     }
-    table.into_iter().filter(|(p, _, _)| *p != std::process::id() && below.contains(p)).map(|(p, _, c)| (p, c)).collect()
+    found
 }
 
 pub(super) fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {

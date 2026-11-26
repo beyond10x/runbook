@@ -39,7 +39,7 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
 
     let path = format!("{}:{}", driver_bin.display(), std::env::var("PATH").unwrap_or_default());
     let run = Command::new(BIN)
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("PATH", &path)
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
@@ -103,7 +103,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
     for (name, way) in [("child", vec!["--loom".to_owned(), loom.display().to_string(), "--loom-sha256".to_owned(), sha.clone()]), ("library", Vec::new())] {
         let run = format!("stub-cycle-{name}");
         let out = Command::new(BIN)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("RUNBOOK_CONFIG", crate::empty_config())
             .env("PATH", &path)
             .env("HOME", &home)

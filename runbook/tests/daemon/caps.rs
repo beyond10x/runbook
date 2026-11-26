@@ -4,6 +4,7 @@
 //! argv. No model is called.
 
 use super::http::send;
+use super::engine::end_pauses_together;
 use super::state::scratch;
 use runbook::api::routes;
 use runbook::caps::{CapPolicy, Caps};
@@ -389,10 +390,14 @@ fn a_spend_cap_stops_the_run_before_the_reservation_over_it_and_the_ledger_belon
 #[test]
 fn two_runs_of_one_runbook_under_one_cap_both_finish_when_their_sum_fits() {
     let rig = Rig::new("caps-two", roomy());
-    // each step sleeps 1 s, so the two runs make their calls at the same time: 4 calls of 0.2 USD, and each step reserves 0.3 USD, under a cap of 2 USD
-    let ctx = rig.context("slow", 1);
+    // each step pauses until the same step of the other run pauses too, so the two runs make their calls at the same
+    // time: 4 calls of 0.2 USD, and each step reserves 0.3 USD, under a cap of 2 USD
+    let ctx = rig.context("slow", 30);
     let a = rig.submit(RUNBOOK, Some(ctx.clone()), &[("cap_micro_usd", "2000000")]);
     let b = rig.submit(RUNBOOK, Some(ctx), &[("cap_micro_usd", "2000000")]);
+    for _step in ["write", "check"] {
+        end_pauses_together(2);
+    }
     let (ra, rb) = (rig.wait_ended(&a), rig.wait_ended(&b));
     assert_eq!((ra["outcome"].as_str(), rb["outcome"].as_str()), (Some("finished"), Some("finished")), "{ra} {rb}");
     assert_eq!((setting(&ra, "spent_micro_usd"), setting(&rb, "spent_micro_usd")), (Some("400000"), Some("400000")), "{ra} {rb}");
@@ -430,8 +435,12 @@ fn a_spend_cap_applies_to_each_run_and_not_to_the_runs_of_a_runbook_together() {
 #[test]
 fn three_runs_at_once_each_under_its_own_cap_all_finish() {
     let rig = Rig::new("caps-three", per_run(1_000_000));
-    let ctx = rig.context("slow", 1);
+    // each step pauses until the same step of the two other runs pauses too: the three runs hold their reservations at once
+    let ctx = rig.context("slow", 30);
     let runs: Vec<String> = (0..3).map(|_| rig.submit(RUNBOOK, Some(ctx.clone()), &[])).collect();
+    for _step in ["write", "check"] {
+        end_pauses_together(3);
+    }
     let outcomes: Vec<String> = runs.iter().map(|r| outcome_of(&rig.wait_ended(r))).collect();
     assert_eq!(outcomes, ["finished"; 3], "three concurrent runs, each of 0.4 USD under its own 1 USD cap; ledger: {}", rig.ledger(RUNBOOK));
 }
@@ -791,11 +800,14 @@ fn a_failed_call_with_no_cost_counts_as_a_call_and_books_its_reservation() {
 #[test]
 fn the_used_numbers_are_true_after_each_step_and_a_step_with_no_model_call_books_nothing() {
     let rig = Rig::new("caps-used", per_run(1_000_000));
-    let ctx = rig.context("slow", 1);
+    // each step pauses until the case lets it go on: the row is read between the two steps
+    let ctx = rig.context("slow", 30);
     let run = rig.submit(RUNBOOK, Some(ctx), &[]);
+    end_pauses_together(1);
     until("step 1 booked", 20, || setting(&rig.row(&run), "used_llm_calls") == Some("1"));
     let mid = rig.row(&run);
     assert_eq!(setting(&mid, "spent_micro_usd"), Some("200000"), "{mid}");
+    end_pauses_together(1);
     until("step 2 booked", 20, || setting(&rig.row(&run), "used_llm_calls") == Some("2"));
     assert_eq!(setting(&rig.row(&run), "spent_micro_usd"), Some("400000"));
     let row = rig.wait_ended(&run);

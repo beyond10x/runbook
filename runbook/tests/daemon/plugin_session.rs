@@ -281,7 +281,7 @@ fn headless(tag: &str, l: &Live, gw: &Standin, prompt: &str) -> Option<Value> {
     let proxy = format!("http://127.0.0.1:{port}");
     let mut cmd = Command::new(bin.join("claude"));
     cmd.current_dir("/")
-        .env_clear()
+        .env_clear().envs(crate::kept())
         // the `runbook mcp` the plugin starts reads no runbook.toml of the host
         .env("RUNBOOK_NO_CONFIG", "1")
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
@@ -451,7 +451,7 @@ fn the_plugin_names_only_tools_and_arguments_runbook_mcp_serves() {
         let mut child = Command::new("sh")
             .arg(repo().join("plugin/hooks/delegation.sh"))
             .arg(event)
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", "/usr/bin:/bin")
             .env("RUNBOOK_MODEL_ROUTE", "qwen-local")
             .stdin(Stdio::piped())

@@ -80,7 +80,7 @@ impl Rig {
     fn run(&self, name: &str, cap: u64, extra: &[&str]) -> Output {
         Command::new(BIN)
             .args(self.args(name, cap, extra))
-            .env_clear()
+            .env_clear().envs(crate::kept())
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("RUNBOOK_CONFIG", crate::empty_config())
             .env("SDC_CONFORMANCE_ADAPTER", "stub")
@@ -194,7 +194,7 @@ fn the_tables_setting_is_checked_and_never_changes_the_exit() {
     stand_in_tool(&rig);
     let o = Command::new(BIN)
         .args(rig.args("r1", 1_000_000, &["--conformance", "observe"]))
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("SDC_CONFORMANCE_TABLES", "12")
@@ -227,7 +227,7 @@ fn gateway_the_observation_gives_its_model_adapter_the_gateway_file_while_the_pr
     std::fs::set_permissions(&xdg, std::fs::Permissions::from_mode(0o700)).unwrap();
     let o = Command::new(BIN)
         .args(rig.args("r1", 1_000_000, &["--conformance", "observe"]))
-        .env_clear()
+        .env_clear().envs(crate::kept())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("RUNBOOK_CONFIG", crate::empty_config())
         .env("XDG_RUNTIME_DIR", &xdg)

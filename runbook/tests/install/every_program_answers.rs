@@ -15,7 +15,7 @@ fn every_program_of_the_prefix_answers_version_with_its_name_and_the_version() {
     let mut bad = vec![];
     for p in std::iter::once(prefix.join("bin/runbook")).chain(helpers) {
         let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        let o = Command::new(&p).arg("--version").env_clear().env("PATH", SYSTEM_PATH).env("HOME", &cwd).current_dir(&cwd).stdin(Stdio::null()).output().unwrap();
+        let o = Command::new(&p).arg("--version").env_clear().envs(crate::kept()).env("PATH", SYSTEM_PATH).env("HOME", &cwd).current_dir(&cwd).stdin(Stdio::null()).output().unwrap();
         let said = out(&o);
         let want = format!("{name} {version}");
         let first = said.lines().next().unwrap_or_default();
