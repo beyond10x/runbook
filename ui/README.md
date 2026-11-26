@@ -23,8 +23,11 @@ legend, the timeline). Its centre lists the run's steps read from the run's even
 state, start, duration and try, the step in flight marked with its duration counting, a line that says what runs now
 or how the run ended, and the counts (steps done, model calls, tokens, cost). A `Stopped` with
 `BudgetSpent`/`MaxSteps` ends one step, not the run. The run events are said in words, the engine's own lines folded.
-The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`); no pane
-says what is missing in place of showing something. Times on the page are 24 h local time of the browser with the
+The side panel has only the tabs the daemon serves data for, Products and Events (`tabsOf`, `web/source.js`), and
+Metrics when the daemon's view `run-metrics` answers a row for the run (`daemon/metrics.js` draws it; a step's model
+calls whose events name none are taken from that row, `withViewCalls` in `web/runsteps.js`, and an unknown count is
+said as not known, never 0; `test/daemon-metrics-tab.spec.mjs`); no pane says what is missing in place of showing
+something. Times on the page are 24 h local time of the browser with the
 zone's name (`web/clock.js`). Specs: `test/daemon-live.spec.mjs` over the synthetic daemon `test/daemon-live-fixture.mjs`
 (`node test/daemon-live-fixture.mjs --live` serves it to look at), `test/daemon-steps-model.spec.mjs`.
 

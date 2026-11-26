@@ -1680,3 +1680,14 @@ body:not(.drawer-open) #drawer { display: none; }
 :where(html.phone.daemon) .ds-table .ds-try::before { content: 'try '; }
 :where(html.phone.daemon) .ds-table tr[data-state=running] { box-shadow: inset 3px 0 0 var(--accent); }
 :where(html.phone.daemon) .ds-table tr[data-state=running] td:first-child { box-shadow: none; }
+
+/* The Metrics tab of the daemon's page: the row of the view run-metrics (ui/daemon/metrics.js). */
+.metrics { padding: 12px 14px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.metrics-sum { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0 0 12px; }
+.metrics-sum dt { color: var(--text-3); }
+.metrics-sum dd { margin: 0; color: var(--text); }
+.metrics-wrap { overflow-x: auto; margin: 0 0 10px; }
+.metrics-steps { border-collapse: collapse; font-size: 12px; }
+.metrics-steps th { text-align: left; font-weight: 650; color: var(--text-3); padding: 4px 8px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+.metrics-steps td { padding: 4px 8px; border-bottom: 1px solid var(--line); color: var(--text-2); white-space: nowrap; }
+.metrics p { margin: 6px 0; }

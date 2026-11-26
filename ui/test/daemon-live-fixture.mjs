@@ -135,8 +135,9 @@ export const shiftFor = (ago = 132000) => Date.now() - ago - RUNNING_SINCE;
 
 // Serve the fixture on 127.0.0.1:port. Resolves {server, base, close}. live: the times shifted by shiftFor() at the
 // start; GET /__fixture/anchor?ago=<ms> shifts them again from now (a page's clock cannot be faked here: a faked
-// `performance` hides the Server-Timing name the page reads to know the daemon served it).
-export function serve({port = 0, live = false, hold = 0} = {}) {
+// `performance` hides the Server-Timing name the page reads to know the daemon served it). metrics: per run id the
+// answer of the view run-metrics, {status, body}; a run not named is answered with no row (the fixture holds no metrics).
+export function serve({port = 0, live = false, hold = 0, metrics = {}} = {}) {
   let f = fixture(live ? shiftFor() : 0);
   let all = f.events;
   let shown = all.length - hold;
@@ -166,6 +167,7 @@ export function serve({port = 0, live = false, hold = 0} = {}) {
     if (p === '/daemon/views/routes') return json(res, {rows: f.routes});
     if (p === '/daemon/views/runbooks') return json(res, {rows: [{runbook_id: 'investigate', runtime: 'loom'}]});
     if (p === '/daemon/views/configuration') return json(res, {rows: [{confinement_floor: 'local'}]});
+    if (p === '/daemon/views/run-metrics') return Object.hasOwn(metrics, run) ? json(res, metrics[run].body, metrics[run].status ?? 200) : json(res, {rows: []});
     if (p === '/daemon/views/daemon-events' || p === '/daemon/views/events') {
       const after = Number(req.headers['last-event-id'] ?? url.searchParams.get('after_position') ?? 0);
       const pick = (row) => row.position > after && (p === '/daemon/views/daemon-events' || row.run_id === run);

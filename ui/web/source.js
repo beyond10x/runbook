@@ -185,10 +185,11 @@ export const refresh = () => again();
 export const runEvents = (id) => events.get(id) || [];
 
 // The tabs of the right panel this page has data for: the inspector's page all of them; the daemon's page those whose
-// data the daemon serves, the run's files and its events. A tab not named here is no button and no pane. A view of a
-// run's metrics or its log, once the daemon serves one, is a name added here.
+// data the daemon serves, the run's files and its events, and its metrics when the daemon's view run-metrics answered a
+// row for the run on screen (`metrics`; ui/daemon/metrics.js draws it). A tab not named here is no button and no pane. A
+// view of a run's log, once the daemon serves one, is a name added here.
 export const ALL_TABS = ['explain', 'autonomy', 'security', 'metrics', 'changes', 'products', 'events', 'run'];
-export const tabsOf = () => (daemon ? ['products', 'events'] : ALL_TABS);
+export const tabsOf = ({metrics = false} = {}) => (daemon ? ['products', 'events', ...(metrics ? ['metrics'] : [])] : ALL_TABS);
 
 // The model route of a daemon's run in its header (docs/model-routes.md, section 6): `route qwen · managed · ready`,
 // then the alias and the setting that chose the route. The route, the alias and the setting are the run's (the view

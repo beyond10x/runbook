@@ -20,11 +20,12 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v) => (typeof v === 'string' && v ? v : null);
 const STEP_END = (r) => r?.stop === 'BudgetSpent' && r?.budget === 'MaxSteps';
 
-// {steps, cases, inFlight, calls, tokens, micro, costKnown, ended, stop, failed} of one run's events, in their order.
+// {steps, cases, inFlight, calls, tokens, tokensKnown, micro, costKnown, ended, stop, failed} of one run's events, in
+// their order. tokens and micro: the sum of the counts the calls report; tokensKnown, costKnown: every call reported one.
 // cases: the ids of the cases the run opened (`CaseOpened`).
 export function runSteps(events) {
   const steps = [];
-  const m = {steps, cases: new Set(), inFlight: null, calls: 0, tokens: 0, micro: 0, costKnown: true, ended: null, stop: null, failed: null};
+  const m = {steps, cases: new Set(), inFlight: null, calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true, ended: null, stop: null, failed: null};
   const open = (action) => steps.filter((s) => s.state === 'running' && s.action === action);
   // the end of a step: the last step started (of the case named, when one is) ends here if it still runs
   const stepEnd = (kase, at) => {
@@ -35,21 +36,25 @@ export function runSteps(events) {
     const r = e?.record && typeof e.record === 'object' ? e.record : {};
     const at = ms(e?.at);
     if (e?.kind === 'runbook.action-started') {
-      steps.push({n: steps.length + 1, action: str(r.action) ?? 'a step', case: str(r.case), role: str(r.role), try: num(r.try), at, end: null, exit: null, state: 'running', calls: 0, tokens: 0, micro: 0});
+      steps.push({n: steps.length + 1, action: str(r.action) ?? 'a step', case: str(r.case), role: str(r.role), try: num(r.try), at, end: null, exit: null, state: 'running', calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true});
     } else if (e?.kind === 'ActionFinished') {
       const action = str(r.action) ?? 'a step';
       const exit = num(r.exit);
       const state = exit == null || exit === 0 ? 'done' : 'exit';
       const ends = open(action);
-      if (!ends.length) steps.push({n: steps.length + 1, action, case: null, role: null, try: null, at: null, end: at, exit, state, calls: 0, tokens: 0, micro: 0});
+      if (!ends.length) steps.push({n: steps.length + 1, action, case: null, role: null, try: null, at: null, end: at, exit, state, calls: 0, tokens: 0, tokensKnown: true, micro: 0, costKnown: true});
       for (const s of ends) Object.assign(s, {end: at, exit, state});
     } else if (e?.kind === 'runbook.model-call') {
+      // a token count or a cost the call does not report is not known: it adds nothing and says so (tokensKnown, costKnown)
+      const counted = num(r.input_tokens) != null && num(r.output_tokens) != null;
       const tokens = (num(r.input_tokens) ?? 0) + (num(r.output_tokens) ?? 0);
-      const micro = r.cost_known === false ? 0 : num(r.micro_usd) ?? 0;
+      const costKnown = r.cost_known !== false && num(r.micro_usd) != null;
+      const micro = costKnown ? r.micro_usd : 0;
       m.calls++; m.tokens += tokens; m.micro += micro;
-      if (r.cost_known === false) m.costKnown = false;
+      if (!counted) m.tokensKnown = false;
+      if (!costKnown) m.costKnown = false;
       const s = [...steps].reverse().find((x) => x.action === r.step);
-      if (s) { s.calls++; s.tokens += tokens; s.micro += micro; }
+      if (s) { s.calls++; s.tokens += tokens; s.micro += micro; if (!counted) s.tokensKnown = false; if (!costKnown) s.costKnown = false; }
     } else if (e?.kind === 'CaseOpened') { if (str(r.case)) m.cases.add(r.case); }
     else if (e?.kind === 'Terminated') m.ended = {reason: str(r.reason)};
     else if (e?.kind === 'Stopped') { if (STEP_END(r)) stepEnd(null, at); else m.stop = r; }
@@ -57,6 +62,33 @@ export function runSteps(events) {
     else if (e?.kind === 'runbook.step-failed') m.failed = r;
   }
   m.inFlight = [...steps].reverse().find((s) => s.state === 'running') ?? null;
+  return m;
+}
+
+// The model calls of the steps whose events name none, from the row of the daemon's view run-metrics (ui/daemon/metrics.js
+// draws the row; docs/daemon-api.md, "The metrics of a run"): a run on no route books its calls in `runbook.cost-booked`,
+// which the steps here do not read. A step of the view is one action of one case in one role over all its tries; its
+// calls go to the newest step of `m` with that action (and case and role where the step names them) when none of those
+// has a call of its own, and to the run's counts. A number the row leaves out is not known: it adds nothing and says so,
+// never 0. No row: `m` as it is.
+const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
+export function withViewCalls(m, row) {
+  for (const v of Array.isArray(row?.steps) ? row.steps : []) {
+    const c = v?.calls;
+    const calls = count(c?.model_calls);
+    if (!calls) continue;
+    const mine = m.steps.filter((s) => s.action === v.action && (s.case == null || s.case === v.case_id) && (s.role == null || s.role === v.role));
+    if (!mine.length || mine.some((s) => s.calls)) continue;
+    const input = count(c.input_tokens), output = count(c.output_tokens);
+    const tokensKnown = input != null && output != null && count(c.calls_without_tokens) === 0;
+    const tokens = (input ?? 0) + (output ?? 0);
+    const micro = count(c.cost_micro_usd) ?? 0;
+    const costKnown = count(c.cost_micro_usd) != null && count(c.unknown_cost_calls) === 0;
+    Object.assign(mine[mine.length - 1], {calls, tokens, tokensKnown, micro, costKnown});
+    m.calls += calls; m.tokens += tokens; m.micro += micro;
+    if (!tokensKnown) m.tokensKnown = false;
+    if (!costKnown) m.costKnown = false;
+  }
   return m;
 }
 
@@ -105,7 +137,7 @@ export function eventWords(e) {
     case 'runbook.step-ended': return {name: 'Step ended', detail: 'the run goes on', engine: true};
     case 'runbook.waiting-on-key': return {name: 'Waiting for its key', detail: join(str(r.serial_key), str(r.behind) && `behind run ${r.behind.slice(-8)}`), engine: false};
     case 'Terminated': return {name: 'Case ended', detail: str(r.reason) ?? '', engine: false};
-    case 'runbook.model-call': return {name: 'Model call', detail: join(str(r.step), `${n(num(r.input_tokens) ?? 0)} in, ${n(num(r.output_tokens) ?? 0)} out`, r.cost_known === false ? 'cost not known' : num(r.micro_usd) != null && usd(r.micro_usd)), engine: false};
+    case 'runbook.model-call': return {name: 'Model call', detail: join(str(r.step), num(r.input_tokens) != null && num(r.output_tokens) != null ? `${n(r.input_tokens)} in, ${n(r.output_tokens)} out` : 'tokens not known', r.cost_known === false ? 'cost not known' : num(r.micro_usd) != null && usd(r.micro_usd)), engine: false};
     default:
       if (OWN[e?.kind]) return {name: OWN[e.kind], detail: str(r.reason) ?? str(r.failure) ?? join(str(r.route), str(r.phase)), engine: false};
       return {name: humane(e?.kind), detail: plain(r), engine: false};
@@ -143,12 +175,17 @@ export function runSay(run, m, now, opts) {
 const LIVE_STATES = ['Submitted', 'WaitingOnKey', 'Running', 'WaitingOnDecision', 'WaitingForRoute'];
 const stateCls = (run, m) => (run?.state === 'Running' && m.inFlight ? 'running' : run?.state === 'Ended' ? 'ended' : ['Cancelled', 'FailedToStart'].includes(run?.state) ? 'bad' : ['WaitingOnDecision', 'WaitingOnKey'].includes(run?.state) ? 'waiting' : 'between');
 
-// The counts the run's events hold.
+// The tokens and the cost of calls in words: a count no call reported is "not known", never 0, and a sum that leaves
+// calls out says so.
+const tokenWords = (x) => (x.tokensKnown !== false ? `${n(x.tokens)} tokens` : x.tokens ? `${n(x.tokens)} tokens and calls with no token count` : 'tokens not known');
+const costWords = (x) => (x.costKnown !== false ? usd(x.micro) : x.micro ? `${usd(x.micro)} and calls of unknown cost` : 'cost not known');
+
+// The counts the run's events hold (and the view's row, withViewCalls).
 function counts(m) {
   const done = m.steps.filter((s) => s.state === 'done' || s.state === 'exit').length;
   const exits = m.steps.filter((s) => s.state === 'exit').length;
   return [`${done} ${done === 1 ? 'step' : 'steps'} done`, exits && `${exits} ended with an exit other than 0`,
-    `${m.calls} model ${m.calls === 1 ? 'call' : 'calls'}`, m.calls && `${n(m.tokens)} tokens`, m.calls && (m.costKnown ? usd(m.micro) : `${usd(m.micro)} and calls of unknown cost`)].filter(Boolean);
+    `${m.calls} model ${m.calls === 1 ? 'call' : 'calls'}`, m.calls && tokenWords(m), m.calls && costWords(m)].filter(Boolean);
 }
 
 // The head of the centre: what runs now (#dnow) and the counts.
@@ -170,7 +207,7 @@ export function renderStepsTable(run, m, now, caseName = () => null) {
     const state = s.state === 'running' && !live ? 'unfinished' : s.state;
     const word = {running: 'running', done: 'done', exit: `exit ${s.exit}`, unfinished: 'not finished'}[state];
     const took = state === 'running' && s.at != null ? `<span data-took-since="${s.at}">${esc(fmtTook(now - s.at, true))}</span>` : s.at != null && s.end != null ? esc(fmtTook(s.end - s.at)) : '—';
-    const calls = s.calls ? ` <span class="ds-calls" title="${esc(`${n(s.tokens)} tokens${s.micro ? `, ${usd(s.micro)}` : ''}`)}">${s.calls} model ${s.calls === 1 ? 'call' : 'calls'}</span>` : '';
+    const calls = s.calls ? ` <span class="ds-calls" title="${esc([tokenWords(s), (s.micro || s.costKnown === false) && costWords(s)].filter(Boolean).join(', '))}">${s.calls} model ${s.calls === 1 ? 'call' : 'calls'}</span>` : '';
     return `<tr data-key="st:${s.n}" data-state="${state}"><td class="ds-n">${s.n}</td><td class="ds-act-c"><span class="ds-act">${esc(s.action)}</span>${calls}</td>`
       + (many ? `<td class="ds-case">${esc(caseName(s.case) ?? s.case ?? '—')}</td>` : '')
       + `<td class="ds-role">${esc(s.role ?? '—')}</td><td class="ds-st">${esc(word)}</td>`

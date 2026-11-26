@@ -11,7 +11,7 @@ import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 import {api, openEvents, daemonView, daemon, missingRun, runEvents, eventRow, tabsOf} from './source.js';
-import {runSteps, renderStepsHead, renderStepsTable, renderStepsBar, runStateWord, fmtTook} from './runsteps.js';
+import {runSteps, withViewCalls, renderStepsHead, renderStepsTable, renderStepsBar, runStateWord, fmtTook} from './runsteps.js';
 import {clockTime} from './clock.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
@@ -22,6 +22,8 @@ const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDr
 const initStart = daemon ? (await import('./start.js')).initStart : null;
 // and for the Routes view (ui/daemon/routes.js): the daemon's model routes, and the kind and status of a run's route
 const {initRoutes, routeWords} = daemon ? await import('./routes.js') : {};
+// and for the Metrics tab (ui/daemon/metrics.js): the row of the view run-metrics of the run on screen, drawn as a pane
+const {readMetrics, metricsPane} = daemon ? await import('./metrics.js') : {};
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -45,9 +47,11 @@ function setPanel(open, tab) {
 const openPanel = (tab) => setPanel(true, tab);
 const $ = (q) => document.querySelector(q);
 // The tabs this page has data for (web/source.js tabsOf): any other tab is no button, and a remembered one opens the first.
+// The daemon's Metrics tab shows once the view answered a row for the run on screen (renderDaemon), so a remembered
+// Metrics tab is kept: until then the first tab stands for it.
 const TABS = tabsOf();
 for (const b of document.querySelectorAll('#tabs button[data-tab]')) b.hidden = !TABS.includes(b.dataset.tab);
-if (!TABS.includes(S.tab)) S.tab = TABS[0];
+if (!tabsOf({metrics: true}).includes(S.tab)) S.tab = TABS[0];
 // The daemon's page: its own layout rules (html.daemon in style.css), and the run's files line with its steps.
 if (daemon) {
   document.documentElement.classList.add('daemon');
@@ -107,6 +111,33 @@ function mountProducts(c) {
   renderProducts(p, {c, products: S.products, src: S.src, daemon, run: S.sources[S.src]?.path});
 }
 bindProducts({refresh: () => render(), open: (view) => { showProduct(view); openPanel('products'); render(); }});
+// The row of the daemon's view run-metrics for the run on screen ({run, row}; row null when the view refused or answered
+// none), read like the files: again after 1.5 s while the tab is open, else after 10 s.
+async function loadMetrics(force) {
+  if (!readMetrics) return;
+  const run = S.missingRun == null ? S.sources[S.src]?.daemonRun?.run_id ?? null : null;
+  const now = Date.now();
+  if (S.metrics?.run !== run) S.metrics = {run, row: null, at: 0};
+  if (!run || (!force && now - S.metrics.at < (S.panel && S.tab === 'metrics' ? 1500 : 10000))) return;
+  S.metrics.at = now;
+  const {row} = await readMetrics(run);
+  if (S.metrics.run === run) S.metrics = {run, row: row ?? null, at: now};
+}
+// the Metrics tab is built outside patch(), like the files: every value of the row is a text node (ui/daemon/metrics.js);
+// drawn again only when the row changed
+function mountMetrics(row) {
+  const p = $('#panel');
+  if (p.dataset.tab !== 'metrics') { p.dataset.tab = 'metrics'; p.scrollTop = 0; p.__metrics = null; }
+  p.__html = null;
+  const key = JSON.stringify(row);
+  if (p.__metrics === key) return;
+  p.__metrics = key;
+  const pane = document.createElement('div');
+  pane.className = 'tabpane';
+  pane.dataset.key = 'pane:metrics';
+  pane.append(metricsPane(row));
+  p.replaceChildren(pane);
+}
 async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
@@ -224,7 +255,7 @@ async function selectSource(i) {
   history.replaceState(null, '', `${location.pathname}?${q}`);
   if (stream && !daemon) connect(); // the stream names the run on screen
   showProduct({kind: 'list'});
-  await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
+  await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); loadMetrics(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
 // a run the page started: read the run list again and show that run
 async function openRun(id) {
@@ -365,7 +396,8 @@ function render() {
 
 // The page the daemon serves: the run's case tree (the view `cases`) in the tree's place with the run's events as the
 // feed; in the centre the run's steps, read from its events (web/runsteps.js), with what runs now and the counts; the
-// panel has the tabs the daemon serves data for (tabsOf): the run's files and its events.
+// panel has the tabs the daemon serves data for (tabsOf): the run's files, its events and, when the view run-metrics
+// answers a row for the run, its metrics.
 function renderDaemon(src) {
   for (const id of ['#view-note', '#phases', '#now', '#kpis', '#timeline', '#graph']) patch($(id), '');
   const now = Date.now();
@@ -377,7 +409,10 @@ function renderDaemon(src) {
   const tree = S.missingRun != null ? missingRun(S.missingRun) : (dv?.head ?? '') + (cases.length ? renderTree(cases, {stopped: null, running: []}, now) : dv?.tree ?? '');
   patch($('#tree'), tree);
   const run = S.missingRun == null ? src?.daemonRun : null;
-  const m = run ? runSteps(runEvents(run.run_id)) : null;
+  // the row of the view run-metrics for this run, when the daemon answered one: the Metrics tab, and the calls of a
+  // step whose events name none
+  const metrics = run && S.metrics?.run === run.run_id ? S.metrics.row : null;
+  const m = run ? withViewCalls(runSteps(runEvents(run.run_id)), metrics) : null;
   $('#dsteps').hidden = !run;
   if (run) {
     // the root case is the run: titled by its runbook, its id short beside it; a case under it by its link name
@@ -393,13 +428,18 @@ function renderDaemon(src) {
   } else { patch($('#gtitle'), ''); patch($('#dhead'), ''); patch($('#dlist'), ''); patch($('#nowbar'), ''); }
   renderProductBar($('#product'), {products: S.missingRun == null ? S.products : null, daemon});
   document.documentElement.classList.toggle('rp-open', S.panel);
-  document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
+  // the tabs of this run: Metrics only when the view answered a row for it; a chosen tab this run lacks shows the first
+  const shown = tabsOf({metrics: !!metrics});
+  const tab = shown.includes(S.tab) ? S.tab : shown[0];
+  document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.hidden = !shown.includes(b.dataset.tab); b.classList.toggle('on', S.panel && b.dataset.tab === tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === tab)); });
   const p = $('#panel');
-  if (S.panel && S.tab === 'products') return mountProducts(c);
+  if (S.panel && tab === 'products') return mountProducts(c);
   if (p.dataset.tab === 'products') p.dataset.tab = '';
+  if (S.panel && tab === 'metrics') return mountMetrics(metrics);
+  if (p.dataset.tab === 'metrics') p.dataset.tab = '';
   // the Events tab: every event of the run, oldest first, the engine's lines too
-  const list = run && S.panel && S.tab === 'events' ? runEvents(run.run_id) : [];
-  patch(p, S.panel && S.tab === 'events' ? `<div class="tabpane" data-key="pane:events"><div class="sect">Run events <span class="muted">${list.length}, oldest first</span></div><div class="ev-list">${list.map((e) => eventRow(e, now, 'ev-row fd-row')).join('')}</div></div>` : '');
+  const list = run && S.panel && tab === 'events' ? runEvents(run.run_id) : [];
+  patch(p, S.panel && tab === 'events' ? `<div class="tabpane" data-key="pane:events"><div class="sect">Run events <span class="muted">${list.length}, oldest first</span></div><div class="ev-list">${list.map((e) => eventRow(e, now, 'ev-row fd-row')).join('')}</div></div>` : '');
 }
 
 function renderTree(cases, st, now) {
@@ -696,7 +736,7 @@ async function drain() {
       if (run) await loadRun();
       if (live) await loadLive();
       // never waited for: the page shows the run first and the product line when the files are read
-      if (full || cases.length || run || live) loadProducts(full).then(schedule);
+      if (full || cases.length || run || live) { loadProducts(full).then(schedule); loadMetrics(full).then(schedule); }
       if (full || cases.length || run) await loadInbox();
     }
     S.lastChange = new Date();
@@ -745,6 +785,7 @@ function connect() {
   await loadRun();
   await loadLive();
   loadProducts(true).then(schedule);
+  loadMetrics(true).then(schedule);
   if (q0.get('case')) { S.sel = q0.get('case'); S.follow = false; } else pickFollow();
   if (q0.get('node')) S.node = q0.get('node');
   if (q0.get('at')) S.atSeq = Number(q0.get('at'));
