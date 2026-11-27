@@ -19,6 +19,10 @@
 //! the run by itself unless the gateway refused the route or its spend ceiling stopped it ([`stops_the_run`]): its
 //! client may retry or go on, and the run ends as the call's step ends. The relay never sends a call to another route.
 //!
+//! A caller that hangs up before its answer has ended (its own timeout killed it) ends the call: the relay closes its
+//! request to the gateway, before the gateway's head or while the answer streams, and books the call with the cause
+//! [`CALL_ABANDONED`] at what the answer reported so far, else at its reservation. It is no failed call of its step.
+//!
 //! The run's processes get the relay through the route file ([`RouteFile`]): `route.json`, `runbook.route/1`, mode
 //! 0600 in the run's private directory, named by [`ROUTE_FILE_VARIABLE`]. It holds the relay's address, the run's
 //! token and the roles; the gateway's credential never leaves runbookd.
@@ -79,6 +83,15 @@ pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 const CONNECTION_FAILED: &str = "connection-failed";
 /// The code of a call whose answer broke off after its head: the call ran and is booked at its cost.
 const ANSWER_BROKEN: &str = "answer-broken";
+/// The cause of a call whose caller hung up before its answer had ended: the relay closed it at the gateway. It is no
+/// failed call of its step (not [`ROUTE_UNAVAILABLE`] or [`CALL_REFUSED`]): its caller gave it up.
+pub const CALL_ABANDONED: &str = "call-abandoned";
+/// The code of an abandoned call ([`CALL_ABANDONED`]): the call was sent and ran on the gateway for a while, so it is
+/// booked as an answer that broke off is ([`charge`]).
+const CALLER_HUNG_UP: &str = "caller-hung-up";
+/// How long the relay goes on reading an answer that streams after its caller hung up, in case the answer was at its
+/// end: an answer that ends in this time is booked as answered, else the call is closed at the gateway.
+const HUNG_UP_GRACE: Duration = Duration::from_millis(200);
 
 /// The most bytes of a call's body the relay reads.
 const MAX_CALL_BYTES: usize = 64 * 1024 * 1024;
@@ -218,6 +231,17 @@ pub trait Booking: Send + Sync {
     fn step(&self) -> Option<String>;
     /// Books one call: `line` is the ledger line, `micro_usd` what it costs.
     fn book(&self, line: Value, micro_usd: u64) -> Result<(), String>;
+    /// The step of the run in flight and the count of the starts and ends of steps so far: a call keeps both from its
+    /// admission and books with that count ([`Self::book_started`]).
+    fn step_started(&self) -> (Option<String>, u64) {
+        (self.step(), 0)
+    }
+    /// Books one call admitted when the count of [`Self::step_started`] was `started`: one booked when the count has
+    /// moved on ended after its own step did, though a later start of the same action may be in flight.
+    fn book_started(&self, line: Value, micro_usd: u64, started: u64) -> Result<(), String> {
+        let _ = started;
+        self.book(line, micro_usd)
+    }
 }
 
 struct Entry {
@@ -400,22 +424,27 @@ impl Relay {
             }
         }
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
-        let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking, reserved: 0 };
+        let (step, started) = booking.step_started();
+        let call = Call { run: run.to_owned(), step, started, role, route, source, wire, booking, reserved: 0 };
         // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
-        // drops this handler and not the call, so a call that was sent is booked, once.
+        // drops this handler and not the task, which sees the hang-up, closes the call at the gateway and books it, once.
         let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
         tokio::spawn(async move {
+            let mut answered = answered;
             if answered.is_closed() {
                 return;
             }
-            let _ = answered.send(exchange(call, passed, sent).await);
+            let response = exchange(call, passed, sent, &mut answered).await;
+            let _ = answered.send(response);
         });
         answer.await.unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the relay lost the call"))
     }
 }
 
-/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once.
-async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) -> Response {
+/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once. A caller that
+/// hangs up (`caller` closes) before the gateway's head ends the call: its request to the gateway is dropped, which
+/// closes that connection, and the call is booked as abandoned ([`CALL_ABANDONED`]).
+async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>, caller: &mut tokio::sync::oneshot::Sender<Response>) -> Response {
     let admitting = call.booking.clone();
     // the reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
     // never read when the call is booked: a call answered after its step ended books what its step held
@@ -424,7 +453,15 @@ async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) 
         Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
     }
-    match open_upstream(&call.route, call.wire, &passed, &sent).await {
+    let opened = tokio::select! {
+        opened = open_upstream(&call.route, call.wire, &passed, &sent) => opened,
+        () = caller.closed() => {
+            let line = call.line(None, &Usage::default(), Some(Failed::abandoned()));
+            call.book(line).await;
+            return error(StatusCode::INTERNAL_SERVER_ERROR, CALL_ABANDONED, "the caller hung up");
+        }
+    };
+    match opened {
         Err(why) => {
             let line = call.line(None, &Usage::default(), Some(Failed::unavailable(CONNECTION_FAILED, why.clone())));
             call.book(line).await;
@@ -479,6 +516,8 @@ fn passed_headers(headers: &HeaderMap) -> Vec<(String, String)> {
 struct Call {
     run: String,
     step: Option<String>,
+    /// The count of the starts and ends of the run's steps as the call came in ([`Booking::step_started`]).
+    started: u64,
     role: String,
     route: ResolvedRoute,
     source: String,
@@ -574,7 +613,7 @@ pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
 pub fn charge(route: &ResolvedRoute, usage: &Usage, failed: Option<&str>, reserved: u64) -> (u64, bool) {
     let priced = route.price_in_micro_usd_per_mtok.is_some() || route.price_out_micro_usd_per_mtok.is_some();
     match (failed, cost_of(route, usage)) {
-        (Some(code), _) if code != ANSWER_BROKEN => (0, true),
+        (Some(code), _) if code != ANSWER_BROKEN && code != CALLER_HUNG_UP => (0, true),
         (None, _) if usage.is_none() => if priced { (0, true) } else { (reserved, false) },
         (_, Some(cost)) => (cost, true),
         (_, None) => (reserved, false),
@@ -602,6 +641,12 @@ impl Failed {
         let code = gateway_code(status, body, secrets);
         let cause = if recoverable(status, &code) { CALL_REFUSED } else { ROUTE_UNAVAILABLE };
         Failed { cause, code, detail: format!("the gateway answered {status}"), error: error_text(body, secrets) }
+    }
+
+    /// A call whose caller hung up before its answer had ended: the relay closed it at the gateway ([`CALL_ABANDONED`]).
+    fn abandoned() -> Failed {
+        let detail = "the caller closed its connection before the answer had ended; the relay closed the call at the gateway".to_owned();
+        Failed { cause: CALL_ABANDONED, code: CALLER_HUNG_UP.to_owned(), detail, error: None }
     }
 
     /// A call answered with a status below 400 whose stream ended in an error event ([`stream_error`]): the upstream
@@ -721,7 +766,8 @@ impl Call {
 
     async fn book(&self, (line, micro_usd): (Value, u64)) {
         let booking = self.booking.clone();
-        let _ = tokio::task::spawn_blocking(move || booking.book(line, micro_usd)).await;
+        let started = self.started;
+        let _ = tokio::task::spawn_blocking(move || booking.book_started(line, micro_usd, started)).await;
     }
 }
 
@@ -759,6 +805,18 @@ struct BodyReader {
     reader: BufReader<TcpStream>,
     framing: Framing,
     done: bool,
+    /// Where a chunked body is: the bytes of the part being read.
+    chunk: Chunk,
+}
+
+/// The part of a chunked body being read, with the bytes of it read so far.
+enum Chunk {
+    /// The line of a chunk's size.
+    Size(Vec<u8>),
+    /// A chunk and its line end, and how many bytes of them were read.
+    Data(Vec<u8>, usize),
+    /// A line of the trailer after the last chunk.
+    Trailer(Vec<u8>),
 }
 
 async fn timed<T>(f: impl std::future::Future<Output = std::io::Result<T>>) -> std::io::Result<T> {
@@ -797,28 +855,45 @@ impl BodyReader {
                 buf.truncate(n);
                 Ok(Some(buf))
             }
-            Framing::Chunked => {
-                let mut size_line = Vec::new();
-                timed(self.reader.read_until(b'\n', &mut size_line)).await?;
-                let text = String::from_utf8_lossy(&size_line);
-                let size = u64::from_str_radix(text.trim().split(';').next().unwrap_or("").trim(), 16).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk of the gateway's answer has no size"))?;
-                if size == 0 {
-                    loop {
-                        let mut trailer = Vec::new();
-                        let n = timed(self.reader.read_until(b'\n', &mut trailer)).await?;
-                        if n == 0 || trailer == b"\r\n" || trailer == b"\n" {
-                            break;
-                        }
+            // Every byte read is kept in `self.chunk` until its chunk is whole: a read cut off when the caller hangs up
+            // (`answer`) goes on where it stopped, and no part of a chunk is lost.
+            Framing::Chunked => loop {
+                match &mut self.chunk {
+                    Chunk::Size(line) => {
+                        timed(self.reader.read_until(b'\n', line)).await?;
+                        let text = String::from_utf8_lossy(line);
+                        let size = u64::from_str_radix(text.trim().split(';').next().unwrap_or("").trim(), 16).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk of the gateway's answer has no size"))?;
+                        self.chunk = if size == 0 {
+                            Chunk::Trailer(Vec::new())
+                        } else {
+                            let size = usize::try_from(size).ok().and_then(|s| s.checked_add(2)).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk is too large"))?;
+                            Chunk::Data(vec![0u8; size], 0)
+                        };
                     }
-                    self.done = true;
-                    return Ok(None);
+                    // the chunk and the line end after it
+                    Chunk::Data(buf, filled) => {
+                        while *filled < buf.len() {
+                            let n = timed(self.reader.read(&mut buf[*filled..])).await?;
+                            if n == 0 {
+                                return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "the gateway closed the answer inside a chunk"));
+                            }
+                            *filled += n;
+                        }
+                        let mut data = std::mem::take(buf);
+                        data.truncate(data.len() - 2);
+                        self.chunk = Chunk::Size(Vec::new());
+                        return Ok(Some(data));
+                    }
+                    Chunk::Trailer(line) => {
+                        let n = timed(self.reader.read_until(b'\n', line)).await?;
+                        if n == 0 || line == b"\r\n" || line == b"\n" {
+                            self.done = true;
+                            return Ok(None);
+                        }
+                        line.clear();
+                    }
                 }
-                let mut buf = vec![0u8; usize::try_from(size).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk is too large"))?];
-                timed(self.reader.read_exact(&mut buf)).await?;
-                let mut end = [0u8; 2];
-                timed(self.reader.read_exact(&mut end)).await?;
-                Ok(Some(buf))
-            }
+            },
         }
     }
 }
@@ -874,7 +949,7 @@ async fn open_upstream(route: &ResolvedRoute, wire: &str, passed: &[(String, Str
     } else {
         Framing::Close
     };
-    Ok(Upstream { status, headers, body: BodyReader { reader, framing, done: false } })
+    Ok(Upstream { status, headers, body: BodyReader { reader, framing, done: false, chunk: Chunk::Size(Vec::new()) } })
 }
 
 /// The headers of the gateway's answer that are about its connection, not its content.
@@ -890,21 +965,38 @@ fn gateway_code(status: u16, body: &[u8], secrets: &[&str]) -> String {
 }
 
 /// The answer to the caller: the gateway's status, headers and body, streamed as they come; the call is booked
-/// when the gateway's answer has ended, whether the caller read it all or not.
+/// when the gateway's answer has ended, or, when the caller hangs up before that, closed at the gateway and booked as
+/// abandoned ([`CALL_ABANDONED`]).
 fn answer(call: Call, upstream: Upstream) -> Response {
     let Upstream { status, headers, mut body } = upstream;
     let call_id = headers.iter().find(|(n, _)| n == "x-llm-gateway-call").map(|(_, v)| v.clone());
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(16);
     tokio::spawn(async move {
         let mut kept = Vec::new();
+        let keep = |kept: &mut Vec<u8>, bytes: &[u8]| {
+            if kept.len() < KEEP_ANSWER_BYTES {
+                kept.extend_from_slice(&bytes[..bytes.len().min(KEEP_ANSWER_BYTES - kept.len())]);
+            }
+        };
         let mut broken = None;
+        // the caller hung up: its connection closed, which drops the stream it was reading. A read of the body cut off
+        // then keeps what it read (`BodyReader::chunk`), and the read on below goes on from there.
+        let mut gone = false;
         loop {
-            match body.next().await {
+            let next = tokio::select! {
+                next = body.next() => next,
+                () = tx.closed() => {
+                    gone = true;
+                    break;
+                }
+            };
+            match next {
                 Ok(Some(bytes)) => {
-                    if kept.len() < KEEP_ANSWER_BYTES {
-                        kept.extend_from_slice(&bytes[..bytes.len().min(KEEP_ANSWER_BYTES - kept.len())]);
+                    keep(&mut kept, &bytes);
+                    if tx.send(Ok(Bytes::from(bytes))).await.is_err() {
+                        gone = true;
+                        break;
                     }
-                    let _ = tx.send(Ok(Bytes::from(bytes))).await;
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -914,9 +1006,27 @@ fn answer(call: Call, upstream: Upstream) -> Response {
                 }
             }
         }
+        // A caller that hung up may have had all it wanted of an answer that was at its end: the answer is read on for a
+        // moment, and one that ends then is booked as answered. Otherwise the call is abandoned: its connection to the
+        // gateway is closed at once, before the booking, so the gateway stops it.
+        let abandoned = gone && {
+            let rest = tokio::time::timeout(HUNG_UP_GRACE, async {
+                loop {
+                    match body.next().await {
+                        Ok(Some(bytes)) => keep(&mut kept, &bytes),
+                        Ok(None) => return true,
+                        Err(_) => return false,
+                    }
+                }
+            });
+            !matches!(rest.await, Ok(true))
+        };
+        drop(body);
         let usage = usage_of(&kept);
         let secrets = [call.route.token.as_deref().unwrap_or("")];
-        let failed = if status >= 400 {
+        let failed = if abandoned {
+            Some(Failed::abandoned())
+        } else if status >= 400 {
             Some(Failed::answered(status, &kept, &secrets))
         } else {
             broken.map(|why| Failed::unavailable(ANSWER_BROKEN, why)).or_else(|| Failed::streamed(&kept, &secrets))

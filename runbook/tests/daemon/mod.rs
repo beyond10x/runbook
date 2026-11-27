@@ -66,3 +66,4 @@ mod bound_step;
 mod adversary_w5;
 mod serial_key;
 mod adversary_w6;
+mod adversary_late_call;
