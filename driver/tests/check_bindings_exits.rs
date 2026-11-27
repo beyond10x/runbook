@@ -557,7 +557,7 @@ fn adversary_an_alias_expansion_route_file_does_not_hold_the_exits_step() {
     let mut text = String::from("format: runbook.routes/1\na0: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
     for i in 1..=6 {
         let p = format!("*a{}", i - 1);
-        text.push_str(&format!("a{i}: &a{i} [{}]\n", vec![p.as_str(); 10].join(", ")));
+        text.push_str(&format!("a{i}: &a{i} [{}]\n", [p.as_str(); 10].join(", ")));
     }
     let root = root_in("adv-route-alias-expansion");
     fs::write(root.join("bindings/example.yaml"), GOOD).unwrap();
