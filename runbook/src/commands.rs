@@ -25,6 +25,8 @@ pub const MAX_INTAKE_BYTES: usize = 1_048_576;
 /// The outcome of a run that ended because the runtime held no live run of it when the daemon started
 /// again: the cause, in the `outcome` of the run (`EndOrphanedRun` sets this literal).
 pub const ORPHANED: &str = "orphaned";
+/// The run event that says a run is ended `orphaned`, written just before its end.
+const RUN_ORPHANED: &str = "runbook.run-orphaned";
 /// The reason of `runbook.run-orphaned` when the runtime holds no run of the id at the next start.
 pub const ORPHANED_AT_START: &str = "the daemon started again and the runtime holds no live run of this id";
 /// The reason of `runbook.run-orphaned` when the daemon ends while the run lives (a second stop signal,
@@ -870,23 +872,81 @@ pub const WAKE_CAP_REACHED: &str = "wake cap reached";
 /// The reason of a wake that was not sent because a wake of the same route was sent within the route's wait.
 pub const WAKE_JOINED: &str = "joined a wake sent within the wait";
 
-/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis`, from the run events
-/// `runbook.route-wake` of every run (the journal, so a daemon started again finds it): its run and its instant.
-fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
-    st.events_after(None, None, 0)
-        .into_iter()
-        .rev()
-        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route)
-        .find_map(|e| {
-            let at = crate::clock::parse_instant(&e.at)?;
-            (at <= now_millis && now_millis - at < wait_millis).then(|| (e.run_id.clone(), e.at.clone()))
-        })
+/// A wake of a route a run sent, from the journal: its `runbook.route-wake` and the answer the daemon wrote for it.
+struct SentWake<'a> {
+    run_id: &'a str,
+    at: &'a str,
+    record: &'a Value,
+    /// The record of the answer to this wake: the run's next `runbook.route-wake-answered` of the same route (a run sends
+    /// one wake of a route at a time), or, when the run was closed before the answer came, the daemon's line
+    /// `route.wake-answered` of that run and route. None while the wake is out, and for a wake whose daemon went away
+    /// before its answer came.
+    answer: Option<&'a Value>,
 }
+
+/// The sent wakes of `route` of every run, in the order of the journal, each with its answer.
+fn sent_wakes<'a>(st: &'a State, route: &str) -> Vec<SentWake<'a>> {
+    let mut wakes: Vec<SentWake<'a>> = Vec::new();
+    // of each run, the indexes of its wakes not yet answered, oldest first
+    let mut out: HashMap<&'a str, std::collections::VecDeque<usize>> = HashMap::new();
+    for e in st.events_after(None, None, 0) {
+        if e.record["route"] != route {
+            continue;
+        }
+        if e.kind == ROUTE_WAKE && e.record["sent"] == true {
+            out.entry(e.run_id.as_str()).or_default().push_back(wakes.len());
+            wakes.push(SentWake { run_id: &e.run_id, at: &e.at, record: &e.record, answer: None });
+        } else if e.kind == ROUTE_WAKE_ANSWERED {
+            if let Some(i) = out.get_mut(e.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
+                wakes[i].answer = Some(&e.record);
+            }
+        }
+    }
+    // an answer that came after its run was closed: the run sends no wake after it, so it answers the run's wake still out
+    for a in st.wake_answers().iter().filter(|a| a.record["route"] == route) {
+        if let Some(i) = out.get_mut(a.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
+            wakes[i].answer = Some(&a.record);
+        }
+    }
+    wakes
+}
+
+/// Whether the run `run_id` is live.
+fn run_lives(st: &State, run_id: &str) -> bool {
+    st.run(run_id).is_some_and(|r| r.state.is_live())
+}
+
+/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis` and that may still start the
+/// model, from the run events of every run (the journal, so a daemon started again finds it): its run and its instant.
+/// A wake may start the model when the gateway took it (a 2xx), and while its run lives and its answer is not in or
+/// was one the run sends the wake again on (a 5xx, no answer). A wake answered `spend-ceiling` is joined too: its answer
+/// ends the run that joins it. A wake answered otherwise (a 4xx), or whose run ended without a 2xx (also one whose
+/// daemon went away before its answer came: nothing says the gateway took it), is not joined.
+fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
+    sent_wakes(st, route).into_iter().rev().find_map(|w| {
+        let at = crate::clock::parse_instant(w.at)?;
+        let within = at <= now_millis && now_millis - at < wait_millis;
+        let joinable = match w.answer {
+            Some(a) if wake_taken(a) || a["code"] == crate::routes::SPEND_CEILING => true,
+            Some(a) => a["status"].as_u64().is_none_or(|s| s >= 500) && run_lives(st, w.run_id),
+            None => run_lives(st, w.run_id),
+        };
+        (within && joinable).then(|| (w.run_id.to_owned(), w.at.to_owned()))
+    })
+}
+
+/// How long a run that sent a wake the gateway could not serve waits before it sends it again, in milliseconds of the
+/// daemon's clock (`docs/model-routes.md`, section 3 point 4): within the run's wait for its route, never past it.
+pub const WAKE_AGAIN_AFTER_MILLIS: i64 = 30_000;
 
 /// What a wake of [`Daemon::wake_route`] came to for the run.
 enum Woke {
-    /// Sent and answered other than `spend-ceiling`, or not sent (no cap, the cap reached, a booking not written).
+    /// Sent and answered other than `spend-ceiling`, a 5xx or no answer, or not sent (no cap, the cap reached, a booking
+    /// not written).
     Sent,
+    /// Sent and answered a 5xx other than `spend-ceiling`, or not answered in time: it booked nothing, and the run sends
+    /// it again after [`WAKE_AGAIN_AFTER_MILLIS`] within its wait.
+    Failed,
     /// The gateway answered `spend-ceiling`.
     Ceiling,
     /// The run joined the wake the named run sent within the route's wait.
@@ -895,17 +955,124 @@ enum Woke {
 
 /// Whether the gateway answered the wake the run `run` sent for `route` with `spend-ceiling`.
 fn answered_ceiling(st: &State, run: &str, route: &str) -> bool {
-    st.events_after(Some(run), None, 0).iter().any(|e| e.kind == ROUTE_WAKE_ANSWERED && e.record["route"] == route && e.record["code"] == crate::routes::SPEND_CEILING)
+    let ceiling = |record: &Value| record["route"] == route && record["code"] == crate::routes::SPEND_CEILING;
+    st.events_of(run).any(|e| e.kind == ROUTE_WAKE_ANSWERED && ceiling(&e.record)) || st.wake_answers().iter().any(|a| a.run_id == run && ceiling(&a.record))
+}
+
+/// Whether the record of a `runbook.route-wake-answered` says the gateway took the wake: a 2xx answer.
+fn wake_taken(answer: &Value) -> bool {
+    answer["status"].as_u64().is_some_and(|s| (200..300).contains(&s))
 }
 
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
-/// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them.
+/// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them. A wake
+/// books only when the gateway took it: its answer ([`SentWake::answer`], also one that came after its run was closed)
+/// is a 2xx; a 5xx, a 4xx or no answer within the bound books nothing. A wake whose answer is not written stays booked:
+/// while it is out, so two runs cannot both pass the cap while their wakes are out, and for good when the daemon went
+/// away before its answer came (killed with the wake out): the gateway may have taken it, and the cap counts more,
+/// never less (decision D11 of the unit's coordinator).
 fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
-    st.events_after(None, None, 0)
+    sent_wakes(st, route)
         .into_iter()
-        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route && e.record["day"] == day)
-        .filter_map(|e| e.record["cost_micro_usd"].as_u64())
+        .filter(|w| w.record["day"] == day && w.answer.is_none_or(wake_taken))
+        .filter_map(|w| w.record["cost_micro_usd"].as_u64())
         .fold(0u64, u64::saturating_add)
+}
+
+/// The run event of a read of the pod of a priced managed route that changed whether a run that takes the route has
+/// the pod: ready or not (record: route, phase). The daemon reads such a route while a started run takes it.
+pub const ROUTE_POD_PHASE: &str = "runbook.route-pod-phase";
+/// The run event of the run's share of the pod's time of a priced managed route, written just before the run ends
+/// (record: route, pod_millis, share_millis, price_per_hour_micro_usd, cost_micro_usd).
+pub const ROUTE_POD_TIME: &str = "runbook.route-pod-time";
+
+/// The pod's price per hour of `name` when it is a managed route that declares one (`price_per_hour_micro_usd`).
+fn pod_price(routes: &crate::routes::RouteTable, name: &str) -> Option<u64> {
+    routes.route(name).filter(|r| r.kind == crate::routes::RouteKind::Managed).and_then(|r| r.wake.price_per_hour_micro_usd)
+}
+
+/// Whether the run takes `route`: as its route or as the route of one of its roles.
+fn takes_route(run: &Run, route: &str) -> bool {
+    run.model_route.as_ref().is_some_and(|r| r.route == route || r.roles.values().any(|v| v == route))
+}
+
+/// The uses of the pod of `route` ([`crate::pod_time`]) by the runs that started on it and whose time on it meets
+/// `[from, to)`, in submit order, each with its run's id. A live run uses it up to `to`, any other run up to its end:
+/// a run the daemon ended `orphaned` (at its stop, or at a restart that found it live) up to that mark, so the time
+/// while no daemon read the pod counts against the cap, never less. The reads of the pod while a run lived
+/// (`runbook.route-pod-phase`) cut its use.
+fn pod_uses(st: &State, route: &str, from: i64, to: i64) -> Vec<(String, crate::pod_time::Uses)> {
+    st.runs()
+        .iter()
+        .filter(|r| takes_route(r, route))
+        .filter_map(|r| {
+            let start = parse_instant(r.started_at.as_deref()?)?;
+            if start >= to {
+                return None;
+            }
+            let end = r.ended_at.as_deref().and_then(parse_instant).unwrap_or(to).clamp(start, to.max(start));
+            if end <= from {
+                return None;
+            }
+            let reads: Vec<(i64, bool)> = st.events_of(&r.run_id).filter(|e| e.kind == ROUTE_POD_PHASE && e.record["route"] == route).filter_map(|e| Some((parse_instant(&e.at)?, e.record["phase"] == "ready"))).collect();
+            Some((r.run_id.clone(), crate::pod_time::uses_of(start, end, &reads)))
+        })
+        .collect()
+}
+
+/// What the pod's time of `route` at `price` per hour booked on `day` (the date, UTC) up to `now`: each run's share of
+/// the time inside the day ([`crate::pod_time::shares`]) at the price, rounded up per run.
+fn pod_booked(st: &State, route: &str, price: u64, day: &str, now: i64) -> u64 {
+    let Some(from) = parse_instant(&format!("{day}T00:00:00Z")) else { return 0 };
+    let to = from.saturating_add(86_400_000).min(now);
+    if to <= from {
+        return 0;
+    }
+    let uses: Vec<crate::pod_time::Uses> = pod_uses(st, route, from, to).into_iter().map(|(_, u)| u).collect();
+    crate::pod_time::shares(&uses, from, to).into_iter().map(|millis| crate::pod_time::cost(millis, price)).fold(0u64, u64::saturating_add)
+}
+
+/// Writes the run's share of the pod's time of each priced managed route it takes, up to `until` (its end), in the run
+/// event `runbook.route-pod-time`, just before it ends. A run that never started took no time.
+fn record_pod_time_locked(st: &mut State, routes: &crate::routes::RouteTable, run_id: &str, until: i64) {
+    let Some(run) = st.run(run_id) else { return };
+    let Some(start) = run.started_at.as_deref().and_then(parse_instant) else { return };
+    let Some(record) = run.model_route.clone() else { return };
+    let mut names: Vec<String> = std::iter::once(record.route).chain(record.roles.into_values()).collect();
+    names.sort();
+    names.dedup();
+    for name in names {
+        let Some(price) = pod_price(routes, &name) else { continue };
+        let uses = pod_uses(st, &name, start, until);
+        let Some(at) = uses.iter().position(|(r, _)| r == run_id) else { continue };
+        let uses: Vec<crate::pod_time::Uses> = uses.into_iter().map(|(_, u)| u).collect();
+        let share = crate::pod_time::shares(&uses, start, until)[at];
+        let pod = crate::pod_time::length(&uses[at], start, until);
+        let record = json!({"route": name, "pod_millis": pod, "share_millis": share, "price_per_hour_micro_usd": price, "cost_micro_usd": crate::pod_time::cost(share, price)});
+        let _ = record_event_locked(st, run_id, ROUTE_POD_TIME, record);
+    }
+}
+
+/// The thread that reads the pods of the priced managed routes while runs use them ([`Daemon::read_pods`]), until the
+/// daemon stops or is gone: it holds the daemon only for one look, and looks at most once a second of the daemon's
+/// clock (a look walks the runs).
+fn watch_pods(inner: &std::sync::Weak<Inner>) {
+    let mut read_at: HashMap<String, i64> = HashMap::new();
+    let mut looked_at: Option<i64> = None;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let Some(inner) = inner.upgrade() else { return };
+        let d = Daemon { inner };
+        if d.is_stopping() {
+            return;
+        }
+        let now = d.st().now_millis();
+        if looked_at.is_some_and(|at| now >= at && now < at.saturating_add(1_000)) {
+            continue;
+        }
+        looked_at = Some(now);
+        d.read_pods(&mut read_at);
+    }
 }
 
 /// Why a route of the run cannot take it at the submit.
@@ -1109,7 +1276,53 @@ impl Daemon {
         }
         d.mark_orphans().map_err(|f| io::Error::other(format!("{f:?}")))?;
         d.requeue();
+        // the pods of the priced managed routes are read while runs use them
+        if d.inner.policy.routes.routes().any(|r| pod_price(&d.inner.policy.routes, &r.name).is_some()) {
+            let inner = Arc::downgrade(&d.inner);
+            let handle = std::thread::Builder::new().name("pod-reads".into()).spawn(move || watch_pods(&inner))?;
+            lock(&d.inner.threads).push(handle);
+        }
         Ok(d)
+    }
+
+    /// One look at the pods of the priced managed routes (`docs/daemon-api.md`, "The pod's time of a managed route"): a
+    /// route that a started, live run takes is read every [`ROUTE_READ_EVERY_MILLIS`] of the daemon's clock, the first
+    /// time that long after the earliest start of those runs, and a read that changes whether a run has the pod (ready
+    /// or not) is that run's event `runbook.route-pod-phase`. A read that gives no status of the model changes nothing.
+    fn read_pods(&self, read_at: &mut HashMap<String, i64>) {
+        let routes = &self.inner.policy.routes;
+        for route in routes.routes().filter(|r| pod_price(routes, &r.name).is_some()) {
+            let (now, users) = {
+                let st = self.st();
+                // each live run that started on the route, its start, and whether its last read said the pod is ready
+                let users: Vec<(String, i64, bool)> = st
+                    .runs()
+                    .iter()
+                    .filter(|r| r.state.is_live() && takes_route(r, &route.name))
+                    .filter_map(|r| {
+                        let start = parse_instant(r.started_at.as_deref()?)?;
+                        let ready = st.events_of(&r.run_id).filter(|e| e.kind == ROUTE_POD_PHASE && e.record["route"] == route.name.as_str()).last().is_none_or(|e| e.record["phase"] == "ready");
+                        Some((r.run_id.clone(), start, ready))
+                    })
+                    .collect();
+                (st.now_millis(), users)
+            };
+            let Some(first) = users.iter().map(|u| u.1).min() else { continue };
+            let since = read_at.get(&route.name).copied().unwrap_or(first).max(first);
+            if now < since.saturating_add(ROUTE_READ_EVERY_MILLIS) {
+                continue;
+            }
+            read_at.insert(route.name.clone(), now);
+            // a phase only from a status the gateway answered: no answer, a gateway not ready, an alias it no longer lists
+            // or a status route that failed says nothing of the pod
+            let Some(phase) = routes.pod_phase(&route.name, std::time::Instant::now() + crate::routes::READ_BOUND) else { continue };
+            let ready = phase == "ready";
+            let mut st = self.st();
+            for (run, _, _) in users.into_iter().filter(|u| u.2 != ready) {
+                // a run that ended since takes no event
+                let _ = record_event_locked(&mut st, &run, ROUTE_POD_PHASE, json!({"route": route.name, "phase": phase}));
+            }
+        }
     }
 
     fn st(&self) -> MutexGuard<'_, State> {
@@ -1237,7 +1450,7 @@ impl Daemon {
 
     fn end_orphaned_run_because(&self, run_id: &str, reason: &str) -> Reply {
         let mut st = self.st();
-        let out = end_orphaned_run_locked(&mut st, run_id, reason)?;
+        let out = end_orphaned_run_locked(&mut st, &self.inner.policy.routes, run_id, reason)?;
         if !out.is_refusal() {
             let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
             for request_id in open {
@@ -1731,6 +1944,9 @@ impl Daemon {
         }
         record_event_locked(&mut st, &id, "runbook.cancel-requested", json!({"run_id": id}))?;
         let now = st.now();
+        if let Some(until) = parse_instant(&now) {
+            record_pod_time_locked(&mut st, &self.inner.policy.routes, &id, until);
+        }
         st.commit(Fact::RunCancelled { run_id: id.clone(), at: now })?;
         let open: Vec<String> = st.open_decisions_of(&id).iter().map(|d| d.request_id.clone()).collect();
         for request_id in open {
@@ -1918,6 +2134,10 @@ impl Daemon {
             None => Ok(refuse("end-run", "no-run", json!({"run_id": run_id}))),
             Some(RunState::Running) => {
                 let now = st.now();
+                // the run's share of the pod's time of a priced managed route, up to its end
+                if let Some(until) = parse_instant(&now) {
+                    record_pod_time_locked(&mut st, &self.inner.policy.routes, run_id, until);
+                }
                 st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: outcome.to_string(), at: now })?;
                 Ok(done("end-run", "ended", vec![("RunEnded", json!({"run_id": run_id, "outcome": outcome}))]))
             }
@@ -2432,12 +2652,15 @@ impl Daemon {
         };
         // the wakes this run joined: route, phase and the run that sent the wake
         let mut joined: Vec<(String, Option<String>, String)> = Vec::new();
+        // the wakes the gateway did not serve: route, phase and when to send it again
+        let mut again: Vec<(String, Option<String>, i64)> = Vec::new();
         for (name, phase) in &wait.wake {
             if cancel.load(Ordering::SeqCst) || self.is_stopping() {
                 return false;
             }
-            match self.wake_route(run_id, name) {
+            match self.wake_route(run_id, name, false) {
                 Woke::Sent => {}
+                Woke::Failed => again.push((name.clone(), phase.clone(), self.st().now_millis().saturating_add(WAKE_AGAIN_AFTER_MILLIS))),
                 Woke::Ceiling => return ceiling(name, phase),
                 Woke::Joined(run) => joined.push((name.clone(), phase.clone(), run)),
             }
@@ -2472,6 +2695,24 @@ impl Daemon {
             if now >= deadline {
                 let _ = self.end_route_wait(run_id, Some(&route), phase.as_deref());
                 return false;
+            }
+            // a wake the gateway did not serve is sent again after its pause, before the wait is over, while the gateway
+            // still gives the model as stopped (a model another wake is starting is not woken again)
+            for (name, phase, next) in &mut again {
+                if now < *next {
+                    continue;
+                }
+                let until = std::time::Instant::now() + crate::routes::READ_BOUND;
+                let stopped = matches!(self.inner.policy.routes.readiness(name, until), Some(crate::routes::Readiness::NotCallable { phase: Some(p) }) if p == "stopped");
+                if !stopped {
+                    *next = now.saturating_add(WAKE_AGAIN_AFTER_MILLIS);
+                    continue;
+                }
+                match self.wake_route(run_id, name, true) {
+                    Woke::Failed => *next = self.st().now_millis().saturating_add(WAKE_AGAIN_AFTER_MILLIS),
+                    Woke::Ceiling => return ceiling(name, phase),
+                    Woke::Sent | Woke::Joined(_) => *next = i64::MAX,
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
@@ -2531,8 +2772,10 @@ impl Daemon {
     /// run event `runbook.route-wake`; a wake the rest of the day's cap does not cover is not sent and the event says
     /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. [`Woke::Ceiling`] when the
     /// gateway answered `spend-ceiling`: the run stops; [`Woke::Joined`] names the run whose wake this run joined, whose
-    /// answer is this run's too.
-    fn wake_route(&self, run_id: &str, name: &str) -> Woke {
+    /// answer is this run's too. A wake the gateway did not take (not a 2xx) books nothing (`wakes_booked`);
+    /// [`Woke::Failed`] when it answered a 5xx other than `spend-ceiling` or nothing in time: the run's wait sends it
+    /// again (`again`: a try of the run's own after a failed one, which joins no wake).
+    fn wake_route(&self, run_id: &str, name: &str, again: bool) -> Woke {
         let routes = &self.inner.policy.routes;
         let Some(route) = routes.route(name) else { return Woke::Sent };
         let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return Woke::Sent };
@@ -2540,15 +2783,21 @@ impl Daemon {
         {
             let mut st = self.st();
             // a wake sent for the route within its wait is still starting the model: the run joins it and books nothing
-            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis) {
+            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis).filter(|_| !again) {
                 let record = json!({"route": name, "sent": false, "reason": WAKE_JOINED, "joined": run, "joined_at": at});
                 let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE, record);
                 return Woke::Joined(run);
             }
             let day: String = st.now().chars().take(10).collect();
-            let booked = wakes_booked(&st, name, &day);
+            // the day's cap counts the pod's time of a priced route too, its runs that still live up to now
+            let price = pod_price(routes, name);
+            let pod = price.map_or(0, |price| pod_booked(&st, name, price, &day, st.now_millis()));
+            let booked = wakes_booked(&st, name, &day).saturating_add(pod);
             let fits = booked.checked_add(cost).is_some_and(|total| total <= cap);
             let mut record = json!({"route": name, "sent": fits, "day": day, "cost_micro_usd": cost, "booked_micro_usd": if fits { booked + cost } else { booked }, "cap_micro_usd": cap});
+            if price.is_some() {
+                record["pod_micro_usd"] = json!(pod);
+            }
             if !fits {
                 record["reason"] = json!(WAKE_CAP_REACHED);
             }
@@ -2562,9 +2811,20 @@ impl Daemon {
         if let Some(code) = &answer.code {
             record["code"] = json!(code);
         }
-        let _ = self.record_run_event(run_id, ROUTE_WAKE_ANSWERED, record);
+        {
+            // a run closed while its wake was out takes no event: the answer is the daemon's line, so the booking sees it
+            let mut st = self.st();
+            if run_lives(&st, run_id) {
+                let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE_ANSWERED, record);
+            } else {
+                let at = st.now();
+                let _ = st.commit(Fact::RouteWakeAnswered(crate::state::WakeAnswer { run_id: run_id.to_owned(), record, at }));
+            }
+        }
         if answer.code.as_deref() == Some(crate::routes::SPEND_CEILING) {
             Woke::Ceiling
+        } else if answer.status.is_none_or(|s| s >= 500) {
+            Woke::Failed
         } else {
             Woke::Sent
         }
@@ -2895,14 +3155,18 @@ fn take_key_locked(st: &mut State, run_id: &str) -> Reply {
     }
 }
 
-fn end_orphaned_run_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
+fn end_orphaned_run_locked(st: &mut State, routes: &crate::routes::RouteTable, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("end-orphaned-run", "no-run", json!({"run_id": run_id}))),
         Some(state @ (RunState::Running | RunState::WaitingOnDecision)) => {
             // The run's stream says so while the run is still live (a closed run takes no event).
             let record = json!({"run_id": run_id, "state": state.as_str(), "reason": reason});
-            record_event_locked(st, run_id, "runbook.run-orphaned", record)?;
+            record_event_locked(st, run_id, RUN_ORPHANED, record)?;
             let now = st.now();
+            // its share of the pod's time of a priced managed route runs to this mark (`pod_uses`)
+            if let Some(until) = parse_instant(&now) {
+                record_pod_time_locked(st, routes, run_id, until);
+            }
             st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: now })?;
             Ok(done("end-orphaned-run", "orphaned", vec![("RunOrphaned", json!({"run_id": run_id}))]))
         }
