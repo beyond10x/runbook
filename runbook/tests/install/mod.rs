@@ -17,6 +17,7 @@ mod half_install;
 mod installed_path;
 mod modes;
 mod refused_prefixes;
+mod release_workflow;
 mod rules;
 mod slow;
 mod stale_build;
