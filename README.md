@@ -188,7 +188,9 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.14.0 over 0.13.0 (nothing is unreleased): a release tag builds gnu and static musl archives of an installed
+- Unreleased since 0.14.0 (`CHANGELOG.md`, [Unreleased]): the aep pin is aep 0.81.0, which has static musl archives,
+  and a musl `sdc-conform` installs the musl aep.
+- New in 0.14.0 over 0.13.0: a release tag builds gnu and static musl archives of an installed
   prefix ([docs/releasing.md](docs/releasing.md), "The archives"); `runbook` links Loom 0.63.0; a failed model call
   booked after its step ended no longer fails a run, and a caller that hangs up ends its call at the gateway; a case of
   a run ended at a cap shows the cap and not `Stuck`; the bindings checks leave out route files. One change is

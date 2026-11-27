@@ -33,12 +33,13 @@ mimalloc is the global allocator of a musl build of `runbook` only (musl's own a
 allocates much): the cargo feature `mimalloc` of `runbook/Cargo.toml`, on by default, adds the crate only for a
 `musl` target, so the gnu build compiles and links no mimalloc. `--no-default-features` turns it off.
 
-The `sdc-conform` of the musl archive installs a pinned tool's `<arch>-unknown-linux-musl` build when the pin names
-one, and the `-linux-gnu` build when it does not (`conformance::platform_for` in `driver/src/conformance.rs`). The aep
-pin (`driver/aep-pin.json`, aep 0.81.0) names both musl archives, so `sdc-conform aep-install` installs a static aep
-that needs no glibc (`driver/tests/aep_pin.rs`, `a_musl_build_takes_the_pinned_musl_aep`). The ess pin
-(`driver/ess-pin.json`, ess 0.98.0) names none, because that ess release has none: `sdc-conform ess-install`
-installs the gnu ess, which needs glibc.
+A musl build of `sdc-conform` installs a pinned tool's `<arch>-unknown-linux-musl` build when the pin names one, and
+the `-linux-gnu` build when it does not (`conformance::platform_for` in `driver/src/conformance.rs`). The aep pin
+(`driver/aep-pin.json`, aep 0.81.0) names both musl archives, so its `aep-install` installs a static aep that needs
+no glibc (`driver/tests/aep_pin.rs`, `a_musl_build_takes_the_pinned_musl_aep`). The ess pin (`driver/ess-pin.json`,
+ess 0.98.0) names none, because that ess release has none: `ess-install` installs the gnu ess, which needs glibc. The
+archives ship no pin file: the `sdc-conform` of an archive reads `driver/aep-pin.json` from the directory it starts
+in, so it runs from the root of a checkout or with `--pin <checkout>/driver/aep-pin.json`.
 
 A pull request that changes the workflow, a `Cargo.toml`, a `Cargo.lock` or `rust-toolchain.toml` runs the musl job
 once (build, layout, static and Alpine checks) and uploads nothing. The workflow is no required check.
