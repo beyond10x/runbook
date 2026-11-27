@@ -1962,6 +1962,40 @@ fn the_prompt_of_a_step_of_a_generated_protocol_is_its_golden_byte_for_byte() {
     }
 }
 
+/// The agent node of a delegation that changes a repository (`delegation.change`, `runbook/src/delegation.rs`) works in
+/// the run's worktree, which the daemon names in `RUNBOOK_WORKTREE`: the request is the task, the call's working
+/// directory is that tree, and nothing of the call (no `in/`, no `out/`) is written into it; its prompt is its golden
+/// byte for byte. Without the variable, or with a path that is no directory, the model is not called.
+#[test]
+fn the_agent_node_of_a_change_delegation_works_in_the_worktree_and_its_prompt_is_its_golden() {
+    let root = fresh("golden-delegation-change");
+    let work = root.join("work");
+    put(&work, "request.yaml", "text: Add a line to README.md.\n");
+    put(&root, "tree/README.md", "a repository\n");
+    let node = || start("delegation.change").with(&["--adapter", "true", "--instructions", r#"{"task":"instructions/delegation.change.md"}"#]);
+    let mut s = node().env(&[("RUNBOOK_WORKTREE", "{root}/tree")]);
+    s.binding = false;
+    let o = spawn(&root, &s, "delegation-change");
+    let rec = work.join(".sdc/llm/001-delegation.change");
+    let text = fs::read_to_string(rec.join("prompt.md")).unwrap_or_else(|_| panic!("no prompt.md: {}", String::from_utf8_lossy(&o.stderr)));
+    assert!(text.contains("Add a line to README.md."), "{text}");
+    compare("llm-node", "delegation.change", &text);
+    let request: serde_json::Value = serde_json::from_str(&fs::read_to_string(rec.join("request.json")).unwrap()).unwrap();
+    assert_eq!(request["cwd"], serde_json::json!(root.join("tree").display().to_string()), "the call does not work in the worktree");
+    let mut in_tree: Vec<String> = fs::read_dir(root.join("tree")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    in_tree.sort();
+    assert_eq!(in_tree, ["README.md"], "the call wrote into the worktree");
+    for (tag, env) in [("none", vec![]), ("file", vec![("RUNBOOK_WORKTREE", "{root}/work/request.yaml")]), ("relative", vec![("RUNBOOK_WORKTREE", "tree")])] {
+        let root = fresh(&format!("golden-delegation-change-{tag}"));
+        put(&root.join("work"), "request.yaml", "text: Add a line.\n");
+        let mut s = node().env(&env);
+        s.binding = false;
+        let o = spawn(&root, &s, "delegation-change");
+        assert_eq!(o.status.code(), Some(126), "{tag}: {}", String::from_utf8_lossy(&o.stderr));
+        assert!(String::from_utf8_lossy(&o.stderr).contains("RUNBOOK_WORKTREE"), "{tag}: {}", String::from_utf8_lossy(&o.stderr));
+    }
+}
+
 /// The prompt of `change.implement` in Loom mode, on the story of two requirements.
 fn implement_prompt(name: &str, more: &dyn Fn(&Path), env: &[(&str, &str)]) -> String {
     prompt(name, "change.implement", &|root| {

@@ -92,6 +92,9 @@ pub struct Policy {
     /// The route `default` of a lone `[gateway]` table (the model decider's model as its alias), the route of a model
     /// run on a daemon whose file declares no route, as before routes; none without such a table.
     pub gateway_route: Option<crate::relay::RouteTable>,
+    /// `[repositories.<name>]` of the daemon's `runbook.toml`: the repositories a delegation may change (`crate::handback`);
+    /// empty: a delegation that names one is refused.
+    pub repositories: Arc<crate::handback::Repositories>,
 }
 
 /// The configured kinds as a sentence part.
@@ -273,6 +276,7 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("delegate", "route-refused", 422, Some("RouteRefused")),
     o("delegate", "no-runbook", 422, Some("NoSuchRunbook")),
     o("delegate", "context-outside-roots", 422, Some("ContextOutsideRoots")),
+    o("delegate", "repository-refused", 422, Some("RepositoryRefused")),
     o("delegate", "no-daemon", 409, Some("NoSuchDaemon")),
     o("delegate", "no-session", 409, Some("NoSuchSession")),
     o("delegate", "session-closed", 409, Some("SessionClosedToRuns")),
@@ -780,6 +784,11 @@ pub struct Delegate {
     /// The session's label (`RUNBOOK_CALLER` of the session `runbook mcp` serves), recorded in `runbook.delegated`.
     #[serde(default)]
     pub caller_label: Option<String>,
+    /// The repository the delegation changes, by the name of its entry in `runbook.toml` (`[repositories.<name>]`, never a
+    /// path): the run is the protocol `delegation-change`, working in a worktree of it, and its change is pushed as the branch
+    /// `runbook/<run-id>` when it delivers (`crate::handback`). None: the run changes no repository.
+    #[serde(default)]
+    pub repository: Option<String>,
 }
 
 /// A run its command admitted: what `Daemon::enter` writes and starts.
@@ -1491,6 +1500,7 @@ impl Daemon {
             routes: a.route.map(|(_, table)| table),
             model_route: a.delegation,
             admit,
+            worktree: None,
         };
         self.spawn_run(request, a.wait);
         Ok(())
@@ -1561,6 +1571,7 @@ impl Daemon {
             routes,
             model_route: delegated,
             admit,
+            worktree: None,
         })
     }
 
@@ -1597,8 +1608,12 @@ impl Daemon {
         let refused = |name: &'static str, payload: Value| -> Reply { Ok(refuse("delegate", name, payload)) };
         // The path (docs/model-routes.md, section 9): a named runbook; the free run, asked for by its name or taken by a delegation
         // that names none on a daemon without a classifier route; else none yet: the run classifies the request when it starts.
-        use crate::delegation::{CLASSIFY_RUNBOOK, FREE_RUNBOOK};
+        use crate::delegation::{CHANGE_RUNBOOK, CLASSIFY_RUNBOOK, FREE_RUNBOOK};
+        // A delegation that changes a repository (`crate::handback`) names an entry of runbook.toml and runs the daemon's
+        // protocol delegation-change at the level local, from the entry's base resolved to a commit now.
+        let change = input.repository.as_deref().map(|named| self.repository_for(named, input.protocol.as_deref(), confinement));
         let (runbook_id, path) = match input.protocol.as_deref() {
+            _ if change.is_some() => (CHANGE_RUNBOOK.to_owned(), Some("change")),
             Some(FREE_RUNBOOK) => (FREE_RUNBOOK.to_owned(), Some("free")),
             Some(p) => (p.to_owned(), Some("named")),
             None if self.inner.runtime.classifies() => (CLASSIFY_RUNBOOK.to_owned(), None),
@@ -1606,6 +1621,8 @@ impl Daemon {
         };
         let runbook_known = match (path, input.protocol.as_deref()) {
             (Some("named"), Some(p)) => self.runbook_known(p, None),
+            // the runtime of a change is checked by `repository_for`, which names why it refuses
+            (Some("change"), _) => true,
             (Some(_), _) => self.inner.runtime.free_run(),
             (None, _) => true,
         };
@@ -1633,6 +1650,11 @@ impl Daemon {
         if matches!(context, Some(None)) {
             return refused("context-outside-roots", json!({"run_id": run_id}));
         }
+        let change = match change {
+            None => None,
+            Some(Ok(change)) => Some(change),
+            Some(Err(reason)) => return refused("repository-refused", json!({"run_id": run_id, "reason": reason})),
+        };
         let context_dir = context.flatten();
         let mut settings = input.settings.clone();
         match self.inner.runtime.resolve_caps(&settings) {
@@ -1696,6 +1718,11 @@ impl Daemon {
             }
         }
         delegated["run_id"] = json!(run_id);
+        // the repository and the commit the run's branch starts from are the run's record, read when its run starts
+        if let Some((entry, base)) = &change {
+            event["repository"] = json!(entry.name);
+            event["base"] = json!(base);
+        }
         let admitted = Admitted {
             run_id: run_id.clone(),
             runbook_id: runbook_id.clone(),
@@ -2142,6 +2169,18 @@ impl Daemon {
             put(&mut m, "route_phase", &run.route_phase);
             m.insert("confidence".into(), Value::Null);
             m.extend(delegation_of(&events).unwrap_or_default());
+            // a delegation that changes a repository: the repository, and once its run delivered the branch and the commit
+            // it pushed, or why the hand-back pushed nothing (`crate::handback`)
+            if let Some(name) = delegated.record.get("repository").filter(|v| v.is_string()) {
+                m.insert("repository".into(), name.clone());
+            }
+            if let Some(e) = events.iter().rev().find(|e| e.kind == crate::handback::HANDED_BACK_EVENT) {
+                m.insert("branch".into(), e.record["branch"].clone());
+                m.insert("commit".into(), e.record["commit"].clone());
+            }
+            if let Some(e) = events.iter().rev().find(|e| e.kind == crate::handback::REFUSED_EVENT) {
+                m.insert("handback_refused".into(), e.record["reason"].clone());
+            }
             m.insert("calls".into(), json!(calls));
             m.insert("input_tokens".into(), json!(input_tokens));
             m.insert("output_tokens".into(), json!(output_tokens));
@@ -2330,6 +2369,10 @@ impl Daemon {
         if self.inner.runtime.free_run() {
             paths.push("free");
         }
+        // a daemon whose runbook.toml lists repositories takes a delegation that changes one (`crate::handback`)
+        if self.inner.runtime.free_run() && !self.inner.policy.repositories.is_empty() {
+            paths.push("change");
+        }
         // a daemon with a classifier route classifies a delegation that names no protocol (section 9): it runs the runbook
         // the classifier picked, or builds one, whose agent node is the free run's
         if self.inner.runtime.classifies() {
@@ -2395,6 +2438,52 @@ impl Daemon {
         let Some(dir) = &self.inner.cfg.runbook_dir else { return false };
         let plain = !name.is_empty() && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
         plain && version.is_none() && (dir.join(name).is_dir() || dir.join(format!("{name}.protocol.yaml")).is_file())
+    }
+
+    /// The entry a delegation's `repository` names and its base as a commit, read at the submit; `Err` is the reason of
+    /// `repository-refused`: not an entry (or a path in place of a name), a protocol beside it, a level that is not
+    /// `local` (the first slice serves `local` only), or a base that names no commit of the checkout.
+    fn repository_for(&self, named: &str, protocol: Option<&str>, confinement: Confinement) -> Result<(crate::handback::Repository, String), String> {
+        if let Some(why) = crate::handback::refusal(&self.inner.policy.repositories, named) {
+            return Err(why);
+        }
+        if protocol.is_some_and(|p| p != crate::delegation::CHANGE_RUNBOOK) {
+            return Err(format!("protocol: a delegation that names a repository runs the daemon's protocol {}; name no other", crate::delegation::CHANGE_RUNBOOK));
+        }
+        if confinement != Confinement::Local {
+            return Err(format!("repository: a delegation that changes a repository runs at the level local only, and this daemon's default level is {}", confinement.as_str()));
+        }
+        if !self.inner.runtime.free_run() {
+            return Err("repository: this daemon's runtime has no agent node of the daemon's own (the loom runtime has)".to_owned());
+        }
+        let entry = self.inner.policy.repositories.get(named).cloned().ok_or("repository: not an entry of runbook.toml")?;
+        let base = crate::handback::resolve_base(&entry)?;
+        Ok((entry, base))
+    }
+
+    /// The repository entry and the base commit of a run that changes a repository, read from its event `runbook.delegated`;
+    /// none for any other run. `Err`: the entry is no longer in the daemon's file (the run's failure to start).
+    fn change_of_run(&self, run_id: &str) -> Option<Result<(crate::handback::Repository, String), String>> {
+        let st = self.st();
+        let events = st.events_after(Some(run_id), None, 0);
+        let record = &events.iter().find(|e| e.kind == crate::delegation::DELEGATED_EVENT)?.record;
+        let (name, base) = (record["repository"].as_str()?, record["base"].as_str()?);
+        Some(self.inner.policy.repositories.get(name).cloned().map(|entry| (entry, base.to_owned())).ok_or_else(|| format!("repository: {name} is no longer an entry of the daemon's runbook.toml")))
+    }
+
+    /// The hand-back of a run that delivered: its change committed and pushed (`crate::handback::hand_back`), the lease on its
+    /// tree ended, and a tree whose change was pushed finished. The run event `runbook.handed-back` (repository, branch,
+    /// commit, base, whether the tree was finished) or `runbook.hand-back-refused` (repository, reason) records it.
+    fn hand_back(&self, run_id: &str, entry: &crate::handback::Repository, tree: &crate::handback::Tree) {
+        let handed = crate::handback::hand_back(entry, run_id, tree);
+        crate::handback::release(run_id, tree);
+        let _ = match handed {
+            Ok(h) => {
+                let finished = crate::handback::finish(entry, run_id);
+                self.record_run_event(run_id, crate::handback::HANDED_BACK_EVENT, json!({"repository": entry.name, "branch": h.branch, "commit": h.commit, "base": tree.base, "tree_finished": finished}))
+            }
+            Err(reason) => self.record_run_event(run_id, crate::handback::REFUSED_EVENT, json!({"repository": entry.name, "reason": reason})),
+        };
     }
 
     /// The canonical form of a context path when it is an existing directory under a context root.
@@ -2705,8 +2794,42 @@ impl Daemon {
                 return;
             }
         }
+        // A delegation that changes a repository: the daemon makes the run's worktree now, before the run starts, at the base
+        // its submit resolved (`crate::handback`). A tree that cannot be made fails the start.
+        let mut request = request;
+        let change = match self.change_of_run(&run_id) {
+            Some(Ok((entry, base))) if !cancel.load(Ordering::SeqCst) => match crate::handback::make(&entry, &run_id, &base, &request.state_dir) {
+                Ok(tree) => Some((entry, tree)),
+                Err(why) => {
+                    if !self.is_stopping() {
+                        let _ = self.fail_run_start(&run_id, &format!("repository: {why}"));
+                    }
+                    lock(&self.inner.cancels).remove(&run_id);
+                    return;
+                }
+            },
+            Some(Err(why)) => {
+                if !self.is_stopping() {
+                    let _ = self.fail_run_start(&run_id, &why);
+                }
+                lock(&self.inner.cancels).remove(&run_id);
+                return;
+            }
+            _ => None,
+        };
+        request.worktree = change.as_ref().map(|(_, tree)| tree.path.clone());
         let sink = RunSink { daemon: self.clone(), run_id: run_id.clone(), started: AtomicBool::new(false) };
         let result = if cancel.load(Ordering::SeqCst) { Ok(Finish::Cancelled) } else { self.inner.runtime.start(request, &sink, cancel) };
+        // The hand-back (`crate::handback`): after the outcome delivered the daemon commits and pushes the run's change before
+        // the run ends, and records what came of it; a run that ends any other way pushes nothing and keeps its tree. The
+        // run's lease on its tree ends in every case.
+        if let (Some((entry, tree)), false) = (&change, self.is_stopping()) {
+            if matches!(&result, Ok(Finish::Outcome(o)) if o == "delivered") {
+                self.hand_back(&run_id, entry, tree);
+            } else {
+                crate::handback::release(&run_id, tree);
+            }
+        }
         if !self.is_stopping() {
             // A refusal below means the run is Cancelled already (a report after a cancel).
             match result {

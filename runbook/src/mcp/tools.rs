@@ -159,7 +159,7 @@ const TOOLS: [Tool; 15] = [
 
 /// The members of the input of `delegate` the handler fills, and the two the MCP server fills (`caller`, `caller_label`):
 /// none of them is an argument of the tool.
-pub const DELEGATE_FILLED: [&str; 14] = ["run_id", "runbook_id", "confinement", "route", "model_route_alias", "model_route_source", "path", "route_declared", "runbook_known", "context_inside_roots", "daemon_id", "at", "caller", "caller_label"];
+pub const DELEGATE_FILLED: [&str; 15] = ["run_id", "runbook_id", "confinement", "route", "model_route_alias", "model_route_source", "path", "route_declared", "runbook_known", "context_inside_roots", "repository_allowed", "daemon_id", "at", "caller", "caller_label"];
 /// How long `delegate` waits for the run's end when the call names no `wait_seconds`, and the most it names.
 pub const DEFAULT_WAIT_SECONDS: u64 = 600;
 pub const MAX_WAIT_SECONDS: u64 = 3600;

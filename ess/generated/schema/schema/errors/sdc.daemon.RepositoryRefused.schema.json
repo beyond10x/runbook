@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.RepositoryRefused.schema.json",
+  "title": "RepositoryRefused payload",
+  "description": "The delegation names a repository the daemon does not change for it: no entry `[repositories.<name>]` of its runbook.toml has that name (a path is never a name), a protocol other than delegation-change is named beside it, the daemon's default level is not local (the first slice serves local only), or the entry's base names no commit of its checkout. The run was not submitted and nothing was written. The reason names the member and what was wrong.",
+  "x-ess-name": "sdc.daemon.RepositoryRefused",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d10f489a7fe76ade9e94a73a41cab3d5484ee863a6a4e3c5fb1a4dbcebbbae83",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

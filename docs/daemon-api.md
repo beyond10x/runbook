@@ -52,7 +52,7 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
 | `submit-run` | `IntakeTooLarge` (over 1,048,576 bytes), `NoSuchRunbook`, `ContextOutsideRoots`, `RouteRefused` (422 `route-refused`: below, "The route of a run"), `NoSuchDaemon`, `NoSuchSession`, `BelowConfinementFloor`, `SessionClosedToRuns` |
-| `delegate` | `IntakeTooLarge`, `RouteRefused` (422 `route-refused`, as `submit-run`'s: below, "A delegation"), `NoSuchRunbook`, `ContextOutsideRoots`, `NoSuchDaemon`, `NoSuchSession`, `SessionClosedToRuns`; and `503` `route-unavailable` outside the language (below) |
+| `delegate` | `IntakeTooLarge`, `RouteRefused` (422 `route-refused`, as `submit-run`'s: below, "A delegation"), `NoSuchRunbook`, `ContextOutsideRoots`, `RepositoryRefused` (422 `repository-refused`: below, "A delegation that changes a repository"), `NoSuchDaemon`, `NoSuchSession`, `SessionClosedToRuns`; and `503` `route-unavailable` outside the language (below) |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `DecisionAlreadyAnswered`, `NoSuchRun`, `RunNotWaiting`, `UnknownOption` (422: a request read from its case, an answer that names none of its options) |
 
@@ -456,9 +456,73 @@ paths the view `products` lists; `calls`, `input_tokens`, `output_tokens` and `c
 run's events `runbook.model-call`; `cost_known`, false when any call was booked at its reservation. A run id the
 daemon does not know is `404` `no such run`; a run no delegation created is `404` `not a delegation`.
 
-`runbook delegate [--route <r>] [--protocol <p>] [--workspace <dir>] [--set K=V] <request-file|->` sends one
+`runbook delegate [--route <r>] [--protocol <p>] [--workspace <dir>] [--repository <name>] [--set K=V] <request-file|->` sends one
 delegation and prints the run's id (`--json`: the route's answer); the MCP tools `delegate` and
 `delegation_result` are in [`mcp.md`](mcp.md).
+
+### A delegation that changes a repository
+
+The first slice of story `a-delegation-changes-a-repository-on-its-own-branch` (its `## Decision`;
+`runbook/src/handback.rs`). A delegation may name `repository`: a repository the operator lists in the daemon's
+`runbook.toml`, by the name of its entry, never a path. The list is empty by default:
+
+```toml
+[repositories.demo]
+path = "../demo"                      # the operator's checkout; relative to the file
+base = "main"                         # the revision a run's branch starts from
+remote = "https://forge.example/org/demo.git"   # https:// or file://, no user or password in it
+default_branch = "main"               # never pushed to; a branch outside runbook/
+commit_name = "runbook-bot"           # the identity of the daemon's commit
+commit_email = "runbook-bot@example.invalid"
+push_token_file = "demo-push-token"   # optional; relative to the file; a one-line token
+deny_paths = [".github/", ".gitlab-ci.yml", ".gitmodules"]   # optional; this list is the default
+```
+
+A key the table does not have, a remote with a user or password, a `base` or `default_branch` that is an option,
+or a `push_token_file` that is no readable one-line token refuses the start, exit 2, naming the entry and the key.
+A file found by a program of a run (not named with `--config`) may not list repositories.
+
+- The delegation takes the path `change` and the daemon's protocol `delegation-change` (written beside
+  `delegation-free` under the state directory, `runbook/src/delegation.rs`): one agent node (`sdc-node
+  delegation.change`, the instruction `instructions/delegation.change.md`) whose instruction is the request. It
+  needs the daemon's default level to be `local`.
+- `RepositoryRefused` (422 `repository-refused`, `run_id`, `reason`), before anything is written: a name that is not
+  an entry (a path is never one), a `protocol` other than `delegation-change` beside it, a default level that is not
+  `local`, or a `base` that names no commit of the checkout. It comes after `context-outside-roots`.
+- At the submit the daemon resolves `base` to a commit; the event `runbook.delegated` records `repository` and
+  `base` (that commit). `RunDelegated` keeps `route`, `path`, `protocol`.
+- When the run starts, before its runtime does, the daemon makes the run's worktree T with the host's `worktree`
+  command: `worktree create --repo <path> --base <commit> --id runbook-<run-id> --purpose "runbook run <run-id>"`
+  (T is the last line it prints), then `worktree hook session-start --session runbook-<run-id> --path T`. It records
+  T, T's `.git` file and the worktree's git directory in `worktree.json` of the run's directory; no view and no
+  event names T's path. A tree that cannot be made fails the start `repository: worktree create: ...`.
+- The agent node works in T: every program of the run gets `RUNBOOK_WORKTREE=T`, and `sdc-node
+  delegation.change` runs the model with T as its working directory, copies nothing into it and writes nothing of
+  the call into it (the call's record stays under `work/.sdc/llm/`). Its result, `result.md` of the run's
+  workspace, is the model's last reply, its summary.
+- After the outcome `delivered`, and before the run ends, the daemon hands the change back: it refuses when T's
+  `.git` file differs from the one it recorded, when T holds no change, or when a changed path is in `deny_paths`
+  (a path ending in `/` denies what is under it; another path itself and what is under it). Otherwise it commits
+  T's change (`git --git-dir <recorded> --work-tree T`) as one commit on the base under `commit_name` and
+  `commit_email`, and pushes it with `git push <remote> <commit>:refs/heads/runbook/<run-id>`: no `+`, no
+  `--force`, so a branch that exists already is refused by the remote. Every git call of the daemon runs with
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, `core.hooksPath=/dev/null`, no
+  credential helper and no signing: the operator's identity, hooks and credential helpers are never used. The push
+  credential is `push_token_file`: git asks the `runbook` binary itself as its askpass (`GIT_ASKPASS`, with
+  `RUNBOOK_ASKPASS_FILE` naming the file), which reads the token then; the token is in no argument, no log, no file of
+  the run and no environment of a process of the run.
+- The run event `runbook.handed-back` (`repository`, `branch`, `commit`, `base`, `tree_finished`) or
+  `runbook.hand-back-refused` (`repository`, `reason`) records it; the run's outcome stays `delivered`. After a
+  push the daemon ends the lease (`worktree hook session-end`), then calls `worktree finish runbook-<run-id>` and
+  `worktree gc --apply --repo <path> --id runbook-<run-id>`.
+- A run that ends any other way (a failed step, a cancel, a cap, a runtime failure) commits and pushes nothing: the
+  daemon ends the lease and keeps T for inspection.
+- The view `delegation-result` adds `repository`, and once the run delivered `branch` and `commit`, or
+  `handback_refused` (the reason). The view `catalog` lists the path `change` when the file lists a repository.
+
+Not in this slice (each comes back to the operator first): the draft merge request and any forge client or forge
+token, the level `linux` and its Loom request, the hand-back as a step the bug-fix runbook shares, a base a
+delegation chooses, a fetch before the worktree is made, and the removal of a kept tree after `keep_failed_days`.
 
 ### The catalog
 

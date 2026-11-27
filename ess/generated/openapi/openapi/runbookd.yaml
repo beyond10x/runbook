@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:31a4acd14a587bcd7093b69b5032588f207d4f0a0f0307070c32cabd59586fd5
+# contract digest slice-sha256/2:a6d8cdab1660e392fb591b433b6d4cd16b5e01eb2d0b2db95935358765ccc3e3
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:31a4acd14a587bcd7093b69b5032588f207d4f0a0f0307070c32cabd59586fd5
+    contract_digest: slice-sha256/2:a6d8cdab1660e392fb591b433b6d4cd16b5e01eb2d0b2db95935358765ccc3e3
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -265,7 +265,7 @@ paths:
     post:
       operationId: sdc.daemon.Delegate
       summary: Delegate agent work
-      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon''s runbooks, answers a runbook and a confidence, and at the daemon''s `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon''s agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier''s answer and the generated protocol are files of the run''s work/ directory under `delegation/`. A call the route does not serve fails the run''s start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator''s error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader''s line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route''s model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer. A delegation may name a `serial_key` as a submit does (SubmitRun): one queue per key holds submitted and delegated runs alike.'
+      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon''s runbooks, answers a runbook and a confidence, and at the daemon''s `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon''s agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier''s answer and the generated protocol are files of the run''s work/ directory under `delegation/`. A call the route does not serve fails the run''s start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator''s error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader''s line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports five facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots`, `repository_allowed` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route''s model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer. A delegation may name a `serial_key` as a submit does (SubmitRun): one queue per key holds submitted and delegated runs alike. A delegation may name a `repository` (story a-delegation-changes-a-repository-on-its-own-branch, first slice): an entry of the daemon''s runbook.toml by its name, at the level local. Its path is `change` and its runbook `delegation-change`; the handler resolves the entry''s base to a commit, and the run event `runbook.delegated` records the repository and that commit. When the run starts the daemon makes the run''s worktree of the repository with the host''s `worktree` command, and the run''s one agent node works in it. When the run''s outcome is delivered the daemon commits the change under the entry''s identity on that commit and pushes it as the new branch runbook/<run-id> to the entry''s remote, never forced, never with a path of the entry''s deny_paths, never when the worktree''s .git file changed; the run event `runbook.handed-back` (branch, commit) or `runbook.hand-back-refused` (reason) records it before the run ends, and the view DelegationResult names it. A run that ends any other way pushes nothing and keeps its worktree.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -328,7 +328,7 @@ paths:
                 - $ref: '#/components/schemas/sdc.daemon.Delegate.no-session.Response'
                 - $ref: '#/components/schemas/sdc.daemon.Delegate.session-closed.Response'
         '422':
-          description: 'Outcomes `intake-too-large`, `route-refused`, `no-runbook` and `context-outside-roots`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'
+          description: 'Outcomes `intake-too-large`, `route-refused`, `no-runbook`, `context-outside-roots` and `repository-refused`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'
           content:
             application/json:
               schema:
@@ -337,6 +337,7 @@ paths:
                     context-outside-roots: '#/components/schemas/sdc.daemon.Delegate.context-outside-roots.Response'
                     intake-too-large: '#/components/schemas/sdc.daemon.Delegate.intake-too-large.Response'
                     no-runbook: '#/components/schemas/sdc.daemon.Delegate.no-runbook.Response'
+                    repository-refused: '#/components/schemas/sdc.daemon.Delegate.repository-refused.Response'
                     route-refused: '#/components/schemas/sdc.daemon.Delegate.route-refused.Response'
                   propertyName: outcome
                 oneOf:
@@ -344,6 +345,7 @@ paths:
                 - $ref: '#/components/schemas/sdc.daemon.Delegate.route-refused.Response'
                 - $ref: '#/components/schemas/sdc.daemon.Delegate.no-runbook.Response'
                 - $ref: '#/components/schemas/sdc.daemon.Delegate.context-outside-roots.Response'
+                - $ref: '#/components/schemas/sdc.daemon.Delegate.repository-refused.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -1846,7 +1848,7 @@ components:
       additionalProperties: false
     sdc.daemon.Delegate.Input:
       title: Delegate agent work input
-      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon''s runbooks, answers a runbook and a confidence, and at the daemon''s `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon''s agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier''s answer and the generated protocol are files of the run''s work/ directory under `delegation/`. A call the route does not serve fails the run''s start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator''s error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader''s line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports four facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route''s model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer. A delegation may name a `serial_key` as a submit does (SubmitRun): one queue per key holds submitted and delegated runs alike.'
+      description: 'Ask the daemon for a piece of agent work on a named model route (docs/model-routes.md, section 8): the request as text, the route by name, and optionally a protocol (a runbook the daemon can run), a workspace (a directory under a daemon context root, copied into the run''s workspace), settings, a session and an idempotency key. A delegation is a run: the accepted outcome (delegated) creates the Run as SubmitRun does, with the request as its intake, at the daemon''s default level, and the daemon writes the run''s first event `runbook.submitted` (sequence 1) and its second, `runbook.delegated` (the route, the path and the protocol), before the runtime records any; cancel-run, the run views and the events work on it unchanged. With a protocol that runbook runs (path `named`); with the protocol `delegation-free`, or without one on a daemon that has no classifier route, the free run (path `free`): one agent node whose instruction is the request, on the delegation''s route, in the run''s workspace, writing `result.md`; its runbook is `delegation-free`, the handler fills `runbook_id` with it. Without a protocol on a daemon with a classifier route (`[route_policy] classifier`) the daemon takes the path when the run starts (docs/model-routes.md, section 9): `runbook_id` is `delegation` and RunDelegated holds no path; one call on the classifier route through the relay, with the request and the catalog of the daemon''s runbooks, answers a runbook and a confidence, and at the daemon''s `[delegation] classify_threshold` (0 to 1, default 0.8) or above, when that runbook takes every input the answer fills, it runs with the request as its intake (path `classified`); below it a second call writes a protocol whose every action is the daemon''s agent node (`sdc-node delegation.free`), which the daemon checks with the loader of a runbook and runs (path `generated`). The run event `runbook.delegation-resolved` records the path, the protocol, the confidence, the classifier route and the digest of a generated protocol; the classifier''s answer and the generated protocol are files of the run''s work/ directory under `delegation/`. A call the route does not serve fails the run''s start `route-unavailable: ...`, an answer that is not the JSON asked for (after two more calls that quote the validator''s error) `classifier-answer: ...`, and a generated protocol the loader refuses `protocol-refused: <the loader''s line>` (FailRunStart, outside this command). Every model call of the run goes to that route through the daemon''s relay. The run''s result is read by its id from the view DelegationResult. The handler mints the run id and fills `run_id`, `runbook_id`, `confinement`, `route`, `model_route_alias`, `model_route_source`, `daemon_id` and `at`, and reports five facts it reads from the host: `route_declared` (the route the delegation names, or the daemon''s default route when it names none, is one the daemon declares), `runbook_known`, `context_inside_roots`, `repository_allowed` and the size of the request (checked here). Before anything is written the handler also asks the route''s gateway what a submit asks (docs/model-routes.md, section 3: `GET /ready`, `GET /v1/models`, the status of the route''s model): a gateway that is not ready or does not answer refuses the delegation with 503 `route-unavailable` naming the route, the daemon''s `{refused, message}` answer, outside the language as a draining daemon''s refusal is; an alias the gateway does not list refuses it `route-refused`; a model that cannot answer yet leaves the run waiting for its route (WaitForRoute) as a submitted run waits. A delegation whose path is still open (it names no protocol on a daemon with a classifier route) is read with the classifier route as well: no classify call goes to that route before it can answer. A delegation may name a `serial_key` as a submit does (SubmitRun): one queue per key holds submitted and delegated runs alike. A delegation may name a `repository` (story a-delegation-changes-a-repository-on-its-own-branch, first slice): an entry of the daemon''s runbook.toml by its name, at the level local. Its path is `change` and its runbook `delegation-change`; the handler resolves the entry''s base to a commit, and the run event `runbook.delegated` records the repository and that commit. When the run starts the daemon makes the run''s worktree of the repository with the host''s `worktree` command, and the run''s one agent node works in it. When the run''s outcome is delivered the daemon commits the change under the entry''s identity on that commit and pushes it as the new branch runbook/<run-id> to the entry''s remote, never forced, never with a path of the entry''s deny_paths, never when the worktree''s .git file changed; the run event `runbook.handed-back` (branch, commit) or `runbook.hand-back-refused` (reason) records it before the run ends, and the view DelegationResult names it. A run that ends any other way pushes nothing and keeps its worktree.'
       x-ess-name: sdc.daemon.Delegate
       x-ess-kind: command-input
       type: object
@@ -1880,6 +1882,9 @@ components:
         caller_label:
           description: The label of the session that asked (RUNBOOK_CALLER of the session `runbook mcp` serves), at most 200 characters. `runbook mcp` fills it; it is no argument of the MCP tool. Recorded in the run event `runbook.delegated`.
           type: string
+        repository:
+          description: 'A repository the delegation changes, by the name of its entry in the daemon''s runbook.toml (`[repositories.<name>]`), never a path: the run takes the path change and the protocol delegation-change (no other protocol may be named beside it), at the level local only.'
+          type: string
         runbook_id:
           $ref: '#/components/schemas/sdc.daemon.RunbookId'
           description: 'The runbook the run takes: the protocol; delegation-free for the free run; delegation for a delegation the daemon classifies when its run starts. The handler fills it.'
@@ -1904,6 +1909,9 @@ components:
           type: boolean
         context_inside_roots:
           type: boolean
+        repository_allowed:
+          description: 'The handler''s fact: true when the delegation names no repository, or names an entry of the daemon''s runbook.toml by its name, with no protocol other than delegation-change, at the level local, and the entry''s base names a commit of its checkout.'
+          type: boolean
         daemon_id:
           $ref: '#/components/schemas/sdc.daemon.DaemonId'
         at:
@@ -1921,6 +1929,7 @@ components:
       - route_declared
       - runbook_known
       - context_inside_roots
+      - repository_allowed
       - daemon_id
       - at
       additionalProperties: false
@@ -2108,6 +2117,29 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.Delegate.repository-refused.Response:
+      additionalProperties: false
+      description: 'The repository is not an entry of the daemon''s runbook.toml (or a path was given in place of its name), a protocol other than delegation-change is named beside it, the daemon''s default level is not local, or the entry''s base names no commit: nothing was submitted, and the reason says which. Taken when `repository_allowed == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.RepositoryRefused
+          description: 'The delegation names a repository the daemon does not change for it: no entry `[repositories.<name>]` of its runbook.toml has that name (a path is never a name), a protocol other than delegation-change is named beside it, the daemon''s default level is not local (the first slice serves local only), or the entry''s base names no commit of its checkout. The run was not submitted and nothing was written. The reason names the member and what was wrong.'
+          type: string
+        outcome:
+          const: repository-refused
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.RepositoryRefused.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
     sdc.daemon.Delegate.route-refused.Response:
       additionalProperties: false
       description: 'The delegation names a route the daemon does not declare, or names none and the daemon has no default route: nothing was submitted, and the answer lists the declared routes. The refusals of a named route are the run''s (submit-run): an alias, an address, a token or an empty name in its place is refused too, and the reason names what was wrong, never the value. Taken when `route_declared == false` holds of the input.'
@@ -2177,7 +2209,7 @@ components:
       additionalProperties: false
     sdc.daemon.DelegationPath:
       title: DelegationPath
-      description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier''s confidence was below it, and one call on the classifier route wrote a protocol of the daemon''s parts, which the loader accepted).'
+      description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier''s confidence was below it, and one call on the classifier route wrote a protocol of the daemon''s parts, which the loader accepted) or change (it named a repository of the daemon''s runbook.toml, `[repositories.<name>]`: the protocol delegation-change, one agent node working in the run''s worktree of that repository, whose change the daemon commits and pushes as the branch runbook/<run-id> when the run delivers).'
       x-ess-name: sdc.daemon.DelegationPath
       x-ess-kind: enum
       type: string
@@ -2186,6 +2218,7 @@ components:
       - free
       - classified
       - generated
+      - change
     sdc.daemon.DelegationResult.Response:
       additionalProperties: false
       description: The rows of `sdc.daemon.DelegationResult`.
@@ -2225,6 +2258,14 @@ components:
         classifier_route:
           type: string
         protocol_digest:
+          type: string
+        repository:
+          type: string
+        branch:
+          type: string
+        commit:
+          type: string
+        handback_refused:
           type: string
         result_text:
           type: string
@@ -2271,7 +2312,7 @@ components:
           items:
             $ref: '#/components/schemas/sdc.daemon.DelegateMember'
         paths:
-          description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation.
+          description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. change when it runs the free run and its runbook.toml lists a repository (`[repositories.<name>]`). A daemon that lists none takes no delegation.
           type: array
           items:
             $ref: '#/components/schemas/sdc.daemon.DelegationPath'
@@ -2831,6 +2872,21 @@ components:
       - files
       - hidden
       - left_out
+      additionalProperties: false
+    sdc.daemon.RepositoryRefused.Error:
+      title: RepositoryRefused payload
+      description: 'The delegation names a repository the daemon does not change for it: no entry `[repositories.<name>]` of its runbook.toml has that name (a path is never a name), a protocol other than delegation-change is named beside it, the daemon''s default level is not local (the first slice serves local only), or the entry''s base names no commit of its checkout. The run was not submitted and nothing was written. The reason names the member and what was wrong.'
+      x-ess-name: sdc.daemon.RepositoryRefused
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        reason:
+          type: string
+      required:
+      - run_id
+      - reason
       additionalProperties: false
     sdc.daemon.RoleRoutes:
       title: RoleRoutes
@@ -4812,6 +4868,18 @@ x-ess-entities:
       protocol_digest:
         description: sha256:<hex> of the protocol document the builder wrote, for a generated delegation.
         type: string
+      repository:
+        description: The repository a delegation of the path change changes, by the name of its entry in the daemon's runbook.toml.
+        type: string
+      branch:
+        description: 'For the path change, once the run delivered and the daemon pushed its change: the branch, runbook/<run-id>, a new ref of the entry''s remote.'
+        type: string
+      commit:
+        description: 'The commit the daemon pushed as the branch: one commit on the entry''s base, by the entry''s identity.'
+        type: string
+      handback_refused:
+        description: 'For the path change, once the run delivered: why the daemon pushed nothing (the worktree''s .git file was changed, no change, a path of the entry''s deny_paths, or git''s own words for a push it refused, such as a branch that exists already).'
+        type: string
       result_text:
         description: The text of result.md in the run's work/ directory, at most `result_limit` bytes; absent while the run has written none, and for a file that is not text.
         type: string
@@ -4872,7 +4940,7 @@ x-ess-entities:
     type: string
   sdc.daemon.DelegationPath:
     title: DelegationPath
-    description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier''s confidence was below it, and one call on the classifier route wrote a protocol of the daemon''s parts, which the loader accepted).'
+    description: 'How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier''s confidence was below it, and one call on the classifier route wrote a protocol of the daemon''s parts, which the loader accepted) or change (it named a repository of the daemon''s runbook.toml, `[repositories.<name>]`: the protocol delegation-change, one agent node working in the run''s worktree of that repository, whose change the daemon commits and pushes as the branch runbook/<run-id> when the run delivers).'
     x-ess-name: sdc.daemon.DelegationPath
     x-ess-kind: enum
     type: string
@@ -4881,6 +4949,7 @@ x-ess-entities:
     - free
     - classified
     - generated
+    - change
   sdc.daemon.DelegationTerms:
     title: DelegationTerms
     description: 'What a delegation on this daemon takes and where it goes: the members of Delegate, the paths a delegation may take here, the route of one that names none, the route of the classify and build calls, the level every delegation runs at and the most bytes of a request.'
@@ -4893,7 +4962,7 @@ x-ess-entities:
         items:
           $ref: '#/x-ess-entities/sdc.daemon.DelegateMember'
       paths:
-        description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. A daemon that lists none takes no delegation.
+        description: named when the daemon can run a runbook the catalog lists; free when it runs the free run; on a daemon with a classifier route (`[route_policy] classifier`) also classified, when it lists a runbook, and generated, when it runs the free run whose agent node a built protocol runs. change when it runs the free run and its runbook.toml lists a repository (`[repositories.<name>]`). A daemon that lists none takes no delegation.
         type: array
         items:
           $ref: '#/x-ess-entities/sdc.daemon.DelegationPath'

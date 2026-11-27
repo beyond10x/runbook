@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/52",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "60a30982237d1eaac5e84684144b990a0f8c3ea299618ac636f976385971e253",
-    "contract_digest": "e018043539b5ab8a2c97a6f2470676889f7466d6ef0cf70f0207f3cf3b70564a",
+    "spec_digest": "add9bac9c70e5d8fb7b6d947a60b376550f9cd97ad3347e4ac7f46ecaeec0e4c",
+    "contract_digest": "82fe534a478edfa8c367686ff6a674650b9cff4aaab0c6a5d2f652e9a0b7cf8a",
     "scenario_initial_state": "empty"
   },
   "events": [
@@ -2265,6 +2265,10 @@
               "kind": "literal",
               "value": "named"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -2724,6 +2728,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -2906,6 +2914,10 @@
             "model_route_source": {
               "kind": "literal",
               "value": "protocol"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": false
             },
             "request": {
               "kind": "literal",
@@ -3290,6 +3302,10 @@
               "kind": "literal",
               "value": "named"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -3393,7 +3409,8 @@
                 "named",
                 "free",
                 "classified",
-                "generated"
+                "generated",
+                "change"
               ],
               "optional": true
             },
@@ -3952,6 +3969,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4032,6 +4053,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4111,6 +4136,10 @@
             "model_route_source": {
               "kind": "literal",
               "value": "run"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
             },
             "request": {
               "kind": "literal",
@@ -4566,6 +4595,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -4748,6 +4781,10 @@
             "model_route_source": {
               "kind": "literal",
               "value": "protocol"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": false
             },
             "request": {
               "kind": "literal",
@@ -5092,6 +5129,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -5349,6 +5390,651 @@
         }
       ]
     },
+    "sdc.daemon.Delegate/outcome/repository-refused": {
+      "absent_events": [
+        {
+          "before": 15,
+          "except": []
+        },
+        {
+          "before": 27,
+          "except": []
+        }
+      ],
+      "purpose": "`sdc.daemon.Delegate` answers `repository-refused` for an input that satisfies that branch's guard",
+      "steps": [
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-360360"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-360360"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-360361",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-28T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138599"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138599"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138600",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138600"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138600"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138601",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-02T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-138601"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-138601"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-138602",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.Delegate",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-01T00:00:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "instance",
+              "instance": "daemon-138601"
+            },
+            "idempotency_key": {
+              "kind": "literal",
+              "value": "idempotency_key"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "run"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": false
+            },
+            "request": {
+              "kind": "literal",
+              "value": "request"
+            },
+            "route": {
+              "kind": "literal",
+              "value": "route"
+            },
+            "route_declared": {
+              "kind": "literal",
+              "value": true
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run_id"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "runbook_id"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "session_id": {
+              "kind": "instance",
+              "instance": "session-360361"
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {
+                "settings": "settings.0"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.Delegate",
+            "outcome": "repository-refused"
+          }
+        },
+        {
+          "step": "expect_error",
+          "error": "sdc.daemon.RepositoryRefused"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.StartDaemon",
+          "actor": "sdc.daemon.Operator",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-05T00:00:00Z"
+            },
+            "confinement_floor": {
+              "kind": "literal",
+              "value": "local"
+            },
+            "daemon_id": {
+              "kind": "literal",
+              "value": "daemon_id-360364"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "principal-360364"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "daemon-360365",
+          "entity": "sdc.daemon.Daemon",
+          "event": "sdc.daemon.DaemonStarted",
+          "field": "daemon_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-04T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-138603"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-138603"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-138604",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.OpenSession",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-06T00:00:00Z"
+            },
+            "client": {
+              "kind": "literal",
+              "value": "client-138605"
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "session_id-138605"
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "step": "capture_instance",
+          "instance": "session-138606",
+          "entity": "sdc.daemon.Session",
+          "event": "sdc.daemon.SessionOpened",
+          "field": "session_id"
+        },
+        {
+          "step": "execute_command",
+          "command": "sdc.daemon.Delegate",
+          "actor": "sdc.daemon.Client",
+          "input": {
+            "at": {
+              "kind": "literal",
+              "value": "2020-01-02T00:00:00Z"
+            },
+            "confinement": {
+              "kind": "literal",
+              "value": "linux"
+            },
+            "context_inside_roots": {
+              "kind": "literal",
+              "value": true
+            },
+            "daemon_id": {
+              "kind": "instance",
+              "instance": "daemon-360365"
+            },
+            "idempotency_key": {
+              "kind": "literal",
+              "value": "idempotency_key-1"
+            },
+            "model_route_alias": {
+              "kind": "literal",
+              "value": "model_route_alias-1"
+            },
+            "model_route_source": {
+              "kind": "literal",
+              "value": "protocol"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": false
+            },
+            "request": {
+              "kind": "literal",
+              "value": "request-1"
+            },
+            "route": {
+              "kind": "literal",
+              "value": "route-1"
+            },
+            "route_declared": {
+              "kind": "literal",
+              "value": true
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run_id-1"
+            },
+            "runbook_id": {
+              "kind": "literal",
+              "value": "runbook_id-1"
+            },
+            "runbook_known": {
+              "kind": "literal",
+              "value": true
+            },
+            "settings": {
+              "kind": "literal",
+              "value": {
+                "settings-1": "settings.0-1"
+              }
+            }
+          }
+        },
+        {
+          "step": "expect_outcome",
+          "outcome": {
+            "command": "sdc.daemon.Delegate",
+            "outcome": "repository-refused"
+          }
+        },
+        {
+          "step": "expect_error",
+          "error": "sdc.daemon.RepositoryRefused"
+        }
+      ],
+      "source": [
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ConfinementLevel"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ContextPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DaemonId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.IdempotencyKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteName"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RouteSource"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunSettings"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.RunbookId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SerialKey"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "entity",
+          "name": "sdc.daemon.Daemon"
+        },
+        {
+          "kind": "entity",
+          "name": "sdc.daemon.Session"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.Delegate"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.OpenSession"
+        },
+        {
+          "kind": "command",
+          "name": "sdc.daemon.StartDaemon"
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.Delegate",
+            "outcome": "repository-refused"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.OpenSession",
+            "outcome": "opened"
+          }
+        },
+        {
+          "kind": "outcome",
+          "name": {
+            "command": "sdc.daemon.StartDaemon",
+            "outcome": "started"
+          }
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DaemonStarted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionAnswered"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionRequestWithdrawn"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunCancelled"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunDelegated"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunEnded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunEventRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunFailedToStart"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunOrphaned"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunResumed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunStarted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunStoppedOnRoute"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunSubmitted"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunTookKey"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaiting"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaitingForRoute"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.RunWaitingOnKey"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SessionClosed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SessionOpened"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.daemon.SubmitReplayed"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionEscalated"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionExpired"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionRequested"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionSuperseded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.DecisionTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.ProducedRecordRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationRecorded"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationTaken"
+        },
+        {
+          "kind": "event",
+          "name": "sdc.decision.RecommendationWithheld"
+        },
+        {
+          "kind": "error",
+          "name": "sdc.daemon.RepositoryRefused"
+        },
+        {
+          "kind": "actor",
+          "name": "sdc.daemon.Client"
+        }
+      ]
+    },
     "sdc.daemon.Delegate/outcome/route-refused": {
       "absent_events": [
         {
@@ -5539,6 +6225,10 @@
               "kind": "literal",
               "value": "run"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -5721,6 +6411,10 @@
             "model_route_source": {
               "kind": "literal",
               "value": "protocol"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": false
             },
             "request": {
               "kind": "literal",
@@ -6119,6 +6813,10 @@
             "model_route_source": {
               "kind": "literal",
               "value": "run"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
             },
             "request": {
               "kind": "literal",
@@ -8616,6 +9314,10 @@
               "kind": "literal",
               "value": "named"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -8961,6 +9663,10 @@
               "kind": "literal",
               "value": "named"
             },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
+            },
             "request": {
               "kind": "literal",
               "value": "request"
@@ -9298,6 +10004,10 @@
             "path": {
               "kind": "literal",
               "value": "named"
+            },
+            "repository_allowed": {
+              "kind": "literal",
+              "value": true
             },
             "request": {
               "kind": "literal",

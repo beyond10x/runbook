@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ca73dac7d916b1928faad1f867724886e6291d3fb8e1030def6167c3e6b84e0f",
+    "contract_digest": "slice-sha256/2:375d3e9c1f81aef16b1e62af805cf753a1b0e3f35ff292d9dc20f57ad0a9fa8e",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.DelegationPath": {
       "title": "DelegationPath",
-      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted).",
+      "description": "How a delegation became a run (docs/model-routes.md, section 9): named (it named a protocol, and that runbook runs with the request as its intake), free (the free run, one agent node whose instruction is the request, writing result.md: asked for by the protocol delegation-free, or taken by a delegation that names no protocol on a daemon without a classifier route), classified (it named none, and one call on the classifier route picked a runbook of the daemon at or above the threshold of confidence, 0.8) or generated (the classifier's confidence was below it, and one call on the classifier route wrote a protocol of the daemon's parts, which the loader accepted) or change (it named a repository of the daemon's runbook.toml, `[repositories.<name>]`: the protocol delegation-change, one agent node working in the run's worktree of that repository, whose change the daemon commits and pushes as the branch runbook/<run-id> when the run delivers).",
       "x-ess-name": "sdc.daemon.DelegationPath",
       "x-ess-kind": "enum",
       "type": "string",
@@ -19,7 +19,8 @@
         "named",
         "free",
         "classified",
-        "generated"
+        "generated",
+        "change"
       ]
     }
   }

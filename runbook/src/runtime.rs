@@ -237,6 +237,10 @@ pub struct StartRequest {
     /// For a delegation the run classifies: the daemon's admission of the route entries of the runbook the classifier picks,
     /// asked once that runbook is chosen and before its first model call. None: the run takes `routes` as they are.
     pub admit: Option<Admit>,
+    /// For a delegation that changes a repository (`crate::handback`): the run's worktree T, made by the daemon before the
+    /// run starts. Its agent node works there (`crate::handback::WORKTREE_VARIABLE`); no view names the path. None: the
+    /// run changes no repository.
+    pub worktree: Option<PathBuf>,
 }
 
 /// The daemon's admission of a runbook's route entries (`crate::admission`) for a delegation whose runbook is chosen when its
