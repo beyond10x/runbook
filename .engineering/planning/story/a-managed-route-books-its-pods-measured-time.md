@@ -7,7 +7,7 @@ title: A managed route books its pod's measured time
 summary: A run on a managed route books its share of the pod's measured time at the gateway's price per hour against the route's daily cap
 relations:
 - informed_by: story:a-wake-is-booked-only-when-it-succeeds
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T13:46:47Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T13:46:48Z", actor: "agent:runbook", revision: 3}
@@ -43,7 +43,11 @@ replacing `docs/model-routes.md` D-3 "books wakes only".
   (t1 - t0) times the gateway's price per hour against the route's daily cap, beside the wake's figure.
 - Two runs that used the same pod in that time each book their share of it; the shares add up to the pod's measured
   time at its price.
-- A pod that never became ready books no time.
+- A pod that never became ready books no time, and a run that takes no route (`model_route_not_taken`) books none.
+- A run the daemon ends `orphaned`, at its stop or at a restart that found it live, books the pod's time up to that
+  orphan mark: the time no daemon read the pod counts against the cap, never less (decision D10 of the unit's
+  coordinator, 2026-11-27).
+- Only a status the gateway answered tells the pod ready or not: a failed status read changes nothing.
 - The daily cap counts wakes and pod time together: a run that would pass it waits for its route as a run past the
   wake cap does today.
 - `docs/model-routes.md` D-3 and section 5 say what is booked.

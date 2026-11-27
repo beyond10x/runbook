@@ -311,7 +311,7 @@ At submit, after the route is resolved and before anything is written:
    when it accepts a run on a stopped managed route, and books `wake_cost_micro_usd` against
    `wake_daily_cap_micro_usd` for the day. `wake_on_submit = true` without a cap above 0 is refused at start by
    name, and so is one without a `wake_cost_micro_usd` above 0 (a wake that books nothing never meets the cap). A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
-   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name.
+   "wake cap reached". A run within the wait of a wake sent for the same route that may still start the model (taken, or out or failed while its run lives) joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name.
    A wake books only when the gateway took it (a `2xx`); a `4xx`, a `5xx` or no answer books nothing, the run record
    naming the gateway's code, and a `5xx` other than `spend-ceiling` or no answer is sent again after 30 s while the
    model is still `stopped`, within the run's wait and never past it (story `a-wake-is-booked-only-when-it-succeeds`).
@@ -375,7 +375,7 @@ At submit, after the route is resolved and before anything is written:
   a run's use and each piece is split equally over the runs that used the pod in it (a millisecond a piece cannot
   split goes to the runs first in submit order, one each); a run books its milliseconds at the price, rounded up to
   the micro-USD, in the run event `runbook.route-pod-time` just before it ends. Two runs that share 30 minutes at
-  3.00 USD per hour book 0.75 USD each. A pod that never became ready for a run books no time. A wake that the
+  3.00 USD per hour book 0.75 USD each. A pod that never became ready for a run books no time, nor does a run that takes no route. A run the daemon ends `orphaned` (at its stop or at a restart) used the pod up to that mark: the time no daemon read it counts, never less. A wake that the
   rest of the day's cap of wakes and pod time does not cover is not sent, and the run waits as a run past the wake
   cap did (section 3); the cap stops no pod and no run already on it, which the gateway's own spend ceilings bound.
   The price is the route's: the gateway serves the `price_per_hour_usd` of its document on no route a client reads,

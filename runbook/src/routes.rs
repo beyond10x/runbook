@@ -478,6 +478,22 @@ impl RouteTable {
         })
     }
 
+    /// The phase of the model of the managed or local route `name` as a status the gateway answered gives it, read as
+    /// [`RouteTable::readiness`] reads it: `ready` when the status says the model is ready (its `phase`, else `callable`),
+    /// else the phase it gave (`unknown` when it gave none). None when no status was read: a name that is not declared, a
+    /// hosted route, a gateway that does not answer, is not ready or does not list the alias, a status route that failed.
+    pub fn pod_phase(&self, name: &str, until: Instant) -> Option<String> {
+        let route = self.routes.get(name).filter(|r| r.kind.has_model_status())?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        let Reach::Ready { models, of_all, of_model } = read_gateway(self, &route.gateway, gateway, until) else { return None };
+        if !models.contains_key(&route.alias) {
+            return None;
+        }
+        let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias))?;
+        let ready = status.phase.as_deref().map_or(status.callable == Some(true), |p| p == "ready");
+        Some(if ready { "ready".to_owned() } else { status.phase.clone().unwrap_or_else(|| "unknown".to_owned()) })
+    }
+
     /// Whether the file declares no gateway and no route.
     pub fn is_empty(&self) -> bool {
         self.gateways.is_empty() && self.routes.is_empty()

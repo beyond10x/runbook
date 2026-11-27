@@ -359,6 +359,9 @@ it joins a wake already sent:
 
 - A wake of the same route sent less than the route's `start_wait_seconds` before (by any run, also before a restart
   of the daemon: the journal holds it) is still starting the model: the run joins it, sends nothing and books nothing.
+  Only a wake that may still start the model is joined: one the gateway took (a `2xx`) or answered `spend-ceiling`,
+  and one whose run still lives while its answer is out or was a `5xx` or none (that run sends it again). A wake
+  answered `4xx`, or whose run ended without a `2xx` (it gave up, was cancelled), is not joined: the run sends its own.
   Its event `runbook.route-wake` says `{"route", "sent": false, "reason": "joined a wake sent within the wait",
   "joined": "<run id of that wake>", "joined_at": "<its instant>"}`, and the run waits as any run that waits. The
   answer to that wake is its answer too: when the gateway answered it (or answers it while the run waits)
@@ -374,8 +377,10 @@ it joins a wake already sent:
   did not answer within 5 s) and `code`, the gateway's error code, when it gave one.
 - A wake books only when the gateway took it: a `2xx` answer (story `a-wake-is-booked-only-when-it-succeeds`). A `4xx`,
   a `5xx` (`target-unavailable` when the pod's start failed, `spend-ceiling`) or no answer within 5 s books nothing;
-  the record of its send keeps the figure it held while it was out, and a wake not answered yet counts as booked, so
-  two runs cannot both pass the cap while their wakes are out.
+  the record of its send keeps the figure it held while it was out. A wake not answered yet counts as booked while its
+  run lives, so two runs cannot both pass the cap while their wakes are out. A wake whose run ended before its answer
+  came (a cancel, the daemon's stop) books nothing, whatever the gateway answered: a closed run takes no event, so its
+  answer is not in the journal.
 - A wake answered with a `5xx` other than `spend-ceiling`, or not answered within 5 s, is sent again 30 s of the
   daemon's clock later (`WAKE_AGAIN_AFTER_MILLIS`, `runbook/src/commands.rs`) while the gateway still gives the model
   as `stopped`, and again after each such answer, but only before the run's wait for its route is over (the least
@@ -399,15 +404,18 @@ against `wake_daily_cap_micro_usd`, beside its wakes (`docs/model-routes.md`, se
   end. While a run that started on the route lives, the daemon reads the route's status every 5 s of its clock,
   the first time 5 s after the earliest start of those runs, with the `GET` requests of a submit; a read that the
   pod cannot answer (`stopped`, `stopping`, or any phase but `ready`) ends the use of every such run, and a later
-  read of it ready opens it again. Each change is the run event `runbook.route-pod-phase`: `{"route", "phase"}`. A
-  gateway that does not answer changes nothing.
+  read of it ready opens it again. Each change is the run event `runbook.route-pod-phase`: `{"route", "phase"}`. Only a
+  status the gateway answered gives a phase (`RouteTable::pod_phase`): a gateway that does not answer, is not ready or
+  no longer lists the alias, and a status route that fails, change nothing.
 - The split rule: the pod's time is cut at every start and end of a run's use, and each piece is split equally over
   the runs that used the pod in it; a millisecond a piece cannot split goes to the runs first in submit order, one
   each (`runbook/src/pod_time.rs`). Two runs that share 30 minutes at 3.00 USD per hour book 0.75 USD each; two that
   overlap 15 of 45 minutes book 15 minutes alone and 7.5 shared, 1.125 USD each. The time after the last run's end,
-  while the pod waits for its idle stop, is booked to no run. A run whose pod never became ready books no time. A run
-  the daemon found live at a restart (`orphaned`) used the pod to its last event before it.
-- Just before a run on the route ends (`EndRun`, a cancel) the daemon writes its share in the run event
+  while the pod waits for its idle stop, is booked to no run. A run whose pod never became ready books no time, and so
+  does a run that takes no route (`model_route_not_taken`). A run the daemon ends `orphaned`, at its own stop or at a
+  restart that found it live, used the pod up to that mark: the time no daemon read the pod counts against the cap,
+  never less (decision D10 of the unit's coordinator, 2026-11-27).
+- Just before a run on the route ends (`EndRun`, a cancel, `EndOrphanedRun`) the daemon writes its share in the run event
   `runbook.route-pod-time`: `{"route", "pod_millis", "share_millis", "price_per_hour_micro_usd", "cost_micro_usd"}`,
   `pod_millis` the time the pod ran while the run used it, `share_millis` its share by the rule, `cost_micro_usd`
   that share at the price, rounded up to the micro-USD.

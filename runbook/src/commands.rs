@@ -872,17 +872,58 @@ pub const WAKE_CAP_REACHED: &str = "wake cap reached";
 /// The reason of a wake that was not sent because a wake of the same route was sent within the route's wait.
 pub const WAKE_JOINED: &str = "joined a wake sent within the wait";
 
-/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis`, from the run events
-/// `runbook.route-wake` of every run (the journal, so a daemon started again finds it): its run and its instant.
+/// A wake of a route a run sent, from the journal: its `runbook.route-wake` and the answer the run wrote for it.
+struct SentWake<'a> {
+    run_id: &'a str,
+    at: &'a str,
+    record: &'a Value,
+    /// The run's `runbook.route-wake-answered` of this wake: the next one of the same run and route (a run sends one wake
+    /// of a route at a time). None while the wake is out, and for a wake whose run ended before its answer.
+    answer: Option<&'a Value>,
+}
+
+/// The sent wakes of `route` of every run, in the order of the journal, each with its answer.
+fn sent_wakes<'a>(st: &'a State, route: &str) -> Vec<SentWake<'a>> {
+    let mut wakes: Vec<SentWake<'a>> = Vec::new();
+    // of each run, the indexes of its wakes not yet answered, oldest first
+    let mut out: HashMap<&'a str, std::collections::VecDeque<usize>> = HashMap::new();
+    for e in st.events_after(None, None, 0) {
+        if e.record["route"] != route {
+            continue;
+        }
+        if e.kind == ROUTE_WAKE && e.record["sent"] == true {
+            out.entry(e.run_id.as_str()).or_default().push_back(wakes.len());
+            wakes.push(SentWake { run_id: &e.run_id, at: &e.at, record: &e.record, answer: None });
+        } else if e.kind == ROUTE_WAKE_ANSWERED {
+            if let Some(i) = out.get_mut(e.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
+                wakes[i].answer = Some(&e.record);
+            }
+        }
+    }
+    wakes
+}
+
+/// Whether the run `run_id` is live.
+fn run_lives(st: &State, run_id: &str) -> bool {
+    st.run(run_id).is_some_and(|r| r.state.is_live())
+}
+
+/// The newest sent wake of `route` that is less than `wait_millis` older than `now_millis` and that may still start the
+/// model, from the run events of every run (the journal, so a daemon started again finds it): its run and its instant.
+/// A wake may start the model when the gateway took it (a 2xx), and while its run lives and its answer is not in or
+/// was one the run sends the wake again on (a 5xx, no answer). A wake answered `spend-ceiling` is joined too: its answer
+/// ends the run that joins it. A wake answered otherwise (a 4xx), or whose run ended without a 2xx, starts nothing.
 fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
-    st.events_after(None, None, 0)
-        .into_iter()
-        .rev()
-        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route)
-        .find_map(|e| {
-            let at = crate::clock::parse_instant(&e.at)?;
-            (at <= now_millis && now_millis - at < wait_millis).then(|| (e.run_id.clone(), e.at.clone()))
-        })
+    sent_wakes(st, route).into_iter().rev().find_map(|w| {
+        let at = crate::clock::parse_instant(w.at)?;
+        let within = at <= now_millis && now_millis - at < wait_millis;
+        let joinable = match w.answer {
+            Some(a) if wake_taken(a) || a["code"] == crate::routes::SPEND_CEILING => true,
+            Some(a) => a["status"].as_u64().is_none_or(|s| s >= 500) && run_lives(st, w.run_id),
+            None => run_lives(st, w.run_id),
+        };
+        (within && joinable).then(|| (w.run_id.to_owned(), w.at.to_owned()))
+    })
 }
 
 /// How long a run that sent a wake the gateway could not serve waits before it sends it again, in milliseconds of the
@@ -916,28 +957,15 @@ fn wake_taken(answer: &Value) -> bool {
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
 /// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them. A wake
 /// books only when the gateway took it: its answer (the next `runbook.route-wake-answered` of the same run and route,
-/// a run sends one wake at a time) is a 2xx. A wake whose answer is not written yet stays booked, so two runs cannot
-/// both pass the cap while their wakes are out; a 5xx, a 4xx or no answer books nothing.
+/// a run sends one wake at a time) is a 2xx. A wake whose answer is not written yet stays booked while its run lives, so
+/// two runs cannot both pass the cap while their wakes are out; a 5xx, a 4xx or no answer books nothing, and so does a
+/// wake whose run ended (a cancel, the daemon's stop) before its answer could be written: a closed run takes no event.
 fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
-    // the figures of each run's wakes not yet answered, oldest first: an answer is the answer of the oldest
-    let mut out: HashMap<String, std::collections::VecDeque<u64>> = HashMap::new();
-    let mut booked = 0u64;
-    for e in st.events_after(None, None, 0) {
-        if e.record["route"] != route {
-            continue;
-        }
-        if e.kind == ROUTE_WAKE && e.record["sent"] == true {
-            let cost = if e.record["day"] == day { e.record["cost_micro_usd"].as_u64().unwrap_or(0) } else { 0 };
-            out.entry(e.run_id.clone()).or_default().push_back(cost);
-        } else if e.kind == ROUTE_WAKE_ANSWERED {
-            if let Some(cost) = out.get_mut(&e.run_id).and_then(std::collections::VecDeque::pop_front) {
-                if wake_taken(&e.record) {
-                    booked = booked.saturating_add(cost);
-                }
-            }
-        }
-    }
-    out.values().flatten().fold(booked, |sum, cost| sum.saturating_add(*cost))
+    sent_wakes(st, route)
+        .into_iter()
+        .filter(|w| w.record["day"] == day && w.answer.map_or_else(|| run_lives(st, w.run_id), wake_taken))
+        .filter_map(|w| w.record["cost_micro_usd"].as_u64())
+        .fold(0u64, u64::saturating_add)
 }
 
 /// The run event of a read of the pod of a priced managed route that changed whether a run that takes the route has
@@ -958,9 +986,10 @@ fn takes_route(run: &Run, route: &str) -> bool {
 }
 
 /// The uses of the pod of `route` ([`crate::pod_time`]) by the runs that started on it and whose time on it meets
-/// `[from, to)`, in submit order, each with its run's id. A live run uses it up to `to`; a run the daemon found live at a
-/// restart (`orphaned`) up to its last event before that; any other run up to its end. The reads of the pod while a run
-/// lived (`runbook.route-pod-phase`) cut its use.
+/// `[from, to)`, in submit order, each with its run's id. A live run uses it up to `to`, any other run up to its end:
+/// a run the daemon ended `orphaned` (at its stop, or at a restart that found it live) up to that mark, so the time
+/// while no daemon read the pod counts against the cap, never less. The reads of the pod while a run lived
+/// (`runbook.route-pod-phase`) cut its use.
 fn pod_uses(st: &State, route: &str, from: i64, to: i64) -> Vec<(String, crate::pod_time::Uses)> {
     st.runs()
         .iter()
@@ -970,17 +999,11 @@ fn pod_uses(st: &State, route: &str, from: i64, to: i64) -> Vec<(String, crate::
             if start >= to {
                 return None;
             }
-            let events: Vec<&RunEvent> = st.events_of(&r.run_id).collect();
-            let end = match r.ended_at.as_deref().and_then(parse_instant) {
-                Some(_) if r.outcome.as_deref() == Some(ORPHANED) => events.iter().rev().find(|e| e.kind != RUN_ORPHANED).and_then(|e| parse_instant(&e.at)).unwrap_or(start),
-                Some(end) => end,
-                None => to,
-            };
-            let end = end.clamp(start, to.max(start));
+            let end = r.ended_at.as_deref().and_then(parse_instant).unwrap_or(to).clamp(start, to.max(start));
             if end <= from {
                 return None;
             }
-            let reads: Vec<(i64, bool)> = events.iter().filter(|e| e.kind == ROUTE_POD_PHASE && e.record["route"] == route).filter_map(|e| Some((parse_instant(&e.at)?, e.record["phase"] == "ready"))).collect();
+            let reads: Vec<(i64, bool)> = st.events_of(&r.run_id).filter(|e| e.kind == ROUTE_POD_PHASE && e.record["route"] == route).filter_map(|e| Some((parse_instant(&e.at)?, e.record["phase"] == "ready"))).collect();
             Some((r.run_id.clone(), crate::pod_time::uses_of(start, end, &reads)))
         })
         .collect()
@@ -1254,9 +1277,8 @@ impl Daemon {
     /// One look at the pods of the priced managed routes (`docs/daemon-api.md`, "The pod's time of a managed route"): a
     /// route that a started, live run takes is read every [`ROUTE_READ_EVERY_MILLIS`] of the daemon's clock, the first
     /// time that long after the earliest start of those runs, and a read that changes whether a run has the pod (ready
-    /// or not) is that run's event `runbook.route-pod-phase`. A gateway that does not answer changes nothing.
+    /// or not) is that run's event `runbook.route-pod-phase`. A read that gives no status of the model changes nothing.
     fn read_pods(&self, read_at: &mut HashMap<String, i64>) {
-        use crate::routes::Readiness;
         let routes = &self.inner.policy.routes;
         for route in routes.routes().filter(|r| pod_price(routes, &r.name).is_some()) {
             let (now, users) = {
@@ -1280,12 +1302,9 @@ impl Daemon {
                 continue;
             }
             read_at.insert(route.name.clone(), now);
-            let phase = match routes.readiness(&route.name, std::time::Instant::now() + crate::routes::READ_BOUND) {
-                Some(Readiness::Callable) => "ready".to_owned(),
-                Some(Readiness::NotCallable { phase }) => phase.unwrap_or_else(|| "unknown".to_owned()),
-                // no answer, a gateway not ready or an alias it no longer lists: nothing is known of the pod
-                _ => continue,
-            };
+            // a phase only from a status the gateway answered: no answer, a gateway not ready, an alias it no longer lists
+            // or a status route that failed says nothing of the pod
+            let Some(phase) = routes.pod_phase(&route.name, std::time::Instant::now() + crate::routes::READ_BOUND) else { continue };
             let ready = phase == "ready";
             let mut st = self.st();
             for (run, _, _) in users.into_iter().filter(|u| u.2 != ready) {
@@ -1420,7 +1439,7 @@ impl Daemon {
 
     fn end_orphaned_run_because(&self, run_id: &str, reason: &str) -> Reply {
         let mut st = self.st();
-        let out = end_orphaned_run_locked(&mut st, run_id, reason)?;
+        let out = end_orphaned_run_locked(&mut st, &self.inner.policy.routes, run_id, reason)?;
         if !out.is_refusal() {
             let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
             for request_id in open {
@@ -3116,7 +3135,7 @@ fn take_key_locked(st: &mut State, run_id: &str) -> Reply {
     }
 }
 
-fn end_orphaned_run_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
+fn end_orphaned_run_locked(st: &mut State, routes: &crate::routes::RouteTable, run_id: &str, reason: &str) -> Reply {
     match st.run(run_id).map(|r| r.state) {
         None => Ok(refuse("end-orphaned-run", "no-run", json!({"run_id": run_id}))),
         Some(state @ (RunState::Running | RunState::WaitingOnDecision)) => {
@@ -3124,6 +3143,10 @@ fn end_orphaned_run_locked(st: &mut State, run_id: &str, reason: &str) -> Reply 
             let record = json!({"run_id": run_id, "state": state.as_str(), "reason": reason});
             record_event_locked(st, run_id, RUN_ORPHANED, record)?;
             let now = st.now();
+            // its share of the pod's time of a priced managed route runs to this mark (`pod_uses`)
+            if let Some(until) = parse_instant(&now) {
+                record_pod_time_locked(st, routes, run_id, until);
+            }
             st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: now })?;
             Ok(done("end-orphaned-run", "orphaned", vec![("RunOrphaned", json!({"run_id": run_id}))]))
         }

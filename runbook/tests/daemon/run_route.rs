@@ -522,6 +522,31 @@ fn a_run_with_no_model_step_that_names_a_route_is_admitted_takes_none_wakes_noth
     assert!(reason.contains("makes no model call"), "{first}");
 }
 
+/// Story `a-managed-route-books-its-pods-measured-time`: a run with no model step that names a managed route whose pod
+/// has a price per hour takes no route (`model_route_not_taken`), so it books no time of that pod: its record has no
+/// `runbook.route-pod-time`, and the day's pod time the next wake of the route counts is 0, though the run lived on the
+/// daemon's clock between its start and its end.
+#[test]
+fn a_run_that_takes_no_route_books_no_pod_time_of_the_route_it_named() {
+    let h = home_without_a_model_step("rr-quiet-priced");
+    let gw = stopped_gateway();
+    let file = waking_default(&gw, &h.token_file).replace("wake_cost_micro_usd = 1000\n", "wake_cost_micro_usd = 1000\nprice_per_hour_micro_usd = 3600000000\n");
+    assert!(file.contains("price_per_hour_micro_usd"), "{file}");
+    let l = serve("rr-quiet-priced-d", &h, &file, true);
+
+    let run = submitted(&l, "rule", json!({"model_route": "m"}));
+    took_no_route_and_ended(&l, &gw, &run);
+    assert!(events(&l, &run, "runbook.submitted")[0].get("model_route_not_taken").is_some(), "the premise: the run named m and took no route");
+    for kind in ["runbook.route-pod-time", "runbook.route-pod-phase"] {
+        assert_eq!(events(&l, &run, kind), Vec::<Value>::new(), "{kind}");
+    }
+
+    let model = submitted(&l, "model", json!({}));
+    woke_by_default(&l, &gw, &model);
+    let wake = events(&l, &model, "runbook.route-wake");
+    assert_eq!(wake[0]["pod_micro_usd"], 0, "the run that took no route booked pod time: {wake:?}");
+}
+
 /// Point 2 of the brief: a runbook whose bound program names a per-call budget above 0 has a model step. Its run with a
 /// rule decider takes the default route as before and wakes it.
 #[test]

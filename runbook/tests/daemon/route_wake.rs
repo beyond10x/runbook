@@ -692,6 +692,35 @@ fn the_daily_cap_counts_wakes_and_pod_time_together_and_a_pod_never_ready_books_
     gw.no_call();
 }
 
+/// Decision D10 of the unit's coordinator (2026-11-27): a run that was live when its daemon went away, and that the daemon started
+/// again ends `orphaned`, books the pod's time up to that orphan mark, though no daemon read the pod in between: the
+/// time counts against the cap, never less. Here the run started at 10:00 on a ready pod, waited on a decision, its
+/// daemon stopped, and the next daemon started at 11:00: one hour at 3.00 USD.
+#[test]
+fn a_run_orphaned_at_a_restart_books_the_pod_time_up_to_the_orphan_mark() {
+    let gw = Gateway::start("ready", (202, json!({})));
+    let dir = super::state::scratch("pod-orphan-restart");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, priced(10_000_000, 500_000), clock.clone());
+    let run = submit_held(&d, "qwen");
+    // the daemon goes away while the run waits on its decision: the journal keeps the run live
+    d.stop();
+    drop(d);
+
+    gw.set_phase("stopped");
+    clock.set("2026-11-26T11:00:00Z");
+    let d = daemon_in(&dir, &gw, priced(10_000_000, 500_000), clock.clone());
+    let r = detail(&d, &run);
+    assert_eq!((r["outcome"].clone(), r["ended_at"].clone()), (json!("orphaned"), json!("2026-11-26T11:00:00.000Z")), "{r}");
+    assert_eq!(records(&d, &run, "runbook.route-pod-time"), vec![pod_time(3_600_000, 3_600_000, 3_000_000)]);
+
+    // the day's pod time a wake of the route reads holds the hour
+    let next = submit(&d, "qwen");
+    let wake = until_records(&d, &next, "runbook.route-wake");
+    assert_eq!((wake[0]["pod_micro_usd"].clone(), wake[0]["booked_micro_usd"].clone()), (json!(3_000_000), json!(3_500_000)), "{wake:?}");
+    gw.no_call();
+}
+
 /// The pod's price is a key of a managed route only, like the wake keys.
 #[test]
 fn a_pod_price_on_a_route_that_is_not_managed_is_refused_at_start_by_name() {
