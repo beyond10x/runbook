@@ -329,3 +329,39 @@ fn config_shows_the_runbooks_of_the_file_with_their_origin_and_the_file_refuses_
         assert!(!err(&o).contains("abcdefghijklmnop") && !err(&o).contains("a\nb"), "{tag}: {}", err(&o));
     }
 }
+
+/// Adversary: `runbook check` reads a route file with `admission::read` and `parse` only. `parse` takes an entry that is
+/// no entry (`default: fast`, a route written without `{route: ...}`) and a `routes_allowed` that is no list as a
+/// `Declared`; the daemon's `protocol_word` (`runbook/src/commands.rs`) then calls `admission::check`, which refuses each
+/// at every submit whatever routes the daemon declares. `runbook check` reports nothing for either.
+#[test]
+fn adversary_check_reports_a_route_file_the_daemon_refuses_at_every_submit() {
+    use runbook::admission::{check, parse, Facts};
+    let fast = [Facts { route: "fast".into(), kind: "managed".into(), wires: vec!["messages".into()], ..Facts::default() }];
+    for (tag, text) in [
+        ("adv-entry", "format: runbook.routes/1\nmodel_routes:\n  default: fast\n"),
+        ("adv-allowed", "format: runbook.routes/1\nmodel_routes:\n  default: {route: fast}\nroutes_allowed: fast\n"),
+    ] {
+        let declared = parse("example", text).unwrap_or_else(|e| panic!("{tag}: parse refused it: {e}"));
+        let refused = check("example", &declared, &fast).expect_err("the daemon admits it");
+        let (rig, dirs) = setup(tag, &["books/a"]);
+        std::fs::write(dirs[0].join("bindings/example.routes.yaml"), text).unwrap();
+        let o = rig.run(&rig.root, &["check", "--for", "example"]);
+        assert!(code(&o) == 1 && out(&o).contains("bindings/example.routes.yaml"), "{tag}: the daemon refuses every submit ({refused}), runbook check exits {}:\n{}{}", code(&o), out(&o), err(&o));
+    }
+}
+
+/// Adversary: the daemon opens `bindings/<id>.routes.yaml` and refuses anything that is not a regular file
+/// (`admission::read`). `runbook check` lists `bindings/*.yaml` through `files_ending`, which keeps only
+/// `Path::is_file()`: a directory of that name is never read, so the check is green where the daemon refuses every
+/// submit and `scripts/check-bindings.sh --exits` refuses by a named line. (A dangling link of that name is refused by
+/// the walk of a configured directory, `runbooks.rs`, before the check runs: not part of this case.)
+#[test]
+fn adversary_check_reports_a_route_file_name_that_is_a_directory() {
+    let (rig, dirs) = setup("adv-directory", &["books/a"]);
+    let at = dirs[0].join("bindings/example.routes.yaml");
+    std::fs::create_dir(&at).unwrap();
+    let refused = runbook::admission::read(&at, "example").expect("the daemon reads a file of this name").expect_err("the daemon reads it as text");
+    let o = rig.run(&rig.root, &["check", "--for", "example"]);
+    assert!(code(&o) == 1 && out(&o).contains("bindings/example.routes.yaml"), "the daemon refuses it ({refused}), runbook check exits {}:\n{}{}", code(&o), out(&o), err(&o));
+}
