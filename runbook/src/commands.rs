@@ -97,6 +97,9 @@ pub struct Policy {
     /// `[repositories.<name>]` of the daemon's `runbook.toml`: the repositories a delegation may change (`crate::handback`);
     /// empty: a delegation that names one is refused.
     pub repositories: Arc<crate::handback::Repositories>,
+    /// `[delegation] copy_exclude`, `copy_max_entries` and `copy_max_bytes` of the daemon's `runbook.toml`: what the copy of
+    /// a run's context leaves out and its bounds (`crate::context_copy`).
+    pub copy: crate::context_copy::CopyRules,
 }
 
 /// The configured kinds as a sentence part.
@@ -526,6 +529,9 @@ pub struct SubmitRun {
     /// The route of each further role, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routes: Option<BTreeMap<String, String>>,
+    /// Names or relative paths the copy of the context leaves out besides the daemon's (`crate::context_copy`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_exclude: Vec<String>,
 }
 
 /// The members of a submit the handler fills about the run's route: a client never sends them, and one that does is
@@ -771,6 +777,9 @@ pub struct Delegate {
     /// A directory under a context root, copied into the run's workspace.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Names or relative paths the copy of the workspace leaves out besides the daemon's (`crate::context_copy`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_exclude: Vec<String>,
     #[serde(default, deserialize_with = "settings_of_strings")]
     pub settings: BTreeMap<String, String>,
     #[serde(default)]
@@ -801,6 +810,8 @@ struct Admitted {
     intake: String,
     context_path: Option<String>,
     context_dir: Option<PathBuf>,
+    /// What the submit or the delegation adds to the daemon's exclude list: `runbook.submitted` records it.
+    workspace_exclude: Vec<String>,
     settings: BTreeMap<String, String>,
     confinement: Confinement,
     source: ConfinementSource,
@@ -1524,6 +1535,7 @@ impl Daemon {
         if input.idempotency_key.as_deref().is_some_and(|k| !long_enough(k)) {
             return Err(Fault::Invalid(format!("idempotency_key is longer than {MAX_LABEL_CHARS} characters")));
         }
+        check_workspace_exclude(&input.workspace_exclude)?;
         draining_fault(&self.st())?;
         // The level and the kind of the run: the submit's, else the daemon's. Refused before anything is written.
         let terms = Terms { autonomy: input.autonomy.or(self.inner.policy.autonomy), decider: input.decider.clone().or_else(|| self.inner.policy.decider.clone()) };
@@ -1621,6 +1633,7 @@ impl Daemon {
             intake: input.intake,
             context_path: input.context_path,
             context_dir,
+            workspace_exclude: input.workspace_exclude,
             settings,
             confinement,
             source,
@@ -1688,6 +1701,10 @@ impl Daemon {
         }
         if let Some(not_taken) = a.route_not_taken {
             record["model_route_not_taken"] = not_taken;
+        }
+        // what the run adds to the daemon's exclude list: the copy reads it from here when the run starts, also after a restart
+        if !a.workspace_exclude.is_empty() {
+            record[WORKSPACE_EXCLUDE] = json!(a.workspace_exclude);
         }
         record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         if let Some(d) = delegated {
@@ -1811,6 +1828,7 @@ impl Daemon {
                 return Err(Fault::Invalid(format!("{member} is longer than {MAX_LABEL_CHARS} characters")));
             }
         }
+        check_workspace_exclude(&input.workspace_exclude)?;
         draining_fault(&self.st())?;
         let terms = Terms { autonomy: self.inner.policy.autonomy, decider: self.inner.policy.decider.clone() };
         check_terms(&terms, &self.inner.policy.kinds).map_err(Fault::Invalid)?;
@@ -1943,6 +1961,7 @@ impl Daemon {
             intake: input.request,
             context_path: input.workspace,
             context_dir,
+            workspace_exclude: input.workspace_exclude,
             settings,
             confinement,
             source: ConfinementSource::DaemonDefault,
@@ -2143,6 +2162,15 @@ impl Daemon {
         }
         st.commit(Fact::RunResumed { run_id: run_id.to_string() })?;
         Ok(done("resume-run", "resumed", vec![("RunResumed", json!({"run_id": run_id}))]))
+    }
+
+    /// What the submit or the delegation of `run_id` added to the daemon's exclude list: the member `workspace_exclude` of its
+    /// event `runbook.submitted`, which `enter` wrote after the member passed its check.
+    fn workspace_exclude_of(&self, run_id: &str) -> Vec<String> {
+        let st = self.st();
+        let events = st.events_after(Some(run_id), None, 0);
+        let submitted = events.iter().find(|e| e.kind == "runbook.submitted");
+        submitted.and_then(|e| e.record.get(WORKSPACE_EXCLUDE)).and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
     }
 
     /// `RecordRunEvent`: the daemon mints the next `sequence` of the run and the next `position`.
@@ -3050,12 +3078,19 @@ impl Daemon {
             }
         }
         if let (Some(from), false) = (&request.context_dir, cancel.load(Ordering::SeqCst)) {
-            if let Err(e) = copy_dir(from, &request.workspace_dir) {
-                if !self.is_stopping() {
-                    let _ = self.fail_run_start(&run_id, &format!("the context could not be copied into the workspace: {e}"));
+            // `.git`, the daemon's exclude list and the run's own are left out, within the daemon's bounds (`crate::context_copy`)
+            let extra = self.workspace_exclude_of(&run_id);
+            match crate::context_copy::copy(from, &request.workspace_dir, &self.inner.policy.copy, &extra) {
+                Ok(copied) => {
+                    let _ = self.record_run_event(&run_id, crate::context_copy::COPIED_EVENT, copied.record());
                 }
-                lock(&self.inner.cancels).remove(&run_id);
-                return;
+                Err(e) => {
+                    if !self.is_stopping() {
+                        let _ = self.fail_run_start(&run_id, &e.reason());
+                    }
+                    lock(&self.inner.cancels).remove(&run_id);
+                    return;
+                }
             }
         }
         // A delegation answers only a result.md its run wrote: one that came with the workspace is set aside.
@@ -3527,19 +3562,11 @@ pub(crate) fn event_rows(events: Vec<&RunEvent>) -> Vec<Value> {
         .collect()
 }
 
-/// Copy a directory tree into the workspace: directories and regular files only; a symbolic link is
-/// skipped, so a link inside a context root cannot carry a file from outside it into a run.
-fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        let target = to.join(entry.file_name());
-        if kind.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else if kind.is_file() {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
+/// The member of a submit and a delegation, and of the record of `runbook.submitted`, that adds to the daemon's exclude list.
+const WORKSPACE_EXCLUDE: &str = "workspace_exclude";
+
+/// A submit's or a delegation's `workspace_exclude` (`crate::context_copy::check_list`): refused 400 by the member and the
+/// entry's place, never by its value, before anything is written.
+fn check_workspace_exclude(list: &[String]) -> Result<(), Fault> {
+    crate::context_copy::check_list(list).map_err(|why| Fault::Invalid(format!("{WORKSPACE_EXCLUDE}: {why}")))
 }

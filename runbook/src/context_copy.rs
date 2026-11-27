@@ -1,0 +1,299 @@
+//! The copy of a run's context into its workspace (`context_path` of a submit, `workspace` of a delegation): directories
+//! and regular files only, never an entry named `.git` (a directory, or the file of a linked worktree), never an entry
+//! the exclude list names, within a bound of entries and bytes. A symbolic link and anything that is neither a
+//! directory nor a regular file is skipped, so a link inside a context root cannot carry a file from outside it into a
+//! run. Every refusal of the plan comes before the first write: a refused copy writes nothing into the workspace, and a
+//! copy that fails while it writes removes what it wrote.
+//!
+//! The exclude list is the daemon's (`[delegation] copy_exclude` of `runbook.toml`, [`DEFAULT_EXCLUDE`] when the key is
+//! absent) and what a submit or a delegation adds (`workspace_exclude`); a run cannot remove an entry of the daemon's.
+//! An entry is a name (`target/`, `fixtures`), matched at any depth, or a relative path from the context root
+//! (`docs/big/`). An entry that ends in `/` matches a directory only; one without it matches a directory or a file.
+//! A name matches a whole name only: `target/` leaves out `target` and `a/target`, never `targets` or `target_x`.
+
+use crate::record_write::Held;
+use serde_json::{json, Value};
+use std::ffi::{OsStr, OsString};
+use std::fs::{File, OpenOptions, Permissions};
+use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+
+/// The exclude list of a daemon whose `runbook.toml` has no `[delegation] copy_exclude`.
+pub const DEFAULT_EXCLUDE: [&str; 2] = ["target/", "node_modules/"];
+
+/// The name left out of every copy, whatever the exclude list says.
+pub const ALWAYS_EXCLUDED: &str = ".git";
+
+/// The most entries a copy reads (`[delegation] copy_max_entries`): the directories and files it copies and the entries
+/// it skips, an excluded directory counted once and not entered. This repository's checkout without `.git`, `target/`
+/// and `node_modules/` holds 4,212 entries (2026-11-27): the bound is about twelve times that.
+pub const DEFAULT_MAX_ENTRIES: u64 = 50_000;
+
+/// The most bytes (the lengths of the files) a copy takes (`[delegation] copy_max_bytes`). The same checkout holds about
+/// 32.7 MB, its largest file 3.1 MB: the bound is about eight times the checkout.
+pub const DEFAULT_MAX_BYTES: u64 = 256 << 20;
+
+/// The most entries of one exclude list, and the most characters of one entry.
+pub const MAX_PATTERNS: usize = 64;
+pub const MAX_PATTERN_CHARS: usize = 200;
+
+/// The run event a copy records: the exclude list it applied, the entries and bytes it copied and the entries it skipped.
+pub const COPIED_EVENT: &str = "runbook.context-copied";
+
+/// The word a run's failure starts with when its context is over a bound.
+pub const OVER_BOUND: &str = "context-over-bound";
+
+/// What the daemon's operator sets for every copy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CopyRules {
+    pub exclude: Vec<String>,
+    pub max_entries: u64,
+    pub max_bytes: u64,
+}
+
+impl Default for CopyRules {
+    fn default() -> CopyRules {
+        CopyRules { exclude: DEFAULT_EXCLUDE.iter().map(|e| (*e).to_owned()).collect(), max_entries: DEFAULT_MAX_ENTRIES, max_bytes: DEFAULT_MAX_BYTES }
+    }
+}
+
+/// Why `entry` is no entry of an exclude list, or nothing. The reason never quotes the entry.
+pub fn check_pattern(entry: &str) -> Result<(), &'static str> {
+    if entry.chars().count() > MAX_PATTERN_CHARS {
+        return Err("longer than 200 characters");
+    }
+    let body = entry.strip_suffix('/').unwrap_or(entry);
+    if body.is_empty() {
+        return Err("empty");
+    }
+    if body.starts_with('/') {
+        return Err("an absolute path");
+    }
+    if body.contains('\0') {
+        return Err("holds a NUL character");
+    }
+    if body.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+        return Err("a path with an empty, . or .. part");
+    }
+    Ok(())
+}
+
+/// Why `list` is no exclude list, or nothing: the line names the entry by its place (from 1), never by its value.
+pub fn check_list(list: &[String]) -> Result<(), String> {
+    if list.len() > MAX_PATTERNS {
+        return Err(format!("more than {MAX_PATTERNS} entries"));
+    }
+    for (i, entry) in list.iter().enumerate() {
+        check_pattern(entry).map_err(|why| format!("entry {} is no name or relative path: {why}", i + 1))?;
+    }
+    Ok(())
+}
+
+/// What a copy did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Copied {
+    /// The exclude list it applied: `.git`, the daemon's entries, then the run's own that the daemon's do not hold.
+    pub exclude: Vec<String>,
+    /// The directories and files it copied.
+    pub entries: u64,
+    /// The bytes of the files it copied.
+    pub bytes: u64,
+    /// The entries it left out: `.git`, an excluded entry (counted once, not entered), a link, anything that is neither a
+    /// directory nor a regular file.
+    pub skipped: u64,
+}
+
+impl Copied {
+    /// The record of [`COPIED_EVENT`]: counts, never the paths it skipped.
+    pub fn record(&self) -> Value {
+        json!({"exclude": self.exclude, "entries": self.entries, "bytes": self.bytes, "skipped": self.skipped})
+    }
+}
+
+/// Why a copy wrote nothing into the workspace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CopyError {
+    /// The context is over a bound: the key of `[delegation]` that sets it, and its value.
+    OverBound { key: &'static str, bound: u64 },
+    /// The context could not be read, or the workspace not written.
+    Failed(String),
+}
+
+impl CopyError {
+    /// The run's failure to start.
+    pub fn reason(&self) -> String {
+        match self {
+            CopyError::OverBound { key, bound } => {
+                let unit = if *key == "copy_max_bytes" { "bytes" } else { "entries" };
+                format!("{OVER_BOUND}: the context is over the bound of {bound} {unit} ([delegation] {key}); nothing of it was copied")
+            }
+            CopyError::Failed(why) => format!("the context could not be copied into the workspace: {why}"),
+        }
+    }
+}
+
+/// One entry of the exclude list, read.
+struct Pattern {
+    parts: Vec<Vec<u8>>,
+    dir_only: bool,
+}
+
+impl Pattern {
+    fn of(entry: &str) -> Pattern {
+        let dir_only = entry.ends_with('/');
+        let body = entry.strip_suffix('/').unwrap_or(entry);
+        Pattern { parts: body.split('/').map(|p| p.as_bytes().to_vec()).collect(), dir_only }
+    }
+
+    /// Whether the entry at `rel` (its parts from the context root) is left out.
+    fn leaves_out(&self, rel: &[OsString], is_dir: bool) -> bool {
+        if self.dir_only && !is_dir {
+            return false;
+        }
+        match self.parts.as_slice() {
+            [name] => rel.last().is_some_and(|last| last.as_bytes() == name.as_slice()),
+            parts => parts.len() == rel.len() && parts.iter().zip(rel).all(|(p, r)| p.as_slice() == r.as_bytes()),
+        }
+    }
+}
+
+/// The exclude list a copy applies: `.git`, the daemon's entries, then each entry of the run's own that is not one of them.
+pub fn applied(rules: &CopyRules, extra: &[String]) -> Vec<String> {
+    let mut out = vec![ALWAYS_EXCLUDED.to_owned()];
+    for entry in rules.exclude.iter().chain(extra) {
+        if !out.contains(entry) {
+            out.push(entry.clone());
+        }
+    }
+    out
+}
+
+enum Planned {
+    Dir(PathBuf),
+    File(PathBuf),
+}
+
+/// Copies the context `from` into the workspace `to` (which exists) under `rules`, with the run's own entries `extra`.
+pub fn copy(from: &Path, to: &Path, rules: &CopyRules, extra: &[String]) -> Result<Copied, CopyError> {
+    let exclude = applied(rules, extra);
+    let patterns: Vec<Pattern> = exclude.iter().skip(1).map(|e| Pattern::of(e)).collect();
+    let (planned, copied) = plan(from, rules, &patterns, exclude)?;
+    std::fs::create_dir_all(to).map_err(|e| CopyError::Failed(format!("the workspace: {e}")))?;
+    let mut tops: Vec<PathBuf> = Vec::new();
+    let written = write(from, to, &planned, rules.max_bytes, &mut tops);
+    if written.is_err() {
+        for top in tops {
+            let path = to.join(top);
+            let _ = match std::fs::symlink_metadata(&path) {
+                Ok(m) if m.is_dir() => std::fs::remove_dir_all(&path),
+                Ok(_) => std::fs::remove_file(&path),
+                Err(_) => Ok(()),
+            };
+        }
+    }
+    written.map(|()| copied)
+}
+
+/// The walk: what is copied, in an order where a directory comes before what it holds. Nothing is written. Each directory
+/// is opened below the context root one name at a time without following a link (`Held::open_beneath`), and is listed
+/// through its descriptor no further than the entries left of the bound, so a directory swapped for a link fails the
+/// copy and a directory of a million names costs no more than the bound.
+fn plan(from: &Path, rules: &CopyRules, patterns: &[Pattern], exclude: Vec<String>) -> Result<(Vec<Planned>, Copied), CopyError> {
+    let mut planned = Vec::new();
+    let mut copied = Copied { exclude, entries: 0, bytes: 0, skipped: 0 };
+    let mut stack: Vec<Vec<OsString>> = vec![Vec::new()];
+    let over_entries = CopyError::OverBound { key: "copy_max_entries", bound: rules.max_entries };
+    while let Some(dir) = stack.pop() {
+        let held = Held::open_beneath(from, &join(Path::new(""), &dir)).map_err(|e| failed(from, e))?;
+        let left = rules.max_entries.saturating_sub(copied.entries + copied.skipped);
+        let most = usize::try_from(left.saturating_add(1)).unwrap_or(usize::MAX);
+        for name in held.names_within(most).map_err(|e| failed(from, e))? {
+            if copied.entries + copied.skipped + 1 > rules.max_entries {
+                return Err(over_entries);
+            }
+            let mut rel = dir.clone();
+            rel.push(name.clone());
+            // a name gone since the listing is skipped as what it now is: nothing
+            let stat = held.stat(&name);
+            let (is_dir, is_file) = stat.map_or((false, false), |s| (s.is_dir(), s.is_file()));
+            let left_out = name.as_os_str() == OsStr::new(ALWAYS_EXCLUDED) || !(is_dir || is_file) || patterns.iter().any(|p| p.leaves_out(&rel, is_dir));
+            if left_out {
+                copied.skipped += 1;
+                continue;
+            }
+            copied.entries += 1;
+            if is_dir {
+                planned.push(Planned::Dir(join(Path::new(""), &rel)));
+                stack.push(rel);
+            } else {
+                copied.bytes = copied.bytes.saturating_add(stat.map_or(0, |s| s.size));
+                if copied.bytes > rules.max_bytes {
+                    return Err(CopyError::OverBound { key: "copy_max_bytes", bound: rules.max_bytes });
+                }
+                planned.push(Planned::File(join(Path::new(""), &rel)));
+            }
+        }
+    }
+    Ok((planned, copied))
+}
+
+/// A failure of `Held`, its paths named from the context root (`.`).
+fn failed(from: &Path, why: String) -> CopyError {
+    CopyError::Failed(why.replace(&from.display().to_string(), "."))
+}
+
+fn join(base: &Path, rel: &[OsString]) -> PathBuf {
+    let mut p = base.to_path_buf();
+    for part in rel {
+        p.push(part);
+    }
+    p
+}
+
+/// Writes what the plan saw. Each file is opened through its directory, itself opened below the context root without
+/// following a link, and with `O_NOFOLLOW | O_NONBLOCK` at its own name: a directory or a file swapped for a link, or a
+/// file swapped for a pipe, fails the copy. A file read is held to the bytes left of the bound, so a context that grows
+/// during the copy is refused as one over the bound.
+fn write(from: &Path, to: &Path, planned: &[Planned], max_bytes: u64, tops: &mut Vec<PathBuf>) -> Result<(), CopyError> {
+    let mut left = max_bytes;
+    let mut parent: Option<(PathBuf, Held)> = None;
+    for p in planned {
+        let rel = match p {
+            Planned::Dir(rel) | Planned::File(rel) => rel,
+        };
+        if rel.components().count() == 1 {
+            tops.push(rel.clone());
+        }
+        let io_failed = |e: std::io::Error| CopyError::Failed(format!("{}: {e}", rel.display()));
+        match p {
+            Planned::Dir(_) => std::fs::create_dir_all(to.join(rel)).map_err(io_failed)?,
+            Planned::File(_) => {
+                let (dir, name) = (rel.parent().unwrap_or(Path::new("")), rel.file_name().unwrap_or_default());
+                if parent.as_ref().is_none_or(|(at, _)| at != dir) {
+                    parent = Some((dir.to_path_buf(), Held::open_beneath(from, dir).map_err(|e| failed(from, e))?));
+                }
+                let held = &parent.as_ref().expect("opened above").1;
+                let src = held.open_as_is(name).map_err(io_failed)?;
+                let meta = src.metadata().map_err(io_failed)?;
+                if !meta.is_file() {
+                    return Err(CopyError::Failed(format!("{}: no longer a regular file", rel.display())));
+                }
+                let mut dst = OpenOptions::new().write(true).create(true).truncate(true).custom_flags(libc::O_NOFOLLOW).open(to.join(rel)).map_err(io_failed)?;
+                let n = std::io::copy(&mut (&src).take(left.saturating_add(1)), &mut dst).map_err(io_failed)?;
+                if n > left {
+                    return Err(CopyError::OverBound { key: "copy_max_bytes", bound: max_bytes });
+                }
+                left -= n;
+                set_mode(&dst, meta.permissions().mode())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The copy keeps the permission bits of its source (as `std::fs::copy` did), without set-id or sticky bits.
+fn set_mode(dst: &File, mode: u32) -> Result<(), CopyError> {
+    dst.set_permissions(Permissions::from_mode(mode & 0o777)).map_err(|e| CopyError::Failed(format!("the workspace: {e}")))
+}

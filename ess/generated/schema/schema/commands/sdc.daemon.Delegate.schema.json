@@ -24,7 +24,14 @@
     },
     "workspace": {
       "$ref": "#/$defs/sdc.daemon.ContextPath",
-      "description": "A directory under one of the daemon's context roots: its files are copied into the run's workspace before the run starts."
+      "description": "A directory under one of the daemon's context roots: its files are copied into the run's workspace before the run starts, without .git and the exclude list, within the bounds (ContextPath)."
+    },
+    "workspace_exclude": {
+      "description": "Names or relative paths the copy of the workspace leaves out besides the daemon's exclude list, as a submit's (SubmitRun).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.daemon.ExcludeEntry"
+      }
     },
     "settings": {
       "$ref": "#/$defs/sdc.daemon.RunSettings"
@@ -116,7 +123,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:9de58f72fa87ff8f4a78904759d69adbf07c5081aa51f14c869af158018dd1eb",
+    "contract_digest": "slice-sha256/2:72adc1797a50577a769261270d94ff10caad3e9c374d7e0aebb141b1b454a07f",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -133,7 +140,7 @@
     },
     "sdc.daemon.ContextPath": {
       "title": "ContextPath",
-      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.",
+      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts: directories and regular files only, never an entry named .git (a directory, or the file of a linked worktree), never an entry of the exclude list (the daemon's `[delegation] copy_exclude`, default target/ and node_modules/, and the run's own workspace_exclude), within `[delegation] copy_max_entries` entries (default 50000) and `copy_max_bytes` bytes (default 268435456). A context over a bound fails the run's start `context-over-bound: ...` naming the bound, and nothing of it is copied (FailRunStart, outside the language); a copy writes the run event `runbook.context-copied` (record: exclude, the list it applied; entries and bytes, what it copied; skipped, the count of entries it left out).",
       "x-ess-name": "sdc.daemon.ContextPath",
       "x-ess-kind": "newtype",
       "type": "string"
@@ -157,6 +164,19 @@
         "classified",
         "generated",
         "change"
+      ]
+    },
+    "sdc.daemon.ExcludeEntry": {
+      "title": "ExcludeEntry",
+      "description": "An entry of the exclude list of a context copy: a name matched at any depth (target/, fixtures) or a relative path from the context root (docs/big/); one that ends in / matches a directory only, one without it a directory or a file, and a name matches a whole name only. An absolute path, an empty, . or .. part, a NUL, more than 200 characters or more than 64 entries are refused before anything is written (400), naming the member and the entry's place, never its value.",
+      "x-ess-name": "sdc.daemon.ExcludeEntry",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count >= 1",
+        "value.count <= 200"
       ]
     },
     "sdc.daemon.IdempotencyKey": {

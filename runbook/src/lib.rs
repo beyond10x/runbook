@@ -8,6 +8,7 @@ pub mod caps;
 pub mod client;
 pub mod clock;
 pub mod commands;
+pub mod context_copy;
 pub mod cost;
 pub mod delegation;
 pub mod engine;

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.FailRunStart.schema.json",
   "title": "Report a run that could not start input",
-  "description": "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route, or a restarted daemon could not take a run that waits on its serial key up again (its context or its routes are refused now): the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here).",
+  "description": "The runtime could not take a Submitted run up, or the daemon stopped while the run waited for its route, or a restarted daemon could not take a run that waits on its serial key up again (its context or its routes are refused now), or the run's context could not be copied into its workspace (`context-over-bound: ...` when it is over a bound of the copy, ContextPath): the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here).",
   "x-ess-name": "sdc.daemon.FailRunStart",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:49974ef2b12a7dfb407526a6f6eb190e36a0a4fe4850ee5cb0aecebe6009b974",
+    "contract_digest": "slice-sha256/2:9bf08983bb6faad901b755d782acbb8d497d2fa0e2f34b6006b0afd2fae4a191",
     "regenerate": "ess generate"
   },
   "$defs": {

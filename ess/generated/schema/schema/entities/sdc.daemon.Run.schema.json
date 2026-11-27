@@ -155,7 +155,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c1b662885c03744a1a303a314ca6db247343ccfaaa0b8374347798e6dff693ab",
+    "contract_digest": "slice-sha256/2:bcd11ed60cdbe5511bc71d498551f39a6546432500ddf1584874f5a518bd46f1",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -183,7 +183,7 @@
     },
     "sdc.daemon.ContextPath": {
       "title": "ContextPath",
-      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.",
+      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts: directories and regular files only, never an entry named .git (a directory, or the file of a linked worktree), never an entry of the exclude list (the daemon's `[delegation] copy_exclude`, default target/ and node_modules/, and the run's own workspace_exclude), within `[delegation] copy_max_entries` entries (default 50000) and `copy_max_bytes` bytes (default 268435456). A context over a bound fails the run's start `context-over-bound: ...` naming the bound, and nothing of it is copied (FailRunStart, outside the language); a copy writes the run event `runbook.context-copied` (record: exclude, the list it applied; entries and bytes, what it copied; skipped, the count of entries it left out).",
       "x-ess-name": "sdc.daemon.ContextPath",
       "x-ess-kind": "newtype",
       "type": "string"

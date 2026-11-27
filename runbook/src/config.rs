@@ -36,7 +36,7 @@ const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
 const OWN_KEYS: [&str; 9] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION, runbook::handback::REPOSITORIES];
-/// The table of the daemon's delegations (`classify_threshold`).
+/// The table of the daemon's delegations (`classify_threshold`, and the exclude list and bounds of the context copy).
 const DELEGATION: &str = "delegation";
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
@@ -394,6 +394,9 @@ pub struct File {
     /// `[delegation] classify_threshold`: the confidence, from 0 to 1, at or above which a classified delegation runs the
     /// runbook the classifier picked (`docs/model-routes.md`, section 9.1). `runbook serve` reads it.
     pub classify_threshold: Option<f64>,
+    /// `[delegation] copy_exclude`, `copy_max_entries` and `copy_max_bytes`: what the copy of a run's context leaves out
+    /// and its bounds (`runbook::context_copy`), each key's default where the file has none. `runbook serve` reads it.
+    pub copy_rules: runbook::context_copy::CopyRules,
     /// `[repositories.<name>]`: the repositories a delegation may change (`runbook::handback`), none by default. `runbook
     /// serve` reads them; their token files are read when it starts.
     pub repositories: runbook::handback::Repositories,
@@ -622,18 +625,36 @@ fn runbook_dirs(top: &mut Map<String, Value>, dir: &Path) -> Result<Vec<PathBuf>
         .collect()
 }
 
-/// The table `[delegation]` of the file: its one key `classify_threshold`, a number from 0 to 1. A refusal names the key.
-fn delegation_table(table: Option<Value>) -> Result<Option<f64>, String> {
-    let Some(table) = table else { return Ok(None) };
-    let table = table.as_object().ok_or_else(|| format!("{DELEGATION}: a table with the key classify_threshold"))?;
-    if let Some(k) = table.keys().find(|k| k.as_str() != "classify_threshold") {
+/// The keys of the table `[delegation]`.
+const DELEGATION_KEYS: [&str; 4] = ["classify_threshold", "copy_exclude", "copy_max_entries", "copy_max_bytes"];
+
+/// The table `[delegation]` of the file: `classify_threshold`, a number from 0 to 1, and the exclude list and the bounds of the
+/// copy of a run's context (`runbook::context_copy`), each key the file names replacing its default. A refusal names the key,
+/// and for an entry of the list its place, never a value.
+fn delegation_table(table: Option<Value>) -> Result<(Option<f64>, runbook::context_copy::CopyRules), String> {
+    let mut rules = runbook::context_copy::CopyRules::default();
+    let Some(table) = table else { return Ok((None, rules)) };
+    let table = table.as_object().ok_or_else(|| format!("{DELEGATION}: a table with the key classify_threshold, copy_exclude, copy_max_entries or copy_max_bytes"))?;
+    if let Some(k) = table.keys().find(|k| !DELEGATION_KEYS.contains(&k.as_str())) {
         let k = if runbook::routes::is_name(k) { k.as_str() } else { "<key>" };
-        return Err(format!("{DELEGATION}.{k}: not a key of the table; it takes classify_threshold"));
+        return Err(format!("{DELEGATION}.{k}: not a key of the table; it takes classify_threshold, copy_exclude, copy_max_entries or copy_max_bytes"));
     }
-    match table.get("classify_threshold") {
-        None => Ok(None),
-        Some(v) => v.as_f64().filter(|t| (0.0..=1.0).contains(t)).map(Some).ok_or_else(|| format!("{DELEGATION}.classify_threshold: a number from 0 to 1")),
+    let threshold = match table.get("classify_threshold") {
+        None => None,
+        Some(v) => Some(v.as_f64().filter(|t| (0.0..=1.0).contains(t)).ok_or_else(|| format!("{DELEGATION}.classify_threshold: a number from 0 to 1"))?),
+    };
+    if let Some(v) = table.get("copy_exclude") {
+        let wrong = || format!("{DELEGATION}.copy_exclude: a list of names or relative paths");
+        let list = v.as_array().ok_or_else(wrong)?.iter().map(|e| e.as_str().map(str::to_owned).ok_or_else(wrong)).collect::<Result<Vec<String>, String>>()?;
+        runbook::context_copy::check_list(&list).map_err(|why| format!("{DELEGATION}.copy_exclude: {why}"))?;
+        rules.exclude = list;
     }
+    for (key, slot) in [("copy_max_entries", &mut rules.max_entries), ("copy_max_bytes", &mut rules.max_bytes)] {
+        if let Some(v) = table.get(key) {
+            *slot = v.as_u64().filter(|n| *n >= 1).ok_or_else(|| format!("{DELEGATION}.{key}: a whole number from 1"))?;
+        }
+    }
+    Ok((threshold, rules))
 }
 
 fn whole(top: &mut Map<String, Value>, key: &str) -> Result<Option<u64>, String> {
@@ -737,12 +758,12 @@ fn read_text(found: &Found) -> Result<File, String> {
     }
     let routes = top.shift_remove(runbook::routes::ROUTES);
     let route_policy = top.shift_remove(runbook::routes::POLICY);
-    let classify_threshold = delegation_table(top.shift_remove(DELEGATION)).map_err(fail)?;
+    let (classify_threshold, copy_rules) = delegation_table(top.shift_remove(DELEGATION)).map_err(fail)?;
     let repositories = runbook::handback::Repositories::declare(top.shift_remove(runbook::handback::REPOSITORIES).as_ref(), &dir).map_err(|e| fail(mask(&e)))?;
     check_members(&top).map_err(fail)?;
     let tables = runbook::routes::Tables { gateway: top.get(crate::loom_run::gateway::KEY), gateways: gateways.as_ref(), routes: routes.as_ref(), route_policy: route_policy.as_ref() };
     let routes = runbook::routes::RouteTable::declare(&tables).map_err(|e| fail(mask(&e)))?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold, repositories })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold, copy_rules, repositories })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -1197,6 +1218,33 @@ mod tests {
         ] {
             let e = parse(&found(text)).unwrap_err();
             assert!(e.contains(said) && !e.contains("1.5") && !e.contains("high"), "{text}: {e}");
+        }
+    }
+
+    /// `[delegation] copy_exclude`, `copy_max_entries` and `copy_max_bytes` (story the-context-copy-skips-git-and-excluded-
+    /// paths): a key the file names replaces its default, one it does not keeps it; a wrong value is refused by the key and,
+    /// for a list, by the entry's place, never by its value.
+    #[test]
+    fn the_copy_keys_of_the_delegation_table_replace_their_defaults_and_a_refusal_names_the_key() {
+        use runbook::context_copy::CopyRules;
+        let found = |text: &str| Found { path: PathBuf::from("/x/runbook.toml"), via: Via::Option, text: text.to_owned(), nested: false };
+        assert_eq!(parse(&found("runs_dir = \"r\"\n")).unwrap().copy_rules, CopyRules::default());
+        let f = parse(&found("[delegation]\ncopy_exclude = [\"build/\", \"docs/big\"]\n")).unwrap();
+        assert_eq!(f.copy_rules, CopyRules { exclude: vec!["build/".into(), "docs/big".into()], ..CopyRules::default() }, "the list replaces target/ and node_modules/");
+        let f = parse(&found("[delegation]\ncopy_exclude = []\ncopy_max_entries = 7\ncopy_max_bytes = 9\nclassify_threshold = 0.5\n")).unwrap();
+        assert_eq!((f.copy_rules.exclude.len(), f.copy_rules.max_entries, f.copy_rules.max_bytes, f.classify_threshold), (0, 7, 9, Some(0.5)));
+        for (text, said) in [
+            ("[delegation]\ncopy_exclude = \"target/\"\n", "delegation.copy_exclude: a list of names or relative paths"),
+            ("[delegation]\ncopy_exclude = [1]\n", "delegation.copy_exclude: a list of names or relative paths"),
+            ("[delegation]\ncopy_exclude = [\"ok\", \"../secret-dir/\"]\n", "delegation.copy_exclude: entry 2 is no name or relative path"),
+            ("[delegation]\ncopy_exclude = [\"/secret-dir\"]\n", "delegation.copy_exclude: entry 1 is no name or relative path"),
+            ("[delegation]\ncopy_max_entries = 0\n", "delegation.copy_max_entries: a whole number from 1"),
+            ("[delegation]\ncopy_max_bytes = -4\n", "delegation.copy_max_bytes: a whole number from 1"),
+            ("[delegation]\ncopy_max_bytes = \"big\"\n", "delegation.copy_max_bytes: a whole number from 1"),
+            ("[delegation]\ncopy = 1\n", "delegation.copy: not a key of the table"),
+        ] {
+            let e = parse(&found(text)).unwrap_err();
+            assert!(e.contains(said) && !e.contains("secret-dir") && !e.contains("big\""), "{text}: {e}");
         }
     }
 

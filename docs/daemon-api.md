@@ -223,11 +223,17 @@ classifier = "claude"                # optional: a declared route
 
 [delegation]
 classify_threshold = 0.8             # optional: 0 to 1
+copy_exclude = ["target/", "node_modules/"]   # optional: what the copy of a context leaves out
+copy_max_entries = 50000             # optional: a whole number from 1
+copy_max_bytes = 268435456           # optional: a whole number from 1
 ```
 
 `[delegation] classify_threshold` is the confidence at or above which a classified delegation runs the runbook the
-classifier picked (below, "A delegation"); without it 0.8. A value that is no number from 0 to 1, or another key of
-the table, refuses the start, exit 2, naming the key.
+classifier picked (below, "A delegation"); without it 0.8. `copy_exclude`, `copy_max_entries` and `copy_max_bytes`
+are the exclude list and the bounds of the copy of a run's context (below, "The copy of a context"); a key the file
+names replaces its default, so `copy_exclude = ["build/"]` copies `target/`. A value that is no number from 0 to 1,
+no list of names or relative paths, no whole number from 1, or another key of the table, refuses the start, exit 2,
+naming the key (and for a list the entry's place, never its value).
 
 A lone `[gateway]` table (the one gateway of a daemon's model decider, `docs/engine.md`, "A gateway") is the
 gateway `default`: a route names it so, and the decider takes it as before. Both a `[gateway]` table and a
@@ -428,11 +434,43 @@ against `wake_daily_cap_micro_usd`, beside its wakes (`docs/model-routes.md`, se
   cap does not cover is not sent (`wake cap reached`) and the run waits as any run that waits; the cap stops no pod
   and no run already on it. The booking is the journal's: a daemon started again counts the same figures.
 
+### The copy of a context
+
+Before a run starts the daemon copies its context (`context_path` of `submit-run`, `workspace` of `delegate`) into
+the run's workspace (`runbook/src/context_copy.rs`). It copies directories and regular files only:
+
+- an entry named `.git` is left out always, a directory or a file (a linked worktree's `.git` is a file);
+- an entry of the exclude list is left out and not entered: the daemon's `[delegation] copy_exclude` (default
+  `target/` and `node_modules/`), and what the submit or delegation adds in `workspace_exclude` (at most 64
+  entries). A run adds entries; it cannot remove one of the daemon's;
+- a symbolic link, and anything that is neither a directory nor a regular file, is skipped, so a link inside a
+  context root carries no file from outside it into a run. Every directory is opened below the context root one
+  name at a time without following a link, and every file through its directory: a directory or a file swapped for a
+  link while the copy runs fails the start (`the context could not be copied into the workspace: ...`) and carries
+  nothing in.
+
+An entry is a name, matched at any depth (`target/` leaves out `target` and `a/b/target`), or a relative path from
+the context root (`docs/big/` leaves out `docs/big` and not `x/docs/big`). One that ends in `/` matches a directory
+only; one without it a directory or a file. A name matches a whole name: `targets/`, `target_x` and `node_modules_x`
+are copied. An entry that is empty, absolute, holds an empty, `.` or `..` part or a NUL, or is longer than 200
+characters, is refused `400` naming `workspace_exclude` and the entry's place, before anything is written.
+
+The copy reads at most `copy_max_entries` entries (default 50,000; each entry it copies or skips counts, an excluded
+directory once) and takes at most `copy_max_bytes` bytes of files (default 256 MiB). This repository's checkout
+without `.git`, `target/` and `node_modules/` holds 4,212 entries and 32.7 MB (2026-11-27). The bounds are checked
+before the first write: a context over one fails the run's start with the `failure`
+`context-over-bound: the context is over the bound of <n> entries ([delegation] copy_max_entries); nothing of it was
+copied` (or `bytes`, `copy_max_bytes`), and the workspace holds nothing of it. A file that grows past the byte bound
+while it is copied fails the start the same way, and what was written is removed. A copy records the run event
+`runbook.context-copied`: `exclude` (the list it applied: `.git`, the daemon's entries, then the run's own),
+`entries` and `bytes` (what it copied) and `skipped` (how many entries it left out, counted, never listed). The
+run's `runbook.submitted` names `workspace_exclude` when the submit or delegation named one.
+
 ### A delegation
 
 `POST /daemon/commands/delegate` asks for a piece of agent work on a named model route
 (`docs/model-routes.md`, section 8):
-`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "settings": {}, "session_id": "<id>", "idempotency_key": "<key>", "serial_key": "<key>"}`,
+`{"request": "<text>", "model_route": "<route>", "protocol": "<runbook>", "workspace": "<dir>", "workspace_exclude": ["<name or path>"], "settings": {}, "session_id": "<id>", "idempotency_key": "<key>", "serial_key": "<key>"}`,
 every member but `request` optional. A delegation is a run, at the daemon's default confinement level (a daemon
 with none refuses it `400` and writes nothing), with the request as its intake; `cancel-run`, the run views, the
 events and the web UI work on it unchanged.
@@ -1131,7 +1169,7 @@ State directory:
 | `daemon.lock` | Held while a daemon runs on the directory; a second daemon exits 1 with "in use by another daemon". |
 | `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. A drain adds two lines of its own: `daemon.draining` (the ids of the live runs) and `daemon.drained` (see "Stopping the daemon"). A wake answered after its run was closed adds `route.wake-answered` (see "The wake of a managed route"). |
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
-| `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
+| `workspaces/<run_id>/` | The run's workspace; a `context_path` (a delegation's `workspace`) is copied here without `.git`, the exclude list and symbolic links, within the bounds of the copy (above, "The copy of a context"). |
 
 After a restart a run that was `Submitted`, or `WaitingForRoute`, and never started becomes `FailedToStart` (event
 `runbook.start-failed`); a run that was `WaitingOnKey` keeps its place in the queue of its key (above, "Runs of one

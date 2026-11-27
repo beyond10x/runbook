@@ -72,6 +72,10 @@ pub struct ServeArgs {
     /// the runbook the classifier picked. Not an option: the binary fills it from the file.
     #[arg(skip)]
     pub classify_threshold: Option<f64>,
+    /// `[delegation] copy_exclude`, `copy_max_entries` and `copy_max_bytes` of `runbook.toml`: what the copy of a run's
+    /// context leaves out and its bounds (`crate::context_copy`). Not an option: the binary fills it from the file.
+    #[arg(skip)]
+    pub copy_rules: crate::context_copy::CopyRules,
     /// `[repositories.<name>]` of `runbook.toml`: the repositories a delegation may change (`crate::handback`), their token
     /// files checked. Not an option: the binary fills it from the file.
     #[arg(skip)]
@@ -246,7 +250,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
     // The route `default` of a lone `[gateway]` serves a model run only with the loom runtime, which has the relay.
     let gateway_route = args.route_table.clone().filter(|t| !t.is_empty() && relay.is_some());
-    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route, repositories: args.repositories.clone() };
+    let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route, repositories: args.repositories.clone(), copy: args.copy_rules.clone() };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon, relay })
 }
