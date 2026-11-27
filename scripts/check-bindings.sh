@@ -70,17 +70,23 @@ shape_lines() {
 # The route entries of a runbook (docs/daemon-api.md, "The catalog"): the daemon reads bindings/<id>.routes.yaml,
 # format runbook.routes/1, beside the bindings of runbook <id> at each submit of it (runbook/src/admission.rs). It is
 # Runbook's own file and no Loom bindings file: route_entries tells it by its name, and no step reads it as bindings.
-# A file of that name that the daemon would not read as route entries (a link, which it does not follow; text that is
-# no YAML; another format or none) is refused by the exits step by the line of route_refusal. The entries themselves
-# are checked by `runbook check` and by the daemon at each submit.
+# A name that the daemon would not read as route entries is refused by the exits step by the line of route_refusal, as
+# runbook/src/admission.rs `read` and `parse` refuse it: a link, which it does not follow; no regular file; more than
+# 65536 bytes; text that is no YAML or more than one YAML document; another format or none. Only the document count
+# and a `format` that is a string are read, never the whole document: yq expands every alias of a document it writes
+# out, and a file of a few hundred bytes can expand to many megabytes. The entries themselves are checked by
+# `runbook check` and by the daemon at each submit.
 route_entries() { [[ ${1##*/} == ?*.routes.yaml ]]; }
 route_refusal() {
-  local f=$1 id doc why=
+  local f=$1 id docs why=
   id=${f##*/}
   id=${id%.routes.yaml}
   if [[ -L $f ]]; then why="it is a link, which the daemon does not follow"
-  elif ! doc=$(yq -o=json -I=0 '.' "$f" 2> /dev/null); then why="it is not YAML"
-  elif [[ $(printf '%s\n' "$doc" | jq -rs 'if (.[0] | type) == "object" then (.[0].format // "" | tostring) else "" end') != runbook.routes/1 ]]; then
+  elif [[ ! -f $f ]]; then why="it is not a regular file"
+  elif [[ $(wc -c < "$f") -gt 65536 ]]; then why="it is larger than 65536 bytes, the most the daemon reads"
+  elif ! docs=$(yq -N 'di' "$f" 2> /dev/null); then why="it is not YAML"
+  elif [[ $docs != 0 ]]; then why="it holds more than one YAML document, which the daemon does not read"
+  elif [[ $(yq 'select(tag == "!!map") | .format | select(tag == "!!str")' "$f" 2> /dev/null) != runbook.routes/1 ]]; then
     why="its format is not runbook.routes/1"
   fi
   if [[ -n $why ]]; then echo "bindings/${f##*/}: a file of this name holds the route entries of runbook $id, and $why"; fi
@@ -103,16 +109,21 @@ check_exits() {
 # and 70 for SDC_POOL_WAIT too).
 binding_files=()
 route_findings=""
+routes_seen=0
 for f in "$sdc"/bindings/*.yaml; do
   if [[ ! -e $f && ! -L $f ]]; then continue; fi
   if route_entries "$f"; then
+    routes_seen=1
     why=$(route_refusal "$f")
     if [[ -n $why ]]; then route_findings+=$why$'\n'; fi
   else
     binding_files+=("$f")
   fi
 done
-if [[ ${#binding_files[@]} -eq 0 ]]; then
+# A root with route entries and no bindings file is named by bindings/, relative to the root, as every other line is.
+if [[ ${#binding_files[@]} -eq 0 && $routes_seen -eq 1 ]]; then
+  exit_findings="bindings/: no bindings file besides the route entries (<id>.routes.yaml)"
+elif [[ ${#binding_files[@]} -eq 0 ]]; then
   exit_findings="$sdc: no bindings/*.yaml"
 else
 # A file of no bytes (or with no yq output) is told as {"empty": true}, a link that points at nothing as

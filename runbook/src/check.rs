@@ -13,8 +13,8 @@
 //!    exists; the two forms name the same files per action; each program a YAML action names with a
 //!    `/` is an executable `tools/<file>` under `bindings/`, and no argument holds a `..` segment.
 //!    A runbook's route entries, `bindings/<id>.routes.yaml` (`runbook.routes/1`), are no bindings file: each is read
-//!    as the daemon reads it at a submit (`runbook::admission::read` and `parse`), and a file it would refuse is one
-//!    finding with the daemon's reason.
+//!    as the daemon reads it at a submit (`runbook::admission::read`, `parse` and `shape`), and a file (or a directory
+//!    or link of that name) it would refuse whatever routes it declares is one finding with the daemon's reason.
 //! 3. `instructions`: each `{{placeholder}}` is `{{[a-z_]+}}`; a file nothing names is reported.
 //!    `instructions/golden/` (rendered prompts kept as test data) is left out of both.
 //! 4. `views`: each `views/*.view.json` parses, is an object and has `"format": "runbook.view/1"`.
@@ -271,9 +271,9 @@ fn strings(v: &Value) -> Vec<&str> {
 
 fn bindings(root: &Path, r: &mut Report, seen: &mut Seen) {
     let jsons = files_ending(&root.join("driver/examples/sdc"), ".bindings.json");
-    let (routes, yamls): (Vec<PathBuf>, Vec<PathBuf>) = files_ending(&root.join("bindings"), ".yaml").into_iter().partition(|p| route_entries_of(p).is_some());
-    for p in &routes {
-        route_entries(root, r, p);
+    let yamls: Vec<PathBuf> = files_ending(&root.join("bindings"), ".yaml").into_iter().filter(|p| route_entries_of(p).is_none()).collect();
+    for p in route_files(&root.join("bindings")) {
+        route_entries(root, r, &p);
     }
     seen.json = jsons.len();
     seen.yaml = yamls.len();
@@ -317,17 +317,26 @@ fn route_entries_of(p: &Path) -> Option<String> {
     name.strip_suffix(".routes.yaml").filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
+/// Every entry of `dir` named as route entries, sorted, whatever it is (a directory or a link too: the daemon opens the
+/// name and refuses what is no regular file).
+fn route_files(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map(|d| d.flatten().map(|e| e.path()).filter(|p| route_entries_of(p).is_some()).collect()).unwrap_or_default();
+    v.sort();
+    v
+}
+
 /// The route entries of a runbook (`runbook.routes/1`, `docs/daemon-api.md`, "The catalog"), Runbook's own file beside
 /// the bindings and no bindings file: read as the daemon reads it at a submit, one finding with the daemon's reason when
-/// it would refuse the file.
+/// it would refuse the file whatever routes it declares (`admission::read`, `parse` and `shape`, which the daemon's
+/// `admission::check` asks first).
 fn route_entries(root: &Path, r: &mut Report, p: &Path) {
     let Some(id) = route_entries_of(p) else { return };
     let file = rel(root, p);
     let why = match runbook::admission::read(p, &id) {
         None => return,
         Some(Err(why)) => why,
-        Some(Ok(text)) => match runbook::admission::parse(&id, &text) {
-            Ok(_) => return,
+        Some(Ok(text)) => match runbook::admission::parse(&id, &text).and_then(|declared| runbook::admission::shape(&id, &declared)) {
+            Ok(()) => return,
             Err(why) => why,
         },
     };

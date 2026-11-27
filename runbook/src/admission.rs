@@ -296,12 +296,26 @@ fn may(allowed: Option<&Vec<String>>, route: &str) -> bool {
     allowed.is_none_or(|a| a.iter().any(|r| r == route))
 }
 
+/// What [`check`] refuses of the file of `runbook` whatever routes the daemon declares: a `routes_allowed` that is not a
+/// list of route names, then the first entry that is not one. `Err` names the runbook and, for an entry, the role. The
+/// daemon asks it through [`check`] at every submit and delegation; `runbook check` asks it with no daemon.
+pub fn shape(runbook: &str, declared: &Declared) -> Result<(), String> {
+    if let Some(Err(why)) = &declared.allowed {
+        return Err(format!("runbook {runbook}: {why}"));
+    }
+    match declared.entries.values().find_map(|e| if let Entry::Invalid(why) = e { Some(why) } else { None }) {
+        Some(why) => Err(format!("runbook {runbook}: {why}")),
+        None => Ok(()),
+    }
+}
+
 /// Whether the file of `runbook` can be admitted against the declared routes `routes`, whatever a run names: `Err` is the
 /// first reason it cannot, naming the runbook and the role and the route or the requirement. An entry that is not one, a
 /// named route the daemon does not declare or `routes_allowed` does not hold, needs that no allowed route meets and a
 /// `routes_allowed` that names an undeclared route are refused; needs that several routes meet are left to the run
 /// ([`for_run`]).
 pub fn check(runbook: &str, declared: &Declared, routes: &[Facts]) -> Result<(), String> {
+    shape(runbook, declared)?;
     let names: Vec<&str> = routes.iter().map(|f| f.route.as_str()).collect();
     let allowed = allowed_of(runbook, declared, &names)?;
     for (role, entry) in &declared.entries {
