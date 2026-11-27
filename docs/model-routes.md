@@ -191,6 +191,7 @@ kind = "managed"              # "managed" (gateway-owned pod), "hosted" (fixed u
 start_wait_seconds = 600      # how long a run waits for phase ready before it ends `stopped: route`
 price_in_micro_usd_per_mtok = 0   # optional: what the ledger books per million input tokens
 price_out_micro_usd_per_mtok = 0  # optional: per million output tokens
+daily_max_llm_calls = 200     # optional, any kind: the most calls the relay sends on the route per day (section 5)
 wake_on_submit = false        # managed only; true is refused unless the cap and the cost below are above 0 (D-5)
 wake_daily_cap_micro_usd = 0  # managed only; the most wakes may book per day
 wake_cost_micro_usd = 0       # managed only; what one wake books against that cap
@@ -200,6 +201,9 @@ price_per_hour_micro_usd = 0  # managed only, optional; the pod's price per hour
 gateway = "default"
 model = "claude"
 kind = "hosted"
+price_in_micro_usd_per_mtok = 3000000
+price_out_micro_usd_per_mtok = 15000000
+daily_cap_micro_usd = 20000000  # optional, any kind with a price: the most the relay books on the route per day (section 5)
 
 [routes.local-qwen]
 gateway = "default"
@@ -390,6 +394,21 @@ At submit, after the route is resolved and before anything is written:
   so the operator repeats it in micro-USD in `runbook.toml`.
 - The run's `max_llm_calls` and `cap_micro_usd`, and the daemon's daily spend ledger, count these lines. A cap that
   is reached stops the run as today.
+- A daily cap on a route of any kind (story `any-route-kind-takes-a-daily-cap`): `daily_cap_micro_usd`, the most the
+  relay books on the route per day, and `daily_max_llm_calls`, the most calls it sends there per day, each a whole
+  number above 0 (else the daemon refuses to start and names the key); a managed route's wake cap stays its own key.
+  The day is the UTC date of the daemon's clock, as a wake's is; a call counts on the day it is admitted, and two runs
+  on one route share its figures. Before a call is sent the relay holds it against its route's day: past the cap of
+  calls (counted as each call is admitted) or once the day's booked spend has reached the spend cap, it is refused
+  `429 cap-reached` with `cap_key` `route.<name>.daily_max_llm_calls` or `route.<name>.daily_cap_micro_usd`, nothing
+  is sent, and the run ends as a run at a cap ends (`stopped: llm calls` or `stopped: spend cap`), its
+  `runbook.cap-reached` naming the route and the key. The spend rule holds the booked figure, not a reservation: a
+  call's cost is booked before its caller sees the end of its answer, so no call is sent once the figure has reached
+  the cap, and the last call sent below it may take the figure above the cap by its own cost (three calls of 1000
+  under a cap of 3000 are sent, the fourth is refused). A route with no declared price books a call's reservation, not
+  its cost: `daily_cap_micro_usd` is refused on it at start, and its calls are capped by `daily_max_llm_calls`. The
+  relay writes the day into each line (`day`); a daemon started again rebuilds the figures from the lines of its
+  ledgers. Built: `docs/daemon-api.md`, "The day's figures of a route".
 - A tool that a program starts and that calls a model through the route file (section 11) is booked by the relay
   like any call. A tool that reaches a model by another path (its own login, its own address) is outside the route
   and unbooked; confinement, not this design, closes that path (D-2).
@@ -403,9 +422,11 @@ At submit, after the route is resolved and before anything is written:
   calls and booked spend from the ledger.
 - The run record names the route, the alias and the route's source (run, protocol or default).
 - Built (story `daemon-page-shows-the-route`; `docs/daemon-api.md`, "The web UI"): the run's header and the Routes
-  view of the daemon's page, which reads the view `routes` at most once every 15 s. Today's calls and booked spend
-  per route are not in the view `routes` yet, and the page says so. The day's wake and pod figures of a managed route
-  are (story `the-routes-view-answers-the-days-wake-figures`); the page does not show them yet.
+  view of the daemon's page, which reads the view `routes` at most once every 15 s. The day's wake and pod figures of
+  a managed route are in the view `routes` (story `the-routes-view-answers-the-days-wake-figures`), and so are
+  today's calls and booked spend of every route with its daily caps (`daily_llm_calls`, `daily_booked_micro_usd`,
+  `daily_max_llm_calls`, `daily_cap_micro_usd`; story `any-route-kind-takes-a-daily-cap`); the page shows neither
+  yet.
 
 ### 7. Confinement
 

@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod pod_time;
 pub mod record_write;
 pub mod relay;
+pub mod route_day;
 pub mod routes;
 pub mod run_metrics;
 pub mod runbooks;

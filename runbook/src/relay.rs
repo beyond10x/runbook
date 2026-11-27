@@ -4,13 +4,16 @@
 //! runbookd serves, on its own listener, `/daemon/relay/<run>/v1/messages`, `/v1/chat/completions` and
 //! `/v1/responses`. A call carries the run's own token (minted when the run starts, void when it ends) as its bearer
 //! or `x-api-key`, and names a role in its `model`. The relay looks the role up in the run's [`RouteTable`] and
-//! refuses a role the run has no route for (`400 route-refused`), takes the call against the run's caps
-//! ([`Booking::admit`]: `429 cap-reached`, nothing sent), sets `model` to the route's alias (and
+//! refuses a role the run has no route for (`400 route-refused`), takes the call against its route's daily caps
+//! (`crate::route_day`: `429 cap-reached` with `cap_key`, nothing sent, and the run told through
+//! [`Booking::route_capped`]) and the run's caps ([`Booking::admit`]: `429 cap-reached`, nothing sent), sets `model`
+//! to the route's alias (and
 //! `stream_options.include_usage` on a streamed chat call), adds the gateway's credential, sends the call (one
 //! request per connection) and streams the answer back unchanged. It reads the usage from the answer (the JSON
 //! `usage` object, or the usage of the events of a stream) and books one line per call ([`Booking::book`]): run,
 //! step, role, route, alias, the gateway's call id, input and output tokens and the cost (the route's declared price
-//! per million tokens, else `cost_known: false` and the reservation).
+//! per million tokens, else `cost_known: false` and the reservation), and the day it counts on in its route's day
+//! (`day`), into which its cost is booked too.
 //!
 //! A gateway that refuses the call, or does not answer, is passed back unchanged (a connection that fails answers
 //! `502` with the code `route-unavailable`), and the call is booked with the cause `route-unavailable`, the route,
@@ -242,6 +245,11 @@ pub trait Booking: Send + Sync {
         let _ = started;
         self.book(line, micro_usd)
     }
+    /// The daily cap of the route `route` refused a call of the run (`crate::route_day`): `key` is the cap's key
+    /// (`route.<name>.<key>`), `detail` what the day's figure stood at. Nothing was sent.
+    fn route_capped(&self, route: &str, key: &str, detail: &str) {
+        let _ = (route, key, detail);
+    }
 }
 
 struct Entry {
@@ -256,6 +264,9 @@ pub struct Relay {
     /// The relay's address once the daemon listens; why it serves no run when the listener is not loopback.
     base: Mutex<Option<Result<String, String>>>,
     runs: Mutex<HashMap<String, Arc<Entry>>>,
+    /// The day's figures of the daemon's routes ([`Relay::count_days`]): every call is taken against its route's daily
+    /// caps and booked into its day. None: no route has a day (a relay of a test without a daemon).
+    days: OnceLock<Arc<crate::route_day::RouteDays>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -347,6 +358,12 @@ impl Relay {
         *lock(&self.base) = Some(base);
     }
 
+    /// From now on every call is taken against the daily caps of its route in `days` before it is sent, and its cost is
+    /// booked into its route's day (`crate::route_day`): the daemon's figures, which the view `routes` reads too.
+    pub fn count_days(&self, days: Arc<crate::route_day::RouteDays>) {
+        let _ = self.days.set(days);
+    }
+
     /// Whether the relay serves runs: the daemon listens, on loopback.
     pub fn serves(&self) -> bool {
         matches!(*lock(&self.base), Some(Ok(_)))
@@ -425,7 +442,7 @@ impl Relay {
         }
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
         let (step, started) = booking.step_started();
-        let call = Call { run: run.to_owned(), step, started, role, route, source, wire, booking, reserved: 0 };
+        let call = Call { run: run.to_owned(), step, started, role, route, source, wire, booking, reserved: 0, days: self.days.get().cloned(), day: None };
         // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
         // drops this handler and not the task, which sees the hang-up, closes the call at the gateway and books it, once.
         let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
@@ -441,16 +458,48 @@ impl Relay {
     }
 }
 
-/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once. A caller that
-/// hangs up (`caller` closes) before the gateway's head ends the call: its request to the gateway is dropped, which
-/// closes that connection, and the call is booked as abandoned ([`CALL_ABANDONED`]).
+/// Why a call was not admitted: its route's daily cap, or the run's own caps.
+enum NotAdmitted {
+    Route(crate::route_day::Refused),
+    Run(String),
+}
+
+/// Takes `call` against its route's daily caps (`crate::route_day`) and the run's caps, sends it and answers it; every
+/// call that is sent is booked once. A caller that hangs up (`caller` closes) before the gateway's head ends the call:
+/// its request to the gateway is dropped, which closes that connection, and the call is booked as abandoned
+/// ([`CALL_ABANDONED`]).
 async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>, caller: &mut tokio::sync::oneshot::Sender<Response>) -> Response {
     let admitting = call.booking.clone();
-    // the reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
-    // never read when the call is booked: a call answered after its step ended books what its step held
-    match tokio::task::spawn_blocking(move || admitting.admit().map(|()| admitting.reservation_micro_usd())).await {
-        Ok(Ok(reserved)) => call.reserved = reserved,
-        Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
+    let (days, route) = (call.days.clone(), call.route.name.clone());
+    // The route's day first: a call it refuses is never taken against the run's caps, and the run is told, so it ends at
+    // that cap. A call the run's caps refuse gives its count of the day back.
+    // The reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
+    // never read when the call is booked: a call answered after its step ended books what its step held.
+    let admitted = tokio::task::spawn_blocking(move || {
+        let day = match days.as_ref().map(|d| d.admit(&route)).transpose() {
+            Ok(day) => day,
+            Err(refused) => {
+                admitting.route_capped(&refused.route, &refused.key, &refused.detail);
+                return Err(NotAdmitted::Route(refused));
+            }
+        };
+        match admitting.admit() {
+            Ok(()) => Ok((day, admitting.reservation_micro_usd())),
+            Err(detail) => {
+                if let (Some(d), Some(day)) = (&days, &day) {
+                    d.release(&route, day);
+                }
+                Err(NotAdmitted::Run(detail))
+            }
+        }
+    });
+    match admitted.await {
+        Ok(Ok((day, reserved))) => (call.day, call.reserved) = (day, reserved),
+        Ok(Err(NotAdmitted::Run(detail))) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
+        Ok(Err(NotAdmitted::Route(refused))) => {
+            let message = format!("the route reached its daily cap {}, nothing was sent: {}", refused.key, refused.detail);
+            return error_with(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &message, &[("cap_key", &refused.key)]);
+        }
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
     }
     let opened = tokio::select! {
@@ -487,7 +536,16 @@ fn unauthorized() -> Response {
 
 /// An answer of the relay itself, in the gateway's shape: `{"error": {"code", "message"}}`.
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
-    let mut r = Response::new(Body::from(json!({"error": {"code": code, "message": message}}).to_string()));
+    error_with(status, code, message, &[])
+}
+
+/// [`error`] with more members of `error` (`cap_key` of a call a route's daily cap refused).
+fn error_with(status: StatusCode, code: &str, message: &str, more: &[(&str, &str)]) -> Response {
+    let mut err = json!({"code": code, "message": message});
+    for (k, v) in more {
+        err[*k] = json!(v);
+    }
+    let mut r = Response::new(Body::from(json!({"error": err}).to_string()));
     *r.status_mut() = status;
     r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
     r
@@ -525,6 +583,10 @@ struct Call {
     booking: Arc<dyn Booking>,
     /// What the call books when its cost is not known: [`Booking::reservation_micro_usd`] as the call was admitted.
     reserved: u64,
+    /// The day's figures of the daemon's routes ([`Relay::count_days`]), and the day the call counts on: the day of the
+    /// daemon's clock as it was admitted, written into its line ([`crate::route_day::DAY_KEY`]).
+    days: Option<Arc<crate::route_day::RouteDays>>,
+    day: Option<String>,
 }
 
 /// The tokens an answer reported; a value that was not reported is `None`. `input_tokens` is the input the answer counts
@@ -747,6 +809,9 @@ impl Call {
             "cost_known": cost_known,
             "micro_usd": micro_usd,
         });
+        if let Some(day) = &self.day {
+            line[crate::route_day::DAY_KEY] = json!(day);
+        }
         // the input read from and written to the prompt cache, when the answer counts it
         for (key, n) in [("cache_read_input_tokens", usage.cache_read_input_tokens), ("cache_creation_input_tokens", usage.cache_creation_input_tokens)] {
             if let Some(n) = n {
@@ -764,10 +829,19 @@ impl Call {
         (line, micro_usd)
     }
 
+    /// Books the call into its route's day and the run's ledger.
     async fn book(&self, (line, micro_usd): (Value, u64)) {
         let booking = self.booking.clone();
         let started = self.started;
-        let _ = tokio::task::spawn_blocking(move || booking.book_started(line, micro_usd, started)).await;
+        let day = self.days.clone().zip(self.day.clone());
+        let route = self.route.name.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Some((days, day)) = day {
+                days.book(&route, &day, micro_usd);
+            }
+            booking.book_started(line, micro_usd, started)
+        })
+        .await;
     }
 }
 

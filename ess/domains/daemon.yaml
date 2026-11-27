@@ -259,7 +259,7 @@ types:
   - name: sdc.daemon.CatalogRoute
     kind: struct
     naming:
-      summary: "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap as the view Routes answers them. No address, token or token file."
+      summary: "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap and of its daily caps as the view Routes answers them. No address, token or token file."
     fields:
       - {name: route, type: sdc.daemon.RouteName}
       - {name: gateway, type: String, summary: "The name of the route's gateway in the daemon's file, never its address."}
@@ -280,6 +280,10 @@ types:
       - {name: wake_needed, type: Optional<Boolean>, summary: "As in the view Routes: a run waits on the route and the daemon sends no wake for it."}
       - {name: ceiling_refused_at, type: Optional<Timestamp>, summary: "As in the view Routes: the instant of the day's newest spend-ceiling answer to a wake of the route."}
       - {name: pod_booked_micro_usd, type: Optional<Integer>, summary: "As in the view Routes: what the pod's time of the route booked on the day of the daemon's clock."}
+      - {name: daily_booked_micro_usd, type: Optional<Integer>, summary: "As in the view Routes: what the relay booked on the route on the day of the daemon's clock."}
+      - {name: daily_cap_micro_usd, type: Optional<Integer>, summary: "As in the view Routes: the route's daily_cap_micro_usd."}
+      - {name: daily_llm_calls, type: Optional<Integer>, summary: "As in the view Routes: the calls the relay sent on the route on the day of the daemon's clock."}
+      - {name: daily_max_llm_calls, type: Optional<Integer>, summary: "As in the view Routes: the route's daily_max_llm_calls."}
       - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this route."}
 
   - name: sdc.daemon.RouteNeeds
@@ -468,6 +472,10 @@ entities:
       - {name: wake_needed, type: Optional<Boolean>, summary: "True when the route's wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is WaitingForRoute, no wake of the route is out (sent, not answered yet, its run live, also past the wait) and none may be joined (one within the route's start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day's cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd."}
       - {name: ceiling_refused_at, type: Optional<Timestamp>, summary: "The instant of the newest answer `spend-ceiling` to a wake of the route on the day of the daemon's clock: a run event `runbook.route-wake-answered`, or the daemon's journal line `route.wake-answered` of a run closed before it came. Absent when there is none that day."}
       - {name: pod_booked_micro_usd, type: Optional<Integer>, summary: "What the pod's time of the route booked on the day of the daemon's clock up to now at its price_per_hour_micro_usd, each run's share, also of runs that still live: the other part of what the cap counts. A wake is not sent when wake_booked_micro_usd plus this plus wake_cost_micro_usd is above wake_cap_micro_usd. Present for a managed route that declares price_per_hour_micro_usd, else absent."}
+      - {name: daily_booked_micro_usd, type: Optional<Integer>, summary: "What the relay booked on the route on the day of the daemon's clock (UTC): the sum of the ledger lines of the calls sent on that day, each at its cost, or at its reservation when its cost is not known; a call counts when its answer has ended. The figure daily_cap_micro_usd is held against: a call is sent while this is below the cap. Present for every route."}
+      - {name: daily_cap_micro_usd, type: Optional<Integer>, summary: "The route's daily_cap_micro_usd: the most the relay may book on it per day, on a route of any kind that declares a price. Absent when the route declares none."}
+      - {name: daily_llm_calls, type: Optional<Integer>, summary: "The calls the relay sent on the route on the day of the daemon's clock (UTC), each counted as it was admitted. Present for every route."}
+      - {name: daily_max_llm_calls, type: Optional<Integer>, summary: "The route's daily_max_llm_calls: the most calls the relay may send on it per day. Absent when the route declares none."}
       - {name: read_at, type: Timestamp, summary: "When the daemon read the gateway for this row."}
     lifecycle:
       initial: Declared
@@ -1881,7 +1889,7 @@ views:
     naming:
       wire: routes
       display: Model routes
-      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A managed route's row also answers what its wake cap counts on the day of the daemon's clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent (wake_last_sent_at), the day's last spend-ceiling answer (ceiling_refused_at) and whether a waiting run needs a wake the daemon does not send (wake_needed), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
+      summary: "The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A managed route's row also answers what its wake cap counts on the day of the daemon's clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent (wake_last_sent_at), the day's last spend-ceiling answer (ceiling_refused_at) and whether a waiting run needs a wake the daemon does not send (wake_needed), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. Every row answers what the relay booked (daily_booked_micro_usd) and sent (daily_llm_calls) on the route that day, and the route's daily caps where it declares them (daily_cap_micro_usd, daily_max_llm_calls), read from the figures the relay holds a call against. A daemon whose file declares no route has no row. No address, token, token file or price is in a row."
     source: sdc.daemon.ModelRoute
     consistency: read_your_writes
     order_by:
@@ -1903,6 +1911,10 @@ views:
       - {name: wake_needed, type: Optional<Boolean>}
       - {name: ceiling_refused_at, type: Optional<Timestamp>}
       - {name: pod_booked_micro_usd, type: Optional<Integer>}
+      - {name: daily_booked_micro_usd, type: Optional<Integer>}
+      - {name: daily_cap_micro_usd, type: Optional<Integer>}
+      - {name: daily_llm_calls, type: Optional<Integer>}
+      - {name: daily_max_llm_calls, type: Optional<Integer>}
       - {name: read_at, type: Timestamp}
 
   - name: sdc.daemon.Catalog

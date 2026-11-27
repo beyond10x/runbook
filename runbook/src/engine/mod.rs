@@ -550,6 +550,10 @@ impl Engine {
             if local.load(Ordering::SeqCst) {
                 return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
             }
+            // a route's daily cap refused a call of the run between steps (a call of its decider)
+            if let Some(outcome) = gate.route_cap(sink) {
+                return Ok(Finish::Outcome(outcome));
+            }
             if let Some((cap, detail)) = gate.admit().map_err(failure)? {
                 return Ok(Finish::Outcome(gate.reached(cap, &detail, sink)));
             }
@@ -564,6 +568,12 @@ impl Engine {
             let failed_calls = gate.take_failed();
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
+            // a route's daily cap refused a call of the step: the run ends at that cap, however the step's program took
+            // the refusal
+            if let Some(outcome) = gate.route_cap(sink) {
+                tail.sync_all().map_err(failure)?;
+                return Ok(Finish::Outcome(outcome));
+            }
             Self::settle_failed(store, gate, &ran.case, matches!(ran.stop, TreeStop::Stuck), &failed_calls, sink)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {

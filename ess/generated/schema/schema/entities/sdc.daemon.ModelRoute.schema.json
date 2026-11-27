@@ -73,6 +73,22 @@
       "description": "What the pod's time of the route booked on the day of the daemon's clock up to now at its price_per_hour_micro_usd, each run's share, also of runs that still live: the other part of what the cap counts. A wake is not sent when wake_booked_micro_usd plus this plus wake_cost_micro_usd is above wake_cap_micro_usd. Present for a managed route that declares price_per_hour_micro_usd, else absent.",
       "type": "integer"
     },
+    "daily_booked_micro_usd": {
+      "description": "What the relay booked on the route on the day of the daemon's clock (UTC): the sum of the ledger lines of the calls sent on that day, each at its cost, or at its reservation when its cost is not known; a call counts when its answer has ended. The figure daily_cap_micro_usd is held against: a call is sent while this is below the cap. Present for every route.",
+      "type": "integer"
+    },
+    "daily_cap_micro_usd": {
+      "description": "The route's daily_cap_micro_usd: the most the relay may book on it per day, on a route of any kind that declares a price. Absent when the route declares none.",
+      "type": "integer"
+    },
+    "daily_llm_calls": {
+      "description": "The calls the relay sent on the route on the day of the daemon's clock (UTC), each counted as it was admitted. Present for every route.",
+      "type": "integer"
+    },
+    "daily_max_llm_calls": {
+      "description": "The route's daily_max_llm_calls: the most calls the relay may send on it per day. Absent when the route declares none.",
+      "type": "integer"
+    },
     "read_at": {
       "description": "When the daemon read the gateway for this row.",
       "type": "string",
@@ -96,7 +112,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:61e3146d8348cb7ca21fef6ab014038a48ec8f4227fa28e2781448a6003f10c2",
+    "contract_digest": "slice-sha256/2:00c2016035ac5de88d276e71fd32d08a6fbc45d6f827246bf7fcbffb9998c2df",
     "regenerate": "ess generate"
   },
   "$defs": {

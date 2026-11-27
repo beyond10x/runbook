@@ -374,6 +374,10 @@ pub fn start(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared, 
     let gateway_route = args.route_table.clone().filter(|t| !t.is_empty() && relay.is_some());
     let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route, repositories: args.repositories.clone(), copy: args.copy_rules.clone() };
     let daemon = Daemon::start_with(cfg, policy, runtime).map_err(|e| format!("state directory: {e}"))?;
+    // the relay holds each call against its route's daily caps, on the daemon's figures of the day (`crate::route_day`)
+    if let Some(r) = &relay {
+        r.count_days(daemon.route_days());
+    }
     Ok(Prepared { addr, token, daemon, relay })
 }
 
