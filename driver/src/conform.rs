@@ -1228,7 +1228,9 @@ fn aep_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, Stri
 }
 
 /// The binary of a pinned release of `tool` unpacked to `dest`: the archive from `archive`, else
-/// downloaded from the tool's release on the forge; both digests checked.
+/// downloaded from the tool's release on the forge; both digests checked. Installs into one cache may run at once
+/// (`task test:driver` of two checkouts): each downloads and unpacks under names of its own process and renames
+/// the checked file into place, so no install sees another's half-written file.
 fn install_pinned(tool: &str, pin: &J, dest: PathBuf, archive: Option<PathBuf>) -> Result<String, String> {
     let target = conformance::target_triple(pin);
     let p = &pin["platforms"][&target];
@@ -1238,26 +1240,42 @@ fn install_pinned(tool: &str, pin: &J, dest: PathBuf, archive: Option<PathBuf>) 
     }
     let dir = dest.parent().ok_or("no cache directory")?.to_path_buf();
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let own = std::process::id();
+    let unpack = dir.join(format!("unpack.{own}"));
+    let part = dir.join(format!("{asset}.{own}.part"));
+    let done = install_from(tool, pin, p, &asset, &dir, &dest, archive, &unpack, &part);
+    let _ = fs::remove_dir_all(&unpack);
+    let _ = fs::remove_file(&part);
+    done
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_from(tool: &str, pin: &J, p: &J, asset: &str, dir: &Path, dest: &Path, archive: Option<PathBuf>, unpack: &Path, part: &Path) -> Result<String, String> {
     let archive = match archive {
         Some(a) => a,
         None => {
-            let a = dir.join(&asset);
             let url = format!("https://github.com/beyond10x/{tool}/releases/download/{}/{asset}", s(&pin["version"]));
-            let st = Command::new("curl").args(["-fsSL", "-o"]).arg(&a).arg(&url).status().map_err(|e| format!("curl: {e}"))?;
+            let st = Command::new("curl").args(["-fsSL", "-o"]).arg(part).arg(&url).status().map_err(|e| format!("curl: {e}"))?;
             if !st.success() {
                 return Err(format!("curl {url}: {st}"));
             }
-            a
+            part.to_path_buf()
         }
     };
     let got = sha256_file(&archive)?;
     if got != s(&p["archive_sha256"]) {
         return Err(format!("{} has sha256 {got}, the pin {}", archive.display(), s(&p["archive_sha256"])));
     }
-    let unpack = dir.join("unpack");
-    let _ = fs::remove_dir_all(&unpack);
-    fs::create_dir_all(&unpack).map_err(|e| e.to_string())?;
-    let st = Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(&unpack).arg(s(&p["member"])).status().map_err(|e| format!("tar: {e}"))?;
+    let archive = if archive == part {
+        let kept = dir.join(asset);
+        fs::rename(part, &kept).map_err(|e| format!("{}: {e}", kept.display()))?;
+        kept
+    } else {
+        archive
+    };
+    let _ = fs::remove_dir_all(unpack);
+    fs::create_dir_all(unpack).map_err(|e| e.to_string())?;
+    let st = Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(unpack).arg(s(&p["member"])).status().map_err(|e| format!("tar: {e}"))?;
     if !st.success() {
         return Err(format!("tar: {st}"));
     }
@@ -1266,8 +1284,7 @@ fn install_pinned(tool: &str, pin: &J, dest: PathBuf, archive: Option<PathBuf>) 
     if got != s(&p["binary_sha256"]) {
         return Err(format!("the unpacked binary has sha256 {got}, the pin {}", s(&p["binary_sha256"])));
     }
-    fs::rename(&bin, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    let _ = fs::remove_dir_all(&unpack);
+    fs::rename(&bin, dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     Ok(dest.display().to_string())
 }
 

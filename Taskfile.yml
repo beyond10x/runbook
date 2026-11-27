@@ -157,10 +157,41 @@ tasks:
       - scripts/install.sh --prefix "$PWD/runbook/target/install-slow"
       - cd runbook && RUNBOOK_INSTALLED_PREFIX="$PWD/target/install-slow" cargo test --locked --test cli install::slow -- --ignored
 
+  deps:driver-aep:
+    silent: true
+    dir: driver
+    desc: "The one network step of test:driver, which depends on it: on Linux it adds the rustup target <arch>-unknown-linux-musl when `rustup target list --installed` lacks it, and installs the pinned aep of driver/aep-pin.json with sdc-conform built for that target (`sdc-conform aep-install`, the static musl aep) when `aep-path` finds none or one whose digest or version is not the pin's; elsewhere it installs with a host build. Idempotent: with the target and the pinned aep present it makes no request. It ends with `aep-path`, which checks the installed binary against the pin."
+    cmds:
+      - |
+        {
+        set -u
+        conform="cargo run --locked --quiet --bin sdc-conform --"
+        if [ "$(uname -s)" = Linux ]; then
+          musl=$(uname -m)-unknown-linux-musl
+          if ! installed=$(rustup target list --installed); then
+            echo "the driver tests run the static aep of a $musl build of sdc-conform: no rustup to list the installed targets"
+            exit 1
+          fi
+          if ! printf '%s\n' "$installed" | grep -qx "$musl"; then
+            echo "adding the target $musl (rustup target add): the driver tests run the static aep of a $musl build of sdc-conform"
+            rustup target add "$musl" || exit 1
+          fi
+          conform="cargo run --locked --quiet --target $musl --bin sdc-conform --"
+        fi
+        if aep_bin=$($conform aep-path 2> /dev/null); then
+          echo "pinned aep present: $aep_bin"
+          exit 0
+        fi
+        echo "installing the pinned aep of driver/aep-pin.json: $conform aep-install"
+        $conform aep-install || exit 1
+        $conform aep-path > /dev/null || exit 1
+        } >> /dev/stdout 2>> /dev/stderr
+
   test:driver:
     silent: true
     dir: driver
-    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml, after steps that install the pinned ess with `sdc-conform ess-install` and the pinned aep with `sdc-conform aep-install`) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment does not apply to it). DRIVER_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), as RUNBOOK_TEST_FORGE does for runbook/: 78 to 87 s on 2 CPUs of the build node (docs/forge-gate.md). Other work on those CPUs slows the run: it prints the load average before and after. Like test:runbook it puts the traps `ess` and `aep` of scripts/host-tool-traps first on the PATH of its tests: the forge has neither on PATH. Ahead of them it puts the directory of the pinned aep (driver/aep-pin.json, `sdc-conform aep-path`), the planning store the programs under test call; without it the step stops with the install command. Needs cargo-nextest, the pinned ess, the pinned aep and, for DRIVER_TEST_FORGE, taskset."
+    deps: [deps:driver-aep]
+    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml, after steps that install the pinned ess with `sdc-conform ess-install` and the pinned aep with `sdc-conform aep-install`) with the nextest profile `forge` (4 test threads, the thread count of its 4-CPU runner; `CI` set picks it; a NEXTEST_TEST_THREADS of the environment does not apply to it). DRIVER_TEST_FORGE=1 runs the profile `forge` here on the first FORGE_CPUS CPUs (`taskset`), as RUNBOOK_TEST_FORGE does for runbook/: 78 to 87 s on 2 CPUs of the build node (docs/forge-gate.md). Other work on those CPUs slows the run: it prints the load average before and after. Like test:runbook it puts the traps `ess` and `aep` of scripts/host-tool-traps first on the PATH of its tests: the forge has neither on PATH. Ahead of them it puts the directory of the pinned aep (driver/aep-pin.json, `sdc-conform aep-path`), the planning store the programs under test call. On Linux that sdc-conform is built for <arch>-unknown-linux-musl, so the tests run the static musl aep, which needs no glibc (the gnu aep of the pin needs glibc 2.39). It depends on deps:driver-aep, the one network step, which adds that rustup target and installs the aep when they are missing; the step and its tests make no network request, and without the pinned aep the step stops with the install command (docs/forge-gate.md). Needs cargo-nextest, rustup on Linux, the pinned ess and, for DRIVER_TEST_FORGE, taskset."
     vars:
       FORGE_CPUS: 2
     cmds:
@@ -171,8 +202,13 @@ tasks:
         log=target/nextest-driver.log
         code=0
         trap_dir=$(cd ../scripts/host-tool-traps && pwd)
-        if ! aep_bin=$(cargo run --locked --quiet --bin sdc-conform -- aep-path); then
-          echo "the driver tests run the pinned aep of driver/aep-pin.json, never the aep on PATH: install it with \`cargo run --locked --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install\`"
+        conform="cargo run --locked --quiet --bin sdc-conform --"
+        if [ "$(uname -s)" = Linux ]; then
+          musl=$(uname -m)-unknown-linux-musl
+          conform="cargo run --locked --quiet --target $musl --bin sdc-conform --"
+        fi
+        if ! aep_bin=$($conform aep-path); then
+          echo "the driver tests run the pinned aep of driver/aep-pin.json, never the aep on PATH, and download nothing: install it with \`task deps:driver-aep\`"
           exit 1
         fi
         aep_dir=$(dirname "$aep_bin")
@@ -432,8 +468,9 @@ tasks:
         echo "stub ui end"
         STUB
         printf '#!/bin/sh\nexec "$@"\n' > "$sb/bin/slot"
+        printf '#!/bin/sh\necho "stub rustup $*"\n' > "$sb/bin/rustup"
         printf '#!/bin/sh\necho "stub links"\n' > "$sb/scripts/check-tree-links.sh"
-        chmod +x "$sb/bin/cargo" "$sb/bin/npx" "$sb/bin/slot" "$sb/scripts/check-tree-links.sh"
+        chmod +x "$sb/bin/cargo" "$sb/bin/npx" "$sb/bin/slot" "$sb/bin/rustup" "$sb/scripts/check-tree-links.sh"
         cat > "$sb/Probe.yml" <<'PROBE'
         version: '3'
         includes:
