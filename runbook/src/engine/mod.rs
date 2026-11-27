@@ -19,7 +19,7 @@ pub mod shape;
 mod tail;
 
 pub use decision::Parsed;
-pub use gate::WallClock;
+pub use gate::{Cap, WallClock};
 
 use crate::caps::{CapPolicy, Caps, Usage};
 use crate::runtime::{AnswerFailure, Autonomy, CaseRow, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use gate::{Cap, Gate, Meter, Stopped};
+use gate::{Gate, Meter, Stopped};
 use tail::LogTail;
 
 /// The directory of a run's tree store, inside the run's own directory.

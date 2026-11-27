@@ -52,7 +52,9 @@ test('the page shows a run of the daemon as its case tree, nested to the depth t
   await page.goto(`${d.base}/?run=${runs.a}`);
   await expect(page.locator('#runpick')).toContainText(tag(runs.a));
   await expect(page.locator('#tree .case')).toHaveCount(3);
-  await expect.poll(() => treeOf(page)).toEqual([`${runs.a} open`, '  section open', '    draft awaiting a person']);
+  await expect.poll(() => treeOf(page)).toEqual([`${tag(runs.a)} open`, '  section open', '    draft awaiting a person']);
+  // the root is named by its run's id, short; the whole id on hover
+  await expect(page.locator('#tree .case').first().locator('.cid')).toHaveAttribute('title', runs.a);
   await expect(page.locator('#tree .case .proto')).toHaveText(['engine-demo', 'engine-section', 'engine-draft']);
   // the case that waits is the one the page opens on; the feed stays the run's events
   await expect(page.locator('#gtitle .gt-id')).toHaveText('draft');
@@ -118,11 +120,11 @@ test('one address per run: ?run=<run id> opens that run after a reload and in an
   await expect(page.locator('#tree .case')).toHaveCount(3);
   await page.reload();
   await expect(page.locator('#runpick')).toContainText(tag(runs.b));
-  await expect(page.locator('#tree .case').first()).toContainText(runs.b);
+  await expect(page.locator('#tree .case').first().locator('.cid')).toHaveAttribute('title', runs.b);
   const other = await context.newPage();
   await other.goto(`${d.base}/?run=${runs.a}`);
   await expect(other.locator('#runpick')).toContainText(tag(runs.a));
-  await expect(other.locator('#tree .case').first()).toContainText(runs.a);
+  await expect(other.locator('#tree .case').first().locator('.cid')).toHaveAttribute('title', runs.a);
   await other.close();
   await page.click('#runpick');
   await page.locator(`#pk-list [role=option][title*="${tag(runs.a)}"]`).click();
@@ -145,9 +147,9 @@ test('an address that names a run the daemon does not have says so with that id 
 
 test('a run that ends while the page shows it: its cases change to ended without a reload', async ({page}) => {
   await page.goto(`${d.base}/?run=${runs.b}`);
-  await expect.poll(() => treeOf(page)).toEqual([`${runs.b} open`, '  section open', '    draft awaiting a person']);
+  await expect.poll(() => treeOf(page)).toEqual([`${tag(runs.b)} open`, '  section open', '    draft awaiting a person']);
   await settle(d, runs.b, (f) => expect.poll(f, {timeout: 30000}).toBe('Ended'));
-  await expect.poll(() => treeOf(page)).toEqual([`${runs.b} ended delivered`, '  section ended passed', '    draft ended passed']);
+  await expect.poll(() => treeOf(page)).toEqual([`${tag(runs.b)} ended delivered`, '  section ended passed', '    draft ended passed']);
   await expect(page.locator('#runpick')).toContainText('Ended');
   // the tree it showed is the daemon's
   const view = await rows(d, 'cases', `?run_id=${runs.b}`);
@@ -159,9 +161,9 @@ test('a run that ends while the page shows it: its cases change to ended without
 test('a run cancelled while the page shows it: the waiting case is open, not stuck, and the page says the run was cancelled', async ({page}) => {
   const problems = watch(page);
   await page.goto(`${d.base}/?run=${runs.c}`);
-  await expect.poll(() => treeOf(page)).toEqual([`${runs.c} open`, '  section open', '    draft awaiting a person']);
+  await expect.poll(() => treeOf(page)).toEqual([`${tag(runs.c)} open`, '  section open', '    draft awaiting a person']);
   await post(d, 'cancel-run', {run_id: runs.c});
-  await expect.poll(() => treeOf(page)).toEqual([`${runs.c} open`, '  section open', '    draft open']);
+  await expect.poll(() => treeOf(page)).toEqual([`${tag(runs.c)} open`, '  section open', '    draft open']);
   await expect(page.locator('#runpick')).toContainText('Cancelled');
   expect(problems).toEqual([]);
 });
@@ -199,11 +201,15 @@ test('the tree of the page gives every case its depth to any depth, and a parent
     const deep = daemonCases(chain).map((c) => c.depth);
     const loop = daemonCases([{case_id: 'a', parent: 'b', protocol: 'p', case_state: 'Open'}, {case_id: 'b', parent: 'a', protocol: 'p', case_state: 'Open'}]).map((c) => c.depth);
     const orphan = daemonCases([{case_id: 'x', parent: 'gone', protocol: 'p', case_state: 'Stuck'}]).map((c) => [c.depth, c.events.at(-1).event]);
-    return {deep, loop, orphan};
+    const {caseState} = await import('/model.js');
+    const capped = daemonCases(['SpendCapReached', 'CallCapReached', 'WallCapReached'].map((s, i) => ({case_id: `k${i}`, protocol: 'p', case_state: s}))).map((c) => caseState(c).label);
+    return {deep, loop, orphan, capped};
   });
   expect(r.deep).toEqual(Array.from({length: 40}, (_, i) => i));
   expect(r.loop.every((x) => Number.isInteger(x) && x <= 64)).toBe(true);
   expect(r.orphan).toEqual([[0, 'stuck']]);
+  // a case of a run a cap ended is labelled with that cap, never stuck
+  expect(r.capped).toEqual(['LLM budget spent', 'LLM calls spent', 'wall time spent']);
   // the page draws every row it was given: a loop of two cases and a case whose parent is not in the tree included
   const fake = [{case_id: 'r', protocol: 'p', case_state: 'Open'}, {case_id: 'a', parent: 'b', name: 'loop-a', protocol: 'p', case_state: 'Open'},
     {case_id: 'b', parent: 'a', name: 'loop-b', protocol: 'p', case_state: 'Open'}, {case_id: 'x', parent: 'gone', name: 'orphan', protocol: 'p', case_state: 'Stuck'}];
